@@ -1,0 +1,5 @@
+3gpp-meeting-tools: a set of tools to ease the execution of 3GPP meetings
+(c) 2020, Josep Colom Ikuno, Deutsche Telekom AG
+
+All files of this project are licensed under the MIT license.
+For details see the file LICENSE in the top directory of the project
