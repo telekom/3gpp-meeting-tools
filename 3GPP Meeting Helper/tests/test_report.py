@@ -5,6 +5,7 @@ import parsing.html as html_parser
 import parsing.word as word_parser
 
 class Test_test_report(unittest.TestCase):
+    @unittest.skip("Skipping tests that open Word")
     def test_empty_df(self):
         columns = [ 'AI', 'Type', 'Doc For', 'Title', 'Source', 'Rel', 'Work Item', 'Comments', 'Result', 'Revision of', 'Revised to', 'Merge of', 'Merged to', '#', 'TS', 'CR', 'Original TDocs' ]
         df = pd.DataFrame(columns=columns)
@@ -13,6 +14,7 @@ class Test_test_report(unittest.TestCase):
         doc = word_parser.open_word_document()
         word_parser.insert_doc_data_to_doc(df, doc, 'TSGS2_134_Sapporo')
 
+    @unittest.skip("Long test (~5min). Useful only to manually-generate the report")
     def test_example_df(self):
         columns = [ 'AI', 'Type', 'Doc For', 'Title', 'Source', 'Rel', 'Work Item', 'Comments', 'Result', 'Revision of', 'Revised to', 'Merge of', 'Merged to', '#', 'TS', 'CR', 'Original TDocs' ]
         
@@ -43,6 +45,7 @@ class Test_test_report(unittest.TestCase):
         doc = word_parser.open_word_document()
         word_parser.insert_doc_data_to_doc(df, doc, 'TSGS2_134_Sapporo')
 
+    @unittest.skip("Long test (~5min). Useful only to manually-generate the report")
     def test_example_df_by_wi(self):
         columns = [ 'AI', 'Type', 'Doc For', 'Title', 'Source', 'Rel', 'Work Item', 'Comments', 'Result', 'Revision of', 'Revised to', 'Merge of', 'Merged to', '#', 'TS', 'CR', 'Original TDocs' ]
         
