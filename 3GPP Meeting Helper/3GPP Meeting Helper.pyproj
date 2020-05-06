@@ -14,6 +14,8 @@
     <InterpreterId>
     </InterpreterId>
     <TestFramework>unittest</TestFramework>
+    <UnitTestPattern>test_*.py</UnitTestPattern>
+    <UnitTestRootDirectory>.</UnitTestRootDirectory>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -30,9 +32,7 @@
     <Compile Include="config\contributor_names.py">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="config\__init__.py">
-      <SubType>Code</SubType>
-    </Compile>
+    <Compile Include="config\__init__.py" />
     <Compile Include="gui\config.py">
       <SubType>Code</SubType>
     </Compile>
@@ -42,6 +42,7 @@
     <Compile Include="gui\tools.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="gui\__init__.py" />
     <Compile Include="parsing\excel.py">
       <SubType>Code</SubType>
     </Compile>
@@ -54,9 +55,7 @@
     <Compile Include="parsing\word.py">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="parsing\__init__.py">
-      <SubType>Code</SubType>
-    </Compile>
+    <Compile Include="parsing\__init__.py" />
     <Compile Include="profiling_script.py">
       <SubType>Code</SubType>
     </Compile>
@@ -105,9 +104,7 @@
     <Compile Include="tests\test_ts.py">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="tests\__init__.py">
-      <SubType>Code</SubType>
-    </Compile>
+    <Compile Include="tests\__init__.py" />
     <Compile Include="_3GPP_Meeting_Helper.py" />
   </ItemGroup>
   <ItemGroup>
@@ -129,9 +126,13 @@
     <Content Include="favicon.ico" />
     <Content Include="Launch.cmd" />
     <Content Include="requirements.txt" />
+    <Content Include="tests\agenda\draft_S2-190xxxx_SA2-135-Agenda-v4.docx" />
+    <Content Include="tests\agenda\S2-1911962_SA2-136-Agenda_v7.docx" />
+    <Content Include="tests\agenda\updated_S2-1906993_SA2-134-Agenda-v15.docx" />
     <Content Include="tests\comments\2019.04.09 Some Comments.xlsx" />
     <Content Include="tests\comments\comments.xlsx" />
     <Content Include="tests\ftp_server\2020.02.24 Tdocs by Agenda.htm" />
+    <Content Include="tests\reports\Report_3GPP_DT_template.docx" />
     <Content Include="tests\reports\S2_132_Draft_Rep_v002.doc" />
     <Content Include="tests\specs\ftp_Specs_latest_.htm" />
     <Content Include="tests\specs\ftp_Specs_latest_Rel-16_.htm" />
@@ -143,8 +144,12 @@
     <Content Include="tests\tdocs_by_agenda\129.htm" />
     <Content Include="tests\tdocs_by_agenda\129Bis.htm" />
     <Content Include="tests\tdocs_by_agenda\134-2.html" />
+    <Content Include="tests\tdocs_by_agenda\134.htm" />
     <Content Include="tests\tdocs_by_agenda\136.html" />
+    <Content Include="tests\tdocs_by_agenda\136_missing_AIs.html" />
     <Content Include="tests\tdocs_by_agenda\136_v2.html" />
+    <Content Include="tests\tdocs_by_agenda\136_v3.html" />
+    <Content Include="tests\tdocs_by_agenda\138E_final.html" />
     <Content Include="tests\tdocs_by_agenda\2019.01.22 TdocsByAgenda.htm" />
     <Content Include="tests\tdocs_by_agenda\2019.01.24 TdocsByAgenda.htm" />
     <Content Include="tests\tdocs_by_agenda\2019.01.31 130.htm" />
