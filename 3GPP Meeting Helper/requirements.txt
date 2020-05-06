@@ -1,0 +1,10 @@
+numpy>=1.16.0
+pandas>=0.25.0
+lxml>=4.3.0
+pywin32>=224
+pywin32-ctypes>=0.2.0
+requests>=2.18.4
+CacheControl>=0.12.5
+openpyxl>=3.0.0
+python-docx>=0.8.9
+xlrd>=1.0.0

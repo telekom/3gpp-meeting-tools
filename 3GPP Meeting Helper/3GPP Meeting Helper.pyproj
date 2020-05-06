@@ -1,0 +1,176 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>4db5b0a5-9c68-4329-aa8b-7a8313f6cfd2</ProjectGuid>
+    <ProjectHome>.</ProjectHome>
+    <StartupFile>_3GPP_Meeting_Helper.py</StartupFile>
+    <SearchPath>
+    </SearchPath>
+    <WorkingDirectory>.</WorkingDirectory>
+    <OutputPath>.</OutputPath>
+    <Name>3GPP Meeting Helper</Name>
+    <RootNamespace>3GPP Meeting Helper</RootNamespace>
+    <InterpreterId>
+    </InterpreterId>
+    <TestFramework>unittest</TestFramework>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="application.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="config\contributor_names.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="config\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="gui\config.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="gui\main.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="gui\tools.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="parsing\excel.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="parsing\html.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="parsing\outlook.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="parsing\word.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="parsing\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="profiling_script.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="server.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tdoc.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_addresses.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_agenda_files.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_agenda_parsing.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_attachment.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_comments.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_current_doc.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_report.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_tdocs_by_agenda_comments.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_tdoc_manipulation.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_ftp_parsing.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_tdocs_by_agenda.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_tdoc_parsing.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\test_ts.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tests\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="_3GPP_Meeting_Helper.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="config\" />
+    <Folder Include="gui\" />
+    <Folder Include="parsing\" />
+    <Folder Include="tests\" />
+    <Folder Include="tests\comments\" />
+    <Folder Include="tests\agenda\" />
+    <Folder Include="tests\ftp_server\" />
+    <Folder Include="tests\reports\" />
+    <Folder Include="tests\specs\" />
+    <Folder Include="tests\tdocs_by_agenda\" />
+    <Folder Include="tests\tdocs\" />
+    <Folder Include="tests\ts\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="config.ini" />
+    <Content Include="favicon.ico" />
+    <Content Include="Launch.cmd" />
+    <Content Include="requirements.txt" />
+    <Content Include="tests\comments\2019.04.09 Some Comments.xlsx" />
+    <Content Include="tests\comments\comments.xlsx" />
+    <Content Include="tests\ftp_server\2020.02.24 Tdocs by Agenda.htm" />
+    <Content Include="tests\reports\S2_132_Draft_Rep_v002.doc" />
+    <Content Include="tests\specs\ftp_Specs_latest_.htm" />
+    <Content Include="tests\specs\ftp_Specs_latest_Rel-16_.htm" />
+    <Content Include="tests\specs\ftp_Specs_latest_Rel-16_23_series_.htm" />
+    <Content Include="tests\tdocs\S2-1900429_VLAN_N3IWFSupport.docx" />
+    <Content Include="tests\tdocs\S2-1900585_eSBA 501 Adding SFSF.doc" />
+    <Content Include="tests\tdocs_by_agenda\128.htm" />
+    <Content Include="tests\tdocs_by_agenda\128Bis.htm" />
+    <Content Include="tests\tdocs_by_agenda\129.htm" />
+    <Content Include="tests\tdocs_by_agenda\129Bis.htm" />
+    <Content Include="tests\tdocs_by_agenda\134-2.html" />
+    <Content Include="tests\tdocs_by_agenda\136.html" />
+    <Content Include="tests\tdocs_by_agenda\136_v2.html" />
+    <Content Include="tests\tdocs_by_agenda\2019.01.22 TdocsByAgenda.htm" />
+    <Content Include="tests\tdocs_by_agenda\2019.01.24 TdocsByAgenda.htm" />
+    <Content Include="tests\tdocs_by_agenda\2019.01.31 130.htm" />
+    <Content Include="tests\tdocs_by_agenda\2019.07.02 ChairmansNotes_Puneet_All_06-28-1600-FINAL_exported.htm" />
+    <Content Include="tests\tdocs_by_agenda\2019.07.02 TDocsByAgenda_wrong.html" />
+    <Content Include="tests\tdocs_by_agenda\2020.02.24 TdocsByAgenda SA2-137E.htm" />
+    <Content Include="tests\tdocs_by_agenda\2020.02.29 TdocsByAgenda SA2-137E.htm" />
+    <Content Include="tests\tdocs_by_agenda\CurDoc.htm" />
+    <Content Include="tests\tdocs_by_agenda\inbox.htm" />
+    <Content Include="tests\tdocs\S2-1811605_S2_129_Draft_Rep_v006rm.doc" />
+    <Content Include="tests\tdocs\S2-1811620_S2-1811226_R2-1816041.doc" />
+    <Content Include="tests\tdocs\S2-1812080_WID_eSBA_v1.1.doc" />
+    <Content Include="tests\tdocs\S2-1812226_eSBA update of solution 15_v1.2.docx" />
+    <Content Include="tests\tdocs\S2-1812368 - 23.401 Rel-15 Correction of SPRC.doc" />
+    <Content Include="tests\tdocs\S2-1812372 - Evaluation for solutions 1.1 and 1.2.docx" />
+    <Content Include="tests\tdocs\S2-1812758 was S2-1811878_S5-186491 Reply LS on Data Analytics in SA WG2 v1.doc" />
+    <Content Include="tests\tdocs\S2-1813311_was2736_SG_23401_r15_v1.doc" />
+    <Content Include="tests\ts\www.3gpp.org - _ftp_Specs_latest_Rel-13_36_series_.html" />
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
+  <!-- Uncomment the CoreCompile target to enable the Build command in
+       Visual Studio and specify your pre- and post-build commands in
+       the BeforeBuild and AfterBuild targets below. -->
+  <!--<Target Name="CoreCompile" />-->
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+</Project>
