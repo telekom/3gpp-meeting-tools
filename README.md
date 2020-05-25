@@ -13,7 +13,7 @@ uploaded on-the-fly
 * Caching TDocs for offline use/review in an ordered local file structure
 * Merging of TDoc comments from different colleagues to form a 
 consolidated list that can be used by the delegate during the meeting
-* Automaticly sorting of eMeeting and email approval m
+* Automaticly sorting of eMeeting and email approval emails by Agenda Item
 
 # Table of contents
 1. [Introduction](#introduction)
