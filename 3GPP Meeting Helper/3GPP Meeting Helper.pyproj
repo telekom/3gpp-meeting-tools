@@ -59,6 +59,7 @@
     <Compile Include="profiling_script.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="requests_digest_proxy.py" />
     <Compile Include="server.py">
       <SubType>Code</SubType>
     </Compile>
