@@ -22,6 +22,7 @@ consolidated list that can be used by the delegate during the meeting
   2. [Installing dependencies](#installing-dependencies)
   3. [Installing the tricky libraries before running pip](#installing-the-tricky-libraries-before-running-pip)
   4. [Configuring your firewall](#configuring-your-firewall)
+3. [Running](#running)
 
 # Introduction
 
@@ -65,3 +66,16 @@ Be sure to install [numpy](https://numpy.org/) before [pandas](https://pandas.py
 ## Configuring your firewall
 
 Be sure to allow ``python`` to perform outbound connections
+
+# Running
+
+Run ``python _3GPP_Meeting_Helper.py`` to start the GUI. It should start by asking you whether you want to use an HTTP proxy or not.
+
+It has been seen that sometimes some firewall issues happen, in which case the application may not run properly. In order to check whether Python has Internet access (not a proxy check, just whether it can do HTTP requests), you can run ``python`` and once you are in the Python prompt, use the following code:
+
+```
+import requests
+requests.get('http://www.3gpp.org/ftp/Meetings_3GPP_SYNC/SA2/TdocsByAgenda.htm')
+```
+
+You should get a ``"(Response [200])`` string (maybe another response code if the file does not exist, which it did at the time this was written) and not a long list of exceptions. If the latter is the case, this means that the HTTP request could not reach the server.
