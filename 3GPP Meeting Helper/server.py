@@ -29,9 +29,9 @@ sa2_url         = ''
 sa2_url_sync    = ''
 sa2_url_meeting = ''
 agenda_regex            = re.compile(r'.*Agenda.*[-_](v)?(?P<version>\d*).*\..*')
-agenda_docx_regex       = re.compile(r'.*Agenda.*[-_](v)?(?P<version>\d*).*\.(docx|doc)')
+agenda_docx_regex       = re.compile(r'.*Agenda.*[-_](v)?(?P<version>\d*).*\.(docx|doc|zip)')
 agenda_version_regex    = re.compile(r'.*Agenda.*[-_]?(v)(?P<version>\d*).*\..*')
-agenda_draft_docx_regex = re.compile(r'.*draft.*Agenda.*[-_](v)?(?P<version>\d*).*\.(docx|doc)')
+agenda_draft_docx_regex = re.compile(r'.*draft.*Agenda.*[-_](v)?(?P<version>\d*).*\.(docx|doc|zip)')
 folder_ftp_names_regex  = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][aA][tT][eE].*)')
 
 non_cached_http_session = requests.Session()
@@ -362,7 +362,11 @@ def get_agenda_file_version_number(x):
         tdoc_number = 0
     x_without_dashes = x.replace('-','')
     agenda_match     = agenda_version_regex.match(x_without_dashes)
-    agenda_version   = agenda_match.groupdict()['version']
+    try:
+        agenda_version   = agenda_match.groupdict()['version']
+    except:
+        print('Could not parse Agenda version number for file {0}'.format(x))
+        return -1
     print('{0} is agenda version {1} for tdoc ID {2:.0f}'.format(x, agenda_version, tdoc_number))
 
     # Support up to 100 agenda versions. It should be OK...
