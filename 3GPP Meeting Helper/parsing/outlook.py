@@ -179,6 +179,27 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                 print('Saving email to {0}'.format(email_local_copy_path))
                 mail_item.SaveAs(email_local_copy_path)
 
+            # Check if email contains message body with a revision (SA2-138E eMeeting)
+            email_body = mail_item.Body
+            start_str = 'Comment for notes <<START>>'
+            end_str   = '<<END>>'
+            comment_start         = email_body.find(start_str)
+            comment_end           = email_body.find(end_str)
+            start_of_prior_emails = email_body.find('3GPP_TSG_SA_WG2@LIST.ETSI.ORG')
+
+            # Remove body text from previous emails
+            if start_of_prior_emails > -1:
+                email_body = email_body[0:start_of_prior_emails]
+            
+            # Record only mails with chairman's notes. The rest are not needed
+            if comment_start > -1 and comment_end > -1:
+                chairman_notes_comment = email_body[(comment_start+len(start_str)):(comment_end-1)]
+                chairman_notes_comment = chairman_notes_comment.replace('\n','').replace('\r','').strip()
+                found_revisions        = re.findall(r'r[\d]{2}',chairman_notes_comment)
+                if len(found_revisions) > 0:
+                    revisions = ','.join(found_revisions)
+                    found_attachments.append(RevisionDoc(date_str_excel, tdoc_id, revisions, '', sender_name, sender_address, email_local_copy_path, ai_folder.Name, chairman_notes_comment))
+
             # Moved attachments check here so that all emails get indexed by the prior lines
             if mail_item.Attachments.Count < 1:
                 continue
@@ -215,26 +236,6 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                             attachment.SaveAsFile(attachment_local_filename)
                         found_attachments.append(RevisionDoc(date_str_excel, tdoc_id, name, attachment_local_filename, sender_name, sender_address, email_local_copy_path, ai_folder.Name, ''))
 
-            # Check if email contains message body with a revision (SA2-138E eMeeting)
-            email_body = mail_item.Body
-            start_str = 'Comment for notes <<START>>'
-            end_str   = '<<END>>'
-            comment_start         = email_body.find(start_str)
-            comment_end           = email_body.find(end_str)
-            start_of_prior_emails = email_body.find('3GPP_TSG_SA_WG2@LIST.ETSI.ORG')
-
-            # Remove body text from previous emails
-            if start_of_prior_emails > -1:
-                email_body = email_body[0:start_of_prior_emails]
-            
-            # Record only mails with chairman's notes. The rest are not needed
-            if comment_start > -1 and comment_end > -1:
-                chairman_notes_comment = email_body[(comment_start+len(start_str)):(comment_end-1)]
-                chairman_notes_comment = chairman_notes_comment.replace('\n','').replace('\r','').strip()
-                found_revisions        = re.findall(r'r[\d]{2}',chairman_notes_comment)
-                if len(found_revisions) > 0:
-                    revisions = ','.join(found_revisions)
-                    found_attachments.append(RevisionDoc(date_str_excel, tdoc_id, revisions, '', sender_name, sender_address, email_local_copy_path, ai_folder.Name, chairman_notes_comment))
     return found_attachments, email_list
 
 def internet_codepage_to_character_set(codepage):
