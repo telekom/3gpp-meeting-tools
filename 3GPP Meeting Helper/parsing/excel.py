@@ -165,6 +165,7 @@ def export_email_approval_list(local_filename, found_attachments):
         print('Starting email approval export: {0} emails'.format(len(found_attachments)))
         wb = open_excel_document()
         ws = wb.ActiveSheet
+        ws.Name = 'Revisions'
 
         # found_attachments -> collections.namedtuple('RevisionDoc', 'time tdoc filename absolute_url sender_name sender_address chairman_notes')
         ws.Range("A1").Value = 'TD#'
