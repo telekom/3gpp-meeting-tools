@@ -79,3 +79,13 @@ requests.get('http://www.3gpp.org/ftp/Meetings_3GPP_SYNC/SA2/TdocsByAgenda.htm')
 ```
 
 You should get a ``"(Response [200])`` string (maybe another response code if the file does not exist, which it did at the time this was written) and not a long list of exceptions. If the latter is the case, this means that the HTTP request could not reach the server.
+
+# Usage
+
+# Opening a specific TDoc
+
+Select the meeting from the drop-down list, input the TDoc number (e.g. S2-2004143) and press the button to download and open the TDoc.
+
+The TDoc will be searched for in the ``Docs`` folder, as well as in the local inbox if you find yourself in the meeting premises (detected by the ``10.10.10.XX`` IP address range allocated during the meeting).
+
+Note: for eMeetings, you can also search for specific revisions, e.g. S2-2004143r01. In this case, the ``Docs/Revisions`` folder is used.

@@ -7,6 +7,10 @@ class Test_test(unittest.TestCase):
         name = server.get_remote_filename('TSGS2_129BIS_West_Palm_Beach', 'S2-18134567')
         self.assertEqual(name, "http://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_129BIS_West_Palm_Beach/Docs/S2-18134567.zip")
 
+    def test_remote_tdoc_name_with_Revision(self):
+        name = server.get_remote_filename('TSGS2_129BIS_West_Palm_Beach', 'S2-18134567r09')
+        self.assertEqual(name, "http://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_129BIS_West_Palm_Beach/Inbox/Revisions/S2-18134567r09.zip")
+
     def test_tdoc_id_none(self):
         tdoc_id = None
         year,tdoc_number = tdoc.get_tdoc_year(tdoc_id)
@@ -55,6 +59,20 @@ class Test_test(unittest.TestCase):
         self.assertEqual(year, 2018)
         self.assertEqual(tdoc_number, 123)
 
+    def test_tdoc_id_1800123_with_revision(self):
+        tdoc_id = 'S2-1800123r12'
+        year,tdoc_number,revision = tdoc.get_tdoc_year(tdoc_id, include_revision=True)
+        self.assertEqual(year, 2018)
+        self.assertEqual(tdoc_number, 123)
+        self.assertEqual(revision, 'r12')
+
+    def test_tdoc_id_1800123_with_wrong_revision(self):
+        tdoc_id = 'S2-1800123r2'
+        year,tdoc_number,revision = tdoc.get_tdoc_year(tdoc_id, include_revision=True)
+        self.assertIsNone(year)
+        self.assertIsNone(tdoc_number)
+        self.assertIsNone(revision)
+
     def test_tdoc_id_zip(self):
         tdoc_id = 'S2-1800123.zip'
         year,tdoc_number = tdoc.get_tdoc_year(tdoc_id)
@@ -90,6 +108,16 @@ class Test_test(unittest.TestCase):
         tdoc_id = 'S2-1213'
         is_tdoc = tdoc.is_tdoc(tdoc_id)
         self.assertTrue(is_tdoc)
+
+    def test_is_tdoc2_with_rev(self):
+        tdoc_id = 'S2-1213r12'
+        is_tdoc = tdoc.is_tdoc(tdoc_id)
+        self.assertTrue(is_tdoc)
+
+    def test_is_tdoc2_with_wrong_ref(self):
+        tdoc_id = 'S2-1213r2'
+        is_tdoc = tdoc.is_tdoc(tdoc_id)
+        self.assertFalse(is_tdoc)
 
     def test_is_tdoc3(self):
         tdoc_id = 'S2-1213.zip'

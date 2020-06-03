@@ -231,6 +231,12 @@ def get_spec_folder(create_dir=True):
 
 def get_local_folder(meeting_folder_name, tdoc_id, create_dir=True, email_approval=False):
     meeting_folder = get_meeting_folder(meeting_folder_name)
+
+    year,tdoc_number,revision = tdoc.get_tdoc_year(tdoc_id, include_revision=True)
+    if revision is not None:
+        # Remove 'rXX' from the name for folder generation if found
+        tdoc_id = tdoc_id[:-3]
+
     folder_name = os.path.join(meeting_folder, tdoc_id)
     if email_approval:
         folder_name = os.path.join(folder_name, 'email approval')
@@ -262,8 +268,15 @@ def get_local_tdocs_by_agenda_filename(meeting_folder_name):
 
 def get_remote_filename(meeting_folder_name, tdoc_id, use_inbox=False, searching_for_a_file=False):
     folder = get_remote_meeting_folder(meeting_folder_name, use_inbox, searching_for_a_file)
+    
     if not use_inbox:
-        folder += 'Docs/'
+        # Check if this is a TDoc revision. If yes, change the folder to the revisions folder. Need to see how this works
+        # duringa meeting, but this is something to test in 2021 :P
+        year,tdoc_number,revision = tdoc.get_tdoc_year(tdoc_id, include_revision=True)
+        if revision is not None:
+            folder = folder + 'Inbox/Revisions/'
+        else:
+            folder += 'Docs/'
     elif use_inbox:
         # No need to add 'Docs/'
         pass

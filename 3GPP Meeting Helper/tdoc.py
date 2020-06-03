@@ -6,7 +6,7 @@ import traceback
 import win32com.client
 import collections
 
-tdoc_regex = re.compile(r'(?P<group>[S\d]*)-(?P<year>\d\d)(?P<tdoc_number>[\d]+)')
+tdoc_regex = re.compile(r'(?P<group>[S\d]*)-(?P<year>\d\d)(?P<tdoc_number>[\d]+)(?P<revision>r[\d][\d])?')
 spec_file_regex   = re.compile(r'(?P<series>[\d]{2})(\.)?(?P<number>[\d]{3})(-(?P<version>[\w\d]*))?(\.zip)?')
 spec_number_regex = re.compile(r'(?P<series>[\d]{2})\.(?P<number>[\d]{3})')
 
@@ -106,12 +106,23 @@ def parse_ts_number(ts):
         return None
     return TS(series, number, version, full_match)
 
-def get_tdoc_year(tdoc):
+def get_tdoc_year(tdoc, include_revision=False):
     if not is_tdoc(tdoc):
-        return None, None
+        if not include_revision:
+            return None, None
+        return None, None, None
     regex_match = tdoc_regex.match(tdoc)
     if regex_match is None:
         return None
-    year = int(regex_match.groupdict()['year']) + 2000
-    tdoc_number = int(regex_match.groupdict()['tdoc_number'])
-    return year,tdoc_number
+    match_groups = regex_match.groupdict()
+    year = int(match_groups['year']) + 2000
+    tdoc_number = int(match_groups['tdoc_number'])
+
+    if not include_revision:
+        return year,tdoc_number
+
+    try:
+        revision = match_groups['revision']
+        return year,tdoc_number,revision
+    except:
+        return year,tdoc_number,None
