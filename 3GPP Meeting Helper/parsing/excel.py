@@ -166,6 +166,10 @@ def get_company_name_based_on_email(sender_address):
         # Fix for ZTE company name
         if company_name == 'Com' and len(split_company_name)>2:
             company_name = split_company_name[-3].title()
+
+        # Some capitalization of short company names
+        if len(company_name) < 5:
+            company_name = company_name.upper()
     except:
         company_name = 'Could not parse'
 
@@ -176,6 +180,8 @@ def export_email_approval_list(local_filename, found_attachments):
         return
 
     # found_attachments -> collections.namedtuple('RevisionDoc', 'time tdoc filename absolute_url sender_name sender_address chairman_notes')
+
+    print('Starting email approval export: {0} emails'.format(len(found_attachments)))
 
     # Faster variant writing first most data not using VBA
     wb = openpyxl.Workbook(write_only=True)
@@ -194,10 +200,13 @@ def export_email_approval_list(local_filename, found_attachments):
         # Link to file. May not always be a path
         if item.absolute_url != '':
             filename_cell.hyperlink = 'file:///' + item.absolute_url
+            filename_cell.font = Font(underline="single", color='00EA0A8E')
         # Link to author
         sender_name_cell.hyperlink = 'mailto:' + item.sender_address
+        sender_name_cell.font = Font(underline="single", color='00EA0A8E')
         # Link to email
         link_cell.hyperlink = 'file:///' + item.email_url
+        link_cell.font = Font(underline="single", color='00EA0A8E')
 
         # Write row
         ws.append([
@@ -216,7 +225,6 @@ def export_email_approval_list(local_filename, found_attachments):
 
     # Only necessary things with VBA (much slower)
     try:
-        print('Starting email approval export: {0} emails'.format(len(found_attachments)))
         wb = open_excel_document(filename = local_filename)
         ws = wb.ActiveSheet
 
