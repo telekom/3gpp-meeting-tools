@@ -8,6 +8,7 @@ import os.path
 import openpyxl 
 from openpyxl.styles import PatternFill
 from openpyxl.styles import Font
+from openpyxl.worksheet._write_only import WriteOnlyCell
 import string
 import io
 
@@ -157,25 +158,67 @@ def save_wb(wb):
     except:
         traceback.print_exc()
 
+def get_company_name_based_on_email(sender_address):
+    company_name = ''
+    try:
+        split_company_name = sender_address.split('@')[-1].split('.')
+        company_name = split_company_name[-2].title()
+        # Fix for ZTE company name
+        if company_name == 'Com' and len(split_company_name)>2:
+            company_name = split_company_name[-3].title()
+    except:
+        company_name = 'Could not parse'
+
+    return company_name
+
 def export_email_approval_list(local_filename, found_attachments):
     if (local_filename is None) or (local_filename == ''):
         return
 
+    # found_attachments -> collections.namedtuple('RevisionDoc', 'time tdoc filename absolute_url sender_name sender_address chairman_notes')
+
+    # Faster variant writing first most data not using VBA
+    wb = openpyxl.Workbook(write_only=True)
+    ws = wb.create_sheet()
+    ws.title = "Revisions"
+
+    # Add title row
+    ws.append(['TD#','Time','Filename mention','Sender','Company','Email','AI',"Chairman's notes"])
+
+    # Add email entries
+    for idx, item in enumerate(found_attachments, start=2):
+        filename_cell    = WriteOnlyCell(ws, value=item.filename)
+        sender_name_cell = WriteOnlyCell(ws, value=item.sender_name)
+        link_cell        = WriteOnlyCell(ws, value='Link')
+
+        # Link to file. May not always be a path
+        if item.absolute_url != '':
+            filename_cell.hyperlink = 'file:///' + item.absolute_url
+        # Link to author
+        sender_name_cell.hyperlink = 'mailto:' + item.sender_address
+        # Link to email
+        link_cell.hyperlink = 'file:///' + item.email_url
+
+        # Write row
+        ws.append([
+            item.tdoc, 
+            item.time, 
+            filename_cell, 
+            sender_name_cell, 
+            get_company_name_based_on_email(item.sender_address),
+            link_cell,
+            str(item.ai_folder),
+            str(item.chairman_notes)
+            ])
+         
+    wb.save(filename = local_filename)
+    wb.close()
+
+    # Only necessary things with VBA (much slower)
     try:
         print('Starting email approval export: {0} emails'.format(len(found_attachments)))
-        wb = open_excel_document()
+        wb = open_excel_document(filename = local_filename)
         ws = wb.ActiveSheet
-        ws.Name = 'Revisions'
-
-        # found_attachments -> collections.namedtuple('RevisionDoc', 'time tdoc filename absolute_url sender_name sender_address chairman_notes')
-        ws.Range("A1").Value = 'TD#'
-        ws.Range("B1").Value = 'Time'
-        ws.Range("C1").Value = 'Filename mention'
-        ws.Range("D1").Value = 'Sender'
-        ws.Range("E1").Value = 'Company'
-        ws.Range("F1").Value = 'Email'
-        ws.Range("G1").Value = 'AI'
-        ws.Range("H1").Value = "Chairman's notes"
 
         ws.Range("A:A").ColumnWidth = 14
         ws.Range("B:B").ColumnWidth = 18
@@ -193,46 +236,6 @@ def export_email_approval_list(local_filename, found_attachments):
         ws.Range("H:H").WrapText = True
         ws.Range("A1:H1").Font.Bold = True
 
-        for idx, item in enumerate(found_attachments, start=2):
-            # TDoc number and date
-            ws.Range("A{0}".format(idx)).Value = item.tdoc
-            ws.Range("B{0}".format(idx)).Value = item.time
-            
-            # Link to file
-            cell_c = ws.Range("C{0}".format(idx))
-            cell_c.Value = item.filename
-
-            # May not always be a path
-            if item.absolute_url != '':
-                ws.Hyperlinks.Add(cell_c, 'file:///' + item.absolute_url)
-
-            # Link to author
-            cell_d = ws.Range("D{0}".format(idx))
-            cell_d.Value = item.sender_name
-            ws.Hyperlinks.Add(cell_d, 'mailto:' + item.sender_address)
-
-            # Company name
-            company_name = ''
-            try:
-                split_company_name = item.sender_address.split('@')[-1].split('.')
-                company_name = split_company_name[-2].title()
-                # Fix for ZTE company name
-                if company_name == 'Com' and len(split_company_name)>2:
-                    company_name = split_company_name[-3].title()
-            except:
-                company_name = 'Could not parse'
-            ws.Range("E{0}".format(idx)).Value = company_name
-
-            # Link to email
-            cell_f = ws.Range("F{0}".format(idx))
-            cell_f.Value = 'Link'
-            ws.Hyperlinks.Add(cell_f, 'file:///' + item.email_url)
-
-            # Action Item
-            ws.Range("G{0}".format(idx)).Value = str(item.ai_folder)
-
-            # Chairman's notes
-            ws.Range("H{0}".format(idx)).Value = str(item.chairman_notes)
         set_first_row_as_filter(wb)
 
         ws.AutoFilter.Sort.SortFields.Clear()
