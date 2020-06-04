@@ -199,6 +199,8 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                 if len(found_revisions) > 0:
                     revisions = ','.join(found_revisions)
                     found_attachments.append(RevisionDoc(date_str_excel, tdoc_id, revisions, '', sender_name, sender_address, email_local_copy_path, ai_folder.Name, chairman_notes_comment))
+                else:
+                    found_attachments.append(RevisionDoc(date_str_excel, tdoc_id, '', '', sender_name, sender_address, email_local_copy_path, ai_folder.Name, chairman_notes_comment))
 
             # Moved attachments check here so that all emails get indexed by the prior lines
             if mail_item.Attachments.Count < 1:
