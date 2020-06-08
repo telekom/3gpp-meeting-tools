@@ -306,7 +306,7 @@ def get_outlook_inbox():
         return None
 
 # See https://stackoverflow.com/questions/24321752/outlook-vba-how-to-loop-through-inbox-and-list-from-email-email-address-if-subje
-def process_email_approval(meeting_name):
+def process_email_approval(meeting_name, generate_summary=True):
     inbox_folder = get_outlook_inbox()
     if inbox_folder is None:
         return
@@ -355,6 +355,10 @@ def process_email_approval(meeting_name):
 
     remaining_email_approval_emails = get_email_approval_emails(sa2_folder, sa2_email_approval_meeting_folder, tdoc_data) 
     print('Finished moving approval emails. Remaining email approval emails: {0} ({1})'.format(len(remaining_email_approval_emails), meeting_name))
+
+    if not generate_summary:
+        print('Skipping caching and summary of emails (takes less time)')
+        return
 
     print('Organizing email attachments attachments')
     ai_folders = sa2_email_approval_meeting_folder.Folders
