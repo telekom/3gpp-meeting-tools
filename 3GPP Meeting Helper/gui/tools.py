@@ -19,7 +19,8 @@ class ToolsDialog:
 
     export_text      = 'Export TDocs by Agenda of meeting to Excel + Add comments found in Agenda folder (saved in Agenda folder)'
     export_year_text = 'Export Tdocs for given year (saved in current meeting Agenda folder)'
-    outlook_text     = "List Outlook emails for current meeting's email approval or e-meeting"
+    outlook_text_1   = "Order and summarize Outlook emails for current meeting's email approval/e-meeting"
+    outlook_text_2   = "Order emails for current meeting's email approval/e-meeting"
     outlook_attachment_text = "Download SA2 email attachments (excluded are email approval emails)"
     word_report_text = 'Word report for AIs (empty=all)'
     bulk_tdoc_open_text = "Cache TDocs"
@@ -53,11 +54,23 @@ class ToolsDialog:
         self.tkvar_original_tdocs.set('Press button to analyze')
         self.tkvar_final_tdocs.set('Press button to analyze')
 
-        # Row 2: Outlook tools
-        self.email_approval_button = tkinter.Button(top, text=ToolsDialog.outlook_text, command=self.outlook_email_approval)
-        self.email_approval_button.grid(row=2, column=0, columnspan=columnspan, sticky="EW")
+        # Row 2: Outlook tools (email approval emails)
+        self.outlook_button_text = tkinter.StringVar(top)
+        self.outlook_button_text.set(ToolsDialog.outlook_text_2)
+        self.outlook_generate_summary = tkinter.BooleanVar(top)
+        self.outlook_generate_summary.set(False)
 
-        # Row 3: Outlook tools
+        def change_outlook_button_label():
+            if self.outlook_generate_summary.get():
+                self.outlook_button_text.set(ToolsDialog.outlook_text_1)
+            else:
+                self.outlook_button_text.set(ToolsDialog.outlook_text_2)
+        self.email_attachments_generate_summary_checkbox = tkinter.Checkbutton(top, text="Cache emails & Excel summary", variable=self.outlook_generate_summary, command=change_outlook_button_label)
+        self.email_attachments_generate_summary_checkbox.grid(row=2, column=0, sticky="EW")
+        self.email_approval_button = tkinter.Button(top, textvariable=self.outlook_button_text, command=self.outlook_email_approval)
+        self.email_approval_button.grid(row=2, column=1, columnspan=3, sticky="EW")
+
+        # Row 3: Outlook tools (download email attachments)
         self.email_attachments_button = tkinter.Button(top, text=ToolsDialog.outlook_attachment_text, command=self.outlook_email_attachments)
         self.email_attachments_button.grid(row=3, column=0, columnspan=columnspan, sticky="EW")
 
@@ -361,19 +374,25 @@ class ToolsDialog:
             self.year_entry.config(state='normal')
 
     def outlook_email_approval(self):
-        self.email_approval_button.config(text='Exporting... DO NOT interrupt Outlook until COMPLETELY finished!', state='disabled')
-        t = threading.Thread(target=lambda:self.on_outlook_email_approval())
+        current_text = self.outlook_button_text.get()
+        self.outlook_button_text.set('Exporting... DO NOT interrupt Outlook until COMPLETELY finished!')
+        self.email_approval_button.config(state='disabled')
+        self.email_attachments_generate_summary_checkbox.config(state='disabled')
+        t = threading.Thread(target=lambda:self.on_outlook_email_approval(current_text))
         t.start()
 
-    def on_outlook_email_approval(self):
+    def on_outlook_email_approval(self, current_text):
         try:
             # Need to reinitialize COM on each thread
             # https://stackoverflow.com/questions/26745617/win32com-client-dispatch-cherrypy-coinitialize-has-not-been-called
             pythoncom.CoInitialize()
             selected_meeting = gui.main.tkvar_meeting.get()
-            parsing.outlook.process_email_approval(selected_meeting)
+            generate_summary = self.outlook_generate_summary.get()
+            parsing.outlook.process_email_approval(selected_meeting, generate_summary)
         finally:
-            self.email_approval_button.config(text=ToolsDialog.outlook_text,state='normal')
+            self.outlook_button_text.set(current_text)
+            self.email_approval_button.config(state='normal')
+            self.email_attachments_generate_summary_checkbox.config(state='normal')
 
     def outlook_email_attachments(self):
         self.email_attachments_button.config(text='Processing... DO NOT interrupt Outlook until COMPLETELY finished!', state='disabled')
