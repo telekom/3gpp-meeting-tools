@@ -151,9 +151,15 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                 searching_for_a_file=True)
             local_folder_for_tdoc = server.get_local_folder(local_meeting_folder, tdoc_id, create_dir=True, email_approval=True)
 
-            sender         = mail_item.Sender
-            sender_name    = sender.Name
-            sender_address = sender.Address
+            try:
+                sender         = mail_item.Sender
+                sender_name    = sender.Name
+                sender_address = sender.Address
+            except:
+                print('Could not read sender address')
+                traceback.print_exc()
+                sender_name    = 'Unknown'
+                sender_address = 'unknown@unknown'
             
             # Tried to convert Asian characters, but since sender.Name IS ALREADY A STRING, it is not possible
             # codepage       = mail_item.InternetCodepage
@@ -166,6 +172,17 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
             #     except:
             #         print('Could not re-encode sender name {0} with encoding {1}'.format(sender_name, encoding))
             #         traceback.print_exc()
+
+            # Fix sender email address for encrypted emails
+            if 'dmarc-request@LIST.ETSI.ORG' in sender_address:
+                try:
+                    reply_recipients = [ recipient.Address for recipient in mail_item.ReplyRecipients ]
+                    if len(reply_recipients) > 0:
+                        sender_address = reply_recipients[0]
+                except:
+                    print('Error reading sender from encrypted sender')
+                    traceback.print_exc()
+                    pass
 
             # Add email to list (regarding of whether it has an attachment or not)
             ai = ai_folder_name.split(',')[0]
