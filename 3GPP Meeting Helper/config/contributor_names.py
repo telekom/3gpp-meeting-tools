@@ -79,6 +79,9 @@ signature_synonyms_regex = {
     'CT WG2':           re.compile(r'ct wg2'),
     'CT WG3':           re.compile(r'ct wg3'),
     'CT WG4':           re.compile(r'ct wg4'),
+    'IETF':             re.compile(r'ietf'),
+    'IEEE':             re.compile(r'ieee'),
+    'BBF':              re.compile(r'bbf'),
     'Swisscom':         re.compile(r'swisscom'),
     'Sharp':            re.compile(r'sharp'),
     'Korea Telecom':    re.compile(r'korea telecom'),
@@ -93,6 +96,13 @@ signature_synonyms_regex = {
     'Airbus':           re.compile(r'airbus'),
     'Mavenir':          re.compile(r'mavenir'),
     'Sennheiser':       re.compile(r'sennheiser'),
+    'Sandvine':         re.compile(r'sandvine'),
+    'Philips':          re.compile(r'philips'),
+    'Google':           re.compile(r'google'),
+    'Matrixx':          re.compile(r'matrixx'),
+    'Comcast':          re.compile(r'comcast'),
+    'Turkcell':         re.compile(r'turkcell'),
+    'Airtel':           re.compile(r'airtel'),
 }
 
 recognized_vendor_list = [key for key, value in signature_synonyms_regex.items()]

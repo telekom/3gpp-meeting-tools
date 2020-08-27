@@ -12,6 +12,8 @@ from openpyxl.worksheet._write_only import WriteOnlyCell
 import string
 import io
 
+win32c  = win32com.client.constants
+
 color_magenta     = (234, 10, 142)
 color_black       = (0, 0, 0)
 color_white       = (255, 255, 255)
@@ -103,6 +105,97 @@ def adjust_tdocs_by_agenda_column_width(wb):
 
 def close_wb(wb):
     wb.Close()
+
+def generate_pivot_chart_from_tdocs_by_agenda(wb):
+    try:
+        print("Generating per-AI pivot table")
+        wb.Activate()
+        ws = wb.ActiveSheet
+        # Generate Pivot chart in new worksheet based on columns A:D
+        pivot_table_source_data = ws.Range("A:D")
+        XlPivotTableSourceType  = 1 # xlDatabase, see https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivottablesourcetype
+        XlPivotTableVersion     = 5 # xlPivotTableVersion15 (Excel 2013), see https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivottableversionlist
+        pivot_cache             = wb.PivotCaches().Create(XlPivotTableSourceType, pivot_table_source_data, XlPivotTableVersion)
+
+        # Create pivot chart
+        pivot_chart_wb = wb.Sheets.Add(Before=None , After=ws)
+        pivot_chart_wb.Name = "Summary"
+
+        pivot_table = pivot_cache.CreatePivotTable(
+            TableDestination=pivot_chart_wb.Range("A1"),
+            TableName="AI Summary")
+
+        # Copied from https://stackoverflow.com/questions/46312435/create-a-pivotchart-with-python-win32com-causes-pywintypes-com-error
+        pivot_table.ColumnGrand = True
+        pivot_table.HasAutoFormat = True
+        pivot_table.DisplayErrorString = False
+        pivot_table.DisplayNullString = True
+        pivot_table.EnableDrilldown = True
+        pivot_table.ErrorString = ""
+        pivot_table.MergeLabels = False
+        pivot_table.NullString = ""
+        pivot_table.PageFieldOrder = 2
+        pivot_table.PageFieldWrapCount = 0
+        pivot_table.PreserveFormatting = True
+        pivot_table.RowGrand = True
+        pivot_table.SaveData = True
+        pivot_table.PrintTitles = False
+        pivot_table.RepeatItemsOnEachPrintedPage = True
+        pivot_table.TotalsAnnotation = False
+        pivot_table.CompactRowIndent = 1
+        pivot_table.InGridDropZones = False
+        pivot_table.DisplayFieldCaptions = True
+        pivot_table.DisplayMemberPropertyTooltips = False
+        pivot_table.DisplayContextTooltips = True
+        pivot_table.ShowDrillIndicators = True
+        pivot_table.PrintDrillIndicators = False
+        pivot_table.AllowMultipleFilters = False
+        pivot_table.SortUsingCustomLists = True
+        pivot_table.FieldListSortAscending = False
+        pivot_table.ShowValuesRow = False
+        pivot_table.CalculatedMembersInFilters = False
+
+        # See https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivotfieldorientation
+        # xlColumnField	2	Column
+        # xlDataField	4	Data
+        # xlHidden	0	Hidden
+        # xlPageField	3	Page
+        # xlRowField	1	Row
+        td_field = pivot_table.PivotFields("TD#")
+        td_field.Orientation = 4
+        td_field.Position    = 1
+
+        ai_field = pivot_table.PivotFields("AI")
+        ai_field.Orientation = 1
+        ai_field.Position    = 1
+
+        ai_field = pivot_table.PivotFields("Type")
+        ai_field.Orientation = 2
+        ai_field.Position    = 1
+
+        print("Generating per-AI pivot chart")
+        points_per_cm = 28.3465
+        chart_width_cm  = 24
+        chart_height_cm = 14
+        summary_chart = wb.Charts.Add()
+        # summary_chart = summary_shape.Chart
+        summary_chart.Name = "TDocs per AI"
+        summary_chart.ChartType = 52 # xlColumnStacked, see https://docs.microsoft.com/en-us/office/vba/api/excel.xlcharttype
+        summary_chart.ChartArea.Format.Line.Visible = 0 # True = -1; False = 0
+        summary_chart.HasTitle  = False
+        summary_chart.HasLegend = True # Legend show because we are showing per-type stacked bars
+        summary_chart.ShowAllFieldButtons = False
+        x_axis = summary_chart.Axes(1)
+        x_axis.HasTitle = True
+        x_axis.AxisTitle.Text = "AI"
+        y_axis = summary_chart.Axes(2)
+        y_axis.HasTitle = True
+        y_axis.AxisTitle.Text = "TDocs"
+
+        # Set the original Worksheet as active
+        ws.Activate()
+    except:
+        traceback.print_exc()
 
 def vertically_center_all_text(wb):
     try:
@@ -230,7 +323,7 @@ def export_email_approval_list(local_filename, found_attachments):
 
         ws.Range("A:A").ColumnWidth = 14
         ws.Range("B:B").ColumnWidth = 18
-        ws.Range("C:C").ColumnWidth = 60
+        ws.Range("C:C").ColumnWidth = 30 # Reduced to 30 as we now just send around revision numbers
         ws.Range("D:D").ColumnWidth = 40
         ws.Range("E:E").ColumnWidth = 17
         ws.Range("F:F").ColumnWidth = 9

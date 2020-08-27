@@ -360,6 +360,7 @@ class ToolsDialog:
             excel_parser.adjust_tdocs_by_agenda_column_width(wb)
             excel_parser.set_tdoc_colors(wb, server_urls)
             excel_parser.vertically_center_all_text(wb)
+            excel_parser.generate_pivot_chart_from_tdocs_by_agenda(wb)
             excel_parser.save_wb(wb)
             if close_file:
                 excel_parser.close_wb(wb)
