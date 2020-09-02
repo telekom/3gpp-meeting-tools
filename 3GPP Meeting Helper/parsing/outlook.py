@@ -203,6 +203,10 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
             comment_start         = email_body.find(start_str)
             comment_end           = email_body.find(end_str)
             start_of_prior_emails = email_body.find('3GPP_TSG_SA_WG2@LIST.ETSI.ORG')
+            
+            # We are now using another email list for the eMeetings
+            if start_of_prior_emails == -1:
+                start_of_prior_emails = email_body.find('3GPP_TSG_SA_WG2_EMEET@LIST.ETSI.ORG')
 
             # Remove body text from previous emails
             if start_of_prior_emails > -1:
