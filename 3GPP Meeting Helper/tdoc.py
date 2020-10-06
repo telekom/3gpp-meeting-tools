@@ -34,7 +34,14 @@ def openfile(file, return_metadata=False, go_to_page=1):
     try:
         (head, tail) = os.path.split(file)
         extension = tail.split('.')[-1]
-        if (extension=='doc') or (extension=='docx'):
+        not_mac_metadata = True
+        try:
+            filename_start = tail[0:2]
+            if filename_start == '._':
+                not_mac_metadata = False
+        except:
+            pass
+        if ((extension=='doc') or (extension=='docx')) and not_mac_metadata:
             doc = word_parser.open_word_document(file)
             metadata = word_parser.get_metadata_from_doc(doc)
             if go_to_page!=1:
@@ -47,7 +54,7 @@ def openfile(file, return_metadata=False, go_to_page=1):
                 # doc.GoTo(constants.wdGoToPage,constants.wdGoToRelative, go_to_page)
         else:
             # Basic avoidance of executables, but anyway per se not very safe... :P
-            if extension != 'exe':
+            if extension != 'exe' and not_mac_metadata:
                 os.startfile(file, 'open')
             else:
                 print('Executable file {0} not opened for precaution'.format(file))
