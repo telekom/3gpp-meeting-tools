@@ -250,7 +250,7 @@ def open_tdocs_by_agenda(open_file=True):
 
     # Save opened Tdocs by Agenda file to global application
     html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder)
-    application.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(html)
+    application.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(html, meeting_server_folder=meeting_server_folder)
 
     tdoc.write_data_and_open_file(html, local_file, open_file=open_file)
         
