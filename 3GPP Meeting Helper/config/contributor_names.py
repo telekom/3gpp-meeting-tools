@@ -25,7 +25,7 @@ signature_synonyms_regex = {
     'Thales':           re.compile(r'thales'),
     'China Telecom':    re.compile(r'china telecom'),
     'TIM':              re.compile(r'(telecom italia)|(tim)'),
-    'Ericsson':         re.compile(r'ericsson'),
+    'Ericsson':         re.compile(r'eric[s]sson'),
     'Convida Wireless': re.compile(r'convida'),
     'China Mobile':     re.compile(r'china mobile'),
     'China Unicom':     re.compile(r'china unicom'),
@@ -103,6 +103,8 @@ signature_synonyms_regex = {
     'Comcast':          re.compile(r'comcast'),
     'Turkcell':         re.compile(r'turkcell'),
     'Airtel':           re.compile(r'airtel'),
+    'Bosch':            re.compile(r'bosch'),
+    'Sequans':          re.compile(r'sequans'),
 }
 
 recognized_vendor_list = [key for key, value in signature_synonyms_regex.items()]

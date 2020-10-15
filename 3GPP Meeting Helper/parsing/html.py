@@ -7,6 +7,9 @@ import os.path
 import datetime
 import collections
 import traceback
+import pickle
+import server
+import hashlib
 
 Meeting        = collections.namedtuple('Meeting', 'text folder date')
 TdocComments   = collections.namedtuple('TdocComments', 'revision_of revised_to merge_of merged_to')
@@ -233,9 +236,17 @@ def join_results(tdocs_split, df_tdocs, recursive_call, original_index, n_recurs
         traceback.print_exc()
         return ''
 
+def get_cache_filepath(meeting_folder_name, html_hash):
+    if meeting_folder_name == '':
+        return None
+    meeting_local_folder = server.get_local_agenda_folder(meeting_folder_name)
+    file_name = 'TDocsByAgenda_{0}_{1}.pickle'.format(meeting_folder_name, html_hash)
+    full_path = os.path.join(meeting_local_folder, file_name)
+    return full_path
+
 # Storing all of them is easier, and the cache should not grow that big in the end
 tdocs_by_document_cache = {}
-def get_tdocs_by_agenda_with_cache(path_or_html):
+def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder=''):
     if (path_or_html is None) or (path_or_html == ''):
         return None
 
@@ -243,16 +254,39 @@ def get_tdocs_by_agenda_with_cache(path_or_html):
 
     # If this is an HTML
     if len(path_or_html) > 1000:
-        html_hash = hash(path_or_html)
+        # Changed to hashlib as it is reinitialized beween sessions.
+        # See https://stackoverflow.com/questions/27522626/hash-function-in-python-3-3-returns-different-results-between-sessions
+        m = hashlib.md5()
+        m.update(path_or_html)
+        html_hash = m.hexdigest()
         
         # Retrieve 
         if html_hash in tdocs_by_document_cache:
             print('Retrieving TdocsByAgenda from parsed document cache')
             last_tdocs_by_agenda = tdocs_by_document_cache[html_hash]
         else:
-            last_tdocs_by_agenda = tdocs_by_agenda(path_or_html)
-            print('Storing TdocsByAgenda with hash {0} in cache'.format(html_hash))
+            last_tdocs_by_agenda = tdocs_by_agenda(path_or_html, html_hash=html_hash, meeting_server_folder=meeting_server_folder)
+            print('Storing TdocsByAgenda with hash {0} in memory cache'.format(html_hash))
             tdocs_by_document_cache[html_hash] = last_tdocs_by_agenda
+            
+            # Save TDocsByAgenda data in a pickle file so that we can plot graphs later on
+            try:
+                data_to_save = {
+                    'contributor_columns': last_tdocs_by_agenda.contributor_columns,
+                    'others_cosigners':    last_tdocs_by_agenda.others_cosigners,
+                    'tdocs':               last_tdocs_by_agenda.tdocs,
+                    'cache_version':       1
+                    }
+
+                cache_file_name = get_cache_filepath(meeting_server_folder, html_hash)
+                if cache_file_name is not None and not os.path.exists(cache_file_name):
+                    with open(cache_file_name, 'wb') as f:
+                        # Pickle the 'data' dictionary using the highest protocol available.
+                        pickle.dump(data_to_save, f, pickle.HIGHEST_PROTOCOL)
+                        print('Saved TDocsByAgenda cache to file {0}'.format(cache_file_name))
+            except:
+                print('Could not cache TDocsByAgenda for meeting {0}'.format(meeting_server_folder))
+                traceback.print_exc()
     else:
         # Path-based fetching uses no hash
         the_tdocs_by_agenda       = tdocs_by_agenda(path_or_html)
@@ -338,34 +372,56 @@ class tdocs_by_agenda(object):
             parsed_date = datetime.datetime(year=year, month=month, day=day, hour=hour, minute=minute)
             return parsed_date
         except:
-            print('Error parsind date of TDocs by Agenda file')
+            print('Error parsing date of TDocs by Agenda file')
             traceback.print_exc()
             return None
 
-    def __init__(self, path_or_html, v=2):
+    def __init__(self, path_or_html, v=2, html_hash='', meeting_server_folder=''):
         self.tdocs = None
         
         raw_html = tdocs_by_agenda.get_tdoc_by_agenda_html(path_or_html, return_raw_html=True)
         self.meeting_number = tdocs_by_agenda.get_meeting_number(raw_html)
+
+        dataframe_from_cache = False
         
         if v==1:
             # print('XPath fro title: ' + html.xpath('//P/FONT/B').tostring())
             html = tdocs_by_agenda.get_tdoc_by_agenda_html(path_or_html)
             dataframe = tdocs_by_agenda.read_tdocs_by_agenda(html)
         else:
-            dataframe = tdocs_by_agenda.read_tdocs_by_agenda_v2(raw_html, force_html=True)
+            if meeting_server_folder!='' and html_hash!='':
+                cache_file_name = get_cache_filepath(meeting_server_folder, html_hash)
+                try:
+                    if cache_file_name is not None and os.path.exists(cache_file_name):
+                        with open(cache_file_name, 'rb') as f:
+                            # Unpickle the 'data' dictionary using the highest protocol available.
+                            cache     = pickle.load(f)
+                            dataframe = cache['tdocs']
+                            dataframe_from_cache = True
+                            print('Loaded TDocsByAgenda from file cache: {0}'.format(cache_file_name))
+                except:
+                    print('Could not load file cache for meeting {0}, hash {1}'.format(meeting_server_folder, html_hash))
+                    traceback.print_exc()
+
+            if not dataframe_from_cache:
+                dataframe = tdocs_by_agenda.read_tdocs_by_agenda_v2(raw_html, force_html=True)
 
         # Cleanup Unicode characters (see https://stackoverflow.com/questions/42306755/how-to-remove-illegal-characters-so-a-dataframe-can-write-to-excel)
-        print('Cleaning up Unicode characters so that Excel export does not crash')
-        dataframe = dataframe.applymap(lambda x: x.encode('unicode_escape').
-        decode('utf-8') if isinstance(x, str) else x)
+        if not dataframe_from_cache:
+            print('Cleaning up Unicode characters so that Excel export does not crash')
+            dataframe = dataframe.applymap(lambda x: x.encode('unicode_escape').decode('utf-8') if isinstance(x, str) else x)
 
         # Assign dataframe
         self.tdocs = dataframe
 
-        tdocs_by_agenda.get_original_and_final_tdocs(self.tdocs)
-        self.others_cosigners = config.contributor_names.add_contributor_columns_to_tdoc_list(self.tdocs)
-        self.contributor_columns  = config.contributor_names.get_contributor_columns()
+        if not dataframe_from_cache:
+            tdocs_by_agenda.get_original_and_final_tdocs(self.tdocs)
+            self.others_cosigners    = config.contributor_names.add_contributor_columns_to_tdoc_list(self.tdocs)
+            self.contributor_columns = config.contributor_names.get_contributor_columns()
+        else:
+            # get_original_and_final_tdocs should already be in the cache
+            self.others_cosigners    = cache['others_cosigners']
+            self.contributor_columns = cache['contributor_columns']
         config.contributor_names.reset_others()
 
     def get_meeting_number(tdocs_by_agenda_html):
