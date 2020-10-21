@@ -1,7 +1,7 @@
 import re
 
 signature_synonyms_regex = {
-    'DT':               re.compile(r'(\bdt\b)|(deutsche tele[kc]om)'),
+    'Deutsche Telekom': re.compile(r'(\bdt\b)|(deutsche tele[kc]om)'),
     'KT':               re.compile(r'(\bkt\b)'),
     'Nokia':            re.compile(r'nokia'),
     'Qualcomm':         re.compile(r'qualcom[m]?'),
@@ -129,7 +129,12 @@ def get_matching_contributors(original_sources, others_cosigners, known_cosigner
     cosigners       = [item.strip() for item in sources_clean.split(',')]
     found_cosigners = [ key for key, regex in signature_synonyms_regex.items() if regex.search(sources_clean) is not None ]
     
-    # No "Others" co-signers, return result
+    # Fix for cases where AT&T and CATT are double-counted
+    if ('CATT' in found_cosigners and 'AT&T' in found_cosigners) and 'AT&T' not in cosigners:
+        found_cosigners.remove('AT&T')
+        print(found_cosigners)
+    
+	# No "Others" co-signers, return result. 
     if len(cosigners) == len(found_cosigners):
         return found_cosigners
 
