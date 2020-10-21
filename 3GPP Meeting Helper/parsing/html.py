@@ -16,6 +16,7 @@ TdocComments   = collections.namedtuple('TdocComments', 'revision_of revised_to 
 TdocBasicInfo  = collections.namedtuple('TdocBasicInfo', 'tdoc title source ai work_item')
 ftp_list_regex = re.compile(r'(\d?\d\/\d?\d\/\d\d\d\d) *(\d?\d:\d\d) (AM|PM) *(<dir>|\d+) *')
 title_cr_regex = re.compile(r'([\d]{2}\.[\d]{3}) CR([\d]{1,4})')
+current_cache_version = 1.2
 
 # Control maximum recursion to avoid stack overflow. Some manual errors in the TDocsByAgenda may lead to circular references
 max_recursion  = 10
@@ -266,8 +267,10 @@ def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder=''):
             last_tdocs_by_agenda = tdocs_by_document_cache[html_hash]
         else:
             last_tdocs_by_agenda = tdocs_by_agenda(path_or_html, html_hash=html_hash, meeting_server_folder=meeting_server_folder)
-            print('Storing TdocsByAgenda with hash {0} in memory cache'.format(html_hash))
-            tdocs_by_document_cache[html_hash] = last_tdocs_by_agenda
+            
+            # I found out tht this was not a good idea for the inbox. File cache should be enough
+            # print('Storing TdocsByAgenda with hash {0} in memory cache'.format(html_hash))
+            # tdocs_by_document_cache[html_hash] = last_tdocs_by_agenda
             
             # Save TDocsByAgenda data in a pickle file so that we can plot graphs later on
             try:
@@ -275,7 +278,7 @@ def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder=''):
                     'contributor_columns': last_tdocs_by_agenda.contributor_columns,
                     'others_cosigners':    last_tdocs_by_agenda.others_cosigners,
                     'tdocs':               last_tdocs_by_agenda.tdocs,
-                    'cache_version':       1
+                    'cache_version':       current_cache_version
                     }
 
                 cache_file_name = get_cache_filepath(meeting_server_folder, html_hash)
@@ -396,9 +399,12 @@ class tdocs_by_agenda(object):
                         with open(cache_file_name, 'rb') as f:
                             # Unpickle the 'data' dictionary using the highest protocol available.
                             cache     = pickle.load(f)
-                            dataframe = cache['tdocs']
-                            dataframe_from_cache = True
-                            print('Loaded TDocsByAgenda from file cache: {0}'.format(cache_file_name))
+                            if cache['cache_version'] == current_cache_version:
+                                dataframe = cache['tdocs']
+                                dataframe_from_cache = True
+                                print('Loaded TDocsByAgenda from file cache: {0}'.format(cache_file_name))
+                            else:
+                                print('Cache version mismatch. Not reading from cache')
                 except:
                     print('Could not load file cache for meeting {0}, hash {1}'.format(meeting_server_folder, html_hash))
                     traceback.print_exc()
