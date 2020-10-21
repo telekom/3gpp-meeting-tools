@@ -53,10 +53,15 @@ def open_excel_document(filename = None, excel = None, sheet_name=None):
 def select_worksheet(wb, name):
     wb.Worksheets(name).Activate()
 
-def set_first_row_as_filter(wb):
+def set_first_row_as_filter(wb, ws_name=None, already_activated=False):
     try:
-        wb.Activate()
-        ws = wb.ActiveSheet
+        if not already_activated:
+            wb.Activate()
+        if ws_name is None:
+            ws = wb.ActiveSheet
+        else:
+            ws = wb.Sheets(ws_name)
+            ws.Activate()
         ws.Range("1:1").AutoFilter()
         ws.Cells(2, 2).Select()
         get_excel().ActiveWindow.FreezePanes = True
@@ -268,7 +273,7 @@ def get_company_name_based_on_email(sender_address):
 
     return company_name
 
-def export_email_approval_list(local_filename, found_attachments):
+def export_email_approval_list(local_filename, found_attachments, tdocs_without_emails=None, tdoc_data=None):
     if (local_filename is None) or (local_filename == ''):
         return
 
@@ -312,14 +317,38 @@ def export_email_approval_list(local_filename, found_attachments):
             str(item.ai_folder),
             str(item.chairman_notes)
             ])
-         
+
+    if tdocs_without_emails is not None and tdoc_data is not None:
+        ws = wb.create_sheet()
+        ws.title = "TDocs without emails"
+        ws.append(['TD#','AI','Type','Doc For','Title','Source','Rel', 'Work Item', 'Comments'])
+
+        tdocs_info = tdoc_data.tdocs.loc[list(tdocs_without_emails),['AI', 'Type', 'Doc For', 'Title', 'Source', 'Rel', 'Work Item', 'Comments']]
+        print('{0} TDocs without matching emails'.format(len(tdocs_info.index)))
+        for row_index,row in tdocs_info.iterrows():
+            ws.append([
+                row_index,
+                str(row['AI']),
+                str(row['Type']),
+                str(row['Doc For']),
+                str(row['Title']),
+                str(row['Source']),
+                str(row['Rel']),
+                str(row['Work Item']),
+                str(row['Comments'])])
+    
+    print('Saving Excel table structure')
     wb.save(filename = local_filename)
+    print('Closing Excel File')
     wb.close()
+    print('Excel File closed')
 
     # Only necessary things with VBA (much slower)
     try:
+        print('Applying Excel formatting')
         wb = open_excel_document(filename = local_filename)
-        ws = wb.ActiveSheet
+        # ws = wb.ActiveSheet
+        ws = wb.Sheets("Revisions")
 
         ws.Range("A:A").ColumnWidth = 14
         ws.Range("B:B").ColumnWidth = 18
@@ -337,7 +366,7 @@ def export_email_approval_list(local_filename, found_attachments):
         ws.Range("H:H").WrapText = True
         ws.Range("A1:H1").Font.Bold = True
 
-        set_first_row_as_filter(wb)
+        set_first_row_as_filter(wb, 'Revisions')
 
         ws.AutoFilter.Sort.SortFields.Clear()
 
@@ -350,6 +379,31 @@ def export_email_approval_list(local_filename, found_attachments):
         ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("A:A")) # TD
         ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("B:B")) # Time
         ws.AutoFilter.Sort.Apply()
+
+        if tdocs_without_emails is not None and tdoc_data is not None:
+            ws = wb.Sheets("TDocs without emails")
+
+            # TD, AI, Type, Doc For, Title, source, rel, work item, comments
+            ws.Range("A:A").ColumnWidth = 11
+            ws.Range("B:B").ColumnWidth = 7
+            ws.Range("C:C").ColumnWidth = 11
+            ws.Range("D:D").ColumnWidth = 12
+            ws.Range("E:E").ColumnWidth = 50
+            ws.Range("F:F").ColumnWidth = 45
+            ws.Range("G:G").ColumnWidth = 7
+            ws.Range("H:H").ColumnWidth = 7
+            ws.Range("I:I").ColumnWidth = 50
+
+            ws.Range("A:I").HorizontalAlignment = -4108
+            ws.Range("A:I").VerticalAlignment = -4108
+            ws.Range("A:I").WrapText = True
+            ws.Range("A1:I1").Font.Bold = True
+
+            set_first_row_as_filter(wb, 'TDocs without emails', already_activated=True)
+            ws.AutoFilter.Sort.SortFields.Clear()
+            ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("B:B")) # AI
+            ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("A:A")) # TD
+            ws.AutoFilter.Sort.Apply()
 
         print('Finished email approval export')
         wb.SaveAs(local_filename)

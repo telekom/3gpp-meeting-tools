@@ -54,8 +54,14 @@ def get_word():
         except:
             word = None
     if word is not None:
-        word.Visible = True
-        word.DisplayAlerts = False   
+        try: 
+            word.Visible = True
+        except:
+            print('Could not set property "Visible" from Word to "True"')
+        try: 
+            word.DisplayAlerts = False 
+        except:
+            print('Could not set property "DisplayAlerts" from Word to "False"')
     return word
 
 def open_word_document(filename = '', set_as_active_document = True):

@@ -386,11 +386,16 @@ def process_email_approval(meeting_name, generate_summary=True):
     found_attachments, email_list = organize_email_approval_attachments(meeting_name, ai_folders)
     print('Total {0} emails processed'.format(len(email_list)))
 
+    # Check if there are TDocs without emails (potentially automatically approved in eMeeting)
+    tdocs_with_emails    = set([e.tdoc for e in found_attachments])
+    all_tdocs            = set(list(tdoc_data.tdocs.index.values))
+    tdocs_without_emails = all_tdocs - tdocs_with_emails
+
     time_now = application.get_now_time_str()
     file_summary_file = os.path.join('{0} email approval.xlsx'.format(time_now))
     local_meeting_folder = application.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting_name)
     if len(found_attachments) > 0:
-        excel_parser.export_email_approval_list(os.path.join(server.get_local_agenda_folder(local_meeting_folder), file_summary_file), found_attachments)
+        excel_parser.export_email_approval_list(os.path.join(server.get_local_agenda_folder(local_meeting_folder), file_summary_file), found_attachments, tdocs_without_emails, tdoc_data)
     else:
         print('No file attachments found to export to list. Skipping Excel summary of attachmented files')
 
