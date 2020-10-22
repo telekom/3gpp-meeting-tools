@@ -25,7 +25,7 @@ signature_synonyms_regex = {
     'Thales':           re.compile(r'thales'),
     'China Telecom':    re.compile(r'china telecom'),
     'TIM':              re.compile(r'(telecom italia)|(tim)'),
-    'Ericsson':         re.compile(r'eric[s]sson'),
+    'Ericsson':         re.compile(r'eric[s]?sson'),
     'Convida Wireless': re.compile(r'convida'),
     'China Mobile':     re.compile(r'china mobile'),
     'China Unicom':     re.compile(r'china unicom'),
@@ -132,7 +132,7 @@ def get_matching_contributors(original_sources, others_cosigners, known_cosigner
     # Fix for cases where AT&T and CATT are double-counted
     if ('CATT' in found_cosigners and 'AT&T' in found_cosigners) and 'AT&T' not in cosigners:
         found_cosigners.remove('AT&T')
-        print(found_cosigners)
+        # print(found_cosigners)
     
 	# No "Others" co-signers, return result. 
     if len(cosigners) == len(found_cosigners):
