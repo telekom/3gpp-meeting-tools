@@ -16,7 +16,7 @@ TdocComments   = collections.namedtuple('TdocComments', 'revision_of revised_to 
 TdocBasicInfo  = collections.namedtuple('TdocBasicInfo', 'tdoc title source ai work_item')
 ftp_list_regex = re.compile(r'(\d?\d\/\d?\d\/\d\d\d\d) *(\d?\d:\d\d) (AM|PM) *(<dir>|\d+) *')
 title_cr_regex = re.compile(r'([\d]{2}\.[\d]{3}) CR([\d]{1,4})')
-current_cache_version = 1.2
+current_cache_version = 1.3
 
 # Control maximum recursion to avoid stack overflow. Some manual errors in the TDocsByAgenda may lead to circular references
 max_recursion  = 10
