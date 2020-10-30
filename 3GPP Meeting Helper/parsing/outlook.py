@@ -130,9 +130,26 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
         print(ai_folder_name)
         mail_items_with_attachments = [f for f in ai_folder.Items]
         for mail_item in mail_items_with_attachments:
-            email_date = mail_item.ReceivedTime 
-            date_str       = '{0:04d}.{1:02d}.{2:02d} {3:02d}{4:02d}{5:02d}'.format(email_date.year, email_date.month, email_date.day, email_date.hour, email_date.minute, email_date.second)
-            date_str_excel = '{0:04d}.{1:02d}.{2:02d} {3:02d}:{4:02d}:{5:02d}'.format(email_date.year, email_date.month, email_date.day, email_date.hour, email_date.minute, email_date.second)
+            try:
+                email_date = mail_item.ReceivedTime
+                email_year   = email_date.year
+                email_month  = email_date.month
+                email_day    = email_date.day
+                email_hour   = email_date.hour
+                email_minute = email_date.minute
+                email_second = email_date.second
+            except:
+                email_year   = 0
+                email_month  = 0
+                email_day    = 0
+                email_hour   = 0
+                email_minute = 0
+                email_second = 0
+                print('Error retrieving email date')
+                traceback.print_exc()
+
+            date_str       = '{0:04d}.{1:02d}.{2:02d} {3:02d}{4:02d}{5:02d}'.format(email_year, email_month, email_day, email_hour, email_minute, email_second)
+            date_str_excel = '{0:04d}.{1:02d}.{2:02d} {3:02d}:{4:02d}:{5:02d}'.format(email_year, email_month, email_day, email_hour, email_minute, email_second)
             
             # Download original file (not in email approval folder)
             # Only criteria is if there is a Tdoc ID in the subject
