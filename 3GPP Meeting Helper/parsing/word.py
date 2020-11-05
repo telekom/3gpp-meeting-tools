@@ -22,13 +22,14 @@ color_light_green  = (198, 239, 206)
 color_light_gray   = (242, 242, 242)
 color_light_yellow = (255, 242, 204)
 
-toc_section_style             = 'Überschrift 1'
-source_section_style          = 'Überschrift 1'
-source_subsection_style       = 'Überschrift 2'
-tdoc_list_section_style       = 'Überschrift 1'
-tdoc_list_ai_section_style    = 'Überschrift 2'
-tdoc_list_ai_subsection_style = 'Überschrift 3'
-standard_style                = 'Standard'
+# See https://docs.microsoft.com/en-us/office/vba/api/Word.WdBuiltinStyle
+toc_section_style             = -2 #'Überschrift 1'
+source_section_style          = -2 #'Überschrift 1'
+source_subsection_style       = -3 #'Überschrift 2'
+tdoc_list_section_style       = -2 #'Überschrift 1'
+tdoc_list_ai_section_style    = -3 #'Überschrift 2'
+tdoc_list_ai_subsection_style = -4 #'Überschrift 3'
+standard_style                = -1 #'Standard'
 
 Tdoc = collections.namedtuple('TDoc', 'title source')
 TdocStats = collections.namedtuple('TdocStats', 'tdoc_count tdoc_handled_count result_agreed_count result_revised_count result_noted_count')
