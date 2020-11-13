@@ -1051,3 +1051,21 @@ def import_agenda(agenda_file):
         hours_column[idx] = new_hour
 
     return ai_descriptions
+
+
+def compare_documents(tdoc_1, tdoc_2):
+    if tdoc_1 is None or tdoc_1 == '' or tdoc_2 is None or tdoc_2 == '':
+        print('Empty or None tdoc_input')
+        return
+    try:
+        word_application = get_word()
+        print('Comparing {0} and {1}'.format(tdoc_1, tdoc_2))
+        doc_1 = open_word_document(filename=tdoc_1, set_as_active_document=False)
+        doc_2 = open_word_document(filename=tdoc_2, set_as_active_document=False)
+
+        # Call Word's compare feature
+        # Destination=wdCompareDestinationNew (see https://docs.microsoft.com/en-us/office/vba/api/word.wdcomparedestination)
+        comparison_document = word_application.CompareDocuments(OriginalDocument=doc_1, RevisedDocument=doc_2, Destination=2, IgnoreAllComparisonWarnings=True)
+    except:
+        print('Could not compare documents')
+        traceback.print_exc()

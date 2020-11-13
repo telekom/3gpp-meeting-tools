@@ -282,10 +282,15 @@ def current_tdocs_by_agenda_exists():
         return False
 
 # Button to open TDoc
-def download_and_open_tdoc():
+def download_and_open_tdoc(tdoc_id_to_override=None, cached_tdocs_list=None):
     global performing_search
     tkvar_tdoc_id.set(tkvar_tdoc_id.get().replace(' ','').replace('\r','').replace('\n','').strip())
-    tdoc_id = tkvar_tdoc_id.get()
+    if tdoc_id_to_override is None:
+        # Normal flow
+        tdoc_id = tkvar_tdoc_id.get()
+    else:
+        # Used to compare two tdocs
+        tdoc_id = tdoc_id_to_override
     download_from_inbox = inbox_is_for_this_meeting()
     retrieved_files, tdoc_url = server.get_tdoc(
         application.sa2_meeting_data.get_server_folder_for_meeting_choice(tkvar_meeting.get()),
@@ -337,6 +342,8 @@ def download_and_open_tdoc():
             found_string = 'Cached file(s)'
             opened_files = 0
             metadata_list = []
+            if cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
+                cached_tdocs_list.extend(retrieved_files)
         else:
             opened_files, metadata_list = tdoc.openfiles(retrieved_files, return_metadata=True)
             found_string = 'Opened {0} file(s)'.format(opened_files)
