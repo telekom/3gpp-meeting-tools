@@ -672,7 +672,11 @@ def apply_comments_coloring_and_hyperlinks(filename, fg_colors, text_colors, ser
             traceback.print_exc()
     # Column 20 is the one with the comments
     header_column = [cell.value for cell in ws[1]]
-    session_comments_idx = header_column.index(session_comments_column)
+    try:
+        session_comments_idx = header_column.index(session_comments_column)
+        comments_present = True
+    except:
+        comments_present = False
     revision_of_idx = header_column.index(revision_of_column)
     revised_to_idx = header_column.index(revised_to_column)
 
@@ -688,7 +692,8 @@ def apply_comments_coloring_and_hyperlinks(filename, fg_colors, text_colors, ser
             continue
 
         # Format comments
-        set_comments_color(tdoc, row[session_comments_idx], fg_colors, text_colors)
+        if comments_present:
+            set_comments_color(tdoc, row[session_comments_idx], fg_colors, text_colors)
     book.save(filename)
 
 

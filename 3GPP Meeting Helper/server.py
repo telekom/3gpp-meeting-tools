@@ -219,8 +219,13 @@ def get_tmp_folder(create_dir=True):
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
+def get_cache_folder(create_dir=False):
+    folder_name = os.path.expanduser(os.path.join('~', root_folder, 'cache'))
+    create_folder_if_needed(folder_name, create_dir)
+    return folder_name
+
 def get_meeting_folder(meeting_folder_name, create_dir=False):
-    folder_name = os.path.expanduser(os.path.join('~', root_folder, 'cache', meeting_folder_name))
+    folder_name = os.path.join(get_cache_folder(create_dir=create_dir), meeting_folder_name)
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
@@ -313,9 +318,14 @@ def unzip_tdoc_files(zip_file):
     zip_ref = zipfile.ZipFile(zip_file, 'r')
     files_in_zip = zip_ref.namelist()
     # Check if is there any file in the zip that does not exist. If not, then do not extract
-    need_to_extract = any(item == False for item in map(os.path.isfile, map(lambda x: os.path.join(tdoc_folder, x), files_in_zip)))
-    if need_to_extract:
+    # need_to_extract = any(item == False for item in map(os.path.isfile, map(lambda x: os.path.join(tdoc_folder, x), files_in_zip)))
+    # Removed check whether extracting is needed, as some people reused the same file name on different document versions...
+    # Added exception catch as the file may probably be alrady open
+    try:
         zip_ref.extractall(tdoc_folder)
+    except:
+        print('Could not extract files')
+        traceback.print_exc()
     return [os.path.join(tdoc_folder, file) for file in files_in_zip]
 
 def get_agenda_files(meeting_folder, use_inbox=False):

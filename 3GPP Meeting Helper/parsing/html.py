@@ -4,6 +4,7 @@ import re
 import config.contributor_names
 import collections
 import os.path
+import os
 import datetime
 import collections
 import traceback
@@ -16,7 +17,8 @@ TdocComments   = collections.namedtuple('TdocComments', 'revision_of revised_to 
 TdocBasicInfo  = collections.namedtuple('TdocBasicInfo', 'tdoc title source ai work_item')
 ftp_list_regex = re.compile(r'(\d?\d\/\d?\d\/\d\d\d\d) *(\d?\d:\d\d) (AM|PM) *(<dir>|\d+) *')
 title_cr_regex = re.compile(r'([\d]{2}\.[\d]{3}) CR([\d]{1,4})')
-current_cache_version = 1.3
+comment_span   = re.compile(r'<span title="(.*)">(.*)')
+current_cache_version = 1.41
 
 # Control maximum recursion to avoid stack overflow. Some manual errors in the TDocsByAgenda may lead to circular references
 max_recursion  = 10
@@ -289,6 +291,8 @@ def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder=''):
                         print('Saved TDocsByAgenda cache to file {0}'.format(cache_file_name))
             except:
                 print('Could not cache TDocsByAgenda for meeting {0}'.format(meeting_server_folder))
+                print('Object to serialize:')
+                print(data_to_save)
                 traceback.print_exc()
     else:
         # Path-based fetching uses no hash
@@ -403,8 +407,15 @@ class tdocs_by_agenda(object):
                                 dataframe = cache['tdocs']
                                 dataframe_from_cache = True
                                 print('Loaded TDocsByAgenda from file cache: {0}'.format(cache_file_name))
+                                remove_old_cache = False
                             else:
-                                print('Cache version mismatch. Not reading from cache')
+                                print('Cache version mismatch. Not reading from cache. Removing old cache')
+                                remove_old_cache = True
+
+                        if remove_old_cache:
+                            print('New cache version. Removing old cache (will get re-saved with new version)')
+                            os.remove(cache_file_name)
+
                 except:
                     print('Could not load file cache for meeting {0}, hash {1}'.format(meeting_server_folder, html_hash))
                     traceback.print_exc()
@@ -416,6 +427,15 @@ class tdocs_by_agenda(object):
         if not dataframe_from_cache:
             print('Cleaning up Unicode characters so that Excel export does not crash')
             dataframe = dataframe.applymap(lambda x: x.encode('unicode_escape').decode('utf-8') if isinstance(x, str) else x)
+
+        # Cleanup comments. Sometimes we have "span" tags polluting comments
+        if not dataframe_from_cache:
+            print('Cleaning up comments column')
+            try:
+                dataframe['Comments'] = dataframe['Comments'].apply(lambda x: tdocs_by_agenda.clean_up_comment(x))
+            except:
+                print('Could not clean-up comments')
+                traceback.print_exc()
 
         # Assign dataframe
         self.tdocs = dataframe
@@ -429,6 +449,13 @@ class tdocs_by_agenda(object):
             self.others_cosigners    = cache['others_cosigners']
             self.contributor_columns = cache['contributor_columns']
         config.contributor_names.reset_others()
+
+    def clean_up_comment(comment_str):
+        comment_match = comment_span.match(comment_str)
+        if comment_match is None:
+            return comment_str
+        fixed_comment = '{0}. {1}'.format(comment_match.group(1), comment_match.group(2))
+        return fixed_comment
 
     def get_meeting_number(tdocs_by_agenda_html):
         meeting_number_match = tdocs_by_agenda.meeting_number_regex.search(tdocs_by_agenda_html)
