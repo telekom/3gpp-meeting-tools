@@ -241,7 +241,7 @@ class ToolsDialog:
         print('Finished exporting Word report')
 
     # ToDo: change output_meeting so that it can be a string!!!
-    def export_tdocs_by_agenda_to_excel(self, selected_meeting=None, output_meeting=None, filename='TdocsByAgenda', close_file=False, use_thread=True, current_dt_str=None):
+    def export_tdocs_by_agenda_to_excel(self, selected_meeting=None, output_meeting=None, filename='TdocsByAgenda', close_file=False, use_thread=True, current_dt_str=None, process_comments=True, destination_folder=None):
         try:
             if selected_meeting is None:
                 selected_meeting = gui.main.tkvar_meeting.get()
@@ -257,7 +257,10 @@ class ToolsDialog:
                 print('Could not find agenda file for {0}'.format(selected_meeting))
                 return
 
-            (head,tail) = os.path.split(server.get_local_tdocs_by_agenda_filename(output_meeting_folder))
+            if destination_folder is None:
+                (head, tail) = os.path.split(server.get_local_tdocs_by_agenda_filename(output_meeting_folder))
+            else:
+                head = destination_folder
             if current_dt_str is None:
                 current_dt_str = application.get_now_time_str()
             excel_export = os.path.join(head, '{0} {1}.xlsx'.format(current_dt_str, filename))
@@ -269,15 +272,16 @@ class ToolsDialog:
             self.tdoc_report_button.config(text='Exporting... DO NOT interrupt Excel until COMPLETELY finished!', state='disabled')
 
             if use_thread:
-                t = threading.Thread(target=lambda:self.export_and_open_excel(input_local_agenda_file, excel_export, input_meeting_folder, selected_meeting,close_file))
+                t = threading.Thread(target=lambda:self.export_and_open_excel(input_local_agenda_file, excel_export, input_meeting_folder, selected_meeting, close_file, process_comments=process_comments, add_pivot_summary=False))
                 t.start()
             else:
-                self.export_and_open_excel(input_local_agenda_file, excel_export, input_meeting_folder, selected_meeting,close_file)
+                self.export_and_open_excel(input_local_agenda_file, excel_export, input_meeting_folder, selected_meeting, close_file, process_comments=process_comments, add_pivot_summary=False)
         except:
             print('Could not export TDocs by agenda data')
             traceback.print_exc()
 
-    def export_and_open_excel(self, local_agenda_file, excel_export, meeting_folder, sheet_name, close_file=False, writer=None):
+    def export_and_open_excel(self, local_agenda_file, excel_export, meeting_folder, sheet_name, close_file=False,
+                              process_comments=True, add_pivot_summary=True):
         try:
             tdocs_by_agenda = html_parser.tdocs_by_agenda(gui.main.get_tdocs_by_agenda_file_or_url(local_agenda_file))
 
@@ -290,7 +294,10 @@ class ToolsDialog:
 
             # Get TDoc comments from the comments files
             agenda_folder   = os.path.dirname(os.path.abspath(local_agenda_file))
-            parsed_comments = parsing.excel.get_comments_from_dir_format(agenda_folder, merge_comments=True)
+            if process_comments:
+                parsed_comments = parsing.excel.get_comments_from_dir_format(agenda_folder, merge_comments=True)
+            else:
+                parsed_comments = None
             fg_color   = {}
             text_color = {}
             if parsed_comments is not None:
@@ -378,7 +385,8 @@ class ToolsDialog:
             excel_parser.set_tdoc_colors(wb, server_urls)
             excel_parser.hide_columns(wb, ['H', 'K:S'])
             excel_parser.vertically_center_all_text(wb)
-            excel_parser.generate_pivot_chart_from_tdocs_by_agenda(wb)
+            if add_pivot_summary:
+                excel_parser.generate_pivot_chart_from_tdocs_by_agenda(wb)
             excel_parser.save_wb(wb)
             if close_file:
                 excel_parser.close_wb(wb)
@@ -443,10 +451,6 @@ class ToolsDialog:
         last_folder = meetings_to_check.meeting_folders[-1]
         current_dt_str = application.get_now_time_str()
 
-        meeting_folder = application.sa2_meeting_data.get_server_folder_for_meeting_choice(output_meeting)
-        local_agenda_file = server.get_local_tdocs_by_agenda_filename(meeting_folder)
-        (head,tail) = os.path.split(local_agenda_file)
-        excel_export = os.path.join(head, '{0} {1}.xlsx'.format(current_dt_str, filename))
         for meeting_to_check in meetings_to_check.meeting_folders:
             print(meeting_to_check)
             close_file = meeting_to_check != last_folder
@@ -456,7 +460,9 @@ class ToolsDialog:
                 filename=filename,
                 close_file=close_file,
                 use_thread=False,
-                current_dt_str=current_dt_str)
+                current_dt_str=current_dt_str,
+                process_comments=False,
+                destination_folder=server.get_cache_folder())
 
     def cache_tdocs(self, tdoc_list):
         if tdoc_list is None:
