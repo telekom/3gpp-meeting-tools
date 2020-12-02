@@ -1,45 +1,54 @@
-import win32com.client
-import re
-import collections
-import traceback
-import pandas as pd
+import io
 import os
 import os.path
-import openpyxl 
-from openpyxl.styles import PatternFill
+import re
+import traceback
+
+import openpyxl
+import pandas as pd
+import win32com.client
+from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
-from openpyxl.worksheet._write_only import WriteOnlyCell
-import string
-import io
+from openpyxl.styles import PatternFill
 
-win32c  = win32com.client.constants
+win32c = win32com.client.constants
 
-color_magenta     = (234, 10, 142)
-color_black       = (0, 0, 0)
-color_white       = (255, 255, 255)
-color_green       = (0, 97, 0)
+color_magenta = (234, 10, 142)
+color_black = (0, 0, 0)
+color_white = (255, 255, 255)
+
+# Also used for conditional formatting
+color_green = (0, 97, 0)
 color_light_green = (198, 239, 206)
+color_dark_red = (156, 0, 6)
+color_light_red = (255, 199, 206)
+color_dark_grey = (128, 128, 128)
+color_light_grey = (217, 217, 217)
+color_dark_yellow = (156, 87, 0)
+color_light_yellow = (255, 235, 156)
 
 comments_regex = re.compile(r'Comment[s]? [\(]?([\w]+)[\)]?|(.*Session) [cC]omments')
 comments_filename_regex = re.compile(r'.*[Cc]omments.*\.xlsx')
 comments_summary_column = 'Comments summary'
 session_comments_column = 'Session comments'
 revision_of_column = 'Revision of'
-revised_to_column  = 'Revised to'
+revised_to_column = 'Revised to'
 
 last_column = 'U'
 
+
 def get_excel():
-    try: 
+    try:
         excel = win32com.client.Dispatch("Excel.Application")
         excel.Visible = True
-        excel.DisplayAlerts = False  
+        excel.DisplayAlerts = False
     except:
         excel = None
         traceback.print_exc()
     return excel
 
-def open_excel_document(filename = None, excel = None, sheet_name=None):
+
+def open_excel_document(filename=None, excel=None, sheet_name=None):
     if excel is None:
         excel = get_excel()
     if (filename is None) or (filename == ''):
@@ -50,8 +59,10 @@ def open_excel_document(filename = None, excel = None, sheet_name=None):
         select_worksheet(wb, sheet_name)
     return wb
 
+
 def select_worksheet(wb, name):
     wb.Worksheets(name).Activate()
+
 
 def set_first_row_as_filter(wb, ws_name=None, already_activated=False):
     try:
@@ -67,6 +78,7 @@ def set_first_row_as_filter(wb, ws_name=None, already_activated=False):
         get_excel().ActiveWindow.FreezePanes = True
     except:
         traceback.print_exc()
+
 
 def adjust_tdocs_by_agenda_column_width(wb):
     try:
@@ -87,11 +99,11 @@ def adjust_tdocs_by_agenda_column_width(wb):
         ws.Range("M:M").ColumnWidth = 14
         ws.Range("N:N").ColumnWidth = 14
         ws.Range("O:O").ColumnWidth = 6
-        
+
         # CR info
         ws.Range("P:P").ColumnWidth = 7
         ws.Range("Q:Q").ColumnWidth = 7
-        
+
         # Original and final TDocs
         ws.Range("R:R").ColumnWidth = 30
         ws.Range("S:S").ColumnWidth = 30
@@ -108,8 +120,10 @@ def adjust_tdocs_by_agenda_column_width(wb):
     except:
         traceback.print_exc()
 
+
 def close_wb(wb):
     wb.Close()
+
 
 def generate_pivot_chart_from_tdocs_by_agenda(wb):
     try:
@@ -118,12 +132,12 @@ def generate_pivot_chart_from_tdocs_by_agenda(wb):
         ws = wb.ActiveSheet
         # Generate Pivot chart in new worksheet based on columns A:D
         pivot_table_source_data = ws.Range("A:D")
-        XlPivotTableSourceType  = 1 # xlDatabase, see https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivottablesourcetype
-        XlPivotTableVersion     = 5 # xlPivotTableVersion15 (Excel 2013), see https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivottableversionlist
-        pivot_cache             = wb.PivotCaches().Create(XlPivotTableSourceType, pivot_table_source_data, XlPivotTableVersion)
+        XlPivotTableSourceType = 1  # xlDatabase, see https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivottablesourcetype
+        XlPivotTableVersion = 5  # xlPivotTableVersion15 (Excel 2013), see https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivottableversionlist
+        pivot_cache = wb.PivotCaches().Create(XlPivotTableSourceType, pivot_table_source_data, XlPivotTableVersion)
 
         # Create pivot chart
-        pivot_chart_wb = wb.Sheets.Add(Before=None , After=ws)
+        pivot_chart_wb = wb.Sheets.Add(Before=None, After=ws)
         pivot_chart_wb.Name = "Summary"
 
         pivot_table = pivot_cache.CreatePivotTable(
@@ -168,27 +182,27 @@ def generate_pivot_chart_from_tdocs_by_agenda(wb):
         # xlRowField	1	Row
         td_field = pivot_table.PivotFields("TD#")
         td_field.Orientation = 4
-        td_field.Position    = 1
+        td_field.Position = 1
 
         ai_field = pivot_table.PivotFields("AI")
         ai_field.Orientation = 1
-        ai_field.Position    = 1
+        ai_field.Position = 1
 
         ai_field = pivot_table.PivotFields("Type")
         ai_field.Orientation = 2
-        ai_field.Position    = 1
+        ai_field.Position = 1
 
         print("Generating per-AI pivot chart")
         points_per_cm = 28.3465
-        chart_width_cm  = 24
+        chart_width_cm = 24
         chart_height_cm = 14
         summary_chart = wb.Charts.Add()
         # summary_chart = summary_shape.Chart
         summary_chart.Name = "TDocs per AI"
-        summary_chart.ChartType = 52 # xlColumnStacked, see https://docs.microsoft.com/en-us/office/vba/api/excel.xlcharttype
-        summary_chart.ChartArea.Format.Line.Visible = 0 # True = -1; False = 0
-        summary_chart.HasTitle  = False
-        summary_chart.HasLegend = True # Legend show because we are showing per-type stacked bars
+        summary_chart.ChartType = 52  # xlColumnStacked, see https://docs.microsoft.com/en-us/office/vba/api/excel.xlcharttype
+        summary_chart.ChartArea.Format.Line.Visible = 0  # True = -1; False = 0
+        summary_chart.HasTitle = False
+        summary_chart.HasLegend = True  # Legend show because we are showing per-type stacked bars
         summary_chart.ShowAllFieldButtons = False
         x_axis = summary_chart.Axes(1)
         x_axis.HasTitle = True
@@ -202,6 +216,7 @@ def generate_pivot_chart_from_tdocs_by_agenda(wb):
     except:
         traceback.print_exc()
 
+
 def vertically_center_all_text(wb):
     try:
         wb.Activate()
@@ -211,6 +226,7 @@ def vertically_center_all_text(wb):
         ws.Range("A:" + last_column).EntireRow.VerticalAlignment = -4108
     except:
         traceback.print_exc()
+
 
 # https://stackoverflow.com/questions/11444207/setting-a-cells-fill-rgb-color-with-pywin32-in-excel
 def rgb_to_hex(rgb):
@@ -224,6 +240,19 @@ def rgb_to_hex(rgb):
     iValue = int(strValue, 16)
     return iValue
 
+
+def hide_columns(wb, columns):
+    try:
+        wb.Activate()
+        ws = wb.ActiveSheet
+
+        for column in columns:
+            print('Hiding column {0}'.format(column))
+            ws.Columns(column).Hidden = True
+    except:
+        traceback.print_exc()
+
+
 def set_tdoc_colors(wb, links, no_index_links=True):
     tdoc_cell_mapping = {}
     try:
@@ -234,19 +263,34 @@ def set_tdoc_colors(wb, links, no_index_links=True):
         last_row = ws.Rows.Count
 
         # Borders
-        ws.Range("A1:" + last_column + str(last_row)).Borders.LineStyle = 1 # xlContinuous -> https://docs.microsoft.com/en-us/office/vba/api/excel.xllinestyle
-        ws.Range("A1:" + last_column + str(last_row)).Borders.Color     = rgb_to_hex(color_black)
-        ws.Range("A1:" + last_column + str(last_row)).Borders.Weight    = 2 # xlThin -> https://docs.microsoft.com/en-us/office/vba/api/excel.xlborderweight
+        ws.Range("A1:" + last_column + str(
+            last_row)).Borders.LineStyle = 1  # xlContinuous -> https://docs.microsoft.com/en-us/office/vba/api/excel.xllinestyle
+        ws.Range("A1:" + last_column + str(last_row)).Borders.Color = rgb_to_hex(color_black)
+        ws.Range("A1:" + last_column + str(
+            last_row)).Borders.Weight = 2  # xlThin -> https://docs.microsoft.com/en-us/office/vba/api/excel.xlborderweight
 
         # Results conditional formatting
         # https://docs.microsoft.com/en-us/office/vba/api/excel.xlformatconditiontype
         # xlCellValue 1
         # xlEqual 3
-        agreed_cells = ws.Range("J2:J" + str(last_row)).FormatConditions.Add(1, 3, 'Agreed')
-        agreed_cells.Font.Color = rgb_to_hex(color_green)
-        agreed_cells.Interior.Color = rgb_to_hex(color_light_green)
+        results_cells = "J2:J" + str(last_row)
+
+        def apply_conditional_formatting(the_range, criteria, text_color, background_color):
+            the_cells = ws.Range(the_range).FormatConditions.Add(1, 3, criteria)
+            the_cells.Font.Color = rgb_to_hex(text_color)
+            the_cells.Interior.Color = rgb_to_hex(background_color)
+            return the_cells
+
+        # Results formatting
+        apply_conditional_formatting(results_cells, 'Agreed', color_green, color_light_green)
+        apply_conditional_formatting(results_cells, 'Approved', color_green, color_light_green)
+        apply_conditional_formatting(results_cells, 'Noted', color_dark_red, color_light_red)
+        apply_conditional_formatting(results_cells, 'Revised', color_dark_grey, color_light_grey)
+        apply_conditional_formatting(results_cells, 'Merged', color_dark_grey, color_light_grey)
+        apply_conditional_formatting(results_cells, 'Postponed', color_dark_yellow, color_light_yellow)
     except:
         traceback.print_exc()
+
 
 def save_wb(wb):
     try:
@@ -256,13 +300,14 @@ def save_wb(wb):
     except:
         traceback.print_exc()
 
+
 def get_company_name_based_on_email(sender_address):
     company_name = ''
     try:
         split_company_name = sender_address.split('@')[-1].split('.')
         company_name = split_company_name[-2].title()
         # Fix for ZTE company name
-        if company_name == 'Com' and len(split_company_name)>2:
+        if company_name == 'Com' and len(split_company_name) > 2:
             company_name = split_company_name[-3].title()
 
         # Some capitalization of short company names
@@ -272,6 +317,7 @@ def get_company_name_based_on_email(sender_address):
         company_name = 'Could not parse'
 
     return company_name
+
 
 def export_email_approval_list(local_filename, found_attachments, tdocs_without_emails=None, tdoc_data=None):
     if (local_filename is None) or (local_filename == ''):
@@ -287,13 +333,13 @@ def export_email_approval_list(local_filename, found_attachments, tdocs_without_
     ws.title = "Revisions"
 
     # Add title row
-    ws.append(['TD#','Time','Filename mention','Sender','Company','Email','AI',"Chairman's notes"])
+    ws.append(['TD#', 'Time', 'Filename mention', 'Sender', 'Company', 'Email', 'AI', "Chairman's notes"])
 
     # Add email entries
     for idx, item in enumerate(found_attachments, start=2):
-        filename_cell    = WriteOnlyCell(ws, value=item.filename)
+        filename_cell = WriteOnlyCell(ws, value=item.filename)
         sender_name_cell = WriteOnlyCell(ws, value=item.sender_name)
-        link_cell        = WriteOnlyCell(ws, value='Link')
+        link_cell = WriteOnlyCell(ws, value='Link')
 
         # Link to file. May not always be a path
         if item.absolute_url != '':
@@ -308,24 +354,25 @@ def export_email_approval_list(local_filename, found_attachments, tdocs_without_
 
         # Write row
         ws.append([
-            item.tdoc, 
-            item.time, 
-            filename_cell, 
-            sender_name_cell, 
+            item.tdoc,
+            item.time,
+            filename_cell,
+            sender_name_cell,
             get_company_name_based_on_email(item.sender_address),
             link_cell,
             str(item.ai_folder),
             str(item.chairman_notes)
-            ])
+        ])
 
     if tdocs_without_emails is not None and tdoc_data is not None:
         ws = wb.create_sheet()
         ws.title = "TDocs without emails"
-        ws.append(['TD#','AI','Type','Doc For','Title','Source','Rel', 'Work Item', 'Comments'])
+        ws.append(['TD#', 'AI', 'Type', 'Doc For', 'Title', 'Source', 'Rel', 'Work Item', 'Comments'])
 
-        tdocs_info = tdoc_data.tdocs.loc[list(tdocs_without_emails),['AI', 'Type', 'Doc For', 'Title', 'Source', 'Rel', 'Work Item', 'Comments']]
+        tdocs_info = tdoc_data.tdocs.loc[
+            list(tdocs_without_emails), ['AI', 'Type', 'Doc For', 'Title', 'Source', 'Rel', 'Work Item', 'Comments']]
         print('{0} TDocs without matching emails'.format(len(tdocs_info.index)))
-        for row_index,row in tdocs_info.iterrows():
+        for row_index, row in tdocs_info.iterrows():
             ws.append([
                 row_index,
                 str(row['AI']),
@@ -336,9 +383,9 @@ def export_email_approval_list(local_filename, found_attachments, tdocs_without_
                 str(row['Rel']),
                 str(row['Work Item']),
                 str(row['Comments'])])
-    
+
     print('Saving Excel table structure')
-    wb.save(filename = local_filename)
+    wb.save(filename=local_filename)
     print('Closing Excel File')
     wb.close()
     print('Excel File closed')
@@ -346,13 +393,13 @@ def export_email_approval_list(local_filename, found_attachments, tdocs_without_
     # Only necessary things with VBA (much slower)
     try:
         print('Applying Excel formatting')
-        wb = open_excel_document(filename = local_filename)
+        wb = open_excel_document(filename=local_filename)
         # ws = wb.ActiveSheet
         ws = wb.Sheets("Revisions")
 
         ws.Range("A:A").ColumnWidth = 14
         ws.Range("B:B").ColumnWidth = 18
-        ws.Range("C:C").ColumnWidth = 30 # Reduced to 30 as we now just send around revision numbers
+        ws.Range("C:C").ColumnWidth = 30  # Reduced to 30 as we now just send around revision numbers
         ws.Range("D:D").ColumnWidth = 40
         ws.Range("E:E").ColumnWidth = 17
         ws.Range("F:F").ColumnWidth = 9
@@ -375,9 +422,9 @@ def export_email_approval_list(local_filename, found_attachments, tdocs_without_
         # https://stackoverflow.com/questions/11766118/excel-constants-for-sorting
         xlSortOnValues = 0
 
-        ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("G:G")) # AI
-        ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("A:A")) # TD
-        ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("B:B")) # Time
+        ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("G:G"))  # AI
+        ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("A:A"))  # TD
+        ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("B:B"))  # Time
         ws.AutoFilter.Sort.Apply()
 
         if tdocs_without_emails is not None and tdoc_data is not None:
@@ -401,14 +448,15 @@ def export_email_approval_list(local_filename, found_attachments, tdocs_without_
 
             set_first_row_as_filter(wb, 'TDocs without emails', already_activated=True)
             ws.AutoFilter.Sort.SortFields.Clear()
-            ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("B:B")) # AI
-            ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("A:A")) # TD
+            ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("B:B"))  # AI
+            ws.AutoFilter.Sort.SortFields.Add(Order=xlAscending, SortOn=xlSortOnValues, Key=ws.Range("A:A"))  # TD
             ws.AutoFilter.Sort.Apply()
 
         print('Finished email approval export')
         wb.SaveAs(local_filename)
     except:
         traceback.print_exc()
+
 
 def read_comments_file(filename):
     try:
@@ -419,11 +467,11 @@ def read_comments_file(filename):
         if session_comments_column not in column_names:
             df[session_comments_column] = ''
         # Avoid type errors when RegEx-ing
-        column_names        = [str(e) for e in column_names ]
+        column_names = [str(e) for e in column_names]
         column_name_matches = [comments_regex.match(column_name) for column_name in column_names]
-        cleaned_column_name_matches = [ match for match in column_name_matches if match is not None ]
-        column_matches              = [ (match_data.group(0), match_data.group(1)) for match_data in cleaned_column_name_matches ]
-        name_columns                = [ col_data[1] for col_data in column_matches ]
+        cleaned_column_name_matches = [match for match in column_name_matches if match is not None]
+        column_matches = [(match_data.group(0), match_data.group(1)) for match_data in cleaned_column_name_matches]
+        name_columns = [col_data[1] for col_data in column_matches]
         for idx in df.index.values:
             try:
                 initial_comments = []
@@ -435,25 +483,27 @@ def read_comments_file(filename):
                         if comment_source is not None:
                             initial_comments.append('[{0}]: {1}'.format(comment_source, comment.strip('\n')))
                 row_full_comments = '\n'.join(initial_comments)
-                session_comments  = str(df.at[idx,session_comments_column])
+                session_comments = str(df.at[idx, session_comments_column])
                 if session_comments == 'nan':
                     session_comments = None
                 if (session_comments is None) or (session_comments == ''):
                     summary_comments = row_full_comments
                 else:
-                    summary_comments  = '\n\n'.join([item for item in [row_full_comments, session_comments] if (item is not None) and (item != '')])
-                df.at[idx,comments_summary_column] = summary_comments
+                    summary_comments = '\n\n'.join(
+                        [item for item in [row_full_comments, session_comments] if (item is not None) and (item != '')])
+                df.at[idx, comments_summary_column] = summary_comments
             except:
                 print('Could not import comments for TDoc {1} file {0}'.format(filename, idx))
                 traceback.print_exc()
         # Filter out columns with no comments
         df = df.loc[(df[comments_summary_column] is not None) & (df[comments_summary_column] != '')]
-        df = df.loc[:,comments_summary_column]
+        df = df.loc[:, comments_summary_column]
         return df
     except:
         print('Could not import comments file {0}'.format(filename))
         traceback.print_exc()
         return None
+
 
 def get_comment_data_from_cell(contributor_name, row, idx):
     if contributor_name is not None:
@@ -476,6 +526,7 @@ def get_comment_data_from_cell(contributor_name, row, idx):
         # ToDo: calculate closeness to red, yellow and green and set the color accordingly
         return (contributor_name, cell.value, fg_color, font_color)
 
+
 def read_comments_format(filename):
     try:
         # As per https://stackoverflow.com/questions/31416842/openpyxl-does-not-close-excel-workbook-in-read-only-mode
@@ -487,11 +538,11 @@ def read_comments_format(filename):
         ws = book.active
         comments_row = ws[1]
 
-        column_names        = [str(e.value) for e in comments_row ]
+        column_names = [str(e.value) for e in comments_row]
         column_name_matches = [comments_regex.match(column_name) for column_name in column_names]
 
         comments_to_map = []
-        for idx,match in enumerate(column_name_matches):
+        for idx, match in enumerate(column_name_matches):
             if match is None:
                 continue
             comments_to_map.append((match.group(1), idx))
@@ -501,8 +552,8 @@ def read_comments_format(filename):
         for row in ws.iter_rows(min_row=2):
             tdoc = row[0].value
             # Fix: cell may be "None"!!!! Replace with loop
-            comments = [ get_comment_data_from_cell(comment[0], row, comment[1]) for comment in comments_to_map ]
-            comments = [ comment for comment in comments if (comment[1] is not None) and (comment[1] != '') ]
+            comments = [get_comment_data_from_cell(comment[0], row, comment[1]) for comment in comments_to_map]
+            comments = [comment for comment in comments if (comment[1] is not None) and (comment[1] != '')]
             if len(comments) > 0:
                 all_comments[tdoc] = comments
         book.close()
@@ -512,13 +563,16 @@ def read_comments_format(filename):
         traceback.print_exc()
         return None
 
+
 def get_comments_files_in_dir(directory):
     try:
         all_files = os.listdir(directory)
-        comments_files = [filename for filename in all_files if (comments_filename_regex.match(filename) is not None) and (not filename.startswith('~$'))]
+        comments_files = [filename for filename in all_files if
+                          (comments_filename_regex.match(filename) is not None) and (not filename.startswith('~$'))]
         return comments_files
     except:
         return []
+
 
 def get_comments_from_dir(directory, merge_comments=False):
     files = get_comments_files_in_dir(directory)
@@ -538,6 +592,7 @@ def get_comments_from_dir(directory, merge_comments=False):
                     full_df[i] = row
     return full_df
 
+
 def get_comment_full_text(name, comment):
     if comment is None:
         return ''
@@ -547,6 +602,7 @@ def get_comment_full_text(name, comment):
     if (name is None) or ('Session' in name):
         return '{0}'.format(comment)
     return '[{0}]: {1}'.format(name, comment)
+
 
 def get_comments_from_dir_format(directory, merge_comments=False):
     files = get_comments_files_in_dir(directory)
@@ -566,7 +622,8 @@ def get_comments_from_dir_format(directory, merge_comments=False):
                 else:
                     # Add only entries not already here
                     existing_comments = full_comments[tdoc]
-                    existing_texts = [ get_comment_full_text(comment_data[0], comment_data[1]) for comment_data in existing_comments ]
+                    existing_texts = [get_comment_full_text(comment_data[0], comment_data[1]) for comment_data in
+                                      existing_comments]
                     for comment_to_eval in tdoc_comments:
                         text_to_eval = get_comment_full_text(comment_to_eval[0], comment_to_eval[1])
                         if text_to_eval not in existing_texts:
@@ -574,12 +631,14 @@ def get_comments_from_dir_format(directory, merge_comments=False):
                             existing_comments.append(comment_to_eval)
     return full_comments
 
+
 def get_reddest_color(colors):
     try:
-        sorted_colors = sorted(colors, key=lambda x: int(x[2:4],16))
+        sorted_colors = sorted(colors, key=lambda x: int(x[2:4], 16))
         return sorted_colors[-1]
     except:
         return '00000000'
+
 
 def get_colors_from_comments(comments):
     fg_colors = {}
@@ -587,15 +646,16 @@ def get_colors_from_comments(comments):
     if comments is None:
         return fg_colors, text_colors
     for tdoc, comments in comments.items():
-        fg_colors_comments = [ comment_data[2] for comment_data in comments ]
-        text_colors_comments = [ comment_data[3] for comment_data in comments ]
+        fg_colors_comments = [comment_data[2] for comment_data in comments]
+        text_colors_comments = [comment_data[3] for comment_data in comments]
 
         reddest_fg_color = get_reddest_color(fg_colors_comments)
         reddest_text_color = get_reddest_color(text_colors_comments)
 
-        fg_colors[tdoc]   = reddest_fg_color
+        fg_colors[tdoc] = reddest_fg_color
         text_colors[tdoc] = reddest_text_color
     return fg_colors, text_colors
+
 
 def apply_comments_coloring_and_hyperlinks(filename, fg_colors, text_colors, server_urls):
     book = openpyxl.load_workbook(filename)
@@ -611,10 +671,14 @@ def apply_comments_coloring_and_hyperlinks(filename, fg_colors, text_colors, ser
             print('Could not generate TDoc URL mapping')
             traceback.print_exc()
     # Column 20 is the one with the comments
-    header_column = [ cell.value for cell in ws[1] ]
-    session_comments_idx = header_column.index(session_comments_column)
+    header_column = [cell.value for cell in ws[1]]
+    try:
+        session_comments_idx = header_column.index(session_comments_column)
+        comments_present = True
+    except:
+        comments_present = False
     revision_of_idx = header_column.index(revision_of_column)
-    revised_to_idx  = header_column.index(revised_to_column)
+    revised_to_idx = header_column.index(revised_to_column)
 
     for row in ws.iter_rows(min_row=2):
         tdoc = row[0].value
@@ -626,15 +690,17 @@ def apply_comments_coloring_and_hyperlinks(filename, fg_colors, text_colors, ser
 
         if tdoc not in fg_colors:
             continue
-        
+
         # Format comments
-        set_comments_color(tdoc, row[session_comments_idx], fg_colors, text_colors)
+        if comments_present:
+            set_comments_color(tdoc, row[session_comments_idx], fg_colors, text_colors)
     book.save(filename)
+
 
 def set_comments_color(tdoc, cell, fg_colors, text_colors):
     try:
         comment_color = fg_colors[tdoc]
-        text_color    = text_colors[tdoc]
+        text_color = text_colors[tdoc]
         if (comment_color != '00000000') and (comment_color != 'FFFFFFFF'):
             cell.fill = PatternFill(start_color=comment_color, end_color=comment_color, fill_type='solid')
         if (text_color != '00000000') and (text_color != 'FFFFFFFF'):
@@ -643,8 +709,9 @@ def set_comments_color(tdoc, cell, fg_colors, text_colors):
         print('Could not set color for TDoc {0}'.format(tdoc))
         traceback.print_exc()
 
+
 def set_tdoc_hyperlink(tdoc, cell, server_urls):
-    if (tdoc is None) or (tdoc==''):
+    if (tdoc is None) or (tdoc == ''):
         return
     if tdoc in server_urls:
         cell.hyperlink = server_urls[tdoc]
