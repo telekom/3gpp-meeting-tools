@@ -25,6 +25,7 @@ class ToolsDialog:
     word_report_text = 'Word report for AIs (empty=all)'
     bulk_tdoc_open_text = "Cache TDocs"
     bulk_ai_open_text = "Cache AIs (empty=all)"
+    compare_tdocs_text = "Compare TDocs (left vs. right)"
 
     def __init__(self, parent, favicon):
         top = self.top = tkinter.Toplevel(parent)
@@ -36,7 +37,7 @@ class ToolsDialog:
         # Set the window to the front and wait until it is closed
         # https://stackoverflow.com/questions/1892339/how-to-make-a-tkinter-window-jump-to-the-front
         # top.attributes("-topmost", True)
-        tkinter.Button(top, text="Open meeting folder for selected meeting", command=self.open_local_meeting_folder).grid(row=0, column=0, columnspan=int(columnspan/2), sticky="EW")
+        tkinter.Button(top, text="Open local folder for selected meeting", command=self.open_local_meeting_folder).grid(row=0, column=0, columnspan=int(columnspan/2), sticky="EW")
         tkinter.Button(top, text="Open server meeting folder", command=self.open_server_meeting_folder).grid(row=0, column=2, columnspan=int(columnspan/2), sticky="EW")
 
         # Row 1: Export TDocs by agenda to Excel
@@ -100,21 +101,37 @@ class ToolsDialog:
         self.ai_bulk_open_button = tkinter.Button(top, text=ToolsDialog.bulk_ai_open_text, command=self.bulk_cache_ais)
         self.ai_bulk_open_button.grid(row=7, column=0, columnspan=1, sticky="EW")
 
-        # Info after analyzing TDoc
-        current_row = 8
-        tkinter.ttk.Separator(top,orient=tkinter.HORIZONTAL).grid(row=current_row, columnspan=3, sticky=(tkinter.W,tkinter.E))
-        
-        current_row += 1
-        tkinter.Label(top, text='Last opened TDoc:').grid(row=current_row, column=0)
-        tkinter.Label(top, textvariable=self.tkvar_tdoc).grid(row=current_row, column=1)
+        # Row 8: Compare
+        self.compare_tdocs_button = tkinter.Button(top, text=ToolsDialog.compare_tdocs_text, command=self.compare_tdocs)
+        self.compare_tdocs_button.grid(row=8, column=0, columnspan=1, sticky="EW")
 
-        current_row += 1
-        tkinter.Label(top, text='Original TDocs:').grid(row=current_row, column=0)
-        self.original_tdocs_textbox = gui.main.get_text_with_scrollbar(current_row, 1, height=4, current_main_frame=top, width=100)
+        self.tkvar_tdoc_to_compare_1 = tkinter.StringVar(top)
+        self.tdoc_to_compare_1_entry = tkinter.Entry(top, textvariable=self.tkvar_tdoc_to_compare_1, width=30,
+                                               font='TkDefaultFont')
+        self.tdoc_to_compare_1_entry.insert(0, '')
+        self.tdoc_to_compare_1_entry.grid(row=8, column=1, columnspan=1, padx=10, pady=10, sticky="EW")
+
+        self.tkvar_tdoc_to_compare_2 = tkinter.StringVar(top)
+        self.tdoc_to_compare_2_entry = tkinter.Entry(top, textvariable=self.tkvar_tdoc_to_compare_2, width=30,
+                                               font='TkDefaultFont')
+        self.tdoc_to_compare_2_entry.insert(0, '')
+        self.tdoc_to_compare_2_entry.grid(row=8, column=2, columnspan=1, padx=10, pady=10, sticky="EW")
+
+        # Info after analyzing TDoc
+        current_row = 9
+        # tkinter.ttk.Separator(top,orient=tkinter.HORIZONTAL).grid(row=current_row, columnspan=3, sticky=(tkinter.W,tkinter.E))
         
-        current_row += 1
-        tkinter.Label(top, text='Final TDocs:').grid(row=current_row, column=0)
-        self.final_tdocs_textbox = gui.main.get_text_with_scrollbar(current_row, 1, height=4, current_main_frame=top, width=100)
+        # current_row += 1
+        # tkinter.Label(top, text='Last opened TDoc:').grid(row=current_row, column=0)
+        # tkinter.Label(top, textvariable=self.tkvar_tdoc).grid(row=current_row, column=1)
+
+        # current_row += 1
+        # tkinter.Label(top, text='Original TDocs:').grid(row=current_row, column=0)
+        # self.original_tdocs_textbox = gui.main.get_text_with_scrollbar(current_row, 1, height=4, current_main_frame=top, width=100)
+        
+        # current_row += 1
+        # tkinter.Label(top, text='Final TDocs:').grid(row=current_row, column=0)
+        # self.final_tdocs_textbox = gui.main.get_text_with_scrollbar(current_row, 1, height=4, current_main_frame=top, width=100)
 
         def set_original_tdocs(*args):
             self.original_tdocs_textbox.delete('1.0', tkinter.END)
@@ -224,7 +241,7 @@ class ToolsDialog:
         print('Finished exporting Word report')
 
     # ToDo: change output_meeting so that it can be a string!!!
-    def export_tdocs_by_agenda_to_excel(self, selected_meeting=None, output_meeting=None, filename='TdocsByAgenda', close_file=False, use_thread=True, current_dt_str=None):
+    def export_tdocs_by_agenda_to_excel(self, selected_meeting=None, output_meeting=None, filename='TdocsByAgenda', close_file=False, use_thread=True, current_dt_str=None, process_comments=True, destination_folder=None):
         try:
             if selected_meeting is None:
                 selected_meeting = gui.main.tkvar_meeting.get()
@@ -240,7 +257,10 @@ class ToolsDialog:
                 print('Could not find agenda file for {0}'.format(selected_meeting))
                 return
 
-            (head,tail) = os.path.split(server.get_local_tdocs_by_agenda_filename(output_meeting_folder))
+            if destination_folder is None:
+                (head, tail) = os.path.split(server.get_local_tdocs_by_agenda_filename(output_meeting_folder))
+            else:
+                head = destination_folder
             if current_dt_str is None:
                 current_dt_str = application.get_now_time_str()
             excel_export = os.path.join(head, '{0} {1}.xlsx'.format(current_dt_str, filename))
@@ -252,15 +272,16 @@ class ToolsDialog:
             self.tdoc_report_button.config(text='Exporting... DO NOT interrupt Excel until COMPLETELY finished!', state='disabled')
 
             if use_thread:
-                t = threading.Thread(target=lambda:self.export_and_open_excel(input_local_agenda_file, excel_export, input_meeting_folder, selected_meeting,close_file))
+                t = threading.Thread(target=lambda:self.export_and_open_excel(input_local_agenda_file, excel_export, input_meeting_folder, selected_meeting, close_file, process_comments=process_comments, add_pivot_summary=False))
                 t.start()
             else:
-                self.export_and_open_excel(input_local_agenda_file, excel_export, input_meeting_folder, selected_meeting,close_file)
+                self.export_and_open_excel(input_local_agenda_file, excel_export, input_meeting_folder, selected_meeting, close_file, process_comments=process_comments, add_pivot_summary=False)
         except:
             print('Could not export TDocs by agenda data')
             traceback.print_exc()
 
-    def export_and_open_excel(self, local_agenda_file, excel_export, meeting_folder, sheet_name, close_file=False, writer=None):
+    def export_and_open_excel(self, local_agenda_file, excel_export, meeting_folder, sheet_name, close_file=False,
+                              process_comments=True, add_pivot_summary=True):
         try:
             tdocs_by_agenda = html_parser.tdocs_by_agenda(gui.main.get_tdocs_by_agenda_file_or_url(local_agenda_file))
 
@@ -273,7 +294,10 @@ class ToolsDialog:
 
             # Get TDoc comments from the comments files
             agenda_folder   = os.path.dirname(os.path.abspath(local_agenda_file))
-            parsed_comments = parsing.excel.get_comments_from_dir_format(agenda_folder, merge_comments=True)
+            if process_comments:
+                parsed_comments = parsing.excel.get_comments_from_dir_format(agenda_folder, merge_comments=True)
+            else:
+                parsed_comments = None
             fg_color   = {}
             text_color = {}
             if parsed_comments is not None:
@@ -359,8 +383,10 @@ class ToolsDialog:
             excel_parser.set_first_row_as_filter(wb)
             excel_parser.adjust_tdocs_by_agenda_column_width(wb)
             excel_parser.set_tdoc_colors(wb, server_urls)
+            excel_parser.hide_columns(wb, ['H', 'K:S'])
             excel_parser.vertically_center_all_text(wb)
-            excel_parser.generate_pivot_chart_from_tdocs_by_agenda(wb)
+            if add_pivot_summary:
+                excel_parser.generate_pivot_chart_from_tdocs_by_agenda(wb)
             excel_parser.save_wb(wb)
             if close_file:
                 excel_parser.close_wb(wb)
@@ -425,10 +451,6 @@ class ToolsDialog:
         last_folder = meetings_to_check.meeting_folders[-1]
         current_dt_str = application.get_now_time_str()
 
-        meeting_folder = application.sa2_meeting_data.get_server_folder_for_meeting_choice(output_meeting)
-        local_agenda_file = server.get_local_tdocs_by_agenda_filename(meeting_folder)
-        (head,tail) = os.path.split(local_agenda_file)
-        excel_export = os.path.join(head, '{0} {1}.xlsx'.format(current_dt_str, filename))
         for meeting_to_check in meetings_to_check.meeting_folders:
             print(meeting_to_check)
             close_file = meeting_to_check != last_folder
@@ -438,7 +460,9 @@ class ToolsDialog:
                 filename=filename,
                 close_file=close_file,
                 use_thread=False,
-                current_dt_str=current_dt_str)
+                current_dt_str=current_dt_str,
+                process_comments=False,
+                destination_folder=server.get_cache_folder())
 
     def cache_tdocs(self, tdoc_list):
         if tdoc_list is None:
@@ -480,3 +504,44 @@ class ToolsDialog:
         except:
             print('General error performing bulk AI caching')
             traceback.print_exc()
+
+    def compare_tdocs(self):
+        print("Not yet implemented")
+        try:
+            gui.main.open_downloaded_tdocs = False
+            tdocs_1 = []
+            tdocs_2 = []
+            entry_1 = self.tkvar_tdoc_to_compare_1.get()
+            entry_2 = self.tkvar_tdoc_to_compare_2.get()
+            match_1 = tdoc.tdoc_regex.match(entry_1)
+            match_2 = tdoc.tdoc_regex.match(entry_2)
+
+            # Strip revision number from any input (we will search for the matching document on the list)
+            search_1 = '{0}-{1}{2}'.format(match_1.group('group'), match_1.group('year'), match_1.group('tdoc_number'))
+            search_2 = '{0}-{1}{2}'.format(match_2.group('group'), match_2.group('year'), match_2.group('tdoc_number'))
+
+            # Download (cache) documents to compare
+            gui.main.download_and_open_tdoc(entry_1, tdocs_1)
+            gui.main.download_and_open_tdoc(entry_2, tdocs_2)
+
+            # There may be several documents (e.g. other TDocs as attachment). Strip the list to the most likely
+            # candidates to be the actual TDoc
+            tdocs_1 = [e for e in tdocs_1 if search_1 in e]
+            tdocs_2 = [e for e in tdocs_2 if search_2 in e]
+
+            print('TDoc to compare 1: {0}'.format(tdocs_1))
+            print('TDoc to compare 2: {0}'.format(tdocs_2))
+
+            if len(tdocs_1) == 0 or len(tdocs_2) == 0:
+                print('Need two TDocs to compare. One of them does not contain TDocs')
+                return
+
+            tdocs_1 = tdocs_1[0]
+            tdocs_2 = tdocs_2[0]
+
+            word_parser.compare_documents(tdocs_1, tdocs_2)
+        except:
+            print('Could not compare documents')
+            traceback.print_exc()
+        finally:
+            gui.main.open_downloaded_tdocs = True

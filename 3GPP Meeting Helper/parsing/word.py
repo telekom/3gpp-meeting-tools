@@ -11,27 +11,31 @@ from datetime import datetime
 
 title_regex = re.compile(r'Title:[\s\n]*(?P<title>.*)[\s\n]*\n', re.MULTILINE)
 source_regex = re.compile(r'Source:[\s\n]*(?P<source>.*)[\s\n]*\n', re.MULTILINE)
-cr_regex = re.compile(r'Title:[\s\n]*(?P<title>.*)[\n]*Source to WG:[\s\n]*(?P<source>.*)[\s\n]*Source to TSG', re.MULTILINE)
+cr_regex = re.compile(r'Title:[\s\n]*(?P<title>.*)[\n]*Source to WG:[\s\n]*(?P<source>.*)[\s\n]*Source to TSG',
+                      re.MULTILINE)
 tdoc_regex = re.compile(r'[S\d]*-\d\d[\d]+')
 
-color_magenta      = (234, 10, 142)
-color_black        = (0, 0, 0)
-color_white        = (255, 255, 255)
-color_green        = (0, 97, 0)
-color_light_green  = (198, 239, 206)
-color_light_gray   = (242, 242, 242)
+color_magenta = (234, 10, 142)
+color_black = (0, 0, 0)
+color_white = (255, 255, 255)
+color_green = (0, 97, 0)
+color_light_green = (198, 239, 206)
+color_light_gray = (242, 242, 242)
 color_light_yellow = (255, 242, 204)
 
-toc_section_style             = 'Überschrift 1'
-source_section_style          = 'Überschrift 1'
-source_subsection_style       = 'Überschrift 2'
-tdoc_list_section_style       = 'Überschrift 1'
-tdoc_list_ai_section_style    = 'Überschrift 2'
-tdoc_list_ai_subsection_style = 'Überschrift 3'
-standard_style                = 'Standard'
+# See https://docs.microsoft.com/en-us/office/vba/api/Word.WdBuiltinStyle
+toc_section_style = -2  # 'Überschrift 1'
+source_section_style = -2  # 'Überschrift 1'
+source_subsection_style = -3  # 'Überschrift 2'
+tdoc_list_section_style = -2  # 'Überschrift 1'
+tdoc_list_ai_section_style = -3  # 'Überschrift 2'
+tdoc_list_ai_subsection_style = -4  # 'Überschrift 3'
+standard_style = -1  # 'Standard'
 
 Tdoc = collections.namedtuple('TDoc', 'title source')
-TdocStats = collections.namedtuple('TdocStats', 'tdoc_count tdoc_handled_count result_agreed_count result_revised_count result_noted_count')
+TdocStats = collections.namedtuple('TdocStats',
+                                   'tdoc_count tdoc_handled_count result_agreed_count result_revised_count result_noted_count')
+
 
 # https://stackoverflow.com/questions/11444207/setting-a-cells-fill-rgb-color-with-pywin32-in-excel
 def rgb_to_hex(rgb):
@@ -45,8 +49,9 @@ def rgb_to_hex(rgb):
     iValue = int(strValue, 16)
     return iValue
 
+
 def get_word():
-    try: 
+    try:
         word = win32com.client.GetActiveObject("Word.Application")
     except:
         try:
@@ -54,17 +59,18 @@ def get_word():
         except:
             word = None
     if word is not None:
-        try: 
+        try:
             word.Visible = True
         except:
             print('Could not set property "Visible" from Word to "True"')
-        try: 
-            word.DisplayAlerts = False 
+        try:
+            word.DisplayAlerts = False
         except:
             print('Could not set property "DisplayAlerts" from Word to "False"')
     return word
 
-def open_word_document(filename = '', set_as_active_document = True):
+
+def open_word_document(filename='', set_as_active_document=True):
     if (filename is None) or (filename == ''):
         doc = get_word().Documents.Add()
     else:
@@ -73,6 +79,7 @@ def open_word_document(filename = '', set_as_active_document = True):
         get_word().Activate()
         doc.Activate()
     return doc
+
 
 def get_metadata_from_doc(doc):
     if doc is None:
@@ -127,31 +134,33 @@ def get_metadata_from_doc(doc):
             source = cr_match.groupdict()['source'].strip()
 
     return Tdoc(title=title, source=source)
-    
+
+
 def parse_document(filename):
     doc = open_word_document(filename)
     return get_metadata_from_doc(doc)
+
 
 def insert_text_and_format(doc, text, style, old_style, insert_range=None):
     if insert_range is None:
         insert_range = doc.Content
     original_start = insert_range.Start
-    original_end   = insert_range.End
+    original_end = insert_range.End
     print('Text range before insertion: {0}-{1}'.format(original_start, original_end))
     insert_range.InsertAfter(text)
     modified_start = insert_range.Start
-    modified_end   = insert_range.End
+    modified_end = insert_range.End
     print('Text range after insertion: {0}-{1}'.format(insert_range.Start, insert_range.End))
 
-    start_difference = modified_start-original_start
-    end_different    = modified_end-modified_end
+    start_difference = modified_start - original_start
+    end_different = modified_end - modified_end
 
     # Format title and undo formatting for rest
     if style is not None:
         # Move range to be in modified_range
         insert_range.MoveStart(1, start_difference)
         insert_range.MoveEnd(1, end_different)
-        
+
         # Apply style
         insert_range.Style = style
 
@@ -168,12 +177,14 @@ def insert_text_and_format(doc, text, style, old_style, insert_range=None):
     # Return new position
     return insert_range
 
+
 class TDocType(Enum):
-    LS  = 2
-    CR  = 1
+    LS = 2
+    CR = 1
     ALL = 3
     CR_AND_NOTED_DISCUSSION = 4
     WID_NEW = 5
+
 
 def merge_cells(criteria_column, cols_to_merge, table):
     # Merges cells on columns based on the specified criteria column
@@ -198,51 +209,52 @@ def merge_cells(criteria_column, cols_to_merge, table):
                     if (idx != empty_cell_start) and last_cell_was_empty:
                         print('Merging cells from rows {0} to {1}'.format(current_cell_row, empty_cell_start))
                         for col_idx in cols_to_merge:
-                            start_merge = table.Cell(Row=current_cell_row, Column=col_idx+1)
-                            end_merge   = table.Cell(Row=empty_cell_start, Column=col_idx+1)
+                            start_merge = table.Cell(Row=current_cell_row, Column=col_idx + 1)
+                            end_merge = table.Cell(Row=empty_cell_start, Column=col_idx + 1)
                             start_merge.Merge(end_merge)
                     last_cell_was_empty = False
+
 
 def format_table(table):
     # Formatting
     table.Rows.AllowBreakAcrossPages = False
     table.Borders.Enable = True
     # Line styles https://docs.microsoft.com/en-us/office/vba/api/word.wdlinestyle
-    table.Borders.InsideLineStyle  = 1
+    table.Borders.InsideLineStyle = 1
     table.Borders.OutsideLineStyle = 1
     # Line Widths https://docs.microsoft.com/en-us/office/vba/api/word.WdLineWidth
-    table.Borders.InsideLineWidth  = 8
+    table.Borders.InsideLineWidth = 8
     table.Borders.OutsideLineWidth = 8
     # Line color https://docs.microsoft.com/en-us/office/vba/api/word.WdColor
-    table.Borders.InsideColor  = 0
+    table.Borders.InsideColor = 0
     table.Borders.OutsideColor = 0
 
     # Header cell
     header_row = table.Rows[0]
     header_row.Range.Font.Bold = True
-    header_row.HeadingFormat   = True
+    header_row.HeadingFormat = True
 
     # Vertical alignment
     for idx, row in enumerate(table.Rows):
         # wdCellAlignVerticalCente=1. See https://docs.microsoft.com/en-us/dotnet/api/microsoft.office.interop.word.wdcellverticalalignment?view=word-pia
         row.Cells.VerticalAlignment = 1
         row.Range.ParagraphFormat.SpaceBefore = 0
-        row.Range.ParagraphFormat.SpaceAfter  = 0
+        row.Range.ParagraphFormat.SpaceAfter = 0
+
 
 def fill_in_table(
-    doc, 
-    df, 
-    type, 
-    meeting_folder, 
-    insert_range = None, 
-    title_style = 'Überschrift 2', 
-    standard_style = 'Standard', 
-    status_to_show = [],
-    status_to_ignore = [],
-    show_comments = True,
-    show_statistics = True):
-
-    if (df is None) or (doc is None) or (len(df)==0):
+        doc,
+        df,
+        type,
+        meeting_folder,
+        insert_range=None,
+        title_style='Überschrift 2',
+        standard_style='Standard',
+        status_to_show=[],
+        status_to_ignore=[],
+        show_comments=True,
+        show_statistics=True):
+    if (df is None) or (doc is None) or (len(df) == 0):
         return insert_range
 
     # Filter only wanted status and generate some statistics
@@ -257,10 +269,10 @@ def fill_in_table(
         df = df[~lowercase_results.isin(lowercase_ignores)]
 
     # Check length after filtering
-    if len(df)==0:
+    if len(df) == 0:
         return insert_range
 
-    if type ==TDocType.CR_AND_NOTED_DISCUSSION:
+    if type == TDocType.CR_AND_NOTED_DISCUSSION:
         type = TDocType.CR
         add_noted_disc_to_crs = True
     else:
@@ -282,8 +294,9 @@ def fill_in_table(
             columns = ['Title', 'Source', 'Work Item', 'Result']
         df = df[df['Type'].str.contains("CR")]
         if add_noted_disc_to_crs:
-            noted_disc_tdocs_idx = df_original['Type'].str.contains("DISCUSSION") & df_original['Result'].str.contains('Noted')
-            noted_disc_tdocs = df_original[noted_disc_tdocs_idx]  
+            noted_disc_tdocs_idx = df_original['Type'].str.contains("DISCUSSION") & df_original['Result'].str.contains(
+                'Noted')
+            noted_disc_tdocs = df_original[noted_disc_tdocs_idx]
             if len(noted_disc_tdocs) > 0:
                 # Put the discussion papers first
                 noted_disc_tdocs['Result'] = 'Noted (Discussion)'
@@ -303,21 +316,22 @@ def fill_in_table(
         columns = df.columns
         table_title = 'All TDocs\n'
 
-    if len(df)==0:
+    if len(df) == 0:
         return insert_range
 
-    print('Generating Word table report for {0}, {1} TDocs. Position: {2}-{3}'.format(type, len(df), insert_range.Start, insert_range.End))
+    print('Generating Word table report for {0}, {1} TDocs. Position: {2}-{3}'.format(type, len(df), insert_range.Start,
+                                                                                      insert_range.End))
 
     if use_blocks:
-        current_block           = ''
+        current_block = ''
         current_block_start_row = 2
-        current_block_started   = False
+        current_block_started = False
 
     # Table title
     insert_range = insert_text_and_format(doc, table_title, title_style, standard_style, insert_range=insert_range)
 
     if show_statistics:
-        stats_str, df_stats = get_tdoc_statistics(df, type = type)
+        stats_str, df_stats = get_tdoc_statistics(df, type=type)
         insert_range = insert_text_and_format(doc, stats_str, standard_style, standard_style, insert_range=insert_range)
 
     # 6=wdStory
@@ -326,17 +340,17 @@ def fill_in_table(
     if insert_range is None:
         cursor = doc.ActiveWindow.Selection.EndKey(6)
         insert_range = doc.ActiveWindow.Selection.Range
-    table = doc.Tables.Add(insert_range, NumRows=len(df) + 1, NumColumns=len(columns)+1)
+    table = doc.Tables.Add(insert_range, NumRows=len(df) + 1, NumColumns=len(columns) + 1)
 
     # Add column names
     table.Cell(Row=1, Column=1).Range.Text = 'TD#'
     for idx, col_name in enumerate(columns):
-        table.Cell(Row=1, Column=idx+2).Range.Text = col_name
+        table.Cell(Row=1, Column=idx + 2).Range.Text = col_name
 
     current_row = table.Rows.Last
 
     tdocs = df.index.tolist()
-    server_urls = dict([(tdoc,server.get_remote_filename(meeting_folder, tdoc, use_inbox=False)) for tdoc in tdocs])
+    server_urls = dict([(tdoc, server.get_remote_filename(meeting_folder, tdoc, use_inbox=False)) for tdoc in tdocs])
 
     # Fill in TDoc data
     row_idx = 2
@@ -364,8 +378,8 @@ def fill_in_table(
                 merge_criteria = row['CR']
             else:
                 merge_criteria = row['Title']
-            if merge_criteria!='':
-                if merge_criteria!=current_block:
+            if merge_criteria != '':
+                if merge_criteria != current_block:
                     current_block = merge_criteria
                     current_block_start_row = row_idx
                     current_block_start_row = True
@@ -388,28 +402,29 @@ def fill_in_table(
                     strings_to_merge.append('Merged to: {0}'.format(row['Merged to']))
                 if len(strings_to_merge) > 0:
                     cell_content = '\n'.join(strings_to_merge)
-                
-                    table.Cell(Row=row_idx, Column=col_idx+2).Range.Text = cell_content
+
+                    table.Cell(Row=row_idx, Column=col_idx + 2).Range.Text = cell_content
                 if cell_content != '':
                     # Add TDoc links to added text
-                    cell_range     = table.Cell(Row=row_idx, Column=col_idx+2).Range
+                    cell_range = table.Cell(Row=row_idx, Column=col_idx + 2).Range
                     current_cell_text = cell_range.Text
-                    found_tdocs    = tdoc_regex.finditer(current_cell_text)
+                    found_tdocs = tdoc_regex.finditer(current_cell_text)
                     content_length = len(current_cell_text)
                     for m in found_tdocs:
                         m_start = m.start(0)
-                        m_end   = m.end(0)
-                        m_tdoc  = m.group(0)
+                        m_end = m.end(0)
+                        m_tdoc = m.group(0)
                         try:
                             try:
                                 tdoc_url = server_urls[m_tdoc]
                             except:
                                 # May not be in this set of URLs. Note that the URL *may* not exist if it is from another meeting!
-                                server_urls[m_tdoc] = server.get_remote_filename(meeting_folder, m_tdoc, use_inbox=False)
+                                server_urls[m_tdoc] = server.get_remote_filename(meeting_folder, m_tdoc,
+                                                                                 use_inbox=False)
                                 tdoc_url = server_urls[m_tdoc]
-                            tdoc_range = table.Cell(Row=row_idx, Column=col_idx+2).Range
+                            tdoc_range = table.Cell(Row=row_idx, Column=col_idx + 2).Range
                             range_start = tdoc_range.Start
-                            range_end   = tdoc_range.End
+                            range_end = tdoc_range.End
                             # wdCharacter=1 https://docs.microsoft.com/en-us/office/vba/api/word.wdunits
                             tdoc_range.MoveStart(1, m_start)
                             tdoc_range.MoveEnd(1, m_end - content_length + 1)
@@ -422,26 +437,32 @@ def fill_in_table(
                 cr_number = row['CR']
                 if cr_number == '':
                     # Not a CR, just copy the source list
-                    table.Cell(Row=row_idx, Column=col_idx+2).Range.Text = cell_content
+                    table.Cell(Row=row_idx, Column=col_idx + 2).Range.Text = cell_content
                 else:
                     if cr_number == last_cr:
                         # Print only the diff
-                        table.Cell(Row=row_idx, Column=col_idx+2).Range.Text =  diff_sources(last_cr_sources, cell_content)
+                        table.Cell(Row=row_idx, Column=col_idx + 2).Range.Text = diff_sources(last_cr_sources,
+                                                                                              cell_content)
                     else:
                         # New CR, print full sources
-                        table.Cell(Row=row_idx, Column=col_idx+2).Range.Text = cell_content
+                        table.Cell(Row=row_idx, Column=col_idx + 2).Range.Text = cell_content
             else:
-                table.Cell(Row=row_idx, Column=col_idx+2).Range.Text = cell_content
-            
+                table.Cell(Row=row_idx, Column=col_idx + 2).Range.Text = cell_content
 
             # Formatting for Results column (CRs)
             if value == 'Result':
-                if re.search('approved', cell_content, re.IGNORECASE) or re.search('agreed', cell_content, re.IGNORECASE) or re.search('replied to', cell_content, re.IGNORECASE):
-                    table.Cell(Row=row_idx, Column=col_idx+2).Shading.BackgroundPatternColor = rgb_to_hex(color_light_green)
+                if re.search('approved', cell_content, re.IGNORECASE) or re.search('agreed', cell_content,
+                                                                                   re.IGNORECASE) or re.search(
+                        'replied to', cell_content, re.IGNORECASE):
+                    table.Cell(Row=row_idx, Column=col_idx + 2).Shading.BackgroundPatternColor = rgb_to_hex(
+                        color_light_green)
                 elif re.search('revised', cell_content, re.IGNORECASE):
-                    table.Cell(Row=row_idx, Column=col_idx+2).Shading.BackgroundPatternColor = rgb_to_hex(color_light_gray)
-                elif re.search('noted', cell_content, re.IGNORECASE) or re.search('postponed', cell_content, re.IGNORECASE):
-                    table.Cell(Row=row_idx, Column=col_idx+2).Shading.BackgroundPatternColor = rgb_to_hex(color_light_yellow)
+                    table.Cell(Row=row_idx, Column=col_idx + 2).Shading.BackgroundPatternColor = rgb_to_hex(
+                        color_light_gray)
+                elif re.search('noted', cell_content, re.IGNORECASE) or re.search('postponed', cell_content,
+                                                                                  re.IGNORECASE):
+                    table.Cell(Row=row_idx, Column=col_idx + 2).Shading.BackgroundPatternColor = rgb_to_hex(
+                        color_light_yellow)
         # End of row processing
         last_cr = row['CR']
         last_cr_sources = row['Source']
@@ -460,7 +481,7 @@ def fill_in_table(
         # Merge Title and Rel columns
         criteria_column = list(table.Columns[2].Cells)
         cols_to_merge = [4, 3, 2, 1]
-    elif (type == TDocType.CR) or (type==TDocType.WID_NEW):
+    elif (type == TDocType.CR) or (type == TDocType.WID_NEW):
         # Merge Title and Work Item column
         criteria_column = list(table.Columns[1].Cells)
         cols_to_merge = [3, 1]
@@ -474,21 +495,21 @@ def fill_in_table(
         merge_cells(criteria_column, cols_to_merge, table)
 
     # Column Auto-fit
-    if (type == TDocType.LS) or (type==TDocType.WID_NEW):
-        table.Columns(2).AutoFit() # Type
-        table.Columns(5).AutoFit() # Rel
+    if (type == TDocType.LS) or (type == TDocType.WID_NEW):
+        table.Columns(2).AutoFit()  # Type
+        table.Columns(5).AutoFit()  # Rel
         if show_comments:
-            table.Columns(6).AutoFit() # Result
+            table.Columns(6).AutoFit()  # Result
         else:
-            table.Columns(5).AutoFit() # Result
-        table.Columns(3).AutoFit() # Title
+            table.Columns(5).AutoFit()  # Result
+        table.Columns(3).AutoFit()  # Title
     if type == TDocType.CR:
-        table.Columns(1).AutoFit() # TD#
+        table.Columns(1).AutoFit()  # TD#
         if show_comments:
-            table.Columns(5).AutoFit() # Result
+            table.Columns(5).AutoFit()  # Result
         else:
-            table.Columns(4).AutoFit() # Result
-        table.Columns(2).AutoFit() # Title
+            table.Columns(4).AutoFit()  # Result
+        table.Columns(2).AutoFit()  # Title
 
     # Table looks better with a carriage return at the end
     end_of_table = table.Range
@@ -497,48 +518,55 @@ def fill_in_table(
     print('Finished generating TDoc report table. Table end: {0}-{1}'.format(end_of_section.Start, end_of_section.End))
     return end_of_section
 
+
 def add_ai_to_wi(wi, df):
-    idx = df.loc[df['Work Item']==wi,'Work Item'].index[0]
+    idx = df.loc[df['Work Item'] == wi, 'Work Item'].index[0]
     wi_plus_ai = '{0} {1}'.format(df.at[idx, 'AI'], wi)
     return wi_plus_ai
+
 
 def insert_index_at_begin(doc):
     # Insert TOC in new page
     document_start = doc.Content
     document_start.Collapse(1)
 
-    insert_range = insert_text_and_format(doc, 'Index\n', toc_section_style, toc_section_style, insert_range=document_start)
+    insert_range = insert_text_and_format(doc, 'Index\n', toc_section_style, toc_section_style,
+                                          insert_range=document_start)
     doc.TablesOfContents.Add(
-        insert_range, 
-        UseHeadingStyles = True,
-        UseFields = True,
-        UpperHeadingLevel = 1,
-        LowerHeadingLevel = 2)
+        insert_range,
+        UseHeadingStyles=True,
+        UseFields=True,
+        UpperHeadingLevel=1,
+        LowerHeadingLevel=2)
     toc_end = doc.TablesOfContents[0].Range
     toc_end.Collapse(0)
     # wdPageBreak=7 https://docs.microsoft.com/en-us/office/vba/api/word.wdbreaktype
     toc_end.InsertBreak(7)
 
-def get_tdoc_statistics(df, type=TDocType.ALL, show_noted_discussion_tdocs_with_crs=False):
-    tdoc_count           = 0
-    tdoc_handled_count   = 0
-    result_agreed_count  = 0
-    result_revised_count = 0
-    result_noted_count   = 0
 
-    is_cr = (type==TDocType.CR) | (type==TDocType.CR_AND_NOTED_DISCUSSION)
+def get_tdoc_statistics(df, type=TDocType.ALL, show_noted_discussion_tdocs_with_crs=False):
+    tdoc_count = 0
+    tdoc_handled_count = 0
+    result_agreed_count = 0
+    result_revised_count = 0
+    result_noted_count = 0
+
+    is_cr = (type == TDocType.CR) | (type == TDocType.CR_AND_NOTED_DISCUSSION)
 
     if (df is None) or (len(df) == 0):
-        return '', TdocStats(tdoc_count, tdoc_handled_count, result_agreed_count, result_revised_count, result_noted_count)
+        return '', TdocStats(tdoc_count, tdoc_handled_count, result_agreed_count, result_revised_count,
+                             result_noted_count)
 
     lowercase_results = df['Result'].str.lower()
 
-    tdoc_count           = len(df)
-    tdoc_handled_count   = tdoc_count - len(lowercase_results[lowercase_results.str.contains('withdrawn')]) - len(lowercase_results[lowercase_results.str.contains('not handled')]) - len(lowercase_results[lowercase_results==''])
-    result_agreed_count  = len(lowercase_results[lowercase_results.str.contains('agreed')])
+    tdoc_count = len(df)
+    tdoc_handled_count = tdoc_count - len(lowercase_results[lowercase_results.str.contains('withdrawn')]) - len(
+        lowercase_results[lowercase_results.str.contains('not handled')]) - len(
+        lowercase_results[lowercase_results == ''])
+    result_agreed_count = len(lowercase_results[lowercase_results.str.contains('agreed')])
     result_revised_count = len(lowercase_results[lowercase_results.str.contains('revised')])
-    result_noted_count   = len(lowercase_results[lowercase_results.str.contains('noted')])
-    cr_count             = len([cr for cr in df['CR'].unique() if (cr is not None) and (cr != '')])
+    result_noted_count = len(lowercase_results[lowercase_results.str.contains('noted')])
+    cr_count = len([cr for cr in df['CR'].unique() if (cr is not None) and (cr != '')])
 
     # Assume that DataFrame is not empty
     stats_str = '{0:,} TDocs'.format(tdoc_count)
@@ -547,7 +575,7 @@ def get_tdoc_statistics(df, type=TDocType.ALL, show_noted_discussion_tdocs_with_
     if is_cr:
         stats_str = stats_str + ' ({:,} CRs)'.format(cr_count)
 
-    suffixes = [ ]
+    suffixes = []
     if tdoc_handled_count > 0:
         suffixes.append(', {0:,} handled ({1:.1%})'.format(tdoc_handled_count, tdoc_handled_count / tdoc_count))
     if result_agreed_count > 0:
@@ -565,35 +593,39 @@ def get_tdoc_statistics(df, type=TDocType.ALL, show_noted_discussion_tdocs_with_
         suffixes[-1] = suffixes[-1].replace(',', ' and')
     stats_str = stats_str + ''.join(suffixes) + '\n'
 
-    return stats_str, TdocStats(tdoc_count, tdoc_handled_count, result_agreed_count, result_revised_count, result_noted_count)
+    return stats_str, TdocStats(tdoc_count, tdoc_handled_count, result_agreed_count, result_revised_count,
+                                result_noted_count)
+
 
 def insert_doc_data_to_doc(
-    df,                                # Data source (Pandas DataFrame)
-    doc,                               # Word document
-    meeting_folder,                    # Used to generate the linksto the documents
-    add_toc = True,                    # Whether to add a ToC at the beginning of the document
-    insert_range = None,               # Where to insert the tables/text
-    section_title = None,              # Title of the section (e.g. "Full Contribution Summary")
-    sort_by_wi = False,                # Whether the DataFrame should be sorted by Work Item OR only based on TDoc number
-    title_style = 'Überschrift 1',     # Word style to use for the title
-    subtitle_style = 'Überschrift 2',  # Word style to use for the subtitle
-    status_to_show = [],               # Show only TDocs with the given status. Use "None" or [] to ignore this option. Note that status_to_show has precedence over status_to_ignore
-    status_to_ignore = [],             # Do not show TDocs with the given status. Use "None" or [] to ignore this option. Note that status_to_show has precedence over status_to_ignore
-    show_comments = True,              # Whether to show the "Comments" column for CRs. For a more compact view it can be ignored
-    show_withdrawn_crs = True,         # If set to False, adds CRs with status 'Withdrawn' to 'status_to_ignore'
-    show_noted_discussion_tdocs_with_crs = False, # Whether Noted discussion CRs should be shown with CRs
-    show_noted_lss = True,             # If set to True, removes status 'Noted' from 'status_to_ignore'
-    show_statistics = True):            # If set to True, shown a statistics entry     
+        df,  # Data source (Pandas DataFrame)
+        doc,  # Word document
+        meeting_folder,  # Used to generate the linksto the documents
+        add_toc=True,  # Whether to add a ToC at the beginning of the document
+        insert_range=None,  # Where to insert the tables/text
+        section_title=None,  # Title of the section (e.g. "Full Contribution Summary")
+        sort_by_wi=False,  # Whether the DataFrame should be sorted by Work Item OR only based on TDoc number
+        title_style='Überschrift 1',  # Word style to use for the title
+        subtitle_style='Überschrift 2',  # Word style to use for the subtitle
+        status_to_show=[],
+        # Show only TDocs with the given status. Use "None" or [] to ignore this option. Note that status_to_show has precedence over status_to_ignore
+        status_to_ignore=[],
+        # Do not show TDocs with the given status. Use "None" or [] to ignore this option. Note that status_to_show has precedence over status_to_ignore
+        show_comments=True,  # Whether to show the "Comments" column for CRs. For a more compact view it can be ignored
+        show_withdrawn_crs=True,  # If set to False, adds CRs with status 'Withdrawn' to 'status_to_ignore'
+        show_noted_discussion_tdocs_with_crs=False,  # Whether Noted discussion CRs should be shown with CRs
+        show_noted_lss=True,  # If set to True, removes status 'Noted' from 'status_to_ignore'
+        show_statistics=True):  # If set to True, shown a statistics entry
 
-    if (df is None) or (doc is None) or (len(df)==0):
+    if (df is None) or (doc is None) or (len(df) == 0):
         return insert_range
-    
+
     # Check if there is something to output. We output only CRs and LSs
     number_of_LS = len(df[df['Type'].str.contains("LS")].index)
     number_of_CR = len(df[df['Type'].str.contains("CR")].index)
     number_of_WID_NEW = len(df[df['Type'].str.contains("WID NEW")].index)
 
-    if  number_of_LS + number_of_CR + number_of_WID_NEW < 1:
+    if number_of_LS + number_of_CR + number_of_WID_NEW < 1:
         print('No CRs/LSs to output for section {0}'.format(section_title))
         return insert_range
 
@@ -606,10 +638,11 @@ def insert_doc_data_to_doc(
     if section_title is None:
         # Unique values of Work Item for title
         work_items = [e for e in df['Work Item'].unique().tolist() if (e is not None) and (e != '')]
-        work_items = [ add_ai_to_wi(e, df) for e in work_items ]
+        work_items = [add_ai_to_wi(e, df) for e in work_items]
         section_title = '; '.join(work_items)
-    
-    insert_range = insert_text_and_format(doc, section_title + '\n', title_style, standard_style, insert_range=insert_range)
+
+    insert_range = insert_text_and_format(doc, section_title + '\n', title_style, standard_style,
+                                          insert_range=insert_range)
 
     if show_statistics:
         stats_str, df_stats = get_tdoc_statistics(df)
@@ -621,17 +654,17 @@ def insert_doc_data_to_doc(
 
     # Add LSs
     insert_range = fill_in_table(
-        doc, df, 
-        TDocType.LS, 
-        meeting_folder, 
-        insert_range=insert_range, 
-        title_style=subtitle_style, 
-        standard_style=standard_style, 
-        status_to_show=status_to_show, 
-        status_to_ignore=ignore_list_for_lss, 
+        doc, df,
+        TDocType.LS,
+        meeting_folder,
+        insert_range=insert_range,
+        title_style=subtitle_style,
+        standard_style=standard_style,
+        status_to_show=status_to_show,
+        status_to_ignore=ignore_list_for_lss,
         show_comments=show_comments,
         show_statistics=show_statistics)
-    
+
     ignore_list_for_crs = status_to_ignore.copy()
     if not show_withdrawn_crs:
         ignore_list_for_crs.append('Withdrawn')
@@ -643,27 +676,27 @@ def insert_doc_data_to_doc(
 
     # Add CRs
     insert_range = fill_in_table(
-        doc, df, 
-        cr_type, 
-        meeting_folder, 
-        insert_range=insert_range, 
-        title_style=subtitle_style, 
-        standard_style=standard_style, 
-        status_to_show=status_to_show, 
-        status_to_ignore=ignore_list_for_crs, 
+        doc, df,
+        cr_type,
+        meeting_folder,
+        insert_range=insert_range,
+        title_style=subtitle_style,
+        standard_style=standard_style,
+        status_to_show=status_to_show,
+        status_to_ignore=ignore_list_for_crs,
         show_comments=show_comments,
         show_statistics=show_statistics)
 
     # Add new WIDs
     insert_range = fill_in_table(
-        doc, df, 
-        TDocType.WID_NEW, 
-        meeting_folder, 
-        insert_range=insert_range, 
-        title_style=subtitle_style, 
-        standard_style=standard_style, 
-        status_to_show=status_to_show, 
-        status_to_ignore=ignore_list_for_lss, 
+        doc, df,
+        TDocType.WID_NEW,
+        meeting_folder,
+        insert_range=insert_range,
+        title_style=subtitle_style,
+        standard_style=standard_style,
+        status_to_show=status_to_show,
+        status_to_ignore=ignore_list_for_lss,
         show_comments=show_comments,
         show_statistics=show_statistics)
 
@@ -671,6 +704,7 @@ def insert_doc_data_to_doc(
         insert_index_at_begin(doc)
 
     return insert_range
+
 
 def filter_wi_list(wis_list):
     if wis_list is None or len(wis_list) < 1:
@@ -686,19 +720,20 @@ def filter_wi_list(wis_list):
     title = ', '.join(wis)
     return title
 
-def insert_cr_summary_to_report(
-    df, 
-    doc, 
-    contributor_ranking_count=20,
-    insert_range=None,
-    source=None,
-    status_to_ignore = []):
 
+def insert_cr_summary_to_report(
+        df,
+        doc,
+        contributor_ranking_count=20,
+        insert_range=None,
+        source=None,
+        status_to_ignore=[]):
     if df is None:
         return insert_range
 
     section_title = 'Contribution Summary\n'
-    insert_range = insert_text_and_format(doc, section_title, source_section_style, standard_style, insert_range=insert_range)
+    insert_range = insert_text_and_format(doc, section_title, source_section_style, standard_style,
+                                          insert_range=insert_range)
 
     # Only CRs and no revisions
     # df_cr_only = df[df['Type'].str.contains('CR')]
@@ -719,7 +754,7 @@ def insert_cr_summary_to_report(
         source_count = tdocs_for_source.sum()
         contribution_count.append((source_item, source_count))
     contribution_count.sort(key=lambda x: x[1], reverse=True)
-    contribution_count = [(item[0], item[1], idx) for idx,item in enumerate(contribution_count)]
+    contribution_count = [(item[0], item[1], idx) for idx, item in enumerate(contribution_count)]
 
     if len(contribution_count) < contributor_ranking_count:
         contribution_count_limited = contribution_count
@@ -736,42 +771,54 @@ def insert_cr_summary_to_report(
 
     ignored_contributions = ''
     if (status_to_ignore is not None) and (len(status_to_ignore) > 0):
-        ignored_contributions = ' Not showing {0} contributions in contribution summary sections below'.format(', '.join(status_to_ignore))
+        ignored_contributions = ' Not showing {0} contributions in contribution summary sections below'.format(
+            ', '.join(status_to_ignore))
 
     if source is None:
-        legend_str = '{0:,} TDocs total.{1}\nTop {2:,} contributor list:\n'.format(all_contribution_count, ignored_contributions, contributor_ranking_count)
+        legend_str = '{0:,} TDocs total.{1}\nTop {2:,} contributor list:\n'.format(all_contribution_count,
+                                                                                   ignored_contributions,
+                                                                                   contributor_ranking_count)
     else:
-        legend_str = '{0:,} TDocs total.{1}\nTop {2:,} contributor list plus {3}:\n'.format(all_contribution_count, ignored_contributions,contributor_ranking_count, source)
+        legend_str = '{0:,} TDocs total.{1}\nTop {2:,} contributor list plus {3}:\n'.format(all_contribution_count,
+                                                                                            ignored_contributions,
+                                                                                            contributor_ranking_count,
+                                                                                            source)
     insert_range = insert_text_and_format(
-        doc, 
-        legend_str, 
-        standard_style, 
-        standard_style, 
+        doc,
+        legend_str,
+        standard_style,
+        standard_style,
         insert_range=insert_range)
 
     # Insert contributor table
     if len(contribution_count_limited) == 0:
         return insert_range
-    
+
     table = doc.Tables.Add(insert_range, NumRows=table_rows, NumColumns=3)
     table.Cell(Row=1, Column=1).Range.Text = '#'
     table.Cell(Row=1, Column=2).Range.Text = 'Company'
     table.Cell(Row=1, Column=3).Range.Text = 'Contributions'
 
     for idx, item in enumerate(contribution_count_limited):
-        table.Cell(Row=idx+2, Column=1).Range.Text = '{0:,}'.format(idx+1)
-        table.Cell(Row=idx+2, Column=2).Range.Text = item[0]
+        table.Cell(Row=idx + 2, Column=1).Range.Text = '{0:,}'.format(idx + 1)
+        table.Cell(Row=idx + 2, Column=2).Range.Text = item[0]
         if item[0] == source:
-            table.Cell(Row=idx+2, Column=2).Range.Bold = True
-        table.Cell(Row=idx+2, Column=3).Range.Text = '{0:,} ({1:.1%})'.format(item[1], item[1]/all_contribution_count)
+            table.Cell(Row=idx + 2, Column=2).Range.Bold = True
+        table.Cell(Row=idx + 2, Column=3).Range.Text = '{0:,} ({1:.1%})'.format(item[1],
+                                                                                item[1] / all_contribution_count)
     if add_rows_for_source:
-        item = [e for e in contribution_count if e[0]==source][0]
-        table.Cell(Row=table_rows, Column=1).Range.Text = '{0:,}'.format(item[2]+1)
-        table.Cell(Row=table_rows, Column=2).Range.Text = source
-        table.Cell(Row=table_rows, Column=2).Range.Bold = True
-        table.Cell(Row=table_rows, Column=3).Range.Text = '{0:,} ({1:.1%})'.format(item[1], item[1]/all_contribution_count)
+        candidate_item = [e for e in contribution_count if e[0] == source]
+        try:
+            item = candidate_item[0]
+            table.Cell(Row=table_rows, Column=1).Range.Text = '{0:,}'.format(item[2] + 1)
+            table.Cell(Row=table_rows, Column=2).Range.Text = source
+            table.Cell(Row=table_rows, Column=2).Range.Bold = True
+            table.Cell(Row=table_rows, Column=3).Range.Text = '{0:,} ({1:.1%})'.format(item[1],
+                                                                                       item[1] / all_contribution_count)
+        except:
+            print('Could not filter out contributions from {0}'.format(source))
     # https://docs.microsoft.com/en-us/dotnet/api/microsoft.office.interop.word.wdrowalignment?view=word-pia
-    table.Rows.Alignment = 1 # wdAlignRowCenter
+    table.Rows.Alignment = 1  # wdAlignRowCenter
     table.Columns(1).AutoFit()
     table.Columns(3).AutoFit()
     format_table(table)
@@ -781,47 +828,48 @@ def insert_cr_summary_to_report(
     end_of_table.Collapse(0)
     end_of_section = insert_text_and_format(doc, '\n', standard_style, standard_style, insert_range=end_of_table)
     return end_of_section
-    
-def insert_tdocs_for_specific_source(
-    df, 
-    doc, 
-    meeting_folder,
-    insert_range=None, 
-    source=None):
 
+
+def insert_tdocs_for_specific_source(
+        df,
+        doc,
+        meeting_folder,
+        insert_range=None,
+        source=None):
     # Source can be one of the keys specified in contributor_names (e.g. 'DT')
     if source is None:
         return insert_range
     try:
-        column_name  = contributor_names.contributor_columns[source]
+        column_name = contributor_names.contributor_columns[source]
         df_source_tdocs = df[df[column_name]]
     except:
         print('Could not find range {0}'.format(source))
         return insert_range
 
     insert_range = insert_doc_data_to_doc(
-        df_source_tdocs, 
-        doc, 
-        meeting_folder, 
-        add_toc = False, 
-        insert_range = insert_range, 
-        section_title = '{0} Contributions'.format(source), 
-        sort_by_wi=True, 
-        title_style = source_section_style, 
-        subtitle_style = source_subsection_style)
+        df_source_tdocs,
+        doc,
+        meeting_folder,
+        add_toc=False,
+        insert_range=insert_range,
+        section_title='{0} Contributions'.format(source),
+        sort_by_wi=True,
+        title_style=source_section_style,
+        subtitle_style=source_subsection_style)
     return insert_range
 
+
 def insert_doc_data_to_doc_by_wi(
-    df, 
-    doc, 
-    meeting_folder, 
-    ais_to_skip = [], 
-    ais_to_output = None, 
-    source=None, 
-    reduced_full_summary=True, 
-    show_comments_for_full_summary=False,
-    insert_cr_summary=True,
-    save_to_folder=None):
+        df,
+        doc,
+        meeting_folder,
+        ais_to_skip=[],
+        ais_to_output=None,
+        source=None,
+        reduced_full_summary=True,
+        show_comments_for_full_summary=False,
+        insert_cr_summary=True,
+        save_to_folder=None):
     if (df is None) or (doc is None):
         return
 
@@ -830,9 +878,9 @@ def insert_doc_data_to_doc_by_wi(
     show_noted_lss = False
     show_statistics = False
     if reduced_full_summary:
-        status_to_ignore = [ 'Revised', 'Merged', 'Not Handled', 'Noted', 'Withdrawn' ]
+        status_to_ignore = ['Revised', 'Merged', 'Not Handled', 'Noted', 'Withdrawn']
     else:
-        status_to_ignore = [ ]
+        status_to_ignore = []
 
     if save_to_folder is not None:
         now = datetime.now()
@@ -848,10 +896,10 @@ def insert_doc_data_to_doc_by_wi(
                 meeting_folder))
         print('Saving Word report as {0}'.format(report_filename))
         doc.SaveAs(report_filename)
-    
+
     # Disable spell checking, as it may cause problems if the document grows large (which it will probably do)
     doc.SpellingChecked = True
-    doc.GrammarChecked  = True
+    doc.GrammarChecked = True
     doc.ShowSpellingErrors = False
 
     agenda_items = [e for e in df['AI'].unique().tolist() if (e is not None) and (e != '')]
@@ -863,43 +911,43 @@ def insert_doc_data_to_doc_by_wi(
 
     if insert_cr_summary:
         insert_range = insert_cr_summary_to_report(
-            df, 
-            doc, 
+            df,
+            doc,
             insert_range=insert_range,
             source=source,
-            status_to_ignore = status_to_ignore)
+            status_to_ignore=status_to_ignore)
 
     # Insert specific TDocs (e.g. own TDocs)
     if source is not None:
         insert_range = insert_tdocs_for_specific_source(
-            df, doc, 
-            meeting_folder, 
-            insert_range=insert_range, 
+            df, doc,
+            meeting_folder,
+            insert_range=insert_range,
             source=source)
 
     # Insert TDoc summary
     insert_range = insert_text_and_format(
-        doc, 
-        'Full Contribution Summary\n', 
-        tdoc_list_section_style, 
-        standard_style, 
+        doc,
+        'Full Contribution Summary\n',
+        tdoc_list_section_style,
+        standard_style,
         insert_range=insert_range)
 
     stats_str, df_stats = get_tdoc_statistics(df)
     insert_range = insert_text_and_format(doc, stats_str, standard_style, standard_style, insert_range=insert_range)
-    
+
     if meeting_folder in server.ai_names_cache:
         agenda_description = server.ai_names_cache[meeting_folder]
     else:
         agenda_description = {}
 
-    for idx,ai in enumerate(agenda_items):
+    for idx, ai in enumerate(agenda_items):
         if ai in ais_to_skip:
             print('Skipping AI {0}'.format(ai))
             continue
 
-        print('AI {0} {1} of {2}'.format(ai,idx,len(agenda_items)))
-        filtered_df = df[df['AI']==ai]
+        print('AI {0} {1} of {2}'.format(ai, idx, len(agenda_items)))
+        filtered_df = df[df['AI'] == ai]
 
         if ai not in agenda_description:
             ai_description = filtered_df['Work Item'].unique().tolist()
@@ -907,24 +955,25 @@ def insert_doc_data_to_doc_by_wi(
         else:
             ai_description = agenda_description[ai]
         insert_range = insert_doc_data_to_doc(
-            filtered_df, 
-            doc, meeting_folder, 
-            add_toc = False, 
-            insert_range = insert_range, 
-            section_title = '{0} {1}'.format(ai, ai_description), 
-            title_style = tdoc_list_ai_section_style, 
-            subtitle_style = tdoc_list_ai_subsection_style,
-            status_to_ignore = status_to_ignore,
-            show_comments = show_comments_for_full_summary,
+            filtered_df,
+            doc, meeting_folder,
+            add_toc=False,
+            insert_range=insert_range,
+            section_title='{0} {1}'.format(ai, ai_description),
+            title_style=tdoc_list_ai_section_style,
+            subtitle_style=tdoc_list_ai_subsection_style,
+            status_to_ignore=status_to_ignore,
+            show_comments=show_comments_for_full_summary,
             show_withdrawn_crs=False,
-            show_noted_discussion_tdocs_with_crs = show_noted_discussion_tdocs_with_crs,
-            show_noted_lss = show_noted_lss,
-            show_statistics = show_statistics)
+            show_noted_discussion_tdocs_with_crs=show_noted_discussion_tdocs_with_crs,
+            show_noted_lss=show_noted_lss,
+            show_statistics=show_statistics)
     # Insert ToC at beginning of document after everything is finished
     insert_index_at_begin(doc)
 
     if save_to_folder is not None:
         doc.Save()
+
 
 def diff_sources(source1, source2):
     if source1 is None:
@@ -943,6 +992,7 @@ def diff_sources(source1, source2):
         return '+ {0}'.format(sources)
     else:
         return source2
+
 
 def import_agenda(agenda_file):
     try:
@@ -963,7 +1013,8 @@ def import_agenda(agenda_file):
             if len(table.columns) < 5:
                 # Meetings are five days, so a narrower table is not valid
                 continue
-            lunch_cells = [cell for row in table.rows for cell in row.cells if (cell.text is not None) and ('Lunch' in cell.text)]
+            lunch_cells = [cell for row in table.rows for cell in row.cells if
+                           (cell.text is not None) and ('Lunch' in cell.text)]
             if len(lunch_cells) > 0:
                 # Found the agenda table
                 agenda_table = table
@@ -973,19 +1024,20 @@ def import_agenda(agenda_file):
             pass
 
     # Parse AIs
-    agenda_table_parsed = [ (row.cells[0].text,row.cells[1].text) for row in topics_table.rows ]
-    agenda_table_parsed = [ (entry[0].replace('\n','').strip(), entry[1]) for entry in agenda_table_parsed if (entry[0]!='') and (entry[0]!='AI#') ]
-    agenda_table_parsed = [ (entry[0], entry[1].split('\n')[0]) for entry in agenda_table_parsed ]
+    agenda_table_parsed = [(row.cells[0].text, row.cells[1].text) for row in topics_table.rows]
+    agenda_table_parsed = [(entry[0].replace('\n', '').strip(), entry[1]) for entry in agenda_table_parsed if
+                           (entry[0] != '') and (entry[0] != 'AI#')]
+    agenda_table_parsed = [(entry[0], entry[1].split('\n')[0]) for entry in agenda_table_parsed]
     ai_descriptions = dict(agenda_table_parsed)
 
-    days = [ cell.text.split(' ')[0] for cell in agenda_table.row_cells(0) ][1:]
-    hours_column = [ cell.text for cell in agenda_table.column_cells(0) ][1:]
-    
+    days = [cell.text.split(' ')[0] for cell in agenda_table.row_cells(0)][1:]
+    hours_column = [cell.text for cell in agenda_table.column_cells(0)][1:]
+
     # Add room name
-    last_hour   = None
+    last_hour = None
     repetitions = 0
-    room_name = lambda x: 'Main room' if x==0 else 'Breakout {0}'.format(x)
-    for idx,current_hour in enumerate(hours_column):
+    room_name = lambda x: 'Main room' if x == 0 else 'Breakout {0}'.format(x)
+    for idx, current_hour in enumerate(hours_column):
         if last_hour == current_hour:
             repetitions += 1
             new_hour = '{0} ({1})'.format(current_hour, room_name(repetitions))
@@ -997,5 +1049,23 @@ def import_agenda(agenda_file):
                 new_hour = current_hour
         last_hour = current_hour
         hours_column[idx] = new_hour
-    
+
     return ai_descriptions
+
+
+def compare_documents(tdoc_1, tdoc_2):
+    if tdoc_1 is None or tdoc_1 == '' or tdoc_2 is None or tdoc_2 == '':
+        print('Empty or None tdoc_input')
+        return
+    try:
+        word_application = get_word()
+        print('Comparing {0} and {1}'.format(tdoc_1, tdoc_2))
+        doc_1 = open_word_document(filename=tdoc_1, set_as_active_document=False)
+        doc_2 = open_word_document(filename=tdoc_2, set_as_active_document=False)
+
+        # Call Word's compare feature
+        # Destination=wdCompareDestinationNew (see https://docs.microsoft.com/en-us/office/vba/api/word.wdcomparedestination)
+        comparison_document = word_application.CompareDocuments(OriginalDocument=doc_1, RevisedDocument=doc_2, Destination=2, IgnoreAllComparisonWarnings=True)
+    except:
+        print('Could not compare documents')
+        traceback.print_exc()
