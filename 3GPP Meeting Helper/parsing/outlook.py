@@ -81,24 +81,38 @@ def get_folder(root_folder, address, create_if_needed = True):
         traceback.print_exc()
         return None
 
-def get_email_approval_emails(folder, target_folder, tdoc_data):
-    if tdoc_data is None:
+def get_email_approval_emails(folder, target_folder, tdoc_data, use_tdoc_data=True, email_subject_regex=None, folder_parse_regex=None, remove_non_tdoc_emails=True):
+    if tdoc_data is None and use_tdoc_data:
         return []
 
+    def regex_data_check(regex_list, subject_str):
+        for regex in regex_list:
+            if regex.search(subject_str) is not None:
+                return True
+
+        return False
+
     # Also catch e-meeting emails
-    email_approval_emails = [ (mail_item, mail_item.Subject, tdoc.tdoc_regex.search(mail_item.Subject)) 
+    if email_subject_regex is None:
+        email_subject_regex = [email_approval_regex, emeeting_regex]
+
+    email_approval_emails = [(mail_item, mail_item.Subject, tdoc.tdoc_regex.search(mail_item.Subject))
                              for mail_item in folder.Items 
-                             if ((email_approval_regex.search(mail_item.Subject) is not None)) or 
-                             ((emeeting_regex.search(mail_item.Subject) is not None))]
-    email_approval_emails_for_tdoc = [ item for item in email_approval_emails if item[2] is not None ]
+                             if regex_data_check(email_subject_regex, mail_item.Subject)]
+    if remove_non_tdoc_emails:
+        email_approval_emails_for_tdoc = [item for item in email_approval_emails if item[2] is not None]
+    else:
+        email_approval_emails_for_tdoc = email_approval_emails
+
     emails_to_move = []
     for mail_item, subject, tdoc_match in email_approval_emails_for_tdoc:
         try:
             folder_name = ''
-            if tdoc_match is not None:
+            if tdoc_match is not None and use_tdoc_data:
                 tdoc_number = tdoc_match.group(0)
                 tdoc_is_from_this_meeting = (tdoc_number in tdoc_data.tdocs.index)
-                if tdoc_is_from_this_meeting:
+
+                if tdoc_is_from_this_meeting and use_tdoc_data:
                     ai        = tdoc_data.tdocs.at[tdoc_number, 'AI']
                     work_item = tdoc_data.tdocs.at[tdoc_number, 'Work Item']
                     if (work_item == '') or (work_item is None):
@@ -108,6 +122,13 @@ def get_email_approval_emails(folder, target_folder, tdoc_data):
                         # There is always an AI, but not always a work item description
                 else:
                     print('Not found in TDocsByAgenda: {0}'.format(tdoc_number))
+            elif not use_tdoc_data:
+                tdoc_is_from_this_meeting = True
+                if folder_parse_regex is not None:
+                    print('Matching {0}'.format(mail_item.Subject))
+                    ai_match = folder_parse_regex.search(mail_item.Subject)
+                if ai_match is not None:
+                    folder_name = ai_match.groupdict()
             else:
                 tdoc_is_from_this_meeting = False
                 
