@@ -1,4 +1,4 @@
-import parsing.outlook as outlook_parser
+import parsing.outlook_utils as outlook_utils
 import config.outlook_regex_matching as email_regex
 import re
 from time import sleep
@@ -21,7 +21,7 @@ target_folder = 'Standardisierung/3GPP/SA3/meetings'
 meeting_regex = email_regex.sa3
 
 # Change this if your origin folder hangs from the root folder and not the inbox
-inbox_folder = outlook_parser.get_outlook_inbox()
+inbox_folder = outlook_utils.get_outlook_inbox()
 root_folder = inbox_folder # inbox_folder.Parent
 
 #########################################################
@@ -31,10 +31,10 @@ root_folder = inbox_folder # inbox_folder.Parent
 email_parsing_regex = [re.compile(e) for e in [meeting_regex, meeting_name_filter]]
 
 # First step: get the object references to the emails to be moved
-source_folder = outlook_parser.get_folder(root_folder, email_folder, create_if_needed=True)
-target_folder = outlook_parser.get_folder(root_folder, target_folder, create_if_needed=True)
-target_folder = outlook_parser.get_folder(target_folder, meeting_name_filter, create_if_needed=True)
-emails_to_move = outlook_parser.get_email_approval_emails(
+source_folder = outlook_utils.get_folder(root_folder, email_folder, create_if_needed=True)
+target_folder = outlook_utils.get_folder(root_folder, target_folder, create_if_needed=True)
+target_folder = outlook_utils.get_folder(target_folder, meeting_name_filter, create_if_needed=True)
+emails_to_move = outlook_utils.get_email_approval_emails(
     source_folder,
     target_folder,
     tdoc_data=None,
@@ -47,7 +47,7 @@ emails_to_move = outlook_parser.get_email_approval_emails(
 folders = set([e[1]['ai'] for e in emails_to_move])
 folder_to_com_object = {}
 for folder in folders:
-    folder_to_com_object[folder] = outlook_parser.get_folder(target_folder, folder)
+    folder_to_com_object[folder] = outlook_utils.get_folder(target_folder, folder)
 
 # Move emails
 for mail_item_tuple in emails_to_move:
