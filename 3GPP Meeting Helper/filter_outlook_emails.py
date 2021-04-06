@@ -69,8 +69,8 @@ for folder in folders:
 print('Moving emails')
 for mail_item_tuple in emails_to_move:
     try:
-        print(mail_item.Subject)
         mail_item = mail_item_tuple[0]
+        print(mail_item.Subject)
         mail_folder = mail_item_tuple[1]['ai']
         mail_item.Move(folder_to_com_object[mail_folder])
         sleep(0.1)
