@@ -15,6 +15,8 @@
 # [SA3#101-e][4.22] Final Status
 # [SA3#102bis-e][2.7, A&A][S3-211115] UAS: Update to solution #2
 # [SA3#102bis-e][1][S3 210811] E-meeting procedures
+# [SA3#102bis-e][2.20, KI-Cons.authoriz] [S3-211162] Authorization of multiple consumers within a NF set
+# [SA3#102bis-e][2.20, KI-Co_ns.authoriz] [S3-211162] Authorization of multiple consumers within a NF set
 # Not supported:
 # [SA3#102bis-e][2.17,sol2[S3-211091]AMF reallocation: Update to solution #2
 sa3 = r'\[(?P<meeting>.*)\][\s]*\[(?P<ai>[\d]+(\.[\d]+)?(\.[\d]+)?(\.[\d]+)?)[,\s]*(?P<ai_title>[\w\s\.\&]*)?\][\s]*(?P<title>.*)'
