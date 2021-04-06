@@ -44,7 +44,19 @@ emails_to_move = outlook_utils.get_email_approval_emails(
     remove_non_tdoc_emails=False)
 
 # Create folders where to place the emails. The named group 'ai' from the regex match is used as sub-folder name
-folders = set([e[1]['ai'] for e in emails_to_move])
+def get_ai_from_match_dict(e):
+    try:
+        match_dict = e[1]
+        output = match_dict['ai']
+        if output is None or not isinstance(output, str):
+            print('Email {0} was not matched to an AI folder'.format(e[0].Subject))
+            return ''
+        return output
+    except:
+        traceback.print_exc()
+        return ''
+
+folders = set([get_ai_from_match_dict(e) for e in emails_to_move])
 folder_to_com_object = {}
 for folder in folders:
     folder_to_com_object[folder] = outlook_utils.get_folder(target_folder, folder)
