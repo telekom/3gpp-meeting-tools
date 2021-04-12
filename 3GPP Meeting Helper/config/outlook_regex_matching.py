@@ -20,3 +20,6 @@
 # Not supported:
 # [SA3#102bis-e][2.17,sol2[S3-211091]AMF reallocation: Update to solution #2
 sa3 = r'\[(?P<meeting>.*)\][\s]*\[(?P<ai>[\d]+(\.[\d]+)?(\.[\d]+)?(\.[\d]+)?)[,\s]*(?P<ai_title>[\w\s\.\&-_]*)?\][\s]*(?P<title>.*)'
+
+# Re: [SA2#144E, AI#8.11, S2-2102433] Discussion of Mobility Registration Update to support NR Satellite Access
+sa2 = r'.*\[SA2[ ]*#(?P<meeting>[\d]+E)[ ,]+AI[#]?(?P<ai>[\d\.]+)[ ,]+(?P<tdoc>S2-(S2-)?[\d]+)\][ ]*(?P<title>.*)'
