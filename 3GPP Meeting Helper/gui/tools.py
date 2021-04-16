@@ -1,6 +1,7 @@
 import application
 import tkinter
 import gui.main
+import gui.tdocs_table
 import os
 import os.path
 import server
@@ -45,8 +46,8 @@ class ToolsDialog:
         self.export_button.grid(row=1, column=0, columnspan=columnspan, sticky="EW")
 
         # Row 4: Analyze TDoc
-        self.analyze_tdoc_button = tkinter.Button(top, text='Analyze last opened TDoc from last opened TDocs by agenda', command=self.analyze_tdoc)
-        self.analyze_tdoc_button.grid(row=4, column=0, columnspan=columnspan, sticky="EW")
+        self.launch_tdoc_table = tkinter.Button(top, text='Open Tdoc table', command=lambda: gui.tdocs_table.TdocsTable(gui.main.root, gui.main.favicon))
+        self.launch_tdoc_table.grid(row=4, column=0, columnspan=columnspan, sticky="EW")
 
         self.tkvar_tdoc           = tkinter.StringVar(top)
         self.tkvar_original_tdocs = tkinter.StringVar(top)
@@ -156,36 +157,6 @@ class ToolsDialog:
         tdocs_df = html_parser.tdocs_by_agenda(local_agenda_file).tdocs
         return tdocs_df
 
-    def analyze_tdoc(self):
-        if not gui.main.current_tdocs_by_agenda_exists():
-            # Remove all prior elements and return
-            return
-        
-        # Show all data
-        tdocs_df = self.get_tdocs_of_selected_meeting()
-
-        last_tdoc = gui.main.tkvar_last_doc_tdoc.get()
-        if not tdoc.is_tdoc(last_tdoc):
-            print(str(last_tdoc) + ' is not a TDoc')
-            return
-        try:
-            tdoc_row = tdocs_df.loc[last_tdoc,:]
-            self.tkvar_tdoc.set(gui.main.tkvar_last_doc_tdoc.get())
-            self.tkvar_original_tdocs.set('')
-            self.tkvar_final_tdocs.set('')
-
-            original_tdocs = html_parser.get_tdoc_infos(tdoc_row['Original TDocs'], tdocs_df)
-            final_tdocs    = html_parser.get_tdoc_infos(tdoc_row['Final TDocs'], tdocs_df)
-
-            original_tdocs_text = '\n'.join(['{0} ({1}); {2}'.format(tdoc.tdoc, tdoc.source, tdoc.title) for tdoc in original_tdocs])
-            final_tdocs_text    = '\n'.join(['{0} ({1}); {2}'.format(tdoc.tdoc, tdoc.source, tdoc.title) for tdoc in final_tdocs])
-
-            self.tkvar_original_tdocs.set(original_tdocs_text)
-            self.tkvar_final_tdocs.set(final_tdocs_text)
-        except:
-            print('Could not retrieve data for ' + last_tdoc)
-            traceback.print_exc()
-
     def open_local_meeting_folder(self):
         selected_meeting = gui.main.tkvar_meeting.get()
         meeting_folder   = application.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
@@ -241,7 +212,17 @@ class ToolsDialog:
         print('Finished exporting Word report')
 
     # ToDo: change output_meeting so that it can be a string!!!
-    def export_tdocs_by_agenda_to_excel(self, selected_meeting=None, output_meeting=None, filename='TdocsByAgenda', close_file=False, use_thread=True, current_dt_str=None, process_comments=True, destination_folder=None):
+    def export_tdocs_by_agenda_to_excel(
+            self,
+            selected_meeting=None,
+            output_meeting=None,
+            filename='TdocsByAgenda',
+            close_file=False,
+            use_thread=True,
+            current_dt_str=None,
+            process_comments=True,
+            destination_folder=None,
+            add_pivot_table=True):
         try:
             if selected_meeting is None:
                 selected_meeting = gui.main.tkvar_meeting.get()
@@ -272,16 +253,37 @@ class ToolsDialog:
             self.tdoc_report_button.config(text='Exporting... DO NOT interrupt Excel until COMPLETELY finished!', state='disabled')
 
             if use_thread:
-                t = threading.Thread(target=lambda:self.export_and_open_excel(input_local_agenda_file, excel_export, input_meeting_folder, selected_meeting, close_file, process_comments=process_comments, add_pivot_summary=False))
+                t = threading.Thread(target=lambda: self.export_and_open_excel(
+                    input_local_agenda_file,
+                    excel_export,
+                    input_meeting_folder,
+                    selected_meeting,
+                    close_file,
+                    process_comments=process_comments,
+                    add_pivot_summary=add_pivot_table))
                 t.start()
             else:
-                self.export_and_open_excel(input_local_agenda_file, excel_export, input_meeting_folder, selected_meeting, close_file, process_comments=process_comments, add_pivot_summary=False)
+                self.export_and_open_excel(
+                    input_local_agenda_file,
+                    excel_export,
+                    input_meeting_folder,
+                    selected_meeting,
+                    close_file,
+                    process_comments=process_comments,
+                    add_pivot_summary=add_pivot_table)
         except:
             print('Could not export TDocs by agenda data')
             traceback.print_exc()
 
-    def export_and_open_excel(self, local_agenda_file, excel_export, meeting_folder, sheet_name, close_file=False,
-                              process_comments=True, add_pivot_summary=True):
+    def export_and_open_excel(
+            self,
+            local_agenda_file,
+            excel_export,
+            meeting_folder,
+            sheet_name,
+            close_file=False,
+            process_comments=True,
+            add_pivot_summary=True):
         try:
             tdocs_by_agenda = html_parser.tdocs_by_agenda(gui.main.get_tdocs_by_agenda_file_or_url(local_agenda_file))
 
@@ -370,7 +372,7 @@ class ToolsDialog:
                 write_mode = 'a'
             else:
                 write_mode = 'w'
-            with pandas.ExcelWriter(excel_export, engine = 'openpyxl', mode=write_mode) as writer:
+            with pandas.ExcelWriter(excel_export, engine='openpyxl', mode=write_mode) as writer:
                 tdocs_df.to_excel(writer, sheet_name=sheet_name)  
 
             parsing.excel.apply_comments_coloring_and_hyperlinks(excel_export, fg_color, text_color, server_urls)
@@ -387,6 +389,8 @@ class ToolsDialog:
             excel_parser.vertically_center_all_text(wb)
             if add_pivot_summary:
                 excel_parser.generate_pivot_chart_from_tdocs_by_agenda(wb)
+            else:
+                print('Skipping generation of pivot table')
             excel_parser.save_wb(wb)
             if close_file:
                 excel_parser.close_wb(wb)
@@ -402,7 +406,7 @@ class ToolsDialog:
 
     def outlook_email_approval(self):
         current_text = self.outlook_button_text.get()
-        self.outlook_button_text.set('Exporting... DO NOT interrupt Outlook until COMPLETELY finished!')
+        self.outlook_button_text.set('Processing... DO NOT interrupt Outlook until COMPLETELY finished!')
         self.email_approval_button.config(state='disabled')
         self.email_attachments_generate_summary_checkbox.config(state='disabled')
         t = threading.Thread(target=lambda:self.on_outlook_email_approval(current_text))
@@ -462,7 +466,8 @@ class ToolsDialog:
                 use_thread=False,
                 current_dt_str=current_dt_str,
                 process_comments=False,
-                destination_folder=server.get_cache_folder())
+                destination_folder=server.get_cache_folder(),
+                add_pivot_table=False)
 
     def cache_tdocs(self, tdoc_list):
         if tdoc_list is None:
