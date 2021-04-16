@@ -279,7 +279,7 @@ def get_remote_filename(meeting_folder_name, tdoc_id, use_inbox=False, searching
         # duringa meeting, but this is something to test in 2021 :P
         year,tdoc_number,revision = tdoc.get_tdoc_year(tdoc_id, include_revision=True)
         if revision is not None:
-            folder = folder + 'Inbox/Revisions/'
+            folder = get_remote_meeting_revisions_folder(folder)
         else:
             folder += 'Docs/'
     elif use_inbox:
@@ -287,6 +287,11 @@ def get_remote_filename(meeting_folder_name, tdoc_id, use_inbox=False, searching
         pass
 
     return folder + tdoc_id + '.zip'
+
+
+def get_remote_meeting_revisions_folder(meeting_folder_ending_with_slash):
+    return meeting_folder_ending_with_slash + 'Inbox/Revisions/'
+
 
 def get_remote_agenda_folder(meeting_folder_name, use_inbox=False):
     folder = get_remote_meeting_folder(meeting_folder_name, use_inbox)

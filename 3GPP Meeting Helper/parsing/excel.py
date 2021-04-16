@@ -125,72 +125,110 @@ def close_wb(wb):
     wb.Close()
 
 
+def add_pivot_table_to_workbook_active_sheet(
+        wb,
+        cell_range,
+        data_field=None,
+        row_field=None,
+        column_field=None,
+        ws_name='',
+        order_by=''):
+    print("Generating pivot table")
+    ws = wb.ActiveSheet
+
+    # Generate Pivot chart in new worksheet based on columns A:D
+    pivot_table_source_data = ws.Range(cell_range)
+    XlPivotTableSourceType = 1  # xlDatabase, see https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivottablesourcetype
+    XlPivotTableVersion = 5  # xlPivotTableVersion15 (Excel 2013), see https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivottableversionlist
+    pivot_cache = wb.PivotCaches().Create(XlPivotTableSourceType, pivot_table_source_data, XlPivotTableVersion)
+
+    # Create pivot chart in the end (looks better)
+    last_wb = wb.Sheets(wb.Sheets.Count)
+    pivot_chart_wb = wb.Sheets.Add(Before=None, After=last_wb)
+    pivot_chart_wb.Name = ws_name
+
+    pivot_table = pivot_cache.CreatePivotTable(
+        TableDestination=pivot_chart_wb.Range("A1"),
+        TableName='{0} Pivot Table'.format(ws_name))
+
+    # Copied from https://stackoverflow.com/questions/46312435/create-a-pivotchart-with-python-win32com-causes-pywintypes-com-error
+    pivot_table.ColumnGrand = True
+    pivot_table.HasAutoFormat = True
+    pivot_table.DisplayErrorString = False
+    pivot_table.DisplayNullString = True
+    pivot_table.EnableDrilldown = True
+    pivot_table.ErrorString = ""
+    pivot_table.MergeLabels = False
+    pivot_table.NullString = ""
+    pivot_table.PageFieldOrder = 2
+    pivot_table.PageFieldWrapCount = 0
+    pivot_table.PreserveFormatting = True
+    pivot_table.RowGrand = True
+    pivot_table.SaveData = True
+    pivot_table.PrintTitles = False
+    pivot_table.RepeatItemsOnEachPrintedPage = True
+    pivot_table.TotalsAnnotation = False
+    pivot_table.CompactRowIndent = 1
+    pivot_table.InGridDropZones = False
+    pivot_table.DisplayFieldCaptions = True
+    pivot_table.DisplayMemberPropertyTooltips = False
+    pivot_table.DisplayContextTooltips = True
+    pivot_table.ShowDrillIndicators = True
+    pivot_table.PrintDrillIndicators = False
+    pivot_table.AllowMultipleFilters = False
+    pivot_table.SortUsingCustomLists = True
+    pivot_table.FieldListSortAscending = False
+    pivot_table.ShowValuesRow = False
+    pivot_table.CalculatedMembersInFilters = False
+
+    pivot_fields = {}
+
+    # See https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivotfieldorientation
+    # xlColumnField	2	Column
+    # xlDataField	4	Data
+    # xlHidden	0	Hidden
+    # xlPageField	3	Page
+    # xlRowField	1	Row
+    if data_field is not None:
+        data_field_pivot = pivot_table.PivotFields(data_field)
+        data_field_pivot.Orientation = 4
+        data_field_pivot.Position = 1
+        pivot_fields[data_field] = data_field_pivot
+
+    if row_field is not None:
+        row_field_pivot = pivot_table.PivotFields(row_field)
+        row_field_pivot.Orientation = 1
+        row_field_pivot.Position = 1
+        pivot_fields[row_field] = row_field_pivot
+
+    if column_field is not None:
+        column_field_pivot = pivot_table.PivotFields(column_field)
+        column_field_pivot.Orientation = 2
+        column_field_pivot.Position = 1
+        pivot_fields[column_field] = column_field_pivot
+
+    if order_by in pivot_fields:
+        # See:
+        #   - https://docs.microsoft.com/en-us/office/vba/api/excel.xlsortorder
+        #   - https://docs.microsoft.com/en-us/office/vba/api/excel.pivotfield.autosort
+        # xlAscending = 1
+        xlDescending = 2
+        # xlManual = -4135
+        pivot_fields[order_by].AutoSort(xlDescending)
+
+
 def generate_pivot_chart_from_tdocs_by_agenda(wb):
     try:
-        print("Generating per-AI pivot table")
         wb.Activate()
         ws = wb.ActiveSheet
-        # Generate Pivot chart in new worksheet based on columns A:D
-        pivot_table_source_data = ws.Range("A:D")
-        XlPivotTableSourceType = 1  # xlDatabase, see https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivottablesourcetype
-        XlPivotTableVersion = 5  # xlPivotTableVersion15 (Excel 2013), see https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivottableversionlist
-        pivot_cache = wb.PivotCaches().Create(XlPivotTableSourceType, pivot_table_source_data, XlPivotTableVersion)
-
-        # Create pivot chart
-        pivot_chart_wb = wb.Sheets.Add(Before=None, After=ws)
-        pivot_chart_wb.Name = "Summary"
-
-        pivot_table = pivot_cache.CreatePivotTable(
-            TableDestination=pivot_chart_wb.Range("A1"),
-            TableName="AI Summary")
-
-        # Copied from https://stackoverflow.com/questions/46312435/create-a-pivotchart-with-python-win32com-causes-pywintypes-com-error
-        pivot_table.ColumnGrand = True
-        pivot_table.HasAutoFormat = True
-        pivot_table.DisplayErrorString = False
-        pivot_table.DisplayNullString = True
-        pivot_table.EnableDrilldown = True
-        pivot_table.ErrorString = ""
-        pivot_table.MergeLabels = False
-        pivot_table.NullString = ""
-        pivot_table.PageFieldOrder = 2
-        pivot_table.PageFieldWrapCount = 0
-        pivot_table.PreserveFormatting = True
-        pivot_table.RowGrand = True
-        pivot_table.SaveData = True
-        pivot_table.PrintTitles = False
-        pivot_table.RepeatItemsOnEachPrintedPage = True
-        pivot_table.TotalsAnnotation = False
-        pivot_table.CompactRowIndent = 1
-        pivot_table.InGridDropZones = False
-        pivot_table.DisplayFieldCaptions = True
-        pivot_table.DisplayMemberPropertyTooltips = False
-        pivot_table.DisplayContextTooltips = True
-        pivot_table.ShowDrillIndicators = True
-        pivot_table.PrintDrillIndicators = False
-        pivot_table.AllowMultipleFilters = False
-        pivot_table.SortUsingCustomLists = True
-        pivot_table.FieldListSortAscending = False
-        pivot_table.ShowValuesRow = False
-        pivot_table.CalculatedMembersInFilters = False
-
-        # See https://docs.microsoft.com/en-us/office/vba/api/excel.xlpivotfieldorientation
-        # xlColumnField	2	Column
-        # xlDataField	4	Data
-        # xlHidden	0	Hidden
-        # xlPageField	3	Page
-        # xlRowField	1	Row
-        td_field = pivot_table.PivotFields("TD#")
-        td_field.Orientation = 4
-        td_field.Position = 1
-
-        ai_field = pivot_table.PivotFields("AI")
-        ai_field.Orientation = 1
-        ai_field.Position = 1
-
-        ai_field = pivot_table.PivotFields("Type")
-        ai_field.Orientation = 2
-        ai_field.Position = 1
+        add_pivot_table_to_workbook_active_sheet(
+            wb,
+            cell_range="A:D",
+            data_field="TD#",
+            row_field="AI",
+            column_field="Type",
+            ws_name="AI Summary",
+            order_by='AI')
 
         print("Generating per-AI pivot chart")
         points_per_cm = 28.3465
@@ -453,6 +491,23 @@ def export_email_approval_list(local_filename, found_attachments, tdocs_without_
             ws.AutoFilter.Sort.Apply()
 
         print('Finished email approval export')
+
+        revisions_ws = wb.Worksheets('Revisions').Activate()
+        add_pivot_table_to_workbook_active_sheet(
+            wb,
+            cell_range="A:G",
+            data_field="TD#",
+            row_field="Sender",
+            column_field=None,
+            ws_name="Delegate Summary")
+        revisions_ws = wb.Worksheets('Revisions').Activate()
+        add_pivot_table_to_workbook_active_sheet(
+            wb,
+            cell_range="A:G",
+            data_field="TD#",
+            row_field="Company",
+            column_field=None,
+            ws_name="Company Summary")
         wb.SaveAs(local_filename)
     except:
         traceback.print_exc()
@@ -657,7 +712,7 @@ def get_colors_from_comments(comments):
     return fg_colors, text_colors
 
 
-def apply_comments_coloring_and_hyperlinks(filename, fg_colors, text_colors, server_urls):
+def apply_comments_coloring_and_hyperlinks(filename, fg_colors, text_colors, server_urls, hyperlink_columns=[revision_of_column, revised_to_column]):
     book = openpyxl.load_workbook(filename)
     ws = book.active
     print('Applying comment color formatting')
@@ -671,22 +726,26 @@ def apply_comments_coloring_and_hyperlinks(filename, fg_colors, text_colors, ser
             print('Could not generate TDoc URL mapping')
             traceback.print_exc()
     # Column 20 is the one with the comments
-    header_column = [cell.value for cell in ws[1]]
+    header_row = [cell.value for cell in ws[1]]
     try:
-        session_comments_idx = header_column.index(session_comments_column)
+        session_comments_idx = header_row.index(session_comments_column)
         comments_present = True
     except:
         comments_present = False
-    revision_of_idx = header_column.index(revision_of_column)
-    revised_to_idx = header_column.index(revised_to_column)
+    revision_of_idx = header_row.index(revision_of_column)
+    revised_to_idx = header_row.index(revised_to_column)
+
+    hyperlink_columns = [e for e in hyperlink_columns if e in header_row]
+    hyperlink_column_idxs = [header_row.index(e) for e in header_row]
 
     for row in ws.iter_rows(min_row=2):
         tdoc = row[0].value
         set_tdoc_hyperlink(tdoc, row[0], server_urls)
-        revision_of_cell = row[revision_of_idx]
-        set_tdoc_hyperlink(revision_of_cell.value, revision_of_cell, server_urls)
-        revised_to_cell = row[revised_to_idx]
-        set_tdoc_hyperlink(revised_to_cell.value, revised_to_cell, server_urls)
+
+        # Linking of revision documents
+        for idx in hyperlink_column_idxs:
+            cell_to_format = row[idx]
+            set_tdoc_hyperlink(cell_to_format.value, cell_to_format, server_urls)
 
         if tdoc not in fg_colors:
             continue
@@ -710,9 +769,12 @@ def set_comments_color(tdoc, cell, fg_colors, text_colors):
         traceback.print_exc()
 
 
-def set_tdoc_hyperlink(tdoc, cell, server_urls):
-    if (tdoc is None) or (tdoc == ''):
+def set_tdoc_hyperlink(cell_content, cell, cell_content_to_url_mapping):
+    if (cell_content is None) or (cell_content == ''):
         return
-    if tdoc in server_urls:
-        cell.hyperlink = server_urls[tdoc]
+    if cell_content in cell_content_to_url_mapping:
+        cell.hyperlink = cell_content_to_url_mapping[cell_content]
         cell.font = Font(color='FFEA0A8E', underline='single')
+
+def generate_emeeting_link_for_tdoc(target_cell):
+    pass
