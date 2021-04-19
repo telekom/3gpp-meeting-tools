@@ -80,6 +80,13 @@ def get_sa2_meeting_tdoc_list(meeting_folder):
     else:
         return None
 
+def get_sa2_revisions_tdoc_list(meeting_folder):
+    remote_folder = get_remote_meeting_folder(meeting_folder)
+    url = remote_folder + 'INBOX/Revisions'
+    returned_html = get_html(url)
+
+    return returned_html
+
 def get_sa2_tdoc_list(meeting_folder):
     url = get_remote_meeting_folder(meeting_folder, use_inbox=False) + 'TdocsByAgenda.htm'
     return get_html(url)
@@ -271,6 +278,10 @@ def get_local_tdocs_by_agenda_filename(meeting_folder_name):
     folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
     return os.path.join(folder, 'TdocsByAgenda.htm')
 
+def get_local_revisions_filename(meeting_folder_name):
+    folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
+    return os.path.join(folder, 'Revisions.htm')
+
 def get_remote_filename(meeting_folder_name, tdoc_id, use_inbox=False, searching_for_a_file=False):
     folder = get_remote_meeting_folder(meeting_folder_name, use_inbox, searching_for_a_file)
     
@@ -445,6 +456,7 @@ def update_meeting_ftp_server(new_address):
     private_server = new_address
     update_urls()
 
+
 def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False):
     # If the inbox is active, we need to download both and return the newest one
     html_inbox = None
@@ -493,5 +505,21 @@ def download_agenda_file(meeting, inbox_active=False):
         return local_file
     except:
         print('Could not download agenda file for {0}'.format(meeting))
+        traceback.print_exc()
+        return None
+
+def download_revisions_file(meeting):
+    try:
+        meeting_server_folder = meeting # e.g. TSGS2_144E_Electronic
+        print('Retrieving rvisions for {0} meeting'.format(meeting))
+        local_file = get_local_revisions_filename(meeting_server_folder)
+        html = get_sa2_revisions_tdoc_list(meeting_server_folder)
+        if html is None:
+            print('Revisions file for {0} not found'.format(meeting))
+            return None
+        tdoc.write_data_and_open_file(html, local_file, open_file=False)
+        return local_file
+    except:
+        print('Could not revisions agenda file for {0}'.format(meeting))
         traceback.print_exc()
         return None
