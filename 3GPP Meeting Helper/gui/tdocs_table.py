@@ -299,6 +299,7 @@ class TdocsTable:
         if column == 7:
             print('Generating subject for email approval for {0}. Copying to clipboard and generating empty email'.format(tdoc_id))
             subject = '[SA2#{3}, AI#{1}, {0}] {2}'.format(tdoc_id, item_values[1], item_values[3], self.meeting_number)
+            subject = subject.replace('\n', ' ').replace('  ', ' ')
             print(subject)
             webbrowser.open('mailto:{0}?subject={1}'.format('3GPP_TSG_SA_WG2_EMEET@LIST.ETSI.ORG', subject), new = 1)
             pyperclip.copy(subject)
