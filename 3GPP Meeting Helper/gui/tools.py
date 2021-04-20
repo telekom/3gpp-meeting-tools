@@ -46,7 +46,7 @@ class ToolsDialog:
         self.export_button.grid(row=1, column=0, columnspan=columnspan, sticky="EW")
 
         # Row 4: Analyze TDoc
-        self.launch_tdoc_table = tkinter.Button(top, text='Open Tdoc table', command=lambda: gui.tdocs_table.TdocsTable(gui.main.root, gui.main.favicon))
+        self.launch_tdoc_table = tkinter.Button(top, text='Open Tdoc table', command=lambda: gui.tdocs_table.TdocsTable(gui.main.root, gui.main.favicon, self))
         self.launch_tdoc_table.grid(row=4, column=0, columnspan=columnspan, sticky="EW")
 
         self.tkvar_tdoc           = tkinter.StringVar(top)
@@ -510,14 +510,16 @@ class ToolsDialog:
             print('General error performing bulk AI caching')
             traceback.print_exc()
 
-    def compare_tdocs(self):
+    def compare_tdocs(self, entry_1=None, entry_2=None):
         print("Not yet implemented")
         try:
             gui.main.open_downloaded_tdocs = False
             tdocs_1 = []
             tdocs_2 = []
-            entry_1 = self.tkvar_tdoc_to_compare_1.get()
-            entry_2 = self.tkvar_tdoc_to_compare_2.get()
+            if entry_1 is None:
+                entry_1 = self.tkvar_tdoc_to_compare_1.get()
+            if entry_2 is None:
+                entry_2 = self.tkvar_tdoc_to_compare_2.get()
             match_1 = tdoc.tdoc_regex.match(entry_1)
             match_2 = tdoc.tdoc_regex.match(entry_2)
 
