@@ -132,8 +132,17 @@ class TdocsTable:
         self.combo_ai.set('All')
         self.combo_ai.bind("<<ComboboxSelected>>", self.select_ai)
 
-        tkinter.Label(frame_1, text="  Select AI: ").pack(side=tkinter.LEFT)
+        all_results = ['All']
+        all_results.extend(list(application.current_tdocs_by_agenda.tdocs["Result"].unique()))
+        self.combo_result = ttk.Combobox(frame_1, values=all_results, state="readonly")
+        self.combo_result.set('All')
+        self.combo_result.bind("<<ComboboxSelected>>", self.select_result)
+
+        tkinter.Label(frame_1, text="  Filter by AI: ").pack(side=tkinter.LEFT)
         self.combo_ai.pack(side=tkinter.LEFT)
+
+        tkinter.Label(frame_1, text="  Filter by Result: ").pack(side=tkinter.LEFT)
+        self.combo_result.pack(side=tkinter.LEFT)
 
         tkinter.Label(frame_1, text="  ").pack(side=tkinter.LEFT)
         tkinter.Button(
@@ -215,9 +224,10 @@ class TdocsTable:
 
     def clear_filters(self, *args):
         self.combo_ai.set('All')
+        self.combo_result.set('All')
         self.search_text.set('')
         self.load_data(reload=False)
-        self.select_ai() # One will call the other
+        self.select_ai(load_data=True) # One will call the other(s)
 
 
     def reload_data(self, *args):
@@ -243,6 +253,30 @@ class TdocsTable:
 
         if load_data:
             self.select_text(load_data=False)
+            self.select_result(load_data=False)
+
+
+    def select_result(self, load_data=True, event=None):
+        if load_data:
+            self.load_data()
+
+        tdocs_for_result = self.current_tdocs
+        selected_result = self.combo_result.get()
+        print('Filtering by Result "{0}"'.format(selected_result))
+        if selected_result == 'All':
+            tdocs_for_result = tdocs_for_result
+        else:
+            tdocs_for_result = tdocs_for_result[tdocs_for_result['Result'] == self.combo_result.get()]
+
+        self.current_tdocs = tdocs_for_result
+
+        self.tree.delete(*self.tree.get_children())
+        self.insert_current_tdocs()
+
+        if load_data:
+            self.select_text(load_data=False)
+            self.select_ai(load_data=False)
+
 
     def select_text(self, load_data=True, *args):
         if load_data:
@@ -273,6 +307,7 @@ class TdocsTable:
 
         if load_data:
             self.select_ai(load_data=False)
+            self.select_result(load_data=False)
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
