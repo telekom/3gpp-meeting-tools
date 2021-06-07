@@ -42,11 +42,19 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
     download_from_inbox  = gui.main.inbox_is_for_this_meeting()
     found_attachments = []
     email_list = []
-    for ai_folder in ai_folders:
+    checked_tdocs = set()
+    last_dot = False
+    ai_folders_list = list(ai_folders)
+    ai_folders_list.sort(key=lambda folder: folder.Name)
+    for folder_idx,ai_folder in enumerate(ai_folders_list):
         ai_folder_name = ai_folder.Name
-        print(ai_folder_name)
-        mail_items_with_attachments = [f for f in ai_folder.Items]
-        for mail_item in mail_items_with_attachments:
+        if last_dot:
+            print()
+        last_dot = False
+        print('{0} ({1}/{2})'.format(ai_folder_name, folder_idx+1, len(ai_folders_list)))
+        mail_items_with_attachments_tuple = [(f, f.Subject) for f in ai_folder.Items]
+        print('{0} emails in folder'.format(len(mail_items_with_attachments_tuple)))
+        for mail_item, email_subject in mail_items_with_attachments_tuple:
             try:
                 email_date = mail_item.ReceivedTime
                 email_year   = email_date.year
@@ -62,27 +70,33 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                 email_hour   = 0
                 email_minute = 0
                 email_second = 0
-                print('Error retrieving email date')
-                traceback.print_exc()
+                # Error retrieving email date (known Outlook bug)
+                # See https://stackoverflow.com/questions/62169709/python-valueerror-microsecond-must-be-in-0-999999-while-using-win32com
+                print('E')
+                # traceback.print_exc()
 
             date_str       = '{0:04d}.{1:02d}.{2:02d} {3:02d}{4:02d}{5:02d}'.format(email_year, email_month, email_day, email_hour, email_minute, email_second)
             date_str_excel = '{0:04d}.{1:02d}.{2:02d} {3:02d}:{4:02d}:{5:02d}'.format(email_year, email_month, email_day, email_hour, email_minute, email_second)
             
             # Download original file (not in email approval folder)
             # Only criteria is if there is a Tdoc ID in the subject
-            email_subject = mail_item.Subject
-            approval_tdoc = tdoc.tdoc_regex.search(email_subject)
-            if approval_tdoc is None:
+            approval_tdoc_match = tdoc.tdoc_regex.search(email_subject)
+            if approval_tdoc_match is None:
                 print('Could not parse TDoc ID from subject: {0}'.format(email_subject))
                 continue
             
-            tdoc_id = approval_tdoc.group(0)
-            retrieved_files, tdoc_url = server.get_tdoc(
-                local_meeting_folder,
-                tdoc_id,
-                use_inbox=download_from_inbox,
-                return_url=True,
-                searching_for_a_file=True)
+            tdoc_id = approval_tdoc_match.group(0)
+            if tdoc_id not in checked_tdocs:
+                server.get_tdoc(
+                    local_meeting_folder,
+                    tdoc_id,
+                    use_inbox=download_from_inbox,
+                    return_url=True,
+                    searching_for_a_file=True)
+                checked_tdocs.add(tdoc_id)
+            else:
+                # Avoid repeated calls to get_tdoc()
+                pass
             local_folder_for_tdoc = server.get_local_folder(local_meeting_folder, tdoc_id, create_dir=True, email_approval=True)
 
             try:
@@ -110,7 +124,7 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
             # Fix sender email address for encrypted emails
             if 'dmarc-request@LIST.ETSI.ORG' in sender_address:
                 try:
-                    reply_recipients = [ recipient.Address for recipient in mail_item.ReplyRecipients ]
+                    reply_recipients = [recipient.Address for recipient in mail_item.ReplyRecipients]
                     if len(reply_recipients) > 0:
                         sender_address = reply_recipients[0]
                 except:
@@ -127,8 +141,14 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
             email_local_copy = '{0} {1}.msg'.format(date_str, sender_address).replace('/','')
             email_local_copy_path = os.path.join(local_folder_for_tdoc, email_local_copy)
             if not os.path.isfile(email_local_copy_path):
+                if last_dot:
+                    print()
                 print('Saving email to {0}'.format(email_local_copy_path))
+                last_dot = False
                 mail_item.SaveAs(email_local_copy_path)
+            else:
+                print(".", end='')
+                last_dot = True
 
             # Check if email contains message body with a revision (SA2-138E eMeeting)
             email_body = mail_item.Body
@@ -193,6 +213,8 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                             attachment.SaveAsFile(attachment_local_filename)
                         found_attachments.append(RevisionDoc(date_str_excel, tdoc_id, name, attachment_local_filename, sender_name, sender_address, email_local_copy_path, ai_folder.Name, ''))
 
+    if last_dot:
+        print()
     return found_attachments, email_list
 
 def internet_codepage_to_character_set(codepage):

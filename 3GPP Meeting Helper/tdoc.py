@@ -5,8 +5,8 @@ import parsing.word as word_parser
 import traceback
 import win32com.client
 import collections
+from config.tdoc_regex_matching import tdoc_regex
 
-tdoc_regex = re.compile(r'(?P<group>[S\d]*)-(?P<year>\d\d)(?P<tdoc_number>[\d]+)(?P<revision>r[\d][\d])?')
 spec_file_regex   = re.compile(r'(?P<series>[\d]{2})(\.)?(?P<number>[\d]{3})(-(?P<version>[\w\d]*))?(\.zip)?')
 spec_number_regex = re.compile(r'(?P<series>[\d]{2})\.(?P<number>[\d]{3})')
 
