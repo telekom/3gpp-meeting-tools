@@ -73,7 +73,7 @@ class TdocsTable:
     def __init__(self, parent, favicon, parent_gui_tools):
         init_style()
         top = self.top = tkinter.Toplevel(parent)
-        top.title("TDoc Table")
+        top.title("TDoc Table. Double-Click on TDoc # or revision # to open")
         top.iconbitmap(favicon)
         self.parent_gui_tools = parent_gui_tools
 
@@ -324,7 +324,7 @@ class TdocsTable:
             return
         if column == 0:
             print('Opening {0}'.format(actual_value))
-            gui.main.download_and_open_tdoc(actual_value)
+            gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
         if column == 5:
             print('Opening revisions for {0}'.format(tdoc_id))
             gui.tdocs_table.RevisionsTable(gui.main.root, gui.main.favicon, tdoc_id, self.revisions_list, self.parent_gui_tools)
@@ -453,10 +453,10 @@ class RevisionsTable:
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
         if column == 0:
             print('Opening {0}'.format(actual_value))
-            gui.main.download_and_open_tdoc(actual_value)
+            gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
         if column == 1:
             print('Opening {0}'.format(tdoc_to_search))
-            gui.main.download_and_open_tdoc(tdoc_to_search)
+            gui.main.download_and_open_tdoc(tdoc_to_search, copy_to_clipboard=True)
         if column == 2:
             self.compare_a.set(tdoc_to_search)
         if column == 3:

@@ -18,6 +18,8 @@ import os.path
 
 import traceback
 
+from pyperclip import copy as clipboard_copy
+
 # tkinter initialization
 root = tkinter.Tk()
 root.title("3GPP SA2 Meeting helper")
@@ -295,7 +297,7 @@ def current_tdocs_by_agenda_exists():
         return False
 
 # Button to open TDoc
-def download_and_open_tdoc(tdoc_id_to_override=None, cached_tdocs_list=None):
+def download_and_open_tdoc(tdoc_id_to_override=None, cached_tdocs_list=None, copy_to_clipboard=False):
     global performing_search
     tkvar_tdoc_id.set(tkvar_tdoc_id.get().replace(' ','').replace('\r','').replace('\n','').strip())
     if tdoc_id_to_override is None:
@@ -311,6 +313,13 @@ def download_and_open_tdoc(tdoc_id_to_override=None, cached_tdocs_list=None):
         use_inbox=download_from_inbox,
         return_url=True,
         searching_for_a_file=True)
+    if copy_to_clipboard:
+        if tdoc_url is None:
+            clipboard_text = tdoc_id
+        else:
+            clipboard_text = '{0}, {1}'.format(tdoc_id, tdoc_url)
+        clipboard_copy(clipboard_text)
+        print('Copied TDoc ID and URL (if available) to clipboard: {0}'.format(clipboard_text))
     # Set file information if available
     tkvar_last_tdoc_url.set(tdoc_url)
     # Set current status if found
