@@ -170,14 +170,25 @@ def get_html(url, cache=True, try_update_folders=True):
         traceback.print_exc()
         return None
 
-def get_tdoc(meeting_folder_name, tdoc_id, use_inbox=False, return_url=False, searching_for_a_file=False):
+def get_tdoc(
+        meeting_folder_name,
+        tdoc_id,
+        use_inbox=False,
+        return_url=False,
+        searching_for_a_file=False,
+        use_email_approval_inbox=False):
     if not tdoc.is_tdoc(tdoc_id):
         if not return_url:
             return None
         else:
             return None, None
     tdoc_local_filename = get_local_filename(meeting_folder_name, tdoc_id)
-    zip_file_url = get_remote_filename(meeting_folder_name, tdoc_id, use_inbox, searching_for_a_file)
+    zip_file_url = get_remote_filename(
+        meeting_folder_name,
+        tdoc_id,
+        use_inbox,
+        searching_for_a_file,
+        use_email_approval_inbox=use_email_approval_inbox)
     if not os.path.exists(tdoc_local_filename):
         # TODO: change to also FTP support
         tdoc_file = get_html(zip_file_url, cache=False)
@@ -186,8 +197,16 @@ def get_tdoc(meeting_folder_name, tdoc_id, use_inbox=False, return_url=False, se
                 # Retry without inbox
                 return_value = get_tdoc(meeting_folder_name, tdoc_id, use_inbox=False)
             else:
-                # No need to retry
-                return_value = None
+                if not use_email_approval_inbox:
+                    # Retry in INBOX folder
+                    return_value = get_tdoc(
+                        meeting_folder_name,
+                        tdoc_id,
+                        use_inbox=False,
+                        use_email_approval_inbox=True)
+                else:
+                    # No need to retry
+                    return_value = None
             if not return_url:
                 return return_value
             else:
@@ -282,7 +301,12 @@ def get_local_revisions_filename(meeting_folder_name):
     folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
     return os.path.join(folder, 'Revisions.htm')
 
-def get_remote_filename(meeting_folder_name, tdoc_id, use_inbox=False, searching_for_a_file=False):
+def get_remote_filename(
+        meeting_folder_name,
+        tdoc_id,
+        use_inbox=False,
+        searching_for_a_file=False,
+        use_email_approval_inbox=False):
     folder = get_remote_meeting_folder(meeting_folder_name, use_inbox, searching_for_a_file)
     
     if not use_inbox:
@@ -292,7 +316,10 @@ def get_remote_filename(meeting_folder_name, tdoc_id, use_inbox=False, searching
         if revision is not None:
             folder = get_remote_meeting_revisions_folder(folder)
         else:
-            folder += 'Docs/'
+            if use_email_approval_inbox:
+                folder += 'Inbox/'
+            else:
+                folder += 'Docs/'
     elif use_inbox:
         # No need to add 'Docs/'
         pass
