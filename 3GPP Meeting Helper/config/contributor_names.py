@@ -5,7 +5,7 @@ signature_synonyms_regex = {
     'KT':               re.compile(r'(\bkt\b)'),
     'Nokia':            re.compile(r'nokia'),
     'Qualcomm':         re.compile(r'qualcom[m]?'),
-    'Huawei':           re.compile(r'(huawei)|(h[i]?s[i]?l[l]?icon)|futurewei'),
+    'Huawei':           re.compile(r'(huawei)|(h[i]?s[i]?l[l]?icon)'),
     'T-Mobile USA':     re.compile(r't[-]?mobile'),
     'Verizon':          re.compile(r'verizon'),
     'ZTE':              re.compile(r'zte'),
