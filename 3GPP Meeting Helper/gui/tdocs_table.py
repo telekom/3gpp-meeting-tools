@@ -297,7 +297,7 @@ class TdocsTable:
 
         text_search = text_search.lower()
         tdocs_for_text = self.current_tdocs.copy()
-        tdocs_for_text['search_column'] = tdocs_for_text.index + tdocs_for_text['Title']
+        tdocs_for_text['search_column'] = tdocs_for_text.index + tdocs_for_text['Title'] + tdocs_for_text['Source']
         tdocs_for_text['search_column'] = tdocs_for_text['search_column'].str.lower()
         tdocs_for_text = tdocs_for_text[tdocs_for_text['search_column'].str.contains(text_search, regex=is_regex)]
         self.current_tdocs = tdocs_for_text
