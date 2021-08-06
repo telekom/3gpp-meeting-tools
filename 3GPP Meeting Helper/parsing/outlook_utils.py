@@ -133,3 +133,32 @@ def get_email_approval_emails(folder, target_folder, tdoc_data, use_tdoc_data=Tr
             traceback.print_exc()
     # To Do add handling and creation of individual foldrs per agenda item
     return emails_to_move
+
+def search_subject_in_all_outlook_items(tdoc_id, new_window=True):
+    outlook_instance = get_outlook()
+    if outlook_instance is None:
+        print('Could not retrieve Outlook instance')
+        return None
+
+    try:
+        # https://docs.microsoft.com/en-us/office/vba/api/outlook.oldefaultfolders
+        olFolderInbox = 6
+        default_folder = outlook_instance.GetNamespace("MAPI").GetDefaultFolder(olFolderInbox)
+        if new_window:
+            # https://docs.microsoft.com/en-us/office/vba/api/outlook.olfolderdisplaymode
+            olFolderDisplayNormal = 0
+            new_explorer = outlook_instance.Explorers.Add(default_folder, olFolderDisplayNormal)
+        else:
+            new_explorer = outlook_instance.ActiveExplorer()
+
+        # Search scope: https://docs.microsoft.com/en-us/office/vba/api/outlook.olsearchscope
+        olSearchScopeAllOutlookItems = 2
+
+        # Achtung: it will only work in German localization!
+        new_explorer.Search(
+            'betreff:"{0}"'.format(tdoc_id),
+            olSearchScopeAllOutlookItems)
+    except:
+        print('Could not search for emails')
+        traceback.print_exc()
+

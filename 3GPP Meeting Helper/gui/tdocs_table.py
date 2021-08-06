@@ -11,6 +11,7 @@ import gui.main
 from parsing.html_revisions import revisions_file_to_dataframe
 import traceback
 import pandas as pd
+from parsing.outlook_utils import search_subject_in_all_outlook_items
 
 style_name = 'mystyle.Treeview'
 
@@ -213,7 +214,7 @@ class TdocsTable:
                 textwrap.fill(row['Title'], width=70),
                 textwrap.fill(row['Source'], width=25),
                 revision_count,
-                '',
+                'Click',
                 'Click',
                 row['Result']))
 
@@ -330,7 +331,7 @@ class TdocsTable:
             gui.tdocs_table.RevisionsTable(gui.main.root, gui.main.favicon, tdoc_id, self.revisions_list, self.parent_gui_tools)
         if column == 6:
             print('Opening emails for {0}'.format(tdoc_id))
-            gui.tdocs_table.EmailsTable(gui.main.root, gui.main.favicon, tdoc_id)
+            search_subject_in_all_outlook_items(tdoc_id)
         if column == 7:
             print('Generating subject for email approval for {0}. Copying to clipboard and generating empty email'.format(tdoc_id))
             subject = '[SA2#{3}, AI#{1}, {0}] {2}'.format(tdoc_id, item_values[1], item_values[3], self.meeting_number)
@@ -372,6 +373,8 @@ class RevisionsTable:
         set_column(self.tree, 'Add to compare A', width=110)
         set_column(self.tree, 'Add to compare B', width=110)
         self.tree.bind("<Double-Button-1>", self.on_double_click)
+
+        self.count = 0
         self.insert_rows(revisions)
 
         self.tree_scroll = ttk.Scrollbar(frame_1)
@@ -467,10 +470,3 @@ class RevisionsTable:
         compare_b = self.compare_b.get()
         print('Comparing {0} vs. {1}'.format(compare_a, compare_b))
         self.parent_gui_tools.compare_tdocs(entry_1=compare_a, entry_2=compare_b, )
-
-class EmailsTable:
-
-    def __init__(self, parent, favicon, tdoc_id):
-        top = self.top = tkinter.Toplevel(parent)
-        top.title("Emails for {0}".format(tdoc_id))
-        top.iconbitmap(favicon)
