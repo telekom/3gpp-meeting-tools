@@ -617,7 +617,7 @@ def download_revisions_file(meeting):
         if html is None:
             print('Revisions file for {0} not found'.format(meeting))
             return None
-        tdoc.write_data_and_open_file(html, local_file, open_file=False, save_file=False)
+        tdoc.write_data_and_open_file(html, local_file, open_file=False)
         return local_file
     except:
         print('Could get not revisions agenda file for {0}'.format(meeting))
