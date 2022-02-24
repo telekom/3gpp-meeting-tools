@@ -168,11 +168,21 @@ class TdocsTable:
             print('Loading revision data for table')
             current_selection = gui.main.tkvar_meeting.get()
             meeting_server_folder = application.sa2_meeting_data.get_server_folder_for_meeting_choice(current_selection)
-            tdocs_by_agenda_file, revisions_file = gui.main.get_tdocs_by_agenda_for_selected_meeting(
+            tdocs_by_agenda_file, revisions_file, drafts_file = gui.main.get_tdocs_by_agenda_for_selected_meeting(
                 meeting_server_folder,
-                return_revisions_file=True)
-            self.revisions, self.revisions_list = revisions_file_to_dataframe(revisions_file, self.current_tdocs)
-        self.meeting_number = application.current_tdocs_by_agenda.meeting_number
+                return_revisions_file=True,
+                return_drafts_file=True)
+
+            self.revisions, self.revisions_list = revisions_file_to_dataframe(
+                revisions_file,
+                self.current_tdocs,
+                drafts_file=drafts_file)
+
+        try:
+            self.meeting_number = application.current_tdocs_by_agenda.meeting_number
+        except:
+            self.meeting_number = '<Meeting number>'
+
         self.current_tdocs = application.current_tdocs_by_agenda.tdocs
 
     def insert_current_tdocs(self):
@@ -195,10 +205,15 @@ class TdocsTable:
                 number_format = '{0:02d}'
                 try:
                     rev_number = self.revisions.loc[idx, 'Revisions']
-                    if rev_number < 1:
+                    try:
+                        rev_number_converted = int(rev_number.replace('*',''))
+                    except:
+                        rev_number_converted = 0
+                    print()
+                    if rev_number_converted < 1:
                         revision_count = ''
                     else:
-                        revision_count = number_format.format(rev_number)
+                        revision_count = rev_number
                 except KeyError:
                     # Not found
                     revision_count = '' # Zero is left empty
@@ -429,7 +444,7 @@ class RevisionsTable:
 
             self.tree.insert("", "end", tags=(tag,), values=(
                 idx,
-                '{0:02d}'.format(row['Revisions']),
+                row['Revisions'],
                 'Click',
                 'Click'))
 
@@ -447,8 +462,14 @@ class RevisionsTable:
             actual_value = item_values[column]
         except:
             actual_value = None
+
+        # Some issues with automatic conversion which we solve here
         tdoc_id = item_values[0]
-        revision = 'r' + '{0:02d}'.format(item_values[1])
+        if isinstance(item_values[1], int):
+            revision = 'r' + '{0:02d}'.format(item_values[1])
+        else:
+            revision = 'r' + item_values[1]
+
         if revision == 'r00':
             tdoc_to_search = tdoc_id
         else:
