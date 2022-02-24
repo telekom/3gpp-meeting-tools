@@ -114,6 +114,13 @@ def parse_ts_number(ts):
     return TS(series, number, version, full_match)
 
 def get_tdoc_year(tdoc, include_revision=False):
+    # Drafts have an asterisk with the revision number
+    if '*' in tdoc:
+        this_is_a_draft = True
+    else:
+        this_is_a_draft = False
+    tdoc = tdoc.replace('*', '')
+
     if not is_tdoc(tdoc):
         if not include_revision:
             return None, None

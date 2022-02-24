@@ -61,7 +61,7 @@ def get_sa2_inbox_tdoc_list():
 
 def get_sa2_meeting_tdoc_list(meeting_folder):
     remote_folder = get_remote_meeting_folder(meeting_folder)
-    url           = remote_folder + 'TdocsByAgenda.htm'
+    url = remote_folder + 'TdocsByAgenda.htm'
     returned_html = get_html(url)
 
     # Normal case
@@ -78,12 +78,23 @@ def get_sa2_meeting_tdoc_list(meeting_folder):
         new_html    = get_html(url)
         return new_html
     else:
+        print('Returned TdocsByAgenda as NONE. Something went wrong when retrieving TDocsByAgenda.htm...')
         return None
 
 def get_sa2_revisions_tdoc_list(meeting_folder):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'INBOX/Revisions'
     returned_html = get_html(url)
+
+    return returned_html
+
+def get_sa2_drafts_tdoc_list(meeting_folder):
+    remote_folder = get_remote_meeting_folder(meeting_folder)
+    url = remote_folder + 'INBOX/DRAFTS'
+    returned_html = get_html(url)
+
+    # In this case, we also need to retrieve all sub-pages
+    # TO-DO!!!!
 
     return returned_html
 
@@ -177,18 +188,25 @@ def get_tdoc(
         return_url=False,
         searching_for_a_file=False,
         use_email_approval_inbox=False):
+    if '*' in tdoc_id:
+        is_draft = True
+        tdoc_id = tdoc_id.replace('*','')
+    else:
+        is_draft = False
+
     if not tdoc.is_tdoc(tdoc_id):
         if not return_url:
             return None
         else:
             return None, None
-    tdoc_local_filename = get_local_filename(meeting_folder_name, tdoc_id)
+    tdoc_local_filename = get_local_filename(meeting_folder_name, tdoc_id, is_draft=is_draft)
     zip_file_url = get_remote_filename(
         meeting_folder_name,
         tdoc_id,
         use_inbox,
         searching_for_a_file,
-        use_email_approval_inbox=use_email_approval_inbox)
+        use_email_approval_inbox=use_email_approval_inbox,
+        is_draft=is_draft)
     if not os.path.exists(tdoc_local_filename):
         # TODO: change to also FTP support
         tdoc_file = get_html(zip_file_url, cache=False)
@@ -260,7 +278,7 @@ def get_spec_folder(create_dir=True):
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
-def get_local_folder(meeting_folder_name, tdoc_id, create_dir=True, email_approval=False):
+def get_local_folder(meeting_folder_name, tdoc_id, create_dir=True, email_approval=False, is_draft=False):
     meeting_folder = get_meeting_folder(meeting_folder_name)
 
     year,tdoc_number,revision = tdoc.get_tdoc_year(tdoc_id, include_revision=True)
@@ -268,15 +286,23 @@ def get_local_folder(meeting_folder_name, tdoc_id, create_dir=True, email_approv
         # Remove 'rXX' from the name for folder generation if found
         tdoc_id = tdoc_id[:-3]
 
-    folder_name = os.path.join(meeting_folder, tdoc_id)
+    if not is_draft:
+        folder_name = os.path.join(meeting_folder, tdoc_id)
+    else:
+        folder_name = os.path.join(meeting_folder, tdoc_id, 'Drafts')
     if email_approval:
         folder_name = os.path.join(folder_name, 'email approval')
     if create_dir and (not os.path.exists(folder_name)):
         os.makedirs(folder_name, exist_ok=True)
     return folder_name
 
-def get_local_filename(meeting_folder_name, tdoc_id, create_dir=True):
-    folder_name = get_local_folder(meeting_folder_name, tdoc_id, create_dir)
+def get_local_filename(meeting_folder_name, tdoc_id, create_dir=True, is_draft=False):
+    if not is_draft:
+        # TDoc or revision
+        folder_name = get_local_folder(meeting_folder_name, tdoc_id, create_dir)
+    else:
+        # Draft! We cannot have a '*' in the path. Replace just in case it was not replaced
+        folder_name = get_local_folder(meeting_folder_name, tdoc_id.replace('*',''), create_dir, is_draft=is_draft)
     return os.path.join(folder_name, tdoc_id + '.zip')
 
 def get_local_agenda_folder(meeting_folder_name, create_dir=True):
@@ -301,20 +327,28 @@ def get_local_revisions_filename(meeting_folder_name):
     folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
     return os.path.join(folder, 'Revisions.htm')
 
+def get_local_drafts_filename(meeting_folder_name):
+    folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
+    return os.path.join(folder, 'Drafts.htm')
+
 def get_remote_filename(
         meeting_folder_name,
         tdoc_id,
         use_inbox=False,
         searching_for_a_file=False,
-        use_email_approval_inbox=False):
+        use_email_approval_inbox=False,
+        is_draft=False):
     folder = get_remote_meeting_folder(meeting_folder_name, use_inbox, searching_for_a_file)
     
     if not use_inbox:
         # Check if this is a TDoc revision. If yes, change the folder to the revisions folder. Need to see how this works
-        # duringa meeting, but this is something to test in 2021 :P
+        # during a meeting, but this is something to test in 2021 :P
         year,tdoc_number,revision = tdoc.get_tdoc_year(tdoc_id, include_revision=True)
         if revision is not None:
-            folder = get_remote_meeting_revisions_folder(folder)
+            if not is_draft:
+                folder = get_remote_meeting_revisions_folder(folder)
+            else:
+                folder = get_remote_meeting_drafts_folder(folder)
         else:
             if use_email_approval_inbox:
                 folder += 'Inbox/'
@@ -330,6 +364,8 @@ def get_remote_filename(
 def get_remote_meeting_revisions_folder(meeting_folder_ending_with_slash):
     return meeting_folder_ending_with_slash + 'Inbox/Revisions/'
 
+def get_remote_meeting_drafts_folder(meeting_folder_ending_with_slash):
+    return meeting_folder_ending_with_slash + 'Inbox/DRAFTS/'
 
 def get_remote_agenda_folder(meeting_folder_name, use_inbox=False):
     folder = get_remote_meeting_folder(meeting_folder_name, use_inbox)
@@ -538,7 +574,7 @@ def download_agenda_file(meeting, inbox_active=False):
 def download_revisions_file(meeting):
     try:
         meeting_server_folder = meeting # e.g. TSGS2_144E_Electronic
-        print('Retrieving rvisions for {0} meeting'.format(meeting))
+        print('Retrieving revisions for {0} meeting'.format(meeting))
         local_file = get_local_revisions_filename(meeting_server_folder)
         html = get_sa2_revisions_tdoc_list(meeting_server_folder)
         if html is None:
@@ -547,6 +583,22 @@ def download_revisions_file(meeting):
         tdoc.write_data_and_open_file(html, local_file, open_file=False)
         return local_file
     except:
-        print('Could not revisions agenda file for {0}'.format(meeting))
+        print('Could get not revisions agenda file for {0}'.format(meeting))
+        traceback.print_exc()
+        return None
+
+def download_drafts_file(meeting):
+    try:
+        meeting_server_folder = meeting # e.g. TSGS2_144E_Electronic
+        print('Retrieving drafts for {0} meeting'.format(meeting))
+        local_file = get_local_drafts_filename(meeting_server_folder)
+        html = get_sa2_drafts_tdoc_list(meeting_server_folder)
+        if html is None:
+            print('Drafts file for {0} not found'.format(meeting))
+            return None
+        tdoc.write_data_and_open_file(html, local_file, open_file=False)
+        return local_file
+    except:
+        print('Could not get drafts agenda file for {0}'.format(meeting))
         traceback.print_exc()
         return None

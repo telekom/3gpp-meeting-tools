@@ -252,24 +252,45 @@ def open_tdocs_by_agenda(open_file=True):
 
     # Save opened Tdocs by Agenda file to global application
     html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder)
+    print('Retrieved local TDocsByAgenda data for {0}. Parsing TDocs'.format(meeting_server_folder))
     application.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(html, meeting_server_folder=meeting_server_folder)
 
     tdoc.write_data_and_open_file(html, local_file, open_file=open_file)
         
-def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, return_revisions_file=False):
+def get_tdocs_by_agenda_for_selected_meeting(
+        meeting_folder,
+        return_revisions_file=False,
+        return_drafts_file=False):
+
     inbox_active = inbox_is_for_this_meeting()
     return_data = server.get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active)
-    # Optional download of revisions
-    try:
-        revisions_file = server.download_revisions_file(meeting_folder)
-    except:
-        # Not all meetings have revisions
-        # traceback.print_exc()
-        revisions_file = None
-        pass
 
+    # Optional download of revisions
+    revisions_file = None
     if return_revisions_file:
+        try:
+            revisions_file = server.download_revisions_file(meeting_folder)
+        except:
+            # Not all meetings have revisions
+            # traceback.print_exc()
+            pass
+
+    # Optional download of drafts
+    drafts_file = None
+    if return_drafts_file:
+        try:
+            drafts_file = server.download_drafts_file(meeting_folder)
+        except:
+            # Not all meetings have drafts
+            # traceback.print_exc()
+            pass
+
+    if return_revisions_file and return_drafts_file:
+        return return_data, revisions_file, drafts_file
+
+    if return_revisions_file and not return_drafts_file:
         return return_data, revisions_file
+
     return return_data
 
 def get_local_tdocs_by_agenda_filename_for_current_meeting():
@@ -279,7 +300,7 @@ def get_local_tdocs_by_agenda_filename_for_current_meeting():
             print('Empty current selection: current meeting not yet selected')
             return None,None
         else:
-            print('Get TdocsByAgenda for {0}'.format(current_selection))
+            print('Get TdocsByAgenda for {0} from local file'.format(current_selection))
         meeting_server_folder = application.sa2_meeting_data.get_server_folder_for_meeting_choice(current_selection)
         local_file = server.get_local_tdocs_by_agenda_filename(meeting_server_folder)
 

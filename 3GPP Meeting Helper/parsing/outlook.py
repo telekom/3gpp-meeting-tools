@@ -40,7 +40,7 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
     tmp_folder = server.get_tmp_folder()
     local_meeting_folder = application.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting_name)
     download_from_inbox  = gui.main.inbox_is_for_this_meeting()
-    found_attachments = []
+    found_emails_with_chairmans_notes = []
     email_list = []
     checked_tdocs = set()
     last_dot = False
@@ -152,7 +152,7 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
 
             # Check if email contains message body with a revision (SA2-138E eMeeting)
             email_body = mail_item.Body
-            start_str = 'Comment for notes <<START>>'
+            start_str = '<<START>>'
             end_str   = '<<END>>'
             comment_start         = email_body.find(start_str)
             comment_end           = email_body.find(end_str)
@@ -173,9 +173,9 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                 found_revisions        = re.findall(r'r[\d]{2}',chairman_notes_comment)
                 if len(found_revisions) > 0:
                     revisions = ','.join(found_revisions)
-                    found_attachments.append(RevisionDoc(date_str_excel, tdoc_id, revisions, '', sender_name, sender_address, email_local_copy_path, ai_folder.Name, chairman_notes_comment))
+                    found_emails_with_chairmans_notes.append(RevisionDoc(date_str_excel, tdoc_id, revisions, '', sender_name, sender_address, email_local_copy_path, ai_folder.Name, chairman_notes_comment))
                 else:
-                    found_attachments.append(RevisionDoc(date_str_excel, tdoc_id, '', '', sender_name, sender_address, email_local_copy_path, ai_folder.Name, chairman_notes_comment))
+                    found_emails_with_chairmans_notes.append(RevisionDoc(date_str_excel, tdoc_id, '', '', sender_name, sender_address, email_local_copy_path, ai_folder.Name, chairman_notes_comment))
 
             # Moved attachments check here so that all emails get indexed by the prior lines
             if mail_item.Attachments.Count < 1:
@@ -183,7 +183,11 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
 
             # Download/copy attachments to local folder
             for attachment in mail_item.Attachments:
-                name = attachment.FileName
+                try:
+                    name = attachment.FileName
+                except:
+                    print('Could not retrieve attachment name from {0}, skipping'.format(email_subject))
+                    continue
                 is_txt_attachment = (attachment_regex.match(name) is not None)
                 is_doc_attachment = (doc_regex.match(name) is not None)
                 if is_txt_attachment:
@@ -204,18 +208,18 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                             print('  TDOC {0}, {1}'.format(tdoc_id, filename_for_file))
                             if not os.path.isfile(attachment_local_filename):
                                 server.download_file_to_location(attachment_data.url, attachment_local_filename)
-                            found_attachments.append(RevisionDoc(date_str_excel, tdoc_id,attachment_data.filename, attachment_local_filename, sender_name, sender_address, email_local_copy_path, ai_folder.Name, ''))
+                            found_emails_with_chairmans_notes.append(RevisionDoc(date_str_excel, tdoc_id,attachment_data.filename, attachment_local_filename, sender_name, sender_address, email_local_copy_path, ai_folder.Name, ''))
                 elif is_doc_attachment:
                     tdoc_data = tdoc.tdoc_regex.match(name)
                     if tdoc_data is not None:
                         attachment_local_filename = os.path.join(local_folder_for_tdoc, name)
                         if not os.path.isfile(attachment_local_filename):
                             attachment.SaveAsFile(attachment_local_filename)
-                        found_attachments.append(RevisionDoc(date_str_excel, tdoc_id, name, attachment_local_filename, sender_name, sender_address, email_local_copy_path, ai_folder.Name, ''))
+                        found_emails_with_chairmans_notes.append(RevisionDoc(date_str_excel, tdoc_id, name, attachment_local_filename, sender_name, sender_address, email_local_copy_path, ai_folder.Name, ''))
 
     if last_dot:
         print()
-    return found_attachments, email_list
+    return found_emails_with_chairmans_notes, email_list
 
 def internet_codepage_to_character_set(codepage):
     if codepage is None:
@@ -330,6 +334,8 @@ def process_email_approval(meeting_name, generate_summary=True):
     tdocs_with_emails    = set([e.tdoc for e in found_attachments])
     all_tdocs            = set(list(tdoc_data.tdocs.index.values))
     tdocs_without_emails = all_tdocs - tdocs_with_emails
+
+    print('{0} TDocs: {1} with emails, {2} without emails'.format(len(all_tdocs), len(tdocs_with_emails), len(tdocs_without_emails)))
 
     time_now = application.get_now_time_str()
     file_summary_file = os.path.join('{0} email approval.xlsx'.format(time_now))

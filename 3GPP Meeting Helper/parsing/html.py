@@ -251,12 +251,17 @@ def get_cache_filepath(meeting_folder_name, html_hash):
 tdocs_by_document_cache = {}
 def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder=''):
     if (path_or_html is None) or (path_or_html == ''):
+        print('Parse TDocsByAgenda skipped. path_or_html={0}, meeting_server_folder={1}'.format(path_or_html, meeting_server_folder))
         return None
 
     global tdocs_by_document_cache
 
+    print('Retrieving TDocsByAgenda (cache is enabled)')
+
     # If this is an HTML
     if len(path_or_html) > 1000:
+        print('TDocsByAgenda retrieval based on HTML content')
+
         # Changed to hashlib as it is reinitialized beween sessions.
         # See https://stackoverflow.com/questions/27522626/hash-function-in-python-3-3-returns-different-results-between-sessions
         m = hashlib.md5()
@@ -265,9 +270,10 @@ def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder=''):
         
         # Retrieve 
         if html_hash in tdocs_by_document_cache:
-            print('Retrieving TdocsByAgenda from parsed document cache')
+            print('Retrieving TdocsByAgenda from parsed document cache: {0}'.format(html_hash))
             last_tdocs_by_agenda = tdocs_by_document_cache[html_hash]
         else:
+            print('TdocsByAgenda {0} not in cache'.format(html_hash))
             last_tdocs_by_agenda = tdocs_by_agenda(path_or_html, html_hash=html_hash, meeting_server_folder=meeting_server_folder)
             
             # I found out tht this was not a good idea for the inbox. File cache should be enough
@@ -296,8 +302,9 @@ def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder=''):
                 traceback.print_exc()
     else:
         # Path-based fetching uses no hash
-        the_tdocs_by_agenda       = tdocs_by_agenda(path_or_html)
-        last_tdocs_by_agenda      = the_tdocs_by_agenda
+        print('TDocsByAgenda retrieval based on path')
+        the_tdocs_by_agenda = tdocs_by_agenda(path_or_html)
+        last_tdocs_by_agenda = the_tdocs_by_agenda
 
     return last_tdocs_by_agenda
 
@@ -339,9 +346,11 @@ class tdocs_by_agenda(object):
             except:
                 print('Could not decode TDocsByAgenda using UTF-8. Trying cp1252')
                 try:
-                    return html.decode('cp1252')
+                    decoded_html_data = html.decode('cp1252')
+                    print('Successfully decoded data as cp1252')
+                    return decoded_html_data
                 except:
-                    print('Could not decode TDocsByAgenda using cp1252. Trying cp1252')
+                    print('Could not decode TDocsByAgenda using cp1252. Returning HTML as-is')
                     return html
         else:
             try:
@@ -385,9 +394,15 @@ class tdocs_by_agenda(object):
 
     def __init__(self, path_or_html, v=2, html_hash='', meeting_server_folder=''):
         self.tdocs = None
-        
+
+        print('Parsing TDocsByAgenda file: version {0}'.format(v))
         raw_html = tdocs_by_agenda.get_tdoc_by_agenda_html(path_or_html, return_raw_html=True)
-        self.meeting_number = tdocs_by_agenda.get_meeting_number(raw_html)
+
+        try:
+            self.meeting_number = tdocs_by_agenda.get_meeting_number(raw_html)
+        except:
+            self.meeting_number = 'Unknown'
+        print('Parsed meeting number: {0}'.format(self.meeting_number))
 
         dataframe_from_cache = False
         
@@ -458,8 +473,10 @@ class tdocs_by_agenda(object):
         return fixed_comment
 
     def get_meeting_number(tdocs_by_agenda_html):
+        print('Parsing TDocsByAgenda meeting number')
         meeting_number_match = tdocs_by_agenda.meeting_number_regex.search(tdocs_by_agenda_html)
         if meeting_number_match is None:
+            print('Could not parse meeting number from TDocsByAgenda HTML')
             return 'Unknown'
         meeting_number = meeting_number_match.groupdict()['meeting']
         meeting_number = meeting_number.replace('#','')
