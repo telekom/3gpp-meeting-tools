@@ -9,7 +9,6 @@ import re
 from urllib.parse import urljoin
 import parsing.html as html_parser
 import parsing.word as word_parser
-import tdoc
 from urllib.parse import urlparse
 from ftplib import FTP
 import traceback
