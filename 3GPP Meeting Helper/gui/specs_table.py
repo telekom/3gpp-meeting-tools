@@ -1,18 +1,14 @@
-import tkinter
-from tkinter import ttk
-import gui.main
-import gui.tools
-import pyperclip
 import re
 import textwrap
-import webbrowser
-import gui.main
-from parsing.html_revisions import revisions_file_to_dataframe
+import tkinter
 import traceback
+import webbrowser
+from tkinter import ttk
+
 import pandas as pd
-from parsing.outlook_utils import search_subject_in_all_outlook_items
+import pyperclip
+
 from server import specs
-import application.meeting_helper
 
 style_name = 'mystyle.Treeview'
 
@@ -71,7 +67,7 @@ def treeview_sort_column(tree, col, reverse=False):
 
 
 class SpecsTable:
-    current_tdocs = None
+    current_specs = None
     source_width = 200
     title_width = 550
 
@@ -114,9 +110,9 @@ class SpecsTable:
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        self.load_data(reload=True)
+        self.load_data()
         self.reload_revisions = False
-        self.insert_current_tdocs()
+        self.insert_current_specs()
 
         self.tree_scroll = ttk.Scrollbar(frame_2)
         self.tree_scroll.configure(command=self.tree.yview)
@@ -132,13 +128,13 @@ class SpecsTable:
         self.search_entry.pack(side=tkinter.LEFT)
 
         all_ais = ['All']
-        all_ais.extend(list(application.meeting_helper.current_tdocs_by_agenda.tdocs["AI"].unique()))
+        all_ais.extend(['one', 'two', '...'])
         self.combo_ai = ttk.Combobox(frame_1, values=all_ais, state="readonly")
         self.combo_ai.set('All')
         self.combo_ai.bind("<<ComboboxSelected>>", self.select_ai)
 
         all_results = ['All']
-        all_results.extend(list(application.meeting_helper.current_tdocs_by_agenda.tdocs["Result"].unique()))
+        all_results.extend(['one', 'two', '...'])
         self.combo_result = ttk.Combobox(frame_1, values=all_results, state="readonly")
         self.combo_result.set('All')
         self.combo_result.bind("<<ComboboxSelected>>", self.select_result)
@@ -167,79 +163,62 @@ class SpecsTable:
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
 
-    def load_data(self, reload=False):
-        if reload:
-            print('Loading revision data for table')
-            current_selection = gui.main.tkvar_meeting.get()
-            meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(current_selection)
-            tdocs_by_agenda_file, revisions_file, drafts_file = gui.main.get_tdocs_by_agenda_for_selected_meeting(
-                meeting_server_folder,
-                return_revisions_file=True,
-                return_drafts_file=True)
+    def load_data(self):
+        """
+        Loads specifications frm the 3GPP website
+        """
+        # Load specs data
+        print('Loading revision data for table')
+        specs.get_specs()
+        print('Finished loading specs')
 
-            self.revisions, self.revisions_list = revisions_file_to_dataframe(
-                revisions_file,
-                self.current_tdocs,
-                drafts_file=drafts_file)
-
-            # Load specs data
-            print('Loading revision data for table')
-            specs.get_specs()
-            print('Finished loading specs')
-
-        try:
-            self.meeting_number = application.meeting_helper.current_tdocs_by_agenda.meeting_number
-        except:
-            self.meeting_number = '<Meeting number>'
-
-        self.current_tdocs = application.meeting_helper.current_tdocs_by_agenda.tdocs
-
-    def insert_current_tdocs(self):
-        self.insert_rows(self.current_tdocs)
+    def insert_current_specs(self):
+        self.insert_rows(self.current_specs)
 
     def insert_rows(self, df):
         count = 0
 
-        for idx, row in df.iterrows():
-            count = count + 1
-            mod = count % 2
-            if mod > 0:
-                tag = 'odd'
-            else:
-                tag = 'even'
+        if df is not None:
+            for idx, row in df.iterrows():
+                count = count + 1
+                mod = count % 2
+                if mod > 0:
+                    tag = 'odd'
+                else:
+                    tag = 'even'
 
-            if self.revisions is None:
-                revision_count = ''
-            else:
-                number_format = '{0:02d}'
-                try:
-                    rev_number = self.revisions.loc[idx, 'Revisions']
+                if self.revisions is None:
+                    revision_count = ''
+                else:
+                    number_format = '{0:02d}'
                     try:
-                        rev_number_converted = int(rev_number.replace('*', ''))
+                        rev_number = self.revisions.loc[idx, 'Revisions']
+                        try:
+                            rev_number_converted = int(rev_number.replace('*', ''))
+                        except:
+                            rev_number_converted = 0
+                        if rev_number_converted < 1:
+                            revision_count = ''
+                        else:
+                            revision_count = rev_number
+                    except KeyError:
+                        # Not found
+                        revision_count = ''  # Zero is left empty
+                        pass
                     except:
-                        rev_number_converted = 0
-                    if rev_number_converted < 1:
-                        revision_count = ''
-                    else:
-                        revision_count = rev_number
-                except KeyError:
-                    # Not found
-                    revision_count = ''  # Zero is left empty
-                    pass
-                except:
-                    revision_count = ''  # Error is left empty
-                    traceback.print_exc()
+                        revision_count = ''  # Error is left empty
+                        traceback.print_exc()
 
-            self.tree.insert("", "end", tags=(tag,), values=(
-                idx,
-                row['AI'],
-                row['Type'],
-                textwrap.fill(row['Title'], width=70),
-                textwrap.fill(row['Source'], width=25),
-                revision_count,
-                'Click',
-                'Click',
-                row['Result']))
+                self.tree.insert("", "end", tags=(tag,), values=(
+                    idx,
+                    row['AI'],
+                    row['Type'],
+                    textwrap.fill(row['Title'], width=70),
+                    textwrap.fill(row['Source'], width=25),
+                    revision_count,
+                    'Click',
+                    'Click',
+                    row['Result']))
 
         self.tree.tag_configure('odd', background='#E8E8E8')
         self.tree.tag_configure('even', background='#DFDFDF')
@@ -249,18 +228,18 @@ class SpecsTable:
         self.combo_ai.set('All')
         self.combo_result.set('All')
         self.search_text.set('')
-        self.load_data(reload=False)
+        self.load_data()
         self.select_ai(load_data=True)  # One will call the other(s)
 
     def reload_data(self, *args):
-        self.load_data(reload=True)
+        self.load_data()
         self.select_ai()  # One will call the other
 
     def select_ai(self, load_data=True, event=None):
         if load_data:
             self.load_data()
 
-        tdocs_for_ai = self.current_tdocs
+        tdocs_for_ai = self.current_specs
         selected_ai = self.combo_ai.get()
         print('Filtering by AI "{0}"'.format(selected_ai))
         if selected_ai == 'All':
@@ -268,10 +247,10 @@ class SpecsTable:
         else:
             tdocs_for_ai = tdocs_for_ai[tdocs_for_ai['AI'] == self.combo_ai.get()]
 
-        self.current_tdocs = tdocs_for_ai
+        self.current_specs = tdocs_for_ai
 
         self.tree.delete(*self.tree.get_children())
-        self.insert_current_tdocs()
+        self.insert_current_specs()
 
         if load_data:
             self.select_text(load_data=False)
@@ -281,7 +260,7 @@ class SpecsTable:
         if load_data:
             self.load_data()
 
-        tdocs_for_result = self.current_tdocs
+        tdocs_for_result = self.current_specs
         selected_result = self.combo_result.get()
         print('Filtering by Result "{0}"'.format(selected_result))
         if selected_result == 'All':
@@ -289,10 +268,10 @@ class SpecsTable:
         else:
             tdocs_for_result = tdocs_for_result[tdocs_for_result['Result'] == self.combo_result.get()]
 
-        self.current_tdocs = tdocs_for_result
+        self.current_specs = tdocs_for_result
 
         self.tree.delete(*self.tree.get_children())
-        self.insert_current_tdocs()
+        self.insert_current_specs()
 
         if load_data:
             self.select_text(load_data=False)
@@ -316,14 +295,14 @@ class SpecsTable:
             print('Filtering by Text "{0}"'.format(text_search))
 
         text_search = text_search.lower()
-        tdocs_for_text = self.current_tdocs.copy()
+        tdocs_for_text = self.current_specs.copy()
         tdocs_for_text['search_column'] = tdocs_for_text.index + tdocs_for_text['Title'] + tdocs_for_text['Source']
         tdocs_for_text['search_column'] = tdocs_for_text['search_column'].str.lower()
         tdocs_for_text = tdocs_for_text[tdocs_for_text['search_column'].str.contains(text_search, regex=is_regex)]
-        self.current_tdocs = tdocs_for_text
+        self.current_specs = tdocs_for_text
 
         self.tree.delete(*self.tree.get_children())
-        self.insert_current_tdocs()
+        self.insert_current_specs()
 
         if load_data:
             self.select_ai(load_data=False)
@@ -344,14 +323,13 @@ class SpecsTable:
             return
         if column == 0:
             print('Opening {0}'.format(actual_value))
-            gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
+            # gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
         if column == 5:
             print('Opening revisions for {0}'.format(tdoc_id))
-            gui.specs_table.SpecsTable(gui.main.root, gui.main.favicon, tdoc_id, self.revisions_list,
-                                           self.parent_gui_tools)
+            # gui.specs_table.SpecsTable(gui.main.root, gui.main.favicon, tdoc_id, self.revisions_list, self.parent_gui_tools)
         if column == 6:
             print('Opening emails for {0}'.format(tdoc_id))
-            search_subject_in_all_outlook_items(tdoc_id)
+            # search_subject_in_all_outlook_items(tdoc_id)
         if column == 7:
             print(
                 'Generating subject for email approval for {0}. Copying to clipboard and generating empty email'.format(
@@ -485,10 +463,10 @@ class SpecVersionsTable:
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
         if column == 0:
             print('Opening {0}'.format(actual_value))
-            gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
+            # gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
         if column == 1:
             print('Opening {0}'.format(tdoc_to_search))
-            gui.main.download_and_open_tdoc(tdoc_to_search, copy_to_clipboard=True)
+            # gui.main.download_and_open_tdoc(tdoc_to_search, copy_to_clipboard=True)
         if column == 2:
             self.compare_a.set(tdoc_to_search)
         if column == 3:
