@@ -1,6 +1,6 @@
 import unittest
-import server
-import tdoc
+import server.tdoc as server
+import tdoc.utils as tdoc
 
 class Test_test(unittest.TestCase):
     def test_remote_tdoc_name(self):

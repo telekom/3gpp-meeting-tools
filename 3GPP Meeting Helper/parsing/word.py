@@ -1,19 +1,23 @@
-import win32com.client
+import os
 import re
 import collections
 import traceback
 from docx import Document
 from enum import Enum
-import server
+
+import application.word
+import server.tdoc
 import config.contributor_names as contributor_names
 import os.path
 from datetime import datetime
+
+from application.word import get_word, open_word_document
+from tdoc.utils import tdoc_regex
 
 title_regex = re.compile(r'Title:[\s\n]*(?P<title>.*)[\s\n]*\n', re.MULTILINE)
 source_regex = re.compile(r'Source:[\s\n]*(?P<source>.*)[\s\n]*\n', re.MULTILINE)
 cr_regex = re.compile(r'Title:[\s\n]*(?P<title>.*)[\n]*Source to WG:[\s\n]*(?P<source>.*)[\s\n]*Source to TSG',
                       re.MULTILINE)
-tdoc_regex = re.compile(r'[S\d]*-\d\d[\d]+')
 
 color_magenta = (234, 10, 142)
 color_black = (0, 0, 0)
@@ -48,37 +52,6 @@ def rgb_to_hex(rgb):
     # print(strValue)
     iValue = int(strValue, 16)
     return iValue
-
-
-def get_word():
-    try:
-        word = win32com.client.GetActiveObject("Word.Application")
-    except:
-        try:
-            word = win32com.client.Dispatch("Word.Application")
-        except:
-            word = None
-    if word is not None:
-        try:
-            word.Visible = True
-        except:
-            print('Could not set property "Visible" from Word to "True"')
-        try:
-            word.DisplayAlerts = False
-        except:
-            print('Could not set property "DisplayAlerts" from Word to "False"')
-    return word
-
-
-def open_word_document(filename='', set_as_active_document=True):
-    if (filename is None) or (filename == ''):
-        doc = get_word().Documents.Add()
-    else:
-        doc = get_word().Documents.Open(filename)
-    if set_as_active_document:
-        get_word().Activate()
-        doc.Activate()
-    return doc
 
 
 def get_metadata_from_doc(doc):
@@ -350,7 +323,7 @@ def fill_in_table(
     current_row = table.Rows.Last
 
     tdocs = df.index.tolist()
-    server_urls = dict([(tdoc, server.get_remote_filename(meeting_folder, tdoc, use_inbox=False)) for tdoc in tdocs])
+    server_urls = dict([(tdoc, server.tdoc.get_remote_filename(meeting_folder, tdoc, use_inbox=False)) for tdoc in tdocs])
 
     # Fill in TDoc data
     row_idx = 2
@@ -419,8 +392,11 @@ def fill_in_table(
                                 tdoc_url = server_urls[m_tdoc]
                             except:
                                 # May not be in this set of URLs. Note that the URL *may* not exist if it is from another meeting!
-                                server_urls[m_tdoc] = server.get_remote_filename(meeting_folder, m_tdoc,
-                                                                                 use_inbox=False)
+                                server_urls[m_tdoc] = server.tdoc.get_remote_filename(
+                                    meeting_folder,
+                                    m_tdoc,
+                                    use_inbox=False)
+
                                 tdoc_url = server_urls[m_tdoc]
                             tdoc_range = table.Cell(Row=row_idx, Column=col_idx + 2).Range
                             range_start = tdoc_range.Start
@@ -608,9 +584,11 @@ def insert_doc_data_to_doc(
         title_style='Überschrift 1',  # Word style to use for the title
         subtitle_style='Überschrift 2',  # Word style to use for the subtitle
         status_to_show=[],
-        # Show only TDocs with the given status. Use "None" or [] to ignore this option. Note that status_to_show has precedence over status_to_ignore
+        # Show only TDocs with the given status. Use "None" or [] to ignore this option. Note that status_to_show has
+        # precedence over status_to_ignore
         status_to_ignore=[],
-        # Do not show TDocs with the given status. Use "None" or [] to ignore this option. Note that status_to_show has precedence over status_to_ignore
+        # Do not show TDocs with the given status. Use "None" or [] to ignore this option. Note that status_to_show
+        # has precedence over status_to_ignore
         show_comments=True,  # Whether to show the "Comments" column for CRs. For a more compact view it can be ignored
         show_withdrawn_crs=True,  # If set to False, adds CRs with status 'Withdrawn' to 'status_to_ignore'
         show_noted_discussion_tdocs_with_crs=False,  # Whether Noted discussion CRs should be shown with CRs
@@ -936,8 +914,8 @@ def insert_doc_data_to_doc_by_wi(
     stats_str, df_stats = get_tdoc_statistics(df)
     insert_range = insert_text_and_format(doc, stats_str, standard_style, standard_style, insert_range=insert_range)
 
-    if meeting_folder in server.ai_names_cache:
-        agenda_description = server.ai_names_cache[meeting_folder]
+    if meeting_folder in server.tdoc.ai_names_cache:
+        agenda_description = server.tdoc.ai_names_cache[meeting_folder]
     else:
         agenda_description = {}
 
@@ -1069,3 +1047,69 @@ def compare_documents(tdoc_1, tdoc_2):
     except:
         print('Could not compare documents')
         traceback.print_exc()
+
+
+def open_file(file, return_metadata=False, go_to_page=1):
+    if (file is None) or (file == ''):
+        return
+    metadata = None
+    try:
+        (head, tail) = os.path.split(file)
+        extension = tail.split('.')[-1]
+        not_mac_metadata = True
+        try:
+            filename_start = tail[0:2]
+            if filename_start == '._':
+                not_mac_metadata = False
+        except:
+            pass
+        if ((extension == 'doc') or (extension == 'docx')) and not_mac_metadata:
+            doc = application.word.open_word_document(file)
+            metadata = get_metadata_from_doc(doc)
+            if go_to_page != 1:
+                pass
+                # Not working :(
+                # constants = win32com.client.constants
+                # if go_to_page<0:
+                #    doc.GoTo(constants.wdGoToPage,constants.wdGoToLast)
+                #    print('Moved to last page')
+                # doc.GoTo(constants.wdGoToPage,constants.wdGoToRelative, go_to_page)
+        else:
+            # Basic avoidance of executables, but anyway per se not very safe... :P
+            if extension != 'exe' and not_mac_metadata:
+                os.startfile(file, 'open')
+            else:
+                print('Executable file {0} not opened for precaution'.format(file))
+        return_value = True
+    except:
+        traceback.print_exc()
+        return_value = False
+    if return_metadata:
+        return return_value, metadata
+    else:
+        return return_value
+
+
+def open_files(files, return_metadata=False, go_to_page=1):
+    if files is None:
+        return 0
+    opened_files = 0
+    metadata_list = []
+    for file in files:
+        file_opened, metadata = open_file(file, return_metadata=True, go_to_page=go_to_page)
+        if file_opened:
+            opened_files += 1
+            metadata_list.append(metadata)
+    if return_metadata:
+        return opened_files, metadata_list
+    else:
+        return opened_files
+
+
+def write_data_and_open_file(data, local_file, open_this_file=True):
+    if data is None:
+        return
+    with open(local_file, 'wb') as output:
+        output.write(data)
+    if open_this_file:
+        open_file(local_file)

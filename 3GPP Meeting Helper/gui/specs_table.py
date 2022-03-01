@@ -1,6 +1,5 @@
 import tkinter
 from tkinter import ttk
-import application.meeting_helper
 import gui.main
 import gui.tools
 import pyperclip
@@ -12,6 +11,8 @@ from parsing.html_revisions import revisions_file_to_dataframe
 import traceback
 import pandas as pd
 from parsing.outlook_utils import search_subject_in_all_outlook_items
+from server import specs
+import application.meeting_helper
 
 style_name = 'mystyle.Treeview'
 
@@ -69,7 +70,7 @@ def treeview_sort_column(tree, col, reverse=False):
     tree.heading(col, command=lambda: treeview_sort_column(tree, col, not reverse))
 
 
-class TdocsTable:
+class SpecsTable:
     current_tdocs = None
     source_width = 200
     title_width = 550
@@ -77,7 +78,7 @@ class TdocsTable:
     def __init__(self, parent, favicon, parent_gui_tools):
         init_style()
         top = self.top = tkinter.Toplevel(parent)
-        top.title("TDoc Table. Double-Click on TDoc # or revision # to open")
+        top.title("Specs Table. Double-Click on Spec # or Release # to open")
         top.iconbitmap(favicon)
         self.parent_gui_tools = parent_gui_tools
 
@@ -104,8 +105,8 @@ class TdocsTable:
         set_column(self.tree, 'TDoc', "TDoc #", width=110)
         set_column(self.tree, 'AI', width=50)
         set_column(self.tree, 'Type', width=120)
-        set_column(self.tree, 'Title', width=TdocsTable.title_width, center=False)
-        set_column(self.tree, 'Source', width=TdocsTable.source_width, center=False)
+        set_column(self.tree, 'Title', width=SpecsTable.title_width, center=False)
+        set_column(self.tree, 'Source', width=SpecsTable.source_width, center=False)
         set_column(self.tree, 'Revs', width=50)
         set_column(self.tree, 'Emails', width=50)
         set_column(self.tree, 'Send @', width=50, sort=False)
@@ -180,6 +181,11 @@ class TdocsTable:
                 revisions_file,
                 self.current_tdocs,
                 drafts_file=drafts_file)
+
+            # Load specs data
+            print('Loading revision data for table')
+            specs.get_specs()
+            print('Finished loading specs')
 
         try:
             self.meeting_number = application.meeting_helper.current_tdocs_by_agenda.meeting_number
@@ -341,7 +347,7 @@ class TdocsTable:
             gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
         if column == 5:
             print('Opening revisions for {0}'.format(tdoc_id))
-            gui.tdocs_table.RevisionsTable(gui.main.root, gui.main.favicon, tdoc_id, self.revisions_list,
+            gui.specs_table.SpecsTable(gui.main.root, gui.main.favicon, tdoc_id, self.revisions_list,
                                            self.parent_gui_tools)
         if column == 6:
             print('Opening emails for {0}'.format(tdoc_id))
@@ -357,7 +363,7 @@ class TdocsTable:
             pyperclip.copy(subject)
 
 
-class RevisionsTable:
+class SpecVersionsTable:
 
     def __init__(self, parent, favicon, tdoc_id, revisions_df, parent_gui_tools):
         top = self.top = tkinter.Toplevel(parent)

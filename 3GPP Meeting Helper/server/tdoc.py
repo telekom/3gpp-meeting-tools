@@ -1,58 +1,43 @@
-import application
-import requests
-from cachecontrol import CacheControl
+import application.meeting_helper
 import os
 import os.path
 import zipfile
-import socket
 import re
 from urllib.parse import urljoin
+
+import application.word
 import parsing.html as html_parser
+import parsing.word
 import parsing.word as word_parser
-from urllib.parse import urlparse
-from ftplib import FTP
+import server.common
+import tdoc.utils
+from server.common import get_html, private_server, http_server, group_folder, sync_folder, meeting_folder, \
+    get_local_revisions_filename, get_local_drafts_filename, get_local_agenda_folder, get_meeting_folder, \
+    get_cache_folder, get_remote_meeting_folder, get_inbox_root
 import traceback
-import tdoc
+import tdoc.utils
 import datetime
 
-http_server        = 'http://www.3gpp.org/ftp/'
-group_folder       = 'tsg_sa/WG2_Arch/'
-sync_folder        = 'Meetings_3GPP_SYNC/SA2/'
-meeting_folder     = 'SA/SA2/'
-private_server     = '10.10.10.10'
-default_http_proxy = 'http://lanbctest:8080'
-root_folder        = '3GPP_SA2_Meeting_Helper'
-
-"""Retrieves data from the 3GPP web server"""
-sa2_url         = ''
-sa2_url_sync    = ''
-sa2_url_meeting = ''
-agenda_regex            = re.compile(r'.*Agenda.*[-_](v)?(?P<version>\d*).*\..*')
-agenda_docx_regex       = re.compile(r'.*Agenda.*[-_](v)?(?P<version>\d*).*\.(docx|doc|zip)')
-agenda_version_regex    = re.compile(r'.*Agenda.*[-_]?(v)(?P<version>\d*).*\..*')
+agenda_regex = re.compile(r'.*Agenda.*[-_](v)?(?P<version>\d*).*\..*')
+agenda_docx_regex = re.compile(r'.*Agenda.*[-_](v)?(?P<version>\d*).*\.(docx|doc|zip)')
+agenda_version_regex = re.compile(r'.*Agenda.*[-_]?(v)(?P<version>\d*).*\..*')
 agenda_draft_docx_regex = re.compile(r'.*draft.*Agenda.*[-_](v)?(?P<version>\d*).*\.(docx|doc|zip)')
-folder_ftp_names_regex  = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][aA][tT][eE].*)')
+folder_ftp_names_regex = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][aA][tT][eE].*)')
 
-non_cached_http_session = requests.Session()
-http_session = CacheControl(non_cached_http_session)
 
 def update_urls():
-    global sa2_url
-    global sa2_url_sync
-    global sa2_url_meeting
-    sa2_url         = http_server + group_folder
-    sa2_url_sync    = http_server + sync_folder
-    sa2_url_meeting = 'ftp://' + private_server + '/' + meeting_folder
+    server.common.sa2_url = http_server + group_folder
+    server.common.sa2_url_sync = http_server + sync_folder
+    server.common.sa2_url_meeting = 'ftp://' + private_server + '/' + meeting_folder
+
 
 update_urls()
 
-def get_sa2_folder():
-    html = get_html(sa2_url, file_to_return_if_error=get_sa2_root_folder_local_cache())
-    return html
 
 def get_sa2_inbox_current_tdoc(searching_for_a_file=False):
     url = get_inbox_root(searching_for_a_file) + 'CurDoc.htm'
     return get_html(url)
+
 
 def get_sa2_inbox_tdoc_list():
     url = get_inbox_root(searching_for_a_file=True) + 'TdocsByAgenda.htm'
@@ -60,6 +45,7 @@ def get_sa2_inbox_tdoc_list():
     fallback_cache = get_inbox_tdocs_list_cache_local_cache()
     online_html = get_html(url, file_to_return_if_error=fallback_cache)
     return online_html
+
 
 def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None):
     remote_folder = get_remote_meeting_folder(meeting_folder)
@@ -73,7 +59,8 @@ def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None):
     # In some cases, the original TDocsByAgenda was removed (e.g. 136AH meeting). In this case, we have to look for a substitute
     folder_contents = get_html(remote_folder)
     parsed_folder = html_parser.parse_3gpp_http_ftp(folder_contents)
-    tdocs_by_agenda_files = [file for file in parsed_folder.files if ('TdocsByAgenda' in file) and (('.htm' in file) or ('.html' in file))]
+    tdocs_by_agenda_files = [file for file in parsed_folder.files if
+                             ('TdocsByAgenda' in file) and (('.htm' in file) or ('.html' in file))]
     if len(tdocs_by_agenda_files) > 0:
         file_to_get = tdocs_by_agenda_files[0]
         url = remote_folder + file_to_get
@@ -83,12 +70,14 @@ def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None):
         print('Returned TdocsByAgenda as NONE. Something went wrong when retrieving TDocsByAgenda.htm...')
         return None
 
+
 def get_sa2_revisions_tdoc_list(meeting_folder, save_file_to=None):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'INBOX/Revisions'
     returned_html = get_html(url, file_to_return_if_error=save_file_to)
 
     return returned_html
+
 
 def get_sa2_drafts_tdoc_list(meeting_folder):
     remote_folder = get_remote_meeting_folder(meeting_folder)
@@ -100,113 +89,6 @@ def get_sa2_drafts_tdoc_list(meeting_folder):
 
     return returned_html
 
-def get_sa2_tdoc_list(meeting_folder):
-    url = get_remote_meeting_folder(meeting_folder, use_inbox=False) + 'TdocsByAgenda.htm'
-    return get_html(url)
-
-def get_html(url, cache=True, try_update_folders=True, file_to_return_if_error=None):
-    if file_to_return_if_error is not None:
-        print('Returning {0} in case of HTTP(s) error'.format(file_to_return_if_error))
-    try:
-        o = urlparse(url)
-    except:
-        # Not an URL
-        print('{0} not an URL'.format(url))
-        return None
-    try:
-        if (o.scheme=='http') or (o.scheme=='https'):
-            print('HTTP GET {0}'.format(url))
-            if cache:
-                r = http_session.get(url)
-            else:
-                r = non_cached_http_session.get(url)
-            if r.status_code != 200:
-                print('HTTP GET {0}: {1}'.format(url, r.status_code))
-                return None
-
-            html_content = r.content
-            if file_to_return_if_error is not None:
-                try:
-                    # Write to cache
-                    with open(file_to_return_if_error, "wb") as file:
-                        file.write(html_content)
-                    print('Cached content to to {0}'.format(file_to_return_if_error))
-                except:
-                    traceback.print_exc()
-                    print('Could not cache file to {0}'.format(file_to_return_if_error))
-            return html_content
-        elif (o.scheme=='ftp'):
-            # Do FTP download
-            print('FTP {0} RETR {1}'.format(o.netloc, o.path))
-            try:
-                with FTP(o.netloc) as ftp:
-                    ftp.login()
-                    # https://stackoverflow.com/questions/18772703/read-a-file-in-buffer-from-ftp-python/18773444
-                    data = []
-                    def handle_binary(more_data):
-                        data.append(more_data)
-
-                    ftp_exception = None
-                    try:
-                        ftp.retrbinary('RETR {0}'.format(o.path), callback=handle_binary)
-                    except Exception as ftp_exception:
-                        if not try_update_folders:
-                            raise ftp_exception
-
-                        # Try into the "_Update" folders in Inbox and outside of Inbox
-                        # Example address: '/SA/SA2/Inbox/S2-1912194.zip'
-                        split_address = o.path.split('/')
-                        tdoc_id = split_address[-1]
-                        folders_to_test = list(set(['/'.join(split_address[0:-1]), '/'.join(split_address[0:-2])]))
-                        update_folders = []
-                        for folder_to_test in folders_to_test:
-                            dir_data = []
-                            def handle_binary_dir(more_data):
-                                dir_data.append(more_data)
-                            try:
-                                dir_contents = []
-                                ftp.cwd(folder_to_test)
-                                ftp.retrlines('LIST', handle_binary_dir) 
-                                folder_content_matches = [ folder_ftp_names_regex.match(e) for e in dir_data]
-                                folder_content_matches = ['{0}/{1}'.format(folder_to_test, e.group(1)) for e in folder_content_matches if e is not None ]
-                                update_folders.extend(folder_content_matches)
-                            except:
-                                print('Could not scan directories in dir {0} in FTP server'.format(folder_to_test))
-                        found_in_update_folder = False
-                        last_exception = ftp_exception
-                        if len(update_folders) > 0:
-                            print('Searching for TDocs in update folders: {0}'.format(', '.join(update_folders)))
-                        for update_folder in update_folders:
-                            try:
-                                data = []
-                                ftp.retrbinary('RETR {0}/{1}'.format(update_folder,tdoc_id), callback=handle_binary)
-                                found_in_update_folder = True
-                                print('Found TDoc {0} in {1}'.format(tdoc_id, update_folder))
-                            except Exception as x:
-                                last_exception = x
-                        if not found_in_update_folder:
-                            raise last_exception
-
-                    # https://stackoverflow.com/questions/17068100/joining-byte-list-with-python
-                    data = b''.join(data)
-                    return data
-            except:
-                print('FTP {0} RETR {1} ERROR'.format(o.netloc, o.path))
-    except:
-        if file_to_return_if_error is not None:
-            try:
-                # Read from cache
-                with open(file_to_return_if_error, "rb") as file:
-                    file_content = file.read()
-                print('Could not load from {1}. Read cached content from {0}'.format(file_to_return_if_error, url))
-                return file_content
-            except:
-                print('Could not read cache file from {0}'.format(file_to_return_if_error))
-                return None
-        else:
-            traceback.print_exc()
-
-        return None
 
 def get_tdoc(
         meeting_folder_name,
@@ -217,11 +99,11 @@ def get_tdoc(
         use_email_approval_inbox=False):
     if '*' in tdoc_id:
         is_draft = True
-        tdoc_id = tdoc_id.replace('*','')
+        tdoc_id = tdoc_id.replace('*', '')
     else:
         is_draft = False
 
-    if not tdoc.is_tdoc(tdoc_id):
+    if not tdoc.utils.is_tdoc(tdoc_id):
         if not return_url:
             return None
         else:
@@ -257,7 +139,7 @@ def get_tdoc(
             else:
                 return return_value, zip_file_url
         # Drive zip file to disk
-        with open(tdoc_local_filename,'wb') as output:
+        with open(tdoc_local_filename, 'wb') as output:
             output.write(tdoc_file)
 
     # If the file does not now exist, there was an error (e.g. not found)
@@ -266,59 +148,33 @@ def get_tdoc(
             return None
         else:
             return None, None
-            
+
     if not return_url:
         return unzip_tdoc_files(tdoc_local_filename)
     else:
         return unzip_tdoc_files(tdoc_local_filename), zip_file_url
 
+
 def download_file_to_location(url, location):
     try:
         file = get_html(url, cache=False)
-        with open(location,'wb') as output:
+        with open(location, 'wb') as output:
             output.write(file)
     except:
         print('Could not download file')
         traceback.print_exc()
 
-def create_folder_if_needed(folder_name, create_dir):
-    if create_dir and (not os.path.exists(folder_name)):
-        os.makedirs(folder_name, exist_ok=True)
-
-def get_tmp_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join('~', root_folder, 'tmp'))
-    create_folder_if_needed(folder_name, create_dir)
-    return folder_name
-
-def get_cache_folder(create_dir=False):
-    folder_name = os.path.expanduser(os.path.join('~', root_folder, 'cache'))
-    create_folder_if_needed(folder_name, create_dir)
-    return folder_name
 
 def get_inbox_tdocs_list_cache_local_cache(create_dir=True):
     cache_folder = get_cache_folder(create_dir)
     inbox_cache = os.path.join(cache_folder, 'InboxCache.html')
     return inbox_cache
 
-def get_sa2_root_folder_local_cache(create_dir=True):
-    cache_folder = get_cache_folder(create_dir)
-    inbox_cache = os.path.join(cache_folder, 'Wg2ArchCache.html')
-    return inbox_cache
-
-def get_meeting_folder(meeting_folder_name, create_dir=False):
-    folder_name = os.path.join(get_cache_folder(create_dir=create_dir), meeting_folder_name)
-    create_folder_if_needed(folder_name, create_dir)
-    return folder_name
-
-def get_spec_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join('~', root_folder, 'specs'))
-    create_folder_if_needed(folder_name, create_dir)
-    return folder_name
 
 def get_local_folder(meeting_folder_name, tdoc_id, create_dir=True, email_approval=False, is_draft=False):
     meeting_folder = get_meeting_folder(meeting_folder_name)
 
-    year,tdoc_number,revision = tdoc.get_tdoc_year(tdoc_id, include_revision=True)
+    year, tdoc_number, revision = tdoc.utils.get_tdoc_year(tdoc_id, include_revision=True)
     if revision is not None:
         # Remove 'rXX' from the name for folder generation if found
         tdoc_id = tdoc_id[:-3]
@@ -333,21 +189,16 @@ def get_local_folder(meeting_folder_name, tdoc_id, create_dir=True, email_approv
         os.makedirs(folder_name, exist_ok=True)
     return folder_name
 
+
 def get_local_filename(meeting_folder_name, tdoc_id, create_dir=True, is_draft=False):
     if not is_draft:
         # TDoc or revision
         folder_name = get_local_folder(meeting_folder_name, tdoc_id, create_dir)
     else:
         # Draft! We cannot have a '*' in the path. Replace just in case it was not replaced
-        folder_name = get_local_folder(meeting_folder_name, tdoc_id.replace('*',''), create_dir, is_draft=is_draft)
+        folder_name = get_local_folder(meeting_folder_name, tdoc_id.replace('*', ''), create_dir, is_draft=is_draft)
     return os.path.join(folder_name, tdoc_id + '.zip')
 
-def get_local_agenda_folder(meeting_folder_name, create_dir=True):
-    meeting_folder = get_meeting_folder(meeting_folder_name)
-    folder_name = os.path.join(meeting_folder, 'Agenda')
-    if create_dir and (not os.path.exists(folder_name)):
-        os.makedirs(folder_name, exist_ok=True)
-    return folder_name
 
 def get_local_invitation_folder(meeting_folder_name, create_dir=True):
     meeting_folder = get_meeting_folder(meeting_folder_name)
@@ -356,17 +207,11 @@ def get_local_invitation_folder(meeting_folder_name, create_dir=True):
         os.makedirs(folder_name, exist_ok=True)
     return folder_name
 
+
 def get_local_tdocs_by_agenda_filename(meeting_folder_name):
     folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
     return os.path.join(folder, 'TdocsByAgenda.htm')
 
-def get_local_revisions_filename(meeting_folder_name):
-    folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
-    return os.path.join(folder, 'Revisions.htm')
-
-def get_local_drafts_filename(meeting_folder_name):
-    folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
-    return os.path.join(folder, 'Drafts.htm')
 
 def get_remote_filename(
         meeting_folder_name,
@@ -376,11 +221,11 @@ def get_remote_filename(
         use_email_approval_inbox=False,
         is_draft=False):
     folder = get_remote_meeting_folder(meeting_folder_name, use_inbox, searching_for_a_file)
-    
+
     if not use_inbox:
-        # Check if this is a TDoc revision. If yes, change the folder to the revisions folder. Need to see how this works
-        # during a meeting, but this is something to test in 2021 :P
-        year,tdoc_number,revision = tdoc.get_tdoc_year(tdoc_id, include_revision=True)
+        # Check if this is a TDoc revision. If yes, change the folder to the revisions folder. Need to see how this
+        # works during a meeting, but this is something to test in 2021 :P
+        year, tdoc_number, revision = tdoc.utils.get_tdoc_year(tdoc_id, include_revision=True)
         if revision is not None:
             if not is_draft:
                 folder = get_remote_meeting_revisions_folder(folder)
@@ -401,8 +246,10 @@ def get_remote_filename(
 def get_remote_meeting_revisions_folder(meeting_folder_ending_with_slash):
     return meeting_folder_ending_with_slash + 'Inbox/Revisions/'
 
+
 def get_remote_meeting_drafts_folder(meeting_folder_ending_with_slash):
     return meeting_folder_ending_with_slash + 'Inbox/DRAFTS/'
+
 
 def get_remote_agenda_folder(meeting_folder_name, use_inbox=False):
     folder = get_remote_meeting_folder(meeting_folder_name, use_inbox)
@@ -412,31 +259,15 @@ def get_remote_agenda_folder(meeting_folder_name, use_inbox=False):
         folder += 'Agenda/'
     return folder
 
-def get_inbox_url(searching_for_a_file=False):
-    return get_inbox_root(searching_for_a_file) + 'Inbox/'
-
-def get_inbox_root(searching_for_a_file=False):
-    if not we_are_in_meeting_network(searching_for_a_file):
-        folder = sa2_url_sync
-    else:
-        folder = sa2_url_meeting
-    return folder
-
-def get_remote_meeting_folder(meeting_folder_name, use_inbox=False, searching_for_a_file=False):
-    if not use_inbox:
-        folder = sa2_url + meeting_folder_name + '/'
-    else:
-        folder = get_inbox_url(searching_for_a_file)
-    return folder
 
 def unzip_tdoc_files(zip_file):
     tdoc_folder = os.path.split(zip_file)[0]
     zip_ref = zipfile.ZipFile(zip_file, 'r')
     files_in_zip = zip_ref.namelist()
-    # Check if is there any file in the zip that does not exist. If not, then do not extract
-    # need_to_extract = any(item == False for item in map(os.path.isfile, map(lambda x: os.path.join(tdoc_folder, x), files_in_zip)))
-    # Removed check whether extracting is needed, as some people reused the same file name on different document versions...
-    # Added exception catch as the file may probably be alrady open
+    # Check if is there any file in the zip that does not exist. If not, then do not extract need_to_extract = any(
+    # item == False for item in map(os.path.isfile, map(lambda x: os.path.join(tdoc_folder, x), files_in_zip)))
+    # Removed check whether extracting is needed, as some people reused the same file name on different document
+    # versions... Added exception catch as the file may probably be alrady open
     try:
         zip_ref.extractall(tdoc_folder)
     except:
@@ -444,8 +275,9 @@ def unzip_tdoc_files(zip_file):
         traceback.print_exc()
     return [os.path.join(tdoc_folder, file) for file in files_in_zip]
 
+
 def get_agenda_files(meeting_folder, use_inbox=False):
-    url  = get_remote_agenda_folder(meeting_folder, use_inbox=use_inbox)
+    url = get_remote_agenda_folder(meeting_folder, use_inbox=use_inbox)
     html = get_html(url)
     if html is None:
         return
@@ -463,7 +295,7 @@ def get_agenda_files(meeting_folder, use_inbox=False):
             html = get_html(agenda_url, cache=False)
             if html is None:
                 continue
-            with open(local_file,'wb') as output:
+            with open(local_file, 'wb') as output:
                 output.write(html)
         if file_extension == '.zip':
             unzipped_files = unzip_tdoc_files(local_file)
@@ -471,58 +303,63 @@ def get_agenda_files(meeting_folder, use_inbox=False):
         else:
             real_agenda_files.append(local_file)
 
+
 def get_latest_agenda_file(agenda_files):
     if agenda_files is None:
         return None
 
-    agenda_files = [ file for file in agenda_files if agenda_docx_regex.match(file) ]
-    if len(agenda_files)==0:
+    agenda_files = [file for file in agenda_files if agenda_docx_regex.match(file)]
+    if len(agenda_files) == 0:
         return None
 
-    draft_agenda_files = [ file for file in agenda_files if agenda_draft_docx_regex.match(file) ]
-    if (len(draft_agenda_files)>0) and (len(draft_agenda_files)!=len(agenda_files)):
+    draft_agenda_files = [file for file in agenda_files if agenda_draft_docx_regex.match(file)]
+    if (len(draft_agenda_files) > 0) and (len(draft_agenda_files) != len(agenda_files)):
         # Non-draft agendas have priority over draft agenda files
-        agenda_files = [ agenda_file for agenda_file in agenda_files if agenda_file not in draft_agenda_files ]
+        agenda_files = [agenda_file for agenda_file in agenda_files if agenda_file not in draft_agenda_files]
 
     last_agenda = max(agenda_files, key=get_agenda_file_version_number)
     print('Most recent agenda file seems to be {0}'.format(last_agenda))
     return last_agenda
 
+
 def get_agenda_file_version_number(x):
-    if len(x)==0 or x[0]=='~':
+    if len(x) == 0 or x[0] == '~':
         # Sanity check for empty strings and/or temporary files
         return -1
-    tdoc_match = tdoc.tdoc_regex.match(x)
+    tdoc_match = tdoc.utils.tdoc_regex.match(x)
     if tdoc_match is not None:
         tdoc_year = float(tdoc_match.groupdict()['year'])
-        tdoc_id   = float(tdoc_match.groupdict()['tdoc_number'])
-        tdoc_number = tdoc_year*100000 + tdoc_id
+        tdoc_id = float(tdoc_match.groupdict()['tdoc_number'])
+        tdoc_number = tdoc_year * 100000 + tdoc_id
     else:
         tdoc_number = 0
-    x_without_dashes = x.replace('-','')
-    agenda_match     = agenda_version_regex.match(x_without_dashes)
+    x_without_dashes = x.replace('-', '')
+    agenda_match = agenda_version_regex.match(x_without_dashes)
     try:
-        agenda_version   = agenda_match.groupdict()['version']
+        agenda_version = agenda_match.groupdict()['version']
     except:
         print('Could not parse Agenda version number for file {0}'.format(x))
         return -1
     print('{0} is agenda version {1} for tdoc ID {2:.0f}'.format(x, agenda_version, tdoc_number))
 
     # Support up to 100 agenda versions. It should be OK...
-    agenda_version = tdoc_number + float(agenda_version)/100
+    agenda_version = tdoc_number + float(agenda_version) / 100
     return agenda_version
 
+
 ai_names_cache = {}
+
+
 def get_last_agenda(meeting_folder):
     agenda_folder = get_local_agenda_folder(meeting_folder)
-    agenda_files = [ file for file in os.listdir(agenda_folder) ]
+    agenda_files = [file for file in os.listdir(agenda_folder)]
 
     last_agenda = get_latest_agenda_file(agenda_files)
 
     if last_agenda is None:
         return None, None
 
-    agenda_path = os.path.join(agenda_folder,last_agenda)
+    agenda_path = os.path.join(agenda_folder, last_agenda)
     try:
         agenda_item_descriptions = word_parser.import_agenda(agenda_path)
     except:
@@ -531,39 +368,30 @@ def get_last_agenda(meeting_folder):
 
     return agenda_path, int(agenda_docx_regex.match(last_agenda).groupdict()['version'])
 
+
 def get_ts_folder(series, release):
     address = 'http://www.3gpp.org/ftp/Specs/latest/Rel-{0}/{1}_series/'.format(release, series)
     return address
 
-def we_are_in_meeting_network(searching_for_a_file=False):
-    # Since 10.10.10.10 uses only FTP, we will only return it for files, NOT
-    # for folder searches
-    if not searching_for_a_file:
-        return False
-    ip_addresses = [i[4][0] for i in socket.getaddrinfo(socket.gethostname(), None)]
-    matches = [re.match('10.10.\d*.\d*', ip_address) for ip_address in ip_addresses]
-    matches = [match for match in matches if match is not None]
-    ip_is_meeting_ip = (len(matches) != 0)
-    return ip_is_meeting_ip
 
 # Begin with updated URLs
 update_urls()
 
+
 def update_meeting_ftp_server(new_address):
     if (new_address is None) or (new_address == ''):
         return
-    global private_server
-    private_server = new_address
+    server.common.private_server = new_address
     update_urls()
 
 
 def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False, save_file_to=None):
     # If the inbox is active, we need to download both and return the newest one
     html_inbox = None
-    html_3gpp  = None
+    html_3gpp = None
 
     datetime_inbox = datetime.datetime.min
-    datetime_3gpp  = datetime.datetime.min
+    datetime_3gpp = datetime.datetime.min
 
     if inbox_active:
         print('Getting TDocs by agenda from inbox')
@@ -593,47 +421,50 @@ def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False,
         print('TDocs by agenda are from 3GPP server (not inbox)')
     return html
 
+
 def download_agenda_file(meeting, inbox_active=False):
     try:
-        meeting_server_folder = application.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting)
+        meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting)
         local_file = get_local_tdocs_by_agenda_filename(meeting_server_folder)
         html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder, inbox_active)
         if html is None:
             print('Agenda file for {0} not found'.format(meeting))
             return None
-        tdoc.write_data_and_open_file(html, local_file, open_file=False)
+        parsing.word.write_data_and_open_file(html, local_file, open_this_file=False)
         return local_file
     except:
         print('Could not download agenda file for {0}'.format(meeting))
         traceback.print_exc()
         return None
 
+
 def download_revisions_file(meeting):
     try:
-        meeting_server_folder = meeting # e.g. TSGS2_144E_Electronic
+        meeting_server_folder = meeting  # e.g. TSGS2_144E_Electronic
         print('Retrieving revisions for {0} meeting'.format(meeting))
         local_file = get_local_revisions_filename(meeting_server_folder)
         html = get_sa2_revisions_tdoc_list(meeting_server_folder, save_file_to=local_file)
         if html is None:
             print('Revisions file for {0} not found'.format(meeting))
             return None
-        tdoc.write_data_and_open_file(html, local_file, open_file=False)
+        parsing.word.write_data_and_open_file(html, local_file, open_this_file=False)
         return local_file
     except:
         print('Could get not revisions agenda file for {0}'.format(meeting))
         traceback.print_exc()
         return None
 
+
 def download_drafts_file(meeting):
     try:
-        meeting_server_folder = meeting # e.g. TSGS2_144E_Electronic
+        meeting_server_folder = meeting  # e.g. TSGS2_144E_Electronic
         print('Retrieving drafts for {0} meeting'.format(meeting))
         local_file = get_local_drafts_filename(meeting_server_folder)
         html = get_sa2_drafts_tdoc_list(meeting_server_folder)
         if html is None:
             print('Drafts file for {0} not found'.format(meeting))
             return None
-        tdoc.write_data_and_open_file(html, local_file, open_file=False)
+        parsing.word.write_data_and_open_file(html, local_file, open_this_file=False)
         return local_file
     except:
         print('Could not get drafts agenda file for {0}'.format(meeting))

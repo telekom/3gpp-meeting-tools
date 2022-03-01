@@ -33,7 +33,7 @@ def revisions_file_to_dataframe(revisions_file, meeting_tdocs, drafts_file=None)
                 revision_list.extend(drafts_list)
         except:
             print('Could not open drafts file {0}'.format(drafts_file))
-            traceback.print_exc()
+            # traceback.print_exc()
 
         df = pd.DataFrame(revision_list, columns=['Tdoc', 'Revisions'])
         # df["Revisions"] = df[["Revisions"]].apply(pd.to_numeric) # We now also have drafts
@@ -54,5 +54,5 @@ def revisions_file_to_dataframe(revisions_file, meeting_tdocs, drafts_file=None)
         return meeting_tdocs, indexed_df
     except:
         print('Could not parse revisions file {0}. Drafts file: {1}'.format(revisions_file, drafts_file))
-        traceback.print_exc()
+        # traceback.print_exc()
         return None, None
