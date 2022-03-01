@@ -1,6 +1,7 @@
 import ctypes
 import sys
 import tkinter
+import tkinter.font
 import os
 
 default_font_size = 12
