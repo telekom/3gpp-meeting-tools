@@ -40,7 +40,7 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(len(meeting.tdocs), 1508, 'Expected TDoc entries')
 
         # Check the length of the "Others" mapping
-        self.assertEqual(len(meeting.others_cosigners), 19, 'Length of the "Others" contributors')
+        self.assertEqual(len(meeting.others_cosigners), 18, 'Length of the "Others" contributors')
 
     def test_128Bis(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '128Bis.htm')
@@ -51,7 +51,7 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(len(meeting.tdocs), 1401, 'Expected TDoc entries')
 
         # Check the length of the "Others" mapping
-        self.assertEqual(len(meeting.others_cosigners), 14, 'Length of the "Others" contributors')
+        self.assertEqual(len(meeting.others_cosigners), 13, 'Length of the "Others" contributors')
 
     def test_128(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '128.htm')

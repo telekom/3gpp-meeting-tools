@@ -11,6 +11,8 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
 from openpyxl.styles import PatternFill
 
+from application.excel import open_excel_document, set_first_row_as_filter, rgb_to_hex, last_column
+
 win32c = win32com.client.constants
 
 color_magenta = (234, 10, 142)
@@ -33,51 +35,6 @@ comments_summary_column = 'Comments summary'
 session_comments_column = 'Session comments'
 revision_of_column = 'Revision of'
 revised_to_column = 'Revised to'
-
-last_column = 'U'
-
-
-def get_excel():
-    try:
-        excel = win32com.client.Dispatch("Excel.Application")
-        excel.Visible = True
-        excel.DisplayAlerts = False
-    except:
-        excel = None
-        traceback.print_exc()
-    return excel
-
-
-def open_excel_document(filename=None, excel=None, sheet_name=None):
-    if excel is None:
-        excel = get_excel()
-    if (filename is None) or (filename == ''):
-        wb = get_excel().Workbooks.Add()
-    else:
-        wb = get_excel().Workbooks.Open(filename)
-    if sheet_name is not None:
-        select_worksheet(wb, sheet_name)
-    return wb
-
-
-def select_worksheet(wb, name):
-    wb.Worksheets(name).Activate()
-
-
-def set_first_row_as_filter(wb, ws_name=None, already_activated=False):
-    try:
-        if not already_activated:
-            wb.Activate()
-        if ws_name is None:
-            ws = wb.ActiveSheet
-        else:
-            ws = wb.Sheets(ws_name)
-            ws.Activate()
-        ws.Range("1:1").AutoFilter()
-        ws.Cells(2, 2).Select()
-        get_excel().ActiveWindow.FreezePanes = True
-    except:
-        traceback.print_exc()
 
 
 def adjust_tdocs_by_agenda_column_width(wb):
@@ -119,10 +76,6 @@ def adjust_tdocs_by_agenda_column_width(wb):
         ws.Range("A:" + last_column).EntireRow.AutoFit()
     except:
         traceback.print_exc()
-
-
-def close_wb(wb):
-    wb.Close()
 
 
 def add_pivot_table_to_workbook_active_sheet(
@@ -255,40 +208,7 @@ def generate_pivot_chart_from_tdocs_by_agenda(wb):
         traceback.print_exc()
 
 
-def vertically_center_all_text(wb):
-    try:
-        wb.Activate()
-        ws = wb.ActiveSheet
-        # Constants do not work well with win32com, so we just use the value directly
-        # https://docs.microsoft.com/en-us/office/vba/api/excel.xlvalign
-        ws.Range("A:" + last_column).EntireRow.VerticalAlignment = -4108
-    except:
-        traceback.print_exc()
-
-
 # https://stackoverflow.com/questions/11444207/setting-a-cells-fill-rgb-color-with-pywin32-in-excel
-def rgb_to_hex(rgb):
-    '''
-    ws.Cells(1, i).Interior.color uses bgr in hex
-
-    '''
-    bgr = (rgb[2], rgb[1], rgb[0])
-    strValue = '%02x%02x%02x' % bgr
-    # print(strValue)
-    iValue = int(strValue, 16)
-    return iValue
-
-
-def hide_columns(wb, columns):
-    try:
-        wb.Activate()
-        ws = wb.ActiveSheet
-
-        for column in columns:
-            print('Hiding column {0}'.format(column))
-            ws.Columns(column).Hidden = True
-    except:
-        traceback.print_exc()
 
 
 def set_tdoc_colors(wb, links, no_index_links=True):
@@ -326,15 +246,6 @@ def set_tdoc_colors(wb, links, no_index_links=True):
         apply_conditional_formatting(results_cells, 'Revised', color_dark_grey, color_light_grey)
         apply_conditional_formatting(results_cells, 'Merged', color_dark_grey, color_light_grey)
         apply_conditional_formatting(results_cells, 'Postponed', color_dark_yellow, color_light_yellow)
-    except:
-        traceback.print_exc()
-
-
-def save_wb(wb):
-    try:
-        wb.Activate()
-        wb.Save()
-        print('Workbook saved!')
     except:
         traceback.print_exc()
 

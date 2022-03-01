@@ -1,3 +1,4 @@
+import application.outlook
 import parsing.outlook_utils as outlook_utils
 import config.outlook_regex_matching as email_regex
 import re
@@ -29,8 +30,8 @@ target_folder = 'Standardisierung/3GPP/SA2/email approval'
 meeting_regex = email_regex.sa2
 
 # Change this if your origin folder hangs from the root folder and not the inbox
-inbox_folder = outlook_utils.get_outlook_inbox()
-root_folder = inbox_folder # inbox_folder.Parent
+inbox_folder = application.outlook.get_outlook_inbox()
+root_folder = inbox_folder  # inbox_folder.Parent
 
 #########################################################
 # Code
@@ -42,9 +43,9 @@ email_parsing_regex = [re.compile(e) for e in [meeting_regex, meeting_name_filte
 print('**************************')
 print('Creating folders')
 print('**************************')
-source_folder = outlook_utils.get_folder(root_folder, email_folder, create_if_needed=True)
-target_folder = outlook_utils.get_folder(root_folder, target_folder, create_if_needed=True)
-target_folder = outlook_utils.get_folder(target_folder, meeting_folder_name, create_if_needed=True)
+source_folder = application.outlook.get_folder(root_folder, email_folder, create_if_needed=True)
+target_folder = application.outlook.get_folder(root_folder, target_folder, create_if_needed=True)
+target_folder = application.outlook.get_folder(target_folder, meeting_folder_name, create_if_needed=True)
 
 print('**************************')
 print('Matching emails')
@@ -58,8 +59,16 @@ emails_to_move = outlook_utils.get_email_approval_emails(
     folder_parse_regex=re.compile(meeting_regex),
     remove_non_tdoc_emails=False)
 
-# Create folders where to place the emails. The named group 'ai' from the regex match is used as sub-folder name
+
 def get_subfolder_from_match_dict(e):
+    """
+    Create folders where to place the emails. The named group 'ai' from the regex match is used as sub-folder name
+    Args:
+        e: An Email object
+
+    Returns:
+
+    """
     email_subject = ''
     try:
         email_subject = e[0].Subject
@@ -75,10 +84,11 @@ def get_subfolder_from_match_dict(e):
         traceback.print_exc()
         return ''
 
+
 folders = set([get_subfolder_from_match_dict(e) for e in emails_to_move])
 folder_to_com_object = {}
 for folder in folders:
-    folder_to_com_object[folder] = outlook_utils.get_folder(target_folder, folder)
+    folder_to_com_object[folder] = application.outlook.get_folder(target_folder, folder)
 
 # Move emails
 print('**************************')
