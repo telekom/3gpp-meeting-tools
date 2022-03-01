@@ -1,14 +1,16 @@
 import gui.config
 import gui.common
+import gui.specs_table
 import tkinter
 
 # GUI init
-gui.common.fix_blurry_fonts_in_windows_10()
-gui.common.set_font_size()
-
 tk_root = tkinter.Tk()
 tk_root.title("3GPP SA2 Meeting helper")
 tk_root.iconbitmap(gui.common.favicon)
+
+gui.common.fix_blurry_fonts_in_windows_10()
+gui.common.set_font_size()
+
 main_frame = tkinter.Frame(tk_root)
 main_frame.grid(column=0, row=0, sticky=(tkinter.N, tkinter.W, tkinter.E, tkinter.S))
 
