@@ -71,6 +71,10 @@ class SpecsTable:
     all_specs = None
     title_width = 550
 
+    filter_release = None
+    filter_series = None
+    filter_text = None
+
     def __init__(self, parent, favicon, parent_gui_tools):
         init_style()
         top = self.top = tkinter.Toplevel(parent)
@@ -172,6 +176,9 @@ class SpecsTable:
         if initial_load:
             self.all_specs = specs.get_specs()
             self.current_specs = self.all_specs
+            self.filter_text = self.all_specs
+            self.filter_release = self.all_specs
+            self.filter_series = self.all_specs
         else:
             self.current_specs = self.all_specs
         print('Finished loading specs')
@@ -180,6 +187,7 @@ class SpecsTable:
         self.insert_rows(self.current_specs)
 
     def insert_rows(self, df):
+        # print(df.to_string())
         df_release_count = df.groupby(by='spec')['release'].nunique()
         df_version_max = df.groupby(by='spec')['version'].max()
         df_version_count = df.groupby(by='spec')['version'].nunique()
@@ -199,10 +207,18 @@ class SpecsTable:
             else:
                 tag = 'even'
 
+            # Double brackets so that it always returns a series. If not, sometimes a series will be returned,
+            # sometimes a single element
+            spec_entries = df.loc[[idx], :]
+            # print(spec_entries)
+            title = spec_entries.iloc[0]['title']
+            # print('Title: {0}'.format(title))
+            # print('--------------------')
+
             # 'Spec', 'Title', 'Releases', 'Last'
             self.tree.insert("", "end", tags=(tag,), values=(
                 idx,
-                'Dummy title for {0}'.format(idx),
+                textwrap.fill(title, width=70),
                 row['releases'],
                 row['max_version']))
 
@@ -212,20 +228,30 @@ class SpecsTable:
 
     def clear_filters(self, *args):
         self.combo_series.set('All')
-        self.combo_result.set('All')
+        self.combo_releases.set('All')
         self.search_text.set('')
-        self.load_data()
-        self.select_series(load_data=True)  # One will call the other(s)
+
+        # Reset filters
+        self.filter_text = self.all_specs
+        self.filter_release = self.all_specs
+        self.filter_series = self.all_specs
+
+        # Refill list
+        self.apply_filters()
 
     def reload_data(self, *args):
         self.load_data(initial_load=True)
         self.select_series()  # One will call the other
 
-    def select_series(self, load_data=True, event=None):
-        if load_data:
-            self.load_data()
+    def apply_filters(self):
+        self.tree.delete(*self.tree.get_children())
+        merged_df = pd.merge(self.filter_release.reset_index(), self.filter_series.reset_index(), how="inner").set_index('spec')
+        merged_df = pd.merge(merged_df.reset_index(), self.filter_text.reset_index(), how="inner").set_index('spec')
+        self.current_specs = merged_df
+        self.insert_current_specs()
 
-        specs_for_series = self.current_specs
+    def select_series(self, *args):
+        specs_for_series = self.all_specs
         selected_series = self.combo_series.get()
         print('Filtering by Series "{0}"'.format(selected_series))
         if selected_series == 'All':
@@ -233,20 +259,11 @@ class SpecsTable:
         else:
             specs_for_series = specs_for_series[specs_for_series['series'] == selected_series]
 
-        self.current_specs = specs_for_series
+        self.filter_series = specs_for_series
+        self.apply_filters()
 
-        self.tree.delete(*self.tree.get_children())
-        self.insert_current_specs()
-
-        if load_data:
-            self.select_text(load_data=False)
-            self.select_releases(load_data=False)
-
-    def select_releases(self, load_data=True, event=None):
-        if load_data:
-            self.load_data()
-
-        specs_for_release = self.current_specs
+    def select_releases(self, *args):
+        specs_for_release = self.all_specs
         selected_release = self.combo_releases.get()
         print('Filtering by Release "{0}"'.format(selected_release))
         if selected_release == 'All':
@@ -254,45 +271,21 @@ class SpecsTable:
         else:
             specs_for_release = specs_for_release[specs_for_release['release'] == selected_release]
 
-        self.current_specs = specs_for_release
+        self.filter_release = specs_for_release
+        self.apply_filters()
 
-        self.tree.delete(*self.tree.get_children())
-        self.insert_current_specs()
-
-        if load_data:
-            self.select_text(load_data=False)
-            self.select_series(load_data=False)
-
-    def select_text(self, load_data=True, *args):
-        if load_data:
-            self.load_data()
-
+    def select_text(self, *args):
         # Filter based on current TDocs
         text_search = self.search_text.get()
         if text_search is None or text_search == '':
             return
 
-        try:
-            re.compile(text_search)
-            is_regex = True
-            print('Filtering by Regex "{0}"'.format(text_search))
-        except re.error:
-            is_regex = False
-            print('Filtering by Text "{0}"'.format(text_search))
+        is_regex = False
+        print('Filtering by Text "{0}"'.format(text_search))
 
-        text_search = text_search.lower()
-        tdocs_for_text = self.current_specs.copy()
-        tdocs_for_text['search_column'] = tdocs_for_text.index + tdocs_for_text['Title'] + tdocs_for_text['Source']
-        tdocs_for_text['search_column'] = tdocs_for_text['search_column'].str.lower()
-        tdocs_for_text = tdocs_for_text[tdocs_for_text['search_column'].str.contains(text_search, regex=is_regex)]
-        self.current_specs = tdocs_for_text
-
-        self.tree.delete(*self.tree.get_children())
-        self.insert_current_specs()
-
-        if load_data:
-            self.select_series(load_data=False)
-            self.select_result(load_data=False)
+        self.filter_text = self.all_specs[
+            self.all_specs['search_column'].str.contains(text_search, regex=is_regex)]
+        self.apply_filters()
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)

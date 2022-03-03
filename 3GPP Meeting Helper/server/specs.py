@@ -3,7 +3,7 @@ import os.path
 import html2text
 
 from parsing.html_specs import extract_releases_from_latest_folder, extract_spec_series_from_spec_folder, \
-    extract_spec_files_from_spec_folder
+    extract_spec_files_from_spec_folder, extract_spec_versions_from_spec_file
 from server.common import get_html, root_folder, create_folder_if_needed, decode_string
 import pandas as pd
 
@@ -81,6 +81,8 @@ def get_spec_remote_folder(spec_number, cache=False):
 
 
 def get_specs(cache=True):
+    specs_df_cache_file = os.path.join(get_specs_cache_folder(), 'specs.pickle')
+
     html_latest_specs_bytes = get_specs_page(cache=cache)
 
     releases_data = extract_releases_from_latest_folder(
@@ -120,8 +122,17 @@ def get_specs(cache=True):
 
     unique_specs = list(specs_df.index.unique())
     unique_specs.sort()
+    spec_metadata = {}
     for spec_to_download in unique_specs:
-        get_spec_remote_folder(spec_to_download, cache=cache)
+        spec_page_markup = get_spec_remote_folder(spec_to_download, cache=cache)
+        spec_data = extract_spec_versions_from_spec_file(spec_page_markup)
+        spec_key = spec_data.spec[0:2] + '.' + spec_data.spec[2:]
+        spec_metadata[spec_key] = spec_data
+
+    apply_spec_metadata_to_dataframe(specs_df, spec_metadata)
+
+    if cache:
+        specs_df.to_pickle(specs_df_cache_file)
     return specs_df
 
 
@@ -129,3 +140,17 @@ def get_specs_cache_folder(create_dir=True):
     folder_name = os.path.expanduser(os.path.join('~', root_folder, 'specs', 'server_cache'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
+
+
+def apply_spec_metadata_to_dataframe(specs_df, spec_metadata):
+    specs_df['title'] = ''
+    specs_df['version_text'] = ''
+
+    specs_list = specs_df.index.unique()
+    for idx in specs_list:
+        if idx in spec_metadata:
+            specs_df.at[idx, 'title'] = spec_metadata[idx].title
+
+    specs_df['search_column'] = specs_df.index + specs_df['title'] + specs_df['version_text']
+    specs_df['search_column'] = specs_df['search_column'].str.lower()
+
