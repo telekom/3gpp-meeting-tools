@@ -2,22 +2,18 @@ import traceback
 
 import win32com.client
 
-# Global Excel instance
-excel = None
+# Global Excel instance does not work (removed)
+# excel = None
 
 def get_excel():
-    global excel
-    if excel is not None:
-        return excel
-
     try:
         excel = win32com.client.Dispatch("Excel.Application")
         excel.Visible = True
         excel.DisplayAlerts = False
+        return excel
     except:
-        excel = None
         traceback.print_exc()
-    return excel
+        return None
 
 
 def open_excel_document(filename=None, sheet_name=None):

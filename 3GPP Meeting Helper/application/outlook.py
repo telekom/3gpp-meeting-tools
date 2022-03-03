@@ -2,19 +2,14 @@ import traceback
 
 import win32com.client
 
-# Global Outlook instance
-outlook = None
+# Global Outlook instance does not work (removed)
+# outlook = None
 
 
 def get_outlook():
-    global outlook
-    if outlook is not None:
-        return outlook
-
     try:
         return win32com.client.Dispatch("Outlook.Application")
     except:
-        outlook = None
         traceback.print_exc()
         return None
 
