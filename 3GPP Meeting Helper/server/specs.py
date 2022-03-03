@@ -1,4 +1,5 @@
 import os.path
+import pickle
 
 import html2text
 
@@ -83,6 +84,13 @@ def get_spec_remote_folder(spec_number, cache=False):
 def get_specs(cache=True):
     specs_df_cache_file = os.path.join(get_specs_cache_folder(), 'specs.pickle')
 
+    # Load specs data from cache file
+    if cache and os.path.exists(specs_df_cache_file):
+        with open(specs_df_cache_file, "rb") as f:
+            print('Loading spec cache from {0}'.format(specs_df_cache_file))
+            specs_df, spec_metadata = pickle.load(f)
+        return specs_df, spec_metadata
+
     html_latest_specs_bytes = get_specs_page(cache=cache)
 
     releases_data = extract_releases_from_latest_folder(
@@ -132,8 +140,10 @@ def get_specs(cache=True):
     apply_spec_metadata_to_dataframe(specs_df, spec_metadata)
 
     if cache:
-        specs_df.to_pickle(specs_df_cache_file)
-    return specs_df
+        with open(specs_df_cache_file, "wb") as f:
+            print('Storing spec cache in {0}'.format(specs_df_cache_file))
+            pickle.dump([specs_df, spec_metadata], f)
+    return specs_df, spec_metadata
 
 
 def get_specs_cache_folder(create_dir=True):
@@ -154,3 +164,40 @@ def apply_spec_metadata_to_dataframe(specs_df, spec_metadata):
     specs_df['search_column'] = specs_df.index + specs_df['title'] + specs_df['version_text']
     specs_df['search_column'] = specs_df['search_column'].str.lower()
 
+
+def file_version_to_version(file_version: str) -> str:
+    """
+    Converts the file version of a 3GPP spec, e.g., a00 to a version number, e.g., 10.0.0.
+    Args:
+        file_version: A three-letter string containing the file version.
+
+    Returns: The specification version number
+
+    """
+    # File version must be three characters, e.g., a10, 821
+    if file_version[0].isdigit():
+        major_version = file_version[0]
+    else:
+        major_version = '{0}'.format(ord(file_version[0])-ord('a') + 10)
+    middle_version = file_version[1]
+    minor_version = file_version[2]
+    return '{0}.{1}.{2}'.format(major_version, middle_version, minor_version)
+
+
+def version_to_file_version(version: str) -> str:
+    """
+    Converts the  version of a 3GPP spec, e.g., 10.0.0 to a file version number, e.g., a00.
+    Args:
+        version: The specification version number
+
+    Returns: A three-letter string containing the file version.
+
+    """
+    split_version = version.split('.')
+
+    # File version must be three characters, e.g., a10, 821
+    if split_version[0].isdigit():
+        first_letter = split_version[0]
+    else:
+        first_letter = 10 + ord(split_version[0])
+    return '{0}{1}{2}'.format(first_letter, split_version[1], split_version[2])
