@@ -1,6 +1,8 @@
 import os
 import socket
 import traceback
+import zipfile
+
 import requests
 from cachecontrol import CacheControl
 from urllib.parse import urlparse
@@ -239,3 +241,29 @@ def get_sa2_root_folder_local_cache(create_dir=True):
     cache_folder = get_cache_folder(create_dir)
     inbox_cache = os.path.join(cache_folder, 'Wg2ArchCache.html')
     return inbox_cache
+
+
+def unzip_files_in_zip_file(zip_file):
+    tdoc_folder = os.path.split(zip_file)[0]
+    zip_ref = zipfile.ZipFile(zip_file, 'r')
+    files_in_zip = zip_ref.namelist()
+    # Check if is there any file in the zip that does not exist. If not, then do not extract need_to_extract = any(
+    # item == False for item in map(os.path.isfile, map(lambda x: os.path.join(tdoc_folder, x), files_in_zip)))
+    # Removed check whether extracting is needed, as some people reused the same file name on different document
+    # versions... Added exception catch as the file may probably be alrady open
+    try:
+        zip_ref.extractall(tdoc_folder)
+    except:
+        print('Could not extract files')
+        traceback.print_exc()
+    return [os.path.join(tdoc_folder, file) for file in files_in_zip]
+
+
+def download_file_to_location(url, local_location):
+    try:
+        file = get_html(url, cache=False)
+        with open(local_location, 'wb') as output:
+            output.write(file)
+    except:
+        print('Could not download file {0} to {1}'.format(url, local_location))
+        traceback.print_exc()

@@ -217,7 +217,7 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                             attachment_local_filename = os.path.join(local_folder_for_tdoc, filename_for_file)
                             print('  TDOC {0}, {1}'.format(tdoc_id, filename_for_file))
                             if not os.path.isfile(attachment_local_filename):
-                                server.tdoc.download_file_to_location(attachment_data.url, attachment_local_filename)
+                                server.common.download_file_to_location(attachment_data.url, attachment_local_filename)
                             found_emails_with_chairmans_notes.append(
                                 RevisionDoc(date_str_excel, tdoc_id, attachment_data.filename,
                                             attachment_local_filename, sender_name, sender_address,
@@ -435,7 +435,7 @@ def process_email_attachments():
                 attachment_local_filename = os.path.join(tmp_folder, filename_for_file)
                 print('  {0}'.format(filename_for_file))
                 if not os.path.isfile(attachment_local_filename):
-                    server.tdoc.download_file_to_location(attachment_data.url, attachment_local_filename)
+                    server.common.download_file_to_location(attachment_data.url, attachment_local_filename)
                 email_attachment_files_to_add.append(attachment_local_filename)
 
             # Mark this attachment for deletion

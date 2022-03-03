@@ -1,7 +1,6 @@
 import application.meeting_helper
 import os
 import os.path
-import zipfile
 import re
 from urllib.parse import urljoin
 
@@ -13,7 +12,7 @@ import server.common
 import tdoc.utils
 from server.common import get_html, private_server, http_server, group_folder, sync_folder, meeting_folder, \
     get_local_revisions_filename, get_local_drafts_filename, get_local_agenda_folder, get_meeting_folder, \
-    get_cache_folder, get_remote_meeting_folder, get_inbox_root
+    get_cache_folder, get_remote_meeting_folder, get_inbox_root, unzip_files_in_zip_file
 import traceback
 import tdoc.utils
 import datetime
@@ -150,19 +149,9 @@ def get_tdoc(
             return None, None
 
     if not return_url:
-        return unzip_tdoc_files(tdoc_local_filename)
+        return unzip_files_in_zip_file(tdoc_local_filename)
     else:
-        return unzip_tdoc_files(tdoc_local_filename), zip_file_url
-
-
-def download_file_to_location(url, location):
-    try:
-        file = get_html(url, cache=False)
-        with open(location, 'wb') as output:
-            output.write(file)
-    except:
-        print('Could not download file')
-        traceback.print_exc()
+        return unzip_files_in_zip_file(tdoc_local_filename), zip_file_url
 
 
 def get_inbox_tdocs_list_cache_local_cache(create_dir=True):
@@ -260,22 +249,6 @@ def get_remote_agenda_folder(meeting_folder_name, use_inbox=False):
     return folder
 
 
-def unzip_tdoc_files(zip_file):
-    tdoc_folder = os.path.split(zip_file)[0]
-    zip_ref = zipfile.ZipFile(zip_file, 'r')
-    files_in_zip = zip_ref.namelist()
-    # Check if is there any file in the zip that does not exist. If not, then do not extract need_to_extract = any(
-    # item == False for item in map(os.path.isfile, map(lambda x: os.path.join(tdoc_folder, x), files_in_zip)))
-    # Removed check whether extracting is needed, as some people reused the same file name on different document
-    # versions... Added exception catch as the file may probably be alrady open
-    try:
-        zip_ref.extractall(tdoc_folder)
-    except:
-        print('Could not extract files')
-        traceback.print_exc()
-    return [os.path.join(tdoc_folder, file) for file in files_in_zip]
-
-
 def get_agenda_files(meeting_folder, use_inbox=False):
     url = get_remote_agenda_folder(meeting_folder, use_inbox=use_inbox)
     html = get_html(url)
@@ -298,7 +271,7 @@ def get_agenda_files(meeting_folder, use_inbox=False):
             with open(local_file, 'wb') as output:
                 output.write(html)
         if file_extension == '.zip':
-            unzipped_files = unzip_tdoc_files(local_file)
+            unzipped_files = unzip_files_in_zip_file(local_file)
             real_agenda_files.extend(unzipped_files)
         else:
             real_agenda_files.append(local_file)

@@ -68,7 +68,7 @@ def treeview_sort_column(tree, col, reverse=False):
 
 class SpecsTable:
     current_specs = None
-    source_width = 200
+    all_specs = None
     title_width = 550
 
     def __init__(self, parent, favicon, parent_gui_tools):
@@ -85,33 +85,25 @@ class SpecsTable:
         frame_3 = tkinter.Frame(top)
         frame_3.pack(anchor='w')
 
-        self.tdoc_count = tkinter.StringVar()
-        self.revisions_list = None
-        self.revisions = None
+        self.spec_count = tkinter.StringVar()
 
         # https://stackoverflow.com/questions/50625306/what-is-the-best-way-to-show-data-in-a-table-in-tkinter
         self.tree = ttk.Treeview(
             frame_2,
-            columns=('TDoc', 'AI', 'Type', 'Title', 'Source', 'Revs', 'Emails', 'Send @', 'Result'),
+            columns=('Spec', 'Title', 'Releases', 'Last'),
             show='headings',
             selectmode="browse",
             style=style_name,
             padding=[-5, -25, -5, -25])  # Left, top, right, bottom
 
-        set_column(self.tree, 'TDoc', "TDoc #", width=110)
-        set_column(self.tree, 'AI', width=50)
-        set_column(self.tree, 'Type', width=120)
+        set_column(self.tree, 'Spec', "Spec #", width=110)
         set_column(self.tree, 'Title', width=SpecsTable.title_width, center=False)
-        set_column(self.tree, 'Source', width=SpecsTable.source_width, center=False)
-        set_column(self.tree, 'Revs', width=50)
-        set_column(self.tree, 'Emails', width=50)
-        set_column(self.tree, 'Send @', width=50, sort=False)
-        set_column(self.tree, 'Result', width=100)
+        set_column(self.tree, 'Releases', width=120)
+        set_column(self.tree, 'Last', width=120)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        self.load_data()
-        self.reload_revisions = False
+        self.load_data(initial_load=True)
         self.insert_current_specs()
 
         self.tree_scroll = ttk.Scrollbar(frame_2)
@@ -127,23 +119,31 @@ class SpecsTable:
         tkinter.Label(frame_1, text="Search: ").pack(side=tkinter.LEFT)
         self.search_entry.pack(side=tkinter.LEFT)
 
-        all_ais = ['All']
-        all_ais.extend(['one', 'two', '...'])
-        self.combo_ai = ttk.Combobox(frame_1, values=all_ais, state="readonly")
-        self.combo_ai.set('All')
-        self.combo_ai.bind("<<ComboboxSelected>>", self.select_ai)
+        # Filter by specification series
+        all_series = ['All']
+        spec_series = self.current_specs['series'].unique()
+        spec_series.sort()
+        all_series.extend(list(spec_series))
 
-        all_results = ['All']
-        all_results.extend(['one', 'two', '...'])
-        self.combo_result = ttk.Combobox(frame_1, values=all_results, state="readonly")
-        self.combo_result.set('All')
-        self.combo_result.bind("<<ComboboxSelected>>", self.select_result)
+        self.combo_series = ttk.Combobox(frame_1, values=all_series, state="readonly")
+        self.combo_series.set('All')
+        self.combo_series.bind("<<ComboboxSelected>>", self.select_series)
 
-        tkinter.Label(frame_1, text="  Filter by AI: ").pack(side=tkinter.LEFT)
-        self.combo_ai.pack(side=tkinter.LEFT)
+        tkinter.Label(frame_1, text="  Filter by Series: ").pack(side=tkinter.LEFT)
+        self.combo_series.pack(side=tkinter.LEFT)
 
-        tkinter.Label(frame_1, text="  Filter by Result: ").pack(side=tkinter.LEFT)
-        self.combo_result.pack(side=tkinter.LEFT)
+        # Filter by specification release
+        all_releases = ['All']
+        spec_releases = self.current_specs['release'].unique()
+        spec_releases.sort()
+        all_releases.extend(list(spec_releases))
+
+        self.combo_releases = ttk.Combobox(frame_1, values=all_releases, state="readonly")
+        self.combo_releases.set('All')
+        self.combo_releases.bind("<<ComboboxSelected>>", self.select_releases)
+
+        tkinter.Label(frame_1, text="  Filter by Release: ").pack(side=tkinter.LEFT)
+        self.combo_releases.pack(side=tkinter.LEFT)
 
         tkinter.Label(frame_1, text="  ").pack(side=tkinter.LEFT)
         tkinter.Button(
@@ -158,124 +158,110 @@ class SpecsTable:
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
-        tkinter.Label(frame_3, textvariable=self.tdoc_count).pack(side=tkinter.LEFT)
+        tkinter.Label(frame_3, textvariable=self.spec_count).pack(side=tkinter.LEFT)
 
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
 
-    def load_data(self):
+    def load_data(self, initial_load=False):
         """
         Loads specifications frm the 3GPP website
         """
         # Load specs data
         print('Loading revision data for table')
-        specs.get_specs()
+        if initial_load:
+            self.all_specs = specs.get_specs()
+            self.current_specs = self.all_specs
+        else:
+            self.current_specs = self.all_specs
         print('Finished loading specs')
 
     def insert_current_specs(self):
         self.insert_rows(self.current_specs)
 
     def insert_rows(self, df):
+        df_release_count = df.groupby(by='spec')['release'].nunique()
+        df_version_max = df.groupby(by='spec')['version'].max()
+        df_version_count = df.groupby(by='spec')['version'].nunique()
+        df_to_plot = pd.concat(
+            [df_release_count, df_version_max, df_version_count],
+            axis=1,
+            keys=['releases', 'max_version', 'version_count'])
+        df_to_plot.sort_index(inplace=True)
+        # print(df_to_plot.to_string())
+
         count = 0
+        for idx, row in df_to_plot.iterrows():
+            count = count + 1
+            mod = count % 2
+            if mod > 0:
+                tag = 'odd'
+            else:
+                tag = 'even'
 
-        if df is not None:
-            for idx, row in df.iterrows():
-                count = count + 1
-                mod = count % 2
-                if mod > 0:
-                    tag = 'odd'
-                else:
-                    tag = 'even'
-
-                if self.revisions is None:
-                    revision_count = ''
-                else:
-                    number_format = '{0:02d}'
-                    try:
-                        rev_number = self.revisions.loc[idx, 'Revisions']
-                        try:
-                            rev_number_converted = int(rev_number.replace('*', ''))
-                        except:
-                            rev_number_converted = 0
-                        if rev_number_converted < 1:
-                            revision_count = ''
-                        else:
-                            revision_count = rev_number
-                    except KeyError:
-                        # Not found
-                        revision_count = ''  # Zero is left empty
-                        pass
-                    except:
-                        revision_count = ''  # Error is left empty
-                        traceback.print_exc()
-
-                self.tree.insert("", "end", tags=(tag,), values=(
-                    idx,
-                    row['AI'],
-                    row['Type'],
-                    textwrap.fill(row['Title'], width=70),
-                    textwrap.fill(row['Source'], width=25),
-                    revision_count,
-                    'Click',
-                    'Click',
-                    row['Result']))
+            # 'Spec', 'Title', 'Releases', 'Last'
+            self.tree.insert("", "end", tags=(tag,), values=(
+                idx,
+                'Dummy title for {0}'.format(idx),
+                row['releases'],
+                row['max_version']))
 
         self.tree.tag_configure('odd', background='#E8E8E8')
         self.tree.tag_configure('even', background='#DFDFDF')
-        self.tdoc_count.set('{0} documents'.format(count))
+        self.spec_count.set('{0} documents'.format(count))
 
     def clear_filters(self, *args):
-        self.combo_ai.set('All')
+        self.combo_series.set('All')
         self.combo_result.set('All')
         self.search_text.set('')
         self.load_data()
-        self.select_ai(load_data=True)  # One will call the other(s)
+        self.select_series(load_data=True)  # One will call the other(s)
 
     def reload_data(self, *args):
-        self.load_data()
-        self.select_ai()  # One will call the other
+        self.load_data(initial_load=True)
+        self.select_series()  # One will call the other
 
-    def select_ai(self, load_data=True, event=None):
+    def select_series(self, load_data=True, event=None):
         if load_data:
             self.load_data()
 
-        tdocs_for_ai = self.current_specs
-        selected_ai = self.combo_ai.get()
-        print('Filtering by AI "{0}"'.format(selected_ai))
-        if selected_ai == 'All':
-            tdocs_for_ai = tdocs_for_ai
+        specs_for_series = self.current_specs
+        selected_series = self.combo_series.get()
+        print('Filtering by Series "{0}"'.format(selected_series))
+        if selected_series == 'All':
+            specs_for_series = specs_for_series
         else:
-            tdocs_for_ai = tdocs_for_ai[tdocs_for_ai['AI'] == self.combo_ai.get()]
+            specs_for_series = specs_for_series[specs_for_series['series'] == selected_series]
 
-        self.current_specs = tdocs_for_ai
+        self.current_specs = specs_for_series
 
         self.tree.delete(*self.tree.get_children())
         self.insert_current_specs()
 
         if load_data:
             self.select_text(load_data=False)
-            self.select_result(load_data=False)
+            self.select_releases(load_data=False)
 
-    def select_result(self, load_data=True, event=None):
+    def select_releases(self, load_data=True, event=None):
         if load_data:
             self.load_data()
 
-        tdocs_for_result = self.current_specs
-        selected_result = self.combo_result.get()
-        print('Filtering by Result "{0}"'.format(selected_result))
-        if selected_result == 'All':
-            tdocs_for_result = tdocs_for_result
+        specs_for_release = self.current_specs
+        selected_release = self.combo_releases.get()
+        print('Filtering by Release "{0}"'.format(selected_release))
+        if selected_release == 'All':
+            specs_for_release = specs_for_release
         else:
-            tdocs_for_result = tdocs_for_result[tdocs_for_result['Result'] == self.combo_result.get()]
+            specs_for_release = specs_for_release[specs_for_release['release'] == selected_release]
 
-        self.current_specs = tdocs_for_result
+        self.current_specs = specs_for_release
 
         self.tree.delete(*self.tree.get_children())
         self.insert_current_specs()
 
         if load_data:
             self.select_text(load_data=False)
-            self.select_ai(load_data=False)
+            self.select_series(load_data=False)
 
     def select_text(self, load_data=True, *args):
         if load_data:
@@ -305,7 +291,7 @@ class SpecsTable:
         self.insert_current_specs()
 
         if load_data:
-            self.select_ai(load_data=False)
+            self.select_series(load_data=False)
             self.select_result(load_data=False)
 
     def on_double_click(self, event):
@@ -316,29 +302,20 @@ class SpecsTable:
             actual_value = item_values[column]
         except:
             actual_value = None
-        tdoc_id = item_values[0]
+
+        spec_id = item_values[0]
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
         if actual_value is None or actual_value == '':
             print("Empty value")
             return
         if column == 0:
-            print('Opening {0}'.format(actual_value))
-            # gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
-        if column == 5:
-            print('Opening revisions for {0}'.format(tdoc_id))
-            # gui.specs_table.SpecsTable(gui.main.root, gui.main.favicon, tdoc_id, self.revisions_list, self.parent_gui_tools)
-        if column == 6:
-            print('Opening emails for {0}'.format(tdoc_id))
-            # search_subject_in_all_outlook_items(tdoc_id)
-        if column == 7:
-            print(
-                'Generating subject for email approval for {0}. Copying to clipboard and generating empty email'.format(
-                    tdoc_id))
-            subject = '[SA2#{3}, AI#{1}, {0}] {2}'.format(tdoc_id, item_values[1], item_values[3], self.meeting_number)
-            subject = subject.replace('\n', ' ').replace('  ', ' ')
-            print(subject)
-            webbrowser.open('mailto:{0}?subject={1}'.format('3GPP_TSG_SA_WG2_EMEET@LIST.ETSI.ORG', subject), new=1)
-            pyperclip.copy(subject)
+            print('Clicked spec ID {0}'.format(actual_value))
+        if column == 1:
+            print('Clicked title for spec ID {0}: {1}'.format(spec_id, actual_value))
+        if column == 2:
+            print('Clicked releases for spec ID {0}: {1}'.format(spec_id, actual_value))
+        if column == 3:
+            print('Clicked last for spec ID {0}: {1}'.format(spec_id, actual_value))
 
 
 class SpecVersionsTable:
