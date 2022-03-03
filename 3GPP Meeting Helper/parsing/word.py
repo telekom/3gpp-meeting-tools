@@ -1050,60 +1050,21 @@ def compare_documents(tdoc_1, tdoc_2):
 
 
 def open_file(file, return_metadata=False, go_to_page=1):
-    if (file is None) or (file == ''):
-        return
-    metadata = None
-    try:
-        (head, tail) = os.path.split(file)
-        extension = tail.split('.')[-1]
-        not_mac_metadata = True
-        try:
-            filename_start = tail[0:2]
-            if filename_start == '._':
-                not_mac_metadata = False
-        except:
-            pass
-        if ((extension == 'doc') or (extension == 'docx')) and not_mac_metadata:
-            doc = application.word.open_word_document(file)
-            metadata = get_metadata_from_doc(doc)
-            if go_to_page != 1:
-                pass
-                # Not working :(
-                # constants = win32com.client.constants
-                # if go_to_page<0:
-                #    doc.GoTo(constants.wdGoToPage,constants.wdGoToLast)
-                #    print('Moved to last page')
-                # doc.GoTo(constants.wdGoToPage,constants.wdGoToRelative, go_to_page)
-        else:
-            # Basic avoidance of executables, but anyway per se not very safe... :P
-            if extension != 'exe' and not_mac_metadata:
-                os.startfile(file, 'open')
-            else:
-                print('Executable file {0} not opened for precaution'.format(file))
-        return_value = True
-    except:
-        traceback.print_exc()
-        return_value = False
+    # No metadata
     if return_metadata:
-        return return_value, metadata
-    else:
-        return return_value
+        return application.word.open_file(file, go_to_page=go_to_page)
+
+    # Case returning metadata
+    return application.word.open_file(file, go_to_page=go_to_page, metadata_function=get_metadata_from_doc)
 
 
 def open_files(files, return_metadata=False, go_to_page=1):
-    if files is None:
-        return 0
-    opened_files = 0
-    metadata_list = []
-    for file in files:
-        file_opened, metadata = open_file(file, return_metadata=True, go_to_page=go_to_page)
-        if file_opened:
-            opened_files += 1
-            metadata_list.append(metadata)
+    # No metadata
     if return_metadata:
-        return opened_files, metadata_list
-    else:
-        return opened_files
+        return application.word.open_files(files, go_to_page=go_to_page)
+
+    # Case returning metadata
+    return application.word.open_files(files, go_to_page=go_to_page, metadata_function=get_metadata_from_doc)
 
 
 def write_data_and_open_file(data, local_file, open_this_file=True):

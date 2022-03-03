@@ -8,8 +8,9 @@ from tkinter import ttk
 import pandas as pd
 import pyperclip
 
+import application
 from server import specs
-from server.specs import file_version_to_version
+from server.specs import file_version_to_version, version_to_file_version, download_spec
 
 style_name = 'mystyle.Treeview'
 
@@ -316,7 +317,13 @@ class SpecsTable:
         if column == 2:
             print('Clicked versions for spec ID {0}: {1}'.format(spec_id, actual_value))
         if column == 3:
-            print('Clicked last for spec ID {0}: {1}'.format(spec_id, actual_value))
+            file_version = version_to_file_version(actual_value)
+            print('Clicked last for spec ID {0}: {1}->{2}'.format(spec_id, actual_value, file_version))
+            spec_entries = self.all_specs.loc[spec_id, :]
+            # To-do: solve case when only one entry is returned
+            entry_to_load = spec_entries.loc[spec_entries.version == file_version].iloc[0]
+            downloaded_files = download_spec(spec_id, entry_to_load.spec_url)
+            application.word.open_files(downloaded_files)
 
 
 class SpecVersionsTable:

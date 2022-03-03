@@ -1,11 +1,13 @@
 import os.path
 import pickle
+from urllib.parse import urlparse
 
 import html2text
 
 from parsing.html_specs import extract_releases_from_latest_folder, extract_spec_series_from_spec_folder, \
     extract_spec_files_from_spec_folder, extract_spec_versions_from_spec_file
-from server.common import get_html, root_folder, create_folder_if_needed, decode_string
+from server.common import get_html, root_folder, create_folder_if_needed, decode_string, download_file_to_location, \
+    unzip_files_in_zip_file
 import pandas as pd
 
 specs_url = 'https://www.3gpp.org/ftp/Specs/latest'
@@ -152,16 +154,33 @@ def get_specs_cache_folder(create_dir=True):
     return folder_name
 
 
+def get_specs_folder(create_dir=True, spec_id=None):
+    """
+    Returns the folder where the specs are stored
+    Args:
+        create_dir: Whether the folder should be created if it does not exist.
+        spec_id: If specified, the specification number (subfolder)
+
+    Returns: The folder where the specs are stored
+
+    """
+    if spec_id is None:
+        folder_name: str = os.path.expanduser(os.path.join('~', root_folder, 'specs'))
+    else:
+        folder_name: str = os.path.expanduser(os.path.join('~', root_folder, 'specs', spec_id))
+    create_folder_if_needed(folder_name, create_dir)
+    return folder_name
+
+
 def apply_spec_metadata_to_dataframe(specs_df, spec_metadata):
     specs_df['title'] = ''
-    specs_df['version_text'] = ''
 
     specs_list = specs_df.index.unique()
     for idx in specs_list:
         if idx in spec_metadata:
             specs_df.at[idx, 'title'] = spec_metadata[idx].title
 
-    specs_df['search_column'] = specs_df.index + specs_df['title'] + specs_df['version_text']
+    specs_df['search_column'] = specs_df.index + specs_df['title']
     specs_df['search_column'] = specs_df['search_column'].str.lower()
 
 
@@ -193,11 +212,32 @@ def version_to_file_version(version: str) -> str:
     Returns: A three-letter string containing the file version.
 
     """
-    split_version = version.split('.')
+    split_version = [int(i) for i in version.split('.')]
 
     # File version must be three characters, e.g., a10, 821
-    if split_version[0].isdigit():
-        first_letter = split_version[0]
+    if split_version[0] < 10:
+        first_letter = '{0}'.format(split_version[0])
     else:
-        first_letter = 10 + ord(split_version[0])
+        first_letter = chr(ord('a') + split_version[0] - 10)
     return '{0}{1}{2}'.format(first_letter, split_version[1], split_version[2])
+
+
+def download_spec(spec_number: str, file_url: str):
+    """
+    Downloads a given specification from said URL
+    Args:
+        spec_number:
+        spec_version:
+        file_url: The URL of the spec to download
+    """
+    spec_number = spec_number.replace('.', '')
+    spec_number = '{0}.{1}'.format(spec_number[0:2], spec_number[2:])
+    local_folder = get_specs_folder(spec_id=spec_number)
+    filename = os.path.basename(urlparse(file_url).path)
+    local_filename = os.path.join(local_folder, filename)
+
+    if not os.path.exists(local_filename):
+        download_file_to_location(file_url, local_filename)
+    files_in_zip = unzip_files_in_zip_file(local_filename)
+    return files_in_zip
+

@@ -250,7 +250,7 @@ def unzip_files_in_zip_file(zip_file):
     # Check if is there any file in the zip that does not exist. If not, then do not extract need_to_extract = any(
     # item == False for item in map(os.path.isfile, map(lambda x: os.path.join(tdoc_folder, x), files_in_zip)))
     # Removed check whether extracting is needed, as some people reused the same file name on different document
-    # versions... Added exception catch as the file may probably be alrady open
+    # versions... Added exception catch as the file may probably be already open
     try:
         zip_ref.extractall(tdoc_folder)
     except:
@@ -263,6 +263,7 @@ def download_file_to_location(url, local_location):
     try:
         file = get_html(url, cache=False)
         with open(local_location, 'wb') as output:
+            print('Saved {0}'.format(local_location))
             output.write(file)
     except:
         print('Could not download file {0} to {1}'.format(url, local_location))
