@@ -1,9 +1,5 @@
-import html2text
-import pandas as pd
-import re
-import traceback
 import collections
-
+import re
 # https://stackoverflow.com/questions/52623204/how-to-specify-method-return-type-list-of-what-in-python
 # Edit: With the new 3.9 version of Python, you can annotate types without importing from the typing module
 from typing import List
@@ -11,7 +7,9 @@ from typing import List
 SpecReleases = collections.namedtuple('SpecReleases', 'folder release base_url release_url')
 SpecSeries = collections.namedtuple('SpecSeries', 'folder series release base_url series_url')
 SpecFile = collections.namedtuple('SpecFile', 'file spec version series release base_url spec_url')
-SpecVersionMapping = collections.namedtuple('SpecVersionMapping', 'spec title version_mapping')
+
+# version_mapping: 16.0.0->g00, version_mapping_inv: g00->16.0.0
+SpecVersionMapping = collections.namedtuple('SpecVersionMapping', 'spec title version_mapping version_mapping_inv')
 
 
 def extract_releases_from_latest_folder(latest_specs_page_text, base_url) -> List[SpecReleases]:
@@ -91,6 +89,7 @@ def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping
         list(SpecFile): List of specs found in the 3GPP site
     """
 
+    # Without the dot: 23.501->23501
     spec_number = extract_text_between_delimiters(
         spec_page_markup,
         start_delimiter="Specification #: ",
@@ -105,12 +104,13 @@ def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping
     # m Group 1: 16.0.0
     # m Group 2: 21101-g00.zip
     # m_file Group 1: 21101
-    # m_file Group 2: g00
+    # m_file Group 3: g00
     spec_versions = {m_file.group(3): m.group(1)
                      for m in spec_version_regex.finditer(spec_page_markup)
                      if (m_file := spec_zipfile_regex.match(m.group(2))) is not None}
+    spec_versions_inv = {v: k for k, v in spec_versions.items()}
 
-    spec_mapping = SpecVersionMapping(spec_number, spec_title, spec_versions)
+    spec_mapping = SpecVersionMapping(spec_number, spec_title, spec_versions, spec_versions_inv)
     # print(spec_mapping)
 
     return spec_mapping

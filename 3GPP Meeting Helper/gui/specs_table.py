@@ -9,6 +9,7 @@ import pandas as pd
 import pyperclip
 
 from server import specs
+from server.specs import file_version_to_version
 
 style_name = 'mystyle.Treeview'
 
@@ -69,6 +70,7 @@ def treeview_sort_column(tree, col, reverse=False):
 class SpecsTable:
     current_specs = None
     all_specs = None
+    spec_metadata = None
     title_width = 550
 
     filter_release = None
@@ -94,7 +96,7 @@ class SpecsTable:
         # https://stackoverflow.com/questions/50625306/what-is-the-best-way-to-show-data-in-a-table-in-tkinter
         self.tree = ttk.Treeview(
             frame_2,
-            columns=('Spec', 'Title', 'Releases', 'Last'),
+            columns=('Spec', 'Title', 'Versions', 'Last'),
             show='headings',
             selectmode="browse",
             style=style_name,
@@ -102,7 +104,7 @@ class SpecsTable:
 
         set_column(self.tree, 'Spec', "Spec #", width=110)
         set_column(self.tree, 'Title', width=SpecsTable.title_width, center=False)
-        set_column(self.tree, 'Releases', width=120)
+        set_column(self.tree, 'Versions', width=120)
         set_column(self.tree, 'Last', width=120)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
@@ -174,7 +176,7 @@ class SpecsTable:
         # Load specs data
         print('Loading revision data for table')
         if initial_load:
-            self.all_specs = specs.get_specs()
+            self.all_specs, self.spec_metadata = specs.get_specs()
             self.current_specs = self.all_specs
             self.filter_text = self.all_specs
             self.filter_release = self.all_specs
@@ -209,22 +211,22 @@ class SpecsTable:
 
             # Double brackets so that it always returns a series. If not, sometimes a series will be returned,
             # sometimes a single element
-            spec_entries = df.loc[[idx], :]
-            # print(spec_entries)
-            title = spec_entries.iloc[0]['title']
-            # print('Title: {0}'.format(title))
-            # print('--------------------')
+            # spec_entries = df.loc[[idx], :]
+
+            # Faster alternative
+            current_spec = self.spec_metadata[idx]
+            title = current_spec.title
 
             # 'Spec', 'Title', 'Releases', 'Last'
             self.tree.insert("", "end", tags=(tag,), values=(
                 idx,
                 textwrap.fill(title, width=70),
-                row['releases'],
-                row['max_version']))
+                row['version_count'],
+                file_version_to_version(row['max_version'])))
 
         self.tree.tag_configure('odd', background='#E8E8E8')
         self.tree.tag_configure('even', background='#DFDFDF')
-        self.spec_count.set('{0} documents'.format(count))
+        self.spec_count.set('{0} specifications'.format(count))
 
     def clear_filters(self, *args):
         self.combo_series.set('All')
@@ -245,8 +247,14 @@ class SpecsTable:
 
     def apply_filters(self):
         self.tree.delete(*self.tree.get_children())
-        merged_df = pd.merge(self.filter_release.reset_index(), self.filter_series.reset_index(), how="inner").set_index('spec')
-        merged_df = pd.merge(merged_df.reset_index(), self.filter_text.reset_index(), how="inner").set_index('spec')
+        merged_df = pd.merge(
+            self.filter_release.reset_index(),
+            self.filter_series.reset_index(),
+            how="inner").set_index('spec')
+        merged_df = pd.merge(
+            merged_df.reset_index(),
+            self.filter_text.reset_index(),
+            how="inner").set_index('spec')
         self.current_specs = merged_df
         self.insert_current_specs()
 
@@ -306,7 +314,7 @@ class SpecsTable:
         if column == 1:
             print('Clicked title for spec ID {0}: {1}'.format(spec_id, actual_value))
         if column == 2:
-            print('Clicked releases for spec ID {0}: {1}'.format(spec_id, actual_value))
+            print('Clicked versions for spec ID {0}: {1}'.format(spec_id, actual_value))
         if column == 3:
             print('Clicked last for spec ID {0}: {1}'.format(spec_id, actual_value))
 
