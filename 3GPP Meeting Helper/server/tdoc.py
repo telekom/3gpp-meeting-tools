@@ -342,11 +342,6 @@ def get_last_agenda(meeting_folder):
     return agenda_path, int(agenda_docx_regex.match(last_agenda).groupdict()['version'])
 
 
-def get_ts_folder(series, release):
-    address = 'http://www.3gpp.org/ftp/Specs/latest/Rel-{0}/{1}_series/'.format(release, series)
-    return address
-
-
 # Begin with updated URLs
 update_urls()
 

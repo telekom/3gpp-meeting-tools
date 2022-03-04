@@ -18,7 +18,7 @@ folder_ftp_names_regex = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][a
 """Retrieves data from the 3GPP web server"""
 private_server = '10.10.10.10'
 default_http_proxy = 'http://lanbctest:8080'
-http_server = 'http://www.3gpp.org/ftp/'
+http_server = 'https://www.3gpp.org/ftp/'
 group_folder = 'tsg_sa/WG2_Arch/'
 sync_folder = 'Meetings_3GPP_SYNC/SA2/'
 meeting_folder = 'SA/SA2/'

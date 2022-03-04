@@ -124,9 +124,5 @@ class Test_test(unittest.TestCase):
         is_tdoc = tdoc.is_tdoc(tdoc_id)
         self.assertFalse(is_tdoc)
 
-    def test_ts_folder(self):
-        folder = server.get_ts_folder(36, 13)
-        self.assertEqual(folder, 'http://www.3gpp.org/ftp/Specs/latest/Rel-13/36_series/')
-
 if __name__ == '__main__':
     unittest.main()

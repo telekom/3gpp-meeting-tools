@@ -77,7 +77,7 @@ class TdocsTable:
     def __init__(self, parent, favicon, parent_gui_tools):
         init_style()
         top = self.top = tkinter.Toplevel(parent)
-        top.title("TDoc Table. Double-Click on TDoc # or revision # to open")
+        top.title("TDoc Table for meeting {0}. Double-Click on TDoc # or revision # to open".format(gui.main.tkvar_meeting.get()))
         top.iconbitmap(favicon)
         self.parent_gui_tools = parent_gui_tools
 
@@ -113,7 +113,11 @@ class TdocsTable:
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        self.load_data(reload=True)
+        # Re-load TdocsByAgenda before inserting rows
+        current_tdocs_by_agenda = gui.main.open_tdocs_by_agenda(open_this_file=False)
+
+        self.all_tdocs = current_tdocs_by_agenda.tdocs
+        self.load_data(reload=True, current_tdocs_by_agenda=current_tdocs_by_agenda)
         self.reload_revisions = False
         self.insert_current_tdocs()
 
@@ -166,7 +170,7 @@ class TdocsTable:
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
 
-    def load_data(self, reload=False):
+    def load_data(self, reload=False, current_tdocs_by_agenda=None):
         if reload:
             print('Loading revision data for table')
             current_selection = gui.main.tkvar_meeting.get()
@@ -186,7 +190,10 @@ class TdocsTable:
         except:
             self.meeting_number = '<Meeting number>'
 
-        self.current_tdocs = application.meeting_helper.current_tdocs_by_agenda.tdocs
+        if current_tdocs_by_agenda is not None:
+            self.current_tdocs = current_tdocs_by_agenda.tdocs
+        else:
+            self.current_tdocs = self.all_tdocs
 
     def insert_current_tdocs(self):
         self.insert_rows(self.current_tdocs)

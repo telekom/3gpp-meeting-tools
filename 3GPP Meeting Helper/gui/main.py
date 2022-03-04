@@ -35,7 +35,7 @@ def set_waiting_for_proxy_message():
 
 
 # global variables
-inbox_tdoc_list = None
+inbox_tdoc_list_html = None
 performing_search = False
 open_downloaded_tdocs = True
 
@@ -142,9 +142,13 @@ def get_tdocs_by_agenda_file_or_url(target):
 
 
 def load_application_data():
-    global inbox_tdoc_list
-    inbox_tdoc_list = get_tdocs_by_agenda_file_or_url(server.tdoc.get_sa2_inbox_tdoc_list())
-    application.meeting_helper.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(inbox_tdoc_list)
+    global inbox_tdoc_list_html
+
+    file_to_parse = server.tdoc.get_sa2_inbox_tdoc_list()
+
+    # In case we override the file
+    inbox_tdoc_list_html = get_tdocs_by_agenda_file_or_url(file_to_parse)
+    application.meeting_helper.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(inbox_tdoc_list_html)
 
     # Load SA2 meeting data
     sa2_folder_html = server.common.get_sa2_folder()
@@ -268,7 +272,13 @@ def open_tdocs_by_agenda(open_this_file=True):
         html,
         meeting_server_folder=meeting_server_folder)
 
+    print('-------------------')
+    print('Current TDocsByAgenda are {0}'.format(application.current_tdocs_by_agenda.meeting_number))
+    print(application.current_tdocs_by_agenda.tdocs.index)
+    print('-------------------')
+
     parsing.word.write_data_and_open_file(html, local_file, open_this_file=open_this_file)
+    return application.current_tdocs_by_agenda
 
 
 def get_tdocs_by_agenda_for_selected_meeting(
