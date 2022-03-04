@@ -51,6 +51,7 @@ def revisions_file_to_dataframe(revisions_file, meeting_tdocs, drafts_file=None)
         meeting_tdocs['Revisions'] = meeting_tdocs['Revisions'] #.astype(int)
 
         indexed_df = df.set_index('Tdoc')
+
         return meeting_tdocs, indexed_df
     except:
         print('Could not parse revisions file {0}. Drafts file: {1}'.format(revisions_file, drafts_file))

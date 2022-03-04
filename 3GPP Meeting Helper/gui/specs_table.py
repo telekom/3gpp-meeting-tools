@@ -6,8 +6,10 @@ from tkinter import ttk
 import pandas as pd
 
 import application
+from parsing.html_specs import extract_spec_files_from_spec_folder
 from server import specs
-from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, get_url_for_spec_page
+from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, \
+    get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder
 
 style_name = 'mystyle.Treeview'
 
@@ -74,6 +76,7 @@ class SpecsTable:
     filter_release = None
     filter_series = None
     filter_text = None
+    filter_group = None
 
     def __init__(self, parent, favicon, parent_gui_tools):
         init_style()
@@ -95,7 +98,7 @@ class SpecsTable:
         # https://stackoverflow.com/questions/50625306/what-is-the-best-way-to-show-data-in-a-table-in-tkinter
         self.tree = ttk.Treeview(
             frame_2,
-            columns=('Spec', 'Title', 'Versions', 'Last'),
+            columns=('Spec', 'Title', 'Versions', 'Last', 'Local Cache', 'Group'),
             show='headings',
             selectmode="browse",
             style=style_name,
@@ -103,8 +106,10 @@ class SpecsTable:
 
         set_column(self.tree, 'Spec', "Spec #", width=110)
         set_column(self.tree, 'Title', width=SpecsTable.title_width, center=False)
-        set_column(self.tree, 'Versions', width=120)
-        set_column(self.tree, 'Last', width=120)
+        set_column(self.tree, 'Versions', width=80)
+        set_column(self.tree, 'Last', width=100)
+        set_column(self.tree, 'Local Cache', width=100)
+        set_column(self.tree, 'Group', width=80)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -127,11 +132,11 @@ class SpecsTable:
 
         # Filter by specification series
         all_series = ['All']
-        spec_series = self.current_specs['series'].unique()
+        spec_series = self.all_specs['series'].unique()
         spec_series.sort()
         all_series.extend(list(spec_series))
 
-        self.combo_series = ttk.Combobox(frame_1, values=all_series, state="readonly")
+        self.combo_series = ttk.Combobox(frame_1, values=all_series, state="readonly", width=8)
         self.combo_series.set('All')
         self.combo_series.bind("<<ComboboxSelected>>", self.select_series)
 
@@ -140,16 +145,29 @@ class SpecsTable:
 
         # Filter by specification release
         all_releases = ['All']
-        spec_releases = self.current_specs['release'].unique()
+        spec_releases = self.all_specs['release'].unique()
         spec_releases.sort()
         all_releases.extend(list(spec_releases))
 
-        self.combo_releases = ttk.Combobox(frame_1, values=all_releases, state="readonly")
+        self.combo_releases = ttk.Combobox(frame_1, values=all_releases, state="readonly", width=8)
         self.combo_releases.set('All')
         self.combo_releases.bind("<<ComboboxSelected>>", self.select_releases)
 
         tkinter.Label(frame_1, text="  Filter by Release: ").pack(side=tkinter.LEFT)
         self.combo_releases.pack(side=tkinter.LEFT)
+
+        # Filter by group responsibility release
+        all_groups = ['All']
+        spec_groups = self.all_specs['responsible_group'].unique()
+        spec_groups.sort()
+        all_groups.extend(list(spec_groups))
+
+        self.combo_groups = ttk.Combobox(frame_1, values=all_groups, state="readonly", width=8)
+        self.combo_groups.set('All')
+        self.combo_groups.bind("<<ComboboxSelected>>", self.select_groups)
+
+        tkinter.Label(frame_1, text="  Filter by Group: ").pack(side=tkinter.LEFT)
+        self.combo_groups.pack(side=tkinter.LEFT)
 
         tkinter.Label(frame_1, text="  ").pack(side=tkinter.LEFT)
         tkinter.Button(
@@ -174,13 +192,14 @@ class SpecsTable:
         Loads specifications frm the 3GPP website
         """
         # Load specs data
-        print('Loading revision data for table')
+        print('Loading revision data for LATEST specs per release for table')
         if initial_load:
             self.all_specs, self.spec_metadata = specs.get_specs()
             self.current_specs = self.all_specs
             self.filter_text = self.all_specs
             self.filter_release = self.all_specs
             self.filter_series = self.all_specs
+            self.filter_group = self.all_specs
         else:
             self.current_specs = self.all_specs
         print('Finished loading specs')
@@ -190,13 +209,13 @@ class SpecsTable:
 
     def insert_rows(self, df):
         # print(df.to_string())
-        df_release_count = df.groupby(by='spec')['release'].nunique()
+        # df_release_count = df.groupby(by='spec')['release'].nunique()
         df_version_max = df.groupby(by='spec')['version'].max()
-        df_version_count = df.groupby(by='spec')['version'].nunique()
+        # df_version_count = df.groupby(by='spec')['version'].nunique()
         df_to_plot = pd.concat(
-            [df_release_count, df_version_max, df_version_count],
+            [df_version_max],
             axis=1,
-            keys=['releases', 'max_version', 'version_count'])
+            keys=['max_version'])
         df_to_plot.sort_index(inplace=True)
         # print(df_to_plot.to_string())
 
@@ -216,13 +235,17 @@ class SpecsTable:
             # Faster alternative
             current_spec = self.spec_metadata[idx]
             title = current_spec.title
+            responsible_group = current_spec.responsible_group
 
             # 'Spec', 'Title', 'Releases', 'Last'
             self.tree.insert("", "end", tags=(tag,), values=(
                 idx,
                 textwrap.fill(title, width=70),
-                row['version_count'],
-                file_version_to_version(row['max_version'])))
+                'Click',
+                file_version_to_version(row['max_version']),
+                'Click',
+                responsible_group
+            ))
 
         self.tree.tag_configure('odd', background='#E8E8E8')
         self.tree.tag_configure('even', background='#DFDFDF')
@@ -255,6 +278,10 @@ class SpecsTable:
             merged_df.reset_index(),
             self.filter_text.reset_index(),
             how="inner").set_index('spec')
+        merged_df = pd.merge(
+            merged_df.reset_index(),
+            self.filter_group.reset_index(),
+            how="inner").set_index('spec')
         self.current_specs = merged_df
         self.insert_current_specs()
 
@@ -262,9 +289,7 @@ class SpecsTable:
         specs_for_series = self.all_specs
         selected_series = self.combo_series.get()
         print('Filtering by Series "{0}"'.format(selected_series))
-        if selected_series == 'All':
-            specs_for_series = specs_for_series
-        else:
+        if selected_series != 'All':
             specs_for_series = specs_for_series[specs_for_series['series'] == selected_series]
 
         self.filter_series = specs_for_series
@@ -274,12 +299,20 @@ class SpecsTable:
         specs_for_release = self.all_specs
         selected_release = self.combo_releases.get()
         print('Filtering by Release "{0}"'.format(selected_release))
-        if selected_release == 'All':
-            specs_for_release = specs_for_release
-        else:
+        if selected_release != 'All':
             specs_for_release = specs_for_release[specs_for_release['release'] == selected_release]
 
         self.filter_release = specs_for_release
+        self.apply_filters()
+
+    def select_groups(self, *args):
+        specs_for_group = self.all_specs
+        selected_group = self.combo_groups.get()
+        print('Filtering by Group "{0}"'.format(selected_group))
+        if selected_group != 'All':
+            specs_for_group = specs_for_group[specs_for_group['responsible_group'] == selected_group]
+
+        self.filter_group = specs_for_group
         self.apply_filters()
 
     def select_text(self, *args):
@@ -330,6 +363,10 @@ class SpecsTable:
             spec_url = get_url_for_version_text(spec_entries, actual_value)
             downloaded_files = download_spec_if_needed(spec_id, spec_url)
             application.word.open_files(downloaded_files)
+        if column == 4:
+            print('Clicked local folder for spec ID {0}'.format(spec_id))
+            folder_name = get_specs_folder(spec_id=spec_id)
+            os.startfile(folder_name)
 
 
 def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> str:
@@ -356,11 +393,10 @@ class SpecVersionsTable:
 
     def __init__(self, parent, favicon, spec_entries, spec_id):
         top = self.top = tkinter.Toplevel(parent)
-        top.title("Spec versions for {0}".format(spec_entries))
+        top.title("All Spec versions for {0}".format(spec_id))
         top.iconbitmap(favicon)
 
         self.spec_id = spec_id
-        self.spec_entries = spec_entries
 
         frame_1 = tkinter.Frame(top)
         frame_1.pack()
@@ -388,6 +424,15 @@ class SpecVersionsTable:
         set_column(self.tree, 'Add to compare B', width=110)
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
+        # Before we start inserting rows, we need to load the spec archive for this specification
+        # Done here because probably not all specs will be equally accessed. Thus, new versions can be reloaded
+        # whenever needed
+        spec_markup, archive_page_url, series_number = get_spec_archive_remote_folder(spec_id, cache=True)
+        specs_from_archive = extract_spec_files_from_spec_folder(spec_markup, archive_page_url, None, series_number)
+        specs_df = pd.DataFrame(specs_from_archive)
+        specs_df.set_index("spec", inplace=True)
+        self.spec_entries = specs_df
+
         self.count = 0
         self.insert_rows()
 
@@ -408,6 +453,11 @@ class SpecVersionsTable:
             frame_3,
             text='Compare!',
             command=self.compare_spec_versions).pack(side=tkinter.LEFT)
+
+        tkinter.Button(
+            frame_3,
+            text='Open local folder',
+            command=self.open_cache_folder).pack(side=tkinter.LEFT)
 
     def insert_rows(self):
         df = self.spec_entries.sort_values(by='version', ascending=False)
@@ -481,3 +531,7 @@ class SpecVersionsTable:
         compare_b = self.compare_b.get()
         print('Comparing {0} {1} vs. {2}'.format(self.spec_id, compare_a, compare_b))
         # self.parent_gui_tools.compare_tdocs(entry_1=compare_a, entry_2=compare_b, )
+
+    def open_cache_folder(self):
+        folder_name = get_specs_folder(spec_id=self.spec_id)
+        os.startfile(folder_name)

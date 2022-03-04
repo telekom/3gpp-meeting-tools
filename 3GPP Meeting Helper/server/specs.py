@@ -1,7 +1,7 @@
 import os.path
 import pickle
 from urllib.parse import urlparse
-from typing import List
+from typing import List, Tuple
 
 import html2text
 
@@ -16,6 +16,8 @@ specs_url = 'https://www.3gpp.org/ftp/Specs/latest'
 # Specification page, e.g., https://www.3gpp.org/DynaReport/23501.htm
 spec_page = 'https://www.3gpp.org/DynaReport/{0}.htm'
 
+# Specification archive page, e.g., https://www.3gpp.org/ftp/Specs/archive/24_series/24.011
+spec_archive_page = 'https://www.3gpp.org/ftp/Specs/archive/{0}_series/{1}'
 
 def get_html_page_and_save_cache(url, cache, cache_file, cache_as_markup):
     html = get_html(url)
@@ -87,7 +89,7 @@ def get_spec_remote_folder(spec_number, cache=False):
 
 
 def get_specs(cache=True):
-    specs_df_cache_file = os.path.join(get_specs_cache_folder(), 'specs.pickle')
+    specs_df_cache_file = os.path.join(get_specs_cache_folder(), '_specs.pickle')
 
     # Load specs data from cache file
     if cache and os.path.exists(specs_df_cache_file):
@@ -105,24 +107,24 @@ def get_specs(cache=True):
     # For each release, extract data
     all_specs_data = []
     for release_data in releases_data:
-        html_release_data_bytes = get_release_folder(
+        markup_release_data = get_release_folder(
             release_data.release_url,
             release_data.release,
             cache=cache)
         series_data_for_release = extract_spec_series_from_spec_folder(
-            html_release_data_bytes,
+            markup_release_data,
             release=release_data.release,
             base_url=release_data.release_url)
 
         # For each spec. series in each release, extract data
         for series_data in series_data_for_release:
-            html_series_data_bytes = get_series_folder(
+            markup_series_data = get_series_folder(
                 series_data.series_url,
                 series_number=series_data.series,
                 release_number=series_data.release,
                 cache=cache)
             specs_data_for_series = extract_spec_files_from_spec_folder(
-                html_series_data_bytes,
+                markup_series_data,
                 release=series_data.release,
                 series=series_data.series,
                 base_url=series_data.series_url)
@@ -148,6 +150,7 @@ def get_specs(cache=True):
         with open(specs_df_cache_file, "wb") as f:
             print('Storing spec cache in {0}'.format(specs_df_cache_file))
             pickle.dump([specs_df, spec_metadata], f)
+
     return specs_df, spec_metadata
 
 
@@ -177,11 +180,13 @@ def get_specs_folder(create_dir=True, spec_id=None):
 
 def apply_spec_metadata_to_dataframe(specs_df, spec_metadata):
     specs_df['title'] = ''
+    specs_df['responsible_group'] = ''
 
     specs_list = specs_df.index.unique()
     for idx in specs_list:
         if idx in spec_metadata:
             specs_df.at[idx, 'title'] = spec_metadata[idx].title
+            specs_df.at[idx, 'responsible_group'] = spec_metadata[idx].responsible_group
 
     specs_df['search_column'] = specs_df.index + specs_df['title']
     specs_df['search_column'] = specs_df['search_column'].str.lower()
@@ -271,3 +276,50 @@ def get_url_for_spec_page(spec_number: str) -> str:
     """
     spec_number = spec_number.replace('.', '')
     return spec_page.format(spec_number)
+
+
+def get_archive_page_for_spec(spec_number_with_dot: str) -> Tuple[str, str]:
+    """
+    Returns the archive URL, for a given spec.
+    Args:
+        spec_number_with_dot: The specification number including a dot, e.g., 24.011
+
+    Returns:
+        The specification URL, e.g. https://www.3gpp.org/ftp/Specs/archive/24_series/24.011
+        The series number
+    """
+    # https://www.3gpp.org/ftp/Specs/archive/24_series/24.011
+    series_number = int(spec_number_with_dot.split('.')[0])
+    series_number = '{:02d}'.format(series_number)
+    spec_archive_url = 'https://www.3gpp.org/ftp/Specs/archive/{0}_series/{1}'.format(
+        series_number,
+        spec_number_with_dot)
+    return spec_archive_url, series_number
+
+
+def get_spec_archive_remote_folder(spec_number_with_dot, cache=False) -> Tuple[str, str, str]:
+    """
+    For a given specification, retrieves the 3GPP spec archive page,
+    e.g., https://www.3gpp.org/ftp/Specs/archive/23_series/23.206
+    Args:
+        spec_number_with_dot: The specification number including the dot, e.g., 23.206
+        cache: Whether the file should be cached or not
+
+    Returns:
+        A string tuple containing: the markup-converted text of the page remote URL of the page,
+        the specs series number.
+    """
+    # Clean up the dot as we do not use it as part of the file name
+    spec_number = spec_number_with_dot.replace('.', '')
+
+    archive_page_url, series_number = get_archive_page_for_spec(spec_number_with_dot)
+    cache_file = os.path.join(get_specs_cache_folder(), 'archive_{0}.md'.format(spec_number))
+    if cache and os.path.exists(cache_file):
+        markup = get_markup_from_cache(cache_file)
+    else:
+        markup = get_html_page_and_save_cache(
+            archive_page_url,
+            cache,
+            cache_file,
+            cache_as_markup=True)
+    return markup, archive_page_url, series_number
