@@ -1,5 +1,5 @@
 import unittest
-import server
+import server.tdoc as server
 
 class Test_test_agenda_files(unittest.TestCase):
     def test_129Bis(self):

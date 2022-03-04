@@ -1,77 +1,14 @@
 import traceback
 import re
-from config.tdoc_regex_matching import tdoc_regex
-import win32com.client
+
+from application.outlook import get_outlook
+from tdoc.utils import tdoc_regex
 
 # Trimmed-down version of the outlook script without any dependency on the rest of the application.
 # Can be called with fewer dependencies
 
 email_approval_regex = re.compile(r'e[-]?mail approval')
 emeeting_regex = re.compile(r'.*\[SA2[ ]*#([\d]+E)[ ,]+AI[#]?([\d\.]+)[ ,]+(S2-(S2-)?[\d]+)\][ ]*(.*)')
-
-
-def get_outlook():
-    try:
-        outlook = win32com.client.Dispatch("Outlook.Application")
-    except:
-        outlook = None
-        traceback.print_exc()
-    return outlook
-
-
-def get_outlook_inbox():
-    try:
-        outlook = get_outlook()
-        if outlook is None:
-            print('Could not retrieve Outlook instance')
-            return None
-        mapi_namespace = outlook.GetNamespace("MAPI")
-        # https://docs.microsoft.com/en-us/office/vba/api/outlook.oldefaultfolders
-        olFolderInbox = 6
-        inbox = mapi_namespace.getDefaultFolder(olFolderInbox)
-
-        return inbox
-    except:
-        print('Could not retrieve Outlook inbox')
-        traceback.print_exc()
-        return None
-
-
-def get_subfolder(root_folder, folder_name):
-    try:
-        folders = root_folder.Folders
-        if (folders is None) or (folder_name is None) or (folder_name == ''):
-            return None
-        for folder in folders:
-            if folder.Name == folder_name:
-                return folder
-    except:
-        return None
-
-
-def get_folder(root_folder, address, create_if_needed=True):
-    if (root_folder is None) or (address is None) or (address == ''):
-        return None
-
-    try:
-        names = address.split('/')
-        name = names[0]
-        requested_folder = get_subfolder(root_folder, name)
-        if (requested_folder is None) and create_if_needed:
-            root_folder.Folders.Add(name)
-            print('Created folder {0} under {1}'.format(name, root_folder.Name))
-            requested_folder = get_subfolder(root_folder, name)
-
-        # Return recursively the last folder in the chain
-        if (len(names) > 1) and (requested_folder is not None):
-            subfolders = '/'.join(names[1:])
-            requested_folder = get_folder(requested_folder, subfolders, create_if_needed)
-
-        return requested_folder
-    except:
-        print('Could not create folder')
-        traceback.print_exc()
-        return None
 
 
 def get_email_approval_emails(folder, target_folder, tdoc_data, use_tdoc_data=True, email_subject_regex=None,
@@ -134,6 +71,7 @@ def get_email_approval_emails(folder, target_folder, tdoc_data, use_tdoc_data=Tr
     # To Do add handling and creation of individual foldrs per agenda item
     return emails_to_move
 
+
 def search_subject_in_all_outlook_items(tdoc_id, new_window=True):
     outlook_instance = get_outlook()
     if outlook_instance is None:
@@ -161,4 +99,3 @@ def search_subject_in_all_outlook_items(tdoc_id, new_window=True):
     except:
         print('Could not search for emails')
         traceback.print_exc()
-

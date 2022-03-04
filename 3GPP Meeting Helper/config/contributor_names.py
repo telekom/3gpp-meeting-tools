@@ -105,6 +105,10 @@ signature_synonyms_regex = {
     'Airtel':           re.compile(r'airtel'),
     'Bosch':            re.compile(r'bosch'),
     'Sequans':          re.compile(r'sequans'),
+    'Rakuten':          re.compile(r'rakute'),
+    'Futurewei':        re.compile(r'futurewei'),
+    'Microsoft':        re.compile(r'microsoft'),
+    'Facebook':         re.compile(r'facebook'),
 }
 
 recognized_vendor_list = [key for key, value in signature_synonyms_regex.items()]

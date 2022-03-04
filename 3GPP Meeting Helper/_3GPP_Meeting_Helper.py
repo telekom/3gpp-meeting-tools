@@ -1,12 +1,12 @@
-import application
-import gui.main
 import gui.config
+import gui.common
+import gui.main
 
 # GUI init
-gui.main.fix_blurry_fonts_in_windows_10()
-gui.main.set_font_size()
+gui.common.fix_blurry_fonts_in_windows_10()
+gui.common.set_font_size()
 
-# Lauch proxy config window and wait until it is closed
+# Launch proxy config window and wait until it is closed
 proxy_dialog = gui.config.NetworkConfigDialog(gui.main.root, gui.main.favicon)
 waiting_for_proxy_label = gui.main.set_waiting_for_proxy_message()
 gui.main.root.wait_window(proxy_dialog.top)
