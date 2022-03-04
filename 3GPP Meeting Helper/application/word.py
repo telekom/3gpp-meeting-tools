@@ -6,6 +6,9 @@ import win32com.client
 # Global Word instance does not work (removed)
 # word = None
 
+# See https://docs.microsoft.com/en-us/office/vba/api/word.wdsaveformat
+wdFormatPDF = 17 # PDF format.
+
 def get_word():
     try:
         word = win32com.client.GetActiveObject("Word.Application")
