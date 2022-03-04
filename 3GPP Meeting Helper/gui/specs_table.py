@@ -1,16 +1,13 @@
-import re
+import os
 import textwrap
 import tkinter
-import traceback
-import webbrowser
 from tkinter import ttk
 
 import pandas as pd
-import pyperclip
 
 import application
 from server import specs
-from server.specs import file_version_to_version, version_to_file_version, download_spec
+from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, get_url_for_spec_page
 
 style_name = 'mystyle.Treeview'
 
@@ -80,16 +77,17 @@ class SpecsTable:
 
     def __init__(self, parent, favicon, parent_gui_tools):
         init_style()
-        top = self.top = tkinter.Toplevel(parent)
-        top.title("Specs Table. Double-Click on Spec # or Release # to open")
-        top.iconbitmap(favicon)
+        self.top = tkinter.Toplevel(parent)
+        self.top.title("Specs Table. Double-Click on Spec # or Release # to open")
+        self.top.iconbitmap(favicon)
+        self.favicon = favicon
         self.parent_gui_tools = parent_gui_tools
 
-        frame_1 = tkinter.Frame(top)
+        frame_1 = tkinter.Frame(self.top)
         frame_1.pack(anchor='w')
-        frame_2 = tkinter.Frame(top)
+        frame_2 = tkinter.Frame(self.top)
         frame_2.pack()
-        frame_3 = tkinter.Frame(top)
+        frame_3 = tkinter.Frame(self.top)
         frame_3.pack(anchor='w')
 
         self.spec_count = tkinter.StringVar()
@@ -118,7 +116,8 @@ class SpecsTable:
         self.tree.configure(yscrollcommand=self.tree_scroll.set)
         # tree.grid(row=0, column=0)
 
-        # Can also do this: https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
+        # Can also do this:
+        # https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
         self.search_entry = tkinter.Entry(frame_1, textvariable=self.search_text, width=25, font='TkDefaultFont')
         self.search_text.trace_add(['write', 'unset'], self.select_text)
@@ -287,6 +286,8 @@ class SpecsTable:
         # Filter based on current TDocs
         text_search = self.search_text.get()
         if text_search is None or text_search == '':
+            self.filter_text = self.all_specs
+            self.apply_filters()
             return
 
         is_regex = False
@@ -307,35 +308,59 @@ class SpecsTable:
 
         spec_id = item_values[0]
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
+
+        # Select entries for this spec
+        # Use '[[]]' so that .loc returns a DataFrame
+        # https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.loc.html
+        spec_entries = self.current_specs.loc[[spec_id], :]
+
         if actual_value is None or actual_value == '':
             print("Empty value")
             return
         if column == 0:
-            print('Clicked spec ID {0}'.format(actual_value))
+            print('Clicked spec ID {0}. Opening 3GPP spec page'.format(actual_value))
+            os.startfile(get_url_for_spec_page(spec_id))
         if column == 1:
-            print('Clicked title for spec ID {0}: {1}'.format(spec_id, actual_value))
+            print('Clicked title for spec ID {0}: {1}. Opening 3GPP spec page'.format(spec_id, actual_value))
+            os.startfile(get_url_for_spec_page(spec_id))
         if column == 2:
             print('Clicked versions for spec ID {0}: {1}'.format(spec_id, actual_value))
+            SpecVersionsTable(self.top, self.favicon, spec_entries, spec_id)
         if column == 3:
-            file_version = version_to_file_version(actual_value)
-            print('Clicked last for spec ID {0}: {1}->{2}'.format(spec_id, actual_value, file_version))
-            spec_entries = self.all_specs.loc[spec_id, :]
-            # To-do: solve case when only one entry is returned
-            entry_to_load = spec_entries.loc[spec_entries.version == file_version].iloc[0]
-            downloaded_files = download_spec(spec_id, entry_to_load.spec_url)
+            spec_url = get_url_for_version_text(spec_entries, actual_value)
+            downloaded_files = download_spec_if_needed(spec_id, spec_url)
             application.word.open_files(downloaded_files)
 
 
-class SpecVersionsTable:
+def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> str:
+    """
+    Returns the URL for the matching version. It is assumed that all rows in the DataFrame are for a single Spec.
+    Args:
+        spec_entries: DataFrame containing entries for a given specification
+        version_text: The version to be retrieved, e.g. 16.0.0
 
-    def __init__(self, parent, favicon, tdoc_id, revisions_df, parent_gui_tools):
+    Returns:
+        The URL of the given specification/version.
+    """
+    file_version = version_to_file_version(version_text)
+
+    # Because of using '[[]]', it is sure that the returned object is a DataFrame and not a Series
+    entry_to_load = spec_entries.loc[spec_entries.version == file_version, ['spec_url']]
+    entry_to_load = entry_to_load.iloc[0]
+    return entry_to_load.spec_url
+
+
+class SpecVersionsTable:
+    spec_entries = None
+    spec_id = None
+
+    def __init__(self, parent, favicon, spec_entries, spec_id):
         top = self.top = tkinter.Toplevel(parent)
-        top.title("Revisions for {0}".format(tdoc_id))
+        top.title("Spec versions for {0}".format(spec_entries))
         top.iconbitmap(favicon)
-        revisions = revisions_df.loc[tdoc_id, :]
-        self.tdoc_id = tdoc_id
-        self.parent_gui_tools = parent_gui_tools
-        print('{0} Revisions'.format(len(revisions)))
+
+        self.spec_id = spec_id
+        self.spec_entries = spec_entries
 
         frame_1 = tkinter.Frame(top)
         frame_1.pack()
@@ -349,20 +374,22 @@ class SpecVersionsTable:
 
         self.tree = ttk.Treeview(
             frame_1,
-            columns=('TDoc', 'Rev.', 'Add to compare A', 'Add to compare B'),
+            columns=('Spec', 'Version', 'Open Word', 'Open PDF', 'Add to compare A', 'Add to compare B'),
             show='headings',
             selectmode="browse",
             style=style_name,
             height=8)  # Height in rows
 
-        set_column(self.tree, 'TDoc', "TDoc #", width=110)
-        set_column(self.tree, 'Rev.', width=50)
+        set_column(self.tree, 'Spec', "Spec #", width=110)
+        set_column(self.tree, 'Version', width=60)
+        set_column(self.tree, 'Open Word', width=110)
+        set_column(self.tree, 'Open PDF', width=110)
         set_column(self.tree, 'Add to compare A', width=110)
         set_column(self.tree, 'Add to compare B', width=110)
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
         self.count = 0
-        self.insert_rows(revisions)
+        self.insert_rows()
 
         self.tree_scroll = ttk.Scrollbar(frame_1)
         self.tree_scroll.configure(command=self.tree.yview)
@@ -370,7 +397,7 @@ class SpecVersionsTable:
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
-        tkinter.Label(frame_2, text="{0} Documents".format(self.count)).pack(side=tkinter.LEFT)
+        tkinter.Label(frame_2, text="{0} Spec versions".format(self.count)).pack(side=tkinter.LEFT)
 
         tkinter.Label(frame_3, textvariable=self.compare_a).pack(side=tkinter.LEFT)
         tkinter.Label(frame_3, text='  vs.  ').pack(side=tkinter.LEFT)
@@ -380,9 +407,11 @@ class SpecVersionsTable:
         tkinter.Button(
             frame_3,
             text='Compare!',
-            command=self.compare_tdocs).pack(side=tkinter.LEFT)
+            command=self.compare_spec_versions).pack(side=tkinter.LEFT)
 
-    def insert_rows(self, df):
+    def insert_rows(self):
+        df = self.spec_entries.sort_values(by='version', ascending=False)
+
         count = 0
         if df is None:
             return
@@ -392,20 +421,8 @@ class SpecVersionsTable:
         else:
             rows = df.iterrows()
 
-        for idx, row in rows:
-            if count == 0:
-                count = count + 1
-                mod = count % 2
-                if mod > 0:
-                    tag = 'odd'
-                else:
-                    tag = 'even'
-                self.tree.insert("", "end", tags=(tag,), values=(
-                    idx,
-                    '00',
-                    'Click',
-                    'Click'))
-
+        # 'Spec', 'Version', 'Open Word', 'Open PDF', 'Add to compare A', 'Add to compare B'
+        for spec_id, row in rows:
             count = count + 1
             mod = count % 2
             if mod > 0:
@@ -414,8 +431,10 @@ class SpecVersionsTable:
                 tag = 'even'
 
             self.tree.insert("", "end", tags=(tag,), values=(
-                idx,
-                row['Revisions'],
+                spec_id,
+                file_version_to_version(row['version']),
+                'Open Word',
+                'Open PDF',
                 'Click',
                 'Click'))
 
@@ -423,7 +442,6 @@ class SpecVersionsTable:
 
         self.tree.tag_configure('odd', background='#E8E8E8')
         self.tree.tag_configure('even', background='#DFDFDF')
-        treeview_sort_column(self.tree, 'Rev.')
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
@@ -434,31 +452,32 @@ class SpecVersionsTable:
         except:
             actual_value = None
 
-        # Some issues with automatic conversion which we solve here
-        tdoc_id = item_values[0]
-        if isinstance(item_values[1], int):
-            revision = 'r' + '{0:02d}'.format(item_values[1])
-        else:
-            revision = 'r' + item_values[1]
-
-        if revision == 'r00':
-            tdoc_to_search = tdoc_id
-        else:
-            tdoc_to_search = tdoc_id + revision
+        spec_id = item_values[0]
+        row_version = item_values[1]
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
-        if column == 0:
-            print('Opening {0}'.format(actual_value))
-            # gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
-        if column == 1:
-            print('Opening {0}'.format(tdoc_to_search))
-            # gui.main.download_and_open_tdoc(tdoc_to_search, copy_to_clipboard=True)
-        if column == 2:
-            self.compare_a.set(tdoc_to_search)
-        if column == 3:
-            self.compare_b.set(tdoc_to_search)
 
-    def compare_tdocs(self):
+        # 'Spec', 'Version', 'Open Word', 'Open PDF', 'Add to compare A', 'Add to compare B'
+        if column == 0:
+            print('Clicked spec ID {0}. Opening 3GPP spec page'.format(actual_value))
+            os.startfile(get_url_for_spec_page(spec_id))
+        if column == 1:
+            print('Clicked spec ID {0}, version {1}'.format(spec_id, actual_value))
+        if column == 2:
+            print('Opening Word {0}, version {1}'.format(spec_id, row_version))
+            spec_url = get_url_for_version_text(self.spec_entries, row_version)
+            downloaded_files = download_spec_if_needed(spec_id, spec_url)
+            application.word.open_files(downloaded_files)
+        if column == 3:
+            print('Opening PDF {0}, version {1}'.format(spec_id, row_version))
+        if column == 4:
+            print('Added Compare A: {0}, version {1}'.format(spec_id, row_version))
+            self.compare_a.set(row_version)
+        if column == 5:
+            print('Added Compare B: {0}, version {1}'.format(spec_id, row_version))
+            self.compare_b.set(row_version)
+
+    def compare_spec_versions(self):
         compare_a = self.compare_a.get()
         compare_b = self.compare_b.get()
-        print('Comparing {0} vs. {1}'.format(compare_a, compare_b))
-        self.parent_gui_tools.compare_tdocs(entry_1=compare_a, entry_2=compare_b, )
+        print('Comparing {0} {1} vs. {2}'.format(self.spec_id, compare_a, compare_b))
+        # self.parent_gui_tools.compare_tdocs(entry_1=compare_a, entry_2=compare_b, )

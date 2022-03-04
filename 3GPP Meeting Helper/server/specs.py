@@ -1,6 +1,7 @@
 import os.path
 import pickle
 from urllib.parse import urlparse
+from typing import List
 
 import html2text
 
@@ -63,7 +64,9 @@ def get_release_folder(release_url, release_number, cache=False):
 
 
 def get_series_folder(series_url, release_number, series_number, cache=False):
-    cache_file = os.path.join(get_specs_cache_folder(), 'Specs_{0}_series_Rel_{1}.md'.format(series_number, release_number))
+    cache_file = os.path.join(
+        get_specs_cache_folder(),
+        'Specs_{0}_series_Rel_{1}.md'.format(series_number, release_number))
     if cache and os.path.exists(cache_file):
         markup = get_markup_from_cache(cache_file)
     else:
@@ -193,14 +196,19 @@ def file_version_to_version(file_version: str) -> str:
     Returns: The specification version number
 
     """
+    def letter_to_number(character: str) -> str:
+        if character.isdigit():
+            number = character
+        else:
+            number = '{0}'.format(ord(character) - ord('a') + 10)
+        return number
+
     # File version must be three characters, e.g., a10, 821
-    if file_version[0].isdigit():
-        major_version = file_version[0]
-    else:
-        major_version = '{0}'.format(ord(file_version[0])-ord('a') + 10)
-    middle_version = file_version[1]
-    minor_version = file_version[2]
-    return '{0}.{1}.{2}'.format(major_version, middle_version, minor_version)
+    major_version = letter_to_number(file_version[0])
+    middle_version = letter_to_number(file_version[1])
+    minor_version = letter_to_number(file_version[2])
+    version_number = '{0}.{1}.{2}'.format(major_version, middle_version, minor_version)
+    return version_number
 
 
 def version_to_file_version(version: str) -> str:
@@ -214,21 +222,31 @@ def version_to_file_version(version: str) -> str:
     """
     split_version = [int(i) for i in version.split('.')]
 
+    def number_to_letter(number: int) -> str:
+        if number < 10:
+            letter = '{0}'.format(number)
+        else:
+            letter = chr(ord('a') + number - 10)
+        return letter
+
     # File version must be three characters, e.g., a10, 821
-    if split_version[0] < 10:
-        first_letter = '{0}'.format(split_version[0])
-    else:
-        first_letter = chr(ord('a') + split_version[0] - 10)
-    return '{0}{1}{2}'.format(first_letter, split_version[1], split_version[2])
+    first_letter = number_to_letter(split_version[0])
+    second_letter = number_to_letter(split_version[1])
+    third_letter = number_to_letter(split_version[2])
+    return '{0}{1}{2}'.format(first_letter, second_letter, third_letter)
 
 
-def download_spec(spec_number: str, file_url: str):
+def download_spec_if_needed(spec_number: str, file_url: str) -> List[str]:
     """
-    Downloads a given specification from said URL
+    Downloads a given specification from said URL. The file is stored in a cache folder and only
+    (re-)downloaded if needed.
     Args:
-        spec_number:
-        spec_version:
-        file_url: The URL of the spec to download
+        spec_number: The specification number (with or without dots), e.g. 23.501. Needed to correctly place
+        the downloaded file(s) in the cache folder
+        file_url: The URL of the spec file (zip file typically) to download
+
+    Returns:
+        list[str]: Absolute path of the downloaded (and unzipped) files
     """
     spec_number = spec_number.replace('.', '')
     spec_number = '{0}.{1}'.format(spec_number[0:2], spec_number[2:])
@@ -241,3 +259,15 @@ def download_spec(spec_number: str, file_url: str):
     files_in_zip = unzip_files_in_zip_file(local_filename)
     return files_in_zip
 
+
+def get_url_for_spec_page(spec_number: str) -> str:
+    """
+    Returns the 3GPP specification page, e.g., https://www.3gpp.org/DynaReport/23501.htm
+    Args:
+        spec_number: The specification number. Either with dot or without
+
+    Returns: The URL of the specification page
+
+    """
+    spec_number = spec_number.replace('.', '')
+    return spec_page.format(spec_number)
