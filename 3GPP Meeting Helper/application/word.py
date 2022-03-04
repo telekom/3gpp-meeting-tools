@@ -7,9 +7,14 @@ import win32com.client
 # Global Word instance does not work (removed)
 # word = None
 
-# See https://docs.microsoft.com/en-us/office/vba/api/word.wdsaveformat
-wdFormatPDF = 17  # PDF format.
+# See https://docs.microsoft.com/en-us/office/vba/api/word.wdexportformat
+wdExportFormatPDF = 17  # PDF format.
 
+# See https://docs.microsoft.com/en-us/dotnet/api/microsoft.office.interop.word.wdexportcreatebookmarks?view=word-pia
+wdExportCreateHeadingBookmarks = 1
+
+# See https://docs.microsoft.com/en-us/dotnet/api/microsoft.office.interop.word.wdexportoptimizefor?view=word-pia
+wdExportOptimizeForPrint = 0
 
 def get_word(visible=True, display_alerts=False):
     try:
@@ -132,7 +137,16 @@ def convert_files_to_pdf(word_files: List[str]) -> List[str]:
                         word = get_word()
                     print('Converting {0} to {1}'.format(word_file, out_file))
                     doc = word.Documents.Open(word_file)
-                    doc.SaveAs(out_file, FileFormat=wdFormatPDF)
+
+                    # See https://docs.microsoft.com/en-us/office/vba/api/word.document.exportasfixedformat
+                    doc.ExportAsFixedFormat(
+                        OutputFileName=out_file,
+                        ExportFormat=wdExportFormatPDF,
+                        OpenAfterExport=False,
+                        OptimizeFor=wdExportOptimizeForPrint,
+                        IncludeDocProps=True,
+                        CreateBookmarks=wdExportCreateHeadingBookmarks
+                    )
                     doc.Close()
                     print('Converted {0} to {1}'.format(word_file, out_file))
                 else:
