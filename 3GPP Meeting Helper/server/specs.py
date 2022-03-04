@@ -19,6 +19,7 @@ spec_page = 'https://www.3gpp.org/DynaReport/{0}.htm'
 # Specification archive page, e.g., https://www.3gpp.org/ftp/Specs/archive/24_series/24.011
 spec_archive_page = 'https://www.3gpp.org/ftp/Specs/archive/{0}_series/{1}'
 
+
 def get_html_page_and_save_cache(url, cache, cache_file, cache_as_markup):
     html = get_html(url)
     if cache:
@@ -88,7 +89,19 @@ def get_spec_remote_folder(spec_number, cache=False):
     return markup
 
 
-def get_specs(cache=True):
+def get_specs(cache=True) -> Tuple[pd.DataFrame, dict]:
+    """
+    Retrieves information related to the latest 3GPP specs (per Release) from the 3GPP server or a local cache.
+    Args:
+        cache: Whether caching is desired.
+
+    Returns:
+        A DataFrame containing the specification information from the 3GPP specification repository at
+        https://www.3gpp.org/ftp/Specs/latest and and a dictionary containing specification metadata, e.g.
+        the specification title, obtained from scraping all of the https://www.3gpp.org/DynaReport/{spec_name}.htm
+        pages in the 3GPP server.
+
+    """
     specs_df_cache_file = os.path.join(get_specs_cache_folder(), '_specs.pickle')
 
     # Load specs data from cache file
@@ -201,6 +214,7 @@ def file_version_to_version(file_version: str) -> str:
     Returns: The specification version number
 
     """
+
     def letter_to_number(character: str) -> str:
         if character.isdigit():
             number = character

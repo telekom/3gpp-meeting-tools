@@ -107,8 +107,8 @@ class SpecsTable:
         set_column(self.tree, 'Spec', "Spec #", width=110)
         set_column(self.tree, 'Title', width=SpecsTable.title_width, center=False)
         set_column(self.tree, 'Versions', width=80)
-        set_column(self.tree, 'Last', width=100)
-        set_column(self.tree, 'Local Cache', width=100)
+        set_column(self.tree, 'Last', width=80)
+        set_column(self.tree, 'Local Cache', width=90)
         set_column(self.tree, 'Group', width=80)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
@@ -519,6 +519,11 @@ class SpecVersionsTable:
             application.word.open_files(downloaded_files)
         if column == 3:
             print('Opening PDF {0}, version {1}'.format(spec_id, row_version))
+            spec_url = get_url_for_version_text(self.spec_entries, row_version)
+            downloaded_files = download_spec_if_needed(spec_id, spec_url)
+            pdf_files = application.word.convert_files_to_pdf(downloaded_files)
+            for pdf_file in pdf_files:
+                os.startfile(pdf_file)
         if column == 4:
             print('Added Compare A: {0}, version {1}'.format(spec_id, row_version))
             self.compare_a.set(row_version)
