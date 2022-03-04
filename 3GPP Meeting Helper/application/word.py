@@ -1,5 +1,6 @@
 import os
 import traceback
+from typing import List
 
 import win32com.client
 
@@ -7,9 +8,10 @@ import win32com.client
 # word = None
 
 # See https://docs.microsoft.com/en-us/office/vba/api/word.wdsaveformat
-wdFormatPDF = 17 # PDF format.
+wdFormatPDF = 17  # PDF format.
 
-def get_word():
+
+def get_word(visible=True, display_alerts=False):
     try:
         word = win32com.client.GetActiveObject("Word.Application")
     except:
@@ -19,19 +21,19 @@ def get_word():
             word = None
     if word is not None:
         try:
-            word.Visible = True
+            word.Visible = visible
         except:
             print('Could not set property "Visible" from Word to "True"')
         try:
-            word.DisplayAlerts = False
+            word.DisplayAlerts = display_alerts
         except:
             print('Could not set property "DisplayAlerts" from Word to "False"')
     return word
 
 
-def open_word_document(filename='', set_as_active_document=True):
+def open_word_document(filename='', set_as_active_document=True, visible=True, ):
     if (filename is None) or (filename == ''):
-        doc = get_word().Documents.Add()
+        doc = get_word(visible=visible).Documents.Add()
     else:
         doc = get_word().Documents.Open(filename)
     if set_as_active_document:
@@ -106,3 +108,41 @@ def open_files(files, metadata_function=None, go_to_page=1):
         return opened_files
 
 
+def convert_files_to_pdf(word_files: List[str]) -> List[str]:
+    """
+    Converts a given set of Word files to PDF
+    Args:
+        word_files: String list containing local paths to the Word files to convert
+
+    Returns:
+        String list containing local paths to the converted PDF files
+    """
+    pdf_files = []
+    print('Converting to PDF: {0}'.format(word_files))
+    try:
+        word = None
+        for word_file in word_files:
+            file, ext = os.path.splitext(word_file)
+            if ext == '.doc' or ext == '.docx':
+                # See https://stackoverflow.com/questions/6011115/doc-to-pdf-using-python
+                out_file = file + '.pdf'
+                print('PDF file path: {0}'.format(out_file))
+                if not os.path.exists(out_file):
+                    if word is None:
+                        word = get_word()
+                    print('Converting {0} to {1}'.format(word_file, out_file))
+                    doc = word.Documents.Open(word_file)
+                    doc.SaveAs(out_file, FileFormat=wdFormatPDF)
+                    doc.Close()
+                    print('Converted {0} to {1}'.format(word_file, out_file))
+                else:
+                    print('{0} already exists. No need to convert'.format(out_file))
+                pdf_files.append(out_file)
+    finally:
+        try:
+            if word is not None:
+                word.Quit()
+                print('Closed Word instance for PDF conversion')
+        except:
+            print('Could not close Word instance for PDF conversion')
+    return pdf_files
