@@ -1,5 +1,5 @@
 import unittest
-import server
+import server.common as server
 
 class Test_test_addresses(unittest.TestCase):
     def test_inbox_root_url(self):

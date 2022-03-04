@@ -1,6 +1,6 @@
 import tkinter
 from tkinter import ttk
-import application
+import application.meeting_helper
 import gui.main
 import gui.tools
 import pyperclip
@@ -15,6 +15,7 @@ from parsing.outlook_utils import search_subject_in_all_outlook_items
 
 style_name = 'mystyle.Treeview'
 
+
 # See https://bugs.python.org/issue36468
 def fixed_map(option):
     # Fix for setting text colour for Tkinter 8.6.9
@@ -28,7 +29,9 @@ def fixed_map(option):
     return [elm for elm in style.map(style_name, query_opt=option) if
             elm[:2] != ('!disabled', '!selected')]
 
+
 style = None
+
 
 def init_style():
     global style
@@ -65,8 +68,8 @@ def treeview_sort_column(tree, col, reverse=False):
     # reverse sort next time
     tree.heading(col, command=lambda: treeview_sort_column(tree, col, not reverse))
 
-class TdocsTable:
 
+class TdocsTable:
     current_tdocs = None
     source_width = 200
     title_width = 550
@@ -95,7 +98,8 @@ class TdocsTable:
             columns=('TDoc', 'AI', 'Type', 'Title', 'Source', 'Revs', 'Emails', 'Send @', 'Result'),
             show='headings',
             selectmode="browse",
-            style=style_name)
+            style=style_name,
+            padding=[-5, -25, -5, -25])  # Left, top, right, bottom
 
         set_column(self.tree, 'TDoc', "TDoc #", width=110)
         set_column(self.tree, 'AI', width=50)
@@ -120,7 +124,6 @@ class TdocsTable:
 
         # Can also do this: https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
-        self.search_text
         self.search_entry = tkinter.Entry(frame_1, textvariable=self.search_text, width=25, font='TkDefaultFont')
         self.search_text.trace_add(['write', 'unset'], self.select_text)
 
@@ -128,13 +131,13 @@ class TdocsTable:
         self.search_entry.pack(side=tkinter.LEFT)
 
         all_ais = ['All']
-        all_ais.extend(list(application.current_tdocs_by_agenda.tdocs["AI"].unique()))
+        all_ais.extend(list(application.meeting_helper.current_tdocs_by_agenda.tdocs["AI"].unique()))
         self.combo_ai = ttk.Combobox(frame_1, values=all_ais, state="readonly")
         self.combo_ai.set('All')
         self.combo_ai.bind("<<ComboboxSelected>>", self.select_ai)
 
         all_results = ['All']
-        all_results.extend(list(application.current_tdocs_by_agenda.tdocs["Result"].unique()))
+        all_results.extend(list(application.meeting_helper.current_tdocs_by_agenda.tdocs["Result"].unique()))
         self.combo_result = ttk.Combobox(frame_1, values=all_results, state="readonly")
         self.combo_result.set('All')
         self.combo_result.bind("<<ComboboxSelected>>", self.select_result)
@@ -167,13 +170,23 @@ class TdocsTable:
         if reload:
             print('Loading revision data for table')
             current_selection = gui.main.tkvar_meeting.get()
-            meeting_server_folder = application.sa2_meeting_data.get_server_folder_for_meeting_choice(current_selection)
-            tdocs_by_agenda_file, revisions_file = gui.main.get_tdocs_by_agenda_for_selected_meeting(
+            meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(current_selection)
+            tdocs_by_agenda_file, revisions_file, drafts_file = gui.main.get_tdocs_by_agenda_for_selected_meeting(
                 meeting_server_folder,
-                return_revisions_file=True)
-            self.revisions, self.revisions_list = revisions_file_to_dataframe(revisions_file, self.current_tdocs)
-        self.meeting_number = application.current_tdocs_by_agenda.meeting_number
-        self.current_tdocs = application.current_tdocs_by_agenda.tdocs
+                return_revisions_file=True,
+                return_drafts_file=True)
+
+            self.revisions, self.revisions_list = revisions_file_to_dataframe(
+                revisions_file,
+                self.current_tdocs,
+                drafts_file=drafts_file)
+
+        try:
+            self.meeting_number = application.meeting_helper.current_tdocs_by_agenda.meeting_number
+        except:
+            self.meeting_number = '<Meeting number>'
+
+        self.current_tdocs = application.meeting_helper.current_tdocs_by_agenda.tdocs
 
     def insert_current_tdocs(self):
         self.insert_rows(self.current_tdocs)
@@ -195,16 +208,20 @@ class TdocsTable:
                 number_format = '{0:02d}'
                 try:
                     rev_number = self.revisions.loc[idx, 'Revisions']
-                    if rev_number < 1:
+                    try:
+                        rev_number_converted = int(rev_number.replace('*', ''))
+                    except:
+                        rev_number_converted = 0
+                    if rev_number_converted < 1:
                         revision_count = ''
                     else:
-                        revision_count = number_format.format(rev_number)
+                        revision_count = rev_number
                 except KeyError:
                     # Not found
-                    revision_count = '' # Zero is left empty
+                    revision_count = ''  # Zero is left empty
                     pass
                 except:
-                    revision_count = '' # Error is left empty
+                    revision_count = ''  # Error is left empty
                     traceback.print_exc()
 
             self.tree.insert("", "end", tags=(tag,), values=(
@@ -222,18 +239,16 @@ class TdocsTable:
         self.tree.tag_configure('even', background='#DFDFDF')
         self.tdoc_count.set('{0} documents'.format(count))
 
-
     def clear_filters(self, *args):
         self.combo_ai.set('All')
         self.combo_result.set('All')
         self.search_text.set('')
         self.load_data(reload=False)
-        self.select_ai(load_data=True) # One will call the other(s)
-
+        self.select_ai(load_data=True)  # One will call the other(s)
 
     def reload_data(self, *args):
         self.load_data(reload=True)
-        self.select_ai() # One will call the other
+        self.select_ai()  # One will call the other
 
     def select_ai(self, load_data=True, event=None):
         if load_data:
@@ -256,7 +271,6 @@ class TdocsTable:
             self.select_text(load_data=False)
             self.select_result(load_data=False)
 
-
     def select_result(self, load_data=True, event=None):
         if load_data:
             self.load_data()
@@ -277,7 +291,6 @@ class TdocsTable:
         if load_data:
             self.select_text(load_data=False)
             self.select_ai(load_data=False)
-
 
     def select_text(self, load_data=True, *args):
         if load_data:
@@ -312,7 +325,7 @@ class TdocsTable:
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
-        column = int(self.tree.identify_column(event.x)[1:])-1 # "#1" -> 0 (one-indexed in TCL)
+        column = int(self.tree.identify_column(event.x)[1:]) - 1  # "#1" -> 0 (one-indexed in TCL)
         item_values = self.tree.item(item_id)['values']
         try:
             actual_value = item_values[column]
@@ -328,17 +341,21 @@ class TdocsTable:
             gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
         if column == 5:
             print('Opening revisions for {0}'.format(tdoc_id))
-            gui.tdocs_table.RevisionsTable(gui.main.root, gui.main.favicon, tdoc_id, self.revisions_list, self.parent_gui_tools)
+            gui.tdocs_table.RevisionsTable(gui.main.root, gui.main.favicon, tdoc_id, self.revisions_list,
+                                           self.parent_gui_tools)
         if column == 6:
             print('Opening emails for {0}'.format(tdoc_id))
             search_subject_in_all_outlook_items(tdoc_id)
         if column == 7:
-            print('Generating subject for email approval for {0}. Copying to clipboard and generating empty email'.format(tdoc_id))
+            print(
+                'Generating subject for email approval for {0}. Copying to clipboard and generating empty email'.format(
+                    tdoc_id))
             subject = '[SA2#{3}, AI#{1}, {0}] {2}'.format(tdoc_id, item_values[1], item_values[3], self.meeting_number)
             subject = subject.replace('\n', ' ').replace('  ', ' ')
             print(subject)
-            webbrowser.open('mailto:{0}?subject={1}'.format('3GPP_TSG_SA_WG2_EMEET@LIST.ETSI.ORG', subject), new = 1)
+            webbrowser.open('mailto:{0}?subject={1}'.format('3GPP_TSG_SA_WG2_EMEET@LIST.ETSI.ORG', subject), new=1)
             pyperclip.copy(subject)
+
 
 class RevisionsTable:
 
@@ -366,7 +383,8 @@ class RevisionsTable:
             columns=('TDoc', 'Rev.', 'Add to compare A', 'Add to compare B'),
             show='headings',
             selectmode="browse",
-            style=style_name)
+            style=style_name,
+            height=8)  # Height in rows
 
         set_column(self.tree, 'TDoc', "TDoc #", width=110)
         set_column(self.tree, 'Rev.', width=50)
@@ -394,7 +412,6 @@ class RevisionsTable:
             frame_3,
             text='Compare!',
             command=self.compare_tdocs).pack(side=tkinter.LEFT)
-
 
     def insert_rows(self, df):
         count = 0
@@ -429,7 +446,7 @@ class RevisionsTable:
 
             self.tree.insert("", "end", tags=(tag,), values=(
                 idx,
-                '{0:02d}'.format(row['Revisions']),
+                row['Revisions'],
                 'Click',
                 'Click'))
 
@@ -447,8 +464,14 @@ class RevisionsTable:
             actual_value = item_values[column]
         except:
             actual_value = None
+
+        # Some issues with automatic conversion which we solve here
         tdoc_id = item_values[0]
-        revision = 'r' + '{0:02d}'.format(item_values[1])
+        if isinstance(item_values[1], int):
+            revision = 'r' + '{0:02d}'.format(item_values[1])
+        else:
+            revision = 'r' + item_values[1]
+
         if revision == 'r00':
             tdoc_to_search = tdoc_id
         else:
@@ -469,4 +492,4 @@ class RevisionsTable:
         compare_a = self.compare_a.get()
         compare_b = self.compare_b.get()
         print('Comparing {0} vs. {1}'.format(compare_a, compare_b))
-        self.parent_gui_tools.compare_tdocs(entry_1=compare_a, entry_2=compare_b, )
+        self.parent_gui_tools.compare_spec_versions(entry_1=compare_a, entry_2=compare_b, )

@@ -1,6 +1,8 @@
 import unittest
 import pandas as pd
 import os.path
+
+import application.word
 import parsing.html as html_parser
 import parsing.word as word_parser
 
@@ -11,7 +13,7 @@ class Test_test_report(unittest.TestCase):
         df = pd.DataFrame(columns=columns)
         df.index.name = 'TD#'
 
-        doc = word_parser.open_word_document()
+        doc = application.word.open_word_document()
         word_parser.insert_doc_data_to_doc(df, doc, 'TSGS2_134_Sapporo')
 
     @unittest.skip("Long test (~5min). Useful only to manually-generate the report")
@@ -42,7 +44,7 @@ class Test_test_report(unittest.TestCase):
         df = pd.DataFrame(columns=columns, data=data, index=index)
         df.index.name = 'TD#'
 
-        doc = word_parser.open_word_document()
+        doc = application.word.open_word_document()
         word_parser.insert_doc_data_to_doc(df, doc, 'TSGS2_134_Sapporo')
 
     @unittest.skip("Long test (~5min). Useful only to manually-generate the report")
@@ -74,7 +76,7 @@ class Test_test_report(unittest.TestCase):
         df = pd.DataFrame(columns=columns, data=data, index=index)
         df.index.name = 'TD#'
 
-        doc = word_parser.open_word_document()
+        doc = application.word.open_word_document()
         word_parser.insert_doc_data_to_doc_by_wi(df, doc, 'TSGS2_134_Sapporo')
 
     @unittest.skip("Long test (~5min). Useful only to manually-generate the report")
@@ -88,7 +90,7 @@ class Test_test_report(unittest.TestCase):
         # ais_to_skip = ['1', '2', '2.1', '3', '4', '4.1', '5.1', '5.2', '5.3', '5.4', '6.1', '6.2', '6.3', '6.4', '6.5', '6.5.1', '6.5.2', '6.5.3', '6.5.4', '6.5.5', '6.5.6', '6.5.7', '6.5.8', '6.5.9', '6.5.10', '6.5.11', '6.6', '6.6.1', '6.6.2', '6.7', '6.7.1', '6.7.2', '6.8', '6.8.1', '6.8.2', '6.9', '6.9.1', '6.9.2', '6.11', '6.12', '6.13.1', '6.13.2', '6.19', '6.19.1', '6.19.2', '6.20', '6.20.1', '6.20.2', '6.24', '6.28', '6.28.1', '6.28.2', '6.29', '6.30', '6.5.2', '6.5.3' ]
         ais_to_output = ['6.14', '6.15', '6.15.1']
 
-        doc = word_parser.open_word_document()
+        doc = application.word.open_word_document()
         word_parser.insert_doc_data_to_doc_by_wi(df, doc, 'TSGS2_134_Sapporo', ais_to_output=ais_to_output)
 
     @unittest.skip("Long test (~5min). Useful only to manually-generate the report")
@@ -98,7 +100,7 @@ class Test_test_report(unittest.TestCase):
         tdocs_by_agenda = html_parser.tdocs_by_agenda(file_name)
         df = tdocs_by_agenda.tdocs
 
-        doc = word_parser.open_word_document()
+        doc = application.word.open_word_document()
         word_parser.insert_doc_data_to_doc_by_wi(df, doc, 'TSGS2_134_Sapporo', source='DT')
 
     @unittest.skip("Long test (~5min). Useful only to manually-generate the report")
@@ -109,7 +111,7 @@ class Test_test_report(unittest.TestCase):
         tdocs_by_agenda = html_parser.tdocs_by_agenda(file_name)
         df = tdocs_by_agenda.tdocs
 
-        doc = word_parser.open_word_document(filename=template)
+        doc = application.word.open_word_document(filename=template)
         word_parser.insert_doc_data_to_doc_by_wi(df, doc, 'TSGS2_134_Sapporo', source='DT', save_to_folder=os.path.dirname(os.path.realpath(__file__)))
 
     def test_source_diff_same(self):
@@ -142,7 +144,7 @@ class Test_test_report(unittest.TestCase):
 
         ais_to_output = ['6.14', '6.15', '6.15.1']
 
-        doc = word_parser.open_word_document()
+        doc = application.word.open_word_document()
         word_parser.insert_doc_data_to_doc_by_wi(df, doc, 'TSGS2_134_Sapporo', ais_to_output=ais_to_output, source='DT')
 if __name__ == '__main__':
     unittest.main()

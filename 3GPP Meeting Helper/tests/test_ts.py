@@ -1,6 +1,7 @@
 import unittest
-import server
-import tdoc
+
+import tdoc.utils as tdoc
+
 
 class Test_test_ts(unittest.TestCase):
     def test_ts_id_none(self):
