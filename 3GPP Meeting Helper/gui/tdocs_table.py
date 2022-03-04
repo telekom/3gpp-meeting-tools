@@ -492,4 +492,4 @@ class RevisionsTable:
         compare_a = self.compare_a.get()
         compare_b = self.compare_b.get()
         print('Comparing {0} vs. {1}'.format(compare_a, compare_b))
-        self.parent_gui_tools.compare_tdocs(entry_1=compare_a, entry_2=compare_b, )
+        self.parent_gui_tools.compare_spec_versions(entry_1=compare_a, entry_2=compare_b, )
