@@ -1,13 +1,11 @@
 import tkinter
 from tkinter import ttk
 import application.meeting_helper
-import gui.main
 import gui.tools
 import pyperclip
 import re
 import textwrap
 import webbrowser
-import gui.main
 from parsing.html_revisions import revisions_file_to_dataframe
 import traceback
 import pandas as pd
@@ -74,18 +72,37 @@ class TdocsTable:
     source_width = 200
     title_width = 550
 
-    def __init__(self, parent, favicon, parent_gui_tools):
-        init_style()
-        top = self.top = tkinter.Toplevel(parent)
-        top.title("TDoc Table for meeting {0}. Double-Click on TDoc # or revision # to open".format(gui.main.tkvar_meeting.get()))
-        top.iconbitmap(favicon)
-        self.parent_gui_tools = parent_gui_tools
+    meeting_number = '<Meeting number>'
+    all_tdocs = None
 
-        frame_1 = tkinter.Frame(top)
+    def __init__(
+            self,
+            parent,
+            favicon,
+            parent_gui_tools,
+            retrieve_current_tdocs_by_agenda_fn=None,
+            get_current_meeting_fn=None,
+            get_tdocs_by_agenda_for_selected_meeting_fn=None,
+            download_and_open_tdoc_fn=None
+    ):
+        init_style()
+        self.top = tkinter.Toplevel(parent)
+        self.top.title("TDoc Table for current meeting. Double-Click on TDoc # or revision # to open")
+        self.top.iconbitmap(favicon)
+        self.parent_gui_tools = parent_gui_tools
+        self.favicon = favicon
+
+        # Functions to update data from the main GUI
+        self.retrieve_current_tdocs_by_agenda_fn = retrieve_current_tdocs_by_agenda_fn
+        self.get_current_meeting_fn = get_current_meeting_fn
+        self.get_tdocs_by_agenda_for_selected_meeting_fn = get_tdocs_by_agenda_for_selected_meeting_fn
+        self.download_and_open_tdoc_fn = download_and_open_tdoc_fn
+
+        frame_1 = tkinter.Frame(self.top)
         frame_1.pack(anchor='w')
-        frame_2 = tkinter.Frame(top)
+        frame_2 = tkinter.Frame(self.top)
         frame_2.pack()
-        frame_3 = tkinter.Frame(top)
+        frame_3 = tkinter.Frame(self.top)
         frame_3.pack(anchor='w')
 
         self.tdoc_count = tkinter.StringVar()
@@ -113,11 +130,7 @@ class TdocsTable:
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        # Re-load TdocsByAgenda before inserting rows
-        current_tdocs_by_agenda = gui.main.open_tdocs_by_agenda(open_this_file=False)
-
-        self.all_tdocs = current_tdocs_by_agenda.tdocs
-        self.load_data(reload=True, current_tdocs_by_agenda=current_tdocs_by_agenda)
+        self.load_data(reload=True)
         self.reload_revisions = False
         self.insert_current_tdocs()
 
@@ -126,7 +139,8 @@ class TdocsTable:
         self.tree.configure(yscrollcommand=self.tree_scroll.set)
         # tree.grid(row=0, column=0)
 
-        # Can also do this: https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
+        # Can also do this:
+        # https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
         self.search_entry = tkinter.Entry(frame_1, textvariable=self.search_text, width=25, font='TkDefaultFont')
         self.search_text.trace_add(['write', 'unset'], self.select_text)
@@ -170,30 +184,83 @@ class TdocsTable:
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
 
-    def load_data(self, reload=False, current_tdocs_by_agenda=None):
+    def retrieve_current_tdocs_by_agenda(self):
+        """
+        Calls retrieve_current_tdocs_by_agenda_fn and updates all_tdocs variable with the retrieved data
+        """
+        if self.retrieve_current_tdocs_by_agenda_fn is not None:
+            try:
+                current_tdocs_by_agenda = self.retrieve_current_tdocs_by_agenda_fn()
+                self.all_tdocs = current_tdocs_by_agenda.tdocs
+            except:
+                print('Could not retrieve current TdocsByAgenda for Tdocs table')
+                traceback.print_exc()
+
+    def get_tdocs_by_agenda_for_selected_meeting(self, meeting_server_folder):
+        if self.get_tdocs_by_agenda_for_selected_meeting_fn is not None:
+            try:
+                return self.get_tdocs_by_agenda_for_selected_meeting_fn(
+                    meeting_server_folder,
+                    return_revisions_file=True,
+                    return_drafts_file=True)
+            except:
+                print('Could not get TdocsByAgenda, Drafts, Revisions for Tdocs table')
+                traceback.print_exc()
+                return None
+        else:
+            return None
+
+    def get_current_meeting(self):
+        if self.get_current_meeting_fn is not None:
+            try:
+                return self.get_current_meeting_fn()
+            except:
+                print('Could not retrieve current meeting for Tdocs table')
+                traceback.print_exc()
+                return None
+        else:
+            return None
+
+    def download_and_open_tdoc(self, actual_value):
+        if self.download_and_open_tdoc_fn is not None:
+            try:
+                return self.download_and_open_tdoc_fn(
+                    actual_value, copy_to_clipboard=True)
+            except:
+                print('Could not open TDoc {0} for Tdocs table'.format(actual_value))
+                traceback.print_exc()
+                return None
+        else:
+            return None
+
+    def update_meeting_number(self):
+        try:
+            self.meeting_number = application.meeting_helper.current_tdocs_by_agenda.meeting_number
+        except:
+            self.meeting_number = '<Meeting number>'
+
+    def load_data(self, reload=False):
         if reload:
             print('Loading revision data for table')
-            current_selection = gui.main.tkvar_meeting.get()
-            meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(current_selection)
-            tdocs_by_agenda_file, revisions_file, drafts_file = gui.main.get_tdocs_by_agenda_for_selected_meeting(
-                meeting_server_folder,
-                return_revisions_file=True,
-                return_drafts_file=True)
+
+            # Re-load TdocsByAgenda before inserting rows
+            self.retrieve_current_tdocs_by_agenda()
+
+            current_selection = self.get_current_meeting()
+            meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+                current_selection)
+            tdocs_by_agenda_file, revisions_file, drafts_file = self.get_tdocs_by_agenda_for_selected_meeting(
+                meeting_server_folder)
 
             self.revisions, self.revisions_list = revisions_file_to_dataframe(
                 revisions_file,
                 self.current_tdocs,
                 drafts_file=drafts_file)
 
-        try:
-            self.meeting_number = application.meeting_helper.current_tdocs_by_agenda.meeting_number
-        except:
-            self.meeting_number = '<Meeting number>'
+        self.update_meeting_number()
 
-        if current_tdocs_by_agenda is not None:
-            self.current_tdocs = current_tdocs_by_agenda.tdocs
-        else:
-            self.current_tdocs = self.all_tdocs
+        # Rewrite the current tdocs dataframe with the retrived data
+        self.current_tdocs = self.all_tdocs
 
     def insert_current_tdocs(self):
         self.insert_rows(self.current_tdocs)
@@ -212,7 +279,6 @@ class TdocsTable:
             if self.revisions is None:
                 revision_count = ''
             else:
-                number_format = '{0:02d}'
                 try:
                     rev_number = self.revisions.loc[idx, 'Revisions']
                     try:
@@ -345,11 +411,16 @@ class TdocsTable:
             return
         if column == 0:
             print('Opening {0}'.format(actual_value))
-            gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
+            self.download_and_open_tdoc(actual_value)
         if column == 5:
             print('Opening revisions for {0}'.format(tdoc_id))
-            gui.tdocs_table.RevisionsTable(gui.main.root, gui.main.favicon, tdoc_id, self.revisions_list,
-                                           self.parent_gui_tools)
+            gui.tdocs_table.RevisionsTable(
+                self.top,
+                self.favicon,
+                tdoc_id,
+                self.revisions_list,
+                self.parent_gui_tools,
+                parent_tdocs_table = self)
         if column == 6:
             print('Opening emails for {0}'.format(tdoc_id))
             search_subject_in_all_outlook_items(tdoc_id)
@@ -366,13 +437,14 @@ class TdocsTable:
 
 class RevisionsTable:
 
-    def __init__(self, parent, favicon, tdoc_id, revisions_df, parent_gui_tools):
+    def __init__(self, parent, favicon, tdoc_id, revisions_df, parent_gui_tools, parent_tdocs_table):
         top = self.top = tkinter.Toplevel(parent)
         top.title("Revisions for {0}".format(tdoc_id))
         top.iconbitmap(favicon)
         revisions = revisions_df.loc[tdoc_id, :]
         self.tdoc_id = tdoc_id
         self.parent_gui_tools = parent_gui_tools
+        self.parent_tdocs_table = parent_tdocs_table
         print('{0} Revisions'.format(len(revisions)))
 
         frame_1 = tkinter.Frame(top)
@@ -486,10 +558,10 @@ class RevisionsTable:
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
         if column == 0:
             print('Opening {0}'.format(actual_value))
-            gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
+            self.parent_tdocs_table.download_and_open_tdoc(actual_value)
         if column == 1:
             print('Opening {0}'.format(tdoc_to_search))
-            gui.main.download_and_open_tdoc(tdoc_to_search, copy_to_clipboard=True)
+            self.parent_tdocs_table.download_and_open_tdoc(tdoc_to_search)
         if column == 2:
             self.compare_a.set(tdoc_to_search)
         if column == 3:

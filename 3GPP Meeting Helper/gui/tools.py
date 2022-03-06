@@ -64,7 +64,15 @@ class ToolsDialog:
         self.launch_tdoc_table = tkinter.Button(
             top,
             text='Open Tdoc table',
-            command=lambda: gui.tdocs_table.TdocsTable(gui.main.root, gui.main.favicon, self))
+            command=lambda: gui.tdocs_table.TdocsTable(
+                gui.main.root,
+                gui.main.favicon,
+                self,
+                retrieve_current_tdocs_by_agenda_fn=lambda: gui.main.open_tdocs_by_agenda(open_this_file=False),
+                get_current_meeting_fn=gui.main.tkvar_meeting.get,
+                get_tdocs_by_agenda_for_selected_meeting_fn=gui.main.get_tdocs_by_agenda_for_selected_meeting,
+                download_and_open_tdoc_fn=gui.main.download_and_open_tdoc
+            ))
         self.launch_tdoc_table.grid(row=4, column=0, columnspan=int(columnspan / 2), sticky="EW")
 
         # Row 4: Table containing all 3GPP specs
