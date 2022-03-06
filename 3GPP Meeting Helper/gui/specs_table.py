@@ -1,4 +1,5 @@
 import os
+import re
 import textwrap
 import tkinter
 from tkinter import ttk
@@ -6,6 +7,7 @@ from tkinter import ttk
 import pandas as pd
 
 import application
+import parsing.word as word_parser
 from parsing.html_specs import extract_spec_files_from_spec_folder
 from server import specs
 from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, \
@@ -531,11 +533,32 @@ class SpecVersionsTable:
             print('Added Compare B: {0}, version {1}'.format(spec_id, row_version))
             self.compare_b.set(row_version)
 
+    # Used to identify specs within unzipped files
+    spec_regex = re.compile('[\d]{5}-[\w]{3}\.doc[x]?')
+
     def compare_spec_versions(self):
         compare_a = self.compare_a.get()
         compare_b = self.compare_b.get()
         print('Comparing {0} {1} vs. {2}'.format(self.spec_id, compare_a, compare_b))
-        # self.parent_gui_tools.compare_tdocs(entry_1=compare_a, entry_2=compare_b, )
+        spec_id = self.spec_id
+
+        spec_a_url = get_url_for_version_text(self.spec_entries, compare_a)
+        spec_b_url = get_url_for_version_text(self.spec_entries, compare_b)
+
+        downloaded_a_files = download_spec_if_needed(spec_id, spec_a_url)
+        downloaded_b_files = download_spec_if_needed(spec_id, spec_b_url)
+
+        downloaded_a_files = [e for e in downloaded_a_files if self.spec_regex.search(e) is not None]
+        downloaded_b_files = [e for e in downloaded_b_files if self.spec_regex.search(e) is not None]
+
+        if len(downloaded_a_files) == 0 or len(downloaded_b_files) == 0:
+            print('Need two TDocs to compare. One of them does not contain TDocs')
+            return
+
+        downloaded_a_files = downloaded_a_files[0]
+        downloaded_b_files = downloaded_b_files[0]
+
+        word_parser.compare_documents(downloaded_a_files, downloaded_b_files)
 
     def open_cache_folder(self):
         folder_name = get_specs_folder(spec_id=self.spec_id)
