@@ -259,7 +259,7 @@ class TdocsTable:
 
         self.update_meeting_number()
 
-        # Rewrite the current tdocs dataframe with the retrived data
+        # Rewrite the current tdocs dataframe with the retrieved data. Resets the search filters
         self.current_tdocs = self.all_tdocs
 
     def insert_current_tdocs(self):
