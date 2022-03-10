@@ -537,13 +537,26 @@ class SpecVersionsTable:
     spec_regex = re.compile('[\d]{5}-[\w]{3}\.doc[x]?')
 
     def compare_spec_versions(self):
-        compare_a = self.compare_a.get()
-        compare_b = self.compare_b.get()
-        print('Comparing {0} {1} vs. {2}'.format(self.spec_id, compare_a, compare_b))
+        version_a = self.compare_a.get()
+        version_b = self.compare_b.get()
+        file_version_a = version_to_file_version(version_a)
+        file_version_b = version_to_file_version(version_b)
+        print('Comparing {0} {1} ({3}) vs. {2} ({4})'.format(
+            self.spec_id,
+            version_a,
+            version_b,
+            file_version_a,
+            file_version_b))
         spec_id = self.spec_id
 
-        spec_a_url = get_url_for_version_text(self.spec_entries, compare_a)
-        spec_b_url = get_url_for_version_text(self.spec_entries, compare_b)
+        comparison_name = '{0}-{1}-to-{2}.docx'.format(spec_id, file_version_a, file_version_b)
+        spec_folder = get_specs_folder(spec_id=spec_id)
+        comparison_file = os.path.join(spec_folder, comparison_name)
+
+        # To-do check if file already exists
+
+        spec_a_url = get_url_for_version_text(self.spec_entries, version_a)
+        spec_b_url = get_url_for_version_text(self.spec_entries, version_b)
 
         downloaded_a_files = download_spec_if_needed(spec_id, spec_a_url)
         downloaded_b_files = download_spec_if_needed(spec_id, spec_b_url)
@@ -558,7 +571,25 @@ class SpecVersionsTable:
         downloaded_a_files = downloaded_a_files[0]
         downloaded_b_files = downloaded_b_files[0]
 
-        word_parser.compare_documents(downloaded_a_files, downloaded_b_files)
+        comparison_document = word_parser.compare_documents(
+            downloaded_a_files,
+            downloaded_b_files,
+            compare_formatting=False,
+            compare_case_changes=False,
+            compare_whitespace=False)
+        comparison_document.Activate()
+        comparison_window = comparison_document.ActiveWindow
+
+        wdRevisionsMarkupAll = 2
+        # wdRevisionsMarkupNone = 0
+        # wdRevisionsMarkupSimple = 1
+        comparison_window.View.RevisionsFilter.Markup = wdRevisionsMarkupAll
+        comparison_window.View.ShowFormatChanges = False
+        # wdBalloonRevisions = 0
+        wdInLineRevisions = 1
+        # wdMixedRevisions = 2
+        comparison_window.View.RevisionsMode = wdInLineRevisions
+
 
     def open_cache_folder(self):
         folder_name = get_specs_folder(spec_id=self.spec_id)
