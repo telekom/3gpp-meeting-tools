@@ -1031,7 +1031,12 @@ def import_agenda(agenda_file):
     return ai_descriptions
 
 
-def compare_documents(tdoc_1, tdoc_2):
+def compare_documents(
+        tdoc_1,
+        tdoc_2,
+        compare_formatting=True,
+        compare_case_changes=True,
+        compare_whitespace=True):
     if tdoc_1 is None or tdoc_1 == '' or tdoc_2 is None or tdoc_2 == '':
         print('Empty or None tdoc_input')
         return
@@ -1043,10 +1048,20 @@ def compare_documents(tdoc_1, tdoc_2):
 
         # Call Word's compare feature
         # Destination=wdCompareDestinationNew (see https://docs.microsoft.com/en-us/office/vba/api/word.wdcomparedestination)
-        comparison_document = word_application.CompareDocuments(OriginalDocument=doc_1, RevisedDocument=doc_2, Destination=2, IgnoreAllComparisonWarnings=True)
+        comparison_document = word_application.CompareDocuments(
+            OriginalDocument=doc_1,
+            RevisedDocument=doc_2,
+            Destination=2, # wdCompareDestinationNew
+            IgnoreAllComparisonWarnings=True,
+            CompareFormatting=compare_formatting,
+            CompareCaseChanges=compare_case_changes,
+            CompareWhitespace=compare_whitespace,
+            CompareFields=True)
+        return comparison_document
     except:
         print('Could not compare documents')
         traceback.print_exc()
+        return None
 
 
 def open_file(file, return_metadata=False, go_to_page=1):
