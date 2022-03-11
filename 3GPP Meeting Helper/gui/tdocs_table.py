@@ -1,14 +1,15 @@
-import tkinter
-from tkinter import ttk
-import application.meeting_helper
-import gui.tools
-import pyperclip
 import re
 import textwrap
-import webbrowser
-from parsing.html_revisions import revisions_file_to_dataframe
+import tkinter
 import traceback
+import webbrowser
+from tkinter import ttk
+
 import pandas as pd
+import pyperclip
+
+import gui.tools
+from parsing.html_revisions import revisions_file_to_dataframe
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 
 style_name = 'mystyle.Treeview'
@@ -81,10 +82,9 @@ class TdocsTable:
             favicon,
             parent_gui_tools,
             retrieve_current_tdocs_by_agenda_fn=None,
-            get_current_meeting_fn=None,
             get_tdocs_by_agenda_for_selected_meeting_fn=None,
-            download_and_open_tdoc_fn=None
-    ):
+            download_and_open_tdoc_fn=None,
+            get_server_name_for_current_meeting_fn=None):
         init_style()
         self.top = tkinter.Toplevel(parent)
         self.top.title("TDoc Table for current meeting. Double-Click on TDoc # or revision # to open")
@@ -94,9 +94,9 @@ class TdocsTable:
 
         # Functions to update data from the main GUI
         self.retrieve_current_tdocs_by_agenda_fn = retrieve_current_tdocs_by_agenda_fn
-        self.get_current_meeting_fn = get_current_meeting_fn
         self.get_tdocs_by_agenda_for_selected_meeting_fn = get_tdocs_by_agenda_for_selected_meeting_fn
         self.download_and_open_tdoc_fn = download_and_open_tdoc_fn
+        self.get_server_name_for_current_meeting_fn = get_server_name_for_current_meeting_fn
 
         frame_1 = tkinter.Frame(self.top)
         frame_1.pack(anchor='w')
@@ -192,6 +192,7 @@ class TdocsTable:
             try:
                 current_tdocs_by_agenda = self.retrieve_current_tdocs_by_agenda_fn()
                 self.all_tdocs = current_tdocs_by_agenda.tdocs
+                self.meeting_number = current_tdocs_by_agenda.meeting_number
             except:
                 print('Could not retrieve current TdocsByAgenda for Tdocs table')
                 traceback.print_exc()
@@ -210,12 +211,12 @@ class TdocsTable:
         else:
             return None
 
-    def get_current_meeting(self):
-        if self.get_current_meeting_fn is not None:
+    def get_server_name_for_current_meeting(self):
+        if self.get_server_name_for_current_meeting_fn is not None:
             try:
-                return self.get_current_meeting_fn()
+                return self.get_server_name_for_current_meeting_fn()
             except:
-                print('Could not retrieve current meeting for Tdocs table')
+                print('Could not retrieve current meeting folder for current meeting')
                 traceback.print_exc()
                 return None
         else:
@@ -233,12 +234,6 @@ class TdocsTable:
         else:
             return None
 
-    def update_meeting_number(self):
-        try:
-            self.meeting_number = application.meeting_helper.current_tdocs_by_agenda.meeting_number
-        except:
-            self.meeting_number = '<Meeting number>'
-
     def load_data(self, reload=False):
         if reload:
             print('Loading revision data for table')
@@ -246,9 +241,7 @@ class TdocsTable:
             # Re-load TdocsByAgenda before inserting rows
             self.retrieve_current_tdocs_by_agenda()
 
-            current_selection = self.get_current_meeting()
-            meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
-                current_selection)
+            meeting_server_folder = self.get_server_name_for_current_meeting()
             tdocs_by_agenda_file, revisions_file, drafts_file = self.get_tdocs_by_agenda_for_selected_meeting(
                 meeting_server_folder)
 
@@ -256,8 +249,6 @@ class TdocsTable:
                 revisions_file,
                 self.current_tdocs,
                 drafts_file=drafts_file)
-
-        self.update_meeting_number()
 
         # Rewrite the current tdocs dataframe with the retrieved data. Resets the search filters
         self.current_tdocs = self.all_tdocs

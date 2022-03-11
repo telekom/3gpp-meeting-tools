@@ -69,9 +69,9 @@ class ToolsDialog:
                 gui.main.favicon,
                 self,
                 retrieve_current_tdocs_by_agenda_fn=lambda: gui.main.open_tdocs_by_agenda(open_this_file=False),
-                get_current_meeting_fn=gui.main.tkvar_meeting.get,
                 get_tdocs_by_agenda_for_selected_meeting_fn=gui.main.get_tdocs_by_agenda_for_selected_meeting,
-                download_and_open_tdoc_fn=gui.main.download_and_open_tdoc
+                download_and_open_tdoc_fn=gui.main.download_and_open_tdoc,
+                get_server_name_for_current_meeting_fn=lambda: application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(gui.main.tkvar_meeting.get()),
             ))
         self.launch_tdoc_table.grid(row=4, column=0, columnspan=int(columnspan / 2), sticky="EW")
 
