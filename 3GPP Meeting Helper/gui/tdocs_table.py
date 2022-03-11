@@ -149,13 +149,13 @@ class TdocsTable:
         self.search_entry.pack(side=tkinter.LEFT)
 
         all_ais = ['All']
-        all_ais.extend(list(application.meeting_helper.current_tdocs_by_agenda.tdocs["AI"].unique()))
+        all_ais.extend(list(self.current_tdocs["AI"].unique()))
         self.combo_ai = ttk.Combobox(frame_1, values=all_ais, state="readonly")
         self.combo_ai.set('All')
         self.combo_ai.bind("<<ComboboxSelected>>", self.select_ai)
 
         all_results = ['All']
-        all_results.extend(list(application.meeting_helper.current_tdocs_by_agenda.tdocs["Result"].unique()))
+        all_results.extend(list(self.current_tdocs["Result"].unique()))
         self.combo_result = ttk.Combobox(frame_1, values=all_results, state="readonly")
         self.combo_result.set('All')
         self.combo_result.bind("<<ComboboxSelected>>", self.select_result)
