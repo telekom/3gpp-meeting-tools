@@ -217,7 +217,7 @@ class ToolsDialog:
             os.startfile(remote_folder)
 
     def generate_word_report(self):
-        current_tdocs_by_agenda = application.meeting_helper.current_tdocs_by_agenda
+        current_tdocs_by_agenda = gui.main.open_tdocs_by_agenda(open_this_file=False)
         if current_tdocs_by_agenda is None:
             print('Could not generate report. No current TDocsByAgenda found')
             return
