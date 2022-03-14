@@ -8,7 +8,8 @@ import pandas as pd
 
 import application
 import parsing.word as word_parser
-from parsing.html_specs import extract_spec_files_from_spec_folder
+from parsing.html_specs import extract_spec_files_from_spec_folder, cleanup_spec_name
+from parsing.spec_types import SpecType, get_spec_full_name
 from server import specs
 from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, \
     get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder
@@ -235,13 +236,17 @@ class SpecsTable:
             # spec_entries = df.loc[[idx], :]
 
             # Faster alternative
-            current_spec = self.spec_metadata[idx]
-            title = current_spec.title
-            responsible_group = current_spec.responsible_group
+            current_spec_metadata = self.spec_metadata[idx]
+            title = current_spec_metadata.title
+            spec_type = current_spec_metadata.type
+            responsible_group = current_spec_metadata.responsible_group
+
+            # Construct 23.501 -> TS 23.501
+            spec_name = get_spec_full_name(idx, spec_type)
 
             # 'Spec', 'Title', 'Releases', 'Last'
             self.tree.insert("", "end", tags=(tag,), values=(
-                idx,
+                spec_name,
                 textwrap.fill(title, width=70),
                 'Click',
                 file_version_to_version(row['max_version']),
@@ -341,7 +346,7 @@ class SpecsTable:
         except:
             actual_value = None
 
-        spec_id = item_values[0]
+        spec_id = cleanup_spec_name(item_values[0], clean_type=True, clean_dots=False)
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
 
         # Select entries for this spec
@@ -360,7 +365,9 @@ class SpecsTable:
             os.startfile(get_url_for_spec_page(spec_id))
         if column == 2:
             print('Clicked versions for spec ID {0}: {1}'.format(spec_id, actual_value))
-            SpecVersionsTable(self.top, self.favicon, spec_entries, spec_id)
+            current_spec_metadata = self.spec_metadata[spec_id]
+            spec_type = current_spec_metadata.type
+            SpecVersionsTable(self.top, self.favicon, spec_entries, spec_id, spec_type)
         if column == 3:
             spec_url = get_url_for_version_text(spec_entries, actual_value)
             downloaded_files = download_spec_if_needed(spec_id, spec_url)
@@ -393,12 +400,13 @@ class SpecVersionsTable:
     spec_entries = None
     spec_id = None
 
-    def __init__(self, parent, favicon, spec_entries, spec_id):
+    def __init__(self, parent, favicon, spec_entries, spec_id, spec_type):
         top = self.top = tkinter.Toplevel(parent)
         top.title("All Spec versions for {0}".format(spec_id))
         top.iconbitmap(favicon)
 
         self.spec_id = spec_id
+        self.spec_type = spec_type
 
         frame_1 = tkinter.Frame(top)
         frame_1.pack()
@@ -420,8 +428,8 @@ class SpecVersionsTable:
 
         set_column(self.tree, 'Spec', "Spec #", width=110)
         set_column(self.tree, 'Version', width=60)
-        set_column(self.tree, 'Open Word', width=110)
-        set_column(self.tree, 'Open PDF', width=110)
+        set_column(self.tree, 'Open Word', width=100)
+        set_column(self.tree, 'Open PDF', width=100)
         set_column(self.tree, 'Add to compare A', width=110)
         set_column(self.tree, 'Add to compare B', width=110)
         self.tree.bind("<Double-Button-1>", self.on_double_click)
@@ -473,6 +481,8 @@ class SpecVersionsTable:
         else:
             rows = df.iterrows()
 
+        spec_name = get_spec_full_name(self.spec_id, self.spec_type)
+
         # 'Spec', 'Version', 'Open Word', 'Open PDF', 'Add to compare A', 'Add to compare B'
         for spec_id, row in rows:
             count = count + 1
@@ -483,7 +493,7 @@ class SpecVersionsTable:
                 tag = 'even'
 
             self.tree.insert("", "end", tags=(tag,), values=(
-                spec_id,
+                spec_name,
                 file_version_to_version(row['version']),
                 'Open Word',
                 'Open PDF',
@@ -504,7 +514,7 @@ class SpecVersionsTable:
         except:
             actual_value = None
 
-        spec_id = item_values[0]
+        spec_id = cleanup_spec_name(item_values[0], clean_type=True, clean_dots=False)
         row_version = item_values[1]
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
 
@@ -553,7 +563,10 @@ class SpecVersionsTable:
         spec_folder = get_specs_folder(spec_id=spec_id)
         comparison_file = os.path.join(spec_folder, comparison_name)
 
-        # To-do check if file already exists
+        # ToDo: check if file already exists. If yes, open and return document
+        # Check if document exists
+        # Open document
+        # Return document
 
         spec_a_url = get_url_for_version_text(self.spec_entries, version_a)
         spec_b_url = get_url_for_version_text(self.spec_entries, version_b)
@@ -566,7 +579,7 @@ class SpecVersionsTable:
 
         if len(downloaded_a_files) == 0 or len(downloaded_b_files) == 0:
             print('Need two TDocs to compare. One of them does not contain TDocs')
-            return
+            return None
 
         downloaded_a_files = downloaded_a_files[0]
         downloaded_b_files = downloaded_b_files[0]
@@ -590,6 +603,8 @@ class SpecVersionsTable:
         # wdMixedRevisions = 2
         comparison_window.View.RevisionsMode = wdInLineRevisions
 
+        # ToDo: Save comparison document
+        return comparison_document
 
     def open_cache_folder(self):
         folder_name = get_specs_folder(spec_id=self.spec_id)

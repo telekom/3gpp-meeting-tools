@@ -875,15 +875,19 @@ class tdocs_by_agenda(object):
                 if original_tdocs == ',':
                     df_tdocs.at[index, 'Original TDocs'] = index
                 else:
-                    df_tdocs.at[index, 'Original TDocs'] = tdocs_by_agenda.get_original_tdocs(original_tdocs, df_tdocs,
-                                                                                              index, 0).replace(',',
-                                                                                                                ', ')
+                    df_tdocs.at[index, 'Original TDocs'] = tdocs_by_agenda.get_original_tdocs(
+                        original_tdocs,
+                        df_tdocs,
+                        index, 0).replace(',', ', ')
             if final_tdocs != '':
                 if final_tdocs == ',':
                     df_tdocs.at[index, 'Final TDocs'] = index
                 else:
-                    df_tdocs.at[index, 'Final TDocs'] = tdocs_by_agenda.get_final_tdocs(final_tdocs, df_tdocs, index,
-                                                                                        0).replace(',', ', ')
+                    df_tdocs.at[index, 'Final TDocs'] = tdocs_by_agenda.get_final_tdocs(
+                        final_tdocs,
+                        df_tdocs,
+                        index,
+                        0).replace(',', ', ')
 
         print('TDocsByAgenda: Finished tracking original/final tdocs')
 
