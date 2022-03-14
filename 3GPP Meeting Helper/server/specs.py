@@ -6,7 +6,8 @@ from typing import List, Tuple
 import html2text
 
 from parsing.html_specs import extract_releases_from_latest_folder, extract_spec_series_from_spec_folder, \
-    extract_spec_files_from_spec_folder, extract_spec_versions_from_spec_file
+    extract_spec_files_from_spec_folder, extract_spec_versions_from_spec_file, cleanup_spec_name
+from parsing.spec_types import SpecType
 from server.common import get_html, root_folder, create_folder_if_needed, decode_string, download_file_to_location, \
     unzip_files_in_zip_file
 import pandas as pd
@@ -79,7 +80,7 @@ def get_series_folder(series_url, release_number, series_number, cache=False):
 
 def get_spec_remote_folder(spec_number, cache=False):
     # Clean up the dot as we do not use it as part of the file name
-    spec_number = spec_number.replace('.', '')
+    spec_number = cleanup_spec_name(spec_number)
 
     cache_file = os.path.join(get_specs_cache_folder(), '{0}.md'.format(spec_number))
     if cache and os.path.exists(cache_file):
@@ -194,12 +195,17 @@ def get_specs_folder(create_dir=True, spec_id=None):
 def apply_spec_metadata_to_dataframe(specs_df, spec_metadata):
     specs_df['title'] = ''
     specs_df['responsible_group'] = ''
+    specs_df['type'] = ''
 
     specs_list = specs_df.index.unique()
     for idx in specs_list:
         if idx in spec_metadata:
             specs_df.at[idx, 'title'] = spec_metadata[idx].title
             specs_df.at[idx, 'responsible_group'] = spec_metadata[idx].responsible_group
+            if spec_metadata[idx].type == SpecType.TS:
+                specs_df.at[idx, 'type'] = 'TS'
+            elif spec_metadata[idx].type == SpecType.TR:
+                specs_df.at[idx, 'type'] = 'TR'
 
     specs_df['search_column'] = specs_df.index + specs_df['title']
     specs_df['search_column'] = specs_df['search_column'].str.lower()
@@ -267,7 +273,7 @@ def download_spec_if_needed(spec_number: str, file_url: str) -> List[str]:
     Returns:
         list[str]: Absolute path of the downloaded (and unzipped) files
     """
-    spec_number = spec_number.replace('.', '')
+    spec_number = cleanup_spec_name(spec_number)
     spec_number = '{0}.{1}'.format(spec_number[0:2], spec_number[2:])
     local_folder = get_specs_folder(spec_id=spec_number)
     filename = os.path.basename(urlparse(file_url).path)
@@ -288,7 +294,7 @@ def get_url_for_spec_page(spec_number: str) -> str:
     Returns: The URL of the specification page
 
     """
-    spec_number = spec_number.replace('.', '')
+    spec_number = cleanup_spec_name(spec_number)
     return spec_page.format(spec_number)
 
 
@@ -324,7 +330,7 @@ def get_spec_archive_remote_folder(spec_number_with_dot, cache=False) -> Tuple[s
         the specs series number.
     """
     # Clean up the dot as we do not use it as part of the file name
-    spec_number = spec_number_with_dot.replace('.', '')
+    spec_number = cleanup_spec_name(spec_number_with_dot)
 
     archive_page_url, series_number = get_archive_page_for_spec(spec_number_with_dot)
     cache_file = os.path.join(get_specs_cache_folder(), 'archive_{0}.md'.format(spec_number))
