@@ -13,6 +13,7 @@ wdExportFormatPDF = 17  # PDF format
 
 # https://docs.microsoft.com/en-us/office/vba/api/word.wdsaveformat
 wdFormatHTML = 8
+wdFormatFilteredHTML = 10
 
 # See https://docs.microsoft.com/en-us/dotnet/api/microsoft.office.interop.word.wdexportcreatebookmarks?view=word-pia
 wdExportCreateHeadingBookmarks = 1
@@ -165,9 +166,10 @@ def export_document(word_files: List[str], export_format: ExportType = ExportTyp
                             CreateBookmarks=wdExportCreateHeadingBookmarks
                         )
                     else:
+                        doc.WebOptions.AllowPNG = True
                         doc.SaveAs2(
                             FileName=out_file,
-                            FileFormat=wdFormatHTML
+                            FileFormat=wdFormatFilteredHTML
                         )
                     doc.Close()
                     print('Converted {0} to {1}'.format(word_file, out_file))
