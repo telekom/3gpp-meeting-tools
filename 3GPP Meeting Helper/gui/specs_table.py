@@ -7,9 +7,10 @@ from tkinter import ttk
 import pandas as pd
 
 import application
+import application.word
 import parsing.word as word_parser
 from parsing.html_specs import extract_spec_files_from_spec_folder, cleanup_spec_name
-from parsing.spec_types import SpecType, get_spec_full_name
+from parsing.spec_types import get_spec_full_name
 from server import specs
 from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, \
     get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder
@@ -420,7 +421,7 @@ class SpecVersionsTable:
 
         self.tree = ttk.Treeview(
             frame_1,
-            columns=('Spec', 'Version', 'Open Word', 'Open PDF', 'Add to compare A', 'Add to compare B'),
+            columns=('Spec', 'Version', 'Open Word', 'Open PDF', 'Open HTML', 'Add to compare A', 'Add to compare B'),
             show='headings',
             selectmode="browse",
             style=style_name,
@@ -430,6 +431,7 @@ class SpecVersionsTable:
         set_column(self.tree, 'Version', width=60)
         set_column(self.tree, 'Open Word', width=100)
         set_column(self.tree, 'Open PDF', width=100)
+        set_column(self.tree, 'Open HTML', width=100)
         set_column(self.tree, 'Add to compare A', width=110)
         set_column(self.tree, 'Add to compare B', width=110)
         self.tree.bind("<Double-Button-1>", self.on_double_click)
@@ -497,6 +499,7 @@ class SpecVersionsTable:
                 file_version_to_version(row['version']),
                 'Open Word',
                 'Open PDF',
+                'Open HTML',
                 'Click',
                 'Click'))
 
@@ -533,13 +536,24 @@ class SpecVersionsTable:
             print('Opening PDF {0}, version {1}'.format(spec_id, row_version))
             spec_url = get_url_for_version_text(self.spec_entries, row_version)
             downloaded_files = download_spec_if_needed(spec_id, spec_url)
-            pdf_files = application.word.convert_files_to_pdf(downloaded_files)
+            pdf_files = application.word.export_document(
+                downloaded_files,
+                export_format=application.word.ExportType.PDF)
             for pdf_file in pdf_files:
                 os.startfile(pdf_file)
         if column == 4:
+            print('Opening HTML {0}, version {1}'.format(spec_id, row_version))
+            spec_url = get_url_for_version_text(self.spec_entries, row_version)
+            downloaded_files = download_spec_if_needed(spec_id, spec_url)
+            pdf_files = application.word.export_document(
+                downloaded_files,
+                export_format=application.word.ExportType.HTML)
+            for pdf_file in pdf_files:
+                os.startfile(pdf_file)
+        if column == 5:
             print('Added Compare A: {0}, version {1}'.format(spec_id, row_version))
             self.compare_a.set(row_version)
-        if column == 5:
+        if column == 6:
             print('Added Compare B: {0}, version {1}'.format(spec_id, row_version))
             self.compare_b.set(row_version)
 
