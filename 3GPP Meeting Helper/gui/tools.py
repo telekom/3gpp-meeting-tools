@@ -71,7 +71,6 @@ class ToolsDialog:
                 retrieve_current_tdocs_by_agenda_fn=lambda: gui.main.open_tdocs_by_agenda(open_this_file=False),
                 get_tdocs_by_agenda_for_selected_meeting_fn=gui.main.get_tdocs_by_agenda_for_selected_meeting,
                 download_and_open_tdoc_fn=gui.main.download_and_open_tdoc,
-                get_server_name_for_current_meeting_fn=lambda: application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(gui.main.tkvar_meeting.get()),
             ))
         self.launch_tdoc_table.grid(row=4, column=0, columnspan=int(columnspan / 2), sticky="EW")
 
@@ -199,7 +198,9 @@ class ToolsDialog:
         meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
         local_agenda_file = gui.main.get_tdocs_by_agenda_file_or_url(
             server.tdoc.get_local_tdocs_by_agenda_filename(meeting_folder))
-        tdocs_df = html_parser.tdocs_by_agenda(local_agenda_file).tdocs
+        tdocs_df = html_parser.tdocs_by_agenda(
+            local_agenda_file,
+            meeting_server_folder=meeting_folder).tdocs
         return tdocs_df
 
     def open_local_meeting_folder(self):
@@ -332,7 +333,10 @@ class ToolsDialog:
             process_comments=True,
             add_pivot_summary=True):
         try:
-            tdocs_by_agenda = html_parser.tdocs_by_agenda(gui.main.get_tdocs_by_agenda_file_or_url(local_agenda_file))
+            tdocs_by_agenda = html_parser.tdocs_by_agenda(
+                gui.main.get_tdocs_by_agenda_file_or_url(local_agenda_file),
+                meeting_server_folder=meeting_folder
+            )
 
             # Do not export to Excel the last columns (just a lot of True/False columns for each vendor)
             tdocs_df = tdocs_by_agenda.tdocs.iloc[:, 0:19]
