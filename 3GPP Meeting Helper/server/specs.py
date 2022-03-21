@@ -20,6 +20,9 @@ spec_page = 'https://www.3gpp.org/DynaReport/{0}.htm'
 # Specification archive page, e.g., https://www.3gpp.org/ftp/Specs/archive/24_series/24.011
 spec_archive_page = 'https://www.3gpp.org/ftp/Specs/archive/{0}_series/{1}'
 
+# Specificatio CRs page, e.g., https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber=23.501
+spec_crs_page = 'https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber={0}'
+
 
 def get_html_page_and_save_cache(url, cache, cache_file, cache_as_markup):
     html = get_html(url)
@@ -296,6 +299,20 @@ def get_url_for_spec_page(spec_number: str) -> str:
     """
     spec_number = cleanup_spec_name(spec_number)
     return spec_page.format(spec_number)
+
+
+def get_url_for_crs_page(spec_number: str) -> str:
+    """
+    Returns the 3GPP CRs page for a given specification page, e.g., https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber=23.501
+    Args:
+        spec_number: The specification number. Either with dot or without
+
+    Returns: The URL of the specification page
+
+    """
+    spec_number = cleanup_spec_name(spec_number)
+    spec_number = '{0}.{1}'.format(spec_number[0:2], spec_number[2:])
+    return spec_crs_page.format(spec_number)
 
 
 def get_archive_page_for_spec(spec_number_with_dot: str) -> Tuple[str, str]:
