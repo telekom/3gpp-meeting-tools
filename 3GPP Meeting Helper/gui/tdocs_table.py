@@ -129,7 +129,7 @@ class TdocsTable:
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        self.load_data(reload=True)
+        self.load_data(reload=True, reload_ais=False)
         self.reload_revisions = False
         self.insert_current_tdocs()
 
@@ -224,7 +224,7 @@ class TdocsTable:
         else:
             return None
 
-    def load_data(self, reload=False):
+    def load_data(self, reload=False, reload_ais=True):
         if reload:
             print('Loading revision data for table')
 
@@ -242,6 +242,12 @@ class TdocsTable:
 
         # Rewrite the current tdocs dataframe with the retrieved data. Resets the search filters
         self.current_tdocs = self.all_tdocs
+
+        # Update AI Combo Box
+        if reload_ais:
+            all_ais = ['All']
+            all_ais.extend(list(self.current_tdocs["AI"].unique()))
+            self.combo_ai['values'] = all_ais
 
     def insert_current_tdocs(self):
         self.insert_rows(self.current_tdocs)
