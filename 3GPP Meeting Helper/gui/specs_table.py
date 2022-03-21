@@ -5,6 +5,7 @@ import tkinter
 from tkinter import ttk
 
 import pandas as pd
+import pyperclip
 
 import application
 import application.word
@@ -69,6 +70,17 @@ def treeview_sort_column(tree, col, reverse=False):
 
     # reverse sort next time
     tree.heading(col, command=lambda: treeview_sort_column(tree, col, not reverse))
+
+
+def open_url_and_copy_to_clipboard(url_to_open: str):
+    """
+    Opens a given URL and copies it to the clipboard
+    Args:
+        url_to_open: A URL
+    """
+    pyperclip.copy(url_to_open)
+    os.startfile(url_to_open)
+    print('Opened {0} and copied to clipboard'.format(url_to_open))
 
 
 class SpecsTable:
@@ -363,10 +375,12 @@ class SpecsTable:
 
         if column == 0:
             print('Clicked spec ID {0}. Opening 3GPP spec page'.format(actual_value))
-            os.startfile(get_url_for_spec_page(spec_id))
+            url_to_open = get_url_for_spec_page(spec_id)
+            open_url_and_copy_to_clipboard(url_to_open)
         if column == 1:
             print('Clicked title for spec ID {0}: {1}. Opening 3GPP spec page'.format(spec_id, actual_value))
-            os.startfile(get_url_for_spec_page(spec_id))
+            url_to_open = get_url_for_spec_page(spec_id)
+            open_url_and_copy_to_clipboard(url_to_open)
         if column == 2:
             print('Clicked versions for spec ID {0}: {1}'.format(spec_id, actual_value))
             current_spec_metadata = self.spec_metadata[spec_id]
@@ -378,11 +392,13 @@ class SpecsTable:
             application.word.open_files(downloaded_files)
         if column == 4:
             print('Clicked local folder for spec ID {0}'.format(spec_id))
-            folder_name = get_specs_folder(spec_id=spec_id)
-            os.startfile(folder_name)
+            url_to_open = get_specs_folder(spec_id=spec_id)
+            open_url_and_copy_to_clipboard(url_to_open)
         if column == 6:
             print('Clicked CRs link for spec ID {0}'.format(spec_id))
-            os.startfile(get_url_for_crs_page(spec_id))
+            url_to_open = get_url_for_crs_page(spec_id)
+            open_url_and_copy_to_clipboard(url_to_open)
+
 
 def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> str:
     """
