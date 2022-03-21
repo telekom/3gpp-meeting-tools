@@ -13,7 +13,7 @@ from parsing.html_specs import extract_spec_files_from_spec_folder, cleanup_spec
 from parsing.spec_types import get_spec_full_name
 from server import specs
 from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, \
-    get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder
+    get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder, get_url_for_crs_page
 
 style_name = 'mystyle.Treeview'
 
@@ -102,7 +102,7 @@ class SpecsTable:
         # https://stackoverflow.com/questions/50625306/what-is-the-best-way-to-show-data-in-a-table-in-tkinter
         self.tree = ttk.Treeview(
             frame_2,
-            columns=('Spec', 'Title', 'Versions', 'Last', 'Local Cache', 'Group'),
+            columns=('Spec', 'Title', 'Versions', 'Last', 'Local Cache', 'Group', 'CRs'),
             show='headings',
             selectmode="browse",
             style=style_name,
@@ -110,10 +110,11 @@ class SpecsTable:
 
         set_column(self.tree, 'Spec', "Spec #", width=110)
         set_column(self.tree, 'Title', width=SpecsTable.title_width, center=False)
-        set_column(self.tree, 'Versions', width=80)
+        set_column(self.tree, 'Versions', width=70)
         set_column(self.tree, 'Last', width=80)
-        set_column(self.tree, 'Local Cache', width=90)
-        set_column(self.tree, 'Group', width=80)
+        set_column(self.tree, 'Local Cache', width=80)
+        set_column(self.tree, 'Group', width=70)
+        set_column(self.tree, 'CRs', width=70)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -252,7 +253,8 @@ class SpecsTable:
                 'Click',
                 file_version_to_version(row['max_version']),
                 'Click',
-                responsible_group
+                responsible_group,
+                'Click'
             ))
 
         self.tree.tag_configure('odd', background='#E8E8E8')
@@ -358,6 +360,7 @@ class SpecsTable:
         if actual_value is None or actual_value == '':
             print("Empty value")
             return
+
         if column == 0:
             print('Clicked spec ID {0}. Opening 3GPP spec page'.format(actual_value))
             os.startfile(get_url_for_spec_page(spec_id))
@@ -377,7 +380,9 @@ class SpecsTable:
             print('Clicked local folder for spec ID {0}'.format(spec_id))
             folder_name = get_specs_folder(spec_id=spec_id)
             os.startfile(folder_name)
-
+        if column == 6:
+            print('Clicked CRs link for spec ID {0}'.format(spec_id))
+            os.startfile(get_url_for_crs_page(spec_id))
 
 def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> str:
     """
