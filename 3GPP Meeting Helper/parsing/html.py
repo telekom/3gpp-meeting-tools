@@ -299,8 +299,10 @@ def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder=''):
             last_tdocs_by_agenda = tdocs_by_document_cache[html_hash]
         else:
             print('TdocsByAgenda {0} not in cache'.format(html_hash))
-            last_tdocs_by_agenda = tdocs_by_agenda(path_or_html, html_hash=html_hash,
-                                                   meeting_server_folder=meeting_server_folder)
+            last_tdocs_by_agenda = tdocs_by_agenda(
+                path_or_html,
+                html_hash=html_hash,
+                meeting_server_folder=meeting_server_folder)
 
             # I found out tht this was not a good idea for the inbox. File cache should be enough
             # print('Storing TdocsByAgenda with hash {0} in memory cache'.format(html_hash))
@@ -424,6 +426,7 @@ class tdocs_by_agenda(object):
         except:
             self.meeting_number = 'Unknown'
         print('Parsed meeting number: {0}'.format(self.meeting_number))
+        self.meeting_server_folder = meeting_server_folder
 
         dataframe_from_cache = False
 

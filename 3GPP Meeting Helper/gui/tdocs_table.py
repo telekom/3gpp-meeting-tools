@@ -75,6 +75,7 @@ class TdocsTable:
 
     meeting_number = '<Meeting number>'
     all_tdocs = None
+    meeting_server_folder = ''
 
     def __init__(
             self,
@@ -83,8 +84,7 @@ class TdocsTable:
             parent_gui_tools,
             retrieve_current_tdocs_by_agenda_fn=None,
             get_tdocs_by_agenda_for_selected_meeting_fn=None,
-            download_and_open_tdoc_fn=None,
-            get_server_name_for_current_meeting_fn=None):
+            download_and_open_tdoc_fn=None):
         init_style()
         self.top = tkinter.Toplevel(parent)
         self.top.title("TDoc Table for current meeting. Double-Click on TDoc # or revision # to open")
@@ -96,7 +96,6 @@ class TdocsTable:
         self.retrieve_current_tdocs_by_agenda_fn = retrieve_current_tdocs_by_agenda_fn
         self.get_tdocs_by_agenda_for_selected_meeting_fn = get_tdocs_by_agenda_for_selected_meeting_fn
         self.download_and_open_tdoc_fn = download_and_open_tdoc_fn
-        self.get_server_name_for_current_meeting_fn = get_server_name_for_current_meeting_fn
 
         frame_1 = tkinter.Frame(self.top)
         frame_1.pack(anchor='w')
@@ -193,6 +192,8 @@ class TdocsTable:
                 current_tdocs_by_agenda = self.retrieve_current_tdocs_by_agenda_fn()
                 self.all_tdocs = current_tdocs_by_agenda.tdocs
                 self.meeting_number = current_tdocs_by_agenda.meeting_number
+                self.meeting_server_folder = current_tdocs_by_agenda.meeting_server_folder
+                print('Loaded meeting {0}, server folder {1}'.format(self.meeting_number, self.meeting_server_folder))
             except:
                 print('Could not retrieve current TdocsByAgenda for Tdocs table')
                 traceback.print_exc()
@@ -206,17 +207,6 @@ class TdocsTable:
                     return_drafts_file=True)
             except:
                 print('Could not get TdocsByAgenda, Drafts, Revisions for Tdocs table')
-                traceback.print_exc()
-                return None
-        else:
-            return None
-
-    def get_server_name_for_current_meeting(self):
-        if self.get_server_name_for_current_meeting_fn is not None:
-            try:
-                return self.get_server_name_for_current_meeting_fn()
-            except:
-                print('Could not retrieve current meeting folder for current meeting')
                 traceback.print_exc()
                 return None
         else:
@@ -241,7 +231,7 @@ class TdocsTable:
             # Re-load TdocsByAgenda before inserting rows
             self.retrieve_current_tdocs_by_agenda()
 
-            meeting_server_folder = self.get_server_name_for_current_meeting()
+            meeting_server_folder = self.meeting_server_folder
             tdocs_by_agenda_file, revisions_file, drafts_file = self.get_tdocs_by_agenda_for_selected_meeting(
                 meeting_server_folder)
 
