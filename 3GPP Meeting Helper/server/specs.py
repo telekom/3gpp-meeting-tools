@@ -24,25 +24,41 @@ spec_archive_page = 'https://www.3gpp.org/ftp/Specs/archive/{0}_series/{1}'
 spec_crs_page = 'https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber={0}'
 
 
-def get_html_page_and_save_cache(url, cache, cache_file, cache_as_markup):
+def get_html_page_and_save_cache(url: str, cache: bool, cache_file: str, cache_as_markup: bool) -> str:
+    """
+
+    Args:
+        url: The URL of the page to retrieve
+        cache: Whether the retrieved data should be written to a file
+        cache_file: If yes, the file location
+        cache_as_markup: Whether the retrieved HTML data should first be converted to Markup
+
+    Returns:
+        The retrieved data, either in HTML or Markup format
+    """
     html = get_html(url)
+    if cache_as_markup:
+        html_decoded = decode_string(html, "cache_file".format(html))
+        h = html2text.HTML2Text()
+        h.ignore_links = False
+        html_markup = h.handle(html_decoded)
+
     if cache:
         if not cache_as_markup:
             print('Caching HTML: {0}'.format(cache_file))
             with open(cache_file, 'wb') as file:
                 file.write(html)
-            # If HTML is to be returned, bytes as-is are returned
-            return html
         else:
             print('Caching Markup: {0}'.format(cache_file))
-            html_decoded = decode_string(html, "cache_file".format(html))
-            h = html2text.HTML2Text()
-            h.ignore_links = False
-            html_markup = h.handle(html_decoded)
             with open(cache_file, 'w', encoding='utf-8') as file:
                 file.write(html_markup)
-            # If markup is to be returned, string is returned
-            return html_markup
+
+    if not cache_as_markup:
+        # If HTML is to be returned, bytes as-is are returned
+        return html
+    else:
+        # If markup is to be returned, string is returned
+        return html_markup
 
 
 def get_markup_from_cache(cache_file):
@@ -54,10 +70,16 @@ def get_markup_from_cache(cache_file):
 
 def get_specs_page(cache=False):
     cache_file = os.path.join(get_specs_cache_folder(), 'latest.md')
-    if cache and os.path.exists(cache_file):
+    file_exists = os.path.exists(cache_file)
+    if cache and file_exists:
         markup = get_markup_from_cache(cache_file)
     else:
         markup = get_html_page_and_save_cache(specs_url, cache, cache_file, cache_as_markup=True)
+    if markup is None:
+        print('Markup file at {0} could not be retrieved: cache={1}, file exists: {2}'.format(
+            cache_file,
+            cache,
+            file_exists))
     return markup
 
 
@@ -93,11 +115,13 @@ def get_spec_remote_folder(spec_number, cache=False):
     return markup
 
 
-def get_specs(cache=True) -> Tuple[pd.DataFrame, dict]:
+def get_specs(cache=True, check_for_new_specs=False) -> Tuple[pd.DataFrame, dict]:
     """
     Retrieves information related to the latest 3GPP specs (per Release) from the 3GPP server or a local cache.
     Args:
-        cache: Whether caching is desired.
+        check_for_new_specs: Whether the cache should be updated with newly-found specs
+        cache: Whether caching is desired. If yes, if existing, a cache file will be read. The cache file contains
+        the last retrieved spec data
 
     Returns:
         A DataFrame containing the specification information from the 3GPP specification repository at
@@ -109,37 +133,49 @@ def get_specs(cache=True) -> Tuple[pd.DataFrame, dict]:
     specs_df_cache_file = os.path.join(get_specs_cache_folder(), '_specs.pickle')
 
     # Load specs data from cache file
-    if cache and os.path.exists(specs_df_cache_file):
+    if cache and (not check_for_new_specs) and os.path.exists(specs_df_cache_file):
         with open(specs_df_cache_file, "rb") as f:
             print('Loading spec cache from {0}'.format(specs_df_cache_file))
             specs_df, spec_metadata = pickle.load(f)
         return specs_df, spec_metadata
 
-    html_latest_specs_bytes = get_specs_page(cache=cache)
+    if cache and (not check_for_new_specs):
+        latest_and_series_cache = True
+        print('Use of cached files enabled for all retrievals')
+    else:
+        latest_and_series_cache = False
+        print('Checking for new specs. Disabling file cache for some retrievals')
 
+    # Get HTML page: https://www.3gpp.org/ftp/Specs/latest
+    html_latest_specs_bytes = get_specs_page(cache=latest_and_series_cache)
     releases_data = extract_releases_from_latest_folder(
         html_latest_specs_bytes,
         base_url=specs_url)
 
-    # For each release, extract data
-    all_specs_data = []
+    # Retrieve information for all 3GPP releases
+    series_data_per_release = []
     for release_data in releases_data:
+        # For each Release, get the corresponding page, e.g. https://www.3gpp.org/ftp/Specs/latest/Rel-10
         markup_release_data = get_release_folder(
             release_data.release_url,
             release_data.release,
-            cache=cache)
+            cache=latest_and_series_cache)
         series_data_for_release = extract_spec_series_from_spec_folder(
             markup_release_data,
             release=release_data.release,
             base_url=release_data.release_url)
+        series_data_per_release.append(series_data_for_release)
 
+    all_specs_data = []
+    for series_data_for_release in series_data_per_release:
         # For each spec. series in each release, extract data
+        # For each release, extract data, e.g. from https://www.3gpp.org/ftp/Specs/latest/Rel-10/23_series
         for series_data in series_data_for_release:
             markup_series_data = get_series_folder(
                 series_data.series_url,
                 series_number=series_data.series,
                 release_number=series_data.release,
-                cache=cache)
+                cache=latest_and_series_cache)
             specs_data_for_series = extract_spec_files_from_spec_folder(
                 markup_series_data,
                 release=series_data.release,

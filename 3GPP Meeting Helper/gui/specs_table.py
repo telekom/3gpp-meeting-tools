@@ -130,7 +130,7 @@ class SpecsTable:
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        self.load_data(initial_load=True)
+        self.load_data(initial_load=True, check_for_new_specs=False)
         self.insert_current_specs()
 
         self.tree_scroll = ttk.Scrollbar(frame_2)
@@ -141,7 +141,7 @@ class SpecsTable:
         # Can also do this:
         # https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
-        self.search_entry = tkinter.Entry(frame_1, textvariable=self.search_text, width=25, font='TkDefaultFont')
+        self.search_entry = tkinter.Entry(frame_1, textvariable=self.search_text, width=20, font='TkDefaultFont')
         self.search_text.trace_add(['write', 'unset'], self.select_text)
 
         tkinter.Label(frame_1, text="Search: ").pack(side=tkinter.LEFT)
@@ -153,7 +153,7 @@ class SpecsTable:
         spec_series.sort()
         all_series.extend(list(spec_series))
 
-        self.combo_series = ttk.Combobox(frame_1, values=all_series, state="readonly", width=8)
+        self.combo_series = ttk.Combobox(frame_1, values=all_series, state="readonly", width=6)
         self.combo_series.set('All')
         self.combo_series.bind("<<ComboboxSelected>>", self.select_series)
 
@@ -166,7 +166,7 @@ class SpecsTable:
         spec_releases.sort()
         all_releases.extend(list(spec_releases))
 
-        self.combo_releases = ttk.Combobox(frame_1, values=all_releases, state="readonly", width=8)
+        self.combo_releases = ttk.Combobox(frame_1, values=all_releases, state="readonly", width=6)
         self.combo_releases.set('All')
         self.combo_releases.bind("<<ComboboxSelected>>", self.select_releases)
 
@@ -193,8 +193,8 @@ class SpecsTable:
             command=self.clear_filters).pack(side=tkinter.LEFT)
         tkinter.Button(
             frame_1,
-            text='Reload data',
-            command=self.reload_data).pack(side=tkinter.LEFT)
+            text='Load new specs',
+            command=self.load_new_specs).pack(side=tkinter.LEFT)
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
@@ -204,14 +204,14 @@ class SpecsTable:
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
 
-    def load_data(self, initial_load=False):
+    def load_data(self, initial_load=False, check_for_new_specs=False):
         """
         Loads specifications frm the 3GPP website
         """
         # Load specs data
         print('Loading revision data for LATEST specs per release for table')
         if initial_load:
-            self.all_specs, self.spec_metadata = specs.get_specs()
+            self.all_specs, self.spec_metadata = specs.get_specs(cache=True, check_for_new_specs=check_for_new_specs)
             self.current_specs = self.all_specs
             self.filter_text = self.all_specs
             self.filter_release = self.all_specs
@@ -286,8 +286,8 @@ class SpecsTable:
         # Refill list
         self.apply_filters()
 
-    def reload_data(self, *args):
-        self.load_data(initial_load=True)
+    def load_new_specs(self, *args):
+        self.load_data(initial_load=True, check_for_new_specs=True)
         self.select_series()  # One will call the other
 
     def apply_filters(self):
