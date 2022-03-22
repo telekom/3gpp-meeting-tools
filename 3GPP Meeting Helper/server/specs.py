@@ -1,13 +1,13 @@
 import os.path
 import pickle
 from urllib.parse import urlparse
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 import html2text
 
 from parsing.html_specs import extract_releases_from_latest_folder, extract_spec_series_from_spec_folder, \
     extract_spec_files_from_spec_folder, extract_spec_versions_from_spec_file, cleanup_spec_name
-from parsing.spec_types import SpecType
+from parsing.spec_types import SpecType, SpecVersionMapping
 from server.common import get_html, root_folder, create_folder_if_needed, decode_string, download_file_to_location, \
     unzip_files_in_zip_file
 import pandas as pd
@@ -20,8 +20,11 @@ spec_page = 'https://www.3gpp.org/DynaReport/{0}.htm'
 # Specification archive page, e.g., https://www.3gpp.org/ftp/Specs/archive/24_series/24.011
 spec_archive_page = 'https://www.3gpp.org/ftp/Specs/archive/{0}_series/{1}'
 
-# Specificatio CRs page, e.g., https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber=23.501
+# Specification CRs page, e.g., https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber=23.501
 spec_crs_page = 'https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber={0}'
+
+# Some specs may be so new that there is not an entry in the "latest" page yet
+drafts_page = 'https://www.3gpp.org/ftp/Specs/latest-drafts'
 
 
 def get_html_page_and_save_cache(url: str, cache: bool, cache_file: str, cache_as_markup: bool) -> str:
@@ -61,20 +64,14 @@ def get_html_page_and_save_cache(url: str, cache: bool, cache_file: str, cache_a
         return html_markup
 
 
-def get_markup_from_cache(cache_file):
-    print('Loading {0}'.format(cache_file))
-    with open(cache_file, mode='r', encoding='utf-8') as file:
-        markup = file.read()
-    return markup
-
-
-def get_specs_page(cache=False):
-    cache_file = os.path.join(get_specs_cache_folder(), 'latest.md')
+def get_markup_file(file_url, cache, cache_file):
     file_exists = os.path.exists(cache_file)
     if cache and file_exists:
-        markup = get_markup_from_cache(cache_file)
+        print('Loading {0}'.format(cache_file))
+        with open(cache_file, mode='r', encoding='utf-8') as file:
+            markup = file.read()
     else:
-        markup = get_html_page_and_save_cache(specs_url, cache, cache_file, cache_as_markup=True)
+        markup = get_html_page_and_save_cache(file_url, cache, cache_file, cache_as_markup=True)
     if markup is None:
         print('Markup file at {0} could not be retrieved: cache={1}, file exists: {2}'.format(
             cache_file,
@@ -83,39 +80,41 @@ def get_specs_page(cache=False):
     return markup
 
 
-def get_release_folder(release_url, release_number, cache=False):
-    cache_file = os.path.join(get_specs_cache_folder(), 'Rel_{0}.md'.format(release_number))
-    if cache and os.path.exists(cache_file):
-        markup = get_markup_from_cache(cache_file)
-    else:
-        markup = get_html_page_and_save_cache(release_url, cache, cache_file, cache_as_markup=True)
+def get_latest_specs_page(cache=False):
+    cache_file = os.path.join(get_specs_cache_folder(), 'latest.md')
+    markup = get_markup_file(specs_url, cache, cache_file)
     return markup
 
 
-def get_series_folder(series_url, release_number, series_number, cache=False):
+def get_release_folder_page(release_url, release_number, cache=False):
+    cache_file = os.path.join(get_specs_cache_folder(), 'Rel_{0}.md'.format(release_number))
+    markup = get_markup_file(release_url, cache, cache_file)
+    return markup
+
+
+def get_drafts_folder_page(cache=False):
+    cache_file = os.path.join(get_specs_cache_folder(), 'drafts.md')
+    markup = get_markup_file(drafts_page, cache, cache_file)
+    return markup
+
+
+def get_series_folder_page(series_url, release_number, series_number, cache=False):
     cache_file = os.path.join(
         get_specs_cache_folder(),
         'Specs_{0}_series_Rel_{1}.md'.format(series_number, release_number))
-    if cache and os.path.exists(cache_file):
-        markup = get_markup_from_cache(cache_file)
-    else:
-        markup = get_html_page_and_save_cache(series_url, cache, cache_file, cache_as_markup=True)
+    markup = get_markup_file(series_url, cache, cache_file)
     return markup
 
 
 def get_spec_remote_folder(spec_number, cache=False):
     # Clean up the dot as we do not use it as part of the file name
     spec_number = cleanup_spec_name(spec_number)
-
     cache_file = os.path.join(get_specs_cache_folder(), '{0}.md'.format(spec_number))
-    if cache and os.path.exists(cache_file):
-        markup = get_markup_from_cache(cache_file)
-    else:
-        markup = get_html_page_and_save_cache(spec_page.format(spec_number), cache, cache_file, cache_as_markup=True)
+    markup = get_markup_file(spec_page.format(spec_number), cache, cache_file)
     return markup
 
 
-def get_specs(cache=True, check_for_new_specs=False) -> Tuple[pd.DataFrame, dict]:
+def get_specs(cache=True, check_for_new_specs=False) -> Tuple[pd.DataFrame, Dict[str, SpecVersionMapping]]:
     """
     Retrieves information related to the latest 3GPP specs (per Release) from the 3GPP server or a local cache.
     Args:
@@ -128,6 +127,7 @@ def get_specs(cache=True, check_for_new_specs=False) -> Tuple[pd.DataFrame, dict
         https://www.3gpp.org/ftp/Specs/latest and and a dictionary containing specification metadata, e.g.
         the specification title, obtained from scraping all of the https://www.3gpp.org/DynaReport/{spec_name}.htm
         pages in the 3GPP server.
+        Also metadata containing title and other information for the related specifications
 
     """
     specs_df_cache_file = os.path.join(get_specs_cache_folder(), '_specs.pickle')
@@ -147,16 +147,16 @@ def get_specs(cache=True, check_for_new_specs=False) -> Tuple[pd.DataFrame, dict
         print('Checking for new specs. Disabling file cache for some retrievals')
 
     # Get HTML page: https://www.3gpp.org/ftp/Specs/latest
-    html_latest_specs_bytes = get_specs_page(cache=latest_and_series_cache)
+    markup_latest_specs = get_latest_specs_page(cache=latest_and_series_cache)
     releases_data = extract_releases_from_latest_folder(
-        html_latest_specs_bytes,
+        markup_latest_specs,
         base_url=specs_url)
 
     # Retrieve information for all 3GPP releases
     series_data_per_release = []
     for release_data in releases_data:
         # For each Release, get the corresponding page, e.g. https://www.3gpp.org/ftp/Specs/latest/Rel-10
-        markup_release_data = get_release_folder(
+        markup_release_data = get_release_folder_page(
             release_data.release_url,
             release_data.release,
             cache=latest_and_series_cache)
@@ -171,7 +171,7 @@ def get_specs(cache=True, check_for_new_specs=False) -> Tuple[pd.DataFrame, dict
         # For each spec. series in each release, extract data
         # For each release, extract data, e.g. from https://www.3gpp.org/ftp/Specs/latest/Rel-10/23_series
         for series_data in series_data_for_release:
-            markup_series_data = get_series_folder(
+            markup_series_data = get_series_folder_page(
                 series_data.series_url,
                 series_number=series_data.series,
                 release_number=series_data.release,
@@ -183,6 +183,18 @@ def get_specs(cache=True, check_for_new_specs=False) -> Tuple[pd.DataFrame, dict
                 base_url=series_data.series_url)
             all_specs_data.extend(specs_data_for_series)
 
+    # Retrieve Drafts folder
+    # Get drafts page: https://www.3gpp.org/ftp/Specs/latest-drafts
+    markup_draft_specs = get_drafts_folder_page(cache=latest_and_series_cache)
+    specs_data_for_drafts = extract_spec_files_from_spec_folder(
+        markup_draft_specs,
+        release='Draft',
+        series=None,
+        base_url=drafts_page,
+        auto_fill=True)
+    all_specs_data.extend(specs_data_for_drafts)
+
+    # Convert specs data into DataFrame
     specs_df = pd.DataFrame(all_specs_data)
 
     # Set TS/TR number as index
@@ -387,12 +399,5 @@ def get_spec_archive_remote_folder(spec_number_with_dot, cache=False) -> Tuple[s
 
     archive_page_url, series_number = get_archive_page_for_spec(spec_number_with_dot)
     cache_file = os.path.join(get_specs_cache_folder(), 'archive_{0}.md'.format(spec_number))
-    if cache and os.path.exists(cache_file):
-        markup = get_markup_from_cache(cache_file)
-    else:
-        markup = get_html_page_and_save_cache(
-            archive_page_url,
-            cache,
-            cache_file,
-            cache_as_markup=True)
+    markup = get_markup_file(archive_page_url, cache, cache_file)
     return markup, archive_page_url, series_number

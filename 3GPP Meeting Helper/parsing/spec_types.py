@@ -49,6 +49,7 @@ class SpecVersionMapping(NamedTuple):
     version_mapping_inv: dict
     responsible_group: str
     type: SpecType
+    spec_initial_release: str
 
 
 def get_spec_full_name(spec_id: str, spec_type: SpecType) -> str:
