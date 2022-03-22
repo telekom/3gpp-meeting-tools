@@ -250,10 +250,14 @@ class SpecsTable:
             # spec_entries = df.loc[[idx], :]
 
             # Faster alternative
-            current_spec_metadata = self.spec_metadata[idx]
-            title = current_spec_metadata.title
-            spec_type = current_spec_metadata.type
-            responsible_group = current_spec_metadata.responsible_group
+            if idx in self.spec_metadata:
+                current_spec_metadata = self.spec_metadata[idx]
+                title = current_spec_metadata.title
+                spec_type = current_spec_metadata.type
+                responsible_group = current_spec_metadata.responsible_group
+            else:
+                print('Could not read metadata from spec {0}, skipping'.format(idx))
+                continue
 
             # Construct 23.501 -> TS 23.501
             spec_name = get_spec_full_name(idx, spec_type)
@@ -384,8 +388,13 @@ class SpecsTable:
         if column == 2:
             print('Clicked versions for spec ID {0}: {1}'.format(spec_id, actual_value))
             current_spec_metadata = self.spec_metadata[spec_id]
-            spec_type = current_spec_metadata.type
-            SpecVersionsTable(self.top, self.favicon, spec_entries, spec_id, spec_type)
+            SpecVersionsTable(
+                self.top,
+                self.favicon,
+                spec_entries,
+                spec_id,
+                current_spec_metadata.type,
+                current_spec_metadata.spec_initial_release)
         if column == 3:
             spec_url = get_url_for_version_text(spec_entries, actual_value)
             downloaded_files = download_spec_if_needed(spec_id, spec_url)
@@ -422,9 +431,9 @@ class SpecVersionsTable:
     spec_entries = None
     spec_id = None
 
-    def __init__(self, parent, favicon, spec_entries, spec_id, spec_type):
+    def __init__(self, parent, favicon, spec_entries, spec_id, spec_type, initial_release):
         top = self.top = tkinter.Toplevel(parent)
-        top.title("All Spec versions for {0}".format(spec_id))
+        top.title("All Spec versions for {0}, initial planned release: {1}".format(spec_id, initial_release))
         top.iconbitmap(favicon)
 
         self.spec_id = spec_id
