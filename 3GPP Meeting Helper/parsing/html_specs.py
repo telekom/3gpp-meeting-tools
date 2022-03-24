@@ -5,7 +5,8 @@ from typing import List
 
 from parsing.spec_types import SpecType, SpecReleases, SpecSeries, SpecFile, SpecVersionMapping
 
-def extract_releases_from_latest_folder(latest_specs_page_text, base_url) -> List[SpecReleases]:
+
+def extract_releases_from_latest_folder(latest_specs_page_text: str, base_url: str) -> List[SpecReleases]:
     """
     Extracts the 3GPP release information from the HTML of https://www.3gpp.org/ftp/Specs/latest
     Args:
