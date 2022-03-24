@@ -11,10 +11,11 @@ import application
 import application.word
 import parsing.word as word_parser
 from parsing.html_specs import extract_spec_files_from_spec_folder, cleanup_spec_name
-from parsing.spec_types import get_spec_full_name
+from parsing.spec_types import get_spec_full_name, SpecType
 from server import specs
 from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, \
-    get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder, get_url_for_crs_page
+    get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder, get_url_for_crs_page, \
+    get_spec_page
 
 style_name = 'mystyle.Treeview'
 
@@ -204,14 +205,17 @@ class SpecsTable:
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
 
-    def load_data(self, initial_load=False, check_for_new_specs=False):
+    def load_data(self, initial_load=False, check_for_new_specs=False, override_pickle_cache=False):
         """
         Loads specifications frm the 3GPP website
         """
         # Load specs data
         print('Loading revision data for LATEST specs per release for table')
         if initial_load:
-            self.all_specs, self.spec_metadata = specs.get_specs(cache=True, check_for_new_specs=check_for_new_specs)
+            self.all_specs, self.spec_metadata = specs.get_specs(
+                cache=True,
+                check_for_new_specs=check_for_new_specs,
+                override_pickle_cache=override_pickle_cache)
             self.current_specs = self.all_specs
             self.filter_text = self.all_specs
             self.filter_release = self.all_specs
@@ -225,6 +229,7 @@ class SpecsTable:
         self.insert_rows(self.current_specs)
 
     def insert_rows(self, df):
+        print('Populating specifications table')
         # print(df.to_string())
         # df_release_count = df.groupby(by='spec')['release'].nunique()
         df_version_max = df.groupby(by='spec')['version'].max()
@@ -292,7 +297,7 @@ class SpecsTable:
 
     def load_new_specs(self, *args):
         self.load_data(initial_load=True, check_for_new_specs=True)
-        self.select_series()  # One will call the other
+        self.apply_filters()
 
     def apply_filters(self):
         self.tree.delete(*self.tree.get_children())
@@ -391,10 +396,10 @@ class SpecsTable:
             SpecVersionsTable(
                 self.top,
                 self.favicon,
-                spec_entries,
                 spec_id,
                 current_spec_metadata.type,
-                current_spec_metadata.spec_initial_release)
+                current_spec_metadata.spec_initial_release,
+                self)
         if column == 3:
             spec_url = get_url_for_version_text(spec_entries, actual_value)
             downloaded_files = download_spec_if_needed(spec_id, spec_url)
@@ -431,13 +436,15 @@ class SpecVersionsTable:
     spec_entries = None
     spec_id = None
 
-    def __init__(self, parent, favicon, spec_entries, spec_id, spec_type, initial_release):
+    def __init__(self, parent, favicon, spec_id: str, spec_type: SpecType, initial_release: str,
+                 parent_specs_table: SpecsTable):
         top = self.top = tkinter.Toplevel(parent)
         top.title("All Spec versions for {0}, initial planned release: {1}".format(spec_id, initial_release))
         top.iconbitmap(favicon)
 
         self.spec_id = spec_id
         self.spec_type = spec_type
+        self.parent_specs_table = parent_specs_table
 
         frame_1 = tkinter.Frame(top)
         frame_1.pack()
@@ -469,7 +476,7 @@ class SpecVersionsTable:
         # Before we start inserting rows, we need to load the spec archive for this specification
         # Done here because probably not all specs will be equally accessed. Thus, new versions can be reloaded
         # whenever needed
-        spec_markup, archive_page_url, series_number = get_spec_archive_remote_folder(spec_id, cache=True)
+        spec_markup, archive_page_url, series_number = get_spec_archive_remote_folder(spec_id, cache=True, force_download=False)
         specs_from_archive = extract_spec_files_from_spec_folder(spec_markup, archive_page_url, None, series_number)
         specs_df = pd.DataFrame(specs_from_archive)
         specs_df.set_index("spec", inplace=True)
@@ -501,7 +508,13 @@ class SpecVersionsTable:
             text='Open local folder',
             command=self.open_cache_folder).pack(side=tkinter.LEFT)
 
+        tkinter.Button(
+            frame_3,
+            text='Re-load spec file',
+            command=self.reload_spec_file).pack(side=tkinter.LEFT)
+
     def insert_rows(self):
+        print('Populating version table for spec {0}'.format(self.spec_id))
         df = self.spec_entries.sort_values(by='version', ascending=False)
 
         count = 0
@@ -653,3 +666,10 @@ class SpecVersionsTable:
     def open_cache_folder(self):
         folder_name = get_specs_folder(spec_id=self.spec_id)
         os.startfile(folder_name)
+
+    def reload_spec_file(self):
+        get_spec_page(self.spec_id, cache=True, force_download=True)
+        get_spec_archive_remote_folder(self.spec_id, cache=True, force_download=True)
+        self.parent_specs_table.load_data(initial_load=True, override_pickle_cache=True)
+        self.tree.delete(*self.tree.get_children())
+        self.insert_rows()

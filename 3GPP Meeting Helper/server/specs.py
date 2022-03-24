@@ -44,29 +44,40 @@ def get_html_page_and_save_cache(url: str, cache: bool, cache_file: str, cache_a
         html_decoded = decode_string(html, "cache_file".format(html))
         h = html2text.HTML2Text()
         h.ignore_links = False
-        html_markup = h.handle(html_decoded)
+        output_data = h.handle(html_decoded)
+    else:
+        output_data = html
 
     if cache:
         if not cache_as_markup:
             print('Caching HTML: {0}'.format(cache_file))
             with open(cache_file, 'wb') as file:
-                file.write(html)
+                file.write(output_data)
         else:
             print('Caching Markup: {0}'.format(cache_file))
             with open(cache_file, 'w', encoding='utf-8') as file:
-                file.write(html_markup)
+                file.write(output_data)
 
-    if not cache_as_markup:
-        # If HTML is to be returned, bytes as-is are returned
-        return html
-    else:
-        # If markup is to be returned, string is returned
-        return html_markup
+    # If HTML is to be returned, bytes as-is are returned
+    # If markup is to be returned, string is returned
+    return output_data
 
 
-def get_markup_file(file_url, cache, cache_file):
+def get_markup_file(file_url: str, cache: bool, cache_file: str, force_download=False) -> str:
+    """
+    Downloads a given file and returns a markdown version of it. Can optionally use a file cache
+    Args:
+        file_url: The URL to retrieve
+        cache: Whether to cache
+        cache_file: If caching is used, the file path (i.e. file name) where to store the cached data
+        force_download: Whether regardless of the cache parameter, the file should be downloaded
+        (e.g. for cache updates)
+
+    Returns:
+        The markdown-converted HTML file
+    """
     file_exists = os.path.exists(cache_file)
-    if cache and file_exists:
+    if cache and file_exists and (not force_download):
         print('Loading {0}'.format(cache_file))
         with open(cache_file, mode='r', encoding='utf-8') as file:
             markup = file.read()
@@ -106,18 +117,21 @@ def get_series_folder_page(series_url, release_number, series_number, cache=Fals
     return markup
 
 
-def get_spec_remote_folder(spec_number, cache=False):
+def get_spec_page(spec_number: str, cache=False, force_download=False):
+    # e.g. https://www.3gpp.org/DynaReport/23501.htm
     # Clean up the dot as we do not use it as part of the file name
     spec_number = cleanup_spec_name(spec_number)
     cache_file = os.path.join(get_specs_cache_folder(), '{0}.md'.format(spec_number))
-    markup = get_markup_file(spec_page.format(spec_number), cache, cache_file)
+    markup = get_markup_file(spec_page.format(spec_number), cache, cache_file, force_download=force_download)
     return markup
 
 
-def get_specs(cache=True, check_for_new_specs=False) -> Tuple[pd.DataFrame, Dict[str, SpecVersionMapping]]:
+def get_specs(cache=True, check_for_new_specs=False, override_pickle_cache=False) -> Tuple[pd.DataFrame, Dict[str, SpecVersionMapping]]:
     """
     Retrieves information related to the latest 3GPP specs (per Release) from the 3GPP server or a local cache.
     Args:
+        override_pickle_cache: Whether the HTML/Markup cache should be used but the pickle file ignored (e.g. if an
+            updated HTML file was loaded
         check_for_new_specs: Whether the cache should be updated with newly-found specs
         cache: Whether caching is desired. If yes, if existing, a cache file will be read. The cache file contains
         the last retrieved spec data
@@ -133,11 +147,12 @@ def get_specs(cache=True, check_for_new_specs=False) -> Tuple[pd.DataFrame, Dict
     specs_df_cache_file = os.path.join(get_specs_cache_folder(), '_specs.pickle')
 
     # Load specs data from cache file
-    if cache and (not check_for_new_specs) and os.path.exists(specs_df_cache_file):
-        with open(specs_df_cache_file, "rb") as f:
-            print('Loading spec cache from {0}'.format(specs_df_cache_file))
-            specs_df, spec_metadata = pickle.load(f)
-        return specs_df, spec_metadata
+    if not override_pickle_cache:
+        if cache and (not check_for_new_specs) and os.path.exists(specs_df_cache_file):
+            with open(specs_df_cache_file, "rb") as f:
+                print('Loading spec cache from {0}'.format(specs_df_cache_file))
+                specs_df, spec_metadata = pickle.load(f)
+            return specs_df, spec_metadata
 
     if cache and (not check_for_new_specs):
         latest_and_series_cache = True
@@ -203,8 +218,9 @@ def get_specs(cache=True, check_for_new_specs=False) -> Tuple[pd.DataFrame, Dict
     unique_specs = list(specs_df.index.unique())
     unique_specs.sort()
     spec_metadata = {}
+    # Download each spec's page, e.g. https://www.3gpp.org/DynaReport/23501.htm
     for spec_to_download in unique_specs:
-        spec_page_markup = get_spec_remote_folder(spec_to_download, cache=cache)
+        spec_page_markup = get_spec_page(spec_to_download, cache=cache)
         spec_data = extract_spec_versions_from_spec_file(spec_page_markup)
         spec_key = spec_data.spec[0:2] + '.' + spec_data.spec[2:]
         spec_metadata[spec_key] = spec_data
@@ -243,7 +259,13 @@ def get_specs_folder(create_dir=True, spec_id=None):
     return folder_name
 
 
-def apply_spec_metadata_to_dataframe(specs_df, spec_metadata):
+def apply_spec_metadata_to_dataframe(specs_df: pd.DataFrame, spec_metadata: Dict[str, SpecVersionMapping]):
+    """
+    Applies metadata information to the sepecifications DataFrame
+    Args:
+        specs_df: The DataFrame containing the specification data
+        spec_metadata: A dictionary with specification metadata extracted from parsing the specification pages
+    """
     specs_df['title'] = ''
     specs_df['responsible_group'] = ''
     specs_df['type'] = ''
@@ -382,7 +404,7 @@ def get_archive_page_for_spec(spec_number_with_dot: str) -> Tuple[str, str]:
     return spec_archive_url, series_number
 
 
-def get_spec_archive_remote_folder(spec_number_with_dot, cache=False) -> Tuple[str, str, str]:
+def get_spec_archive_remote_folder(spec_number_with_dot, cache=False, force_download=False) -> Tuple[str, str, str]:
     """
     For a given specification, retrieves the 3GPP spec archive page,
     e.g., https://www.3gpp.org/ftp/Specs/archive/23_series/23.206
@@ -399,5 +421,5 @@ def get_spec_archive_remote_folder(spec_number_with_dot, cache=False) -> Tuple[s
 
     archive_page_url, series_number = get_archive_page_for_spec(spec_number_with_dot)
     cache_file = os.path.join(get_specs_cache_folder(), 'archive_{0}.md'.format(spec_number))
-    markup = get_markup_file(archive_page_url, cache, cache_file)
+    markup = get_markup_file(archive_page_url, cache, cache_file, force_download=force_download)
     return markup, archive_page_url, series_number
