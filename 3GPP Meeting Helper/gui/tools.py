@@ -1,27 +1,26 @@
-import application.meeting_helper
-import tkinter
-
-import application.excel
-import application.word
-import gui.main
-import gui.tdocs_table
-import gui.specs_table
+import datetime
 import os
 import os.path
-import server.tdoc
-import traceback
-import parsing.html as html_parser
-import parsing.excel as excel_parser
-import parsing.outlook
-import parsing.word as word_parser
 import threading
+import tkinter
+import traceback
+
+import pandas
 import pythoncom
 
+import application.excel
+import application.meeting_helper
+import application.word
+import gui.main
+import gui.specs_table
+import gui.tdocs_table
+import parsing.excel as excel_parser
+import parsing.html as html_parser
+import parsing.outlook
+import parsing.word as word_parser
 import server.common
-import tdoc.utils
-import tdoc.utils as tdoc
-import datetime
-import pandas
+import server.tdoc
+from tdoc.utils import tdoc_regex
 
 
 class ToolsDialog:
@@ -580,8 +579,8 @@ class ToolsDialog:
                 entry_1 = self.tkvar_tdoc_to_compare_1.get()
             if entry_2 is None:
                 entry_2 = self.tkvar_tdoc_to_compare_2.get()
-            match_1 = tdoc.utils.tdoc_regex.match(entry_1)
-            match_2 = tdoc.utils.tdoc_regex.match(entry_2)
+            match_1 = tdoc_regex.match(entry_1)
+            match_2 = tdoc_regex.match(entry_2)
 
             # Strip revision number from any input (we will search for the matching document on the list)
             search_1 = '{0}-{1}{2}'.format(match_1.group('group'), match_1.group('year'), match_1.group('tdoc_number'))
