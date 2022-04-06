@@ -1075,11 +1075,12 @@ def open_file(file, return_metadata=False, go_to_page=1):
 
 def open_files(files, return_metadata=False, go_to_page=1):
     # No metadata
-    if return_metadata:
+    if not return_metadata:
         return application.word.open_files(files, go_to_page=go_to_page)
 
     # Case returning metadata
-    return application.word.open_files(files, go_to_page=go_to_page, metadata_function=get_metadata_from_doc)
+    opened_files, parsed_metadata_list = application.word.open_files(files, go_to_page=go_to_page, metadata_function=get_metadata_from_doc)
+    return opened_files, parsed_metadata_list
 
 
 def write_data_and_open_file(data, local_file, open_this_file=True):
