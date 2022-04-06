@@ -179,11 +179,4 @@ def export_document(word_files: List[str], export_format: ExportType = ExportTyp
     except:
         print('Could not export Word document')
         traceback.print_exc()
-    finally:
-        try:
-            if word is not None:
-                word.Quit()
-                print('Closed Word instance for PDF conversion')
-        except:
-            print('Could not close Word instance for PDF conversion')
     return pdf_files
