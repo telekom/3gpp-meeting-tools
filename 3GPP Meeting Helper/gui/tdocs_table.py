@@ -8,7 +8,6 @@ from tkinter import ttk
 import pandas as pd
 import pyperclip
 
-import gui.tools
 from parsing.html_revisions import revisions_file_to_dataframe
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 
@@ -401,13 +400,13 @@ class TdocsTable:
             self.download_and_open_tdoc(actual_value)
         if column == 5:
             print('Opening revisions for {0}'.format(tdoc_id))
-            gui.tdocs_table.RevisionsTable(
+            RevisionsTable(
                 self.top,
                 self.favicon,
                 tdoc_id,
                 self.revisions_list,
                 self.parent_gui_tools,
-                parent_tdocs_table = self)
+                parent_tdocs_table=self)
         if column == 6:
             print('Opening emails for {0}'.format(tdoc_id))
             search_subject_in_all_outlook_items(tdoc_id)
@@ -558,4 +557,4 @@ class RevisionsTable:
         compare_a = self.compare_a.get()
         compare_b = self.compare_b.get()
         print('Comparing {0} vs. {1}'.format(compare_a, compare_b))
-        self.parent_gui_tools.compare_spec_versions(entry_1=compare_a, entry_2=compare_b, )
+        self.parent_gui_tools.compare_tdocs(entry_1=compare_a, entry_2=compare_b)
