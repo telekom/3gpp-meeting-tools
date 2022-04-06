@@ -567,7 +567,8 @@ class SpecVersionsTable:
         # 'Spec', 'Version', 'Open Word', 'Open PDF', 'Add to compare A', 'Add to compare B'
         if column == 0:
             print('Clicked spec ID {0}. Opening 3GPP spec page'.format(actual_value))
-            os.startfile(get_url_for_spec_page(spec_id))
+            url_to_open = get_url_for_spec_page(spec_id)
+            open_url_and_copy_to_clipboard(url_to_open)
         if column == 1:
             print('Clicked spec ID {0}, version {1}'.format(spec_id, actual_value))
         if column == 2:
