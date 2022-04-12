@@ -8,6 +8,7 @@ from tkinter import ttk
 import pandas as pd
 import pyperclip
 
+from application import powerpoint
 from parsing.html_revisions import revisions_file_to_dataframe
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 
@@ -174,6 +175,11 @@ class TdocsTable:
             text='Reload data',
             command=self.reload_data).pack(side=tkinter.LEFT)
 
+        tkinter.Button(
+            frame_1,
+            text='Merge PPT(X)s',
+            command=self.merge_pptx_files).pack(side=tkinter.LEFT)
+
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
@@ -211,11 +217,11 @@ class TdocsTable:
         else:
             return None
 
-    def download_and_open_tdoc(self, actual_value):
+    def download_and_open_tdoc(self, actual_value, skip_opening=False):
         if self.download_and_open_tdoc_fn is not None:
             try:
                 return self.download_and_open_tdoc_fn(
-                    actual_value, copy_to_clipboard=True)
+                    actual_value, copy_to_clipboard=True, skip_opening=skip_opening)
             except:
                 print('Could not open TDoc {0} for Tdocs table'.format(actual_value))
                 traceback.print_exc()
@@ -308,6 +314,21 @@ class TdocsTable:
     def reload_data(self, *args):
         self.load_data(reload=True)
         self.select_ai()  # One will call the other
+
+    def merge_pptx_files(self, *args):
+        print('Extracting all current TDocs and merge PowerPoint files (used to merge status report presentations)')
+        print('Current Tdocs:')
+        tdoc_list_to_merge = list(self.current_tdocs.index)
+        print(tdoc_list_to_merge)
+        all_extracted_files = []
+        for tdoc_id in tdoc_list_to_merge:
+            extracted_files = self.download_and_open_tdoc(tdoc_id, skip_opening=True)
+            all_extracted_files.extend(extracted_files)
+
+        all_extracted_files = [e for e in all_extracted_files if '.ppt' in e.lower()]
+        print('Opened PowerPoint files:')
+        print(all_extracted_files)
+        powerpoint.merge_presentations(all_extracted_files)
 
     def select_ai(self, load_data=True, event=None):
         if load_data:
