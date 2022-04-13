@@ -321,14 +321,23 @@ class TdocsTable:
         tdoc_list_to_merge = list(self.current_tdocs.index)
         print(tdoc_list_to_merge)
         all_extracted_files = []
+        all_titles = []
         for tdoc_id in tdoc_list_to_merge:
             extracted_files = self.download_and_open_tdoc(tdoc_id, skip_opening=True)
-            all_extracted_files.extend(extracted_files)
+            if extracted_files is not None:
+                try:
+                    all_extracted_files.extend(extracted_files)
+                    all_titles.append(self.current_tdocs.at[tdoc_id, 'Title'])
+                except:
+                    print('Could not iterate output from {0}: {1}'.format(tdoc_id, extracted_files))
 
         all_extracted_files = [e for e in all_extracted_files if '.ppt' in e.lower()]
         print('Opened PowerPoint files:')
         print(all_extracted_files)
-        powerpoint.merge_presentations(all_extracted_files)
+        powerpoint.merge_presentations(
+            all_extracted_files,
+            list_of_section_labels=tdoc_list_to_merge,
+            headlines_for_toc=all_titles)
 
     def select_ai(self, load_data=True, event=None):
         if load_data:

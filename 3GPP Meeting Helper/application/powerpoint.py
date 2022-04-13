@@ -3,6 +3,9 @@ import traceback
 
 import win32com.client
 
+# https://docs.microsoft.com/en-us/office/vba/api/powerpoint.ppslidelayout
+ppLayoutText = 2
+
 
 def get_powerpoint():
     """
@@ -28,14 +31,29 @@ def new_presentation():
     return ppt_instance.Presentations.Add()
 
 
-def merge_presentations(list_of_ppts):
+def merge_presentations(list_of_ppts, list_of_section_labels=None, headlines_for_toc=None):
     new_slideset = new_presentation()
     slides = new_slideset.Slides
     section_properties = new_slideset.SectionProperties
+    first_slide_idx_of_insert = []
     for idx, slideset_path in enumerate(list_of_ppts):
         file_name = os.path.splitext(slideset_path)[0]
         insert_position = slides.Count
         print('Adding to slideset in position {0}: {1} ({2})'.format(insert_position, file_name, slideset_path))
-        # section_properties.AddSection(sectionIndex=idx+1, sectionName=file_name)
+
         # Skip first slide (cover slide)
         slides.InsertFromFile(slideset_path, insert_position, SlideStart=2)
+
+        if list_of_section_labels is not None:
+            section_name = '{0}, {1}'.format(list_of_section_labels[idx], headlines_for_toc[idx])
+            section_properties.AddBeforeSlide(insert_position+1, section_name)
+
+        first_slide_idx_of_insert.append(insert_position+1)
+
+    # Create TOC
+    # if headlines_for_toc is not None:
+        # print('Inserts: {0}'.format(first_slide_idx_of_insert))
+        # print('Headlines: {0}'.format(headlines_for_toc))
+        # pptLayout = new_slideset.Slides(1).CustomLayout
+        # toc_slide = slides.AddSlide(slides.Count, pptLayout)
+        # headlines_for_toc
