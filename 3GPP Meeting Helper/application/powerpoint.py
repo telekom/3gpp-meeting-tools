@@ -35,7 +35,7 @@ def merge_presentations(list_of_ppts, list_of_section_labels=None, headlines_for
     new_slideset = new_presentation()
     slides = new_slideset.Slides
     section_properties = new_slideset.SectionProperties
-    first_slide_idx_of_insert = []
+    inserts = []
     for idx, slideset_path in enumerate(list_of_ppts):
         file_name = os.path.splitext(slideset_path)[0]
         insert_position = slides.Count
@@ -48,7 +48,7 @@ def merge_presentations(list_of_ppts, list_of_section_labels=None, headlines_for
             section_name = '{0}, {1}'.format(list_of_section_labels[idx], headlines_for_toc[idx])
             section_properties.AddBeforeSlide(insert_position+1, section_name)
 
-        first_slide_idx_of_insert.append(insert_position+1)
+        inserts.append((insert_position+1, section_name))
 
     # Create TOC
     # if headlines_for_toc is not None:
@@ -57,3 +57,6 @@ def merge_presentations(list_of_ppts, list_of_section_labels=None, headlines_for
         # pptLayout = new_slideset.Slides(1).CustomLayout
         # toc_slide = slides.AddSlide(slides.Count, pptLayout)
         # headlines_for_toc
+    print('Merged {0} slidesets'.format(len(inserts)))
+    for idx, e in enumerate(inserts):
+        print('  {0}, slide {1}: {2}'.format(idx+1, e[0], e[1]))
