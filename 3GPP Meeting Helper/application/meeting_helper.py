@@ -43,3 +43,4 @@ def get_now_time_str():
                                                                             current_dt.day, current_dt.hour,
                                                                             current_dt.minute, current_dt.second)
     return current_dt_str
+

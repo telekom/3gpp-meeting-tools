@@ -14,7 +14,7 @@ gui.common.set_font_size()
 main_frame = tkinter.Frame(tk_root)
 main_frame.grid(column=0, row=0, sticky=(tkinter.N, tkinter.W, tkinter.E, tkinter.S))
 
-# Lauch proxy config window and wait until it is closed
+# Launch proxy config window and wait until it is closed
 proxy_dialog = gui.config.NetworkConfigDialog(tk_root, gui.common.favicon)
 waiting_for_proxy_label = gui.common.set_waiting_for_proxy_message(main_frame)
 tk_root.wait_window(proxy_dialog.top)

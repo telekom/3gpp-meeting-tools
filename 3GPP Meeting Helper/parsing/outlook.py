@@ -313,7 +313,7 @@ def process_email_approval(meeting_name, generate_summary=True):
         return
 
     # We will need this to organize the emails
-    tdoc_data = application.meeting_helper.current_tdocs_by_agenda
+    tdoc_data = gui.main.open_tdocs_by_agenda(open_this_file=False)
 
     print('Parsing SA2 emails and searching for email approval emails ({0})'.format(meeting_name))
     email_approval_emails = get_email_approval_emails(sa2_folder, sa2_email_approval_meeting_folder, tdoc_data)
