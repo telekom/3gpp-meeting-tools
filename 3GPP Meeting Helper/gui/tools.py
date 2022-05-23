@@ -1,27 +1,26 @@
-import application.meeting_helper
-import tkinter
-
-import application.excel
-import application.word
-import gui.main
-import gui.tdocs_table
-import gui.specs_table
+import datetime
 import os
 import os.path
-import server.tdoc
-import traceback
-import parsing.html as html_parser
-import parsing.excel as excel_parser
-import parsing.outlook
-import parsing.word as word_parser
 import threading
+import tkinter
+import traceback
+
+import pandas
 import pythoncom
 
+import application.excel
+import application.meeting_helper
+import application.word
+import gui.main
+import gui.specs_table
+import gui.tdocs_table
+import parsing.excel as excel_parser
+import parsing.html as html_parser
+import parsing.outlook
+import parsing.word as word_parser
 import server.common
-import tdoc.utils
-import tdoc.utils as tdoc
-import datetime
-import pandas
+import server.tdoc
+from tdoc.utils import tdoc_regex
 
 
 class ToolsDialog:
@@ -64,7 +63,14 @@ class ToolsDialog:
         self.launch_tdoc_table = tkinter.Button(
             top,
             text='Open Tdoc table',
-            command=lambda: gui.tdocs_table.TdocsTable(gui.main.root, gui.main.favicon, self))
+            command=lambda: gui.tdocs_table.TdocsTable(
+                gui.main.root,
+                gui.main.favicon,
+                self,
+                retrieve_current_tdocs_by_agenda_fn=lambda: gui.main.open_tdocs_by_agenda(open_this_file=False),
+                get_tdocs_by_agenda_for_selected_meeting_fn=gui.main.get_tdocs_by_agenda_for_selected_meeting,
+                download_and_open_tdoc_fn=gui.main.download_and_open_tdoc,
+            ))
         self.launch_tdoc_table.grid(row=4, column=0, columnspan=int(columnspan / 2), sticky="EW")
 
         # Row 4: Table containing all 3GPP specs
@@ -191,7 +197,9 @@ class ToolsDialog:
         meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
         local_agenda_file = gui.main.get_tdocs_by_agenda_file_or_url(
             server.tdoc.get_local_tdocs_by_agenda_filename(meeting_folder))
-        tdocs_df = html_parser.tdocs_by_agenda(local_agenda_file).tdocs
+        tdocs_df = html_parser.tdocs_by_agenda(
+            local_agenda_file,
+            meeting_server_folder=meeting_folder).tdocs
         return tdocs_df
 
     def open_local_meeting_folder(self):
@@ -209,7 +217,7 @@ class ToolsDialog:
             os.startfile(remote_folder)
 
     def generate_word_report(self):
-        current_tdocs_by_agenda = application.meeting_helper.current_tdocs_by_agenda
+        current_tdocs_by_agenda = gui.main.open_tdocs_by_agenda(open_this_file=False)
         if current_tdocs_by_agenda is None:
             print('Could not generate report. No current TDocsByAgenda found')
             return
@@ -324,7 +332,10 @@ class ToolsDialog:
             process_comments=True,
             add_pivot_summary=True):
         try:
-            tdocs_by_agenda = html_parser.tdocs_by_agenda(gui.main.get_tdocs_by_agenda_file_or_url(local_agenda_file))
+            tdocs_by_agenda = html_parser.tdocs_by_agenda(
+                gui.main.get_tdocs_by_agenda_file_or_url(local_agenda_file),
+                meeting_server_folder=meeting_folder
+            )
 
             # Do not export to Excel the last columns (just a lot of True/False columns for each vendor)
             tdocs_df = tdocs_by_agenda.tdocs.iloc[:, 0:19]
@@ -568,8 +579,8 @@ class ToolsDialog:
                 entry_1 = self.tkvar_tdoc_to_compare_1.get()
             if entry_2 is None:
                 entry_2 = self.tkvar_tdoc_to_compare_2.get()
-            match_1 = tdoc.utils.tdoc_regex.match(entry_1)
-            match_2 = tdoc.utils.tdoc_regex.match(entry_2)
+            match_1 = tdoc_regex.match(entry_1)
+            match_2 = tdoc_regex.match(entry_2)
 
             # Strip revision number from any input (we will search for the matching document on the list)
             search_1 = '{0}-{1}{2}'.format(match_1.group('group'), match_1.group('year'), match_1.group('tdoc_number'))

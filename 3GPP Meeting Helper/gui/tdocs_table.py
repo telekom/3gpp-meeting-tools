@@ -1,16 +1,15 @@
-import tkinter
-from tkinter import ttk
-import application.meeting_helper
-import gui.main
-import gui.tools
-import pyperclip
 import re
 import textwrap
-import webbrowser
-import gui.main
-from parsing.html_revisions import revisions_file_to_dataframe
+import tkinter
 import traceback
+import webbrowser
+from tkinter import ttk
+
 import pandas as pd
+import pyperclip
+
+from application import powerpoint
+from parsing.html_revisions import revisions_file_to_dataframe
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 
 style_name = 'mystyle.Treeview'
@@ -74,18 +73,35 @@ class TdocsTable:
     source_width = 200
     title_width = 550
 
-    def __init__(self, parent, favicon, parent_gui_tools):
-        init_style()
-        top = self.top = tkinter.Toplevel(parent)
-        top.title("TDoc Table. Double-Click on TDoc # or revision # to open")
-        top.iconbitmap(favicon)
-        self.parent_gui_tools = parent_gui_tools
+    meeting_number = '<Meeting number>'
+    all_tdocs = None
+    meeting_server_folder = ''
 
-        frame_1 = tkinter.Frame(top)
+    def __init__(
+            self,
+            parent,
+            favicon,
+            parent_gui_tools,
+            retrieve_current_tdocs_by_agenda_fn=None,
+            get_tdocs_by_agenda_for_selected_meeting_fn=None,
+            download_and_open_tdoc_fn=None):
+        init_style()
+        self.top = tkinter.Toplevel(parent)
+        self.top.title("TDoc Table for current meeting. Double-Click on TDoc # or revision # to open")
+        self.top.iconbitmap(favicon)
+        self.parent_gui_tools = parent_gui_tools
+        self.favicon = favicon
+
+        # Functions to update data from the main GUI
+        self.retrieve_current_tdocs_by_agenda_fn = retrieve_current_tdocs_by_agenda_fn
+        self.get_tdocs_by_agenda_for_selected_meeting_fn = get_tdocs_by_agenda_for_selected_meeting_fn
+        self.download_and_open_tdoc_fn = download_and_open_tdoc_fn
+
+        frame_1 = tkinter.Frame(self.top)
         frame_1.pack(anchor='w')
-        frame_2 = tkinter.Frame(top)
+        frame_2 = tkinter.Frame(self.top)
         frame_2.pack()
-        frame_3 = tkinter.Frame(top)
+        frame_3 = tkinter.Frame(self.top)
         frame_3.pack(anchor='w')
 
         self.tdoc_count = tkinter.StringVar()
@@ -113,7 +129,7 @@ class TdocsTable:
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        self.load_data(reload=True)
+        self.load_data(reload=True, reload_ais=False)
         self.reload_revisions = False
         self.insert_current_tdocs()
 
@@ -122,7 +138,8 @@ class TdocsTable:
         self.tree.configure(yscrollcommand=self.tree_scroll.set)
         # tree.grid(row=0, column=0)
 
-        # Can also do this: https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
+        # Can also do this:
+        # https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
         self.search_entry = tkinter.Entry(frame_1, textvariable=self.search_text, width=25, font='TkDefaultFont')
         self.search_text.trace_add(['write', 'unset'], self.select_text)
@@ -131,13 +148,13 @@ class TdocsTable:
         self.search_entry.pack(side=tkinter.LEFT)
 
         all_ais = ['All']
-        all_ais.extend(list(application.meeting_helper.current_tdocs_by_agenda.tdocs["AI"].unique()))
+        all_ais.extend(list(self.current_tdocs["AI"].unique()))
         self.combo_ai = ttk.Combobox(frame_1, values=all_ais, state="readonly")
         self.combo_ai.set('All')
         self.combo_ai.bind("<<ComboboxSelected>>", self.select_ai)
 
         all_results = ['All']
-        all_results.extend(list(application.meeting_helper.current_tdocs_by_agenda.tdocs["Result"].unique()))
+        all_results.extend(list(self.current_tdocs["Result"].unique()))
         self.combo_result = ttk.Combobox(frame_1, values=all_results, state="readonly")
         self.combo_result.set('All')
         self.combo_result.bind("<<ComboboxSelected>>", self.select_result)
@@ -158,6 +175,11 @@ class TdocsTable:
             text='Reload data',
             command=self.reload_data).pack(side=tkinter.LEFT)
 
+        tkinter.Button(
+            frame_1,
+            text='Merge PPT(X)s',
+            command=self.merge_pptx_files).pack(side=tkinter.LEFT)
+
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
@@ -166,27 +188,71 @@ class TdocsTable:
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
 
-    def load_data(self, reload=False):
+    def retrieve_current_tdocs_by_agenda(self):
+        """
+        Calls retrieve_current_tdocs_by_agenda_fn and updates all_tdocs variable with the retrieved data
+        """
+        if self.retrieve_current_tdocs_by_agenda_fn is not None:
+            try:
+                current_tdocs_by_agenda = self.retrieve_current_tdocs_by_agenda_fn()
+                self.all_tdocs = current_tdocs_by_agenda.tdocs
+                self.meeting_number = current_tdocs_by_agenda.meeting_number
+                self.meeting_server_folder = current_tdocs_by_agenda.meeting_server_folder
+                print('Loaded meeting {0}, server folder {1}'.format(self.meeting_number, self.meeting_server_folder))
+            except:
+                print('Could not retrieve current TdocsByAgenda for Tdocs table')
+                traceback.print_exc()
+
+    def get_tdocs_by_agenda_for_selected_meeting(self, meeting_server_folder):
+        if self.get_tdocs_by_agenda_for_selected_meeting_fn is not None:
+            try:
+                return self.get_tdocs_by_agenda_for_selected_meeting_fn(
+                    meeting_server_folder,
+                    return_revisions_file=True,
+                    return_drafts_file=True)
+            except:
+                print('Could not get TdocsByAgenda, Drafts, Revisions for Tdocs table')
+                traceback.print_exc()
+                return None
+        else:
+            return None
+
+    def download_and_open_tdoc(self, actual_value, skip_opening=False):
+        if self.download_and_open_tdoc_fn is not None:
+            try:
+                return self.download_and_open_tdoc_fn(
+                    actual_value, copy_to_clipboard=True, skip_opening=skip_opening)
+            except:
+                print('Could not open TDoc {0} for Tdocs table'.format(actual_value))
+                traceback.print_exc()
+                return None
+        else:
+            return None
+
+    def load_data(self, reload=False, reload_ais=True):
         if reload:
             print('Loading revision data for table')
-            current_selection = gui.main.tkvar_meeting.get()
-            meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(current_selection)
-            tdocs_by_agenda_file, revisions_file, drafts_file = gui.main.get_tdocs_by_agenda_for_selected_meeting(
-                meeting_server_folder,
-                return_revisions_file=True,
-                return_drafts_file=True)
+
+            # Re-load TdocsByAgenda before inserting rows
+            self.retrieve_current_tdocs_by_agenda()
+
+            meeting_server_folder = self.meeting_server_folder
+            tdocs_by_agenda_file, revisions_file, drafts_file = self.get_tdocs_by_agenda_for_selected_meeting(
+                meeting_server_folder)
 
             self.revisions, self.revisions_list = revisions_file_to_dataframe(
                 revisions_file,
                 self.current_tdocs,
                 drafts_file=drafts_file)
 
-        try:
-            self.meeting_number = application.meeting_helper.current_tdocs_by_agenda.meeting_number
-        except:
-            self.meeting_number = '<Meeting number>'
+        # Rewrite the current tdocs dataframe with the retrieved data. Resets the search filters
+        self.current_tdocs = self.all_tdocs
 
-        self.current_tdocs = application.meeting_helper.current_tdocs_by_agenda.tdocs
+        # Update AI Combo Box
+        if reload_ais:
+            all_ais = ['All']
+            all_ais.extend(list(self.current_tdocs["AI"].unique()))
+            self.combo_ai['values'] = all_ais
 
     def insert_current_tdocs(self):
         self.insert_rows(self.current_tdocs)
@@ -205,7 +271,6 @@ class TdocsTable:
             if self.revisions is None:
                 revision_count = ''
             else:
-                number_format = '{0:02d}'
                 try:
                     rev_number = self.revisions.loc[idx, 'Revisions']
                     try:
@@ -249,6 +314,30 @@ class TdocsTable:
     def reload_data(self, *args):
         self.load_data(reload=True)
         self.select_ai()  # One will call the other
+
+    def merge_pptx_files(self, *args):
+        print('Extracting all current TDocs and merge PowerPoint files (used to merge status report presentations)')
+        print('Current Tdocs:')
+        tdoc_list_to_merge = list(self.current_tdocs.index)
+        print(tdoc_list_to_merge)
+        all_extracted_files = []
+        all_titles = []
+        for tdoc_id in tdoc_list_to_merge:
+            extracted_files = self.download_and_open_tdoc(tdoc_id, skip_opening=True)
+            if extracted_files is not None:
+                try:
+                    all_extracted_files.extend(extracted_files)
+                    all_titles.append(self.current_tdocs.at[tdoc_id, 'Title'])
+                except:
+                    print('Could not iterate output from {0}: {1}'.format(tdoc_id, extracted_files))
+
+        all_extracted_files = [e for e in all_extracted_files if '.ppt' in e.lower()]
+        print('Opened PowerPoint files:')
+        print(all_extracted_files)
+        powerpoint.merge_presentations(
+            all_extracted_files,
+            list_of_section_labels=tdoc_list_to_merge,
+            headlines_for_toc=all_titles)
 
     def select_ai(self, load_data=True, event=None):
         if load_data:
@@ -338,11 +427,16 @@ class TdocsTable:
             return
         if column == 0:
             print('Opening {0}'.format(actual_value))
-            gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
+            self.download_and_open_tdoc(actual_value)
         if column == 5:
             print('Opening revisions for {0}'.format(tdoc_id))
-            gui.tdocs_table.RevisionsTable(gui.main.root, gui.main.favicon, tdoc_id, self.revisions_list,
-                                           self.parent_gui_tools)
+            RevisionsTable(
+                self.top,
+                self.favicon,
+                tdoc_id,
+                self.revisions_list,
+                self.parent_gui_tools,
+                parent_tdocs_table=self)
         if column == 6:
             print('Opening emails for {0}'.format(tdoc_id))
             search_subject_in_all_outlook_items(tdoc_id)
@@ -359,13 +453,14 @@ class TdocsTable:
 
 class RevisionsTable:
 
-    def __init__(self, parent, favicon, tdoc_id, revisions_df, parent_gui_tools):
+    def __init__(self, parent, favicon, tdoc_id, revisions_df, parent_gui_tools, parent_tdocs_table):
         top = self.top = tkinter.Toplevel(parent)
         top.title("Revisions for {0}".format(tdoc_id))
         top.iconbitmap(favicon)
         revisions = revisions_df.loc[tdoc_id, :]
         self.tdoc_id = tdoc_id
         self.parent_gui_tools = parent_gui_tools
+        self.parent_tdocs_table = parent_tdocs_table
         print('{0} Revisions'.format(len(revisions)))
 
         frame_1 = tkinter.Frame(top)
@@ -479,10 +574,10 @@ class RevisionsTable:
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
         if column == 0:
             print('Opening {0}'.format(actual_value))
-            gui.main.download_and_open_tdoc(actual_value, copy_to_clipboard=True)
+            self.parent_tdocs_table.download_and_open_tdoc(actual_value)
         if column == 1:
             print('Opening {0}'.format(tdoc_to_search))
-            gui.main.download_and_open_tdoc(tdoc_to_search, copy_to_clipboard=True)
+            self.parent_tdocs_table.download_and_open_tdoc(tdoc_to_search)
         if column == 2:
             self.compare_a.set(tdoc_to_search)
         if column == 3:
@@ -492,4 +587,4 @@ class RevisionsTable:
         compare_a = self.compare_a.get()
         compare_b = self.compare_b.get()
         print('Comparing {0} vs. {1}'.format(compare_a, compare_b))
-        self.parent_gui_tools.compare_spec_versions(entry_1=compare_a, entry_2=compare_b, )
+        self.parent_gui_tools.compare_tdocs(entry_1=compare_a, entry_2=compare_b)

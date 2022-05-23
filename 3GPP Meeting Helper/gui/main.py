@@ -35,7 +35,7 @@ def set_waiting_for_proxy_message():
 
 
 # global variables
-inbox_tdoc_list = None
+inbox_tdoc_list_html = None
 performing_search = False
 open_downloaded_tdocs = True
 
@@ -142,9 +142,13 @@ def get_tdocs_by_agenda_file_or_url(target):
 
 
 def load_application_data():
-    global inbox_tdoc_list
-    inbox_tdoc_list = get_tdocs_by_agenda_file_or_url(server.tdoc.get_sa2_inbox_tdoc_list())
-    application.meeting_helper.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(inbox_tdoc_list)
+    global inbox_tdoc_list_html
+
+    file_to_parse = server.tdoc.get_sa2_inbox_tdoc_list()
+
+    # In case we override the file
+    inbox_tdoc_list_html = get_tdocs_by_agenda_file_or_url(file_to_parse)
+    application.meeting_helper.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(inbox_tdoc_list_html)
 
     # Load SA2 meeting data
     sa2_folder_html = server.common.get_sa2_folder()
@@ -268,7 +272,13 @@ def open_tdocs_by_agenda(open_this_file=True):
         html,
         meeting_server_folder=meeting_server_folder)
 
+    print('-------------------')
+    print('Current TDocsByAgenda are {0}'.format(application.current_tdocs_by_agenda.meeting_number))
+    print(application.current_tdocs_by_agenda.tdocs.index)
+    print('-------------------')
+
     parsing.word.write_data_and_open_file(html, local_file, open_this_file=open_this_file)
+    return application.current_tdocs_by_agenda
 
 
 def get_tdocs_by_agenda_for_selected_meeting(
@@ -334,7 +344,11 @@ def current_tdocs_by_agenda_exists():
 
 
 # Button to open TDoc
-def download_and_open_tdoc(tdoc_id_to_override=None, cached_tdocs_list=None, copy_to_clipboard=False):
+def download_and_open_tdoc(
+        tdoc_id_to_override=None,
+        cached_tdocs_list=None,
+        copy_to_clipboard=False,
+        skip_opening=False):
     global performing_search
     tkvar_tdoc_id.set(tkvar_tdoc_id.get().replace(' ', '').replace('\r', '').replace('\n', '').strip())
     if tdoc_id_to_override is None:
@@ -350,6 +364,8 @@ def download_and_open_tdoc(tdoc_id_to_override=None, cached_tdocs_list=None, cop
         use_inbox=download_from_inbox,
         return_url=True,
         searching_for_a_file=True)
+    if skip_opening:
+        return retrieved_files
     if copy_to_clipboard:
         if tdoc_url is None:
             clipboard_text = tdoc_id
@@ -418,6 +434,7 @@ def download_and_open_tdoc(tdoc_id_to_override=None, cached_tdocs_list=None, cop
                     tkvar_last_doc_title.set(last_metadata.title)
                 if last_metadata.source is not None:
                     tkvar_last_doc_source.set(last_metadata.source)
+        return retrieved_files
 
 
 def start_main_gui():

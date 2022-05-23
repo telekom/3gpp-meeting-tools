@@ -1,20 +1,12 @@
-import collections
 import re
 # https://stackoverflow.com/questions/52623204/how-to-specify-method-return-type-list-of-what-in-python
 # Edit: With the new 3.9 version of Python, you can annotate types without importing from the typing module
 from typing import List
 
-SpecReleases = collections.namedtuple('SpecReleases', 'folder release base_url release_url')
-SpecSeries = collections.namedtuple('SpecSeries', 'folder series release base_url series_url')
-SpecFile = collections.namedtuple('SpecFile', 'file spec version series release base_url spec_url')
-
-# version_mapping: 16.0.0->g00, version_mapping_inv: g00->16.0.0
-SpecVersionMapping = collections.namedtuple(
-    'SpecVersionMapping',
-    'spec title version_mapping version_mapping_inv responsible_group')
+from parsing.spec_types import SpecType, SpecReleases, SpecSeries, SpecFile, SpecVersionMapping
 
 
-def extract_releases_from_latest_folder(latest_specs_page_text, base_url) -> List[SpecReleases]:
+def extract_releases_from_latest_folder(latest_specs_page_text: str, base_url: str) -> List[SpecReleases]:
     """
     Extracts the 3GPP release information from the HTML of https://www.3gpp.org/ftp/Specs/latest
     Args:
@@ -57,12 +49,18 @@ def extract_spec_series_from_spec_folder(series_specs_page_text, base_url=None, 
 spec_zipfile_regex = re.compile(r'([\d]{5}(-[\d]{2})?)-([\d\w]*).zip')
 
 
-def extract_spec_files_from_spec_folder(specs_page_markup, base_url, release, series) -> List[SpecFile]:
+def extract_spec_files_from_spec_folder(
+        specs_page_markup: str,
+        base_url: str,
+        release: str,
+        series: str,
+        auto_fill=False) -> List[SpecFile]:
     """
     Extracts the 3GPP series information from the HTML of a release,
     e.g., https://www.3gpp.org/ftp/Specs/latest/Rel-18/23_series. Also works for spec archive pages, e.g.,
     https://www.3gpp.org/ftp/Specs/archive/23_series/23.206
     Args:
+        auto_fill: Whether the list should auto-fill series based on the spec number
         specs_page_markup (str): Markup content from which to extract the releases information
         base_url (str): URL where this HTML was extracted. Note that it should NOT end in '/'
         release (str): The release number (not folder) this extraction relates to
@@ -74,8 +72,28 @@ def extract_spec_files_from_spec_folder(specs_page_markup, base_url, release, se
     # Need to account to TR numbers and old release numbers. Examples:
     # 23700-07-h00.zip, 23003-aa0.zip, 23034-800.zip
     specs = [
-        SpecFile(m.group(0), '{0}.{1}'.format(m.group(1)[0:2], m.group(1)[2:]), m.group(3), series, release, base_url,
-                 base_url + '/' + m.group(0)) for m in spec_zipfile_regex.finditer(specs_page_markup)]
+        SpecFile(
+            m.group(0),
+            '{0}.{1}'.format(m.group(1)[0:2], m.group(1)[2:]),
+            m.group(3),
+            series,
+            release,
+            base_url,
+            base_url + '/' + m.group(0)) for m in spec_zipfile_regex.finditer(specs_page_markup)]
+
+    if auto_fill:
+        specs_autofill = []
+        for spec in specs:
+            specs_autofill.append(SpecFile(
+                spec[0],
+                spec[1],
+                spec[2],
+                spec.spec[0:2],
+                spec[4],
+                spec[5],
+                spec[6],
+            ))
+        specs = specs_autofill
 
     specs = list(set(specs))
 
@@ -88,7 +106,9 @@ spec_version_regex = re.compile(r'\[([\d\.]+)]\(https://.*/(.*\.zip)')
 
 def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping:
     """
-    Extracts the 3GPP series information from the HTML of a release, e.g., https://www.3gpp.org/ftp/Specs/latest/Rel-18/23_series
+    Extracts the 3GPP series information from the HTML of specification, e.g. https://www.3gpp.org/DynaReport/23501.htm
+    The file is expected to be passed on in Markup form, not HTML. A call to html2text.HTML2Text() can provide this
+    conversion
     Args:
         spec_page_markup (str): Markup content from which to extract the releases information
 
@@ -97,10 +117,10 @@ def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping
     """
 
     # Without the dot: 23.501->23501
-    spec_number = extract_text_between_delimiters(
+    spec_number = cleanup_spec_name(extract_text_between_delimiters(
         spec_page_markup,
         start_delimiter="Specification #: ",
-        stop_delimiter="  * General").replace('.', '')
+        stop_delimiter="  * General"))
     spec_title = extract_text_between_delimiters(
         spec_page_markup,
         start_delimiter="Title: |  ",
@@ -109,6 +129,22 @@ def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping
         spec_page_markup,
         start_delimiter="Primary responsible group: |  ",
         stop_delimiter="Secondary responsible groups: |  ")
+    spec_type = extract_text_between_delimiters(
+        spec_page_markup,
+        start_delimiter="Type: |  ",
+        stop_delimiter="Initial planned Release: |  ")
+    spec_initial_release = extract_text_between_delimiters(
+        spec_page_markup,
+        start_delimiter="Initial planned Release: |  ",
+        stop_delimiter="Internal: |")
+
+    if 'Technical report (TR)' in spec_type:
+        spec_type_enum = SpecType.TR
+    elif 'Technical specification (TS)' in spec_type:
+        spec_type_enum = SpecType.TS
+    else:
+        spec_type_enum = SpecType.Unknown
+
     # print('Spec {0}: {1}'.format(spec_number, spec_title))
 
     # [16.0.0](https://www.3gpp.org/ftp//Specs/archive/21_series/21.101/21101-g00.zip
@@ -121,7 +157,14 @@ def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping
                      if (m_file := spec_zipfile_regex.match(m.group(2))) is not None}
     spec_versions_inv = {v: k for k, v in spec_versions.items()}
 
-    spec_mapping = SpecVersionMapping(spec_number, spec_title, spec_versions, spec_versions_inv, responsible_group)
+    spec_mapping = SpecVersionMapping(
+        spec_number,
+        spec_title,
+        spec_versions,
+        spec_versions_inv,
+        responsible_group,
+        spec_type_enum,
+        spec_initial_release)
     # if spec_number=='23501' or spec_number=='23.501':
     #     print(spec_mapping)
 
@@ -131,5 +174,28 @@ def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping
 def extract_text_between_delimiters(text, start_delimiter, stop_delimiter) -> str:
     start = text.find(start_delimiter) + len(start_delimiter)
     stop = text.find(stop_delimiter)
-    extracted_text = text[start:stop].replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').replace('---|---','').strip()
+    extracted_text = text[start:stop].replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').replace('---|---',
+                                                                                                         '').strip()
     return extracted_text
+
+
+def cleanup_spec_name(spec_id: str, clean_type=True, clean_dots=True) -> str:
+    """
+    For a given textual Specification name, return the string used for indexing specs, i.e., without dots and/or
+    without a TS/TR string
+    Args:
+        clean_dots: Whether to clean the dot in the spec, e.g. 23.501->23501
+        clean_type: Whether to clean the specification type, e.g. TS 23.501->23.501
+        spec_id: The specification name, e.g., TS 23.501, 23.501, 23501
+
+    Returns: The specification names as used in the DataFrame indexes, e.g., 23501
+
+    """
+    if spec_id is None:
+        return None
+    clean_spec_id = spec_id
+    if clean_type:
+        clean_spec_id = clean_spec_id.replace('TS', '').replace('TR', '').strip()
+    if clean_dots:
+        clean_spec_id = clean_spec_id.replace('.', '').strip()
+    return clean_spec_id
