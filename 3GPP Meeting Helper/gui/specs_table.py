@@ -578,12 +578,12 @@ class SpecVersionsTable:
             open_url_and_copy_to_clipboard(url_to_open)
         if column == 1:
             print('Clicked spec ID {0}, version {1}'.format(spec_id, actual_value))
-        if column == 2:
+        if column == 3:
             print('Opening Word {0}, version {1}'.format(spec_id, row_version))
             spec_url = get_url_for_version_text(self.spec_entries, row_version)
             downloaded_files = download_spec_if_needed(spec_id, spec_url)
             application.word.open_files(downloaded_files)
-        if column == 3:
+        if column == 4:
             print('Opening PDF {0}, version {1}'.format(spec_id, row_version))
             spec_url = get_url_for_version_text(self.spec_entries, row_version)
             downloaded_files = download_spec_if_needed(spec_id, spec_url)
@@ -592,7 +592,7 @@ class SpecVersionsTable:
                 export_format=application.word.ExportType.PDF)
             for pdf_file in pdf_files:
                 os.startfile(pdf_file)
-        if column == 4:
+        if column == 5:
             print('Opening HTML {0}, version {1}'.format(spec_id, row_version))
             spec_url = get_url_for_version_text(self.spec_entries, row_version)
             downloaded_files = download_spec_if_needed(spec_id, spec_url)
@@ -601,10 +601,10 @@ class SpecVersionsTable:
                 export_format=application.word.ExportType.HTML)
             for pdf_file in pdf_files:
                 os.startfile(pdf_file)
-        if column == 5:
+        if column == 6:
             print('Added Compare A: {0}, version {1}'.format(spec_id, row_version))
             self.compare_a.set(row_version)
-        if column == 6:
+        if column == 7:
             print('Added Compare B: {0}, version {1}'.format(spec_id, row_version))
             self.compare_b.set(row_version)
 
