@@ -103,6 +103,9 @@ def extract_spec_files_from_spec_folder(
 # e.g., [1.0.0](https://www.3gpp.org/ftp/Specs/archive/21_series/21.101/21101-100.zip
 spec_version_regex = re.compile(r'\[([\d\.]+)]\(https://.*/(.*\.zip)')
 
+# e.g. |  2022-04-20 |
+spec_upload_date_regex = re.compile(r'\|  ([\d]{4}-[\d]{2}-[\d]{2}) \|')
+
 
 def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping:
     """
@@ -145,6 +148,8 @@ def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping
     else:
         spec_type_enum = SpecType.Unknown
 
+    upload_dates = [m.group(1) for m in spec_upload_date_regex.finditer(spec_page_markup) ]
+
     # print('Spec {0}: {1}'.format(spec_number, spec_title))
 
     # [16.0.0](https://www.3gpp.org/ftp//Specs/archive/21_series/21.101/21101-g00.zip
@@ -164,7 +169,9 @@ def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping
         spec_versions_inv,
         responsible_group,
         spec_type_enum,
-        spec_initial_release)
+        spec_initial_release,
+        upload_dates
+    )
     # if spec_number=='23501' or spec_number=='23.501':
     #     print(spec_mapping)
 

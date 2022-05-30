@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import NamedTuple
+from typing import List
 
 
 class SpecType(Enum):
@@ -50,6 +51,7 @@ class SpecVersionMapping(NamedTuple):
     responsible_group: str
     type: SpecType
     spec_initial_release: str
+    upload_dates: List[str]
 
 
 def get_spec_full_name(spec_id: str, spec_type: SpecType) -> str:

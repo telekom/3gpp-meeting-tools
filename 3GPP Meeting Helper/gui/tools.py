@@ -21,6 +21,7 @@ import parsing.word as word_parser
 import server.common
 import server.tdoc
 from tdoc.utils import tdoc_regex
+from server.specs import get_specs_folder
 
 
 class ToolsDialog:
@@ -45,13 +46,20 @@ class ToolsDialog:
         # https://stackoverflow.com/questions/1892339/how-to-make-a-tkinter-window-jump-to-the-front
         # top.attributes("-topmost", True)
         tkinter.Button(top, text="Open local folder for selected meeting", command=self.open_local_meeting_folder).grid(
-            row=0, column=0, columnspan=int(columnspan / 2), sticky="EW")
+            row=0, column=0, columnspan=1, sticky="EW")
         tkinter.Button(
             top,
             text="Open server meeting folder",
             command=self.open_server_meeting_folder).grid(row=0,
+                                                          column=1,
+                                                          columnspan=1,
+                                                          sticky="EW")
+        tkinter.Button(
+            top,
+            text="Open specs folder",
+            command=self.open_local_specs_folder).grid(row=0,
                                                           column=2,
-                                                          columnspan=int(columnspan / 2),
+                                                          columnspan=2,
                                                           sticky="EW")
 
         # Row 1: Export TDocs by agenda to Excel
@@ -208,6 +216,10 @@ class ToolsDialog:
         if meeting_folder is not None:
             local_folder = server.common.get_meeting_folder(meeting_folder)
             os.startfile(local_folder)
+
+    def open_local_specs_folder(self):
+        local_folder = get_specs_folder()
+        os.startfile(local_folder)
 
     def open_server_meeting_folder(self):
         selected_meeting = gui.main.tkvar_meeting.get()
