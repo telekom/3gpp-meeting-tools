@@ -458,7 +458,7 @@ class SpecVersionsTable:
 
         self.tree = ttk.Treeview(
             frame_1,
-            columns=('Spec', 'Version', 'Open Word', 'Open PDF', 'Open HTML', 'Add to compare A', 'Add to compare B'),
+            columns=('Spec', 'Version', 'Upload Date', 'Open Word', 'Open PDF', 'Open HTML', 'Add to compare A', 'Add to compare B'),
             show='headings',
             selectmode="browse",
             style=style_name,
@@ -466,6 +466,7 @@ class SpecVersionsTable:
 
         set_column(self.tree, 'Spec', "Spec #", width=110)
         set_column(self.tree, 'Version', width=60)
+        set_column(self.tree, 'Upload Date', width=100)
         set_column(self.tree, 'Open Word', width=100)
         set_column(self.tree, 'Open PDF', width=100)
         set_column(self.tree, 'Open HTML', width=100)
@@ -528,8 +529,8 @@ class SpecVersionsTable:
 
         spec_name = get_spec_full_name(self.spec_id, self.spec_type)
 
-        # 'Spec', 'Version', 'Open Word', 'Open PDF', 'Add to compare A', 'Add to compare B'
-        for spec_id, row in rows:
+        # 'Spec', 'Version', 'Upload Date', 'Open Word', 'Open PDF', 'Add to compare A', 'Add to compare B'
+        for idx, (spec_id, row) in enumerate(rows):
             count = count + 1
             mod = count % 2
             if mod > 0:
@@ -537,9 +538,15 @@ class SpecVersionsTable:
             else:
                 tag = 'even'
 
+            try:
+                upload_date = self.parent_specs_table.spec_metadata[spec_id].upload_dates[idx]
+            except:
+                upload_date = '0000-00-00'
+
             self.tree.insert("", "end", tags=(tag,), values=(
                 spec_name,
                 file_version_to_version(row['version']),
+                upload_date,
                 'Open Word',
                 'Open PDF',
                 'Open HTML',
