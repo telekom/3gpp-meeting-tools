@@ -342,6 +342,18 @@ def current_tdocs_by_agenda_exists():
     except:
         return False
 
+# Trigger to search TDoc with Enter key
+def on_press_enter_key(event=None):
+    print('<Return>> key pressed')
+    try:
+        button_status = open_tdoc_button['state']
+    except:
+        button_status = tkinter.DISABLED
+
+    print('button_status={0}'.format(button_status))
+    if button_status == tkinter.NORMAL:
+        download_and_open_tdoc()
+
 
 # Button to open TDoc
 def download_and_open_tdoc(
@@ -504,6 +516,8 @@ def start_main_gui():
                    command=lambda: gui.tools.ToolsDialog(gui.main.root, gui.main.favicon)).grid(row=current_row,
                                                                                                 column=0, sticky="EW")
     open_tdoc_button.configure(command=download_and_open_tdoc)
+    root.bind('<Return>', on_press_enter_key) # Bind the enter key in this frame to searching for the TDoc
+    print('Bound <Return> key to TDoc search')
     open_tdoc_button.grid(row=current_row, column=1, padx=10, pady=10, sticky="EW")
 
     # Override TDocs by Agenda if it is malformed
