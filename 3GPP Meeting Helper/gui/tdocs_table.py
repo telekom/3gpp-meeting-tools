@@ -147,9 +147,15 @@ class TdocsTable:
         tkinter.Label(frame_1, text="Search: ").pack(side=tkinter.LEFT)
         self.search_entry.pack(side=tkinter.LEFT)
 
+        all_types = ['All']
+        all_types.extend(list(self.current_tdocs["Type"].unique()))
+        self.combo_type = ttk.Combobox(frame_1, values=all_types, state="readonly")
+        self.combo_type.set('All')
+        self.combo_type.bind("<<ComboboxSelected>>", self.select_type)
+
         all_ais = ['All']
         all_ais.extend(list(self.current_tdocs["AI"].unique()))
-        self.combo_ai = ttk.Combobox(frame_1, values=all_ais, state="readonly")
+        self.combo_ai = ttk.Combobox(frame_1, values=all_ais, state="readonly", width=10)
         self.combo_ai.set('All')
         self.combo_ai.bind("<<ComboboxSelected>>", self.select_ai)
 
@@ -158,6 +164,9 @@ class TdocsTable:
         self.combo_result = ttk.Combobox(frame_1, values=all_results, state="readonly")
         self.combo_result.set('All')
         self.combo_result.bind("<<ComboboxSelected>>", self.select_result)
+
+        tkinter.Label(frame_1, text="  Filter by Type: ").pack(side=tkinter.LEFT)
+        self.combo_type.pack(side=tkinter.LEFT)
 
         tkinter.Label(frame_1, text="  Filter by AI: ").pack(side=tkinter.LEFT)
         self.combo_ai.pack(side=tkinter.LEFT)
@@ -305,6 +314,7 @@ class TdocsTable:
         self.tdoc_count.set('{0} documents'.format(count))
 
     def clear_filters(self, *args):
+        self.combo_type.set('All')
         self.combo_ai.set('All')
         self.combo_result.set('All')
         self.search_text.set('')
@@ -359,6 +369,29 @@ class TdocsTable:
         if load_data:
             self.select_text(load_data=False)
             self.select_result(load_data=False)
+            self.select_type(load_data=False)
+
+    def select_type(self, load_data=True, event=None):
+        if load_data:
+            self.load_data()
+
+        tdocs_for_type = self.current_tdocs
+        selected_type = self.combo_type.get()
+        print('Filtering by Type "{0}"'.format(selected_type))
+        if selected_type == 'All':
+            tdocs_for_type = tdocs_for_type
+        else:
+            tdocs_for_type = tdocs_for_type[tdocs_for_type['Type'] == self.combo_type.get()]
+
+        self.current_tdocs = tdocs_for_type
+
+        self.tree.delete(*self.tree.get_children())
+        self.insert_current_tdocs()
+
+        if load_data:
+            self.select_ai(load_data=False)
+            self.select_text(load_data=False)
+            self.select_result(load_data=False)
 
     def select_result(self, load_data=True, event=None):
         if load_data:
@@ -380,6 +413,7 @@ class TdocsTable:
         if load_data:
             self.select_text(load_data=False)
             self.select_ai(load_data=False)
+            self.select_type(load_data=False)
 
     def select_text(self, load_data=True, *args):
         if load_data:
@@ -411,6 +445,7 @@ class TdocsTable:
         if load_data:
             self.select_ai(load_data=False)
             self.select_result(load_data=False)
+            self.select_type(load_data=False)
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
