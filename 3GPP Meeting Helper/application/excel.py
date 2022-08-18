@@ -4,12 +4,17 @@ import win32com.client
 
 # Global Excel instance does not work (removed)
 # excel = None
+from application import sensitivity_label
+
 
 def get_excel():
     try:
         excel = win32com.client.Dispatch("Excel.Application")
-        excel.Visible = True
-        excel.DisplayAlerts = False
+        try:
+            excel.Visible = True
+            excel.DisplayAlerts = False
+        except:
+            print('Could not set Excel instance Visible and/or DisplayAlerts property')
         return excel
     except:
         traceback.print_exc()
@@ -21,6 +26,9 @@ def open_excel_document(filename=None, sheet_name=None):
         wb = get_excel().Workbooks.Add()
     else:
         wb = get_excel().Workbooks.Open(filename)
+
+        # Set sensitivity level (if applicable)
+        wb = sensitivity_label.set_sensitivity_label(wb)
     if sheet_name is not None:
         select_worksheet(wb, sheet_name)
     return wb
