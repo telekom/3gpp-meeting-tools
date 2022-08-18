@@ -69,7 +69,7 @@ def open_word_document(filename='', set_as_active_document=True, visible=True, )
             new_sl.LabelId = '55339bf0-f345-473a-9ec8-6ca7c8197055'
             new_sl.LabelName = 'OFFEN'
             new_sl.SetDate = '2022-08-18T09:04:30Z'
-            new_sl.SiteId = 'd313b56f-f400-44d3-8403-4b468b3d8ded'
+            new_sl.SiteId = str(uuid.uuid1())
             doc.SensitivityLabel.SetLabel(new_sl, new_sl)
             print('Set SensitivityLabel to {0}'.format(new_sl.LabelName))
         else:
