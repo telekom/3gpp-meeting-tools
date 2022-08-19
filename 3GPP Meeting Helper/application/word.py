@@ -129,17 +129,27 @@ class ExportType(Enum):
     HTML = 2
 
 
-def export_document(word_files: List[str], export_format: ExportType = ExportType.PDF) -> List[str]:
+def export_document(
+        word_files: List[str],
+        export_format: ExportType = ExportType.PDF,
+        exclude_if_includes='_rm.doc') -> List[str]:
     """
-    Converts a given set of Word files to PDF/HZML
+    Converts a given set of Word files to PDF/HTML
     Args:
         export_format: The format to which the document should be exported to
         word_files: String list containing local paths to the Word files to convert
-
+        exclude_if_includes: a string suffix to ignore certain files (e.g. files with change marks)
     Returns:
         String list containing local paths to the converted PDF files
     """
     pdf_files = []
+    if word_files is None or len(word_files) == 0:
+        return pdf_files
+
+    # Filter out some files (e.g. files with change tracking)
+    if exclude_if_includes != '' and exclude_if_includes is not None:
+        word_files = [ e for e in word_files if exclude_if_includes not in e ]
+
     print('Converting to PDF: {0}'.format(word_files))
 
     if export_format == ExportType.HTML:
