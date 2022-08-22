@@ -187,7 +187,7 @@ def export_document(
                             FileName=out_file,
                             FileFormat=wdFormatFilteredHTML
                         )
-                    doc.Close()
+
                     print('Converted {0} to {1}'.format(word_file, out_file))
                 else:
                     print('{0} already exists. No need to convert'.format(out_file))
