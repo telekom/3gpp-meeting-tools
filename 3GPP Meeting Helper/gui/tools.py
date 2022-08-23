@@ -59,8 +59,16 @@ class ToolsDialog:
             text="Open specs folder",
             command=self.open_local_specs_folder).grid(row=0,
                                                           column=2,
-                                                          columnspan=2,
+                                                          columnspan=1,
                                                           sticky="EW")
+
+        tkinter.Button(
+            top,
+            text="Close Word",
+            command=self.close_word).grid(row=0,
+                                                       column=3,
+                                                       columnspan=1,
+                                                       sticky="EW")
 
         # Row 1: Export TDocs by agenda to Excel
         self.export_button = tkinter.Button(top, text=ToolsDialog.export_text,
@@ -220,6 +228,9 @@ class ToolsDialog:
     def open_local_specs_folder(self):
         local_folder = get_specs_folder()
         os.startfile(local_folder)
+
+    def close_word(self):
+        application.word.close_word()
 
     def open_server_meeting_folder(self):
         selected_meeting = gui.main.tkvar_meeting.get()
