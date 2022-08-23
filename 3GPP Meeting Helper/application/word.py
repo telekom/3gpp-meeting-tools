@@ -196,3 +196,26 @@ def export_document(
         print('Could not export Word document')
         traceback.print_exc()
     return pdf_files
+
+
+def close_word(force=True):
+    """
+    Close all Word documents and application
+    Args:
+        force: Whether to skip saving files
+    """
+    # See http://www.vbaexpress.com/kb/getarticle.php?kb_id=488
+    app = get_word()
+    try:
+        print('Closing Word instance')
+        app.ScreenUpdating = False
+        # Loop through open documents
+        for x in range(app.Documents.Count):
+            # See https://docs.microsoft.com/en-us/office/vba/api/word.wdsaveoptions
+            this_doc = app.Documents(1)
+            print('Closing {0}'.format(this_doc.FullName))
+            this_doc.Close(SaveChanges=0)
+        print('Closing Word instance')
+        app.Quit(SaveChanges=0)
+    except:
+        print('Could not close Word documents')
