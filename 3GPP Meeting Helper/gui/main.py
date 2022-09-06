@@ -251,6 +251,15 @@ def retrieve_current_doc():
         time.sleep(10)
 
 
+def search_netovate():
+    """
+    Search the Netovate website for a specific TDoc
+    """
+    tdoc_id = tkvar_tdoc_id.get()
+    netovate_url = 'http://netovate.com/doc-search/?fname={0}'.format(tdoc_id)
+    print('Opening {0}'.format(netovate_url))
+    os.startfile(netovate_url)
+
 def start_check_current_doc_thread():
     t = threading.Thread(target=retrieve_current_doc)
     t.start()
@@ -526,6 +535,10 @@ def start_main_gui():
         row=current_row, column=0)
     tdocs_by_agenda_entry.config(state='readonly')
     tdocs_by_agenda_entry.grid(row=current_row, column=1, padx=10, pady=10)
+
+    # Add button to check Netovate (useful if you are searching for documents from other WGs
+    tkinter.Button(main_frame, text='Search Netovate',
+                   command=search_netovate).grid(row=current_row, column=2, sticky="EW")
 
     def set_override_tdocs_by_agenda_var(*args):
         global last_override_tdocs_by_agenda
