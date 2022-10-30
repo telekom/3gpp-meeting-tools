@@ -1,21 +1,20 @@
-import application.meeting_helper
+import datetime
 import os
 import os.path
 import re
+import traceback
 from urllib.parse import urljoin
 
+import application.meeting_helper
 import application.word
 import parsing.html as html_parser
-import parsing.word
 import parsing.word as word_parser
 import server.common
+import tdoc.utils
 import tdoc.utils
 from server.common import get_html, private_server, http_server, group_folder, sync_folder, meeting_folder, \
     get_local_revisions_filename, get_local_drafts_filename, get_local_agenda_folder, get_meeting_folder, \
     get_cache_folder, get_remote_meeting_folder, get_inbox_root, unzip_files_in_zip_file
-import traceback
-import tdoc.utils
-import datetime
 
 agenda_regex = re.compile(r'.*Agenda.*[-_](v)?(?P<version>\d*).*\..*')
 agenda_docx_regex = re.compile(r'.*Agenda.*[-_](v)?(?P<version>\d*).*\.(docx|doc|zip)')
@@ -401,7 +400,7 @@ def download_agenda_file(meeting, inbox_active=False):
         if html is None:
             print('Agenda file for {0} not found'.format(meeting))
             return None
-        parsing.word.write_data_and_open_file(html, local_file, open_this_file=False)
+        server.common.write_data_and_open_file(html, local_file)
         return local_file
     except:
         print('Could not download agenda file for {0}'.format(meeting))
@@ -418,7 +417,7 @@ def download_revisions_file(meeting):
         if html is None:
             print('Revisions file for {0} not found'.format(meeting))
             return None
-        parsing.word.write_data_and_open_file(html, local_file, open_this_file=False)
+        server.common.write_data_and_open_file(html, local_file)
         return local_file
     except:
         print('Could get not revisions agenda file for {0}'.format(meeting))
@@ -435,9 +434,11 @@ def download_drafts_file(meeting):
         if html is None:
             print('Drafts file for {0} not found'.format(meeting))
             return None
-        parsing.word.write_data_and_open_file(html, local_file, open_this_file=False)
+        server.common.write_data_and_open_file(html, local_file)
         return local_file
     except:
         print('Could not get drafts agenda file for {0}'.format(meeting))
         traceback.print_exc()
         return None
+
+

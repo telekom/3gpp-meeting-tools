@@ -268,3 +268,19 @@ def download_file_to_location(url, local_location):
     except:
         print('Could not download file {0} to {1}'.format(url, local_location))
         traceback.print_exc()
+
+
+def write_data_and_open_file(data, local_file):
+    """
+    Writes input data to a binary file
+    Args:
+        data: The data to write
+        local_file: The local file to which to write
+
+    Returns:
+
+    """
+    if data is None:
+        return
+    with open(local_file, 'wb') as output:
+        output.write(data)

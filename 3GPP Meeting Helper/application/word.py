@@ -17,6 +17,10 @@ wdExportFormatPDF = 17  # PDF format
 wdFormatHTML = 8
 wdFormatFilteredHTML = 10
 
+# https://docs.microsoft.com/en-us/office/vba/api/word.wdsaveformat
+# Word default document file format. For Word, this is the DOCX format
+wdFormatDocumentDefault = 16
+
 # See https://docs.microsoft.com/en-us/dotnet/api/microsoft.office.interop.word.wdexportcreatebookmarks?view=word-pia
 wdExportCreateHeadingBookmarks = 1
 
@@ -127,12 +131,15 @@ def open_files(files, metadata_function=None, go_to_page=1):
 class ExportType(Enum):
     PDF = 1
     HTML = 2
+    DOCX = 3
 
 
 def export_document(
         word_files: List[str],
         export_format: ExportType = ExportType.PDF,
-        exclude_if_includes='_rm.doc') -> List[str]:
+        exclude_if_includes='_rm.doc',
+        remove_all_fields=False,
+        accept_all_changes=False) -> List[str]:
     """
     Converts a given set of Word files to PDF/HTML
     Args:
@@ -150,12 +157,15 @@ def export_document(
     if exclude_if_includes != '' and exclude_if_includes is not None:
         word_files = [ e for e in word_files if exclude_if_includes not in e ]
 
-    print('Converting to PDF: {0}'.format(word_files))
-
     if export_format == ExportType.HTML:
         extension = '.html'
+        print('Converting to PDF: {0}'.format(word_files))
+    elif export_format == ExportType.DOCX:
+        extension = '.docx'
+        print('Converting to DOCX: {0}'.format(word_files))
     else:
         extension = '.pdf'
+        print('Converting to PDF: {0}'.format(word_files))
 
     try:
         word = None
@@ -171,6 +181,14 @@ def export_document(
                     print('Converting {0} to {1}'.format(word_file, out_file))
                     doc = word.Documents.Open(word_file)
 
+                    if remove_all_fields:
+                        print('Removing all Fields')
+                        doc.Fields.Unlink()
+
+                    if accept_all_changes:
+                        print('Accepting all changes')
+                        doc.Revisions.AcceptAll()
+
                     if export_format == ExportType.PDF:
                         # See https://docs.microsoft.com/en-us/office/vba/api/word.document.exportasfixedformat
                         doc.ExportAsFixedFormat(
@@ -180,6 +198,11 @@ def export_document(
                             OptimizeFor=wdExportOptimizeForPrint,
                             IncludeDocProps=True,
                             CreateBookmarks=wdExportCreateHeadingBookmarks
+                        )
+                    elif export_format == ExportType.DOCX:
+                        doc.SaveAs2(
+                            FileName=out_file,
+                            FileFormat=wdFormatDocumentDefault
                         )
                     else:
                         doc.WebOptions.AllowPNG = True
