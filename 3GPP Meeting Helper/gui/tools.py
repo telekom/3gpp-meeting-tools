@@ -18,8 +18,10 @@ import parsing.excel as excel_parser
 import parsing.html as html_parser
 import parsing.outlook
 import parsing.word as word_parser
+import server.chairnotes
 import server.common
 import server.tdoc
+from parsing.html_chairnotes import chairnotes_file_to_dataframe
 from tdoc.utils import tdoc_regex
 from server.specs import get_specs_folder
 
@@ -27,7 +29,7 @@ from server.specs import get_specs_folder
 class ToolsDialog:
     export_text = 'Export TDocs by Agenda of meeting to Excel + Add comments found in Agenda folder (saved in Agenda folder)'
     export_year_text = 'Export Tdocs for given year (saved in current meeting Agenda folder)'
-    outlook_text_1 = "Order and summarize Outlook emails for current meeting's email approval/e-meeting"
+    outlook_text_1 = "Order & summarize Outlook emails for current email approval/e-meeting"
     outlook_text_2 = "Order emails for current meeting's email approval/e-meeting"
     outlook_attachment_text = "Download SA2 email attachments (excluded are email approval emails)"
     word_report_text = 'Word report for AIs (empty=all)'
@@ -121,7 +123,10 @@ class ToolsDialog:
         self.email_attachments_generate_summary_checkbox.grid(row=2, column=0, sticky="EW")
         self.email_approval_button = tkinter.Button(top, textvariable=self.outlook_button_text,
                                                     command=self.outlook_email_approval)
-        self.email_approval_button.grid(row=2, column=1, columnspan=3, sticky="EW")
+        self.email_approval_button.grid(row=2, column=1, columnspan=2, sticky="EW")
+        self.download_chairnotes = tkinter.Button(top, text="Process Chairman's Notes (be patient)",
+                                                    command=self.process_chairnotes)
+        self.download_chairnotes.grid(row=2, column=3, columnspan=1, sticky="EW")
 
         # Row 3: Outlook tools (download email attachments)
         self.email_attachments_button = tkinter.Button(top, text=ToolsDialog.outlook_attachment_text,
@@ -634,3 +639,10 @@ class ToolsDialog:
             traceback.print_exc()
         finally:
             gui.main.open_downloaded_tdocs = True
+
+    def process_chairnotes(selfself):
+        selected_meeting = gui.main.tkvar_meeting.get()
+        meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
+        local_file = server.chairnotes.download_chairnotes_file(meeting_folder)
+        latest_chairnotes_df = parsing.html_chairnotes.chairnotes_file_to_dataframe(local_file)
+        return

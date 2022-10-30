@@ -286,7 +286,7 @@ def open_tdocs_by_agenda(open_this_file=True):
     print(application.current_tdocs_by_agenda.tdocs.index)
     print('-------------------')
 
-    parsing.word.write_data_and_open_file(html, local_file, open_this_file=open_this_file)
+    server.common.write_data_and_open_file(html, local_file)
     return application.current_tdocs_by_agenda
 
 

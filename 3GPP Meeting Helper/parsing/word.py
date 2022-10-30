@@ -1083,10 +1083,3 @@ def open_files(files, return_metadata=False, go_to_page=1):
     return opened_files, parsed_metadata_list
 
 
-def write_data_and_open_file(data, local_file, open_this_file=True):
-    if data is None:
-        return
-    with open(local_file, 'wb') as output:
-        output.write(data)
-    if open_this_file:
-        open_file(local_file)
