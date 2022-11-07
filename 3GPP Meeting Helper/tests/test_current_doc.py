@@ -1,5 +1,5 @@
 import unittest
-import parsing.html as html_parser
+import parsing.html.common as html_parser
 
 class Test_test_current_doc(unittest.TestCase):
     def test_S2_1813381(self):

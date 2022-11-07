@@ -1,5 +1,5 @@
 import unittest
-import parsing.html as html_parser
+import parsing.html.common as html_parser
 import os
 
 class Test_test_tdocs_by_agenda(unittest.TestCase):

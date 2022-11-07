@@ -10,7 +10,7 @@ import pyperclip
 import application
 import application.word
 import parsing.word as word_parser
-from parsing.html_specs import extract_spec_files_from_spec_folder, cleanup_spec_name
+from parsing.html.specs import extract_spec_files_from_spec_folder, cleanup_spec_name
 from parsing.spec_types import get_spec_full_name, SpecType
 from server import specs
 from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, \

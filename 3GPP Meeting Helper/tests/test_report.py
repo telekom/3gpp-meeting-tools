@@ -3,7 +3,7 @@ import pandas as pd
 import os.path
 
 import application.word
-import parsing.html as html_parser
+import parsing.html.common as html_parser
 import parsing.word as word_parser
 
 class Test_test_report(unittest.TestCase):

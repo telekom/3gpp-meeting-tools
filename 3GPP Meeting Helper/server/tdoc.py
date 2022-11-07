@@ -7,7 +7,7 @@ from urllib.parse import urljoin
 
 import application.meeting_helper
 import application.word
-import parsing.html as html_parser
+import parsing.html.common as html_parser
 import parsing.word as word_parser
 import server.common
 import tdoc.utils
@@ -40,18 +40,23 @@ def get_sa2_inbox_current_tdoc(searching_for_a_file=False):
     return get_html(url)
 
 
-def get_sa2_inbox_tdoc_list():
+def get_sa2_inbox_tdoc_list(open_tdocs_by_agenda_in_browser=False):
     url = get_inbox_root(searching_for_a_file=True) + 'TdocsByAgenda.htm'
+    if open_tdocs_by_agenda_in_browser:
+        os.startfile(url)
     # Return back cached HTML if there is an error retrieving the remote HTML
     fallback_cache = get_inbox_tdocs_list_cache_local_cache()
     online_html = get_html(url, file_to_return_if_error=fallback_cache)
     return online_html
 
 
-def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None):
+def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None, open_tdocs_by_agenda_in_browser=False):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'TdocsByAgenda.htm'
     returned_html = get_html(url, file_to_return_if_error=save_file_to)
+
+    if open_tdocs_by_agenda_in_browser:
+        os.startfile(url)
 
     # Normal case
     if returned_html is not None:
@@ -355,7 +360,7 @@ def update_meeting_ftp_server(new_address):
     update_urls()
 
 
-def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False, save_file_to=None):
+def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False, save_file_to=None, open_tdocs_by_agenda_in_browser=False):
     # If the inbox is active, we need to download both and return the newest one
     html_inbox = None
     html_3gpp = None
@@ -365,11 +370,11 @@ def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False,
 
     if inbox_active:
         print('Getting TDocs by agenda from inbox')
-        html_inbox = get_sa2_inbox_tdoc_list()
+        html_inbox = get_sa2_inbox_tdoc_list(open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
         datetime_inbox = html_parser.tdocs_by_agenda.get_tdoc_by_agenda_date(html_inbox)
 
     print('Getting TDocs by agenda from server')
-    html_3gpp = get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=save_file_to)
+    html_3gpp = get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=save_file_to, open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
     datetime_3gpp = html_parser.tdocs_by_agenda.get_tdoc_by_agenda_date(html_3gpp)
 
     if datetime_3gpp is None:
@@ -392,11 +397,11 @@ def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False,
     return html
 
 
-def download_agenda_file(meeting, inbox_active=False):
+def download_agenda_file(meeting, inbox_active=False, open_tdocs_by_agenda_in_browser=False):
     try:
         meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting)
         local_file = get_local_tdocs_by_agenda_filename(meeting_server_folder)
-        html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder, inbox_active)
+        html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder, inbox_active, open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
         if html is None:
             print('Agenda file for {0} not found'.format(meeting))
             return None
