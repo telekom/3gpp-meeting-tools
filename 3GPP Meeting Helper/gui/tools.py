@@ -15,13 +15,13 @@ import gui.main
 import gui.specs_table
 import gui.tdocs_table
 import parsing.excel as excel_parser
-import parsing.html as html_parser
+import parsing.html.common as html_parser
 import parsing.outlook
 import parsing.word as word_parser
 import server.chairnotes
 import server.common
 import server.tdoc
-from parsing.html_chairnotes import chairnotes_file_to_dataframe
+from parsing.html.chairnotes import chairnotes_file_to_dataframe
 from tdoc.utils import tdoc_regex
 from server.specs import get_specs_folder
 
@@ -644,5 +644,5 @@ class ToolsDialog:
         selected_meeting = gui.main.tkvar_meeting.get()
         meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
         local_file = server.chairnotes.download_chairnotes_file(meeting_folder)
-        latest_chairnotes_df = parsing.html_chairnotes.chairnotes_file_to_dataframe(local_file)
+        latest_chairnotes_df = parsing.html.html_chairnotes.chairnotes_file_to_dataframe(local_file)
         return

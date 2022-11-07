@@ -12,7 +12,7 @@ import application.word
 import application.meeting_helper
 import gui.config
 import gui.tools
-import parsing.html as html_parser
+import parsing.html.common as html_parser
 import parsing.word
 import server.common
 import server.tdoc
@@ -275,16 +275,16 @@ def open_tdocs_by_agenda(open_this_file=True):
         return
 
     # Save opened Tdocs by Agenda file to global application
-    html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder)
+    html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder, open_tdocs_by_agenda_in_browser=open_this_file)
     print('Retrieved local TDocsByAgenda data for {0}. Parsing TDocs'.format(meeting_server_folder))
     application.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(
         html,
         meeting_server_folder=meeting_server_folder)
 
-    print('-------------------')
-    print('Current TDocsByAgenda are {0}'.format(application.current_tdocs_by_agenda.meeting_number))
-    print(application.current_tdocs_by_agenda.tdocs.index)
-    print('-------------------')
+    # print('-------------------')
+    # print('Current TDocsByAgenda are for meeting {0}'.format(application.current_tdocs_by_agenda.meeting_number))
+    # print(application.current_tdocs_by_agenda.tdocs.index)
+    # print('-------------------')
 
     server.common.write_data_and_open_file(html, local_file)
     return application.current_tdocs_by_agenda
@@ -293,9 +293,13 @@ def open_tdocs_by_agenda(open_this_file=True):
 def get_tdocs_by_agenda_for_selected_meeting(
         meeting_folder,
         return_revisions_file=False,
-        return_drafts_file=False):
+        return_drafts_file=False,
+        open_tdocs_by_agenda_in_browser=False):
     inbox_active = inbox_is_for_this_meeting()
-    return_data = server.tdoc.get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active)
+    return_data = server.tdoc.get_tdocs_by_agenda_for_selected_meeting(
+        meeting_folder,
+        inbox_active,
+        open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
 
     # Optional download of revisions
     revisions_file = None

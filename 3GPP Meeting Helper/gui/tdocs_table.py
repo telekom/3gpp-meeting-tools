@@ -9,7 +9,7 @@ import pandas as pd
 import pyperclip
 
 from application import powerpoint
-from parsing.html_revisions import revisions_file_to_dataframe
+from parsing.html.revisions import revisions_file_to_dataframe
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 
 style_name = 'mystyle.Treeview'

@@ -1,5 +1,5 @@
 import unittest
-import parsing.html as html_parser
+import parsing.html.common as html_parser
 
 class Test_test_tdocs_by_agenda_comments(unittest.TestCase):
     def test_tdoc_comment_empty(self):

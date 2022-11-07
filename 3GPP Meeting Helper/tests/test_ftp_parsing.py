@@ -1,5 +1,5 @@
 import unittest
-import parsing.html as html_parser
+import parsing.html.common as html_parser
 import os.path
 
 class Test_test_ftp_parsing(unittest.TestCase):

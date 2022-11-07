@@ -5,7 +5,7 @@ from typing import List, Tuple, Dict
 
 import html2text
 
-from parsing.html_specs import extract_releases_from_latest_folder, extract_spec_series_from_spec_folder, \
+from parsing.html.specs import extract_releases_from_latest_folder, extract_spec_series_from_spec_folder, \
     extract_spec_files_from_spec_folder, extract_spec_versions_from_spec_file, cleanup_spec_name
 from parsing.spec_types import SpecType, SpecVersionMapping
 from server.common import get_html, root_folder, create_folder_if_needed, decode_string, download_file_to_location, \
