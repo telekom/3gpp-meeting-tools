@@ -23,6 +23,7 @@ agenda_version_regex = re.compile(r'.*Agenda.*[-_]?(v)(?P<version>\d*).*\..*')
 agenda_draft_docx_regex = re.compile(r'.*draft.*Agenda.*[-_](v)?(?P<version>\d*).*\.(docx|doc|zip)')
 folder_ftp_names_regex = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][aA][tT][eE].*)')
 
+
 # tdoc_url = 'https://portal.3gpp.org/ngppapp/DownloadTDoc.aspx?contributionUid=S2-2202451'
 # Then, search for javascript: window.location.href='https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_150E_Electronic_2022-04/Docs/S2-2202451.zip';//]]> -> extract
 
@@ -289,7 +290,8 @@ def get_latest_agenda_file(agenda_files):
     if agenda_files is None:
         return None
 
-    agenda_files = [file for file in agenda_files if agenda_docx_regex.match(file)]
+    # Remove case when Word temporary documents are stored
+    agenda_files = [file for file in agenda_files if agenda_docx_regex.match(file) and ('~$' not in file)]
     if len(agenda_files) == 0:
         return None
 
@@ -361,7 +363,8 @@ def update_meeting_ftp_server(new_address):
     update_urls()
 
 
-def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False, save_file_to=None, open_tdocs_by_agenda_in_browser=False):
+def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False, save_file_to=None,
+                                             open_tdocs_by_agenda_in_browser=False):
     # If the inbox is active, we need to download both and return the newest one
     html_inbox = None
     html_3gpp = None
@@ -375,7 +378,8 @@ def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False,
         datetime_inbox = html_parser.tdocs_by_agenda.get_tdoc_by_agenda_date(html_inbox)
 
     print('Getting TDocs by agenda from server')
-    html_3gpp = get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=save_file_to, open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
+    html_3gpp = get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=save_file_to,
+                                          open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
     datetime_3gpp = html_parser.tdocs_by_agenda.get_tdoc_by_agenda_date(html_3gpp)
 
     if datetime_3gpp is None:
@@ -400,9 +404,11 @@ def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False,
 
 def download_agenda_file(meeting, inbox_active=False, open_tdocs_by_agenda_in_browser=False):
     try:
-        meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting)
+        meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+            meeting)
         local_file = get_local_tdocs_by_agenda_filename(meeting_server_folder)
-        html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder, inbox_active, open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
+        html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder, inbox_active,
+                                                        open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
         if html is None:
             print('Agenda file for {0} not found'.format(meeting))
             return None
@@ -446,5 +452,3 @@ def download_drafts_file(meeting):
         print('Could not get drafts agenda file for {0}'.format(meeting))
         traceback.print_exc()
         return None
-
-
