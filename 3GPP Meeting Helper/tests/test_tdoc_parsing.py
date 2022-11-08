@@ -1,6 +1,6 @@
 import unittest
 import os.path
-import parsing.word as word_parser
+import parsing.word.pywin32 as word_parser
 
 class Test_test_tdoc_parsing(unittest.TestCase):
     def test_S2_1811605(self):

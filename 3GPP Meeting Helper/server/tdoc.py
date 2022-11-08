@@ -8,7 +8,8 @@ from urllib.parse import urljoin
 import application.meeting_helper
 import application.word
 import parsing.html.common as html_parser
-import parsing.word as word_parser
+import parsing.word.docx
+import parsing.word.pywin32 as word_parser
 import server.common
 import tdoc.utils
 import tdoc.utils
@@ -341,7 +342,7 @@ def get_last_agenda(meeting_folder):
 
     agenda_path = os.path.join(agenda_folder, last_agenda)
     try:
-        agenda_item_descriptions = word_parser.import_agenda(agenda_path)
+        agenda_item_descriptions = parsing.word.docx.import_agenda(agenda_path)
     except:
         agenda_item_descriptions = {}
     ai_names_cache[meeting_folder] = agenda_item_descriptions
