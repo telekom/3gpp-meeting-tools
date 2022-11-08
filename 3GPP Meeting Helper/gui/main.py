@@ -13,7 +13,7 @@ import application.meeting_helper
 import gui.config
 import gui.tools
 import parsing.html.common as html_parser
-import parsing.word
+import parsing.word.pywin32
 import server.common
 import server.tdoc
 import tdoc.utils

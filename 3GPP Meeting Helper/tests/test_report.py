@@ -4,7 +4,7 @@ import os.path
 
 import application.word
 import parsing.html.common as html_parser
-import parsing.word as word_parser
+import parsing.word.pywin32 as word_parser
 
 class Test_test_report(unittest.TestCase):
     @unittest.skip("Skipping tests that open Word")

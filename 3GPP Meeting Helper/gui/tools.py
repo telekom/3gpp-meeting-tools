@@ -17,7 +17,7 @@ import gui.tdocs_table
 import parsing.excel as excel_parser
 import parsing.html.common as html_parser
 import parsing.outlook
-import parsing.word as word_parser
+import parsing.word.pywin32 as word_parser
 import server.chairnotes
 import server.common
 import server.tdoc

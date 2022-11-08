@@ -9,7 +9,7 @@ import pyperclip
 
 import application
 import application.word
-import parsing.word as word_parser
+import parsing.word.pywin32 as word_parser
 from parsing.html.specs import extract_spec_files_from_spec_folder, cleanup_spec_name
 from parsing.spec_types import get_spec_full_name, SpecType
 from server import specs
