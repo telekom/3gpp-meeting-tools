@@ -5,7 +5,7 @@ import re
 import traceback
 from datetime import datetime
 from enum import Enum
-from typing import NamedTuple
+from typing import NamedTuple, List
 
 import application.word
 import config.contributor_names as contributor_names
@@ -1057,6 +1057,13 @@ class CrMetadata(NamedTuple):
     CrForm: str
 
 
+def extract_cell(table, row: int, column: int):
+    try:
+        return cleanup_cell_text(table.Cell(Row=row, Column=column).Range.Text)
+    except:
+        return None
+
+
 def parse_cr(filename: str) -> CrMetadata:
     """
     Parses a CR and extracts the cover page information
@@ -1071,37 +1078,35 @@ def parse_cr(filename: str) -> CrMetadata:
 
     # First Table = Spec info
     spec_table = all_tables[0]
-    cr_form = cleanup_cell_text(spec_table.Cell(Row=1, Column=1).Range.Text)
-    spec = cleanup_cell_text(spec_table.Cell(Row=4, Column=2).Range.Text)
-    cr = cleanup_cell_text(spec_table.Cell(Row=4, Column=4).Range.Text)
-    rev = cleanup_cell_text(spec_table.Cell(Row=4, Column=6).Range.Text)
-    current_version = cleanup_cell_text(spec_table.Cell(Row=4, Column=8).Range.Text)
+    cr_form = extract_cell(spec_table, row=1, column=1)
+    spec = extract_cell(spec_table, row=4, column=2)
+    cr = extract_cell(spec_table, row=4, column=4)
+    rev = extract_cell(spec_table, row=4, column=6)
+    current_version = extract_cell(spec_table, row=4, column=8)
 
     # Second Table = Change effects
     change_affects_table = all_tables[1]
 
-
-
-    affects_uuic = x_in_var(change_affects_table.Cell(Row=1, Column=3).Range.Text)
-    affects_ran = x_in_var(change_affects_table.Cell(Row=1, Column=5).Range.Text)
-    affects_apps = x_in_var(change_affects_table.Cell(Row=1, Column=7).Range.Text)
-    affects_cn = x_in_var(change_affects_table.Cell(Row=1, Column=9).Range.Text)
+    affects_uuic = x_in_var(extract_cell(change_affects_table, row=1, column=3))
+    affects_ran = x_in_var(extract_cell(change_affects_table, row=1, column=5))
+    affects_apps = x_in_var(extract_cell(change_affects_table, row=1, column=7))
+    affects_cn = x_in_var(extract_cell(change_affects_table, row=1, column=9))
 
     # Third Table = CR Summary
     summary_table = all_tables[2]
 
-    title = cleanup_cell_text(summary_table.Cell(Row=2, Column=2).Range.Text)
-    source_to_wg = cleanup_cell_text(summary_table.Cell(Row=4, Column=2).Range.Text)
-    source_to_tsg = cleanup_cell_text(summary_table.Cell(Row=5, Column=2).Range.Text)
-    work_item_code = cleanup_cell_text(summary_table.Cell(Row=7, Column=2).Range.Text)
-    cr_date = cleanup_cell_text(summary_table.Cell(Row=7, Column=5).Range.Text)
-    category = cleanup_cell_text(summary_table.Cell(Row=9, Column=2).Range.Text)
-    release = cleanup_cell_text(summary_table.Cell(Row=9, Column=5).Range.Text)
+    title = extract_cell(summary_table, row=2, column=2)
+    source_to_wg = extract_cell(summary_table, row=4, column=2)
+    source_to_tsg = extract_cell(summary_table, row=5, column=2)
+    work_item_code = extract_cell(summary_table, row=7, column=2)
+    cr_date = extract_cell(summary_table, row=7, column=5)
+    category = extract_cell(summary_table, row=9, column=2)
+    release = extract_cell(summary_table, row=9, column=5)
 
-    reason_for_change = cleanup_cell_text(summary_table.Cell(Row=12, Column=2).Range.Text)
-    summary_of_change = cleanup_cell_text(summary_table.Cell(Row=14, Column=2).Range.Text)
-    consequences_if_not_approved = cleanup_cell_text(summary_table.Cell(Row=16, Column=2).Range.Text)
-    clauses_affected = cleanup_cell_text(summary_table.Cell(Row=18, Column=2).Range.Text)
+    reason_for_change = extract_cell(summary_table, row=12, column=2)
+    summary_of_change = extract_cell(summary_table, row=14, column=2)
+    consequences_if_not_approved = extract_cell(summary_table, row=16, column=2)
+    clauses_affected = extract_cell(summary_table, row=18, column=2)
 
     # Close document before exiting
     doc.Close()
@@ -1116,11 +1121,17 @@ def parse_cr(filename: str) -> CrMetadata:
     )
 
     print(cr_metadata)
-
     return cr_metadata
 
 
-def cleanup_cell_text(cell_text: str):
+def cleanup_cell_text(cell_text: str)-> str:
+    """
+    Cleans up the content of a Word Cell
+    Args:
+        cell_text: The text to clean up
+    Returns: The cleaned-up text
+
+    """
     if cell_text is None:
         return cell_text
 
@@ -1128,3 +1139,16 @@ def cleanup_cell_text(cell_text: str):
     cell_text = cell_text.strip(" \r\n\t")
 
     return cell_text
+
+
+def parse_list_of_crs(crs: List[str]) -> List[CrMetadata]:
+    """
+    Parses a list of CR files
+    Args:
+        crs: A list containing filepaths
+
+    Returns: A list containing the CR metadata
+
+    """
+    parsed_crs = [ parse_cr(f) for f in crs if f is not None and os.path.exists(f) ]
+    return parsed_crs
