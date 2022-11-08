@@ -1,5 +1,6 @@
 import configparser
 import datetime
+import traceback
 
 import application.outlook
 import server
@@ -16,15 +17,23 @@ current_tdocs_by_agenda = None
 word_own_reporter_name = None
 
 # Write config
-server.default_http_proxy = config['HTTP']['DefaultHttpProxy']
-sa2_list_folder_name = config['OUTLOOK']['Sa2MailingListFolder']
-sa2_email_approval_folder_name = config['OUTLOOK']['Sa2EmailApprovalFolder']
+try:
+    server.default_http_proxy = config['HTTP']['DefaultHttpProxy']
+    sa2_list_folder_name = config['OUTLOOK']['Sa2MailingListFolder']
+    sa2_email_approval_folder_name = config['OUTLOOK']['Sa2EmailApprovalFolder']
+except KeyError:
+    print('Could not load configuration file')
+    traceback.print_exc()
 
-if sa2_list_folder_name[0] == '/':
+    server.default_http_proxy = ""
+    sa2_list_folder_name = ""
+    sa2_email_approval_folder_name = ""
+
+if len(sa2_list_folder_name) > 0 and sa2_list_folder_name[0] == '/':
     sa2_list_folder_name = sa2_list_folder_name[1:]
     application.outlook.sa2_list_from_inbox = False
 
-if sa2_email_approval_folder_name[0] == '/':
+if len(sa2_email_approval_folder_name) > 0 and sa2_email_approval_folder_name[0] == '/':
     sa2_email_approval_folder_name = sa2_email_approval_folder_name[1:]
     application.outlook.sa2_email_approval_from_inbox = False
 
@@ -43,4 +52,3 @@ def get_now_time_str():
                                                                             current_dt.day, current_dt.hour,
                                                                             current_dt.minute, current_dt.second)
     return current_dt_str
-

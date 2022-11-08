@@ -1,6 +1,17 @@
+import traceback
+
 from docx import Document
 
+
 def import_agenda(agenda_file):
+    """
+    Imports an Agenda file
+    Args:
+        agenda_file (str): Path of the document to import
+
+    Returns:
+
+    """
     try:
         document = Document(agenda_file)
     except:
@@ -57,3 +68,5 @@ def import_agenda(agenda_file):
         hours_column[idx] = new_hour
 
     return ai_descriptions
+
+

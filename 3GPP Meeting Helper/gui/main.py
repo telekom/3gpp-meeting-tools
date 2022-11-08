@@ -445,7 +445,7 @@ def download_and_open_tdoc(
             if cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
                 cached_tdocs_list.extend(retrieved_files)
         else:
-            opened_files, metadata_list = parsing.word.open_files(retrieved_files, return_metadata=True)
+            opened_files, metadata_list = parsing.word.pywin32.open_files(retrieved_files, return_metadata=True)
             found_string = 'Opened {0} file(s)'.format(opened_files)
         tkvar_last_doc_tdoc.set(tkvar_tdoc_id.get())
         if performing_search:
@@ -583,7 +583,7 @@ def start_main_gui():
                 server.tdoc.get_agenda_files(meeting_folder, use_inbox=True)
             last_agenda, agenda_version = server.tdoc.get_last_agenda(meeting_folder)
             if last_agenda is not None:
-                parsing.word.open_file(last_agenda, go_to_page=-2)
+                parsing.word.pywin32.open_file(last_agenda, go_to_page=-2)
                 tkvar_last_agenda_version.set('v' + str(agenda_version))
             else:
                 tkvar_last_agenda_version.set('Not found')
@@ -598,7 +598,7 @@ def start_main_gui():
     # Row: info from last document
     current_row += 1
     tkinter.ttk.Separator(main_frame, orient=tkinter.HORIZONTAL).grid(row=current_row, columnspan=3,
-                                                                      sticky=(tkinter.W, tkinter.E))
+                                                                      sticky="WE")
 
     current_row += 1
     tkinter.Label(main_frame, text='Last document:').grid(row=current_row, column=0)
