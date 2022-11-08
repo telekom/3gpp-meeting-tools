@@ -1,16 +1,15 @@
-import os
-import re
 import collections
+import os
+import os.path
+import re
 import traceback
-
+from datetime import datetime
 from enum import Enum
+from typing import NamedTuple
 
 import application.word
-import server.tdoc
 import config.contributor_names as contributor_names
-import os.path
-from datetime import datetime
-
+import server.tdoc
 from application.word import get_word, open_word_document
 from tdoc.utils import tdoc_regex
 
@@ -323,7 +322,8 @@ def fill_in_table(
     current_row = table.Rows.Last
 
     tdocs = df.index.tolist()
-    server_urls = dict([(tdoc, server.tdoc.get_remote_filename(meeting_folder, tdoc, use_inbox=False)) for tdoc in tdocs])
+    server_urls = dict(
+        [(tdoc, server.tdoc.get_remote_filename(meeting_folder, tdoc, use_inbox=False)) for tdoc in tdocs])
 
     # Fill in TDoc data
     row_idx = 2
@@ -429,7 +429,7 @@ def fill_in_table(
             if value == 'Result':
                 if re.search('approved', cell_content, re.IGNORECASE) or re.search('agreed', cell_content,
                                                                                    re.IGNORECASE) or re.search(
-                        'replied to', cell_content, re.IGNORECASE):
+                    'replied to', cell_content, re.IGNORECASE):
                     table.Cell(Row=row_idx, Column=col_idx + 2).Shading.BackgroundPatternColor = rgb_to_hex(
                         color_light_green)
                 elif re.search('revised', cell_content, re.IGNORECASE):
@@ -992,7 +992,7 @@ def compare_documents(
         comparison_document = word_application.CompareDocuments(
             OriginalDocument=doc_1,
             RevisedDocument=doc_2,
-            Destination=2, # wdCompareDestinationNew
+            Destination=2,  # wdCompareDestinationNew
             IgnoreAllComparisonWarnings=True,
             CompareFormatting=compare_formatting,
             CompareCaseChanges=compare_case_changes,
@@ -1020,7 +1020,111 @@ def open_files(files, return_metadata=False, go_to_page=1):
         return application.word.open_files(files, go_to_page=go_to_page)
 
     # Case returning metadata
-    opened_files, parsed_metadata_list = application.word.open_files(files, go_to_page=go_to_page, metadata_function=get_metadata_from_doc)
+    opened_files, parsed_metadata_list = application.word.open_files(files, go_to_page=go_to_page,
+                                                                     metadata_function=get_metadata_from_doc)
     return opened_files, parsed_metadata_list
 
 
+class CrCategory(Enum):
+    Unknown = "Unknown"
+    Correction = "F"
+    Mirror = "A"
+    AdditionOfFeature = "B"
+    FunctionalModificationOfFeature = "C"
+    EditorialModification = "D"
+
+
+class CrMetadata(NamedTuple):
+    Spec: str
+    Cr: str
+    Rev: str
+    CurrentVersion: str
+    Title: str
+    SourceToWg: str
+    SourceToTsg: str
+    WorkItemCode: str
+    Date: str
+    Category: CrCategory
+    Release: str
+    ProposedChangeAffectsUiic: bool
+    ProposedChangeAffectsMe: bool
+    ProposedChangeAffectsRan: bool
+    ProposedChangeAffectsCn: bool
+    ReasonForChange: str
+    SummaryOfChange: str
+    ConsequencesIfNotApproved: str
+    ClausesAffected: str
+    CrForm: str
+
+
+def parse_cr(filename: str) -> CrMetadata:
+    """
+    Parses a CR and extracts the cover page information
+    Returns:
+        CrMetadata: Information from the cover page of the CR
+    """
+    doc = open_word_document(filename)
+    all_tables = doc.Tables
+
+    def x_in_var(in_str: str) -> str:
+        return 'x' in in_str or 'X' in in_str
+
+    # First Table = Spec info
+    spec_table = all_tables[0]
+    cr_form = cleanup_cell_text(spec_table.Cell(Row=1, Column=1).Range.Text)
+    spec = cleanup_cell_text(spec_table.Cell(Row=4, Column=2).Range.Text)
+    cr = cleanup_cell_text(spec_table.Cell(Row=4, Column=4).Range.Text)
+    rev = cleanup_cell_text(spec_table.Cell(Row=4, Column=6).Range.Text)
+    current_version = cleanup_cell_text(spec_table.Cell(Row=4, Column=8).Range.Text)
+
+    # Second Table = Change effects
+    change_affects_table = all_tables[1]
+
+
+
+    affects_uuic = x_in_var(change_affects_table.Cell(Row=1, Column=3).Range.Text)
+    affects_ran = x_in_var(change_affects_table.Cell(Row=1, Column=5).Range.Text)
+    affects_apps = x_in_var(change_affects_table.Cell(Row=1, Column=7).Range.Text)
+    affects_cn = x_in_var(change_affects_table.Cell(Row=1, Column=9).Range.Text)
+
+    # Third Table = CR Summary
+    summary_table = all_tables[2]
+
+    title = cleanup_cell_text(summary_table.Cell(Row=2, Column=2).Range.Text)
+    source_to_wg = cleanup_cell_text(summary_table.Cell(Row=4, Column=2).Range.Text)
+    source_to_tsg = cleanup_cell_text(summary_table.Cell(Row=5, Column=2).Range.Text)
+    work_item_code = cleanup_cell_text(summary_table.Cell(Row=7, Column=2).Range.Text)
+    cr_date = cleanup_cell_text(summary_table.Cell(Row=7, Column=5).Range.Text)
+    category = cleanup_cell_text(summary_table.Cell(Row=9, Column=2).Range.Text)
+    release = cleanup_cell_text(summary_table.Cell(Row=9, Column=5).Range.Text)
+
+    reason_for_change = cleanup_cell_text(summary_table.Cell(Row=12, Column=2).Range.Text)
+    summary_of_change = cleanup_cell_text(summary_table.Cell(Row=14, Column=2).Range.Text)
+    consequences_if_not_approved = cleanup_cell_text(summary_table.Cell(Row=16, Column=2).Range.Text)
+    clauses_affected = cleanup_cell_text(summary_table.Cell(Row=18, Column=2).Range.Text)
+
+    # Close document before exiting
+    doc.Close()
+
+    # Export CR metadata
+    cr_metadata = CrMetadata(
+        spec, cr, rev, current_version,
+        title, source_to_wg, source_to_tsg, work_item_code, cr_date, category, release,
+        affects_uuic, affects_ran, affects_apps, affects_cn,
+        reason_for_change, summary_of_change, consequences_if_not_approved, clauses_affected,
+        cr_form
+    )
+
+    print(cr_metadata)
+
+    return cr_metadata
+
+
+def cleanup_cell_text(cell_text: str):
+    if cell_text is None:
+        return cell_text
+
+    cell_text = cell_text.replace("\r\x07", "")
+    cell_text = cell_text.strip(" \r\n\t")
+
+    return cell_text
