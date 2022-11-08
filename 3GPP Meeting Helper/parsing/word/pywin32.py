@@ -5,7 +5,9 @@ import re
 import traceback
 from datetime import datetime
 from enum import Enum
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Tuple
+
+from pandas import DataFrame
 
 import application.word
 import config.contributor_names as contributor_names
@@ -1043,6 +1045,7 @@ class CrMetadata(NamedTuple):
     SourceToWg: str
     SourceToTsg: str
     WorkItemCode: str
+    Ai: str
     Date: str
     Category: CrCategory
     Release: str
@@ -1064,7 +1067,7 @@ def extract_cell(table, row: int, column: int):
         return None
 
 
-def parse_cr(filename: str) -> CrMetadata:
+def parse_cr(filename: str, ai: str = None, print_output=True) -> CrMetadata:
     """
     Parses a CR and extracts the cover page information
     Returns:
@@ -1072,6 +1075,8 @@ def parse_cr(filename: str) -> CrMetadata:
     """
     doc = open_word_document(filename)
     all_tables = doc.Tables
+
+    print("Parsing CR {0}".format(filename))
 
     def x_in_var(in_str: str) -> str:
         return 'x' in in_str or 'X' in in_str
@@ -1114,17 +1119,18 @@ def parse_cr(filename: str) -> CrMetadata:
     # Export CR metadata
     cr_metadata = CrMetadata(
         spec, cr, rev, current_version,
-        title, source_to_wg, source_to_tsg, work_item_code, cr_date, category, release,
+        title, source_to_wg, source_to_tsg, work_item_code, ai, cr_date, category, release,
         affects_uuic, affects_ran, affects_apps, affects_cn,
         reason_for_change, summary_of_change, consequences_if_not_approved, clauses_affected,
         cr_form
     )
 
-    print(cr_metadata)
+    if print_output:
+        print(cr_metadata)
     return cr_metadata
 
 
-def cleanup_cell_text(cell_text: str)-> str:
+def cleanup_cell_text(cell_text: str) -> str:
     """
     Cleans up the content of a Word Cell
     Args:
@@ -1141,7 +1147,7 @@ def cleanup_cell_text(cell_text: str)-> str:
     return cell_text
 
 
-def parse_list_of_crs(crs: List[str]) -> List[CrMetadata]:
+def parse_list_of_crs(crs: List[Tuple[str, str]]) -> DataFrame:
     """
     Parses a list of CR files
     Args:
@@ -1150,5 +1156,22 @@ def parse_list_of_crs(crs: List[str]) -> List[CrMetadata]:
     Returns: A list containing the CR metadata
 
     """
-    parsed_crs = [ parse_cr(f) for f in crs if f is not None and os.path.exists(f) ]
-    return parsed_crs
+    parsed_crs = []
+    for cr in crs:
+        if cr[0] is None or not os.path.exists(cr[0]):
+            continue
+
+        parsed_crs.append(parse_cr(cr[0], cr[1], print_output=False))
+    df = DataFrame(
+        parsed_crs,
+        columns=[
+            'Spec', 'CR', 'Rev', 'Current Version',
+            'Title', 'Source To WG', 'Source To TSG',
+            'Work Item Code', 'Date', 'Category', 'Release',
+            'Proposed Change Affects UIIC', 'Proposed Change Affects ME',
+            'Proposed Change Affects RAN', 'Proposed Change Affects CN',
+            'Reason for Change', 'Summary of Change', 'Consequences if not Approved', 'Clauses Affected',
+            'CR Form'
+        ])
+
+    return df
