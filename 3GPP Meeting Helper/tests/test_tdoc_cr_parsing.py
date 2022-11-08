@@ -24,3 +24,24 @@ class Test_test_tdoc_cr_parsing(unittest.TestCase):
         self.assertIn("Control in the MME is enforced per UE", parsed_cr.SummaryOfChange)
         self.assertIn("starting time between the MME and the UE/PDN GW/SCEF, and as a result leading unexpected PDU dropping/delaying at the MME", parsed_cr.ConsequencesIfNotApproved)
         self.assertEqual(parsed_cr.ClausesAffected, "4.7.7.2, 5.7.2")
+
+    def test_S2_2210570(self):
+        tdoc = 'S2-2210570_R18_AIMLsys_Support of QoS request for a list of UEs and reusing URLLC QoS monitoring for AIML-based services_23.502_v3.docx'
+        file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs', tdoc)
+        parsed_cr = word_parser.parse_cr(file_name)
+
+        self.assertEqual(parsed_cr.Spec, '23.502')
+        self.assertEqual(parsed_cr.Cr, '3627')
+        self.assertEqual(parsed_cr.CurrentVersion, '17.6.0')
+        self.assertEqual(parsed_cr.ProposedChangeAffectsUiic, False)
+        self.assertEqual(parsed_cr.ProposedChangeAffectsMe, False)
+        self.assertEqual(parsed_cr.ProposedChangeAffectsRan, False)
+        self.assertEqual(parsed_cr.ProposedChangeAffectsCn, True)
+
+        self.assertEqual(parsed_cr.Title, "Support of QoS request for a list of UEs and reusing URLLC QoS monitoring for AIML-based services")
+        self.assertEqual(parsed_cr.SourceToWg, "Samsung")
+        self.assertEqual(parsed_cr.Category, "B")
+        self.assertIn("In order to request QoS for the AIML communication with each of the members of the group", parsed_cr.ReasonForChange)
+        self.assertIn("Update AF Session setup with required QoS procedure to support QoS request for a list of UEs", parsed_cr.SummaryOfChange)
+        self.assertIn("URLLC QoS monitoring mechnisam and QoS request for a list of UEs (e.g., FL member UEs) is not supported for AI/ML-based services", parsed_cr.ConsequencesIfNotApproved)
+        self.assertEqual(parsed_cr.ClausesAffected, "4.15.6.6, 5.2.5.3.2, 5.2.6.9.1, 5.2.6.9.2, 5.2.6.9.3, 5.2.8.3.1, 5.2.13.2.4, 5.2.26.2.1")
