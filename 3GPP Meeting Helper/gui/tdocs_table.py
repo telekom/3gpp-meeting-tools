@@ -1,3 +1,4 @@
+import os
 import re
 import textwrap
 import tkinter
@@ -8,9 +9,13 @@ from tkinter import ttk
 import pandas as pd
 import pyperclip
 
+import application
+import gui
+import server
 from application import powerpoint
 from parsing.html.revisions import revisions_file_to_dataframe
 from parsing.outlook_utils import search_subject_in_all_outlook_items
+from parsing.word.pywin32 import parse_list_of_crs
 
 style_name = 'mystyle.Treeview'
 
@@ -85,6 +90,7 @@ class TdocsTable:
             retrieve_current_tdocs_by_agenda_fn=None,
             get_tdocs_by_agenda_for_selected_meeting_fn=None,
             download_and_open_tdoc_fn=None):
+
         init_style()
         self.top = tkinter.Toplevel(parent)
         self.top.title("TDoc Table for current meeting. Double-Click on TDoc # or revision # to open")
@@ -165,13 +171,13 @@ class TdocsTable:
         self.combo_result.set('All')
         self.combo_result.bind("<<ComboboxSelected>>", self.select_result)
 
-        tkinter.Label(frame_1, text="  Filter by Type: ").pack(side=tkinter.LEFT)
+        tkinter.Label(frame_1, text="  By Type: ").pack(side=tkinter.LEFT)
         self.combo_type.pack(side=tkinter.LEFT)
 
-        tkinter.Label(frame_1, text="  Filter by AI: ").pack(side=tkinter.LEFT)
+        tkinter.Label(frame_1, text="  By AI: ").pack(side=tkinter.LEFT)
         self.combo_ai.pack(side=tkinter.LEFT)
 
-        tkinter.Label(frame_1, text="  Filter by Result: ").pack(side=tkinter.LEFT)
+        tkinter.Label(frame_1, text="  By Result: ").pack(side=tkinter.LEFT)
         self.combo_result.pack(side=tkinter.LEFT)
 
         tkinter.Label(frame_1, text="  ").pack(side=tkinter.LEFT)
@@ -186,8 +192,13 @@ class TdocsTable:
 
         tkinter.Button(
             frame_1,
-            text='Merge PPT(X)s',
+            text='Merge PPTs',
             command=self.merge_pptx_files).pack(side=tkinter.LEFT)
+
+        tkinter.Button(
+            frame_1,
+            text='Export CRs',
+            command=self.export_crs).pack(side=tkinter.LEFT)
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
@@ -348,6 +359,54 @@ class TdocsTable:
             all_extracted_files,
             list_of_section_labels=tdoc_list_to_merge,
             headlines_for_toc=all_titles)
+
+    def export_crs(self, *args):
+        """
+        From the current Tdoc list, exports the current CRs to an Excel file
+        Args:
+            *args:
+
+        Returns: Nothing
+
+        """
+
+        tdoc_list = self.current_tdocs
+        tdocs_to_export = tdoc_list[tdoc_list['Type'] == 'CR']
+        if len(tdocs_to_export) == 0:
+            return
+        tdocs_to_export = zip(tdocs_to_export.index.values.tolist(), tdocs_to_export['AI'].values.tolist())
+        file_path_list = []
+        for tdoc_to_export in tdocs_to_export:
+            try:
+                tdoc_path = self.download_and_open_tdoc(tdoc_to_export[0], skip_opening=True)
+            except:
+                print("Could not retrieve file path for {0}".format(tdoc_to_export))
+                tdoc_path = None
+            # Take by default the first file
+
+            if tdoc_path is None:
+                # Some files may not be available
+                continue
+
+            file_path_list.append((tdoc_path[0], tdoc_to_export[1]))
+
+        print("Will export {0} CRs".format(len(file_path_list)))
+        print(file_path_list)
+
+        selected_meeting = gui.main.tkvar_meeting.get()
+        server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+            selected_meeting)
+        agenda_folder = server.common.get_local_agenda_folder(server_folder)
+        current_dt_str = application.meeting_helper.get_now_time_str()
+        excel_export = os.path.join(agenda_folder, '{0} {1}.xlsx'.format(current_dt_str, 'CR_export'))
+
+        crs_df = parse_list_of_crs(file_path_list)
+        crs_df.to_excel(excel_export, sheet_name="CRs")
+
+        print("Opening {0}".format(excel_export))
+        os.startfile(excel_export)
+
+        return
 
     def select_ai(self, load_data=True, event=None):
         if load_data:
