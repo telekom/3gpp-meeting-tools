@@ -1167,7 +1167,7 @@ def parse_list_of_crs(crs: List[Tuple[str, str]]) -> DataFrame:
         columns=[
             'Spec', 'CR', 'Rev', 'Current Version',
             'Title', 'Source To WG', 'Source To TSG',
-            'Work Item Code', 'Date', 'Category', 'Release',
+            'Work Item Code', 'AI', 'Date', 'Category', 'Release',
             'Proposed Change Affects UIIC', 'Proposed Change Affects ME',
             'Proposed Change Affects RAN', 'Proposed Change Affects CN',
             'Reason for Change', 'Summary of Change', 'Consequences if not Approved', 'Clauses Affected',
