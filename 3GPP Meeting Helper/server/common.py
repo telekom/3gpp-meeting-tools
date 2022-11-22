@@ -13,6 +13,11 @@ root_folder = '3GPP_SA2_Meeting_Helper'
 
 non_cached_http_session = requests.Session()
 http_session = CacheControl(non_cached_http_session)
+
+# Timeout set for 3 seconds for connect, 15 seconds for the transmission itself. See
+# https://requests.readthedocs.io/en/latest/user/advanced/ -> Timeouts
+timeout_values = (3.05, 15)
+
 folder_ftp_names_regex = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][aA][tT][eE].*)')
 
 """Retrieves data from the 3GPP web server"""
@@ -40,9 +45,9 @@ def get_html(url, cache=True, try_update_folders=True, file_to_return_if_error=N
         if (o.scheme == 'http') or (o.scheme == 'https'):
             print('HTTP GET {0}'.format(url))
             if cache:
-                r = http_session.get(url)
+                r = http_session.get(url, timeout=timeout_values)
             else:
-                r = non_cached_http_session.get(url)
+                r = non_cached_http_session.get(url, timeout=timeout_values)
             if r.status_code != 200:
                 print('HTTP GET {0}: {1}'.format(url, r.status_code))
                 return None
