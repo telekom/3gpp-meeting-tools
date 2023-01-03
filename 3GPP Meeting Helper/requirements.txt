@@ -10,3 +10,4 @@ python-docx>=0.8.9
 xlrd>=1.0.0
 html2text>=2020.1.16
 pyperclip>=1.8.2
+xlsxwriter>=3.0.5

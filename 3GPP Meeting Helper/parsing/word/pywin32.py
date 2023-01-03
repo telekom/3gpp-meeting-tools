@@ -1,6 +1,7 @@
 import collections
 import os
 import os.path
+import pickle
 import re
 import traceback
 from datetime import datetime
@@ -1037,6 +1038,7 @@ class CrCategory(Enum):
 
 
 class CrMetadata(NamedTuple):
+    TdocNumber: str
     Spec: str
     Cr: str
     Rev: str
@@ -1067,63 +1069,129 @@ def extract_cell(table, row: int, column: int):
         return None
 
 
-def parse_cr(filename: str, ai: str = None, print_output=True) -> CrMetadata:
+def parse_cr(filename: str, ai: str = None, tdoc_number: str = None,  print_output=True, use_cache=True) -> CrMetadata:
     """
     Parses a CR and extracts the cover page information
     Returns:
         CrMetadata: Information from the cover page of the CR
     """
+
+    [cache_folder, file_parsed] = os.path.split(filename)
+    cache_file = file_parsed + '.summary.pickle'
+    cache_filename = os.path.join(cache_folder, cache_file)
+
+    if use_cache and os.path.exists(cache_filename):
+        # Load cache if available
+        try:
+            with open(cache_filename, 'rb') as handle:
+                cr_metadata = pickle.load(handle)
+                if cr_metadata is not None:
+                    print("Loaded cache for TDoc {0} ({1})".format(tdoc_number, file_parsed))
+                    return cr_metadata
+        except:
+            print('Could not load cache file {0}'.format(cache_filename))
+
     doc = open_word_document(filename)
     all_tables = doc.Tables
-
-    print("Parsing CR {0}".format(filename))
 
     def x_in_var(in_str: str) -> str:
         return 'x' in in_str or 'X' in in_str
 
+    error_encountered = False
+
     # First Table = Spec info
-    spec_table = all_tables[0]
-    cr_form = extract_cell(spec_table, row=1, column=1)
-    spec = extract_cell(spec_table, row=4, column=2)
-    cr = extract_cell(spec_table, row=4, column=4)
-    rev = extract_cell(spec_table, row=4, column=6)
-    current_version = extract_cell(spec_table, row=4, column=8)
+    try:
+        spec_table = all_tables[0]
+        cr_form = extract_cell(spec_table, row=1, column=1)
+        spec = extract_cell(spec_table, row=4, column=2)
+        cr = extract_cell(spec_table, row=4, column=4)
+        rev = extract_cell(spec_table, row=4, column=6)
+        current_version = extract_cell(spec_table, row=4, column=8)
+    except IndexError:
+        print("Could not find first table in TDoc {0}".format(tdoc_number))
+        cr_form = ''
+        spec = ''
+        cr = ''
+        rev = ''
+        current_version = ''
+        error_encountered = True
 
     # Second Table = Change effects
-    change_affects_table = all_tables[1]
+    try:
+        change_affects_table = all_tables[1]
 
-    affects_uuic = x_in_var(extract_cell(change_affects_table, row=1, column=3))
-    affects_ran = x_in_var(extract_cell(change_affects_table, row=1, column=5))
-    affects_apps = x_in_var(extract_cell(change_affects_table, row=1, column=7))
-    affects_cn = x_in_var(extract_cell(change_affects_table, row=1, column=9))
+        affects_uuic = x_in_var(extract_cell(change_affects_table, row=1, column=3))
+        affects_ran = x_in_var(extract_cell(change_affects_table, row=1, column=5))
+        affects_apps = x_in_var(extract_cell(change_affects_table, row=1, column=7))
+        affects_cn = x_in_var(extract_cell(change_affects_table, row=1, column=9))
+    except IndexError:
+        print("Could not find second table in TDoc {0}".format(tdoc_number))
+        affects_uuic = False
+        affects_ran = False
+        affects_apps = False
+        affects_cn = False
+        error_encountered = True
 
-    # Third Table = CR Summary
-    summary_table = all_tables[2]
+    # Third Table = CR Summary. In some CRs, do note that the second and third tables are merged!
+    try:
+        if len(all_tables) > 2:
+            summary_table = all_tables[2]
+            row_offsett = 0
 
-    title = extract_cell(summary_table, row=2, column=2)
-    source_to_wg = extract_cell(summary_table, row=4, column=2)
-    source_to_tsg = extract_cell(summary_table, row=5, column=2)
-    work_item_code = extract_cell(summary_table, row=7, column=2)
-    cr_date = extract_cell(summary_table, row=7, column=5)
-    category = extract_cell(summary_table, row=9, column=2)
-    release = extract_cell(summary_table, row=9, column=5)
+            # Do note that the CR itself may contain other tables besides the cover sheet
+            if 'Title:' not in extract_cell(summary_table, row=2 + row_offsett, column=1):
+                summary_table = all_tables[1]
+                row_offsett = 1
+        else:
+            summary_table = all_tables[1]
+            row_offsett = 1
 
-    reason_for_change = extract_cell(summary_table, row=12, column=2)
-    summary_of_change = extract_cell(summary_table, row=14, column=2)
-    consequences_if_not_approved = extract_cell(summary_table, row=16, column=2)
-    clauses_affected = extract_cell(summary_table, row=18, column=2)
+        title = extract_cell(summary_table, row=2+row_offsett, column=2)
+        source_to_wg = extract_cell(summary_table, row=4+row_offsett, column=2)
+        source_to_tsg = extract_cell(summary_table, row=5+row_offsett, column=2)
+        work_item_code = extract_cell(summary_table, row=7+row_offsett, column=2)
+        cr_date = extract_cell(summary_table, row=7+row_offsett, column=5)
+        category = extract_cell(summary_table, row=9+row_offsett, column=2)
+        release = extract_cell(summary_table, row=9+row_offsett, column=5)
+
+        reason_for_change = extract_cell(summary_table, row=12+row_offsett, column=2)
+        summary_of_change = extract_cell(summary_table, row=14+row_offsett, column=2)
+        consequences_if_not_approved = extract_cell(summary_table, row=16+row_offsett, column=2)
+        clauses_affected = extract_cell(summary_table, row=18+row_offsett, column=2)
+    except IndexError:
+        print("Could not find third table in TDoc {0}".format(tdoc_number))
+        title = ''
+        source_to_wg = ''
+        source_to_tsg = ''
+        work_item_code = ''
+        cr_date = ''
+        category = ''
+        release = ''
+
+        reason_for_change = ''
+        summary_of_change = ''
+        consequences_if_not_approved = ''
+        clauses_affected = ''
+        error_encountered = True
 
     # Close document before exiting
     doc.Close()
 
     # Export CR metadata
     cr_metadata = CrMetadata(
+        tdoc_number,
         spec, cr, rev, current_version,
         title, source_to_wg, source_to_tsg, work_item_code, ai, cr_date, category, release,
         affects_uuic, affects_ran, affects_apps, affects_cn,
         reason_for_change, summary_of_change, consequences_if_not_approved, clauses_affected,
         cr_form
     )
+    print("Parsed TDoc {0} ({1})".format(tdoc_number, file_parsed))
+
+    if use_cache and not error_encountered:
+        # Save cache
+        with open(cache_filename, 'wb') as handle:
+            pickle.dump(cr_metadata, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     if print_output:
         print(cr_metadata)
@@ -1147,11 +1215,11 @@ def cleanup_cell_text(cell_text: str) -> str:
     return cell_text
 
 
-def parse_list_of_crs(crs: List[Tuple[str, str]]) -> DataFrame:
+def parse_list_of_crs(crs: List[Tuple[str, str, str]]) -> DataFrame:
     """
     Parses a list of CR files
     Args:
-        crs: A list containing filepaths
+        crs: A list containing filepaths and AI items
 
     Returns: A list containing the CR metadata
 
@@ -1161,10 +1229,11 @@ def parse_list_of_crs(crs: List[Tuple[str, str]]) -> DataFrame:
         if cr[0] is None or not os.path.exists(cr[0]):
             continue
 
-        parsed_crs.append(parse_cr(cr[0], cr[1], print_output=False))
+        parsed_crs.append(parse_cr(filename=cr[0], ai=cr[1], tdoc_number=cr[2], print_output=False))
     df = DataFrame(
         parsed_crs,
         columns=[
+            'TDoc',
             'Spec', 'CR', 'Rev', 'Current Version',
             'Title', 'Source To WG', 'Source To TSG',
             'Work Item Code', 'AI', 'Date', 'Category', 'Release',

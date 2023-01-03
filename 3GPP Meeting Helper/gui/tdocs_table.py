@@ -370,10 +370,13 @@ class TdocsTable:
 
         """
 
+        # Generate a list of CR files to parse based on the information in the TdocsByAgenda file
         tdoc_list = self.current_tdocs
         tdocs_to_export = tdoc_list[tdoc_list['Type'] == 'CR']
         if len(tdocs_to_export) == 0:
             return
+
+        # Generate list containing the TDoc number and the AI
         tdocs_to_export = zip(tdocs_to_export.index.values.tolist(), tdocs_to_export['AI'].values.tolist())
         file_path_list = []
         for tdoc_to_export in tdocs_to_export:
@@ -388,20 +391,28 @@ class TdocsTable:
                 # Some files may not be available
                 continue
 
-            file_path_list.append((tdoc_path[0], tdoc_to_export[1]))
+            # Contains the first file in the TDoc's zip file, the AI and the TDoc number
+            file_path_list.append((tdoc_path[0], tdoc_to_export[1], tdoc_to_export[0]))
 
         print("Will export {0} CRs".format(len(file_path_list)))
-        print(file_path_list)
+        # print(file_path_list)
 
         selected_meeting = gui.main.tkvar_meeting.get()
+
+        # Generate output filename for the CR summary Excel
         server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
             selected_meeting)
         agenda_folder = server.common.get_local_agenda_folder(server_folder)
         current_dt_str = application.meeting_helper.get_now_time_str()
         excel_export = os.path.join(agenda_folder, '{0} {1}.xlsx'.format(current_dt_str, 'CR_export'))
 
+        # The actual parsing of the CRs. Returns a DataFrame object containing the CR data
         crs_df = parse_list_of_crs(file_path_list)
-        crs_df.to_excel(excel_export, sheet_name="CRs")
+        # Avoid IllegalCharacterError due to some control characters
+        # See https://stackoverflow.com/questions/28837057/pandas-writing-an-excel-file-containing-unicode-illegalcharactererror
+        crs_df.to_excel(excel_export, sheet_name="CRs", engine='xlsxwriter')
+
+        # ToDo: Some formatting of the CR metadata
 
         print("Opening {0}".format(excel_export))
         os.startfile(excel_export)
