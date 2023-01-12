@@ -102,4 +102,55 @@ def save_wb(wb):
         traceback.print_exc()
 
 
+def set_column_width(column_letter: str, wb, width: int):
+    """
+    Sets the width of a column in the active WorkSheet
+    Args:
+        column_letter: The column's letter
+        wb: The WorkBook
+        width: The width
+    """
+    column_letter = column_letter.upper()
+    wb.Activate()
+    ws = wb.ActiveSheet
+    ws.Range(column_letter+":"+column_letter).ColumnWidth = width
+
+
+def hide_column(column_letter: str, wb):
+    """
+    Hides a column in the active WorkSheet
+    Args:
+        column_letter: The column's letter
+        wb: The WorkBook
+    """
+    column_letter = column_letter.upper()
+    wb.Activate()
+    ws = wb.ActiveSheet
+    ws.Range(column_letter+":"+column_letter).EntireColumn.Hidden = True
+
+
+def set_wrap_text(wb):
+    """
+    Sets Wrap Text for all cells in the active WorkBook
+    Args:
+        wb: The WorkBook
+    """
+    wb.Activate()
+    ws = wb.ActiveSheet
+    all_cells = ws.Cells
+    all_cells.WrapText = True
+
+
+def set_row_height(wb):
+    """
+        Sets Wrap Text for all cells in the active WorkBook
+        Args:
+            wb: The WorkBook
+        """
+    wb.Activate()
+    ws = wb.ActiveSheet
+    all_cells = ws.Cells
+    all_cells.EntireRow.AutoFit()
+
+
 last_column = 'U'

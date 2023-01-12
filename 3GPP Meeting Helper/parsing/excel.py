@@ -167,7 +167,10 @@ def add_pivot_table_to_workbook_active_sheet(
         # xlAscending = 1
         xlDescending = 2
         # xlManual = -4135
-        pivot_fields[order_by].AutoSort(xlDescending)
+        try:
+            pivot_fields[order_by].AutoSort(xlDescending)
+        except:
+            print('Could not order pivot table by field {0}'.format(order_by))
 
 
 def generate_pivot_chart_from_tdocs_by_agenda(wb):

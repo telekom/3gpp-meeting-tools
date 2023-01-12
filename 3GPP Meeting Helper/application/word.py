@@ -48,10 +48,16 @@ def get_word(visible=True, display_alerts=False):
 
 
 def open_word_document(filename='', set_as_active_document=True, visible=True, ):
-    if (filename is None) or (filename == ''):
-        doc = get_word(visible=visible).Documents.Add()
-    else:
-        doc = get_word().Documents.Open(filename)
+    try:
+        if (filename is None) or (filename == ''):
+            doc = get_word(visible=visible).Documents.Add()
+        else:
+            doc = get_word().Documents.Open(filename)
+    except:
+        print('Could not open Word file {0}'.format(filename))
+        traceback.print_exc()
+        return None
+
     if set_as_active_document:
         get_word().Activate()
         doc.Activate()
@@ -114,10 +120,17 @@ def open_files(files, metadata_function=None, go_to_page=1):
     metadata_list = []
     for file in files:
         print('Opening {0}'.format(file))
-        if metadata_function is not None:
-            file_opened, metadata = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
-        else:
-            file_opened = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
+        try:
+            if metadata_function is not None:
+                file_opened, metadata = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
+            else:
+                file_opened = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
+        except:
+            print('Could not open {0}'.format(file))
+            traceback.print_exc()
+
+            file_opened = None
+            metadata = None
         if file_opened:
             opened_files += 1
             if metadata_function is not None:
