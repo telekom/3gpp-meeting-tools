@@ -13,11 +13,10 @@ signature_synonyms_regex = {
     'Samsung':          re.compile(r'samsung'),
     'Blackberry':       re.compile(r'blackberry'),
     'Toyota':           re.compile(r'toyota'),
-    'Mediatek':         re.compile(r'mediatek'),
     'LG':               re.compile(r'lg[e]?( electronics)?'),
     'Cisco':            re.compile(r'cisco'),
     'Oppo':             re.compile(r'oppo'),
-    'Interdigital':     re.compile(r'inter[ ]?digital|interdigtial'),
+    'Interdigital':     re.compile(r'inter[ ]?digital|interdigtial|intedigital'),
     'Mediatek':         re.compile(r'mediatek'),
     'NEC':              re.compile(r'nec'),
     'Orange':           re.compile(r'orange'),
@@ -108,7 +107,10 @@ signature_synonyms_regex = {
     'Rakuten':          re.compile(r'rakute'),
     'Futurewei':        re.compile(r'futurewei'),
     'Microsoft':        re.compile(r'microsoft'),
-    'Facebook':         re.compile(r'facebook'),
+    'Facebook':         re.compile(r'facebook|meta'),
+    'DISH':             re.compile(r'dish'),
+    'ETRI':             re.compile(r'etri'),
+    'INSPUR':           re.compile(r'inspur')
 }
 
 recognized_vendor_list = [key for key, value in signature_synonyms_regex.items()]

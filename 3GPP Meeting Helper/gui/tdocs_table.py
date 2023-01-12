@@ -13,6 +13,8 @@ import application
 import gui
 import server
 from application import powerpoint
+from application.excel import open_excel_document, set_first_row_as_filter, vertically_center_all_text, save_wb, \
+    set_column_width, set_wrap_text, hide_column
 from parsing.html.revisions import revisions_file_to_dataframe
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 from parsing.word.pywin32 import parse_list_of_crs
@@ -404,18 +406,42 @@ class TdocsTable:
             selected_meeting)
         agenda_folder = server.common.get_local_agenda_folder(server_folder)
         current_dt_str = application.meeting_helper.get_now_time_str()
-        excel_export = os.path.join(agenda_folder, '{0} {1}.xlsx'.format(current_dt_str, 'CR_export'))
+        excel_export_filename = os.path.join(agenda_folder, '{0} {1}.xlsx'.format(current_dt_str, 'CR_export'))
 
         # The actual parsing of the CRs. Returns a DataFrame object containing the CR data
         crs_df = parse_list_of_crs(file_path_list)
+        crs_df = crs_df.set_index('TDoc')
+
         # Avoid IllegalCharacterError due to some control characters
         # See https://stackoverflow.com/questions/28837057/pandas-writing-an-excel-file-containing-unicode-illegalcharactererror
-        crs_df.to_excel(excel_export, sheet_name="CRs", engine='xlsxwriter')
+        crs_df.to_excel(excel_export_filename, sheet_name="CRs", engine='xlsxwriter')
 
         # ToDo: Some formatting of the CR metadata
 
-        print("Opening {0}".format(excel_export))
-        os.startfile(excel_export)
+        print("Opening {0}".format(excel_export_filename))
+        wb = open_excel_document(excel_export_filename)
+        set_first_row_as_filter(wb)
+        vertically_center_all_text(wb)
+        set_wrap_text(wb)
+        set_column_width('A', wb, 11)
+        set_column_width('B', wb, 9)
+        set_column_width('C', wb, 9)
+        set_column_width('D', wb, 9)
+        set_column_width('E', wb, 9)
+        set_column_width('F', wb, 20)
+        set_column_width('J', wb, 7)
+        set_column_width('G', wb, 20)
+        hide_column('H', wb)
+        set_column_width('K', wb, 11)
+        set_column_width('N', wb, 11)
+        set_column_width('O', wb, 8)
+        set_column_width('P', wb, 8)
+        set_column_width('Q', wb, 8)
+        set_column_width('R', wb, 75)
+        set_column_width('S', wb, 75)
+        set_column_width('T', wb, 75)
+        set_column_width('U', wb, 11)
+        save_wb(wb)
 
         return
 

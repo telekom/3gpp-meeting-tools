@@ -14,6 +14,9 @@ root_folder = '3GPP_SA2_Meeting_Helper'
 non_cached_http_session = requests.Session()
 http_session = CacheControl(non_cached_http_session)
 
+# Avoid getting sometimes 403s
+http_session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'})
+
 # Timeout set for 3 seconds for connect, 15 seconds for the transmission itself. See
 # https://requests.readthedocs.io/en/latest/user/advanced/ -> Timeouts
 timeout_values = (3.05, 15)

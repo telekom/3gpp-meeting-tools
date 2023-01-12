@@ -1092,6 +1092,18 @@ def parse_cr(filename: str, ai: str = None, tdoc_number: str = None,  print_outp
             print('Could not load cache file {0}'.format(cache_filename))
 
     doc = open_word_document(filename)
+    if doc is None:
+        print('Could not open {0}'.format(filename))
+        cr_metadata = CrMetadata(
+            tdoc_number,
+            '', '', '', '',
+            '', '', '', '', '', '', '', '',
+            '', '', '', '',
+            '', '', '', '',
+            ''
+        )
+        return cr_metadata
+
     all_tables = doc.Tables
 
     def x_in_var(in_str: str) -> str:
@@ -1190,8 +1202,12 @@ def parse_cr(filename: str, ai: str = None, tdoc_number: str = None,  print_outp
 
     if use_cache and not error_encountered:
         # Save cache
-        with open(cache_filename, 'wb') as handle:
-            pickle.dump(cr_metadata, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        try:
+            with open(cache_filename, 'wb') as handle:
+                pickle.dump(cr_metadata, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        except:
+            print('Could not save CR metadata')
+            traceback.print_exc()
 
     if print_output:
         print(cr_metadata)
@@ -1219,7 +1235,7 @@ def parse_list_of_crs(crs: List[Tuple[str, str, str]]) -> DataFrame:
     """
     Parses a list of CR files
     Args:
-        crs: A list containing filepaths and AI items
+        crs: A list containing filepaths, AI items and TDoc numbers
 
     Returns: A list containing the CR metadata
 
@@ -1230,6 +1246,10 @@ def parse_list_of_crs(crs: List[Tuple[str, str, str]]) -> DataFrame:
             continue
 
         parsed_crs.append(parse_cr(filename=cr[0], ai=cr[1], tdoc_number=cr[2], print_output=False))
+
+    # Filter out any files that could not be opened
+    parsed_crs = [e for e in parsed_crs if e is not None]
+
     df = DataFrame(
         parsed_crs,
         columns=[
@@ -1237,8 +1257,7 @@ def parse_list_of_crs(crs: List[Tuple[str, str, str]]) -> DataFrame:
             'Spec', 'CR', 'Rev', 'Current Version',
             'Title', 'Source To WG', 'Source To TSG',
             'Work Item Code', 'AI', 'Date', 'Category', 'Release',
-            'Proposed Change Affects UIIC', 'Proposed Change Affects ME',
-            'Proposed Change Affects RAN', 'Proposed Change Affects CN',
+            'Change Affects UIIC', 'Change Affects ME', 'Change Affects RAN', 'Change Affects CN',
             'Reason for Change', 'Summary of Change', 'Consequences if not Approved', 'Clauses Affected',
             'CR Form'
         ])
