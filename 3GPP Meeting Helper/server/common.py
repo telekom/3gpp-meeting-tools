@@ -9,6 +9,8 @@ from urllib.parse import urlparse
 from ftplib import FTP
 import re
 
+import application.meeting_helper
+
 root_folder = '3GPP_SA2_Meeting_Helper'
 
 non_cached_http_session = requests.Session()
@@ -33,6 +35,11 @@ meeting_folder = 'SA/SA2/'
 sa2_url = ''
 sa2_url_sync = ''
 sa2_url_meeting = ''
+user_folder = '~'
+
+# Configurable placement of the cache
+if application.meeting_helper.home_directory is not None:
+    user_folder = application.meeting_helper.home_directory
 
 
 def get_html(url, cache=True, try_update_folders=True, file_to_return_if_error=None):
@@ -162,13 +169,13 @@ def decode_string(str_to_decode, log_name):
 
 
 def get_tmp_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join('~', root_folder, 'tmp'))
+    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'tmp'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
 
 def get_spec_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join('~', root_folder, 'specs'))
+    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
@@ -203,7 +210,7 @@ def get_meeting_folder(meeting_folder_name, create_dir=False):
 
 
 def get_cache_folder(create_dir=False):
-    folder_name = os.path.expanduser(os.path.join('~', root_folder, 'cache'))
+    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'cache'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
