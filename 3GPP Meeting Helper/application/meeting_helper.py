@@ -15,6 +15,7 @@ sa2_inbox_tdoc_data = None
 sa2_meeting_data = None
 current_tdocs_by_agenda = None
 word_own_reporter_name = None
+home_directory = None
 
 # Write config
 try:
@@ -40,6 +41,13 @@ if len(sa2_email_approval_folder_name) > 0 and sa2_email_approval_folder_name[0]
 # Write other configuration
 try:
     word_own_reporter_name = config['REPORTING']['ContributorName']
+    print('Using Contributor Name for Word report {0}'.format(word_own_reporter_name))
+except:
+    pass
+
+try:
+    home_directory = config['GENERAL']['HomeDirectory']
+    print('Using Home Directory {0}'.format(home_directory))
 except:
     pass
 
