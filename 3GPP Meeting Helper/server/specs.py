@@ -9,7 +9,7 @@ from parsing.html.specs import extract_releases_from_latest_folder, extract_spec
     extract_spec_files_from_spec_folder, extract_spec_versions_from_spec_file, cleanup_spec_name
 from parsing.spec_types import SpecType, SpecVersionMapping
 from server.common import get_html, root_folder, create_folder_if_needed, decode_string, download_file_to_location, \
-    unzip_files_in_zip_file
+    unzip_files_in_zip_file, user_folder
 import pandas as pd
 
 specs_url = 'https://www.3gpp.org/ftp/Specs/latest'
@@ -236,7 +236,7 @@ def get_specs(cache=True, check_for_new_specs=False, override_pickle_cache=False
 
 
 def get_specs_cache_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join('~', root_folder, 'specs', 'server_cache'))
+    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs', 'server_cache'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
@@ -252,9 +252,9 @@ def get_specs_folder(create_dir=True, spec_id=None):
 
     """
     if spec_id is None:
-        folder_name: str = os.path.expanduser(os.path.join('~', root_folder, 'specs'))
+        folder_name: str = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs'))
     else:
-        folder_name: str = os.path.expanduser(os.path.join('~', root_folder, 'specs', spec_id))
+        folder_name: str = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs', spec_id))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
