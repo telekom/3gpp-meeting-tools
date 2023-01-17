@@ -151,7 +151,11 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                     print()
                 print('Saving email to {0}'.format(email_local_copy_path))
                 last_dot = False
-                mail_item.SaveAs(email_local_copy_path)
+                try:
+                    mail_item.SaveAs(email_local_copy_path)
+                except:
+                    print('Error saving email {0}'.format(email_local_copy_path))
+                    traceback.print_exc()
             else:
                 print(".", end='')
                 last_dot = True

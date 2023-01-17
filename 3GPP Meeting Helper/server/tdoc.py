@@ -184,7 +184,10 @@ def get_local_folder(meeting_folder_name, tdoc_id, create_dir=True, email_approv
     if email_approval:
         folder_name = os.path.join(folder_name, 'email approval')
     if create_dir and (not os.path.exists(folder_name)):
-        os.makedirs(folder_name, exist_ok=True)
+        try:
+            os.makedirs(folder_name, exist_ok=True)
+        except FileExistsError:
+            print("Could not create directory. File already: {0}".format(folder_name))
     return folder_name
 
 
