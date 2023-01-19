@@ -711,8 +711,16 @@ class RevisionsTable:
             self.parent_tdocs_table.download_and_open_tdoc(tdoc_to_search)
         if column == 2:
             self.compare_a.set(tdoc_to_search)
+            try:
+                self.parent_gui_tools.tkvar_tdoc_to_compare_1.set(tdoc_to_search)
+            except:
+                pass
         if column == 3:
             self.compare_b.set(tdoc_to_search)
+            try:
+                self.parent_gui_tools.tkvar_tdoc_to_compare_2.set(tdoc_to_search)
+            except:
+                pass
 
     def compare_tdocs(self):
         compare_a = self.compare_a.get()
