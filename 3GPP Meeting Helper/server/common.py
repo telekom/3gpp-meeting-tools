@@ -60,7 +60,17 @@ def get_html(url, cache=True, try_update_folders=True, file_to_return_if_error=N
                 r = non_cached_http_session.get(url, timeout=timeout_values)
             if r.status_code != 200:
                 print('HTTP GET {0}: {1}'.format(url, r.status_code))
-                return None
+                if file_to_return_if_error is not None:
+                    try:
+                        with open(file_to_return_if_error, "rb") as f:
+                            cached_file = f.read()
+                            print("Returning cached file {0}".format(file_to_return_if_error))
+                            return cached_file
+                    except:
+                        print("Could not read file {0}".format(file_to_return_if_error))
+                        return None
+                else:
+                    return None
 
             html_content = r.content
             if file_to_return_if_error is not None:
