@@ -157,11 +157,12 @@ def load_application_data():
         ordered=True, remove_old_meetings=True)
 
     # Double-check
-    df_tdocs = application.meeting_helper.current_tdocs_by_agenda.tdocs
-    email_approval_tdocs = df_tdocs[(df_tdocs['Result'] == 'For e-mail approval')]
-    n_email_approval = len(email_approval_tdocs)
-    print('Current TDocsByAgenda: {0} TDocs marked as "For e-mail approval" after de-duplication'.format(
-        n_email_approval))
+    if application.meeting_helper.current_tdocs_by_agenda is not None:
+        df_tdocs = application.meeting_helper.current_tdocs_by_agenda.tdocs
+        email_approval_tdocs = df_tdocs[(df_tdocs['Result'] == 'For e-mail approval')]
+        n_email_approval = len(email_approval_tdocs)
+        print('Current TDocsByAgenda: {0} TDocs marked as "For e-mail approval" after de-duplication'.format(
+            n_email_approval))
 
 
 # Variable-change callbacks
