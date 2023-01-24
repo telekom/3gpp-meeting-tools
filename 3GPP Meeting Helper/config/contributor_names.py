@@ -164,8 +164,9 @@ def add_contributor_columns_to_tdoc_list(df):
 
     df['Source (summary)'] = ''
     all_contributor_columns = get_contributor_columns()
-    for contributor in all_contributor_columns:
-        df[contributor] = False
+
+    # One-line instead of for loop
+    df[all_contributor_columns] = False
     
     for tdoc in df.index:
         tdoc_source = df.at[tdoc, 'Source']
