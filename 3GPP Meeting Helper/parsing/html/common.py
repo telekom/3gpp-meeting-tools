@@ -478,8 +478,11 @@ class tdocs_by_agenda(object):
                 print('Could not clean-up comments')
                 traceback.print_exc()
 
+        # Other cleanups that happened over the time
+        dataframe['Title'] = dataframe['Title'].apply(lambda x: tdocs_by_agenda.clean_up_title(x))
+
         # Assign dataframe
-        self.tdocs = dataframe
+        self.tdocs : pd.DataFrame = dataframe
 
         if not dataframe_from_cache:
             tdocs_by_agenda.get_original_and_final_tdocs(self.tdocs)
@@ -498,6 +501,12 @@ class tdocs_by_agenda(object):
         fixed_comment = '{0}. {1}'.format(comment_match.group(1), comment_match.group(2))
         return fixed_comment
 
+    def clean_up_title(title_str : str):
+        if title_str is None:
+            return title_str
+
+        return title_str.replace(r'&apos;',"'").replace(r'&amp;',"&")
+
     def get_meeting_number(tdocs_by_agenda_html):
         print('Parsing TDocsByAgenda meeting number')
         meeting_number_match = tdocs_by_agenda.meeting_number_regex.search(tdocs_by_agenda_html)
@@ -509,7 +518,7 @@ class tdocs_by_agenda(object):
         print('Meeting number: {0}'.format(meeting_number))
         return meeting_number.upper()
 
-    def read_tdocs_by_agenda_v2(path_or_html, force_html=False):
+    def read_tdocs_by_agenda_v2(path_or_html, force_html=False) -> pd.DataFrame:
         # New HTML-parsing method. Regex-based. It works better with malformed and broken HTML files, which appear to happen quite often
         if force_html:
             html = path_or_html
