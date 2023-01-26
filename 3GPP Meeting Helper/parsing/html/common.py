@@ -486,7 +486,7 @@ class tdocs_by_agenda(object):
 
         if not dataframe_from_cache:
             tdocs_by_agenda.get_original_and_final_tdocs(self.tdocs)
-            self.others_cosigners = config.contributor_names.add_contributor_columns_to_tdoc_list(self.tdocs)
+            self.others_cosigners, self.tdocs = config.contributor_names.add_contributor_columns_to_tdoc_list(self.tdocs, self.meeting_server_folder)
             self.contributor_columns = config.contributor_names.get_contributor_columns()
         else:
             # get_original_and_final_tdocs should already be in the cache
