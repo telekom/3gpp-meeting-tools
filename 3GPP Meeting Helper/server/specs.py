@@ -144,6 +144,10 @@ def get_specs(cache=True, check_for_new_specs=False, override_pickle_cache=False
         Also metadata containing title and other information for the related specifications
 
     """
+    print('Loading specs: cache={0}, check for new specs={1}, override pickle cache={2}'.format(
+        cache,
+        check_for_new_specs,
+        override_pickle_cache))
     specs_df_cache_file = os.path.join(get_specs_cache_folder(), '_specs.pickle')
 
     # Load specs data from cache file
