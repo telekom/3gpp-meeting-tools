@@ -644,5 +644,11 @@ class ToolsDialog:
         selected_meeting = gui.main.tkvar_meeting.get()
         meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
         local_file = server.chairnotes.download_chairnotes_file(meeting_folder)
-        latest_chairnotes_df = parsing.html.html_chairnotes.chairnotes_file_to_dataframe(local_file)
+        latest_chairnotes_df = chairnotes_file_to_dataframe(local_file)
+        print(latest_chairnotes_df)
+        # ToDo
+        #  - Download most recent files based on DataFrame
+        #  - Covert each file to docx so that the docx library can parse it (pywin32 is very slow in comparison)
+        #  - Parse each file
+        #  - Generate output
         return
