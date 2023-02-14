@@ -205,9 +205,15 @@ class SpecsTable:
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
 
-    def load_data(self, initial_load=False, check_for_new_specs=False, override_pickle_cache=False):
+    def load_data(self, initial_load=False, check_for_new_specs=False, override_pickle_cache=False, only_for=None):
         """
         Loads specifications frm the 3GPP website
+
+        Args:
+            initial_load: Loads everything
+            check_for_new_specs: Whether the spec series page should be checked for new specs
+            override_pickle_cache: Whether an existing cache should not be used
+            only_for: Whether this call is 
         """
         # Load specs data
         print('Loading revision data for LATEST specs per release for table')
@@ -678,6 +684,6 @@ class SpecVersionsTable:
     def reload_spec_file(self):
         get_spec_page(self.spec_id, cache=True, force_download=True)
         get_spec_archive_remote_folder(self.spec_id, cache=True, force_download=True)
-        self.parent_specs_table.load_data(initial_load=True, override_pickle_cache=True)
+        self.parent_specs_table.load_data(initial_load=True, override_pickle_cache=True, only_for=self.spec_id)
         self.tree.delete(*self.tree.get_children())
         self.insert_rows()
