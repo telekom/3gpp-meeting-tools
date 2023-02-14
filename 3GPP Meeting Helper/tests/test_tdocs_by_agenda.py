@@ -22,14 +22,14 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(meeting.tdocs.at['S2-1813085','Final TDocs'],    'S2-1813308', 'Expected Final TDocs S2-1813308')
 
         # Check some contribution mappings
-        self.assertTrue(meeting.tdocs.at['S2-1811737','Contributed by DT'], 'DT contribution')
+        self.assertTrue(meeting.tdocs.at['S2-1811737','Contributed by Deutsche Telekom'], 'DT contribution')
         self.assertTrue(meeting.tdocs.at['S2-1811737','Contributed by TIM'], 'Telecom Italia contribution')
         self.assertTrue(meeting.tdocs.at['S2-1811737','Contributed by Intel'], 'Intel contribution')
         self.assertFalse(meeting.tdocs.at['S2-1811737','Contributed by Qualcomm'], 'Qualcomm contribution')
         self.assertFalse(meeting.tdocs.at['S2-1811737','Contributed by Nokia'], 'Nokia contribution')
 
         # Check the length of the "Others" mapping
-        self.assertEqual(len(meeting.others_cosigners), 16, 'Length of the "Others" contributors')
+        self.assertEqual(len(meeting.others_cosigners), 14, 'Length of the "Others" contributors')
 
     def test_129(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '129.htm')
@@ -40,7 +40,7 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(len(meeting.tdocs), 1508, 'Expected TDoc entries')
 
         # Check the length of the "Others" mapping
-        self.assertEqual(len(meeting.others_cosigners), 18, 'Length of the "Others" contributors')
+        self.assertEqual(len(meeting.others_cosigners), 17, 'Length of the "Others" contributors')
 
     def test_128Bis(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '128Bis.htm')
@@ -51,7 +51,7 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(len(meeting.tdocs), 1401, 'Expected TDoc entries')
 
         # Check the length of the "Others" mapping
-        self.assertEqual(len(meeting.others_cosigners), 13, 'Length of the "Others" contributors')
+        self.assertEqual(len(meeting.others_cosigners), 12, 'Length of the "Others" contributors')
 
     def test_128(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '128.htm')
@@ -62,7 +62,7 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(len(meeting.tdocs), 1301, 'Expected TDoc entries')
 
         # Check the length of the "Others" mapping
-        self.assertEqual(len(meeting.others_cosigners), 13, 'Length of the "Others" contributors')
+        self.assertEqual(len(meeting.others_cosigners), 12, 'Length of the "Others" contributors')
 
     def test_inbox(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', 'inbox.htm')
@@ -73,7 +73,7 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(len(meeting.tdocs), 1640, 'Expected TDoc entries')
 
         # Check the length of the "Others" mapping
-        self.assertEqual(len(meeting.others_cosigners), 16, 'Length of the "Others" contributors')
+        self.assertEqual(len(meeting.others_cosigners), 14, 'Length of the "Others" contributors')
 
     def test_130_1(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '2019.01.22 TdocsByAgenda.htm')
@@ -84,7 +84,7 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(len(meeting.tdocs), 853, 'Expected TDoc entries')
 
         # Check the length of the "Others" mapping
-        self.assertEqual(len(meeting.others_cosigners), 19, 'Length of the "Others" contributors')
+        self.assertEqual(len(meeting.others_cosigners), 16, 'Length of the "Others" contributors')
 
     def test_130_2(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '2019.01.24 TdocsByAgenda.htm')
@@ -95,7 +95,7 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(len(meeting.tdocs), 1026, 'Expected TDoc entries')
 
         # Check the length of the "Others" mapping
-        self.assertEqual(len(meeting.others_cosigners), 19, 'Length of the "Others" contributors')
+        self.assertEqual(len(meeting.others_cosigners), 16, 'Length of the "Others" contributors')
 
     def test_130_3(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '2019.01.31 130.htm')
@@ -123,7 +123,7 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(final_tdocs, 'S2-1901378')
 
         # Check some contribution mappings
-        self.assertTrue(test_row['Contributed by DT'], 'DT contribution')
+        self.assertTrue(test_row['Contributed by Deutsche Telekom'], 'DT contribution')
         self.assertFalse(test_row['Contributed by TIM'], 'Not a Telecom Italia contribution')
         self.assertFalse(test_row['Contributed by Intel'], 'Not a Intel contribution')
         self.assertTrue(test_row['Contributed by ZTE'], 'ZTE contribution')
@@ -155,7 +155,7 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(final_tdocs, 'S2-1901378')
 
         # Check some contribution mappings
-        self.assertTrue(test_row['Contributed by DT'], 'DT contribution')
+        self.assertTrue(test_row['Contributed by Deutsche Telekom'], 'DT contribution')
         self.assertFalse(test_row['Contributed by TIM'], 'Not a Telecom Italia contribution')
         self.assertFalse(test_row['Contributed by Intel'], 'Not a Intel contribution')
         self.assertFalse(test_row['Contributed by ZTE'], 'ZTE contribution')
@@ -322,6 +322,13 @@ class Test_test_tdocs_by_agenda(unittest.TestCase):
         self.assertEqual(test_row['Title'], "23.501 CR2226 (Rel-16, 'F'): Multiple N6 interfaces per Network Instance for Ethernet traffic")
         self.assertEqual(test_row['Comments'], 'Noted')
         self.assertEqual(test_row['Result'], 'Noted')
+
+    def test_155(self):
+        file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '2023.02.14 TdocsByAgenda SA2-155.htm')
+        meeting = html_parser.tdocs_by_agenda(file_name)
+
+        self.assertEqual(meeting.meeting_number, '155', 'Expected 155')
+        self.assertEqual(len(meeting.tdocs), 991, 'Expected TDoc entries')
 
 if __name__ == '__main__':
     unittest.main()

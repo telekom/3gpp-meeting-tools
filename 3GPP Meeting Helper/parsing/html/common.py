@@ -344,7 +344,14 @@ class tdocs_by_agenda(object):
         r'.*Revised([ ]?(off-line|in parallel session|in drafting session))? to (?P<tdoc>[S\d-]*)')
     merge_of_regex = re.compile(r'.*merging (?P<tdoc>(( and )?(, )?(part of)?( )?[S\d-]*)+)')
     merged_to_regex = re.compile(r'.*Merged (into|with) (?P<tdoc>[S\d-]*)')
-    meeting_number_regex = re.compile(r'SA WG2[ ]?#(?P<meeting>[\d]{1,3}[#]?[\w]*)')
+
+    # Strings to match:
+    #  - Draft Agenda for SA WG2#128
+    #  - Draft Agenda for SA WG2#129#BIS
+    #  - SA WG2 #137 Meeting Agenda
+    #  - SA2#155 Meeting Agenda
+    meeting_number_regex = re.compile(r'((SA WG2[ ]?)|(SA2))#(?P<meeting>[\d]{1,3}[#]?[\w]*)')
+
     creation_date_regex = re.compile(
         r'>Created: <(B|b)>((?P<year>[\d]{4})-(?P<month>[\d]{2})-(?P<day>[\d]{2}) (?P<hour>[\d]{2}):(?P<minute>[\d]{2}))</(B|b)>&nbsp[;]?&nbsp[;]?&nbsp[;]?&nbsp[;]?')
     creation_date_regex_if_fails = re.compile(
