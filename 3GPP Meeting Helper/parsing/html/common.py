@@ -512,7 +512,7 @@ class tdocs_by_agenda(object):
         if title_str is None:
             return title_str
 
-        return title_str.replace(r'&apos;',"'").replace(r'&amp;',"&")
+        return title_str.replace(r'&apos;',"'").replace(r'&amp;',"&").replace(r'&#39;',"'")
 
     def get_meeting_number(tdocs_by_agenda_html):
         print('Parsing TDocsByAgenda meeting number')
