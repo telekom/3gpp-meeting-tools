@@ -370,11 +370,15 @@ def version_to_file_version(version: str) -> str:
     return '{0}{1}{2}'.format(first_letter, second_letter, third_letter)
 
 
-def download_spec_if_needed(spec_number: str, file_url: str) -> List[str]:
+def download_spec_if_needed(
+        spec_number: str,
+        file_url: str,
+        return_only_target_local_filename: bool = False) -> List[str]:
     """
     Downloads a given specification from said URL. The file is stored in a cache folder and only
     (re-)downloaded if needed.
     Args:
+        return_only_target_local_filename: If this parameter is set, it just returns the target spec file to download
         spec_number: The specification number (with or without dots), e.g. 23.501. Needed to correctly place
         the downloaded file(s) in the cache folder
         file_url: The URL of the spec file (zip file typically) to download
@@ -387,6 +391,9 @@ def download_spec_if_needed(spec_number: str, file_url: str) -> List[str]:
     local_folder = get_specs_folder(spec_id=spec_number)
     filename = os.path.basename(urlparse(file_url).path)
     local_filename = os.path.join(local_folder, filename)
+
+    if return_only_target_local_filename:
+        return local_filename
 
     if not os.path.exists(local_filename):
         download_file_to_location(file_url, local_filename)
