@@ -204,6 +204,7 @@ def export_document(
 
                     if export_format == ExportType.PDF:
                         # See https://docs.microsoft.com/en-us/office/vba/api/word.document.exportasfixedformat
+                        print('PDF Conversion started')
                         doc.ExportAsFixedFormat(
                             OutputFileName=out_file,
                             ExportFormat=wdExportFormatPDF,
@@ -213,11 +214,13 @@ def export_document(
                             CreateBookmarks=wdExportCreateHeadingBookmarks
                         )
                     elif export_format == ExportType.DOCX:
+                        print('DOCX Conversion started')
                         doc.SaveAs2(
                             FileName=out_file,
                             FileFormat=wdFormatDocumentDefault
                         )
                     else:
+                        print('HTML Conversion started')
                         doc.WebOptions.AllowPNG = True
                         doc.SaveAs2(
                             FileName=out_file,

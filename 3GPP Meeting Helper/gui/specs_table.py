@@ -1,8 +1,10 @@
 import os
+import os
 import re
 import textwrap
 import tkinter
 from tkinter import ttk
+from typing import NamedTuple
 
 import pandas as pd
 import pyperclip
@@ -439,6 +441,11 @@ class SpecVersionsTable:
     spec_entries = None
     spec_id = None
 
+    class SpecLocallyAvailable(NamedTuple):
+        doc: bool
+        pdf: bool
+        html: bool
+
     def __init__(self, parent, favicon, spec_id: str, spec_type: SpecType, initial_release: str,
                  parent_specs_table: SpecsTable):
         top = self.top = tkinter.Toplevel(parent)
@@ -448,6 +455,7 @@ class SpecVersionsTable:
         self.spec_id = spec_id
         self.spec_type = spec_type
         self.parent_specs_table = parent_specs_table
+        self.spec_local_file_exists: dict[str, SpecVersionsTable.SpecLocallyAvailable] = {}
 
         frame_1 = tkinter.Frame(top)
         frame_1.pack()
@@ -461,8 +469,8 @@ class SpecVersionsTable:
 
         self.tree = ttk.Treeview(
             frame_1,
-            columns=('Spec', 'Version', 'Upload Date', 'Open Word', 'Open PDF', 'Open HTML', 'Add to compare A',
-                     'Add to compare B'),
+            columns=('Spec', 'Version', 'Upload Date', 'Open Word', 'Open PDF', 'Open HTML', '+Compare A',
+                     '+Compare B'),
             show='headings',
             selectmode="browse",
             style=style_name,
@@ -471,11 +479,11 @@ class SpecVersionsTable:
         set_column(self.tree, 'Spec', "Spec #", width=110)
         set_column(self.tree, 'Version', width=60)
         set_column(self.tree, 'Upload Date', width=100)
-        set_column(self.tree, 'Open Word', width=100)
-        set_column(self.tree, 'Open PDF', width=100)
-        set_column(self.tree, 'Open HTML', width=100)
-        set_column(self.tree, 'Add to compare A', width=110)
-        set_column(self.tree, 'Add to compare B', width=110)
+        set_column(self.tree, 'Open Word', width=122)
+        set_column(self.tree, 'Open PDF', width=115)
+        set_column(self.tree, 'Open HTML', width=127)
+        set_column(self.tree, '+Compare A', width=100)
+        set_column(self.tree, '+Compare B', width=100)
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
         # Before we start inserting rows, we need to load the spec archive for this specification
@@ -558,13 +566,24 @@ class SpecVersionsTable:
             except:
                 upload_date = '0000-00-00'
 
+            version_text = file_version_to_version(row['version'])
+
+            # Fill in whether the local file is available
+            spec_url = get_url_for_version_text(self.spec_entries, version_text)
+            local_zip_file_path = download_spec_if_needed(spec_id, spec_url, return_only_target_local_filename=True)
+            local_zip_file_exists = os.path.exists(local_zip_file_path)
+            local_pdf_file_exists = os.path.exists(os.path.splitext(local_zip_file_path)[0] + '.pdf')
+            local_html_file_exists = os.path.exists(os.path.splitext(local_zip_file_path)[0] + '.html')
+            spec_locally_available = SpecVersionsTable.SpecLocallyAvailable(local_zip_file_exists, local_pdf_file_exists, local_html_file_exists)
+            self.spec_local_file_exists[self.spec_id] = spec_locally_available
+
             self.tree.insert("", "end", tags=(tag,), values=(
                 spec_name,
-                file_version_to_version(row['version']),
+                version_text,
                 upload_date,
-                'Open Word',
-                'Open PDF',
-                'Open HTML',
+                ('Open' if spec_locally_available.doc else 'Download') + ' Word',
+                ('Open' if spec_locally_available.pdf else 'Download') + ' PDF',
+                ('Open' if spec_locally_available.html else 'Download') + ' HTML',
                 'Click',
                 'Click'))
 
@@ -598,6 +617,7 @@ class SpecVersionsTable:
             spec_url = get_url_for_version_text(self.spec_entries, row_version)
             downloaded_files = download_spec_if_needed(spec_id, spec_url)
             application.word.open_files(downloaded_files)
+            self.reload_table()
         if column == 4:
             print('Opening PDF {0}, version {1}'.format(spec_id, row_version))
             spec_url = get_url_for_version_text(self.spec_entries, row_version)
@@ -607,6 +627,7 @@ class SpecVersionsTable:
                 export_format=application.word.ExportType.PDF)
             for pdf_file in pdf_files:
                 os.startfile(pdf_file)
+            self.reload_table()
         if column == 5:
             print('Opening HTML {0}, version {1}'.format(spec_id, row_version))
             spec_url = get_url_for_version_text(self.spec_entries, row_version)
@@ -616,6 +637,7 @@ class SpecVersionsTable:
                 export_format=application.word.ExportType.HTML)
             for pdf_file in pdf_files:
                 os.startfile(pdf_file)
+            self.reload_table()
         if column == 6:
             print('Added Compare A: {0}, version {1}'.format(spec_id, row_version))
             self.compare_a.set(row_version)
@@ -695,5 +717,8 @@ class SpecVersionsTable:
         get_spec_archive_remote_folder(self.spec_id, cache=True, force_download=True)
         self.parent_specs_table.load_data(initial_load=True, override_pickle_cache=True, load_only=[self.spec_id])
         self.spec_entries = self.load_spec_data()
+        self.reload_table()
+
+    def reload_table(self):
         self.tree.delete(*self.tree.get_children())
         self.insert_rows()
