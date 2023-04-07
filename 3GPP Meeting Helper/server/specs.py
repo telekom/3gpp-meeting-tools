@@ -22,7 +22,8 @@ spec_page = 'https://www.3gpp.org/DynaReport/{0}.htm'
 spec_archive_page = 'https://www.3gpp.org/ftp/Specs/archive/{0}_series/{1}'
 
 # Specification CRs page, e.g., https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber=23.501
-spec_crs_page = 'https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber={0}'
+# For a specific WI would be e.g. https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber=23.501&release=all&workitem=970025
+spec_crs_page = 'https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber={0}&release=all'
 
 # Some specs may be so new that there is not an entry in the "latest" page yet
 drafts_page = 'https://www.3gpp.org/ftp/Specs/latest-drafts'
@@ -406,10 +407,11 @@ def get_url_for_spec_page(spec_number: str) -> str:
     return spec_page.format(spec_number)
 
 
-def get_url_for_crs_page(spec_number: str) -> str:
+def get_url_for_crs_page(spec_number: str, wi_uid: str = None) -> str:
     """
     Returns the 3GPP CRs page for a given specification page, e.g., https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber=23.501
     Args:
+        wi_uid: Optional 3GPP WI number
         spec_number: The specification number. Either with dot or without
 
     Returns: The URL of the specification page
@@ -417,7 +419,10 @@ def get_url_for_crs_page(spec_number: str) -> str:
     """
     spec_number = cleanup_spec_name(spec_number)
     spec_number = '{0}.{1}'.format(spec_number[0:2], spec_number[2:])
-    return spec_crs_page.format(spec_number)
+    return_url = spec_crs_page.format(spec_number)
+    if wi_uid is not None:
+        return_url = return_url + '&workitem={0}'.format(wi_uid)
+    return return_url
 
 
 def get_archive_page_for_spec(spec_number_with_dot: str) -> Tuple[str, str]:

@@ -115,7 +115,7 @@ class SpecsTable:
         # https://stackoverflow.com/questions/50625306/what-is-the-best-way-to-show-data-in-a-table-in-tkinter
         self.tree = ttk.Treeview(
             frame_2,
-            columns=('Spec', 'Title', 'Versions', 'Last', 'Local Cache', 'Group', 'CRs'),
+            columns=('Spec', 'Title', 'Versions', 'Local Cache', 'Group', 'CRs'),
             show='headings',
             selectmode="browse",
             style=style_name,
@@ -124,7 +124,6 @@ class SpecsTable:
         set_column(self.tree, 'Spec', "Spec #", width=110)
         set_column(self.tree, 'Title', width=SpecsTable.title_width, center=False)
         set_column(self.tree, 'Versions', width=70)
-        set_column(self.tree, 'Last', width=80)
         set_column(self.tree, 'Local Cache', width=80)
         set_column(self.tree, 'Group', width=70)
         set_column(self.tree, 'CRs', width=70)
@@ -158,7 +157,7 @@ class SpecsTable:
         self.combo_series.set('All')
         self.combo_series.bind("<<ComboboxSelected>>", self.select_series)
 
-        tkinter.Label(frame_1, text="  Filter by Series: ").pack(side=tkinter.LEFT)
+        tkinter.Label(frame_1, text="  Series: ").pack(side=tkinter.LEFT)
         self.combo_series.pack(side=tkinter.LEFT)
 
         # Filter by specification release
@@ -171,7 +170,7 @@ class SpecsTable:
         self.combo_releases.set('All')
         self.combo_releases.bind("<<ComboboxSelected>>", self.select_releases)
 
-        tkinter.Label(frame_1, text="  Filter by Release: ").pack(side=tkinter.LEFT)
+        tkinter.Label(frame_1, text="  Release: ").pack(side=tkinter.LEFT)
         self.combo_releases.pack(side=tkinter.LEFT)
 
         # Filter by group responsibility release
@@ -184,7 +183,7 @@ class SpecsTable:
         self.combo_groups.set('All')
         self.combo_groups.bind("<<ComboboxSelected>>", self.select_groups)
 
-        tkinter.Label(frame_1, text="  Filter by Group: ").pack(side=tkinter.LEFT)
+        tkinter.Label(frame_1, text="  WG: ").pack(side=tkinter.LEFT)
         self.combo_groups.pack(side=tkinter.LEFT)
 
         tkinter.Label(frame_1, text="  ").pack(side=tkinter.LEFT)
@@ -194,7 +193,7 @@ class SpecsTable:
             command=self.clear_filters).pack(side=tkinter.LEFT)
         tkinter.Button(
             frame_1,
-            text='Load new specs',
+            text='Load specs',
             command=self.load_new_specs).pack(side=tkinter.LEFT)
 
         self.tree.pack(fill='both', expand=True, side='left')
@@ -281,7 +280,6 @@ class SpecsTable:
                 spec_name,
                 textwrap.fill(title, width=70),
                 'Click',
-                file_version_to_version(row['max_version']),
                 'Click',
                 responsible_group,
                 'Click'
@@ -410,14 +408,10 @@ class SpecsTable:
                 current_spec_metadata.spec_initial_release,
                 self)
         if column == 3:
-            spec_url = get_url_for_version_text(spec_entries, actual_value)
-            downloaded_files = download_spec_if_needed(spec_id, spec_url)
-            application.word.open_files(downloaded_files)
-        if column == 4:
             print('Clicked local folder for spec ID {0}'.format(spec_id))
             url_to_open = get_specs_folder(spec_id=spec_id)
             open_url_and_copy_to_clipboard(url_to_open)
-        if column == 6:
+        if column == 5:
             print('Clicked CRs link for spec ID {0}'.format(spec_id))
             url_to_open = get_url_for_crs_page(spec_id)
             open_url_and_copy_to_clipboard(url_to_open)
