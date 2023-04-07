@@ -5,6 +5,7 @@ from typing import List, Tuple, Dict
 
 import html2text
 
+import server.specs
 from parsing.html.specs import extract_releases_from_latest_folder, extract_spec_series_from_spec_folder, \
     extract_spec_files_from_spec_folder, extract_spec_versions_from_spec_file, cleanup_spec_name
 from parsing.spec_types import SpecType, SpecVersionMapping
@@ -126,7 +127,19 @@ def get_spec_page(spec_number: str, cache=False, force_download=False):
     return markup
 
 
-def get_specs(cache=True, check_for_new_specs=False, override_pickle_cache=False) -> Tuple[pd.DataFrame, Dict[str, SpecVersionMapping]]:
+# Moved outside of the function so that the last cached files can be stored in-memory between function calls. This is
+# useful when reloading a single spec file
+last_spec_metadata: dict[str, SpecVersionMapping] = {}
+
+# Contains the last loaded specifications dataframe
+last_specs_df = None
+
+
+def get_specs(
+        cache=True,
+        check_for_new_specs=False,
+        override_pickle_cache=False,
+        load_only_spec_list: list[str] = []) -> Tuple[pd.DataFrame, dict[str, SpecVersionMapping]]:
     """
     Retrieves information related to the latest 3GPP specs (per Release) from the 3GPP server or a local cache.
     Args:
@@ -135,6 +148,8 @@ def get_specs(cache=True, check_for_new_specs=False, override_pickle_cache=False
         check_for_new_specs: Whether the cache should be updated with newly-found specs
         cache: Whether caching is desired. If yes, if existing, a cache file will be read. The cache file contains
         the last retrieved spec data
+        load_only_spec_list: If the list is not empty, it contains a list of specifications that should be re-loaded. Otherwise,
+            all specifications will be reloaded
 
     Returns:
         A DataFrame containing the specification information from the 3GPP specification repository at
@@ -144,10 +159,11 @@ def get_specs(cache=True, check_for_new_specs=False, override_pickle_cache=False
         Also metadata containing title and other information for the related specifications
 
     """
-    print('Loading specs: cache={0}, check for new specs={1}, override pickle cache={2}'.format(
+    print('Loading specs: cache={0}, check for new specs={1}, override pickle cache={2}, load only={3}'.format(
         cache,
         check_for_new_specs,
-        override_pickle_cache))
+        override_pickle_cache,
+        load_only_spec_list))
     specs_df_cache_file = os.path.join(get_specs_cache_folder(), '_specs.pickle')
 
     # Load specs data from cache file
@@ -155,8 +171,9 @@ def get_specs(cache=True, check_for_new_specs=False, override_pickle_cache=False
         if cache and (not check_for_new_specs) and os.path.exists(specs_df_cache_file):
             with open(specs_df_cache_file, "rb") as f:
                 print('Loading spec cache from {0}'.format(specs_df_cache_file))
-                specs_df, spec_metadata = pickle.load(f)
-            return specs_df, spec_metadata
+                specs_df, server.specs.last_spec_metadata = pickle.load(f)
+            server.specs.last_specs_df = specs_df
+            return specs_df, server.specs.last_spec_metadata
 
     if cache and (not check_for_new_specs):
         latest_and_series_cache = True
@@ -165,78 +182,92 @@ def get_specs(cache=True, check_for_new_specs=False, override_pickle_cache=False
         latest_and_series_cache = False
         print('Checking for new specs. Disabling file cache for some retrievals')
 
-    # Get HTML page: https://www.3gpp.org/ftp/Specs/latest
-    markup_latest_specs = get_latest_specs_page(cache=latest_and_series_cache)
-    releases_data = extract_releases_from_latest_folder(
-        markup_latest_specs,
-        base_url=specs_url)
+    if len(load_only_spec_list) > 0:
+        # Selectively reloading a known spec does not require to require all of the spec series data
+        print('Skipping loading series data (loading only {0})'.format(load_only_spec_list))
+        specs_df = server.specs.last_specs_df
+    else:
+        print('Loading series data')
 
-    # Retrieve information for all 3GPP releases
-    series_data_per_release = []
-    for release_data in releases_data:
-        # For each Release, get the corresponding page, e.g. https://www.3gpp.org/ftp/Specs/latest/Rel-10
-        markup_release_data = get_release_folder_page(
-            release_data.release_url,
-            release_data.release,
-            cache=latest_and_series_cache)
-        series_data_for_release = extract_spec_series_from_spec_folder(
-            markup_release_data,
-            release=release_data.release,
-            base_url=release_data.release_url)
-        series_data_per_release.append(series_data_for_release)
+        # Get HTML page: https://www.3gpp.org/ftp/Specs/latest
+        markup_latest_specs = get_latest_specs_page(cache=latest_and_series_cache)
+        releases_data = extract_releases_from_latest_folder(
+            markup_latest_specs,
+            base_url=specs_url)
 
-    all_specs_data = []
-    for series_data_for_release in series_data_per_release:
-        # For each spec. series in each release, extract data
-        # For each release, extract data, e.g. from https://www.3gpp.org/ftp/Specs/latest/Rel-10/23_series
-        for series_data in series_data_for_release:
-            markup_series_data = get_series_folder_page(
-                series_data.series_url,
-                series_number=series_data.series,
-                release_number=series_data.release,
+        # Retrieve information for all 3GPP releases
+        series_data_per_release = []
+        for release_data in releases_data:
+            # For each Release, get the corresponding page, e.g. https://www.3gpp.org/ftp/Specs/latest/Rel-10
+            markup_release_data = get_release_folder_page(
+                release_data.release_url,
+                release_data.release,
                 cache=latest_and_series_cache)
-            specs_data_for_series = extract_spec_files_from_spec_folder(
-                markup_series_data,
-                release=series_data.release,
-                series=series_data.series,
-                base_url=series_data.series_url)
-            all_specs_data.extend(specs_data_for_series)
+            series_data_for_release = extract_spec_series_from_spec_folder(
+                markup_release_data,
+                release=release_data.release,
+                base_url=release_data.release_url)
+            series_data_per_release.append(series_data_for_release)
 
-    # Retrieve Drafts folder
-    # Get drafts page: https://www.3gpp.org/ftp/Specs/latest-drafts
-    markup_draft_specs = get_drafts_folder_page(cache=latest_and_series_cache)
-    specs_data_for_drafts = extract_spec_files_from_spec_folder(
-        markup_draft_specs,
-        release='Draft',
-        series=None,
-        base_url=drafts_page,
-        auto_fill=True)
-    all_specs_data.extend(specs_data_for_drafts)
+        all_specs_data = []
+        for series_data_for_release in series_data_per_release:
+            # For each spec. series in each release, extract data
+            # For each release, extract data, e.g. from https://www.3gpp.org/ftp/Specs/latest/Rel-10/23_series
+            for series_data in series_data_for_release:
+                markup_series_data = get_series_folder_page(
+                    series_data.series_url,
+                    series_number=series_data.series,
+                    release_number=series_data.release,
+                    cache=latest_and_series_cache)
+                specs_data_for_series = extract_spec_files_from_spec_folder(
+                    markup_series_data,
+                    release=series_data.release,
+                    series=series_data.series,
+                    base_url=series_data.series_url)
+                all_specs_data.extend(specs_data_for_series)
 
-    # Convert specs data into DataFrame
-    specs_df = pd.DataFrame(all_specs_data)
+        # Retrieve Drafts folder
+        # Get drafts page: https://www.3gpp.org/ftp/Specs/latest-drafts
+        markup_draft_specs = get_drafts_folder_page(cache=latest_and_series_cache)
+        specs_data_for_drafts = extract_spec_files_from_spec_folder(
+            markup_draft_specs,
+            release='Draft',
+            series=None,
+            base_url=drafts_page,
+            auto_fill=True)
+        all_specs_data.extend(specs_data_for_drafts)
 
-    # Set TS/TR number as index
-    specs_df.set_index("spec", inplace=True)
+        # Convert specs data into DataFrame
+        specs_df = pd.DataFrame(all_specs_data)
 
-    unique_specs = list(specs_df.index.unique())
+        # Set TS/TR number as index
+        specs_df.set_index("spec", inplace=True)
+
+    # If only one or more specs need to be reloaded, reload only those ones
+    if len(load_only_spec_list) > 0:
+        unique_specs = list(set(load_only_spec_list))
+        print('Will only reload specs={0}'.format(unique_specs))
+    else:
+        unique_specs: List[str] = list(specs_df.index.unique())
+        print('Will reload all specs')
     unique_specs.sort()
-    spec_metadata = {}
-    # Download each spec's page, e.g. https://www.3gpp.org/DynaReport/23501.htm
+
+    # Download each spec's page, e.g. https://www.3gpp.org/DynaReport/23501.htm (or from cache)
     for spec_to_download in unique_specs:
         spec_page_markup = get_spec_page(spec_to_download, cache=cache)
         spec_data = extract_spec_versions_from_spec_file(spec_page_markup)
         spec_key = spec_data.spec[0:2] + '.' + spec_data.spec[2:]
-        spec_metadata[spec_key] = spec_data
+        last_spec_metadata[spec_key] = spec_data
 
-    apply_spec_metadata_to_dataframe(specs_df, spec_metadata)
+    apply_spec_metadata_to_dataframe(specs_df, last_spec_metadata)
 
     if cache:
         with open(specs_df_cache_file, "wb") as f:
             print('Storing spec cache in {0}'.format(specs_df_cache_file))
-            pickle.dump([specs_df, spec_metadata], f)
+            pickle.dump([specs_df, last_spec_metadata], f)
 
-    return specs_df, spec_metadata
+    server.specs.last_specs_df = specs_df
+    return specs_df, last_spec_metadata
 
 
 def get_specs_cache_folder(create_dir=True):

@@ -205,15 +205,17 @@ class SpecsTable:
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
 
-    def load_data(self, initial_load=False, check_for_new_specs=False, override_pickle_cache=False, only_for=None):
+    def load_data(self, initial_load=False, check_for_new_specs=False, override_pickle_cache=False,
+                  load_only: list[str] = []):
         """
         Loads specifications frm the 3GPP website
 
         Args:
+            load_only: If the list is not empty, it contains a list of specifications that should be re-loaded.
+                Otherwise, all specifications will be reloaded
             initial_load: Loads everything
             check_for_new_specs: Whether the spec series page should be checked for new specs
             override_pickle_cache: Whether an existing cache should not be used
-            only_for: Whether this call is 
         """
         # Load specs data
         print('Loading revision data for LATEST specs per release for table')
@@ -221,7 +223,8 @@ class SpecsTable:
             self.all_specs, self.spec_metadata = specs.get_specs(
                 cache=True,
                 check_for_new_specs=check_for_new_specs,
-                override_pickle_cache=override_pickle_cache)
+                override_pickle_cache=override_pickle_cache,
+                load_only_spec_list=load_only)
             self.current_specs = self.all_specs
             self.filter_text = self.all_specs
             self.filter_release = self.all_specs
@@ -464,7 +467,8 @@ class SpecVersionsTable:
 
         self.tree = ttk.Treeview(
             frame_1,
-            columns=('Spec', 'Version', 'Upload Date', 'Open Word', 'Open PDF', 'Open HTML', 'Add to compare A', 'Add to compare B'),
+            columns=('Spec', 'Version', 'Upload Date', 'Open Word', 'Open PDF', 'Open HTML', 'Add to compare A',
+                     'Add to compare B'),
             show='headings',
             selectmode="browse",
             style=style_name,
@@ -483,11 +487,7 @@ class SpecVersionsTable:
         # Before we start inserting rows, we need to load the spec archive for this specification
         # Done here because probably not all specs will be equally accessed. Thus, new versions can be reloaded
         # whenever needed
-        spec_markup, archive_page_url, series_number = get_spec_archive_remote_folder(spec_id, cache=True, force_download=False)
-        specs_from_archive = extract_spec_files_from_spec_folder(spec_markup, archive_page_url, None, series_number)
-        specs_df = pd.DataFrame(specs_from_archive)
-        specs_df.set_index("spec", inplace=True)
-        self.spec_entries = specs_df
+        self.spec_entries = self.load_spec_data()
 
         self.count = 0
         self.insert_rows()
@@ -519,6 +519,21 @@ class SpecVersionsTable:
             frame_3,
             text='Re-load spec file',
             command=self.reload_spec_file).pack(side=tkinter.LEFT)
+
+    def load_spec_data(self) -> pd.DataFrame:
+        """
+        Loads the specification data from the HTML file retrieved from the 3GPP servers (cached as a Markdown file) and
+        returns a DataFrame containing the data from the specification versions
+        Returns: DataFrame containing the data from the specification versions
+        """
+        spec_markup, archive_page_url, series_number = get_spec_archive_remote_folder(
+            self.spec_id,
+            cache=True,
+            force_download=False)
+        specs_from_archive = extract_spec_files_from_spec_folder(spec_markup, archive_page_url, None, series_number)
+        specs_df = pd.DataFrame(specs_from_archive)
+        specs_df.set_index("spec", inplace=True)
+        return specs_df
 
     def insert_rows(self):
         print('Populating version table for spec {0}'.format(self.spec_id))
@@ -684,6 +699,7 @@ class SpecVersionsTable:
     def reload_spec_file(self):
         get_spec_page(self.spec_id, cache=True, force_download=True)
         get_spec_archive_remote_folder(self.spec_id, cache=True, force_download=True)
-        self.parent_specs_table.load_data(initial_load=True, override_pickle_cache=True, only_for=self.spec_id)
+        self.parent_specs_table.load_data(initial_load=True, override_pickle_cache=True, load_only=[self.spec_id])
+        self.spec_entries = self.load_spec_data()
         self.tree.delete(*self.tree.get_children())
         self.insert_rows()
