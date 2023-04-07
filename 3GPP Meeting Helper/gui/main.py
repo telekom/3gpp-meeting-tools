@@ -421,23 +421,36 @@ def download_and_open_tdoc(
             # Retrieve search for all meetings of the year
             performing_search = True
             try:
-                # Search while we still did not find a match
+                # Search the meetings of the chosen year while we still did not find a match
                 meetings_to_check = application.meeting_helper.sa2_meeting_data.get_meetings_for_given_year(tdoc_year)
                 print('Will search meetings: {0}'.format('; '.join(meetings_to_check.meeting_folders)))
                 for meeting_to_search in meetings_to_check.meeting_folders:
                     tkvar_meeting.set(meeting_to_search)
-                    download_and_open_tdoc()
+
+                    # Recursive call after changing the (e)Meeting number
+                    tmp_retrieved_files = download_and_open_tdoc(
+                        tdoc_id_to_override=tdoc_id,
+                        cached_tdocs_list=cached_tdocs_list)
+
                     if not performing_search:
                         not_found_string = None
                         break
                     not_found_string = 'Not found (' + tdoc_id + ')'
             finally:
+                # Found a result and stop search by setting global variable
                 performing_search = False
+                retrieved_files = tmp_retrieved_files
         else:
             not_found_string = 'Not found (' + tdoc_id + ')'
 
         if not_found_string is not None:
             tkvar_tdoc_download_result.set(not_found_string)
+
+        # Needed to add this so that comparison of TDocs between meetings can work
+        if not open_downloaded_tdocs:
+            if retrieved_files is not None and cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
+                print("Added files to cached TDocs list: {0}".format(retrieved_files))
+                cached_tdocs_list.extend(retrieved_files)
     else:
         if not open_downloaded_tdocs:
             found_string = 'Cached file(s)'
@@ -460,7 +473,8 @@ def download_and_open_tdoc(
                     tkvar_last_doc_title.set(last_metadata.title)
                 if last_metadata.source is not None:
                     tkvar_last_doc_source.set(last_metadata.source)
-        return retrieved_files
+
+    return retrieved_files
 
 
 def start_main_gui():
