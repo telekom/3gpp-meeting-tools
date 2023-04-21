@@ -6,6 +6,8 @@ import os.path
 import pickle
 import re
 import traceback
+from re import Pattern
+from typing import NamedTuple, List, Tuple
 
 import lxml.html as lh  # HTML parsing
 import pandas as pd
@@ -16,14 +18,51 @@ import server.tdoc
 from server.common import decode_string
 from tdoc.utils import title_cr_regex
 
-Meeting = collections.namedtuple('Meeting', 'text folder date')
-TdocComments = collections.namedtuple('TdocComments', 'revision_of revised_to merge_of merged_to')
-TdocBasicInfo = collections.namedtuple('TdocBasicInfo', 'tdoc title source ai work_item')
+
+class Meeting(NamedTuple):
+    """
+    Represents a 3GPP Meeting (text, folder, date)
+    """
+    text: str
+    folder: str
+    date: datetime.datetime
+
+
+class TdocComments(NamedTuple):
+    """
+    Represents the comments of a parsed TDoc entry (revision of, revised to, etc.)
+    """
+    revision_of: str
+    revised_to: str
+    merge_of: str
+    merged_to: str
+
+
+class TdocBasicInfo(NamedTuple):
+    """
+    The basic information related to a TDoc (the TDoc ID, title, source, AI, WI)
+    """
+    tdoc: str
+    title: str
+    source: str
+    ai: str
+    work_item: str
+
+
+class FolderList(NamedTuple):
+    """Provides a list of folders containing datetime information"""
+    location: str
+    folders: List[str]
+    files: List[str]
+    folders_with_dates: Tuple[str, datetime.datetime]
+
+
 ftp_list_regex = re.compile(r'(\d?\d\/\d?\d\/\d\d\d\d) *(\d?\d:\d\d) (AM|PM) *(<dir>|\d+) *')
 comment_span = re.compile(r'<span title="(.*)">(.*)')
 current_cache_version = 1.41
 
-# Control maximum recursion to avoid stack overflow. Some manual errors in the TDocsByAgenda may lead to circular references
+# Control maximum recursion to avoid stack overflow. Some manual errors in the TDocsByAgenda may lead to circular
+# references
 max_recursion = 10
 
 
@@ -42,7 +81,7 @@ def get_tdoc_infos(tdocs, df):
     return tdoc_list
 
 
-def parse_3gpp_http_ftp(html):
+def parse_3gpp_http_ftp(html) -> FolderList:
     if html is None or html == '':
         return None
 
@@ -73,19 +112,20 @@ def parse_3gpp_http_ftp_v1(html):
     folders_with_dates = []
     for match_idx in range(0, len(text)):
         match = matches[match_idx]
-        current_text = text[match_idx]
+        current_text: str = text[match_idx]
         if match[-1] == '<dir>':
             folders.append(current_text)
-            folders_with_dates.append((current_text, datetime.datetime.strptime(match[0], '%m/%d/%Y')))
+            the_time: datetime = datetime.datetime.strptime(match[0], '%m/%d/%Y')
+            folders_with_dates.append((current_text, the_time))
         else:
             files.append(current_text)
 
-    return Result(location, folders, files, folders_with_dates)
+    return FolderList(location, folders, files, folders_with_dates)
 
 
 def parse_3gpp_http_ftp_v2(html):
     parsed = lh.fromstring(html)
-    Result = collections.namedtuple('Http_3GPP_folder', ['location', 'folders', 'files', 'folders_with_dates'])
+
     location = parsed.xpath('head/title')[0].text_content().replace('Directory Listing', '').strip()
     rows = [(e.xpath('td/a')[0].attrib['href'],  # URL
              e.xpath('td')[2].text_content().replace('\n', '').replace('\t', '').strip(),  # Date
@@ -106,7 +146,7 @@ def parse_3gpp_http_ftp_v2(html):
         else:
             files.append(entry_name)
 
-    return Result(location, folders, files, folders_with_dates)
+    return FolderList(location, folders, files, folders_with_dates)
 
 
 def parse_current_document(html):
@@ -154,7 +194,16 @@ def parse_3gpp_meeting_list_object(html, ordered=True, remove_old_meetings=False
     return MeetingData(meeting_data)
 
 
-def get_meeting_number(number_string, regex):
+def get_meeting_number(number_string: str, regex: Pattern[str]):
+    """
+    Returns the meeting number as an integer based on the meeting string
+    Args:
+        number_string: A string containing a meeting number
+        regex: Regular expression to use matching the number that will be used with regex.match
+
+    Returns: The number
+
+    """
     key_match = regex.match(number_string)
     if key_match is None:
         return 0
@@ -213,7 +262,7 @@ def parse_tdoc_comments(comments, ignore_from_previous_meetings=True):
     if merged_to_match is not None:
         str_full = merged_to_match[0]
         str_tdocs = merged_to_match.groupdict()['tdocs']
-        comments = replace_and_clean_string(comments, str_full)
+        replace_and_clean_string(comments, str_full)
 
         str_tdocs_match = tdoc_regex.findall(str_tdocs)
         if str_tdocs_match is not None:
@@ -273,72 +322,8 @@ def get_cache_filepath(meeting_folder_name, html_hash):
 tdocs_by_document_cache = {}
 
 
-def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder=''):
-    if (path_or_html is None) or (path_or_html == ''):
-        print('Parse TDocsByAgenda skipped. path_or_html={0}, meeting_server_folder={1}'.format(path_or_html,
-                                                                                                meeting_server_folder))
-        return None
-
-    global tdocs_by_document_cache
-
-    print('Retrieving TDocsByAgenda (cache is enabled)')
-
-    # If this is an HTML
-    if len(path_or_html) > 1000:
-        print('TDocsByAgenda retrieval based on HTML content')
-
-        # Changed to hashlib as it is reinitialized beween sessions.
-        # See https://stackoverflow.com/questions/27522626/hash-function-in-python-3-3-returns-different-results-between-sessions
-        m = hashlib.md5()
-        m.update(path_or_html)
-        html_hash = m.hexdigest()
-
-        # Retrieve 
-        if html_hash in tdocs_by_document_cache:
-            print('Retrieving TdocsByAgenda from parsed document cache: {0}'.format(html_hash))
-            last_tdocs_by_agenda = tdocs_by_document_cache[html_hash]
-        else:
-            print('TdocsByAgenda {0} not in cache'.format(html_hash))
-            last_tdocs_by_agenda = tdocs_by_agenda(
-                path_or_html,
-                html_hash=html_hash,
-                meeting_server_folder=meeting_server_folder)
-
-            # I found out tht this was not a good idea for the inbox. File cache should be enough
-            # print('Storing TdocsByAgenda with hash {0} in memory cache'.format(html_hash))
-            # tdocs_by_document_cache[html_hash] = last_tdocs_by_agenda
-
-            # Save TDocsByAgenda data in a pickle file so that we can plot graphs later on
-            try:
-                data_to_save = {
-                    'contributor_columns': last_tdocs_by_agenda.contributor_columns,
-                    'others_cosigners': last_tdocs_by_agenda.others_cosigners,
-                    'tdocs': last_tdocs_by_agenda.tdocs,
-                    'cache_version': current_cache_version
-                }
-
-                cache_file_name = get_cache_filepath(meeting_server_folder, html_hash)
-                if cache_file_name is not None and not os.path.exists(cache_file_name):
-                    with open(cache_file_name, 'wb') as f:
-                        # Pickle the 'data' dictionary using the highest protocol available.
-                        pickle.dump(data_to_save, f, pickle.HIGHEST_PROTOCOL)
-                        print('Saved TDocsByAgenda cache to file {0}'.format(cache_file_name))
-            except:
-                print('Could not cache TDocsByAgenda for meeting {0}'.format(meeting_server_folder))
-                print('Object to serialize:')
-                print(data_to_save)
-                traceback.print_exc()
-    else:
-        # Path-based fetching uses no hash
-        print('TDocsByAgenda retrieval based on path')
-        the_tdocs_by_agenda = tdocs_by_agenda(path_or_html)
-        last_tdocs_by_agenda = the_tdocs_by_agenda
-
-    return last_tdocs_by_agenda
-
-
 class tdocs_by_agenda(object):
-    """Loads the information for the "Tdocs by Agenda" meeting file"""
+    """Contains the information for the "Tdocs by Agenda" meeting file"""
     revision_of_regex = re.compile(r'.*Revision of (?P<tdoc>[S\d-]*)( from (?P<previous_meeting>S[\d\w#-]*))?')
     revised_to_regex = re.compile(
         r'.*Revised([ ]?(off-line|in parallel session|in drafting session))? to (?P<tdoc>[S\d-]*)')
@@ -357,6 +342,7 @@ class tdocs_by_agenda(object):
     creation_date_regex_if_fails = re.compile(
         r'<o:LastSaved>((?P<year>[\d]{4})-(?P<month>[\d]{2})-(?P<day>[\d]{2})T(?P<hour>[\d]{2}):(?P<minute>[\d]{2}))')
 
+    # Hardcoded list of typos to correct
     tdoc_typos = {
         'S2-181812649': 'S2-1812649',
         'S2-19000963': 'S2-1900963'
@@ -433,7 +419,7 @@ class tdocs_by_agenda(object):
         except:
             self.meeting_number = 'Unknown'
         print('Parsed meeting number: {0}'.format(self.meeting_number))
-        self.meeting_server_folder = meeting_server_folder
+        self.meeting_server_folder: str = meeting_server_folder
 
         dataframe_from_cache = False
 
@@ -489,11 +475,12 @@ class tdocs_by_agenda(object):
         dataframe['Title'] = dataframe['Title'].apply(lambda x: tdocs_by_agenda.clean_up_title(x))
 
         # Assign dataframe
-        self.tdocs : pd.DataFrame = dataframe
+        self.tdocs: pd.DataFrame = dataframe
 
         if not dataframe_from_cache:
             tdocs_by_agenda.get_original_and_final_tdocs(self.tdocs)
-            self.others_cosigners, self.tdocs = config.contributor_names.add_contributor_columns_to_tdoc_list(self.tdocs, self.meeting_server_folder)
+            self.others_cosigners, self.tdocs = config.contributor_names.add_contributor_columns_to_tdoc_list(
+                self.tdocs, self.meeting_server_folder)
             self.contributor_columns = config.contributor_names.get_contributor_columns()
         else:
             # get_original_and_final_tdocs should already be in the cache
@@ -508,13 +495,16 @@ class tdocs_by_agenda(object):
         fixed_comment = '{0}. {1}'.format(comment_match.group(1), comment_match.group(2))
         return fixed_comment
 
-    def clean_up_title(title_str : str):
+    def clean_up_title(title_str: str) -> str:
         if title_str is None:
             return title_str
 
-        return title_str.replace(r'&apos;',"'").replace(r'&amp;',"&").replace(r'&#39;',"'")
+        return title_str.replace(r'&apos;', "'").replace(r'&amp;', "&").replace(r'&#39;', "'")
 
-    def get_meeting_number(tdocs_by_agenda_html):
+    def get_meeting_number(tdocs_by_agenda_html) -> str:
+        """
+        Returns: The meeting number based on the HTML of TDocsByAgenda
+        """
         print('Parsing TDocsByAgenda meeting number')
         meeting_number_match = tdocs_by_agenda.meeting_number_regex.search(tdocs_by_agenda_html)
         if meeting_number_match is None:
@@ -543,10 +533,8 @@ class tdocs_by_agenda(object):
         uncapitalized_separator = '<tr valign='
         capitalized_separator = '<TR VALIGN='
         if html.find(uncapitalized_separator) != -1:
-            capitalized = False
             splitter = uncapitalized_separator
         else:
-            capitalized = True
             splitter = capitalized_separator
 
         separators = ['(td|TD)', '(bordercolor|BORDERCOLOR)', '(bgcolor|BGCOLOR)', '(font|FONT)',
@@ -816,10 +804,10 @@ class tdocs_by_agenda(object):
             # print(cols_as_array)
             # print('Comments (row ' + str(-len(new_cols)-2) + '): ' + comments)
 
-            revision_of_match = tdocs_by_agenda.revision_of_regex.match(comments)
-            revised_to_match = tdocs_by_agenda.revised_to_regex.match(comments)
-            merge_of_match = tdocs_by_agenda.merge_of_regex.match(comments)
-            merged_to_match = tdocs_by_agenda.merged_to_regex.match(comments)
+            # revision_of_match = tdocs_by_agenda.revision_of_regex.match(comments)
+            # revised_to_match = tdocs_by_agenda.revised_to_regex.match(comments)
+            # merge_of_match = tdocs_by_agenda.merge_of_regex.match(comments)
+            # merged_to_match = tdocs_by_agenda.merged_to_regex.match(comments)
 
             parsed_comments = parse_tdoc_comments(comments)
             cols_as_array[-(added_columns - 2)] = parsed_comments.merge_of
@@ -848,7 +836,7 @@ class tdocs_by_agenda(object):
         # Fix LS OUTs that have a wrong source
         print('Fixing wrong LS OUT sources')
         ls_with_wrong_source_idx = (df_tdocs['Type'] == 'LS OUT') & (df_tdocs['Revision of'] != '') & (
-                    df_tdocs['Source'] == 'SA WG2')
+                df_tdocs['Source'] == 'SA WG2')
         ls_outs_with_wrong_source = df_tdocs.loc[ls_with_wrong_source_idx, :]
         for idx, row in ls_outs_with_wrong_source.iterrows():
             try:
@@ -1002,7 +990,10 @@ class tdocs_by_agenda(object):
 
 
 class MeetingData:
-    def __init__(self, meeting_data):
+    """Allows easy access to the overall meeting data from a list of meetings and provides convenient mapping
+    functions"""
+
+    def __init__(self, meeting_data: List[Meeting]):
         self._meeting_data = meeting_data
         self._meeting_folders = [t.text for t in self._meeting_data]
         self._meeting_mapping = {t.text: t.folder for t in self._meeting_data}
@@ -1033,7 +1024,7 @@ class MeetingData:
     def length(self):
         return len(self._meeting_data)
 
-    def get_year_from_meeting_text(self, text):
+    def get_year_from_meeting_text(self, text: str):
         try:
             return self._meeting_text_to_year_mapping[text]
         except:
@@ -1048,3 +1039,67 @@ class MeetingData:
     def get_meetings_for_given_year(self, year):
         filtered_meeting_data = [meeting for meeting in self._meeting_data if meeting.date.year == year]
         return MeetingData(filtered_meeting_data)
+
+
+def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder='') -> tdocs_by_agenda:
+    if (path_or_html is None) or (path_or_html == ''):
+        print('Parse TDocsByAgenda skipped. path_or_html={0}, meeting_server_folder={1}'.format(path_or_html,
+                                                                                                meeting_server_folder))
+        return None
+
+    global tdocs_by_document_cache
+
+    print('Retrieving TDocsByAgenda (cache is enabled)')
+
+    # If this is an HTML
+    if len(path_or_html) > 1000:
+        print('TDocsByAgenda retrieval based on HTML content')
+
+        # Changed to hashlib as it is reinitialized beween sessions.
+        # See https://stackoverflow.com/questions/27522626/hash-function-in-python-3-3-returns-different-results-between-sessions
+        m = hashlib.md5()
+        m.update(path_or_html)
+        html_hash = m.hexdigest()
+
+        # Retrieve
+        if html_hash in tdocs_by_document_cache:
+            print('Retrieving TdocsByAgenda from parsed document cache: {0}'.format(html_hash))
+            last_tdocs_by_agenda = tdocs_by_document_cache[html_hash]
+        else:
+            print('TdocsByAgenda {0} not in cache'.format(html_hash))
+            last_tdocs_by_agenda = tdocs_by_agenda(
+                path_or_html,
+                html_hash=html_hash,
+                meeting_server_folder=meeting_server_folder)
+
+            # I found out tht this was not a good idea for the inbox. File cache should be enough
+            # print('Storing TdocsByAgenda with hash {0} in memory cache'.format(html_hash))
+            # tdocs_by_document_cache[html_hash] = last_tdocs_by_agenda
+
+            # Save TDocsByAgenda data in a pickle file so that we can plot graphs later on
+            try:
+                data_to_save = {
+                    'contributor_columns': last_tdocs_by_agenda.contributor_columns,
+                    'others_cosigners': last_tdocs_by_agenda.others_cosigners,
+                    'tdocs': last_tdocs_by_agenda.tdocs,
+                    'cache_version': current_cache_version
+                }
+
+                cache_file_name = get_cache_filepath(meeting_server_folder, html_hash)
+                if cache_file_name is not None and not os.path.exists(cache_file_name):
+                    with open(cache_file_name, 'wb') as f:
+                        # Pickle the 'data' dictionary using the highest protocol available.
+                        pickle.dump(data_to_save, f, pickle.HIGHEST_PROTOCOL)
+                        print('Saved TDocsByAgenda cache to file {0}'.format(cache_file_name))
+            except:
+                print('Could not cache TDocsByAgenda for meeting {0}'.format(meeting_server_folder))
+                print('Object to serialize:')
+                print(data_to_save)
+                traceback.print_exc()
+    else:
+        # Path-based fetching uses no hash
+        print('TDocsByAgenda retrieval based on path')
+        the_tdocs_by_agenda = tdocs_by_agenda(path_or_html)
+        last_tdocs_by_agenda = the_tdocs_by_agenda
+
+    return last_tdocs_by_agenda

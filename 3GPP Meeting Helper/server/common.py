@@ -1,15 +1,13 @@
 import os
+import re
 import socket
 import traceback
 import zipfile
+from ftplib import FTP
+from urllib.parse import urlparse
 
 import requests
 from cachecontrol import CacheControl
-from urllib.parse import urlparse
-from ftplib import FTP
-import re
-
-import application.meeting_helper
 
 root_folder = '3GPP_SA2_Meeting_Helper'
 
@@ -36,11 +34,6 @@ sa2_url = ''
 sa2_url_sync = ''
 sa2_url_meeting = ''
 user_folder = '~'
-
-# Configurable placement of the cache
-if application.meeting_helper.home_directory is not None:
-    user_folder = application.meeting_helper.home_directory
-
 
 def get_html(url, cache=True, try_update_folders=True, file_to_return_if_error=None):
     if file_to_return_if_error is not None:
@@ -188,6 +181,11 @@ def get_spec_folder(create_dir=True):
     folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
+
+
+def get_local_docs_filename(meeting_folder_name):
+    folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
+    return os.path.join(folder, 'Docs.htm')
 
 
 def get_local_revisions_filename(meeting_folder_name):

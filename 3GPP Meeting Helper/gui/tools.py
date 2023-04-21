@@ -4,6 +4,7 @@ import os.path
 import threading
 import tkinter
 import traceback
+from typing import List
 
 import pandas
 import pythoncom
@@ -22,6 +23,7 @@ import server.chairnotes
 import server.common
 import server.tdoc
 from parsing.html.chairnotes import chairnotes_file_to_dataframe
+from parsing.html.revisions import extract_tdoc_revisions_from_html
 from tdoc.utils import tdoc_regex
 from server.specs import get_specs_folder
 
@@ -213,15 +215,6 @@ class ToolsDialog:
         top.grid_columnconfigure(2, weight=1)
         top.grid_columnconfigure(3, weight=1)
 
-    def get_tdocs_of_selected_meeting(self):
-        selected_meeting = gui.main.tkvar_meeting.get()
-        meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
-        local_agenda_file = gui.main.get_tdocs_by_agenda_file_or_url(
-            server.tdoc.get_local_tdocs_by_agenda_filename(meeting_folder))
-        tdocs_df = html_parser.tdocs_by_agenda(
-            local_agenda_file,
-            meeting_server_folder=meeting_folder).tdocs
-        return tdocs_df
 
     def open_local_meeting_folder(self):
         selected_meeting = gui.main.tkvar_meeting.get()
@@ -572,7 +565,7 @@ class ToolsDialog:
 
     def bulk_cache_ais(self):
         try:
-            tdocs = self.get_tdocs_of_selected_meeting()
+            tdocs = application.meeting_helper.current_tdocs_by_agenda.tdocs
             ais = self.tkvar_ai_list.get()
             if ais is None:
                 return
@@ -580,19 +573,37 @@ class ToolsDialog:
                 ais = None
             else:
                 ais = [ai.strip() for ai in ais.replace(',', '').split(' ') if (ai is not None) and (ai != '')]
-            tdocs_do_cache = []
+            tdocs_to_cache: List[str] = []
             if ais is None:
-                ai_tdocs = tdocs.index.tolist()
-                if len(ai_tdocs) > 0:
-                    tdocs_do_cache.extend(ai_tdocs)
-                print('{0} items in meeting: {1}'.format(len(ai_tdocs), len(tdocs.index)))
+                # More efficient download by just checking the Docs folder in the server's meeting folder
+                # Add revisions and drafts folder only for the "no AIs case" (at least for now)
+                meeting_server_folder = application.meeting_helper.current_tdocs_by_agenda.meeting_server_folder
+
+                docs_file = server.tdoc.download_docs_file(meeting_server_folder)
+                revisions_file = server.tdoc.download_revisions_file(meeting_server_folder)
+                drafts_file = server.tdoc.download_drafts_file(meeting_server_folder)
+
+                docs_list = extract_tdoc_revisions_from_html(docs_file, is_draft=False, is_path=True,
+                                                             ignore_revision=True)
+                revisions_list = extract_tdoc_revisions_from_html(revisions_file, is_draft=False, is_path=True)
+                drafts_list = extract_tdoc_revisions_from_html(drafts_file, is_draft=True, is_path=True)
+
+                docs_list_full = [e.tdoc for e in docs_list]
+                revisions_list_full = ['{0}r{1}'.format(e.tdoc, e.revision) for e in revisions_list]
+                drafts_list_full = ['{0}r{1}'.format(e.tdoc, e.revision) for e in drafts_list]
+
+                tdocs_to_cache.extend(docs_list_full)
+                tdocs_to_cache.extend(revisions_list_full)
+                drafts_list_full.extend(drafts_list_full)
             else:
                 for ai in ais:
                     ai_tdocs = tdocs.index[tdocs['AI'] == ai].tolist()
                     if len(ai_tdocs) > 0:
-                        tdocs_do_cache.extend(ai_tdocs)
+                        tdocs_to_cache.extend(ai_tdocs)
                     print('{0} items in AI {1}, total items: {2}'.format(len(ai_tdocs), ai, len(tdocs.index)))
-            self.cache_tdocs(tdocs_do_cache)
+
+            # Temporarily disable
+            self.cache_tdocs(tdocs_to_cache)
         except:
             print('General error performing bulk AI caching')
             traceback.print_exc()

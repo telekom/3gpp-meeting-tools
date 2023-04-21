@@ -5,6 +5,7 @@ import tkinter
 import tkinter.font
 import tkinter.ttk
 import traceback
+from typing import Tuple
 
 from pyperclip import copy as clipboard_copy
 
@@ -106,7 +107,8 @@ def set_selected_meeting_to_inbox_meeting():
     # Sets the selected meeting to the current inbox meeting
     if application.meeting_helper.sa2_meeting_data is None:
         return
-    tkvar_meeting.set(application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(tkvar_inbox_meeting.get()))
+    tkvar_meeting.set(application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(
+        tkvar_inbox_meeting.get()))
 
 
 def reset_status_labels():
@@ -148,7 +150,8 @@ def load_application_data():
 
     # In case we override the file
     inbox_tdoc_list_html = get_tdocs_by_agenda_file_or_url(file_to_parse)
-    application.meeting_helper.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(inbox_tdoc_list_html)
+    application.meeting_helper.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(
+        inbox_tdoc_list_html)
 
     # Load SA2 meeting data
     sa2_folder_html = server.common.get_sa2_folder()
@@ -261,34 +264,31 @@ def search_netovate():
     print('Opening {0}'.format(netovate_url))
     os.startfile(netovate_url)
 
+
 def start_check_current_doc_thread():
     t = threading.Thread(target=retrieve_current_doc)
     t.start()
 
 
 # Downloads the TDocs by Agenda file
-def open_tdocs_by_agenda(open_this_file=True):
+def open_tdocs_by_agenda(open_this_file=True) -> parsing.html.common.tdocs_by_agenda:
     try:
         (meeting_server_folder, local_file) = get_local_tdocs_by_agenda_filename_for_current_meeting()
         if meeting_server_folder is None:
-            return
+            return None
     except:
-        return
+        return None
 
     # Save opened Tdocs by Agenda file to global application
-    html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder, open_tdocs_by_agenda_in_browser=open_this_file)
+    html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder,
+                                                    open_tdocs_by_agenda_in_browser=open_this_file)
     print('Retrieved local TDocsByAgenda data for {0}. Parsing TDocs'.format(meeting_server_folder))
-    application.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(
+    application.meeting_helper.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(
         html,
         meeting_server_folder=meeting_server_folder)
 
-    # print('-------------------')
-    # print('Current TDocsByAgenda are for meeting {0}'.format(application.current_tdocs_by_agenda.meeting_number))
-    # print(application.current_tdocs_by_agenda.tdocs.index)
-    # print('-------------------')
-
     server.common.write_data_and_open_file(html, local_file)
-    return application.current_tdocs_by_agenda
+    return application.meeting_helper.current_tdocs_by_agenda
 
 
 def get_tdocs_by_agenda_for_selected_meeting(
@@ -331,7 +331,11 @@ def get_tdocs_by_agenda_for_selected_meeting(
     return return_data
 
 
-def get_local_tdocs_by_agenda_filename_for_current_meeting():
+def get_local_tdocs_by_agenda_filename_for_current_meeting() -> Tuple[str, str]:
+    """
+    Gets the current file for the TDocsByAgenda file, as well as the meeting server's folder name
+    Returns: A tuple containing (meeting_server_folder, local_file)
+    """
     try:
         current_selection = tkvar_meeting.get()
         if (current_selection is None) or (current_selection == ''):
@@ -339,7 +343,8 @@ def get_local_tdocs_by_agenda_filename_for_current_meeting():
             return None, None
         else:
             print('Get TdocsByAgenda for {0} from local file'.format(current_selection))
-        meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(current_selection)
+        meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+            current_selection)
         local_file = server.tdoc.get_local_tdocs_by_agenda_filename(meeting_server_folder)
 
         return meeting_server_folder, local_file
@@ -355,6 +360,7 @@ def current_tdocs_by_agenda_exists():
         return os.path.isfile(local_file)
     except:
         return False
+
 
 # Trigger to search TDoc with Enter key
 def on_press_enter_key(event=None):
@@ -484,7 +490,8 @@ def start_main_gui():
     tkvar_meeting.set(application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(
         application.meeting_helper.current_tdocs_by_agenda.meeting_number))
 
-    popupMenu = tkinter.OptionMenu(main_frame, tkvar_meeting, *application.meeting_helper.sa2_meeting_data.meeting_folders)
+    popupMenu = tkinter.OptionMenu(main_frame, tkvar_meeting,
+                                   *application.meeting_helper.sa2_meeting_data.meeting_folders)
 
     # Variable-change callbacks
     def set_tdoc_id_full(*args):
@@ -544,7 +551,7 @@ def start_main_gui():
                    command=lambda: gui.tools.ToolsDialog(gui.main.root, gui.main.favicon)).grid(row=current_row,
                                                                                                 column=0, sticky="EW")
     open_tdoc_button.configure(command=download_and_open_tdoc)
-    root.bind('<Return>', on_press_enter_key) # Bind the enter key in this frame to searching for the TDoc
+    root.bind('<Return>', on_press_enter_key)  # Bind the enter key in this frame to searching for the TDoc
     print('Bound <Return> key to TDoc search')
     open_tdoc_button.grid(row=current_row, column=1, padx=10, pady=10, sticky="EW")
 
@@ -592,7 +599,8 @@ def start_main_gui():
 
     def open_last_agenda(*args):
         try:
-            meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(tkvar_meeting.get())
+            meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+                tkvar_meeting.get())
             server.tdoc.get_agenda_files(meeting_folder, use_inbox=False)
             if inbox_is_for_this_meeting():
                 server.tdoc.get_agenda_files(meeting_folder, use_inbox=True)
