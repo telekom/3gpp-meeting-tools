@@ -3,6 +3,7 @@ import datetime
 import traceback
 
 import application.outlook
+import parsing.html.common
 import server
 
 # Read config
@@ -13,7 +14,10 @@ config.read('config.ini')
 sa2_current_meeting_tdoc_data = None
 sa2_inbox_tdoc_data = None
 sa2_meeting_data = None
-current_tdocs_by_agenda = None
+
+# Global store of the current TDocsByAgenda data
+current_tdocs_by_agenda: parsing.html.common.tdocs_by_agenda = None
+
 word_own_reporter_name = None
 home_directory = None
 
@@ -60,3 +64,8 @@ def get_now_time_str():
                                                                             current_dt.day, current_dt.hour,
                                                                             current_dt.minute, current_dt.second)
     return current_dt_str
+
+
+# Configurable placement of the cache
+if home_directory is not None:
+    server.common.user_folder = home_directory

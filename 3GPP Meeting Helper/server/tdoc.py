@@ -79,6 +79,14 @@ def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None, open_tdocs_by_a
         return None
 
 
+def get_sa2_docs_tdoc_list(meeting_folder, save_file_to=None):
+    remote_folder = get_remote_meeting_folder(meeting_folder)
+    url = remote_folder + 'Docs'
+    returned_html = get_html(url, file_to_return_if_error=save_file_to)
+
+    return returned_html
+
+
 def get_sa2_revisions_tdoc_list(meeting_folder, save_file_to=None):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'INBOX/Revisions'
@@ -366,8 +374,21 @@ def update_meeting_ftp_server(new_address):
     update_urls()
 
 
-def get_tdocs_by_agenda_for_selected_meeting(meeting_folder, inbox_active=False, save_file_to=None,
-                                             open_tdocs_by_agenda_in_browser=False):
+def get_tdocs_by_agenda_for_selected_meeting(
+        meeting_folder: str,
+        inbox_active=False,
+        save_file_to=None,
+        open_tdocs_by_agenda_in_browser=False):
+    """
+    Returns the HTML of a TdocsByAgenda file for a given meeting
+    Args:
+        meeting_folder: The meeting folder as named in the 3GPP server
+        inbox_active: Whether the inbox is to be used
+        save_file_to: Where to save the file to
+        open_tdocs_by_agenda_in_browser: Whether to open the file in the browser
+
+    Returns: The HTML contents (bytes)
+    """
     # If the inbox is active, we need to download both and return the newest one
     html_inbox = None
     html_3gpp = None
@@ -423,7 +444,42 @@ def download_agenda_file(meeting, inbox_active=False, open_tdocs_by_agenda_in_br
         return None
 
 
-def download_revisions_file(meeting):
+def download_docs_file(meeting) -> str:
+    """
+    Downloads the docs list for a given meeting,
+    e.g. https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_156E_Electronic_2023-04/Docs
+    Args:
+        meeting: The folder name in the 3GPP server, e.g. TSGS2_156E_Electronic_2023-04
+
+    Returns: The file (path) where the HTML was saved to
+
+    """
+    try:
+        meeting_server_folder = meeting  # e.g. TSGS2_144E_Electronic
+        print('Retrieving docs for {0} meeting'.format(meeting))
+        local_file = server.common.get_local_docs_filename(meeting_server_folder)
+        html = get_sa2_docs_tdoc_list(meeting_server_folder, save_file_to=local_file)
+        if html is None:
+            print('Docs file for {0} not found'.format(meeting))
+            return None
+        server.common.write_data_and_open_file(html, local_file)
+        return local_file
+    except:
+        print('Could get not docs file for {0}'.format(meeting))
+        traceback.print_exc()
+        return None
+
+
+def download_revisions_file(meeting) -> str:
+    """
+    Downloads the revisions list for a given meeting,
+    e.g. https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_156E_Electronic_2023-04/INBOX/Revisions
+    Args:
+        meeting: The folder name in the 3GPP server, e.g. TSGS2_156E_Electronic_2023-04
+
+    Returns: The file (path) where the HTML was saved to
+
+    """
     try:
         meeting_server_folder = meeting  # e.g. TSGS2_144E_Electronic
         print('Retrieving revisions for {0} meeting'.format(meeting))
@@ -435,12 +491,21 @@ def download_revisions_file(meeting):
         server.common.write_data_and_open_file(html, local_file)
         return local_file
     except:
-        print('Could get not revisions agenda file for {0}'.format(meeting))
+        print('Could get not revisions file for {0}'.format(meeting))
         traceback.print_exc()
         return None
 
 
-def download_drafts_file(meeting):
+def download_drafts_file(meeting) -> str:
+    """
+    Downloads the drafts list for a given meeting,
+    e.g. https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_156E_Electronic_2023-04/INBOX/DRAFTS
+    Args:
+        meeting: The folder name in the 3GPP server, e.g. TSGS2_156E_Electronic_2023-04
+
+    Returns: The file (path) where the HTML was saved to
+
+    """
     try:
         meeting_server_folder = meeting  # e.g. TSGS2_144E_Electronic
         print('Retrieving drafts for {0} meeting'.format(meeting))
@@ -452,6 +517,6 @@ def download_drafts_file(meeting):
         server.common.write_data_and_open_file(html, local_file)
         return local_file
     except:
-        print('Could not get drafts agenda file for {0}'.format(meeting))
+        print('Could not get drafts file for {0}'.format(meeting))
         traceback.print_exc()
         return None
