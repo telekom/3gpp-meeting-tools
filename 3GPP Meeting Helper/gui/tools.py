@@ -145,40 +145,87 @@ class ToolsDialog:
                                                  command=self.export_year_tdocs_by_agenda_to_excel)
         self.tdoc_report_button.grid(row=5, column=1, columnspan=3, sticky="EW")
 
-        # Row 6: Generate Word report
-        self.tkvar_ai_list_word_report = tkinter.StringVar(top)
-        self.ai_list_entry_word_report = tkinter.Entry(top, textvariable=self.tkvar_ai_list_word_report, width=90,
-                                                       font='TkDefaultFont')
-        self.ai_list_entry_word_report.insert(0, '')
-        self.ai_list_entry_word_report.grid(row=6, column=1, columnspan=3, padx=10, pady=10)
-        self.tdoc_word_report_button = tkinter.Button(top, text=ToolsDialog.word_report_text,
-                                                      command=self.generate_word_report)
+        # Row 6A: Generate Word report
+        self.tdoc_word_report_button = tkinter.Button(
+            top,
+            text=ToolsDialog.word_report_text,
+            command=self.generate_word_report)
         self.tdoc_word_report_button.grid(row=6, column=0, columnspan=1, sticky="EW")
 
-        # Row 7: Bulk AI cache
+        self.tkvar_ai_list_word_report = tkinter.StringVar(top)
+        self.ai_list_entry_word_report = tkinter.Entry(
+            top,
+            textvariable=self.tkvar_ai_list_word_report,
+            width=30,
+            font='TkDefaultFont')
+        self.ai_list_entry_word_report.insert(0, '')
+        self.ai_list_entry_word_report.grid(row=6, column=1, columnspan=1, padx=10, pady=10, sticky="EW")
+
+        # Row 6B: Bulk AI cache
+        self.ai_bulk_open_button = tkinter.Button(
+            top,
+            text=ToolsDialog.bulk_ai_open_text,
+            command=self.bulk_cache_ais)
+        self.ai_bulk_open_button.grid(row=6, column=2, columnspan=1, sticky="EW")
+
         self.tkvar_ai_list = tkinter.StringVar(top)
-        self.ai_list_entry = tkinter.Entry(top, textvariable=self.tkvar_ai_list, width=90, font='TkDefaultFont')
+        self.ai_list_entry = tkinter.Entry(
+            top,
+            textvariable=self.tkvar_ai_list,
+            width=30,
+            font='TkDefaultFont')
         self.ai_list_entry.insert(0, '')
-        self.ai_list_entry.grid(row=7, column=1, columnspan=3, padx=10, pady=10)
+        self.ai_list_entry.grid(row=6, column=3, columnspan=1, padx=10, pady=10, sticky="EW")
 
-        self.ai_bulk_open_button = tkinter.Button(top, text=ToolsDialog.bulk_ai_open_text, command=self.bulk_cache_ais)
-        self.ai_bulk_open_button.grid(row=7, column=0, columnspan=1, sticky="EW")
-
-        # Row 8: Compare
-        self.compare_tdocs_button = tkinter.Button(top, text=ToolsDialog.compare_tdocs_text, command=self.compare_tdocs)
-        self.compare_tdocs_button.grid(row=8, column=0, columnspan=1, sticky="EW")
+        # Row 7: Compare
+        self.compare_tdocs_button = tkinter.Button(
+            top,
+            text=ToolsDialog.compare_tdocs_text,
+            command=self.compare_tdocs)
+        self.compare_tdocs_button.grid(row=7, column=0, columnspan=1, sticky="EW")
 
         self.tkvar_tdoc_to_compare_1 = tkinter.StringVar(top)
-        self.tdoc_to_compare_1_entry = tkinter.Entry(top, textvariable=self.tkvar_tdoc_to_compare_1, width=30,
-                                                     font='TkDefaultFont')
+        self.tdoc_to_compare_1_entry = tkinter.Entry(
+            top,
+            textvariable=self.tkvar_tdoc_to_compare_1,
+            width=30,
+            font='TkDefaultFont')
         self.tdoc_to_compare_1_entry.insert(0, '')
-        self.tdoc_to_compare_1_entry.grid(row=8, column=1, columnspan=1, padx=10, pady=10, sticky="EW")
+        self.tdoc_to_compare_1_entry.grid(row=7, column=1, columnspan=1, padx=10, pady=10, sticky="EW")
 
         self.tkvar_tdoc_to_compare_2 = tkinter.StringVar(top)
-        self.tdoc_to_compare_2_entry = tkinter.Entry(top, textvariable=self.tkvar_tdoc_to_compare_2, width=30,
-                                                     font='TkDefaultFont')
+        self.tdoc_to_compare_2_entry = tkinter.Entry(
+            top,
+            textvariable=self.tkvar_tdoc_to_compare_2,
+            width=30,
+            font='TkDefaultFont')
         self.tdoc_to_compare_2_entry.insert(0, '')
-        self.tdoc_to_compare_2_entry.grid(row=8, column=2, columnspan=1, padx=10, pady=10, sticky="EW")
+        self.tdoc_to_compare_2_entry.grid(row=7, column=2, columnspan=1, padx=10, pady=10, sticky="EW")
+
+        # Row 8: Replace Author names in active document
+        self.replace_author_names_button = tkinter.Button(
+            top,
+            text="Replace Active Doc's review author",
+            command=self.replace_document_revisions_author)
+        self.replace_author_names_button.grid(row=8, column=0, columnspan=1, sticky="EW")
+
+        self.original_author_name = tkinter.StringVar(top)
+        self.original_author_name_entry = tkinter.Entry(
+            top,
+            textvariable=self.original_author_name,
+            width=30,
+            font='TkDefaultFont')
+        self.original_author_name_entry.insert(0, '')
+        self.original_author_name_entry.grid(row=8, column=1, columnspan=1, padx=10, pady=10, sticky="EW")
+
+        self.final_author_name = tkinter.StringVar(top)
+        self.final_author_name_entry = tkinter.Entry(
+            top,
+            textvariable=self.final_author_name,
+            width=30,
+            font='TkDefaultFont')
+        self.final_author_name_entry.insert(0, '')
+        self.final_author_name_entry.grid(row=8, column=2, columnspan=1, padx=10, pady=10, sticky="EW")
 
         # Info after analyzing TDoc
         current_row = 9
@@ -651,7 +698,17 @@ class ToolsDialog:
         finally:
             gui.main.open_downloaded_tdocs = True
 
-    def process_chairnotes(selfself):
+    def replace_document_revisions_author(self):
+        original_author_name_to_replace = self.original_author_name.get()
+        final_author_name = self.final_author_name.get()
+        print("Will change Author name '{0}' to '{1}' for changes in active Word document".format(
+            original_author_name_to_replace,
+            final_author_name))
+        application.word.get_reviews_for_active_document(
+            search_author=original_author_name_to_replace,
+            replace_author=final_author_name)
+
+    def process_chairnotes(self):
         selected_meeting = gui.main.tkvar_meeting.get()
         meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
         local_file = server.chairnotes.download_chairnotes_file(meeting_folder)

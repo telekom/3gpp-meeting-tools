@@ -1,15 +1,19 @@
 import os
+import re
+import shutil
 import traceback
+import zipfile
 from enum import Enum
 from typing import List
+from zipfile import ZipFile
 
 import win32com.client
 
-# Global Word instance does not work (removed)
-# word = None
-
 # See https://docs.microsoft.com/en-us/office/vba/api/word.wdexportformat
 from application import sensitivity_label
+
+# Global Word instance does not work (removed)
+# word = None
 
 wdExportFormatPDF = 17  # PDF format
 
@@ -258,3 +262,107 @@ def close_word(force=True):
         app.Quit(SaveChanges=0)
     except:
         print('Could not close Word documents')
+
+
+def get_reviews_for_active_document(search_author: str = None, replace_author: str = None):
+    """
+    Gets all of the review objects in the active Word document and optionally replaces the name of the Author
+    Args:
+        search_author: If present, a regular expression that will be matched to the author name of revisions
+        replace_author: If search_author is present, an author name that will replace the matching author names in search_author
+
+    Returns:
+
+    """
+    active_word_instance = get_word()
+    if active_word_instance is None:
+        print("Could not retrieve Word instance")
+        return
+
+    try:
+        active_document = active_word_instance.ActiveDocument
+        active_document_name = active_document.Name
+        active_document_folder = active_document.Path
+        active_document_path = os.path.join(active_document_folder, active_document_name)
+        print("Document: {0}. Located in {1}".format(active_document_name, active_document_path))
+    except:
+        print("Could not get reviews from active document")
+        traceback.print_exc()
+        return
+
+    try:
+        print("Retrieving revision marks for {0}".format(active_document.Name))
+        document_revisions = list(active_document.Revisions)
+        print("Found {0} revisions".format(len(document_revisions)))
+
+        if search_author is None or search_author == "" or replace_author is None or replace_author == "":
+            print("Nothing to replace in document")
+            return
+
+        author_re = re.compile(search_author)
+        matching_document_revisions = [r for r in document_revisions if author_re.match(r.Author) is not None]
+        matching_authors = set([r.Author for r in matching_document_revisions])
+        print("Found {0} matching revisions to author '{1}'. Matching authors: {2}. Will replace with '{3}'".format(
+            len(matching_document_revisions),
+            search_author,
+            matching_authors,
+            replace_author))
+        # Closing Word document to edit file and then re-open
+        print("Closing {0}".format(active_document_path))
+        active_document.Close()
+        try:
+            zip_folder = os.path.join(active_document_folder, 'zip_tmp')
+            print('Unzipping {0}'.format(zip_folder))
+            with ZipFile(active_document_path, 'r') as wordfile_as_zip:
+                wordfile_as_zip.extractall(path=zip_folder)
+            document_xml_path = os.path.join(zip_folder, 'word', 'document.xml')
+
+            # Read in the file
+            print('Opening {0}'.format(document_xml_path))
+            with open(document_xml_path, 'r', encoding="utf8") as file:
+                document_xml_contents = file.read()
+
+            # Change authors
+            print('Changing matching authors to {0}'.format(replace_author))
+            for matching_author in matching_authors:
+                document_xml_contents = document_xml_contents.replace(
+                    'w:author="{0}"'.format(matching_author),
+                    'w:author="{0}"'.format(replace_author))
+
+                # Write the file out again
+                print('Saving file to {0}'.format(document_xml_path))
+                with open(document_xml_path, 'w', encoding="utf8") as file:
+                    file.write(document_xml_contents)
+        except:
+            print('Could not extract and edit /word/document.xml from {0}'.format(active_document_path))
+            traceback.print_exc()
+            return
+
+        try:
+            print('Removing original file {0}'.format(active_document_path))
+            os.remove(active_document_path)
+
+            # Write the file to the ZIP file again
+            # Based on https://stackoverflow.com/questions/58955341/create-zip-from-directory-using-python
+            print('Writing file to {0}'.format(active_document_path))
+            with ZipFile(active_document_path, 'w', compression=zipfile.ZIP_DEFLATED) as zip_ref:
+                for folder_name, subfolders, filenames in os.walk(zip_folder):
+                    for filename in filenames:
+                        file_path = os.path.join(folder_name, filename)
+                        zip_ref.write(file_path, arcname=os.path.relpath(file_path, zip_folder))
+            zip_ref.close()
+
+            print('Removing temporarily-extracted files in {0}'.format(active_document_folder))
+            shutil.rmtree(os.path.join(zip_folder))
+        except:
+            print('Could not recreate ZIP file at {0}'.format(active_document_path))
+            traceback.print_exc()
+            return
+
+        open_word_document(active_document_path)
+    except:
+        print("Could not get reviews from active document")
+        traceback.print_exc()
+        return
+
+
