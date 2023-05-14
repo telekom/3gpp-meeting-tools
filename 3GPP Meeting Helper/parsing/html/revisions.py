@@ -30,7 +30,7 @@ def extract_tdoc_revisions_from_html(
 
     """
     if is_path:
-        if not os.path.exists(html_content):
+        if html_content is None or not os.path.exists(html_content):
             return []
         try:
             with open(html_content, 'r') as file:
