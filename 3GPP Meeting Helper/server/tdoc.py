@@ -269,14 +269,27 @@ def get_remote_agenda_folder(meeting_folder_name, use_inbox=False):
     return folder
 
 
-def get_agenda_files(meeting_folder, use_inbox=False):
-    url = get_remote_agenda_folder(meeting_folder, use_inbox=use_inbox)
+def get_remote_agenda_update_folder_for_inbox(meeting_folder_name):
+    folder = get_remote_meeting_folder(meeting_folder_name, use_inbox=True)
+    folder += 'Agenda_Updates/'
+    return folder
+
+
+def get_agenda_files(meeting_folder_name, use_inbox=False):
+    url = get_remote_agenda_folder(meeting_folder_name, use_inbox=use_inbox)
     html = get_html(url)
     if html is None:
         return
+    if use_inbox:
+        # Starting from SA2#157, Agenda updates have been placed in the /Inbox/Agenda_Updates folder
+        url_inbox_agenda_updates = get_remote_agenda_update_folder_for_inbox(meeting_folder_name)
+        html_inbox_agenda_updates = get_html(url_inbox_agenda_updates)
+        if html_inbox_agenda_updates is not None:
+            html = html_inbox_agenda_updates
+            url = url_inbox_agenda_updates
     parsed_folder = html_parser.parse_3gpp_http_ftp(html)
     agenda_files = [file for file in parsed_folder.files if agenda_regex.match(file)]
-    agenda_folder = get_local_agenda_folder(meeting_folder)
+    agenda_folder = get_local_agenda_folder(meeting_folder_name)
     real_agenda_files = []
     if len(agenda_files) == 0:
         return
