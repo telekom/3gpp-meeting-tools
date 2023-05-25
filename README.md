@@ -14,6 +14,11 @@ uploaded on-the-fly
 * Merging of TDoc comments from different colleagues to form a 
 consolidated list that can be used by the delegate during the meeting
 * Automaticly sorting of eMeeting and email approval emails by Agenda Item
+* Comparing of different TDoc revisions during offline meetings
+* Caching of specification files including conversion to PDF format so that opening a big specification does not block Word (and hence any opened TDoc)
+* Changing of the author name for document changes for an active Word Document
+* Export of TDoc lists to an Excel file
+* Export of CR cover pages to an Excel file
 
 # Table of contents
 1. [Introduction](#introduction)
@@ -27,10 +32,6 @@ consolidated list that can be used by the delegate during the meeting
 # Introduction
 
 Small Python application designed to make life easier for 3GPP SA2 delegates.
-
-
-
-For detailed information, please check the [project Wiki](https://gitlab.com/ikuno/3gpp-sa2-meeting-helper/wikis/home)
 
 # Installation
 
@@ -52,12 +53,12 @@ Also, since the application has code to generate Word/Excel/Outlook calls via [C
 
 ## Installing the tricky libraries before running pip
 
-If the installation of some libraries failed, you most probably need to install pre-compiled libraries for some of the dependencies. Luckily, you can find all of them [here](https://www.lfd.uci.edu/~gohlke/pythonlibs/).
-* [numpy](https://www.lfd.uci.edu/~gohlke/pythonlibs/#numpy)
-* [pandas](https://www.lfd.uci.edu/~gohlke/pythonlibs/#pandas)
-* [lxml](https://www.lfd.uci.edu/~gohlke/pythonlibs/#lxml)
+If the installation of some libraries failed, you most probably need to install pre-compiled libraries for some of the dependencies. Luckily, you can find all of them also in [Wheel](https://pythonwheels.com/) (precompiled) form.
+* [numpy](https://pypi.org/project/numpy/#files)
+* [pandas](https://pypi.org/project/pandas/#files)
+* [lxml](https://pypi.org/project/lxml/#files)
 
-For each of the libraries, download the correct [Wheel file](https://pythonwheels.com/). e.g. for numpy, if you installed Python 3.8 32-bit, you should download ``numpy‑1.17.3+mkl‑cp38‑cp38‑win32.whl``.
+For each of the libraries, download the correct [Wheel file](https://pythonwheels.com/). e.g. for numpy, if you installed Python 3.8 32-bit, you should download ``numpy‑1.17.3+mkl‑cp38‑cp38‑win32.whl``. Typically, there is a wheel file matching your architecture.
 
 For each downloaded file, run ``pip install <wheel file>``, e.g. ``pip install numpy‑1.17.3+mkl‑cp38‑cp38‑win32.whl``.
 
