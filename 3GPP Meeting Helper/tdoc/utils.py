@@ -13,7 +13,8 @@ title_cr_regex = re.compile(r'([\d]{2}\.[\d]{3}) CR([\d]{1,4})')
 tdoc_regex_simple = re.compile(r'[S\d]*-\d\d[\d]+')
 
 # Originally from the config folder. Used throught the document
-tdoc_regex = re.compile(r'(?P<group>[S\d]*)-(?P<year>\d\d)(?P<tdoc_number>[\d]+)(?P<revision>r[\d][\d])?')
+tdoc_regex_str = r'(?P<group>[S\d]*)-(?P<year>\d\d)(?P<tdoc_number>[\d]+)(?P<revision>r[\d][\d])?'
+tdoc_regex = re.compile(tdoc_regex_str)
 
 TS = collections.namedtuple('TS', 'series number version match')
 
