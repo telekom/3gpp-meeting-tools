@@ -17,10 +17,10 @@ from server.common import get_html, private_server, http_server, group_folder, s
     get_local_revisions_filename, get_local_drafts_filename, get_local_agenda_folder, get_meeting_folder, \
     get_cache_folder, get_remote_meeting_folder, get_inbox_root, unzip_files_in_zip_file
 
-agenda_regex = re.compile(r'.*Agenda.*[-_](v)?(?P<version>\d*).*\..*')
-agenda_docx_regex = re.compile(r'.*Agenda.*[-_](v)?(?P<version>\d*).*\.(docx|doc|zip)')
-agenda_version_regex = re.compile(r'.*Agenda.*[-_]?(v)(?P<version>\d*).*\..*')
-agenda_draft_docx_regex = re.compile(r'.*draft.*Agenda.*[-_](v)?(?P<version>\d*).*\.(docx|doc|zip)')
+agenda_regex = re.compile(r'.*Agenda.*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\..*')
+agenda_docx_regex = re.compile(r'.*Agenda.*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
+agenda_version_regex = re.compile(r'.*Agenda.*[-_]?([ ]|%20)*([vr])(?P<version>\d*).*\..*')
+agenda_draft_docx_regex = re.compile(r'.*Agenda.*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
 folder_ftp_names_regex = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][aA][tT][eE].*)')
 
 
@@ -329,16 +329,22 @@ def get_latest_agenda_file(agenda_files):
     return last_agenda
 
 
+# Parses the order (including TDoc number) of an Agenda file.
+# This new format was introduced in SA2#158
+agenda_tdoc_regex = re.compile('(Draft_)?' + tdoc.utils.tdoc_regex_str)
+
+
 def get_agenda_file_version_number(x):
     if len(x) == 0 or x[0] == '~':
         # Sanity check for empty strings and/or temporary files
         return -1
-    tdoc_match = tdoc.utils.tdoc_regex.match(x)
+    tdoc_match = agenda_tdoc_regex.match(x)
     if tdoc_match is not None:
         tdoc_year = float(tdoc_match.groupdict()['year'])
         tdoc_id = float(tdoc_match.groupdict()['tdoc_number'])
         tdoc_number = tdoc_year * 100000 + tdoc_id
     else:
+        print('Could not parse TDoc number from agenda file {0}'.format(x))
         tdoc_number = 0
     x_without_dashes = x.replace('-', '')
     agenda_match = agenda_version_regex.match(x_without_dashes)
@@ -373,7 +379,16 @@ def get_last_agenda(meeting_folder):
         agenda_item_descriptions = {}
     ai_names_cache[meeting_folder] = agenda_item_descriptions
 
-    return agenda_path, int(agenda_docx_regex.match(last_agenda).groupdict()['version'])
+    # Convert agenda version
+    agenda_version_str = ''
+    try:
+        last_agenda_match = agenda_docx_regex.match(last_agenda)
+        agenda_version_str = last_agenda_match.groupdict()['version']
+        agenda_version_int = int(agenda_version_str)
+    except ValueError as e:
+        print("Could not parse agenda version: {0}. Agenda name: {1}".format(agenda_version_str, last_agenda_match.group(0)))
+        traceback.print_exc()
+    return agenda_path, agenda_version_int
 
 
 # Begin with updated URLs
