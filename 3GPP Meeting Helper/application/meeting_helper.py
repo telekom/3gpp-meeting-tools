@@ -3,7 +3,6 @@ import datetime
 import traceback
 
 import application.outlook
-import parsing.html.common
 import server
 
 # Read config
@@ -16,7 +15,8 @@ sa2_inbox_tdoc_data = None
 sa2_meeting_data = None
 
 # Global store of the current TDocsByAgenda data
-current_tdocs_by_agenda: parsing.html.common.tdocs_by_agenda = None
+# No type hint to avoid circular references. It should be ": parsing.html.tdocs_by_agenda.tdocs_by_agenda"
+current_tdocs_by_agenda = None
 
 word_own_reporter_name = None
 home_directory = None

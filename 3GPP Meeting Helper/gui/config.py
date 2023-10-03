@@ -1,10 +1,8 @@
 import tkinter
-import server.tdoc
 import server.common
 from urllib.parse import urlparse, quote_plus
 import traceback
 from requests_digest_proxy import HTTPProxyDigestAuth
-
 
 # Wait for proxy settings
 # https://stackoverflow.com/questions/38678415/how-to-wait-for-response-from-modal-window-before-continuing-using-tkinter
@@ -102,9 +100,9 @@ class NetworkConfigDialog:
         self.top.destroy()
 
     def store_meeting_ftp_address(self):
-        server.tdoc.update_meeting_ftp_server(self.meeting_server.get())
+        server.common.update_meeting_ftp_server(self.meeting_server.get())
         self.meeting_server.delete(0, 'end')
-        self.meeting_server.insert(0, server.tdoc.private_server)
+        self.meeting_server.insert(0, server.common.private_server)
         try:
             self.on_update_ftp()
         except:

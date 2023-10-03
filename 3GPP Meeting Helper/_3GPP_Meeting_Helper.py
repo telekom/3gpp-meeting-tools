@@ -1,6 +1,8 @@
 import gui.config
 import gui.common
 import gui.main
+import server
+import server.common
 
 # GUI init
 gui.common.fix_blurry_fonts_in_windows_10()

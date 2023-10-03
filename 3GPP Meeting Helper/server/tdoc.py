@@ -7,15 +7,14 @@ from urllib.parse import urljoin
 
 import application.meeting_helper
 import application.word
+import parsing.html.common
 import parsing.html.common as html_parser
 import parsing.word.docx
-import parsing.word.pywin32 as word_parser
 import server.common
 import tdoc.utils
 import tdoc.utils
-from server.common import get_html, private_server, http_server, group_folder, sync_folder, meeting_folder, \
-    get_local_revisions_filename, get_local_drafts_filename, get_local_agenda_folder, get_meeting_folder, \
-    get_cache_folder, get_remote_meeting_folder, get_inbox_root, unzip_files_in_zip_file
+from server.common import get_html, get_local_revisions_filename, get_local_drafts_filename, get_local_agenda_folder, get_meeting_folder, \
+    get_cache_folder, get_remote_meeting_folder, get_inbox_root, unzip_files_in_zip_file, update_urls
 
 agenda_regex = re.compile(r'.*Agenda.*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\..*')
 agenda_docx_regex = re.compile(r'.*Agenda.*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
@@ -26,12 +25,6 @@ folder_ftp_names_regex = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][a
 
 # tdoc_url = 'https://portal.3gpp.org/ngppapp/DownloadTDoc.aspx?contributionUid=S2-2202451'
 # Then, search for javascript: window.location.href='https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_150E_Electronic_2022-04/Docs/S2-2202451.zip';//]]> -> extract
-
-
-def update_urls():
-    server.common.sa2_url = http_server + group_folder
-    server.common.sa2_url_sync = http_server + sync_folder
-    server.common.sa2_url_meeting = 'ftp://' + private_server + '/' + meeting_folder
 
 
 update_urls()
@@ -394,14 +387,6 @@ def get_last_agenda(meeting_folder):
 # Begin with updated URLs
 update_urls()
 
-
-def update_meeting_ftp_server(new_address):
-    if (new_address is None) or (new_address == ''):
-        return
-    server.common.private_server = new_address
-    update_urls()
-
-
 def get_tdocs_by_agenda_for_selected_meeting(
         meeting_folder: str,
         inbox_active=False,
@@ -427,12 +412,12 @@ def get_tdocs_by_agenda_for_selected_meeting(
     if inbox_active:
         print('Getting TDocs by agenda from inbox')
         html_inbox = get_sa2_inbox_tdoc_list(open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
-        datetime_inbox = html_parser.tdocs_by_agenda.get_tdoc_by_agenda_date(html_inbox)
+        datetime_inbox = parsing.html.common.tdocs_by_agenda.get_tdoc_by_agenda_date(html_inbox)
 
     print('Getting TDocs by agenda from server')
     html_3gpp = get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=save_file_to,
                                           open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
-    datetime_3gpp = html_parser.tdocs_by_agenda.get_tdoc_by_agenda_date(html_3gpp)
+    datetime_3gpp = parsing.html.common.tdocs_by_agenda.get_tdoc_by_agenda_date(html_3gpp)
 
     if datetime_3gpp is None:
         datetime_3gpp = datetime.datetime.min
