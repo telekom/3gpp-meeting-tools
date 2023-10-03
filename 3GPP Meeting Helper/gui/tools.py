@@ -16,7 +16,7 @@ import gui.main
 import gui.specs_table
 import gui.tdocs_table
 import parsing.excel as excel_parser
-import parsing.html.common as html_parser
+import parsing.html.common
 import parsing.outlook
 import parsing.word.pywin32 as word_parser
 import server.chairnotes
@@ -24,8 +24,8 @@ import server.common
 import server.tdoc
 from parsing.html.chairnotes import chairnotes_file_to_dataframe
 from parsing.html.revisions import extract_tdoc_revisions_from_html
-from tdoc.utils import tdoc_regex
 from server.specs import get_specs_folder
+from tdoc.utils import tdoc_regex
 
 
 class ToolsDialog:
@@ -400,7 +400,7 @@ class ToolsDialog:
             process_comments=True,
             add_pivot_summary=True):
         try:
-            tdocs_by_agenda = html_parser.tdocs_by_agenda(
+            tdocs_by_agenda = parsing.html.common.tdocs_by_agenda(
                 gui.main.get_tdocs_by_agenda_file_or_url(local_agenda_file),
                 meeting_server_folder=meeting_folder
             )

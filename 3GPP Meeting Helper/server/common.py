@@ -157,19 +157,33 @@ def create_folder_if_needed(folder_name, create_dir):
         os.makedirs(folder_name, exist_ok=True)
 
 
-def decode_string(str_to_decode, log_name):
-    try:
-        return str_to_decode.decode('utf-8')
-    except:
-        print('Could not decode {0} using UTF-8. Trying cp1252'.format(log_name))
+def decode_string(str_to_decode: bytes, log_name, print_error=False) -> str:
+    """
+    Decodes a HTML (binary) input using different encodings
+    Args:
+        str_to_decode: The input to decode
+        log_name: The name of the file (for logging)
+        print_error: Whether to print decodign errors
+
+    Returns:
+        The decoded text
+    """
+    encodings_to_try = [
+        'utf-8',
+        'cp1252'
+    ]
+    for encoding_to_try in encodings_to_try:
         try:
-            decoded_html_data = str_to_decode.decode('cp1252')
-            print('Successfully decoded data as cp1252')
+            print(f"Trying to decode {log_name} using {encoding_to_try}")
+            decoded_html_data = str_to_decode.decode(encoding=encoding_to_try)
+            print(f"Successfully decoded {log_name} using {encoding_to_try}")
             return decoded_html_data
         except:
-            print('Could not decode {0} using cp1252. Returning HTML as-is'.format(log_name))
-            return str_to_decode
+            if print_error:
+                traceback.print_exc()
 
+    print(f"Could not decode {log_name}. Returning HTML as-is")
+    return str_to_decode
 
 def get_tmp_folder(create_dir=True):
     folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'tmp'))
@@ -307,3 +321,18 @@ def write_data_and_open_file(data, local_file):
         return
     with open(local_file, 'wb') as output:
         output.write(data)
+
+
+def update_meeting_ftp_server(new_address):
+    if (new_address is None) or (new_address == ''):
+        return
+    global private_server
+    private_server = new_address
+    update_urls()
+
+
+def update_urls():
+    global sa2_url, sa2_url_sync, sa2_url_meeting
+    sa2_url = http_server + group_folder
+    sa2_url_sync = http_server + sync_folder
+    sa2_url_meeting = 'ftp://' + private_server + '/' + meeting_folder

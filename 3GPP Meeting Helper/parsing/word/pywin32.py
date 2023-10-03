@@ -1106,7 +1106,9 @@ def parse_cr(filename: str, ai: str = None, tdoc_number: str = None,  print_outp
 
     all_tables = doc.Tables
 
-    def x_in_var(in_str: str) -> str:
+    def x_in_var(in_str: str) -> bool:
+        if in_str is None:
+            return False
         return 'x' in in_str or 'X' in in_str
 
     error_encountered = False
@@ -1187,7 +1189,11 @@ def parse_cr(filename: str, ai: str = None, tdoc_number: str = None,  print_outp
         error_encountered = True
 
     # Close document before exiting
-    doc.Close()
+    # See https://learn.microsoft.com/en-us/office/vba/api/word.wdsaveoptions
+    # wdDoNotSaveChanges	0	Do not save pending changes
+    # wdPromptToSaveChanges	-2	Prompt the user to save pending changes
+    # wdSaveChanges	-1	Save pending changes automatically without prompting the user
+    doc.Close(SaveChanges=0)
 
     # Export CR metadata
     cr_metadata = CrMetadata(

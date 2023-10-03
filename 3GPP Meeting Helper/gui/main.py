@@ -13,6 +13,7 @@ import application.word
 import application.meeting_helper
 import gui.config
 import gui.tools
+import parsing.html.common
 import parsing.html.common as html_parser
 import parsing.word.pywin32
 import server.common
@@ -29,7 +30,6 @@ root.iconbitmap(favicon)
 # Add a grid
 main_frame = tkinter.Frame(root)
 main_frame.grid(column=0, row=0, sticky=(tkinter.N, tkinter.W, tkinter.E, tkinter.S))
-
 
 def set_waiting_for_proxy_message():
     return gui.common.set_waiting_for_proxy_message(main_frame)
