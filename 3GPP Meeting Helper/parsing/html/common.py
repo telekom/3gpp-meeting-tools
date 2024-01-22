@@ -558,6 +558,7 @@ class tdocs_by_agenda(object):
             '<{TH} (width={INTEGER} )?({TH}[ ]?(={INTEGER})?)?[ ]?{BGCOLOR}{=}{HEX} {BORDERCOLOR}{=}{HEX}[ ]?>'.format(
                 **s),
             '<[/]?[bBiI]>',
+            '<TD  WIDTH="75" BORDERCOLOR=#000000 BGCOLOR =#C0C0C0>',
             '<[/]?{TH}>'.format(**s)
         ]
         full_sub = '|'.join(strings_to_sub)
