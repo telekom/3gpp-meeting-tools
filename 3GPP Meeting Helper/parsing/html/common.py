@@ -13,11 +13,8 @@ import pandas as pd
 from lxml import html as lh
 
 import config.contributor_names
-import server.common
-import server.tdoc
 import utils.local_cache
-from parsing.html.common_tools import parse_tdoc_comments, merged_to_regex, revision_of_regex, revised_to_regex, \
-    merge_of_regex, tdoc_regex_str
+from parsing.html.common_tools import parse_tdoc_comments, tdoc_regex_str
 from parsing.html.tdocs_by_agenda_v3 import assert_if_tdocs_by_agenda_post_sa2_159, parse_tdocs_by_agenda_v3
 from server.common import decode_string
 from tdoc.utils import title_cr_regex
