@@ -12,6 +12,7 @@ import parsing.excel as excel_parser
 import server.common
 import server.tdoc
 import tdoc.utils
+import utils.local_cache
 from parsing.outlook_utils import get_email_approval_emails, email_approval_regex
 from application.outlook import get_outlook_inbox, get_folder, sa2_list_from_inbox, sa2_email_approval_from_inbox
 from application.meeting_helper import sa2_list_folder_name, sa2_email_approval_folder_name
@@ -39,7 +40,7 @@ def get_attachment_data(text):
 
 
 def organize_email_approval_attachments(meeting_name, ai_folders):
-    tmp_folder = server.common.get_tmp_folder()
+    tmp_folder = utils.local_cache.get_tmp_folder()
     local_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting_name)
     download_from_inbox = gui.main.inbox_is_for_this_meeting()
     found_emails_with_chairmans_notes = []
@@ -365,7 +366,7 @@ def process_email_approval(meeting_name, generate_summary=True):
     local_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting_name)
     if len(found_attachments) > 0:
         excel_parser.export_email_approval_list(os.path.join(
-            server.common.get_local_agenda_folder(local_meeting_folder), file_summary_file), found_attachments,
+            utils.local_cache.get_local_agenda_folder(local_meeting_folder), file_summary_file), found_attachments,
             tdocs_without_emails, tdoc_data)
     else:
         print('No file attachments found to export to list. Skipping Excel summary of attachmented files')
@@ -374,7 +375,7 @@ def process_email_approval(meeting_name, generate_summary=True):
     df_email_list = pd.DataFrame(email_list,
                                  columns=['date', 'ai', 'folder', 'subject', 'sender name', 'sender address'])
     email_summary_file = os.path.join('{0} email summary.csv'.format(time_now))
-    email_summary_file_path = os.path.join(server.common.get_local_agenda_folder(local_meeting_folder),
+    email_summary_file_path = os.path.join(utils.local_cache.get_local_agenda_folder(local_meeting_folder),
                                            email_summary_file)
     df_email_list.to_csv(
         email_summary_file_path,
@@ -403,7 +404,7 @@ def process_email_attachments():
         return
 
     print('Parsing SA2 emails and searching for email attachments to download')
-    tmp_folder = server.common.get_tmp_folder()
+    tmp_folder = utils.local_cache.get_tmp_folder()
 
     mail_items_with_attachments = [mail_item for mail_item in sa2_folder.Items if
                                    (email_approval_regex.search(mail_item.Subject) is None) and (

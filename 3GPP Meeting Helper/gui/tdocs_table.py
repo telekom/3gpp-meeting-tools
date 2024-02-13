@@ -12,6 +12,7 @@ import pyperclip
 import application
 import gui
 import server
+import utils.local_cache
 from application import powerpoint
 from application.excel import open_excel_document, set_first_row_as_filter, vertically_center_all_text, save_wb, \
     set_column_width, set_wrap_text, hide_column
@@ -404,7 +405,7 @@ class TdocsTable:
         # Generate output filename for the CR summary Excel
         server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
             selected_meeting)
-        agenda_folder = server.common.get_local_agenda_folder(server_folder)
+        agenda_folder = utils.local_cache.get_local_agenda_folder(server_folder)
         current_dt_str = application.meeting_helper.get_now_time_str()
         excel_export_filename = os.path.join(agenda_folder, '{0} {1}.xlsx'.format(current_dt_str, 'CR_export'))
 

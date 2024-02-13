@@ -13,8 +13,12 @@ import parsing.word.docx
 import server.common
 import tdoc.utils
 import tdoc.utils
-from server.common import get_html, get_local_revisions_filename, get_local_drafts_filename, get_local_agenda_folder, get_meeting_folder, \
-    get_cache_folder, get_remote_meeting_folder, get_inbox_root, unzip_files_in_zip_file, update_urls
+import utils.local_cache
+from server.common import get_remote_meeting_folder, get_inbox_root, update_urls
+from application.zip_files import unzip_files_in_zip_file
+from server.connection import get_html
+from utils.local_cache import get_cache_folder, get_local_revisions_filename, get_local_drafts_filename, \
+    get_meeting_folder, get_local_agenda_folder
 
 agenda_regex = re.compile(r'.*Agenda.*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\..*')
 agenda_docx_regex = re.compile(r'.*Agenda.*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
@@ -449,7 +453,7 @@ def download_agenda_file(meeting, inbox_active=False, open_tdocs_by_agenda_in_br
         if html is None:
             print('Agenda file for {0} not found'.format(meeting))
             return None
-        server.common.write_data_and_open_file(html, local_file)
+        utils.local_cache.write_data_and_open_file(html, local_file)
         return local_file
     except:
         print('Could not download agenda file for {0}'.format(meeting))
@@ -470,12 +474,12 @@ def download_docs_file(meeting) -> str:
     try:
         meeting_server_folder = meeting  # e.g. TSGS2_144E_Electronic
         print('Retrieving docs for {0} meeting'.format(meeting))
-        local_file = server.common.get_local_docs_filename(meeting_server_folder)
+        local_file = utils.local_cache.get_local_docs_filename(meeting_server_folder)
         html = get_sa2_docs_tdoc_list(meeting_server_folder, save_file_to=local_file)
         if html is None:
             print('Docs file for {0} not found'.format(meeting))
             return None
-        server.common.write_data_and_open_file(html, local_file)
+        utils.local_cache.write_data_and_open_file(html, local_file)
         return local_file
     except:
         print('Could get not docs file for {0}'.format(meeting))
@@ -501,7 +505,7 @@ def download_revisions_file(meeting) -> str:
         if html is None:
             print('Revisions file for {0} not found'.format(meeting))
             return None
-        server.common.write_data_and_open_file(html, local_file)
+        utils.local_cache.write_data_and_open_file(html, local_file)
         return local_file
     except:
         print('Could get not revisions file for {0}'.format(meeting))
@@ -527,7 +531,7 @@ def download_drafts_file(meeting) -> str:
         if html is None:
             print('Drafts file for {0} not found'.format(meeting))
             return None
-        server.common.write_data_and_open_file(html, local_file)
+        utils.local_cache.write_data_and_open_file(html, local_file)
         return local_file
     except:
         print('Could not get drafts file for {0}'.format(meeting))

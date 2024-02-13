@@ -15,6 +15,7 @@ from lxml import html as lh
 import config.contributor_names
 import server.common
 import server.tdoc
+import utils.local_cache
 from parsing.html.common_tools import parse_tdoc_comments, merged_to_regex, revision_of_regex, revised_to_regex, \
     merge_of_regex, tdoc_regex_str
 from parsing.html.tdocs_by_agenda_v3 import assert_if_tdocs_by_agenda_post_sa2_159, parse_tdocs_by_agenda_v3
@@ -240,7 +241,7 @@ def join_results(tdocs_split, df_tdocs, recursive_call, original_index, n_recurs
 def get_cache_filepath(meeting_folder_name, html_hash):
     if meeting_folder_name == '':
         return None
-    meeting_local_folder = server.common.get_local_agenda_folder(meeting_folder_name)
+    meeting_local_folder = utils.local_cache.get_local_agenda_folder(meeting_folder_name)
     file_name = 'TDocsByAgenda_{0}_{1}.pickle'.format(meeting_folder_name, html_hash)
     full_path = os.path.join(meeting_local_folder, file_name)
     return full_path
