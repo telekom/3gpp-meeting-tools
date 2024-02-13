@@ -3,6 +3,7 @@ import datetime
 import traceback
 
 import application.outlook
+import config.cache as local_cache_config
 import server
 
 # Read config
@@ -68,4 +69,4 @@ def get_now_time_str():
 
 # Configurable placement of the cache
 if home_directory is not None:
-    server.common.user_folder = home_directory
+    local_cache_config.user_folder = home_directory

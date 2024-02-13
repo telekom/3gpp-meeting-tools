@@ -22,6 +22,7 @@ import parsing.word.pywin32 as word_parser
 import server.chairnotes
 import server.common
 import server.tdoc
+import utils.local_cache
 from parsing.html.chairnotes import chairnotes_file_to_dataframe
 from parsing.html.revisions import extract_tdoc_revisions_from_html
 from server.specs import get_specs_folder
@@ -267,7 +268,7 @@ class ToolsDialog:
         selected_meeting = gui.main.tkvar_meeting.get()
         meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
         if meeting_folder is not None:
-            local_folder = server.common.get_meeting_folder(meeting_folder)
+            local_folder = utils.local_cache.get_meeting_folder(meeting_folder)
             os.startfile(local_folder)
 
     def open_local_specs_folder(self):
@@ -304,7 +305,7 @@ class ToolsDialog:
         if len(ais_to_output) == 0:
             ais_to_output = None
 
-        meeting_folder = server.common.get_local_agenda_folder(server_folder)
+        meeting_folder = utils.local_cache.get_local_agenda_folder(server_folder)
 
         df_tdocs = current_tdocs_by_agenda.tdocs
         email_approval_tdocs = df_tdocs[(df_tdocs['Result'] == 'For e-mail approval')]
@@ -593,7 +594,7 @@ class ToolsDialog:
                 use_thread=False,
                 current_dt_str=current_dt_str,
                 process_comments=False,
-                destination_folder=server.common.get_cache_folder(),
+                destination_folder=utils.local_cache.get_cache_folder(),
                 add_pivot_table=False)
 
     def cache_tdocs(self, tdoc_list):

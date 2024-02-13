@@ -2,6 +2,8 @@ import tkinter
 import server.common
 from urllib.parse import urlparse, quote_plus
 import traceback
+
+import server.connection
 from requests_digest_proxy import HTTPProxyDigestAuth
 
 # Wait for proxy settings
@@ -70,7 +72,7 @@ class NetworkConfigDialog:
                     'http': '{0}://{2}{1}'.format(o.scheme, o.netloc, user_password),
                     'https': '{0}://{2}{1}'.format(o.scheme, o.netloc, user_password)
                 }
-                server.common.non_cached_http_session.proxies = proxies
+                server.connection.non_cached_http_session.proxies = proxies
             except:
                 print('Could not setup HTTP proxy with Basic Authentication')
                 traceback.print_exc()
@@ -80,14 +82,14 @@ class NetworkConfigDialog:
                 user = self.proxy_user.get().strip()
                 if len(user) > 0:
                     the_password = self.proxy_password.get()
-                    server.common.non_cached_http_session.auth = HTTPProxyDigestAuth(user, the_password)
+                    server.connection.non_cached_http_session.auth = HTTPProxyDigestAuth(user, the_password)
                 proxy_url = self.proxy_server.get()
                 print('Using proxy {0}'.format(proxy_url))
                 proxies = {
                     'http': proxy_url,
                     'https': proxy_url
                 }
-                server.common.non_cached_http_session.proxies = proxies
+                server.connection.non_cached_http_session.proxies = proxies
             except:
                 print('Could not setup HTTP proxy with Digest Authentication')
                 traceback.print_exc()
@@ -96,7 +98,7 @@ class NetworkConfigDialog:
 
     def ko(self):
         # No need to setup a proxy
-        server.common.non_cached_http_session.proxies = None
+        server.connection.non_cached_http_session.proxies = None
         self.top.destroy()
 
     def store_meeting_ftp_address(self):

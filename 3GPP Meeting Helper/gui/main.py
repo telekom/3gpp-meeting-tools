@@ -19,6 +19,7 @@ import parsing.word.pywin32
 import server.common
 import server.tdoc
 import tdoc.utils
+import utils.local_cache
 from gui.common import favicon
 
 # tkinter initialization
@@ -287,7 +288,7 @@ def open_tdocs_by_agenda(open_this_file=True) -> parsing.html.common.tdocs_by_ag
         html,
         meeting_server_folder=meeting_server_folder)
 
-    server.common.write_data_and_open_file(html, local_file)
+    utils.local_cache.write_data_and_open_file(html, local_file)
     return application.meeting_helper.current_tdocs_by_agenda
 
 

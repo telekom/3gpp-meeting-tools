@@ -2,7 +2,10 @@ import os
 import traceback
 
 import server.common
-from server.common import get_remote_meeting_folder, get_html, get_meeting_folder, get_inbox_root
+import utils.local_cache
+from server.common import get_remote_meeting_folder, get_inbox_root
+from server.connection import get_html
+from utils.local_cache import get_meeting_folder
 
 
 def download_chairnotes_file(meeting):
@@ -14,7 +17,7 @@ def download_chairnotes_file(meeting):
         if html is None:
             print("Chairman's Notes file for {0} not found".format(meeting))
             return None
-        server.common.write_data_and_open_file(html, local_file)
+        utils.local_cache.write_data_and_open_file(html, local_file)
         return local_file
     except:
         print("Could not get Chairman's Notes file for {0}".format(meeting))
