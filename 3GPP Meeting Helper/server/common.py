@@ -88,7 +88,7 @@ def get_sa2_folder():
     return html
 
 
-def download_file_to_location(url, local_location):
+def download_file_to_location(url: str, local_location: str):
     try:
         file = get_html(url, cache=False)
         with open(local_location, 'wb') as output:
