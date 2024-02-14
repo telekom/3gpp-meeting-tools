@@ -105,11 +105,13 @@ def get_sa2_root_folder_local_cache(create_dir=True):
 
 def convert_html_file_to_markup(
         file_path: str,
+        output_path: str= None,
         ignore_links=True,
         str_replace_list=[]) -> str:
     """
     Converts a HTML file to Markdown
     Args:
+        output_path: Optional path where to save this file. If not, same as original with .md extension
         str_replace_list: List of tuples containing two strings: string match and replace string
         file_path: The file's path
         ignore_links: Whether links should be included
@@ -137,7 +139,11 @@ def convert_html_file_to_markup(
         markdown_text = markdown_text.replace(str_replace[0], str_replace[1])
         print(f'Replaced "{str_replace[0]}" with "{str_replace[1]}"')
 
-    destination_file = os.path.join(root + '.md')
+    if output_path is None:
+        destination_file = os.path.join(root + '.md')
+    else:
+        destination_file = output_path
+
     try:
         with open(destination_file, 'w', encoding='utf-8') as file:
             file.write(markdown_text)
