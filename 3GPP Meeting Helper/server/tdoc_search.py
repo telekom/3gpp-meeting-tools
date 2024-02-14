@@ -26,6 +26,7 @@ meeting_pages_per_group: dict[str, str] = {
 
 local_folder = get_meeting_list_folder()
 html_cache = {k: os.path.join(local_folder, k + '.htm') for k, v in meeting_pages_per_group.items()}
+markup_cache = {k: os.path.join(local_folder, k + '.md') for k, v in meeting_pages_per_group.items()}
 
 # Example parsing of:
 #   - [SP-102](https://portal.3gpp.org/Home.aspx#/meeting?MtgId=60012) | 3GPPSA#102| [Edinburgh](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Invitation/)| [2023-12-11](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Agenda/)| [2023-12-15](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Report/)| [SP-231205 - SP-231807](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\\\docs\\)[full document list](https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=60012) | - | [Participants](https://webapp.etsi.org/3GPPRegistration/fViewPart.asp?mid=60012)| [Files](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\) | - | -
@@ -47,7 +48,7 @@ html_cache = {k: os.path.join(local_folder, k + '.htm') for k, v in meeting_page
 #   - tdoc_start: SP-231205
 #   - tdoc_end: SP-231807
 #   - meeting_url_docs: /../../../\\\\ftp\\\\TSG_SA\\\\TSG_SA\\\\TSGS_102_Edinburgh_2023-12\\\\\\\\docs\\\\
-meeting_regex = re.compile(r'\[(?<meeting_group>[\d\w]+)\-(?<meeting_number>[\d\-\w ]+)\]\((?<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?<meeting_location>[^\]]+)\]\((?<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?<start_year>[\d]+)\-(?<start_month>[\d]+)\-(?<start_day>[\d]+)\]\((?<meeting_url_agenda>[^ ]+)\)\|[ ]?\[(?<end_year>[\d]+)\-(?<end_month>[\d]+)\-(?<end_day>[\d]+)\]\((?<meeting_url_report>[^ ]+)\)\|[ ]?\[(?<tdoc_start>[\w\-\d]+)[ -]+(?<tdoc_end>[\w\-\d]+)\]\((?<meeting_url_docs>[^ ]+)\)')
+meeting_regex = re.compile(r'\[(?P<meeting_group>[\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)\|[ ]?\[(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)\]\((?P<meeting_url_report>[^ ]+)\)\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\)')
 
 
 def update_local_cache():
@@ -108,4 +109,8 @@ list]""", '[full document list]'),
     ]
     for k, v in html_cache.items():
         if os.path.exists(v):
-            convert_html_file_to_markup(v, ignore_links=False, str_replace_list=str_replace_list)
+            convert_html_file_to_markup(
+                v,
+                output_path=markup_cache[k],
+                ignore_links=False,
+                str_replace_list=str_replace_list)
