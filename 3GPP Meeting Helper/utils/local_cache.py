@@ -1,4 +1,7 @@
 import os
+import traceback
+
+import html2text
 
 from config.cache import user_folder, root_folder
 
@@ -35,7 +38,16 @@ def get_meeting_folder(meeting_folder_name, create_dir=False):
     return folder_name
 
 
-def get_local_agenda_folder(meeting_folder_name, create_dir=True):
+def get_local_agenda_folder(meeting_folder_name: str, create_dir=True) -> str:
+    """
+    Get the path of the folder where the agenda file is cached
+    Args:
+        meeting_folder_name: The meeting name
+        create_dir: Whether the folder should be created if it does not exist
+
+    Returns: Path
+
+    """
     local_folder_for_this_meeting = get_meeting_folder(meeting_folder_name)
     folder_name = os.path.join(local_folder_for_this_meeting, 'Agenda')
     if create_dir and (not os.path.exists(folder_name)):
@@ -71,7 +83,66 @@ def get_spec_folder(create_dir=True):
     return folder_name
 
 
+def get_meeting_list_folder(create_dir=True) -> str:
+    """
+    Folder where the meeting lists are saved to
+    Args:
+        create_dir: Whether to create the directory if it does not exist
+
+    Returns: The path of the folder
+
+    """
+    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'meetings'))
+    create_folder_if_needed(folder_name, create_dir)
+    return folder_name
+
+
 def get_sa2_root_folder_local_cache(create_dir=True):
     cache_folder = get_cache_folder(create_dir)
     inbox_cache = os.path.join(cache_folder, 'Wg2ArchCache.html')
     return inbox_cache
+
+
+def convert_html_file_to_markup(
+        file_path: str,
+        ignore_links=True,
+        str_replace_list=[]) -> str:
+    """
+    Converts a HTML file to Markdown
+    Args:
+        str_replace_list: List of tuples containing two strings: string match and replace string
+        file_path: The file's path
+        ignore_links: Whether links should be included
+
+    Returns: The destination file
+
+    """
+    if not os.path.exists(file_path):
+        return None
+    [root, ext] = os.path.splitext(file_path)
+    if ext not in ['.htm', '.html']:
+        return None
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            html_content = file.read()
+    except:
+        print('Could not open file "{0}"'.format(html_content))
+        return None
+    h = html2text.HTML2Text()
+    h.ignore_links = ignore_links
+    markdown_text = h.handle(html_content)
+
+    # print(markdown_text)
+    for str_replace in str_replace_list:
+        markdown_text = markdown_text.replace(str_replace[0], str_replace[1])
+        print(f'Replaced "{str_replace[0]}" with "{str_replace[1]}"')
+
+    destination_file = os.path.join(root + '.md')
+    try:
+        with open(destination_file, 'w', encoding='utf-8') as file:
+            file.write(markdown_text)
+        return destination_file
+    except:
+        print('Could not write file "{0}"'.format(destination_file))
+        traceback.print_exc()
+        return None
