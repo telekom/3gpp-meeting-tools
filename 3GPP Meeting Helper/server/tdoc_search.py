@@ -51,8 +51,7 @@ markup_cache = {k: os.path.join(local_cache_folder, k + '.md') for k, v in meeti
 #   - tdoc_start: SP-231205
 #   - tdoc_end: SP-231807
 #   - meeting_url_docs: /../../../\\\\ftp\\\\TSG_SA\\\\TSG_SA\\\\TSGS_102_Edinburgh_2023-12\\\\\\\\docs\\\\
-meeting_regex = re.compile(
-    r'\[(?P<meeting_group>[\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)\|[ ]?\[(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)\]\((?P<meeting_url_report>[^ ]+)\)\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\)')
+meeting_regex = re.compile(r'\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)[ ]?\|[ ]?\[(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)\]\((?P<meeting_url_report>[^ ]+)\)[ ]?\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\)')
 
 
 class MeetingEntry(NamedTuple):
@@ -167,6 +166,8 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
             with open(v, 'r', encoding='utf-8') as file:
                 markup_file_content = file.read()
             meeting_matches = meeting_regex.finditer(markup_file_content)
+            if meeting_matches is None:
+                return
             meeting_matches_parsed = [
                 MeetingEntry(
                     meeting_group=m.group('meeting_group'),
@@ -188,7 +189,7 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
                     tdoc_start=tdoc.utils.is_generic_tdoc(m.group('tdoc_start')),
                     tdoc_end=tdoc.utils.is_generic_tdoc(m.group('tdoc_end')),
                     meeting_url_docs=server_url_replace(m.group('meeting_url_docs')))
-                for m in meeting_matches
+                for m in meeting_matches if m is not None
             ]
             meeting_entries.extend(meeting_matches_parsed)
     # print(meeting_entries)
