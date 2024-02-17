@@ -1,5 +1,6 @@
 import collections
 import re
+from typing import NamedTuple
 
 # Common Regular Expressions for parsing TDoc names
 
@@ -18,8 +19,11 @@ tdoc_regex = re.compile(tdoc_regex_str)
 
 TS = collections.namedtuple('TS', 'series number version match')
 
+# Generic TDoc regex used for Tdoc search. Note that early meetings did not use years
+tdoc_generic_regex = re.compile(r'(?P<group>[\w\d]+)-(?P<number>[\d]+)')
 
-def is_sa2_tdoc(tdoc):
+
+def is_sa2_tdoc(tdoc: str):
     if (tdoc is None) or (tdoc == ''):
         return False
     tdoc = tdoc.strip()
@@ -27,6 +31,32 @@ def is_sa2_tdoc(tdoc):
     if regex_match is None:
         return False
     return regex_match.group(0) == tdoc
+
+
+class GenericTdoc(NamedTuple):
+    group: str
+    number: int
+
+
+def is_generic_tdoc(tdoc: str) -> GenericTdoc:
+    """
+    Parses a TDoc ID and returns (if matching) information regarding this TDoc.
+    Args:
+        tdoc: A TDoc ID
+
+    Returns: Parsed TDoc information
+
+    """
+    if (tdoc is None) or (tdoc == ''):
+        return None
+    tdoc = tdoc.strip()
+    regex_match = tdoc_generic_regex.match(tdoc)
+    if regex_match is None:
+        return None
+    return GenericTdoc(
+        group=regex_match.group('group'),
+        number=int(regex_match.group('number'))
+    )
 
 
 def is_ts(tdoc):

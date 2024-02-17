@@ -3,6 +3,7 @@ import os.path
 import re
 from typing import NamedTuple, List
 
+import tdoc.utils
 from server.common import download_file_to_location
 from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup
 
@@ -65,10 +66,13 @@ class MeetingEntry(NamedTuple):
     meeting_url_agenda: str
     end_date: datetime.datetime
     meeting_url_report: str
-    tdoc_start: int
-    tdoc_end: int
+    tdoc_start: tdoc.utils.GenericTdoc
+    tdoc_end: tdoc.utils.GenericTdoc
     meeting_url_docs: str
 
+
+# Loaded meeting entries
+meeting_entries: List[MeetingEntry] = []
 
 def update_local_cache():
     """
@@ -141,6 +145,7 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
     Returns: 3GPP meeting list
 
     """
+    global meeting_entries
     meeting_entries = []
 
     def server_url_replace(meeting_url: str) -> str:
@@ -180,11 +185,31 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
                         month=int(m.group('end_month')),
                         day=int(m.group('end_day'))),
                     meeting_url_report=server_url_replace(m.group('meeting_url_report')),
-                    tdoc_start=m.group('tdoc_start'),
-                    tdoc_end=m.group('tdoc_end'),
+                    tdoc_start=tdoc.utils.is_generic_tdoc(m.group('tdoc_start')),
+                    tdoc_end=tdoc.utils.is_generic_tdoc(m.group('tdoc_end')),
                     meeting_url_docs=server_url_replace(m.group('meeting_url_docs')))
                 for m in meeting_matches
             ]
             meeting_entries.extend(meeting_matches_parsed)
-    print(meeting_entries)
-    return meeting_entries
+    # print(meeting_entries)
+
+
+def search_tdoc(tdoc_str: str) -> List[MeetingEntry]:
+    """
+    Searches for a specific TDoc in the loaded meeting list
+    Args:
+        tdoc_str: A TDoc ID
+
+    Returns: A list of meetings (ideally containing only one element) containing this TDoc
+
+    """
+    parsed_tdoc = tdoc.utils.is_generic_tdoc(tdoc_str)
+    if parsed_tdoc is None:
+        return None
+    print(f'Searching for group {parsed_tdoc.group}, tdoc {parsed_tdoc.number}')
+    group_meetings = [m for m in meeting_entries if parsed_tdoc.group == m.meeting_group]
+    print(f'{len(group_meetings)} Group meetings')
+    matching_meetings = [m for m in group_meetings if
+                         m.tdoc_start.number <= parsed_tdoc.number <= m.tdoc_end.number]
+    print(f'{len(matching_meetings)} matching meeting(s) found')
+    return matching_meetings
