@@ -81,47 +81,47 @@ class Test_test(unittest.TestCase):
 
     def test_no_tdoc1(self):
         tdoc_id = None
-        is_tdoc = tdoc.is_tdoc(tdoc_id)
+        is_tdoc = tdoc.is_sa2_tdoc(tdoc_id)
         self.assertFalse(is_tdoc)
 
     def test_no_tdoc2(self):
         tdoc_id = ''
-        is_tdoc = tdoc.is_tdoc(tdoc_id)
+        is_tdoc = tdoc.is_sa2_tdoc(tdoc_id)
         self.assertFalse(is_tdoc)
 
     def test_no_tdoc3(self):
         tdoc_id = 'blah'
-        is_tdoc = tdoc.is_tdoc(tdoc_id)
+        is_tdoc = tdoc.is_sa2_tdoc(tdoc_id)
         self.assertFalse(is_tdoc)
 
     def test_no_tdoc4(self):
         tdoc_id = 'S2-12'
-        is_tdoc = tdoc.is_tdoc(tdoc_id)
+        is_tdoc = tdoc.is_sa2_tdoc(tdoc_id)
         self.assertFalse(is_tdoc)
 
     def test_is_tdoc1(self):
         tdoc_id = 'S2-121'
-        is_tdoc = tdoc.is_tdoc(tdoc_id)
+        is_tdoc = tdoc.is_sa2_tdoc(tdoc_id)
         self.assertTrue(is_tdoc)
 
     def test_is_tdoc2(self):
         tdoc_id = 'S2-1213'
-        is_tdoc = tdoc.is_tdoc(tdoc_id)
+        is_tdoc = tdoc.is_sa2_tdoc(tdoc_id)
         self.assertTrue(is_tdoc)
 
     def test_is_tdoc2_with_rev(self):
         tdoc_id = 'S2-1213r12'
-        is_tdoc = tdoc.is_tdoc(tdoc_id)
+        is_tdoc = tdoc.is_sa2_tdoc(tdoc_id)
         self.assertTrue(is_tdoc)
 
     def test_is_tdoc2_with_wrong_ref(self):
         tdoc_id = 'S2-1213r2'
-        is_tdoc = tdoc.is_tdoc(tdoc_id)
+        is_tdoc = tdoc.is_sa2_tdoc(tdoc_id)
         self.assertFalse(is_tdoc)
 
     def test_is_tdoc3(self):
         tdoc_id = 'S2-1213.zip'
-        is_tdoc = tdoc.is_tdoc(tdoc_id)
+        is_tdoc = tdoc.is_sa2_tdoc(tdoc_id)
         self.assertFalse(is_tdoc)
 
 if __name__ == '__main__':
