@@ -9,17 +9,17 @@ spec_number_regex = re.compile(r'(?P<series>[\d]{2})\.(?P<number>[\d]{3})')
 # Title of a TDocs as in the TDocsByAgenda file
 title_cr_regex = re.compile(r'([\d]{2}\.[\d]{3}) CR([\d]{1,4})')
 
-# Used in Word processing for identifying a TDocs as such
-tdoc_regex_simple = re.compile(r'[S\d]*-\d\d[\d]+')
+# Used in Word processing for identifying a SA2 TDoc as such
+tdoc_sa2_regex_simple = re.compile(r'[S\d]*-\d\d[\d]+')
 
-# Originally from the config folder. Used throught the document
+# Originally from the config folder. Used through the document
 tdoc_regex_str = r'(?P<group>[S\d]*)-(?P<year>\d\d)(?P<tdoc_number>[\d]+)(?P<revision>r[\d][\d])?'
 tdoc_regex = re.compile(tdoc_regex_str)
 
 TS = collections.namedtuple('TS', 'series number version match')
 
 
-def is_tdoc(tdoc):
+def is_sa2_tdoc(tdoc):
     if (tdoc is None) or (tdoc == ''):
         return False
     tdoc = tdoc.strip()
@@ -77,7 +77,7 @@ def get_tdoc_year(tdoc, include_revision=False):
         this_is_a_draft = False
     tdoc = tdoc.replace('*', '')
 
-    if not is_tdoc(tdoc):
+    if not is_sa2_tdoc(tdoc):
         if not include_revision:
             return None, None
         return None, None, None

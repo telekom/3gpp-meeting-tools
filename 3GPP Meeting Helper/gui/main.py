@@ -124,7 +124,7 @@ def reset_status_labels():
         try:
             if not performing_search:
                 current_value = tkvar_tdoc_id.get()
-                if not tdoc.utils.is_tdoc(current_value):
+                if not tdoc.utils.is_sa2_tdoc(current_value):
                     tkvar_tdoc_id.set('S2-' + str(year)[2:4] + 'XXXXX')
         except:
             pass
@@ -503,10 +503,10 @@ def start_main_gui():
         else:
             command_string = 'Open'
         button_label = command_string
-        if tdoc.utils.is_tdoc(tdoc_id):
+        if tdoc.utils.is_sa2_tdoc(tdoc_id):
             button_label += ' ' + tdoc_id
         tkvar_tdoc_id_full.set(button_label)
-        if tdoc.utils.is_tdoc(tdoc_id):
+        if tdoc.utils.is_sa2_tdoc(tdoc_id):
             # Enable button
             open_tdoc_button.configure(state=tkinter.NORMAL)
         else:

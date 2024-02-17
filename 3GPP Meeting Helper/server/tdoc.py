@@ -116,7 +116,7 @@ def get_tdoc(
     else:
         is_draft = False
 
-    if not tdoc.utils.is_tdoc(tdoc_id):
+    if not tdoc.utils.is_sa2_tdoc(tdoc_id):
         if not return_url:
             return None
         else:

@@ -137,7 +137,7 @@ def convert_html_file_to_markup(
     # print(markdown_text)
     for str_replace in str_replace_list:
         markdown_text = markdown_text.replace(str_replace[0], str_replace[1])
-        print(f'Replaced "{str_replace[0]}" with "{str_replace[1]}"')
+        # print(f'Replaced "{str_replace[0]}" with "{str_replace[1]}"')
 
     if output_path is None:
         destination_file = os.path.join(root + '.md')
