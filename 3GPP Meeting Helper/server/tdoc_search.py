@@ -209,8 +209,8 @@ def search_tdoc(tdoc_str: str) -> List[MeetingEntry]:
         return None
     print(f'Searching for group {parsed_tdoc.group}, tdoc {parsed_tdoc.number}')
     group_meetings = [m for m in meeting_entries if parsed_tdoc.group == m.meeting_group]
-    print(f'{len(group_meetings)} Group meetings')
+    print(f'{len(group_meetings)} Group meetings for group {parsed_tdoc.group}')
     matching_meetings = [m for m in group_meetings if
                          m.tdoc_start.number <= parsed_tdoc.number <= m.tdoc_end.number]
-    print(f'{len(matching_meetings)} matching meeting(s) found')
+    print(f'{len(matching_meetings)} matching meeting(s) found: {", ".join([m.meeting_name for m in matching_meetings])}')
     return matching_meetings
