@@ -20,7 +20,8 @@ tdoc_regex = re.compile(tdoc_regex_str)
 TS = collections.namedtuple('TS', 'series number version match')
 
 # Generic TDoc regex used for Tdoc search. Note that early meetings did not use years
-tdoc_generic_regex = re.compile(r'(?P<group>[\w\d]+)-(?P<number>[\d]+)')
+# Sometimes "_" is (erroneously) used, so I had to relax the regex
+tdoc_generic_regex = re.compile(r'(?P<group>[\w\d]+)[\-_](?P<number>[\d]+)')
 
 
 def is_sa2_tdoc(tdoc: str):
