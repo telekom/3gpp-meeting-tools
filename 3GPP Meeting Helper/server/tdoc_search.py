@@ -52,7 +52,7 @@ markup_cache = {k: os.path.join(local_cache_folder, k + '.md') for k, v in meeti
 #   - tdoc_end: SP-231807
 #   - meeting_url_docs: /../../../\\\\ftp\\\\TSG_SA\\\\TSG_SA\\\\TSGS_102_Edinburgh_2023-12\\\\\\\\docs\\\\
 meeting_regex = re.compile(r'\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)[ ]?\|[ ]?\[(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)\]\((?P<meeting_url_report>[^ ]+)\)[ ]?\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\)')
-
+meeting_split_regex = re.compile(r'(\[[a-zA-Z][\d\w]+\-[\d\-\w ]+\]\([^ ]+\))')
 
 class MeetingEntry(NamedTuple):
     meeting_group: str
@@ -81,61 +81,29 @@ def update_local_cache():
         download_file_to_location(v, html_cache[k])
 
 
+def filter_markdown_text(markdown_text: str) -> str:
+    text_lines = meeting_split_regex.split(markdown_text)
+    text_lines = [ line.replace('\n', '').replace('\r', '').replace("""‑""", '-') for line in text_lines ]
+    full_text = '\n'.join(text_lines)
+    full_text = full_text.replace(""")
+ |""", ") |").replace(""")
+|""", ') |').replace('  ', ' ').replace(""")
+[ full""", ')[ full]').replace("""| 
+[Sophia""", '| [Sophia')
+    return full_text
+
 def convert_local_cache_to_markdown():
     """
         Convert local cache to markdown
     """
-    str_replace_list = [
-        ("""
-| """, '| '),
-        ("""|
-[Register](""", '| [Register]('),
-        ("""|
-[Participants](""", '| [Participants]('),
-        ("""
-| [Participants""", '| [Participants]('),
-        ("""|
-[ICS](""", '| [ICS]('),
-        ("""|
-\-  |""", '| \- |'),
-        ("""‑""", '-'),
-        ("""|
-[""", '| ['),
-        (""")
-[  
-full document
-list]""", ')[full document list]'),
-        ("""|
--""", '| - '),
-        ("""-
-""", '- '),
-        ("""|
-""", '| '),
-        ("""
-CANCELLED""", ' CANCELLED'),
-        ("""[  
-full document
-list]""", '[full document list]'),
-        ("""Jeju
-""", 'Jeju '),
-        (""",
-""", ', '),
-        ("""New
-""", '''New '''),
-        ("""Puerto
-""", 'Puerto '),
-        ("""Beach
-""", 'Beach '),
-        ("""
-| [""", """| [""")
-    ]
     for k, v in html_cache.items():
         if os.path.exists(v):
             convert_html_file_to_markup(
                 v,
                 output_path=markup_cache[k],
                 ignore_links=False,
-                str_replace_list=str_replace_list)
+                filter_text_function=filter_markdown_text
+            )
 
 
 def load_markdown_cache_to_memory() -> List[MeetingEntry]:
@@ -210,7 +178,7 @@ def search_tdoc(tdoc_str: str) -> List[MeetingEntry]:
     print(f'Searching for group {parsed_tdoc.group}, tdoc {parsed_tdoc.number}')
     group_meetings = [m for m in meeting_entries if parsed_tdoc.group == m.meeting_group]
     print(f'{len(group_meetings)} Group meetings for group {parsed_tdoc.group}')
-    matching_meetings = [m for m in group_meetings if
+    matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
                          m.tdoc_start.number <= parsed_tdoc.number <= m.tdoc_end.number]
     print(f'{len(matching_meetings)} matching meeting(s) found: {", ".join([m.meeting_name for m in matching_meetings])}')
     return matching_meetings

@@ -107,12 +107,12 @@ def convert_html_file_to_markup(
         file_path: str,
         output_path: str= None,
         ignore_links=True,
-        str_replace_list=[]) -> str:
+        filter_text_function=None) -> str:
     """
     Converts a HTML file to Markdown
     Args:
         output_path: Optional path where to save this file. If not, same as original with .md extension
-        str_replace_list: List of tuples containing two strings: string match and replace string
+        filter_text_function: Additional function that can be passed on to further filter the text
         file_path: The file's path
         ignore_links: Whether links should be included
 
@@ -134,10 +134,8 @@ def convert_html_file_to_markup(
     h.ignore_links = ignore_links
     markdown_text = h.handle(html_content)
 
-    # print(markdown_text)
-    for str_replace in str_replace_list:
-        markdown_text = markdown_text.replace(str_replace[0], str_replace[1])
-        # print(f'Replaced "{str_replace[0]}" with "{str_replace[1]}"')
+    if filter_text_function is not None:
+        markdown_text = filter_text_function(markdown_text)
 
     if output_path is None:
         destination_file = os.path.join(root + '.md')
