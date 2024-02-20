@@ -53,6 +53,8 @@ markup_cache = {k: os.path.join(local_cache_folder, k + '.md') for k, v in meeti
 #   - meeting_url_docs: /../../../\\\\ftp\\\\TSG_SA\\\\TSG_SA\\\\TSGS_102_Edinburgh_2023-12\\\\\\\\docs\\\\
 meeting_regex = re.compile(
     r'\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)[ ]?\|[ ]?\[(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)\]\((?P<meeting_url_report>[^ ]+)\)[ ]?\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\)')
+
+# Used to split the generated Markup text
 meeting_split_regex = re.compile(r'(\[[a-zA-Z][\d\w]+\-[\d\-\w ]+\]\([^ ]+\))')
 
 
@@ -85,6 +87,13 @@ def update_local_cache():
 
 
 def filter_markdown_text(markdown_text: str) -> str:
+    """
+    Further filtering (TDoc-specific) for the markdown text
+    Args:
+        markdown_text: The input markdown text
+
+    Returns: Filtered and clean-up text
+    """
     text_lines = meeting_split_regex.split(markdown_text)
     text_lines = [line.replace('\n', '').replace('\r', '').replace("""‑""", '-') for line in text_lines]
     full_text = '\n'.join(text_lines)

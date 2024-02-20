@@ -1,5 +1,6 @@
 import os
 import traceback
+from typing import Callable
 
 import html2text
 
@@ -105,14 +106,15 @@ def get_sa2_root_folder_local_cache(create_dir=True):
 
 def convert_html_file_to_markup(
         file_path: str,
-        output_path: str= None,
+        output_path: str = None,
         ignore_links=True,
-        filter_text_function=None) -> str:
+        filter_text_function: Callable[[str], str] = None) -> str:
     """
-    Converts a HTML file to Markdown
+    Converts an HTML file to Markdown
     Args:
         output_path: Optional path where to save this file. If not, same as original with .md extension
-        filter_text_function: Additional function that can be passed on to further filter the text
+        filter_text_function: Additional function (callable) that can be passed on to further filter the text. Takes as
+         input a string containing the markup text and outputs the (further) filtered text
         file_path: The file's path
         ignore_links: Whether links should be included
 
