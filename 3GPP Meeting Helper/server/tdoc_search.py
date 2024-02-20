@@ -78,12 +78,17 @@ class MeetingEntry(NamedTuple):
 meeting_entries: List[MeetingEntry] = []
 
 
-def update_local_cache():
+def update_local_cache(redownload_if_exists=False):
     """
     Download the meeting files to the cache
+
+    Args:
+        redownload_if_exists: Whether to force a download of the file(s) if they exist
     """
     for k, v in meeting_pages_per_group.items():
-        download_file_to_location(v, html_cache[k])
+        local_file = html_cache[k]
+        if redownload_if_exists or not os.path.exists(local_file):
+            download_file_to_location(v, local_file)
 
 
 def filter_markdown_text(markdown_text: str) -> str:
@@ -145,6 +150,7 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
 
     for k, v in markup_cache.items():
         if os.path.exists(v):
+            print(f'Loading meetings for group {k}')
             with open(v, 'r', encoding='utf-8') as file:
                 markup_file_content = file.read()
             meeting_matches = meeting_regex.finditer(markup_file_content)
