@@ -38,6 +38,12 @@ class GenericTdoc(NamedTuple):
     group: str
     number: int
 
+    def __str__(self) -> str:
+        return f'{self.group}-{self.number}'
+
+    def __repr__(self) -> str:
+        return f'GenericTdoc(\'{self.group}\', {self.number})'
+
 
 def is_generic_tdoc(tdoc: str) -> GenericTdoc:
     """
