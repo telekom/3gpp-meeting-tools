@@ -99,6 +99,10 @@ class MeetingEntry(NamedTuple):
         split_folder_url = [f for f in folder_url.split('/') if f != '']
         return split_folder_url[-1]
 
+    def get_tdoc_url(self, tdoc_to_get: tdoc.utils.GenericTdoc):
+        tdoc_file = tdoc_to_get.__str__() + '.zip'
+        return self.meeting_url_docs + tdoc_file
+
 
 # Loaded meeting entries
 meeting_entries: List[MeetingEntry] = []
@@ -209,7 +213,7 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
     # print(meeting_entries)
 
 
-def search_tdoc(tdoc_str: str) -> List[MeetingEntry]:
+def search_meeting_for_tdoc(tdoc_str: str) -> List[MeetingEntry]:
     """
     Searches for a specific TDoc in the loaded meeting list
     Args:
