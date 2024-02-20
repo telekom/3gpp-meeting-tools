@@ -139,7 +139,7 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
 
         """
         if meeting_url is None:
-            return None
+            return meeting_url
         return meeting_url.replace(r'\\', '/').replace('/../../..//ftp/', 'https://www.3gpp.org/ftp/').replace('//',
                                                                                                                '/')
 
@@ -149,7 +149,7 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
                 markup_file_content = file.read()
             meeting_matches = meeting_regex.finditer(markup_file_content)
             if meeting_matches is None:
-                return
+                return meeting_matches
             meeting_matches_parsed = [
                 MeetingEntry(
                     meeting_group=m.group('meeting_group'),
@@ -188,7 +188,7 @@ def search_tdoc(tdoc_str: str) -> List[MeetingEntry]:
     """
     parsed_tdoc = tdoc.utils.is_generic_tdoc(tdoc_str)
     if parsed_tdoc is None:
-        return None
+        return []
     print(f'Searching for group {parsed_tdoc.group}, tdoc {parsed_tdoc.number}')
     group_meetings = [m for m in meeting_entries if parsed_tdoc.group == m.meeting_group]
     print(f'{len(group_meetings)} Group meetings for group {parsed_tdoc.group}')
