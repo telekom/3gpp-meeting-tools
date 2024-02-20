@@ -5,7 +5,8 @@ from typing import NamedTuple, List
 
 import tdoc.utils
 from server.common import download_file_to_location
-from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup
+import utils
+from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, get_cache_folder
 
 meeting_pages_per_group: dict[str, str] = {
     'SP': 'https://www.3gpp.org/dynareport?code=Meetings-SP.htm',
@@ -30,6 +31,7 @@ meeting_pages_per_group: dict[str, str] = {
 local_cache_folder = get_meeting_list_folder()
 html_cache = {k: os.path.join(local_cache_folder, k + '.htm') for k, v in meeting_pages_per_group.items()}
 markup_cache = {k: os.path.join(local_cache_folder, k + '.md') for k, v in meeting_pages_per_group.items()}
+pickle_cache = os.path.join(local_cache_folder, '3gpp_meeting_list.pickle')
 
 # Example parsing of:
 #   - [SP-102](https://portal.3gpp.org/Home.aspx#/meeting?MtgId=60012) | 3GPPSA#102| [Edinburgh](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Invitation/)| [2023-12-11](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Agenda/)| [2023-12-15](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Report/)| [SP-231205 - SP-231807](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\\\docs\\)[full document list](https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=60012) | - | [Participants](https://webapp.etsi.org/3GPPRegistration/fViewPart.asp?mid=60012)| [Files](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\) | - | -
@@ -72,6 +74,30 @@ class MeetingEntry(NamedTuple):
     tdoc_start: tdoc.utils.GenericTdoc
     tdoc_end: tdoc.utils.GenericTdoc
     meeting_url_docs: str
+
+    @property
+    def get_meeting_folder_url(self) -> str:
+        """
+        The remote meeting folder's URL in the 3GPP server's group directory based on the meeting_url_docs URL
+        Returns: The remote folder of the meeting in the 3GPP server
+
+        """
+        if self.meeting_url_docs is None or self.meeting_url_docs == '':
+            return self.meeting_url_docs
+        return self.meeting_url_docs[0:-5]
+
+    @property
+    def get_meeting_folder(self) -> str:
+        """
+        The remote meeting folder name in the 3GPP server's group directory based on the meeting_url_docs URL
+        Returns: The remote folder of the meeting in the 3GPP server
+
+        """
+        folder_url = self.get_meeting_folder_url
+        if folder_url is None or folder_url == '':
+            return folder_url
+        split_folder_url = [f for f in folder_url.split('/') if f != '']
+        return split_folder_url[-1]
 
 
 # Loaded meeting entries
@@ -203,3 +229,21 @@ def search_tdoc(tdoc_str: str) -> List[MeetingEntry]:
     print(
         f'{len(matching_meetings)} matching meeting(s) found: {", ".join([m.meeting_name for m in matching_meetings])}')
     return matching_meetings
+
+
+def get_folder_for_meeting(meeting: MeetingEntry, create_dir=False) -> str:
+    """
+    For a given meeting, returns the cache folder and creates it if it does not exist
+    Args:
+        create_dir: Whether to create the directory if it does not exist
+        meeting: The meeting we are searching fo
+
+    Returns:
+
+    """
+    if meeting is None:
+        return None
+    folder_name = meeting.get_meeting_folder
+    full_path = os.path.join(utils.local_cache.get_cache_folder(), folder_name)
+    utils.local_cache.create_folder_if_needed(full_path, create_dir=create_dir)
+    return full_path
