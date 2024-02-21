@@ -24,6 +24,10 @@ TS = collections.namedtuple('TS', 'series number version match')
 tdoc_generic_regex = re.compile(r'(?P<group>[\w\d]+)[\-_](?P<number>[\d]+)')
 
 
+# Sometimes using a different format for SA3-LI
+tdoc_sa3li_regex = re.compile(r'(?P<group>[sS]3i)(?P<number>[\d]+)')
+
+
 def is_sa2_tdoc(tdoc: str):
     if (tdoc is None) or (tdoc == ''):
         return False
@@ -34,15 +38,38 @@ def is_sa2_tdoc(tdoc: str):
     return regex_match.group(0) == tdoc
 
 
-class GenericTdoc(NamedTuple):
-    group: str
-    number: int
+class GenericTdoc:
+
+    def __init__(self, tdoc_id: str):
+        if tdoc_id is None:
+            raise ValueError('tdoc_id cannot be None')
+        tdoc_match = tdoc_generic_regex.match(tdoc_id)
+        if tdoc_match is None:
+            tdoc_match = tdoc_sa3li_regex.match(tdoc_id)
+            if tdoc_match is None:
+                raise ValueError('tdoc_id is not a TDoc number including group and TDoc number')
+        self._group = tdoc_match.group('group')
+        self._number = int(tdoc_match.group('number'))
+        self._tdoc = tdoc_id
+
+    @property
+    def group(self):
+        return self._group
+
+    @property
+    def number(self):
+        return self._number
+
+    @property
+    def tdoc(self):
+        return self._tdoc
+
 
     def __str__(self) -> str:
-        return f'{self.group}-{self.number}'
+        return f'{self.tdoc}'
 
     def __repr__(self) -> str:
-        return f'GenericTdoc(\'{self.group}\', {self.number})'
+        return f'GenericTdoc(\'{self.tdoc}\')'
 
 
 def is_generic_tdoc(tdoc: str) -> GenericTdoc:
@@ -57,13 +84,11 @@ def is_generic_tdoc(tdoc: str) -> GenericTdoc:
     if (tdoc is None) or (tdoc == ''):
         return None
     tdoc = tdoc.strip()
-    regex_match = tdoc_generic_regex.match(tdoc)
-    if regex_match is None:
+    try:
+        return GenericTdoc(tdoc)
+    except ValueError as e:
+        print(f'Tdoc {tdoc} is not a valid TDoc: {e}')
         return None
-    return GenericTdoc(
-        group=regex_match.group('group'),
-        number=int(regex_match.group('number'))
-    )
 
 
 def is_ts(tdoc):
