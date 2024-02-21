@@ -89,6 +89,12 @@ def get_sa2_folder():
 
 
 def download_file_to_location(url: str, local_location: str):
+    """
+    Downloads a given file to a local location
+    Args:
+        url:
+        local_location:
+    """
     try:
         file = get_html(url, cache=False)
         with open(local_location, 'wb') as output:
