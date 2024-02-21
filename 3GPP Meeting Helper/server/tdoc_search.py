@@ -2,11 +2,15 @@ import datetime
 import os.path
 import re
 from typing import NamedTuple, List
+import parsing.word.pywin32
+
 
 import tdoc.utils
+from application.zip_files import unzip_files_in_zip_file
 from server.common import download_file_to_location
 import utils
-from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, get_cache_folder
+from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, get_cache_folder, \
+    create_folder_if_needed
 
 meeting_pages_per_group: dict[str, str] = {
     'SP': 'https://www.3gpp.org/dynareport?code=Meetings-SP.htm',
@@ -188,8 +192,11 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
         """
         if meeting_url is None:
             return meeting_url
-        return meeting_url.replace(r'\\', '/').replace('/../../..//ftp/', 'https://www.3gpp.org/ftp/').replace('//',
-                                                                                                               '/')
+        return (meeting_url
+                .replace(r'\\', '/')
+                .replace('/../../..//ftp/', 'https://www.3gpp.org/ftp/')
+                .replace('//', '/')
+                .replace(':/', '://'))
 
     for k, v in markup_cache.items():
         if os.path.exists(v):
@@ -228,23 +235,46 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
     # print(meeting_entries)
 
 
-def search_meeting_for_tdoc(tdoc_str: str) -> List[MeetingEntry]:
+def search_meeting_for_tdoc(tdoc_str: str) -> MeetingEntry:
     """
     Searches for a specific TDoc in the loaded meeting list
     Args:
         tdoc_str: A TDoc ID
 
-    Returns: A list of meetings (ideally containing only one element) containing this TDoc
+    Returns: A meeting containing this TDoc. None if none found
 
     """
     parsed_tdoc = tdoc.utils.is_generic_tdoc(tdoc_str)
     if parsed_tdoc is None:
-        return []
+        return None
     print(f'Searching for group {parsed_tdoc.group}, tdoc {parsed_tdoc.number}')
     group_meetings = [m for m in meeting_entries if parsed_tdoc.group == m.meeting_group]
     print(f'{len(group_meetings)} Group meetings for group {parsed_tdoc.group}')
     matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
                          m.tdoc_start.number <= parsed_tdoc.number <= m.tdoc_end.number]
-    print(
-        f'{len(matching_meetings)} matching meeting(s) found: {", ".join([m.meeting_name for m in matching_meetings])}')
-    return matching_meetings
+
+    if len(matching_meetings) > 0:
+        matching_meeting = matching_meetings[0]
+    else:
+        matching_meeting = None
+    print(f'Matching meeting found: {matching_meeting.meeting_name}')
+    return matching_meeting
+
+
+def search_and_download_tdoc(tdoc_str: str) -> str:
+    if tdoc_str is None or tdoc_str == '':
+        return None
+    tdoc_meeting = search_meeting_for_tdoc(tdoc_str)
+    if tdoc_meeting is None:
+        return None
+
+    tdoc_url = tdoc_meeting.get_tdoc_url(tdoc_str)
+    local_folder = os.path.join(tdoc_meeting.get_local_folder_for_meeting(), tdoc_str)
+    create_folder_if_needed(local_folder, create_dir=True)
+    local_target = os.path.join(local_folder, f'{tdoc_str}.zip')
+    print(f'Downloading {tdoc_url} to {local_target}')
+    download_file_to_location(tdoc_url, local_target)
+    files_in_zip = unzip_files_in_zip_file(local_target)
+    opened_files, metadata_list = parsing.word.pywin32.open_files(files_in_zip, return_metadata=True)
+    return opened_files, metadata_list
+
