@@ -76,7 +76,6 @@ class MeetingEntry(NamedTuple):
     meeting_url_docs: str
     meeting_folder_url: str
 
-
     @property
     def meeting_folder(self) -> str:
         """
@@ -91,8 +90,31 @@ class MeetingEntry(NamedTuple):
         return split_folder_url[-1]
 
     def get_tdoc_url(self, tdoc_to_get: tdoc.utils.GenericTdoc):
+        """
+        For a string containingg a potential TDoc, returns a URL concatenating the Docs folder and the input TDoc and
+        adds a .'zip' extension.
+        Args:
+            tdoc_to_get: A TDoc ID. Note that the input is NOT checked!
+
+        Returns: A URL
+
+        """
         tdoc_file = tdoc_to_get.__str__() + '.zip'
         return self.meeting_url_docs + tdoc_file
+
+    def get_local_folder_for_meeting(self, create_dir=False) -> str:
+        """
+        For a given meeting, returns the cache folder and creates it if it does not exist
+        Args:
+            create_dir: Whether to create the directory if it does not exist
+
+        Returns:
+
+        """
+        folder_name = self.meeting_folder
+        full_path = os.path.join(utils.local_cache.get_cache_folder(), folder_name)
+        utils.local_cache.create_folder_if_needed(full_path, create_dir=create_dir)
+        return full_path
 
 
 # Loaded meeting entries
@@ -226,21 +248,3 @@ def search_meeting_for_tdoc(tdoc_str: str) -> List[MeetingEntry]:
     print(
         f'{len(matching_meetings)} matching meeting(s) found: {", ".join([m.meeting_name for m in matching_meetings])}')
     return matching_meetings
-
-
-def get_folder_for_meeting(meeting: MeetingEntry, create_dir=False) -> str:
-    """
-    For a given meeting, returns the cache folder and creates it if it does not exist
-    Args:
-        create_dir: Whether to create the directory if it does not exist
-        meeting: The meeting we are searching fo
-
-    Returns:
-
-    """
-    if meeting is None:
-        return None
-    folder_name = meeting.meeting_folder
-    full_path = os.path.join(utils.local_cache.get_cache_folder(), folder_name)
-    utils.local_cache.create_folder_if_needed(full_path, create_dir=create_dir)
-    return full_path
