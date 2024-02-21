@@ -54,7 +54,7 @@ pickle_cache = os.path.join(local_cache_folder, '3gpp_meeting_list.pickle')
 #   - tdoc_end: SP-231807
 #   - meeting_url_docs: /../../../\\\\ftp\\\\TSG_SA\\\\TSG_SA\\\\TSGS_102_Edinburgh_2023-12\\\\\\\\docs\\\\
 meeting_regex = re.compile(
-    r'\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)[ ]?\|[ ]?\[(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)\]\((?P<meeting_url_report>[^ ]+)\)[ ]?\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\)')
+    r'\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)[ ]?\|[ ]?\[(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)\]\((?P<meeting_url_report>[^ ]+)\)[ ]?\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\).*\[(Files)\]\((?P<files_url>[^ ]+)\)')
 
 # Used to split the generated Markup text
 meeting_split_regex = re.compile(r'(\[[a-zA-Z][\d\w]+\-[\d\-\w ]+\]\([^ ]+\))')
@@ -74,26 +74,17 @@ class MeetingEntry(NamedTuple):
     tdoc_start: tdoc.utils.GenericTdoc
     tdoc_end: tdoc.utils.GenericTdoc
     meeting_url_docs: str
+    meeting_folder_url: str
+
 
     @property
-    def get_meeting_folder_url(self) -> str:
+    def meeting_folder(self) -> str:
         """
-        The remote meeting folder's URL in the 3GPP server's group directory based on the meeting_url_docs URL
+        The remote meeting folder name in the 3GPP server's group directory based on the meeting_folder URL
         Returns: The remote folder of the meeting in the 3GPP server
 
         """
-        if self.meeting_url_docs is None or self.meeting_url_docs == '':
-            return self.meeting_url_docs
-        return self.meeting_url_docs[0:-5]
-
-    @property
-    def get_meeting_folder(self) -> str:
-        """
-        The remote meeting folder name in the 3GPP server's group directory based on the meeting_url_docs URL
-        Returns: The remote folder of the meeting in the 3GPP server
-
-        """
-        folder_url = self.get_meeting_folder_url
+        folder_url = self.meeting_folder_url
         if folder_url is None or folder_url == '':
             return folder_url
         split_folder_url = [f for f in folder_url.split('/') if f != '']
@@ -206,7 +197,9 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
                     meeting_url_report=server_url_replace(m.group('meeting_url_report')),
                     tdoc_start=tdoc.utils.is_generic_tdoc(m.group('tdoc_start')),
                     tdoc_end=tdoc.utils.is_generic_tdoc(m.group('tdoc_end')),
-                    meeting_url_docs=server_url_replace(m.group('meeting_url_docs')))
+                    meeting_url_docs=server_url_replace(m.group('meeting_url_docs')),
+                    meeting_folder_url=server_url_replace(m.group('files_url'))
+                )
                 for m in meeting_matches if m is not None
             ]
             meeting_entries.extend(meeting_matches_parsed)
@@ -247,7 +240,7 @@ def get_folder_for_meeting(meeting: MeetingEntry, create_dir=False) -> str:
     """
     if meeting is None:
         return None
-    folder_name = meeting.get_meeting_folder
+    folder_name = meeting.meeting_folder
     full_path = os.path.join(utils.local_cache.get_cache_folder(), folder_name)
     utils.local_cache.create_folder_if_needed(full_path, create_dir=create_dir)
     return full_path
