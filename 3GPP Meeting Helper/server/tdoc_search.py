@@ -1,7 +1,7 @@
 import datetime
 import os.path
 import re
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Tuple, Any
 import parsing.word.pywin32
 
 
@@ -261,12 +261,16 @@ def search_meeting_for_tdoc(tdoc_str: str) -> MeetingEntry:
     return matching_meeting
 
 
-def search_and_download_tdoc(tdoc_str: str) -> str:
+def search_download_and_open_tdoc(tdoc_str: str, open_files=False) -> Tuple[Any,Any]:
     if tdoc_str is None or tdoc_str == '':
-        return None
+        return None, None
     tdoc_meeting = search_meeting_for_tdoc(tdoc_str)
     if tdoc_meeting is None:
-        return None
+        return None, None
+
+    # Load data if needed
+    if len(meeting_entries) == 0:
+        load_markdown_cache_to_memory()
 
     tdoc_url = tdoc_meeting.get_tdoc_url(tdoc_str)
     local_folder = os.path.join(tdoc_meeting.get_local_folder_for_meeting(), tdoc_str)
