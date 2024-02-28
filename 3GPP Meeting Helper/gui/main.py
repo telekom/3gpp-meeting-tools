@@ -18,6 +18,7 @@ import parsing.html.common as html_parser
 import parsing.word.pywin32
 import server.common
 import server.tdoc
+import server.tdoc_search
 import tdoc.utils
 import utils.local_cache
 from gui.common import favicon
@@ -38,7 +39,6 @@ def set_waiting_for_proxy_message():
 
 # global variables
 inbox_tdoc_list_html = None
-performing_search = False
 open_downloaded_tdocs = True
 
 # Tkinter variables
@@ -122,10 +122,9 @@ def reset_status_labels():
     year = application.meeting_helper.sa2_meeting_data.get_year_from_meeting_text(current_meeting)
     if year is not None:
         try:
-            if not performing_search:
-                current_value = tkvar_tdoc_id.get()
-                if not tdoc.utils.is_sa2_tdoc(current_value):
-                    tkvar_tdoc_id.set('S2-' + str(year)[2:4] + 'XXXXX')
+            current_value = tkvar_tdoc_id.get()
+            if not tdoc.utils.is_sa2_tdoc(current_value):
+                tkvar_tdoc_id.set('S2-' + str(year)[2:4] + 'XXXXX')
         except:
             pass
 
@@ -382,7 +381,6 @@ def download_and_open_tdoc(
         cached_tdocs_list=None,
         copy_to_clipboard=False,
         skip_opening=False):
-    global performing_search
     tkvar_tdoc_id.set(tkvar_tdoc_id.get().replace(' ', '').replace('\r', '').replace('\n', '').strip())
     if tdoc_id_to_override is None:
         # Normal flow
@@ -390,6 +388,18 @@ def download_and_open_tdoc(
     else:
         # Used to compare two tdocs
         tdoc_id = tdoc_id_to_override
+
+    # If we are performing a TDoc search
+    if tkvar_search_tdoc.get():
+        print(f'Will search for TDoc {tdoc_id}')
+        server.tdoc_search.load_markdown_cache_to_memory()
+        retrieved_files, metadata_list = server.tdoc_search.search_download_and_open_tdoc(tdoc_id)
+        if retrieved_files is None:
+            not_found_string = 'Not found (' + tdoc_id + ')'
+            tkvar_tdoc_download_result.set(not_found_string)
+        return retrieved_files
+
+    # Search in meeting
     download_from_inbox = inbox_is_for_this_meeting()
     retrieved_files, tdoc_url = server.tdoc.get_tdoc(
         application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(tkvar_meeting.get()),
@@ -423,36 +433,6 @@ def download_and_open_tdoc(
         print('Could not load TDoc agenda info for {0}'.format(tkvar_tdoc_id.get()))
     if (retrieved_files is None) or (len(retrieved_files) == 0):
         tdoc_year, tdoc_number = tdoc.utils.get_tdoc_year(tdoc_id)
-        # Search on meetings from the given year if the TDoc is not found
-        if tkvar_search_tdoc.get() and (tdoc_year is not None) and (not performing_search):
-            # Retrieve search for all meetings of the year
-            performing_search = True
-            try:
-                # Search the meetings of the chosen year while we still did not find a match
-                meetings_to_check = application.meeting_helper.sa2_meeting_data.get_meetings_for_given_year(tdoc_year)
-                print('Will search meetings: {0}'.format('; '.join(meetings_to_check.meeting_folders)))
-                for meeting_to_search in meetings_to_check.meeting_folders:
-                    tkvar_meeting.set(meeting_to_search)
-
-                    # Recursive call after changing the (e)Meeting number
-                    tmp_retrieved_files = download_and_open_tdoc(
-                        tdoc_id_to_override=tdoc_id,
-                        cached_tdocs_list=cached_tdocs_list)
-
-                    if not performing_search:
-                        not_found_string = None
-                        break
-                    not_found_string = 'Not found (' + tdoc_id + ')'
-            finally:
-                # Found a result and stop search by setting global variable
-                performing_search = False
-                retrieved_files = tmp_retrieved_files
-        else:
-            not_found_string = 'Not found (' + tdoc_id + ')'
-
-        if not_found_string is not None:
-            tkvar_tdoc_download_result.set(not_found_string)
-
         # Needed to add this so that comparison of TDocs between meetings can work
         if not open_downloaded_tdocs:
             if retrieved_files is not None and cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
@@ -469,9 +449,6 @@ def download_and_open_tdoc(
             opened_files, metadata_list = parsing.word.pywin32.open_files(retrieved_files, return_metadata=True)
             found_string = 'Opened {0} file(s)'.format(opened_files)
         tkvar_last_doc_tdoc.set(tkvar_tdoc_id.get())
-        if performing_search:
-            found_string += ' (' + tkvar_meeting.get() + ')'
-        performing_search = False
         tkvar_tdoc_download_result.set(found_string)
         if len(metadata_list) > 0:
             last_metadata = metadata_list[-1]
@@ -506,7 +483,7 @@ def start_main_gui():
         if tdoc.utils.is_sa2_tdoc(tdoc_id):
             button_label += ' ' + tdoc_id
         tkvar_tdoc_id_full.set(button_label)
-        if tdoc.utils.is_sa2_tdoc(tdoc_id):
+        if tdoc.utils.is_generic_tdoc(tdoc_id) is not None:
             # Enable button
             open_tdoc_button.configure(state=tkinter.NORMAL)
         else:
