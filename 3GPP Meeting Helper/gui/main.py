@@ -392,7 +392,6 @@ def download_and_open_tdoc(
     # If we are performing a TDoc search
     if tkvar_search_tdoc.get():
         print(f'Will search for TDoc {tdoc_id}')
-        server.tdoc_search.load_markdown_cache_to_memory()
         retrieved_files, metadata_list = server.tdoc_search.search_download_and_open_tdoc(tdoc_id)
         if retrieved_files is None:
             not_found_string = 'Not found (' + tdoc_id + ')'
