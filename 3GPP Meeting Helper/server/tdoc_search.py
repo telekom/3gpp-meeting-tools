@@ -1,7 +1,7 @@
 import datetime
 import os.path
 import re
-from typing import NamedTuple, List, Tuple, Any
+from typing import NamedTuple, List, Tuple, Any, Dict
 import parsing.word.pywin32
 
 
@@ -33,8 +33,8 @@ meeting_pages_per_group: dict[str, str] = {
 }
 
 local_cache_folder = get_meeting_list_folder()
-html_cache = {k: os.path.join(local_cache_folder, k + '.htm') for k, v in meeting_pages_per_group.items()}
-markup_cache = {k: os.path.join(local_cache_folder, k + '.md') for k, v in meeting_pages_per_group.items()}
+html_cache:Dict[str,str] = {k: os.path.join(local_cache_folder, k + '.htm') for k, v in meeting_pages_per_group.items()}
+markup_cache:Dict[str,str] = {k: os.path.join(local_cache_folder, k + '.md') for k, v in meeting_pages_per_group.items()}
 pickle_cache = os.path.join(local_cache_folder, '3gpp_meeting_list.pickle')
 
 # Example parsing of:
@@ -132,10 +132,13 @@ def update_local_cache(redownload_if_exists=False):
     Args:
         redownload_if_exists: Whether to force a download of the file(s) if they exist
     """
+    print('Updating local cache')
     for k, v in meeting_pages_per_group.items():
         local_file = html_cache[k]
         if redownload_if_exists or not os.path.exists(local_file):
             download_file_to_location(v, local_file)
+        else:
+            print(f'Skipping download of {v} to {local_file}')
 
 
 def filter_markdown_text(markdown_text: str) -> str:
@@ -153,7 +156,9 @@ def filter_markdown_text(markdown_text: str) -> str:
  |""", ") |").replace(""")
 |""", ') |').replace('  ', ' ').replace(""")
 [ full""", ')[ full]').replace("""| 
-[Sophia""", '| [Sophia')
+[Sophia""", '| [Sophia').replace(""")
+ [ full document list]""", ')[ full document list]').replace("""\\Report/) | 
+[""", """\\Report/) | [""")
     return full_text
 
 
@@ -171,7 +176,7 @@ def convert_local_cache_to_markdown():
             )
 
 
-def load_markdown_cache_to_memory() -> List[MeetingEntry]:
+def load_markdown_cache_to_memory(groups:List[str] = []) -> List[MeetingEntry]:
     """
     Parses the markdown cache files and returns the parsed 3GPP meeting list.
     Returns: 3GPP meeting list
@@ -179,6 +184,17 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
     """
     global meeting_entries
     meeting_entries = []
+
+    items_to_load = markup_cache.items()
+    if groups is None or len(groups)==0:
+        # Load all
+        pass
+    else:
+        items_to_load = [kvp for kvp in items_to_load if kvp[0] in groups]
+
+    groups_to_load_str = ', '.join([k for k, v in items_to_load])
+
+    print(f'Loading meeting entries from meeting list: {groups_to_load_str}')
 
     def server_url_replace(meeting_url: str) -> str:
         """
@@ -198,7 +214,7 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
                 .replace('//', '/')
                 .replace(':/', '://'))
 
-    for k, v in markup_cache.items():
+    for k, v in items_to_load:
         if os.path.exists(v):
             print(f'Loading meetings for group {k}')
             with open(v, 'r', encoding='utf-8') as file:
@@ -232,6 +248,9 @@ def load_markdown_cache_to_memory() -> List[MeetingEntry]:
                 for m in meeting_matches if m is not None
             ]
             meeting_entries.extend(meeting_matches_parsed)
+            print(f'Added {len(meeting_matches_parsed)} meetings to group {k}')
+        else:
+            print(f'Not found: {v}')
     # print(meeting_entries)
 
 
@@ -255,22 +274,28 @@ def search_meeting_for_tdoc(tdoc_str: str) -> MeetingEntry:
 
     if len(matching_meetings) > 0:
         matching_meeting = matching_meetings[0]
+        print(f'Matching meeting found for TDoc {tdoc_str}: {matching_meeting.meeting_name}')
     else:
         matching_meeting = None
-    print(f'Matching meeting found: {matching_meeting.meeting_name}')
+        print(f'Matching meeting NOT found for TDoc {tdoc_str}')
+
     return matching_meeting
 
 
 def search_download_and_open_tdoc(tdoc_str: str, open_files=False) -> Tuple[Any,Any]:
     if tdoc_str is None or tdoc_str == '':
         return None, None
-    tdoc_meeting = search_meeting_for_tdoc(tdoc_str)
-    if tdoc_meeting is None:
-        return None, None
 
     # Load data if needed
     if len(meeting_entries) == 0:
+        print('Triggering update of local cache')
+        update_local_cache(redownload_if_exists=False)
+        convert_local_cache_to_markdown()
         load_markdown_cache_to_memory()
+
+    tdoc_meeting = search_meeting_for_tdoc(tdoc_str)
+    if tdoc_meeting is None:
+        return None, None
 
     tdoc_url = tdoc_meeting.get_tdoc_url(tdoc_str)
     local_folder = os.path.join(tdoc_meeting.get_local_folder_for_meeting(), tdoc_str)
