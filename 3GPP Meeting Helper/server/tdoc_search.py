@@ -60,6 +60,10 @@ pickle_cache = os.path.join(local_cache_folder, '3gpp_meeting_list.pickle')
 meeting_regex = re.compile(
     r'\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)[ ]?\|[ ]?\[(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)\]\((?P<meeting_url_report>[^ ]+)\)[ ]?\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\).*\[(Files)\]\((?P<files_url>[^ ]+)\)')
 
+# Meetings such as this one:
+# [SP-103](https://portal.3gpp.org/Home.aspx#/meeting?MtgId=60295) | 3GPPSA#103 | [Maastricht](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_103_Maastricht_2024-03\\Invitation/) | [2024-03-19](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_103_Maastricht_2024-03\\Agenda/) | 2024-03-22 | [SP-240001 - SP-240285](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_103_Maastricht_2024-03\\\\docs\\)[ full document list](https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=60295) | [Register](https://webapp.etsi.org/3GPPRegistration/fMain.asp?mid=60295) | [Participants](https://webapp.etsi.org/3GPPRegistration/fViewPart.asp?mid=60295) | [Files](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_103_Maastricht_2024-03\\) | [ICS](https://portal.3gpp.org/webapp/meetingCalendar/ical.asp?qMTG_ID=60295) | -
+meeting_without_report_regex = re.compile(r"\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)[ ]?\|[ ]?(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)[ ]?\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\).*\[(Files)\]\((?P<files_url>[^ ]+)\)")
+
 # Used to split the generated Markup text
 meeting_split_regex = re.compile(r'(\[[a-zA-Z][\d\w]+\-[\d\-\w ]+\]\([^ ]+\))')
 
@@ -152,13 +156,18 @@ def filter_markdown_text(markdown_text: str) -> str:
     text_lines = meeting_split_regex.split(markdown_text)
     text_lines = [line.replace('\n', '').replace('\r', '').replace("""‑""", '-') for line in text_lines]
     full_text = '\n'.join(text_lines)
+
     full_text = full_text.replace(""")
- |""", ") |").replace(""")
-|""", ') |').replace('  ', ' ').replace(""")
-[ full""", ')[ full]').replace("""| 
+ | """, ") | ")
+
+    full_text = full_text.replace('  ', ' ').replace(""")
+[ full""", ')[ full').replace("""| 
 [Sophia""", '| [Sophia').replace(""")
  [ full document list]""", ')[ full document list]').replace("""\\Report/) | 
 [""", """\\Report/) | [""")
+
+    # Catches when the report is not yet ready
+    full_text = re.sub(r"(\d\d\d\d-\d\d-\d\d) \| [\r\n]{1,}\[", r"\1 | [", full_text, flags=re.M)
     return full_text
 
 
@@ -219,9 +228,9 @@ def load_markdown_cache_to_memory(groups:List[str] = []) -> List[MeetingEntry]:
             print(f'Loading meetings for group {k}')
             with open(v, 'r', encoding='utf-8') as file:
                 markup_file_content = file.read()
+
+            # Finished meetings
             meeting_matches = meeting_regex.finditer(markup_file_content)
-            if meeting_matches is None:
-                return meeting_matches
             meeting_matches_parsed = [
                 MeetingEntry(
                     meeting_group=m.group('meeting_group'),
@@ -248,7 +257,38 @@ def load_markdown_cache_to_memory(groups:List[str] = []) -> List[MeetingEntry]:
                 for m in meeting_matches if m is not None
             ]
             meeting_entries.extend(meeting_matches_parsed)
-            print(f'Added {len(meeting_matches_parsed)} meetings to group {k}')
+            print(f'Added {len(meeting_matches_parsed)} finished meetings to group {k}')
+
+            # Meetings for which a report is not yet ready
+            meeting_matches = meeting_without_report_regex.finditer(markup_file_content)
+            meeting_matches_parsed = [
+                MeetingEntry(
+                    meeting_group=m.group('meeting_group'),
+                    meeting_number=m.group('meeting_number'),
+                    meeting_url_3gu=server_url_replace(m.group('meeting_url_3gu')),
+                    meeting_name=m.group('meeting_name'),
+                    meeting_location=m.group('meeting_location'),
+                    meeting_url_invitation=server_url_replace(m.group('meeting_url_invitation')),
+                    start_date=datetime.datetime(
+                        year=int(m.group('start_year')),
+                        month=int(m.group('start_month')),
+                        day=int(m.group('start_day'))),
+                    meeting_url_agenda=server_url_replace(m.group('meeting_url_agenda')),
+                    end_date=datetime.datetime(
+                        year=int(m.group('end_year')),
+                        month=int(m.group('end_month')),
+                        day=int(m.group('end_day'))),
+                    meeting_url_report='',
+                    tdoc_start=tdoc.utils.is_generic_tdoc(m.group('tdoc_start')),
+                    tdoc_end=tdoc.utils.is_generic_tdoc(m.group('tdoc_end')),
+                    meeting_url_docs=server_url_replace(m.group('meeting_url_docs')),
+                    meeting_folder_url=server_url_replace(m.group('files_url'))
+                )
+                for m in meeting_matches if m is not None
+            ]
+            meeting_entries.extend(meeting_matches_parsed)
+
+            print(f'Added {len(meeting_matches_parsed)} started but unfinished meetings to group {k}')
         else:
             print(f'Not found: {v}')
     # print(meeting_entries)
