@@ -12,6 +12,10 @@ import utils
 from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, get_cache_folder, \
     create_folder_if_needed
 
+# If more than this number of files are included in a zip file, the folder is opened instead.
+# Some TDocs, especially in plenary, could contain many, many TDocs, e.g. SP-230457 (22 documents)
+maximum_number_of_files_to_open = 5
+
 meeting_pages_per_group: dict[str, str] = {
     'SP': 'https://www.3gpp.org/dynareport?code=Meetings-SP.htm',
     'S1': 'https://www.3gpp.org/dynareport?code=Meetings-S1.htm',
@@ -344,6 +348,13 @@ def search_download_and_open_tdoc(tdoc_str: str, open_files=False) -> Tuple[Any,
     print(f'Downloading {tdoc_url} to {local_target}')
     download_file_to_location(tdoc_url, local_target)
     files_in_zip = unzip_files_in_zip_file(local_target)
-    opened_files, metadata_list = parsing.word.pywin32.open_files(files_in_zip, return_metadata=True)
+    if len(files_in_zip) <= maximum_number_of_files_to_open:
+        opened_files, metadata_list = parsing.word.pywin32.open_files(files_in_zip, return_metadata=True)
+    else:
+        print(f'More than {maximum_number_of_files_to_open} contained within {tdoc_str}. Opening folder instead of files')
+        folder_to_open, first_file = os.path.split(files_in_zip[0])
+        os.startfile(folder_to_open)
+        opened_files = folder_to_open
+        metadata_list = None
     return opened_files, metadata_list
 
