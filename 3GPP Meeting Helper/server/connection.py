@@ -1,6 +1,7 @@
 import re
 import traceback
 from ftplib import FTP
+from typing import NamedTuple, Any
 from urllib.parse import urlparse
 
 import requests
@@ -10,14 +11,29 @@ non_cached_http_session = requests.Session()
 http_session = CacheControl(non_cached_http_session)
 
 # Avoid getting sometimes 403s
-http_session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'})
+http_session.headers.update({
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'})
+
+
+class HttpRequestTimeout(NamedTuple):
+    # Connect timeout: it is the number of seconds
+    # Requests will wait for your client to establish a connection to a remote machine (corresponding to the connect())
+    # call on the socket. It’s a good practice to set connect timeouts to slightly larger than a multiple of 3,
+    # which is the default TCP packet retransmission window.
+    connect_timeout: Any
+    # Read timeout: Once your client has connected to the server and sent the
+    # HTTP request, the read timeout is the number of seconds the client will wait for the server to send a response. (
+    # Specifically, it’s the number of seconds that the client will wait between bytes sent from the server. In 99.9% of
+    # cases, this is the time before the server sends the first byte).
+    read_timeout: Any
+
 
 # Timeout set for 3 seconds for connect, 15 seconds for the transmission itself. See
 # https://requests.readthedocs.io/en/latest/user/advanced/ -> Timeouts
-timeout_values = (3.05, 9)
+timeout_values = HttpRequestTimeout(3.05, 6)
 
 
-def get_html(url, cache=True, try_update_folders=True, file_to_return_if_error=None):
+def get_html(url, cache=True, try_update_folders=True, file_to_return_if_error=None, timeout:HttpRequestTimeout=None):
     if file_to_return_if_error is not None:
         print('Returning {0} in case of HTTP(s) error'.format(file_to_return_if_error))
     try:
@@ -29,10 +45,14 @@ def get_html(url, cache=True, try_update_folders=True, file_to_return_if_error=N
     try:
         if (o.scheme == 'http') or (o.scheme == 'https'):
             print('HTTP GET {0}'.format(url))
-            if cache:
-                r = http_session.get(url, timeout=timeout_values)
+            if timeout is None:
+                timeout_tuple = (timeout_values.connect_timeout, timeout_values.read_timeout)
             else:
-                r = non_cached_http_session.get(url, timeout=timeout_values)
+                timeout_tuple = (timeout.connect_timeout, timeout.read_timeout)
+            if cache:
+                r = http_session.get(url, timeout=timeout_tuple)
+            else:
+                r = non_cached_http_session.get(url, timeout=timeout_tuple)
             if r.status_code != 200:
                 print('HTTP GET {0}: {1}'.format(url, r.status_code))
                 if file_to_return_if_error is not None:
