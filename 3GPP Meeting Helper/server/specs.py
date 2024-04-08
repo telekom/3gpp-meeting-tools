@@ -11,7 +11,7 @@ from parsing.html.specs import extract_releases_from_latest_folder, extract_spec
 from parsing.spec_types import SpecType, SpecVersionMapping
 from server.common import decode_string, download_file_to_location
 from application.zip_files import unzip_files_in_zip_file
-from server.connection import get_html
+from server.connection import get_html, HttpRequestTimeout
 from utils.local_cache import create_folder_if_needed
 from config.cache import user_folder, root_folder
 import pandas as pd
@@ -31,6 +31,9 @@ spec_crs_page = 'https://portal.3gpp.org/ChangeRequests.aspx?q=1&specnumber={0}&
 # Some specs may be so new that there is not an entry in the "latest" page yet
 drafts_page = 'https://www.3gpp.org/ftp/Specs/latest-drafts'
 
+# Higher timeout value for specs
+timeout_values = HttpRequestTimeout(3.05, 25)
+
 
 def get_html_page_and_save_cache(url: str, cache: bool, cache_file: str, cache_as_markup: bool) -> str:
     """
@@ -44,7 +47,7 @@ def get_html_page_and_save_cache(url: str, cache: bool, cache_file: str, cache_a
     Returns:
         The retrieved data, either in HTML or Markup format
     """
-    html = get_html(url)
+    html = get_html(url, timeout=timeout_values)
     if cache_as_markup:
         html_decoded = decode_string(html, "cache_file".format(html))
         h = html2text.HTML2Text()
