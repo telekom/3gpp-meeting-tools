@@ -14,7 +14,7 @@ http_session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64)
 
 # Timeout set for 3 seconds for connect, 15 seconds for the transmission itself. See
 # https://requests.readthedocs.io/en/latest/user/advanced/ -> Timeouts
-timeout_values = (3.05, 5)
+timeout_values = (3.05, 9)
 
 
 def get_html(url, cache=True, try_update_folders=True, file_to_return_if_error=None):
