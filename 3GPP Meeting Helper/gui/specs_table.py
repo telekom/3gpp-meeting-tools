@@ -449,7 +449,7 @@ class SpecVersionsTable:
     def __init__(self, parent, favicon, spec_id: str, spec_type: SpecType, initial_release: str,
                  parent_specs_table: SpecsTable):
         top = self.top = tkinter.Toplevel(parent)
-        top.title("All Spec versions for {0}, initial planned release: {1}".format(spec_id, initial_release))
+        top.title("{0}, initial planned release: {1}".format(spec_id, initial_release))
         top.iconbitmap(favicon)
 
         self.spec_id = spec_id
