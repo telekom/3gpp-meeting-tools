@@ -1,5 +1,4 @@
 import os
-import os
 import re
 import textwrap
 import tkinter
@@ -7,11 +6,12 @@ from tkinter import ttk
 from typing import NamedTuple
 
 import pandas as pd
-import pyperclip
 
 import application
 import application.word
 import parsing.word.pywin32 as word_parser
+from application.os import open_url_and_copy_to_clipboard
+from gui.generic_table import set_column, GenericTable, treeview_set_row_formatting
 from parsing.html.specs import extract_spec_files_from_spec_folder, cleanup_spec_name
 from parsing.spec_types import get_spec_full_name, SpecType
 from server import specs
@@ -19,74 +19,8 @@ from server.specs import file_version_to_version, version_to_file_version, downl
     get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder, get_url_for_crs_page, \
     get_spec_page
 
-style_name = 'mystyle.Treeview'
 
-
-# See https://bugs.python.org/issue36468
-def fixed_map(option):
-    # Fix for setting text colour for Tkinter 8.6.9
-    # From: https://core.tcl.tk/tk/info/509cafafae
-    #
-    # Returns the style map for 'option' with any styles starting with
-    # ('!disabled', '!selected', ...) filtered out.
-
-    # style.map() returns an empty list for missing options, so this
-    # should be future-safe.
-    return [elm for elm in style.map(style_name, query_opt=option) if
-            elm[:2] != ('!disabled', '!selected')]
-
-
-style = None
-
-
-def init_style():
-    global style
-    if style is None:
-        style = ttk.Style()
-        style.map(style_name, foreground=fixed_map('foreground'),
-                  background=fixed_map('background'))
-        style.configure(style_name, highlightthickness=0, bd=0, rowheight=60)
-        # style.configure("mystyle.Treeview.Heading", font=('Calibri', 13, 'bold'))  # Modify the font of the headings
-        style.layout(style_name, [(style_name + '.treearea', {'sticky': 'nswe'})])  # Remove the borders
-
-
-def set_column(tree, col, label=None, width=None, sort=True, center=True):
-    if label is None:
-        label = col
-    if sort:
-        tree.heading(col, text=label, command=lambda: treeview_sort_column(tree, col, False))
-    else:
-        tree.heading(col, text=label)
-    if width is not None:
-        tree.column(col, minwidth=0, width=width, stretch=False)
-    if center:
-        tree.column(col, anchor="center")
-
-
-def treeview_sort_column(tree, col, reverse=False):
-    l = [(tree.set(k, col), k) for k in tree.get_children('')]
-    l.sort(reverse=reverse)
-
-    # rearrange items in sorted positions
-    for index, (val, k) in enumerate(l):
-        tree.move(k, '', index)
-
-    # reverse sort next time
-    tree.heading(col, command=lambda: treeview_sort_column(tree, col, not reverse))
-
-
-def open_url_and_copy_to_clipboard(url_to_open: str):
-    """
-    Opens a given URL and copies it to the clipboard
-    Args:
-        url_to_open: A URL
-    """
-    pyperclip.copy(url_to_open)
-    os.startfile(url_to_open)
-    print('Opened {0} and copied to clipboard'.format(url_to_open))
-
-
-class SpecsTable:
+class SpecsTable(GenericTable):
     current_specs = None
     all_specs = None
     spec_metadata = None
@@ -98,30 +32,15 @@ class SpecsTable:
     filter_group = None
 
     def __init__(self, parent, favicon, parent_gui_tools):
-        init_style()
-        self.top = tkinter.Toplevel(parent)
-        self.top.title("Specs Table. Double-Click on Spec # or Release # to open")
-        self.top.iconbitmap(favicon)
-        self.favicon = favicon
+        super().__init__(
+            parent,
+            "Specs Table. Double-Click on Spec # or Release # to open",
+            favicon,
+            [ 'Spec', 'Title', 'Versions', 'Local Cache', 'Group', 'CRs' ]
+        )
         self.parent_gui_tools = parent_gui_tools
 
-        frame_1 = tkinter.Frame(self.top)
-        frame_1.pack(anchor='w')
-        frame_2 = tkinter.Frame(self.top)
-        frame_2.pack()
-        frame_3 = tkinter.Frame(self.top)
-        frame_3.pack(anchor='w')
-
         self.spec_count = tkinter.StringVar()
-
-        # https://stackoverflow.com/questions/50625306/what-is-the-best-way-to-show-data-in-a-table-in-tkinter
-        self.tree = ttk.Treeview(
-            frame_2,
-            columns=('Spec', 'Title', 'Versions', 'Local Cache', 'Group', 'CRs'),
-            show='headings',
-            selectmode="browse",
-            style=style_name,
-            padding=[-5, -25, -5, -25])  # Left, top, right, bottom
 
         set_column(self.tree, 'Spec', "Spec #", width=110)
         set_column(self.tree, 'Title', width=SpecsTable.title_width, center=False)
@@ -135,18 +54,13 @@ class SpecsTable:
         self.load_data(initial_load=True, check_for_new_specs=False)
         self.insert_current_specs()
 
-        self.tree_scroll = ttk.Scrollbar(frame_2)
-        self.tree_scroll.configure(command=self.tree.yview)
-        self.tree.configure(yscrollcommand=self.tree_scroll.set)
-        # tree.grid(row=0, column=0)
-
         # Can also do this:
         # https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
-        self.search_entry = tkinter.Entry(frame_1, textvariable=self.search_text, width=20, font='TkDefaultFont')
+        self.search_entry = tkinter.Entry(self.top_frame, textvariable=self.search_text, width=20, font='TkDefaultFont')
         self.search_text.trace_add(['write', 'unset'], self.select_text)
 
-        tkinter.Label(frame_1, text="Search: ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)
         self.search_entry.pack(side=tkinter.LEFT)
 
         # Filter by specification series
@@ -155,11 +69,11 @@ class SpecsTable:
         spec_series.sort()
         all_series.extend(list(spec_series))
 
-        self.combo_series = ttk.Combobox(frame_1, values=all_series, state="readonly", width=6)
+        self.combo_series = ttk.Combobox(self.top_frame, values=all_series, state="readonly", width=6)
         self.combo_series.set('All')
         self.combo_series.bind("<<ComboboxSelected>>", self.select_series)
 
-        tkinter.Label(frame_1, text="  Series: ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="  Series: ").pack(side=tkinter.LEFT)
         self.combo_series.pack(side=tkinter.LEFT)
 
         # Filter by specification release
@@ -168,11 +82,11 @@ class SpecsTable:
         spec_releases.sort()
         all_releases.extend(list(spec_releases))
 
-        self.combo_releases = ttk.Combobox(frame_1, values=all_releases, state="readonly", width=6)
+        self.combo_releases = ttk.Combobox(self.top_frame, values=all_releases, state="readonly", width=6)
         self.combo_releases.set('All')
         self.combo_releases.bind("<<ComboboxSelected>>", self.select_releases)
 
-        tkinter.Label(frame_1, text="  Release: ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="  Release: ").pack(side=tkinter.LEFT)
         self.combo_releases.pack(side=tkinter.LEFT)
 
         # Filter by group responsibility release
@@ -181,27 +95,27 @@ class SpecsTable:
         spec_groups.sort()
         all_groups.extend(list(spec_groups))
 
-        self.combo_groups = ttk.Combobox(frame_1, values=all_groups, state="readonly", width=8)
+        self.combo_groups = ttk.Combobox(self.top_frame, values=all_groups, state="readonly", width=8)
         self.combo_groups.set('All')
         self.combo_groups.bind("<<ComboboxSelected>>", self.select_groups)
 
-        tkinter.Label(frame_1, text="  WG: ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="  WG: ").pack(side=tkinter.LEFT)
         self.combo_groups.pack(side=tkinter.LEFT)
 
-        tkinter.Label(frame_1, text="  ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
         tkinter.Button(
-            frame_1,
+            self.top_frame,
             text='Clear filters',
             command=self.clear_filters).pack(side=tkinter.LEFT)
         tkinter.Button(
-            frame_1,
+            self.top_frame,
             text='Load specs',
             command=self.load_new_specs).pack(side=tkinter.LEFT)
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
-        tkinter.Label(frame_3, textvariable=self.spec_count).pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, textvariable=self.spec_count).pack(side=tkinter.LEFT)
 
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
@@ -287,8 +201,7 @@ class SpecsTable:
                 'Click'
             ))
 
-        self.tree.tag_configure('odd', background='#E8E8E8')
-        self.tree.tag_configure('even', background='#DFDFDF')
+        treeview_set_row_formatting(self.tree)
         self.spec_count.set('{0} specifications'.format(count))
 
     def clear_filters(self, *args):
@@ -473,7 +386,7 @@ class SpecVersionsTable:
                      '+Compare B'),
             show='headings',
             selectmode="browse",
-            style=style_name,
+            style=parent_specs_table.style_name,
             height=8)  # Height in rows
 
         set_column(self.tree, 'Spec', "Spec #", width=110)
@@ -574,7 +487,9 @@ class SpecVersionsTable:
             local_zip_file_exists = os.path.exists(local_zip_file_path)
             local_pdf_file_exists = os.path.exists(os.path.splitext(local_zip_file_path)[0] + '.pdf')
             local_html_file_exists = os.path.exists(os.path.splitext(local_zip_file_path)[0] + '.html')
-            spec_locally_available = SpecVersionsTable.SpecLocallyAvailable(local_zip_file_exists, local_pdf_file_exists, local_html_file_exists)
+            spec_locally_available = SpecVersionsTable.SpecLocallyAvailable(local_zip_file_exists,
+                                                                            local_pdf_file_exists,
+                                                                            local_html_file_exists)
             self.spec_local_file_exists[self.spec_id] = spec_locally_available
 
             self.tree.insert("", "end", tags=(tag,), values=(

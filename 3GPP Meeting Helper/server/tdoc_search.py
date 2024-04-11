@@ -4,7 +4,6 @@ import re
 from typing import NamedTuple, List, Tuple, Any, Dict
 import parsing.word.pywin32
 
-
 import tdoc.utils
 from application.zip_files import unzip_files_in_zip_file
 from server.common import download_file_to_location
@@ -37,8 +36,10 @@ meeting_pages_per_group: dict[str, str] = {
 }
 
 local_cache_folder = get_meeting_list_folder()
-html_cache:Dict[str,str] = {k: os.path.join(local_cache_folder, k + '.htm') for k, v in meeting_pages_per_group.items()}
-markup_cache:Dict[str,str] = {k: os.path.join(local_cache_folder, k + '.md') for k, v in meeting_pages_per_group.items()}
+html_cache: Dict[str, str] = {k: os.path.join(local_cache_folder, k + '.htm') for k, v in
+                              meeting_pages_per_group.items()}
+markup_cache: Dict[str, str] = {k: os.path.join(local_cache_folder, k + '.md') for k, v in
+                                meeting_pages_per_group.items()}
 pickle_cache = os.path.join(local_cache_folder, '3gpp_meeting_list.pickle')
 
 # Example parsing of:
@@ -66,7 +67,8 @@ meeting_regex = re.compile(
 
 # Meetings such as this one:
 # [SP-103](https://portal.3gpp.org/Home.aspx#/meeting?MtgId=60295) | 3GPPSA#103 | [Maastricht](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_103_Maastricht_2024-03\\Invitation/) | [2024-03-19](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_103_Maastricht_2024-03\\Agenda/) | 2024-03-22 | [SP-240001 - SP-240285](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_103_Maastricht_2024-03\\\\docs\\)[ full document list](https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=60295) | [Register](https://webapp.etsi.org/3GPPRegistration/fMain.asp?mid=60295) | [Participants](https://webapp.etsi.org/3GPPRegistration/fViewPart.asp?mid=60295) | [Files](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_103_Maastricht_2024-03\\) | [ICS](https://portal.3gpp.org/webapp/meetingCalendar/ical.asp?qMTG_ID=60295) | -
-meeting_without_report_regex = re.compile(r"\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)[ ]?\|[ ]?(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)[ ]?\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\).*\[(Files)\]\((?P<files_url>[^ ]+)\)")
+meeting_without_report_regex = re.compile(
+    r"\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)[ ]?\|[ ]?(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)[ ]?\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\).*\[(Files)\]\((?P<files_url>[^ ]+)\)")
 
 # Used to split the generated Markup text
 meeting_split_regex = re.compile(r'(\[[a-zA-Z][\d\w]+\-[\d\-\w ]+\]\([^ ]+\))')
@@ -130,10 +132,18 @@ class MeetingEntry(NamedTuple):
 
 
 # Loaded meeting entries
-meeting_entries: List[MeetingEntry] = []
+loaded_meeting_entries: List[MeetingEntry] = []
 
 
-def update_local_cache(redownload_if_exists=False):
+def get_meeting_groups() -> List[str]:
+    """
+    The possible 3GPP groups that can be queried. Based on a hard-coded list of 3GPP Working Groups (WGs)
+    Returns: A list of strings
+    """
+    return [k for k, v in meeting_pages_per_group.items()]
+
+
+def update_local_html_cache(redownload_if_exists=False):
     """
     Download the meeting files to the cache
 
@@ -189,17 +199,17 @@ def convert_local_cache_to_markdown():
             )
 
 
-def load_markdown_cache_to_memory(groups:List[str] = []) -> List[MeetingEntry]:
+def load_markdown_cache_to_memory(groups: List[str] = []) -> List[MeetingEntry]:
     """
     Parses the markdown cache files and returns the parsed 3GPP meeting list.
     Returns: 3GPP meeting list
 
     """
-    global meeting_entries
-    meeting_entries = []
+    global loaded_meeting_entries
+    loaded_meeting_entries = []
 
     items_to_load = markup_cache.items()
-    if groups is None or len(groups)==0:
+    if groups is None or len(groups) == 0:
         # Load all
         pass
     else:
@@ -260,7 +270,7 @@ def load_markdown_cache_to_memory(groups:List[str] = []) -> List[MeetingEntry]:
                 )
                 for m in meeting_matches if m is not None
             ]
-            meeting_entries.extend(meeting_matches_parsed)
+            loaded_meeting_entries.extend(meeting_matches_parsed)
             print(f'Added {len(meeting_matches_parsed)} finished meetings to group {k}')
 
             # Meetings for which a report is not yet ready
@@ -290,7 +300,7 @@ def load_markdown_cache_to_memory(groups:List[str] = []) -> List[MeetingEntry]:
                 )
                 for m in meeting_matches if m is not None
             ]
-            meeting_entries.extend(meeting_matches_parsed)
+            loaded_meeting_entries.extend(meeting_matches_parsed)
 
             print(f'Added {len(meeting_matches_parsed)} started but unfinished meetings to group {k}')
         else:
@@ -311,7 +321,7 @@ def search_meeting_for_tdoc(tdoc_str: str) -> MeetingEntry:
     if parsed_tdoc is None:
         return None
     print(f'Searching for group {parsed_tdoc.group}, tdoc {parsed_tdoc.number}')
-    group_meetings = [m for m in meeting_entries if parsed_tdoc.group == m.meeting_group]
+    group_meetings = [m for m in loaded_meeting_entries if parsed_tdoc.group == m.meeting_group]
     print(f'{len(group_meetings)} Group meetings for group {parsed_tdoc.group}')
     matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
                          m.tdoc_start.number <= parsed_tdoc.number <= m.tdoc_end.number]
@@ -326,14 +336,36 @@ def search_meeting_for_tdoc(tdoc_str: str) -> MeetingEntry:
     return matching_meeting
 
 
-def search_download_and_open_tdoc(tdoc_str: str, open_files=False) -> Tuple[Any,Any]:
+def fully_update_cache(redownload_if_exists=False):
+    """
+    Fully updates the meeting list, which includes downloading from the 3GPP server the meetings for all WGs.
+
+    Args:
+        redownload_if_exists: Whether to re-download the files even if they exist
+
+    """
+    update_local_html_cache(redownload_if_exists=redownload_if_exists)
+    convert_local_cache_to_markdown()
+    load_markdown_cache_to_memory()
+
+
+def search_download_and_open_tdoc(tdoc_str: str) -> Tuple[Any, Any]:
+    """
+    Searches for a given TDoc. If the zip file contains many files (e.g. typical for plenary CR packs), it will only
+    open the folder.
+    Args:
+        tdoc_str: The TDoc ID
+
+    Returns: The files that were opened
+
+    """
     if tdoc_str is None or tdoc_str == '':
         return None, None
 
     # Load data if needed
-    if len(meeting_entries) == 0:
+    if len(loaded_meeting_entries) == 0:
         print('Triggering update of local cache')
-        update_local_cache(redownload_if_exists=False)
+        update_local_html_cache(redownload_if_exists=False)
         convert_local_cache_to_markdown()
         load_markdown_cache_to_memory()
 
@@ -351,10 +383,10 @@ def search_download_and_open_tdoc(tdoc_str: str, open_files=False) -> Tuple[Any,
     if len(files_in_zip) <= maximum_number_of_files_to_open:
         opened_files, metadata_list = parsing.word.pywin32.open_files(files_in_zip, return_metadata=True)
     else:
-        print(f'More than {maximum_number_of_files_to_open} contained within {tdoc_str}. Opening folder instead of files')
+        print(
+            f'More than {maximum_number_of_files_to_open} contained within {tdoc_str}. Opening folder instead of files')
         folder_to_open, first_file = os.path.split(files_in_zip[0])
         os.startfile(folder_to_open)
         opened_files = folder_to_open
         metadata_list = None
     return opened_files, metadata_list
-
