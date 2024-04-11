@@ -437,7 +437,7 @@ class tdocs_by_agenda(object):
         # Cleanup Unicode characters (see https://stackoverflow.com/questions/42306755/how-to-remove-illegal-characters-so-a-dataframe-can-write-to-excel)
         if not dataframe_from_cache:
             print('Cleaning up Unicode characters so that Excel export does not crash')
-            dataframe = dataframe.applymap(
+            dataframe = dataframe.map(
                 lambda x: x.encode('unicode_escape').decode('utf-8') if isinstance(x, str) else x)
 
         # Cleanup comments. Sometimes we have "span" tags polluting comments
