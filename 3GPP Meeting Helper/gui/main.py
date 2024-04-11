@@ -596,10 +596,15 @@ def start_main_gui():
             server.tdoc.get_agenda_files(meeting_folder, use_inbox=False)
             if inbox_is_for_this_meeting():
                 server.tdoc.get_agenda_files(meeting_folder, use_inbox=True)
-            last_agenda, agenda_version = server.tdoc.get_last_agenda(meeting_folder)
-            if last_agenda is not None:
-                parsing.word.pywin32.open_file(last_agenda, go_to_page=-2)
-                tkvar_last_agenda_version.set('v' + str(agenda_version))
+            last_agenda_info = server.tdoc.get_last_agenda(meeting_folder)
+            if last_agenda_info is not None:
+                # Starting with SA2#161, there is also a Session Plan (separated from the agenda)
+                if last_agenda_info.agenda_path is not None:
+                    parsing.word.pywin32.open_file(last_agenda_info.agenda_path)
+                    tkvar_last_agenda_version.set('v' + str(last_agenda_info.agenda_version_int))
+                if last_agenda_info.session_plan_path is not None:
+                    parsing.word.pywin32.open_file(last_agenda_info.session_plan_path)
+                    tkvar_last_agenda_version.set('v' + str(last_agenda_info.session_plan_version_int))
             else:
                 tkvar_last_agenda_version.set('Not found')
         finally:
