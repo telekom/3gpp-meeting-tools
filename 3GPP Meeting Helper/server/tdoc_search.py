@@ -308,6 +308,7 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
                 for m in meeting_matches if m is not None
             ]
             loaded_meeting_entries.extend(meeting_matches_parsed)
+            print(f'Added {len(meeting_matches_parsed)} started but unfinished meetings to group {k}')
 
             # Meetings for which an invitation is not yet ready
             meeting_matches = meeting_without_invitation_regex.finditer(markup_file_content)
@@ -340,8 +341,7 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
                 m.group('end_year') is not None
             ]
             loaded_meeting_entries.extend(meeting_matches_parsed)
-
-            print(f'Added {len(meeting_matches_parsed)} started but unfinished meetings to group {k}')
+            print(f'Added {len(meeting_matches_parsed)} meetings without invitation to group {k}')
         else:
             print(f'Not found: {v}')
     # print(meeting_entries)
