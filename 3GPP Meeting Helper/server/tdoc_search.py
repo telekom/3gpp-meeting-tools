@@ -70,6 +70,11 @@ meeting_regex = re.compile(
 meeting_without_report_regex = re.compile(
     r"\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\)[ ]?\|[ ]?\[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)[ ]?\|[ ]?(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+)[ ]?\|[ ]?\[(?P<tdoc_start>[\w\-\d]+)[ -]+(?P<tdoc_end>[\w\-\d]+)\]\((?P<meeting_url_docs>[^ ]+)\).*\[(Files)\]\((?P<files_url>[^ ]+)\)")
 
+# Meetings such as this one:
+# [S2-169](https://portal.3gpp.org/Home.aspx#/meeting?MtgId=60632) | 3GPPSA2#169 | [Japan](/../../..//Specification-Groups/) | 2025-05-19 | 2025-05-23 | \- | [Register](https://webapp.etsi.org/3GPPRegistration/fMain.asp?mid=60632) | [Participants](https://webapp.etsi.org/3GPPRegistration/fViewPart.asp?mid=60632) | - | [ICS](https://portal.3gpp.org/webapp/meetingCalendar/ical.asp?qMTG_ID=60632) | -
+meeting_without_invitation_regex = re.compile(
+    r"\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[?(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\) \| (?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+) \| (?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+) \| \\\- \| \[Register\]")
+
 # Used to split the generated Markup text
 meeting_split_regex = re.compile(r'(\[[a-zA-Z][\d\w]+\-[\d\-\w ]+\]\([^ ]+\))')
 
@@ -85,8 +90,8 @@ class MeetingEntry(NamedTuple):
     meeting_url_agenda: str
     end_date: datetime.datetime
     meeting_url_report: str
-    tdoc_start: tdoc.utils.GenericTdoc
-    tdoc_end: tdoc.utils.GenericTdoc
+    tdoc_start: tdoc.utils.GenericTdoc | None
+    tdoc_end: tdoc.utils.GenericTdoc | None
     meeting_url_docs: str
     meeting_folder_url: str
 
@@ -199,7 +204,7 @@ def convert_local_cache_to_markdown():
             )
 
 
-def load_markdown_cache_to_memory(groups: List[str] = []) -> List[MeetingEntry]:
+def load_markdown_cache_to_memory(groups: List[str] = None):
     """
     Parses the markdown cache files and returns the parsed 3GPP meeting list.
     Returns: 3GPP meeting list
@@ -219,7 +224,7 @@ def load_markdown_cache_to_memory(groups: List[str] = []) -> List[MeetingEntry]:
 
     print(f'Loading meeting entries from meeting list: {groups_to_load_str}')
 
-    def server_url_replace(meeting_url: str) -> str:
+    def server_url_replace(meeting_url: str | None) -> str | None:
         """
         Cleans up the URL and returns an absolute URL pointing to the 3GPP HTTP(s) file server
         Args:
@@ -299,6 +304,38 @@ def load_markdown_cache_to_memory(groups: List[str] = []) -> List[MeetingEntry]:
                     meeting_folder_url=server_url_replace(m.group('files_url'))
                 )
                 for m in meeting_matches if m is not None
+            ]
+            loaded_meeting_entries.extend(meeting_matches_parsed)
+
+            # Meetings for which an invitation is not yet ready
+            meeting_matches = meeting_without_invitation_regex.finditer(markup_file_content)
+            meeting_matches_parsed = [
+                MeetingEntry(
+                    meeting_group=m.group('meeting_group'),
+                    meeting_number=m.group('meeting_number'),
+                    meeting_url_3gu=server_url_replace(m.group('meeting_url_3gu')),
+                    meeting_name=m.group('meeting_name'),
+                    meeting_location=m.group('meeting_location'),
+                    meeting_url_invitation='',
+                    start_date=datetime.datetime(
+                        year=int(m.group('start_year')),
+                        month=int(m.group('start_month')),
+                        day=int(m.group('start_day'))),
+                    meeting_url_agenda='',
+                    end_date=datetime.datetime(
+                        year=int(m.group('end_year')),
+                        month=int(m.group('end_month')),
+                        day=int(m.group('end_day'))),
+                    meeting_url_report='',
+                    tdoc_start=None,
+                    tdoc_end=None,
+                    meeting_url_docs='',
+                    meeting_folder_url=''
+                )
+                for m in meeting_matches if
+                m is not None and
+                m.group('start_year') is not None and
+                m.group('end_year') is not None
             ]
             loaded_meeting_entries.extend(meeting_matches_parsed)
 

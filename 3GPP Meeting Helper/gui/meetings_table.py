@@ -4,11 +4,10 @@ from typing import List
 
 import pandas as pd
 
-from application.os import open_url_and_copy_to_clipboard
+from application.os import open_url
 from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting
-from parsing.html.specs import cleanup_spec_name
 from server import tdoc_search
-from server.specs import version_to_file_version, get_url_for_spec_page, get_specs_folder, get_url_for_crs_page
+from server.specs import version_to_file_version
 from server.tdoc_search import MeetingEntry
 
 
@@ -17,17 +16,17 @@ class MeetingsTable(GenericTable):
     def __init__(self, parent, favicon, parent_gui_tools):
         super().__init__(
             parent,
-            "Meetings Table",
+            "Meetings Table. Double-click start date for invitation. End date for report",
             favicon,
             ['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents']
         )
-        self.loaded_meeting_entries = None
+        self.loaded_meeting_entries : List[MeetingEntry]|None = None
         self.parent_gui_tools = parent_gui_tools
 
         self.meeting_count = tkinter.StringVar()
 
-        set_column(self.tree, 'Meeting', width=200, center=False)
-        set_column(self.tree, 'Location', width=200, center=False)
+        set_column(self.tree, 'Meeting', width=200, center=True)
+        set_column(self.tree, 'Location', width=200, center=True)
         set_column(self.tree, 'Start', width=120, center=True)
         set_column(self.tree, 'End', width=120, center=True)
         set_column(self.tree, 'TDoc Start', width=100, center=True)
@@ -104,6 +103,11 @@ class MeetingsTable(GenericTable):
             else:
                 tag = 'even'
 
+            if meeting.meeting_url_docs is None or meeting.meeting_url_docs == '':
+                documents_str = '-'
+            else:
+                documents_str = 'Documents'
+
             # 'Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents'
             self.tree.insert("", "end", tags=(tag,), values=(
                 meeting.meeting_name,
@@ -112,7 +116,7 @@ class MeetingsTable(GenericTable):
                 meeting.end_date.strftime('%Y-%m-%d'),
                 meeting.tdoc_start,
                 meeting.tdoc_end,
-                'Documents'
+                documents_str
             ))
 
         treeview_set_row_formatting(self.tree)
@@ -145,7 +149,8 @@ class MeetingsTable(GenericTable):
         except:
             actual_value = None
 
-        spec_id = cleanup_spec_name(item_values[0], clean_type=True, clean_dots=False)
+        meeting_name = item_values[0]
+        meeting = [m for m in self.loaded_meeting_entries if m.meeting_name == meeting_name]
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
 
         if actual_value is None or actual_value == '':
@@ -153,24 +158,24 @@ class MeetingsTable(GenericTable):
             return
 
         if column == 0:
-            print('Clicked spec ID {0}. Opening 3GPP spec page'.format(actual_value))
-            url_to_open = get_url_for_spec_page(spec_id)
-            open_url_and_copy_to_clipboard(url_to_open)
-        if column == 1:
-            print('Clicked title for spec ID {0}: {1}. Opening 3GPP spec page'.format(spec_id, actual_value))
-            url_to_open = get_url_for_spec_page(spec_id)
-            open_url_and_copy_to_clipboard(url_to_open)
+            print(f'Clicked on meeting {meeting_name}')
+            url_to_open = meeting[0].meeting_url_3gu
+            open_url(url_to_open)
+
         if column == 2:
-            print('Clicked versions for spec ID {0}: {1}'.format(spec_id, actual_value))
-            print('No specs table here!')
+            print(f'Clicked on start date for meeting {meeting_name}')
+            url_to_open = meeting[0].meeting_url_invitation
+            open_url(url_to_open)
+
         if column == 3:
-            print('Clicked local folder for spec ID {0}'.format(spec_id))
-            url_to_open = get_specs_folder(spec_id=spec_id)
-            open_url_and_copy_to_clipboard(url_to_open)
-        if column == 5:
-            print('Clicked CRs link for spec ID {0}'.format(spec_id))
-            url_to_open = get_url_for_crs_page(spec_id)
-            open_url_and_copy_to_clipboard(url_to_open)
+            print(f'Clicked on end date for meeting {meeting_name}')
+            url_to_open = meeting[0].meeting_url_report
+            open_url(url_to_open)
+
+        if column == 6 and actual_value != '-':
+            print(f'Clicked Documents link for meeting {meeting_name}')
+            url_to_open = meeting[0].meeting_url_docs
+            open_url(url_to_open)
 
 
 def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> str:

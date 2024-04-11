@@ -140,7 +140,7 @@ def convert_html_file_to_markup(
         markdown_text = filter_text_function(markdown_text)
 
     if output_path is None:
-        destination_file = os.path.join(root + '.md')
+        destination_file = str(os.path.join(root + '.md'))  # To avoid IDE warnings
     else:
         destination_file = output_path
 
