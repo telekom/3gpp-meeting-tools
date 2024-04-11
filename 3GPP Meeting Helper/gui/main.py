@@ -33,6 +33,7 @@ root.iconbitmap(favicon)
 main_frame = tkinter.Frame(root)
 main_frame.grid(column=0, row=0, sticky=(tkinter.N, tkinter.W, tkinter.E, tkinter.S))
 
+
 def set_waiting_for_proxy_message():
     return gui.common.set_waiting_for_proxy_message(main_frame)
 
@@ -505,11 +506,17 @@ def start_main_gui():
 
     # Row: Dropdown menu and meeting info
     current_row += 1
-    tkinter.Button(main_frame, text='Network config', command=lambda: gui.config.NetworkConfigDialog(root, favicon,
-                                                                                                     on_update_ftp=gui.main.update_ftp_button)).grid(
-        row=current_row, column=0, sticky="EW")
-    tkinter.Checkbutton(main_frame, text='3GPP sync (HTTP)', state='disabled', variable=tkinter_label_sync).grid(
-        row=current_row, column=1)
+    (tkinter.Button(
+        main_frame,
+        text='Network config',
+        command=lambda: gui.config.NetworkConfigDialog(root, favicon, on_update_ftp=gui.main.update_ftp_button))
+     .grid(row=current_row, column=0, sticky="EW"))
+    (tkinter.Checkbutton(
+        main_frame,
+        text='3GPP sync (HTTP)',
+        state='disabled',
+        variable=tkinter_label_sync)
+     .grid(row=current_row, column=1))
     update_ftp_button()
     meeting_ftp_button.grid(row=current_row, column=2)
 
@@ -520,13 +527,15 @@ def start_main_gui():
     tkinter.Checkbutton(main_frame, text='Track current TDoc ', variable=tkvar_follow_current_tdoc).grid(
         row=current_row, column=2)
     current_row += 1
-    tkinter.Checkbutton(main_frame, text='Search if not found', variable=tkvar_search_tdoc).grid(row=current_row,
-                                                                                                 column=2)
+    tkinter.Checkbutton(main_frame, text='Search all WGs/meetings', variable=tkvar_search_tdoc).grid(row=current_row,
+                                                                                                     column=2)
 
     # Rows: Download TDoc button and last agenda
-    tkinter.Button(main_frame, text='Tools',
-                   command=lambda: gui.tools.ToolsDialog(gui.main.root, gui.main.favicon)).grid(row=current_row,
-                                                                                                column=0, sticky="EW")
+    (tkinter.Button(
+        main_frame,
+        text='Tools',
+        command=lambda: gui.tools.ToolsDialog(gui.main.root, gui.main.favicon))
+     .grid(row=current_row, column=0, sticky="EW"))
     open_tdoc_button.configure(command=download_and_open_tdoc)
     root.bind('<Return>', on_press_enter_key)  # Bind the enter key in this frame to searching for the TDoc
     print('Bound <Return> key to TDoc search')
@@ -534,14 +543,20 @@ def start_main_gui():
 
     # Override TDocs by Agenda if it is malformed
     current_row += 1
-    tkinter.Checkbutton(main_frame, text='Override Tdocs by agenda', variable=tkvar_override_tdocs_by_agenda).grid(
-        row=current_row, column=0)
+    (tkinter.Checkbutton(
+        main_frame,
+        text='Override Tdocs by agenda',
+        variable=tkvar_override_tdocs_by_agenda)
+    .grid(row=current_row, column=0))
     tdocs_by_agenda_entry.config(state='readonly')
     tdocs_by_agenda_entry.grid(row=current_row, column=1, padx=10, pady=10)
 
     # Add button to check Netovate (useful if you are searching for documents from other WGs
-    tkinter.Button(main_frame, text='Search Netovate',
-                   command=search_netovate).grid(row=current_row, column=2, sticky="EW")
+    (tkinter.Button(
+        main_frame,
+        text='Search Netovate',
+        command=search_netovate)
+     .grid(row=current_row, column=2, sticky="EW"))
 
     def set_override_tdocs_by_agenda_var(*args):
         global last_override_tdocs_by_agenda
