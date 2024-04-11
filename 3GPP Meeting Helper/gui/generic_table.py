@@ -45,6 +45,7 @@ def treeview_set_row_formatting(tree: Treeview):
 
 
 class GenericTable:
+
     def __init__(self, parent, title: str, favicon, column_names: List[str]):
         """
         Base class for table GUIs in this application
