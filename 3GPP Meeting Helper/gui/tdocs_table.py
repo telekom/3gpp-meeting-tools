@@ -11,7 +11,6 @@ import pyperclip
 
 import application
 import gui
-import server
 import utils.local_cache
 from application import powerpoint
 from application.excel import open_excel_document, set_first_row_as_filter, vertically_center_all_text, save_wb, \
@@ -90,13 +89,14 @@ class TdocsTable:
             parent,
             favicon,
             parent_gui_tools,
+            meeting_name: str,
             retrieve_current_tdocs_by_agenda_fn=None,
             get_tdocs_by_agenda_for_selected_meeting_fn=None,
             download_and_open_tdoc_fn=None):
 
         init_style()
         self.top = tkinter.Toplevel(parent)
-        self.top.title("TDoc Table for current meeting. Double-Click on TDoc # or revision # to open")
+        self.top.title(f"SA2#{meeting_name} TDocs. Double-Click on TDoc # or revision # to open")
         self.top.iconbitmap(favicon)
         self.parent_gui_tools = parent_gui_tools
         self.favicon = favicon
