@@ -15,67 +15,13 @@ import utils.local_cache
 from application import powerpoint
 from application.excel import open_excel_document, set_first_row_as_filter, vertically_center_all_text, save_wb, \
     set_column_width, set_wrap_text, hide_column
+from gui.generic_table import GenericTable, set_column, treeview_sort_column, treeview_set_row_formatting
 from parsing.html.revisions import revisions_file_to_dataframe
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 from parsing.word.pywin32 import parse_list_of_crs
 
-style_name = 'mystyle.Treeview'
 
-
-# See https://bugs.python.org/issue36468
-def fixed_map(option):
-    # Fix for setting text colour for Tkinter 8.6.9
-    # From: https://core.tcl.tk/tk/info/509cafafae
-    #
-    # Returns the style map for 'option' with any styles starting with
-    # ('!disabled', '!selected', ...) filtered out.
-
-    # style.map() returns an empty list for missing options, so this
-    # should be future-safe.
-    return [elm for elm in style.map(style_name, query_opt=option) if
-            elm[:2] != ('!disabled', '!selected')]
-
-
-style = None
-
-
-def init_style():
-    global style
-    if style is None:
-        style = ttk.Style()
-        style.map(style_name, foreground=fixed_map('foreground'),
-                  background=fixed_map('background'))
-        style.configure(style_name, highlightthickness=0, bd=0, rowheight=60)
-        # style.configure("mystyle.Treeview.Heading", font=('Calibri', 13, 'bold'))  # Modify the font of the headings
-        style.layout(style_name, [(style_name + '.treearea', {'sticky': 'nswe'})])  # Remove the borders
-
-
-def set_column(tree, col, label=None, width=None, sort=True, center=True):
-    if label is None:
-        label = col
-    if sort:
-        tree.heading(col, text=label, command=lambda: treeview_sort_column(tree, col, False))
-    else:
-        tree.heading(col, text=label)
-    if width is not None:
-        tree.column(col, minwidth=0, width=width, stretch=False)
-    if center:
-        tree.column(col, anchor="center")
-
-
-def treeview_sort_column(tree, col, reverse=False):
-    l = [(tree.set(k, col), k) for k in tree.get_children('')]
-    l.sort(reverse=reverse)
-
-    # rearrange items in sorted positions
-    for index, (val, k) in enumerate(l):
-        tree.move(k, '', index)
-
-    # reverse sort next time
-    tree.heading(col, command=lambda: treeview_sort_column(tree, col, not reverse))
-
-
-class TdocsTable:
+class TdocsTable(GenericTable):
     current_tdocs = None
     source_width = 200
     title_width = 550
@@ -94,37 +40,22 @@ class TdocsTable:
             get_tdocs_by_agenda_for_selected_meeting_fn=None,
             download_and_open_tdoc_fn=None):
 
-        init_style()
-        self.top = tkinter.Toplevel(parent)
-        self.top.title(f"SA2#{meeting_name} TDocs. Double-Click on TDoc # or revision # to open")
-        self.top.iconbitmap(favicon)
+        super().__init__(
+            parent,
+            f"SA2#{meeting_name} TDocs. Double-Click on TDoc # or revision # to open",
+            favicon,
+            [ 'TDoc', 'AI', 'Type', 'Title', 'Source', 'Revs', 'Emails', 'Send @', 'Result' ]
+        )
         self.parent_gui_tools = parent_gui_tools
-        self.favicon = favicon
 
         # Functions to update data from the main GUI
         self.retrieve_current_tdocs_by_agenda_fn = retrieve_current_tdocs_by_agenda_fn
         self.get_tdocs_by_agenda_for_selected_meeting_fn = get_tdocs_by_agenda_for_selected_meeting_fn
         self.download_and_open_tdoc_fn = download_and_open_tdoc_fn
 
-        frame_1 = tkinter.Frame(self.top)
-        frame_1.pack(anchor='w')
-        frame_2 = tkinter.Frame(self.top)
-        frame_2.pack()
-        frame_3 = tkinter.Frame(self.top)
-        frame_3.pack(anchor='w')
-
         self.tdoc_count = tkinter.StringVar()
         self.revisions_list = None
         self.revisions = None
-
-        # https://stackoverflow.com/questions/50625306/what-is-the-best-way-to-show-data-in-a-table-in-tkinter
-        self.tree = ttk.Treeview(
-            frame_2,
-            columns=('TDoc', 'AI', 'Type', 'Title', 'Source', 'Revs', 'Emails', 'Send @', 'Result'),
-            show='headings',
-            selectmode="browse",
-            style=style_name,
-            padding=[-5, -25, -5, -25])  # Left, top, right, bottom
 
         set_column(self.tree, 'TDoc', "TDoc #", width=110)
         set_column(self.tree, 'AI', width=50)
@@ -142,71 +73,66 @@ class TdocsTable:
         self.reload_revisions = False
         self.insert_current_tdocs()
 
-        self.tree_scroll = ttk.Scrollbar(frame_2)
-        self.tree_scroll.configure(command=self.tree.yview)
-        self.tree.configure(yscrollcommand=self.tree_scroll.set)
-        # tree.grid(row=0, column=0)
-
         # Can also do this:
         # https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
-        self.search_entry = tkinter.Entry(frame_1, textvariable=self.search_text, width=25, font='TkDefaultFont')
+        self.search_entry = tkinter.Entry(self.top_frame, textvariable=self.search_text, width=25, font='TkDefaultFont')
         self.search_text.trace_add(['write', 'unset'], self.select_text)
 
-        tkinter.Label(frame_1, text="Search: ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)
         self.search_entry.pack(side=tkinter.LEFT)
 
         all_types = ['All']
         all_types.extend(list(self.current_tdocs["Type"].unique()))
-        self.combo_type = ttk.Combobox(frame_1, values=all_types, state="readonly")
+        self.combo_type = ttk.Combobox(self.top_frame, values=all_types, state="readonly")
         self.combo_type.set('All')
         self.combo_type.bind("<<ComboboxSelected>>", self.select_type)
 
         all_ais = ['All']
         all_ais.extend(list(self.current_tdocs["AI"].unique()))
-        self.combo_ai = ttk.Combobox(frame_1, values=all_ais, state="readonly", width=10)
+        self.combo_ai = ttk.Combobox(self.top_frame, values=all_ais, state="readonly", width=10)
         self.combo_ai.set('All')
         self.combo_ai.bind("<<ComboboxSelected>>", self.select_ai)
 
         all_results = ['All']
         all_results.extend(list(self.current_tdocs["Result"].unique()))
-        self.combo_result = ttk.Combobox(frame_1, values=all_results, state="readonly")
+        self.combo_result = ttk.Combobox(self.top_frame, values=all_results, state="readonly")
         self.combo_result.set('All')
         self.combo_result.bind("<<ComboboxSelected>>", self.select_result)
 
-        tkinter.Label(frame_1, text="  By Type: ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="  By Type: ").pack(side=tkinter.LEFT)
         self.combo_type.pack(side=tkinter.LEFT)
 
-        tkinter.Label(frame_1, text="  By AI: ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="  By AI: ").pack(side=tkinter.LEFT)
         self.combo_ai.pack(side=tkinter.LEFT)
 
-        tkinter.Label(frame_1, text="  By Result: ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="  By Result: ").pack(side=tkinter.LEFT)
         self.combo_result.pack(side=tkinter.LEFT)
 
-        tkinter.Label(frame_1, text="  ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
         tkinter.Button(
-            frame_1,
+            self.top_frame,
             text='Clear filters',
             command=self.clear_filters).pack(side=tkinter.LEFT)
         tkinter.Button(
-            frame_1,
+            self.top_frame,
             text='Reload data',
             command=self.reload_data).pack(side=tkinter.LEFT)
 
         tkinter.Button(
-            frame_1,
+            self.top_frame,
             text='Merge PPTs',
             command=self.merge_pptx_files).pack(side=tkinter.LEFT)
 
         tkinter.Button(
-            frame_1,
+            self.top_frame,
             text='Export CRs',
             command=self.export_crs).pack(side=tkinter.LEFT)
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
-        tkinter.Label(frame_3, textvariable=self.tdoc_count).pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, textvariable=self.tdoc_count).pack(side=tkinter.LEFT)
 
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
@@ -323,8 +249,7 @@ class TdocsTable:
                 'Click',
                 row['Result']))
 
-        self.tree.tag_configure('odd', background='#E8E8E8')
-        self.tree.tag_configure('even', background='#DFDFDF')
+        treeview_set_row_formatting(self.tree)
         self.tdoc_count.set('{0} documents'.format(count))
 
     def clear_filters(self, *args):
@@ -585,7 +510,7 @@ class TdocsTable:
 
 class RevisionsTable:
 
-    def __init__(self, parent, favicon, tdoc_id, revisions_df, parent_gui_tools, parent_tdocs_table):
+    def __init__(self, parent, favicon, tdoc_id, revisions_df, parent_gui_tools, parent_tdocs_table: TdocsTable):
         top = self.top = tkinter.Toplevel(parent)
         top.title("Revisions for {0}".format(tdoc_id))
         top.iconbitmap(favicon)
@@ -610,7 +535,7 @@ class RevisionsTable:
             columns=('TDoc', 'Rev.', 'Add to compare A', 'Add to compare B'),
             show='headings',
             selectmode="browse",
-            style=style_name,
+            style=parent_tdocs_table.style_name,
             height=8)  # Height in rows
 
         set_column(self.tree, 'TDoc', "TDoc #", width=110)
