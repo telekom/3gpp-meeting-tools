@@ -187,6 +187,8 @@ def filter_markdown_text(markdown_text: str) -> str:
 
     # Catches when the report is not yet ready
     full_text = re.sub(r"(\d\d\d\d-\d\d-\d\d) \| [\r\n]{1,}\[", r"\1 | [", full_text, flags=re.M)
+    full_text = re.sub(r"[Aa]d [Hh]oc", r"AdHoc", full_text)
+
     return full_text
 
 
