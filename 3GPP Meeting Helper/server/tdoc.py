@@ -3,6 +3,8 @@ import os
 import os.path
 import re
 import traceback
+from enum import Enum
+from typing import NamedTuple
 from urllib.parse import urljoin
 
 import application.meeting_helper
@@ -20,12 +22,13 @@ from server.connection import get_html
 from utils.local_cache import get_cache_folder, get_local_revisions_filename, get_local_drafts_filename, \
     get_meeting_folder, get_local_agenda_folder
 
-agenda_regex = re.compile(r'.*Agenda.*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\..*')
-agenda_docx_regex = re.compile(r'.*Agenda.*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
-agenda_version_regex = re.compile(r'.*Agenda.*[-_]?([ ]|%20)*([vr])(?P<version>\d*).*\..*')
-agenda_draft_docx_regex = re.compile(r'.*Agenda.*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
+agenda_regex = re.compile(r'.*(?P<type>(Agenda|Session( |%20)Plan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\..*')
+agenda_docx_regex = re.compile(
+    r'.*(?P<type>(Agenda|Session Plan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
+agenda_version_regex = re.compile(r'.*(?P<type>(Agenda|Session Plan)).*[-_]?([ ]|%20)*([vr])(?P<version>\d*).*\..*')
+agenda_draft_docx_regex = re.compile(
+    r'.*(?P<type>(Agenda|Session Plan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
 folder_ftp_names_regex = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][aA][tT][eE].*)')
-
 
 # tdoc_url = 'https://portal.3gpp.org/ngppapp/DownloadTDoc.aspx?contributionUid=S2-2202451'
 # Then, search for javascript: window.location.href='https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_150E_Electronic_2022-04/Docs/S2-2202451.zip';//]]> -> extract
@@ -307,23 +310,38 @@ def get_agenda_files(meeting_folder_name, use_inbox=False):
             real_agenda_files.append(local_file)
 
 
-def get_latest_agenda_file(agenda_files):
+class AgendaType(Enum):
+    AGENDA = 1
+    SESSION_PLAN = 2
+
+
+def get_latest_agenda_file(agenda_files, agenda_type: AgendaType = AgendaType.AGENDA) -> str|None:
     if agenda_files is None:
         return None
 
     # Remove case when Word temporary documents are stored
     agenda_files = [file for file in agenda_files if agenda_docx_regex.match(file) and ('~$' not in file)]
+
+    # Filter by Agenda or Session plan
+    if agenda_type == AgendaType.AGENDA:
+        agenda_files = [agenda_file for agenda_file in agenda_files if "Agenda" in agenda_file]
+        search_type = "agenda"
+    else:
+        agenda_files = [agenda_file for agenda_file in agenda_files if "Session" in agenda_file]
+        search_type = "session plan"
+
     if len(agenda_files) == 0:
         return None
 
+    # Parse file data
     draft_agenda_files = [file for file in agenda_files if agenda_draft_docx_regex.match(file)]
     if (len(draft_agenda_files) > 0) and (len(draft_agenda_files) != len(agenda_files)):
         # Non-draft agendas have priority over draft agenda files
         agenda_files = [agenda_file for agenda_file in agenda_files if agenda_file not in draft_agenda_files]
 
-    last_agenda = max(agenda_files, key=get_agenda_file_version_number)
-    print('Most recent agenda file seems to be {0}'.format(last_agenda))
-    return last_agenda
+    last_agenda_or_session_plan = max(agenda_files, key=get_agenda_file_version_number)
+    print(f'Most recent {search_type} file seems to be {last_agenda_or_session_plan}')
+    return last_agenda_or_session_plan
 
 
 # Parses the order (including TDoc number) of an Agenda file.
@@ -350,7 +368,7 @@ def get_agenda_file_version_number(x):
     except:
         print('Could not parse Agenda version number for file {0}'.format(x))
         return -1
-    print('{0} is agenda version {1} for tdoc ID {2:.0f}'.format(x, agenda_version, tdoc_number))
+    print('{0} is agenda/session plan version {1} for tdoc ID {2:.0f}'.format(x, agenda_version, tdoc_number))
 
     # Support up to 100 agenda versions. It should be OK...
     agenda_version = tdoc_number + float(agenda_version) / 100
@@ -360,14 +378,26 @@ def get_agenda_file_version_number(x):
 ai_names_cache = {}
 
 
+class AgendaInfo(NamedTuple):
+    agenda_path: str | None
+    agenda_version_int: int | None
+    session_plan_path: str | None
+    session_plan_version_int: int | None
+
+
 def get_last_agenda(meeting_folder):
     agenda_folder = get_local_agenda_folder(meeting_folder)
     agenda_files = [file for file in os.listdir(agenda_folder)]
 
-    last_agenda = get_latest_agenda_file(agenda_files)
+    last_agenda = get_latest_agenda_file(agenda_files, AgendaType.AGENDA)
+    last_session_plan = get_latest_agenda_file(agenda_files, AgendaType.SESSION_PLAN)
 
     if last_agenda is None:
-        return None, None
+        return AgendaInfo(
+            agenda_path=None,
+            agenda_version_int=None,
+            session_plan_path=None,
+            session_plan_version_int=None)
 
     agenda_path = os.path.join(agenda_folder, last_agenda)
     try:
@@ -378,18 +408,38 @@ def get_last_agenda(meeting_folder):
 
     # Convert agenda version
     agenda_version_str = ''
+    agenda_version_int = -1
     try:
         last_agenda_match = agenda_docx_regex.match(last_agenda)
         agenda_version_str = last_agenda_match.groupdict()['version']
         agenda_version_int = int(agenda_version_str)
     except ValueError as e:
-        print("Could not parse agenda version: {0}. Agenda name: {1}".format(agenda_version_str, last_agenda_match.group(0)))
+        print(f"Could not parse agenda version: {agenda_version_str}. Agenda: {last_agenda}")
         traceback.print_exc()
-    return agenda_path, agenda_version_int
+
+    session_plan_path = None
+    session_plan_version_int = None
+    if last_session_plan is not None:
+        session_plan_path = os.path.join(agenda_folder, last_session_plan)
+        session_plan_version_str = ''
+        try:
+            session_plan_match = agenda_docx_regex.match(last_agenda)
+            session_plan_version_str = session_plan_match.groupdict()['version']
+            session_plan_version_int = int(agenda_version_str)
+        except ValueError as e:
+            print(f"Could not parse session plan version: {session_plan_version_str}. Session plan: {last_session_plan}")
+            traceback.print_exc()
+
+    return AgendaInfo(
+            agenda_path=agenda_path,
+            agenda_version_int=agenda_version_int,
+            session_plan_path=session_plan_path,
+            session_plan_version_int=session_plan_version_int)
 
 
 # Begin with updated URLs
 update_urls()
+
 
 def get_tdocs_by_agenda_for_selected_meeting(
         meeting_folder: str,
