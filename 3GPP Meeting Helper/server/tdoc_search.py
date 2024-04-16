@@ -78,6 +78,9 @@ meeting_without_invitation_regex = re.compile(
 # Used to split the generated Markup text
 meeting_split_regex = re.compile(r'(\[[a-zA-Z][\d\w]+\-[\d\-\w ]+\]\([^ ]+\))')
 
+# Used to parse the meeting ID
+meeting_id_regex = re.compile(r'.*meeting\?MtgId=(?P<meeting_id>[\d]+)')
+
 
 class MeetingEntry(NamedTuple):
     meeting_group: str
@@ -107,6 +110,36 @@ class MeetingEntry(NamedTuple):
             return folder_url
         split_folder_url = [f for f in folder_url.split('/') if f != '']
         return split_folder_url[-1]
+
+    @property
+    def meeting_id(self) -> str | None:
+        """
+        Parses the meeting ID from the Meeting's URL. This ID is used in 3GU to identify the meeting, e.g.
+        https://portal.3gpp.org/Home.aspx#/meeting?MtgId=60623 -> 60623
+        Returns: The ID of the meeting. None if the ID could not be parsed
+
+        """
+        if self.meeting_url_3gu is None:
+            return None
+
+        id_match = meeting_id_regex.match(self.meeting_url_3gu)
+
+        if id_match is None:
+            return None
+
+        return id_match.group('meeting_id')
+
+    @property
+    def meeting_tdoc_list_url(self) -> str | None:
+        """
+        Returns, based on the meeting ID, the TDoc list URL from 3GU
+        Returns: The URL, None if the meeting ID is not available/parseable
+        """
+        meeting_id = self.meeting_id
+        if meeting_id is None:
+            return None
+
+        return 'https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=' + meeting_id
 
     def get_tdoc_url(self, tdoc_to_get: tdoc.utils.GenericTdoc):
         """
