@@ -23,7 +23,6 @@ TS = collections.namedtuple('TS', 'series number version match')
 # Sometimes "_" is (erroneously) used, so I had to relax the regex
 tdoc_generic_regex = re.compile(r'(?P<group>[\w\d]+)[\-_](?P<number>[\d]+)')
 
-
 # Sometimes using a different format for SA3-LI
 tdoc_sa3li_regex = re.compile(r'(?P<group>[sS]3i)(?P<number>[\d]+)')
 
@@ -63,7 +62,6 @@ class GenericTdoc:
     @property
     def tdoc(self):
         return self._tdoc
-
 
     def __str__(self) -> str:
         return f'{self.tdoc}'
