@@ -132,14 +132,28 @@ class MeetingEntry(NamedTuple):
     @property
     def meeting_tdoc_list_url(self) -> str | None:
         """
-        Returns, based on the meeting ID, the TDoc list URL from 3GU
+        Returns, based on the meeting ID, the TDoc list URL from the 3GPP portal
         Returns: The URL, None if the meeting ID is not available/parseable
         """
         meeting_id = self.meeting_id
         if meeting_id is None:
             return None
 
+        # e.g. https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=60394
         return 'https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=' + meeting_id
+
+    @property
+    def meeting_tdoc_list_excel_url(self) -> str | None:
+        """
+        Returns, based on the meeting ID, the TDoc list URL for the Excel file from the 3GPP portal
+        Returns: The URL, None if the meeting ID is not available/parseable
+        """
+        meeting_id = self.meeting_id
+        if meeting_id is None:
+            return None
+
+        # e.g. https://portal.3gpp.org/ngppapp/GenerateDocumentList.aspx?meetingId=60394
+        return 'https://portal.3gpp.org/ngppapp/GenerateDocumentList.aspx?meetingId=' + meeting_id
 
     def get_tdoc_url(self, tdoc_to_get: tdoc.utils.GenericTdoc | str):
         """
