@@ -99,10 +99,10 @@ class MeetingEntry(NamedTuple):
     meeting_folder_url: str
 
     @property
-    def meeting_folder(self) -> str:
+    def meeting_folder(self) -> str | None:
         """
         The remote meeting folder name in the 3GPP server's group directory based on the meeting_folder URL
-        Returns: The remote folder of the meeting in the 3GPP server
+        Returns: The remote folder of the meeting in the 3GPP server. If the folder URL is not set, it may return None
 
         """
         folder_url = self.meeting_folder_url
@@ -171,33 +171,32 @@ class MeetingEntry(NamedTuple):
             tdoc_file = tdoc_to_get + '.zip'
         return self.meeting_url_docs + tdoc_file
 
-    def get_local_folder_for_meeting(self, create_dir=False) -> str:
+    @property
+    def local_folder_path(self) -> str:
         """
         For a given meeting, returns the cache folder and creates it if it does not exist
-        Args:
-            create_dir: Whether to create the directory if it does not exist
-
         Returns:
 
         """
         folder_name = self.meeting_folder
         full_path = os.path.join(utils.local_cache.get_cache_folder(), folder_name)
-        utils.local_cache.create_folder_if_needed(full_path, create_dir=create_dir)
         return full_path
 
-    def get_local_agenda_folder_for_meeting(self, create_dir=False) -> str:
+    @property
+    def local_agenda_folder_path(self) -> str:
         """
         For a given meeting, returns the cache folder located at meeting_folder/Agenda and creates
         it if it does not exist
-        Args:
-            create_dir: Whether to create the directory if it does not exist
-
         Returns:
 
         """
-        full_path = os.path.join(self.get_local_folder_for_meeting(), 'Agenda')
-        utils.local_cache.create_folder_if_needed(full_path, create_dir=create_dir)
+        full_path = os.path.join(self.local_folder_path, 'Agenda')
+        utils.local_cache.create_folder_if_needed(full_path, create_dir=True)
         return full_path
+
+    @property
+    def local_tdoc_list_excel_path(self):
+        return os.path.join(self.local_agenda_folder_path, 'TDoc_List.xlsx')
 
 
 # Loaded meeting entries
@@ -411,13 +410,13 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
     # print(meeting_entries)
 
 
-def search_meeting_for_tdoc(tdoc_str: str) -> MeetingEntry:
+def search_meeting_for_tdoc(tdoc_str: str) -> MeetingEntry | None:
     """
     Searches for a specific TDoc in the loaded meeting list
     Args:
         tdoc_str: A TDoc ID
 
-    Returns: A meeting containing this TDoc. None if none found
+    Returns: A meeting containing this TDoc. None if none found or if the input TDoc is not a TDoc.
 
     """
     parsed_tdoc = tdoc.utils.is_generic_tdoc(tdoc_str)
@@ -477,7 +476,7 @@ def search_download_and_open_tdoc(tdoc_str: str) -> Tuple[Any, Any]:
         return None, None
 
     tdoc_url = tdoc_meeting.get_tdoc_url(tdoc_str)
-    local_folder = os.path.join(tdoc_meeting.get_local_folder_for_meeting(), tdoc_str)
+    local_folder = os.path.join(tdoc_meeting.local_folder_path, tdoc_str)
     create_folder_if_needed(local_folder, create_dir=True)
     local_target = os.path.join(local_folder, f'{tdoc_str}.zip')
     print(f'Downloading {tdoc_url} to {local_target}')
