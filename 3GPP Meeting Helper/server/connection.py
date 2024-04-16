@@ -1,7 +1,7 @@
 import re
 import traceback
 from ftplib import FTP
-from typing import NamedTuple, Any
+from typing import NamedTuple, Any, Tuple
 from urllib.parse import urlparse
 
 import requests
@@ -12,7 +12,7 @@ http_session = CacheControl(non_cached_http_session)
 
 # Avoid getting sometimes 403s
 http_session.headers.update({
-                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'})
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'})
 
 
 class HttpRequestTimeout(NamedTuple):
@@ -33,7 +33,26 @@ class HttpRequestTimeout(NamedTuple):
 timeout_values = HttpRequestTimeout(3.05, 6)
 
 
-def get_html(url, cache=True, try_update_folders=True, file_to_return_if_error=None, timeout:HttpRequestTimeout=None):
+def get_html(
+        url,
+        cache=True,
+        try_update_folders=True,
+        file_to_return_if_error=None,
+        timeout: HttpRequestTimeout = None
+) -> bytes | None:
+    """
+    Downloads a given HTML file
+    Args:
+        url: The URL of the file
+        cache: Whether HTTP cache should be used (default=Yes)
+        try_update_folders: Used for FTP retrieval
+        file_to_return_if_error: Can override an error, in which case this file is returned
+        timeout: Timeout value for the HTTP connection
+        # ToDo if needed: Content-Disposition: attachment;filename="TDoc_List_Meeting_SA2#162.xlsx"
+
+    Returns:
+
+    """
     if file_to_return_if_error is not None:
         print('Returning {0} in case of HTTP(s) error'.format(file_to_return_if_error))
     try:
