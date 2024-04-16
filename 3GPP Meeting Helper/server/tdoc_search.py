@@ -141,17 +141,20 @@ class MeetingEntry(NamedTuple):
 
         return 'https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=' + meeting_id
 
-    def get_tdoc_url(self, tdoc_to_get: tdoc.utils.GenericTdoc):
+    def get_tdoc_url(self, tdoc_to_get: tdoc.utils.GenericTdoc | str):
         """
-        For a string containingg a potential TDoc, returns a URL concatenating the Docs folder and the input TDoc and
+        For a string containing a potential TDoc, returns a URL concatenating the Docs folder and the input TDoc and
         adds a .'zip' extension.
         Args:
-            tdoc_to_get: A TDoc ID. Note that the input is NOT checked!
+            tdoc_to_get: A TDoc ID. Either an object (GenericTdoc) or string. Note that the input is NOT checked!
 
         Returns: A URL
 
         """
-        tdoc_file = tdoc_to_get.__str__() + '.zip'
+        if isinstance(tdoc_to_get, tdoc.utils.GenericTdoc):
+            tdoc_file = tdoc_to_get.__str__() + '.zip'
+        else:
+            tdoc_file = tdoc_to_get + '.zip'
         return self.meeting_url_docs + tdoc_file
 
     def get_local_folder_for_meeting(self, create_dir=False) -> str:
