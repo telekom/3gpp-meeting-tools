@@ -18,7 +18,7 @@ class MeetingsTable(GenericTable):
             parent,
             "Meetings Table. Double-click start date for invitation. End date for report",
             favicon,
-            ['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents']
+            ['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents', 'TDoc List']
         )
         self.loaded_meeting_entries : List[MeetingEntry]|None = None
         self.parent_gui_tools = parent_gui_tools
@@ -32,6 +32,7 @@ class MeetingsTable(GenericTable):
         set_column(self.tree, 'TDoc Start', width=100, center=True)
         set_column(self.tree, 'TDoc End', width=100, center=True)
         set_column(self.tree, 'Documents', width=100, center=True)
+        set_column(self.tree, 'TDoc List', width=120, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -105,8 +106,10 @@ class MeetingsTable(GenericTable):
 
             if meeting.meeting_url_docs is None or meeting.meeting_url_docs == '':
                 documents_str = '-'
+                tdoc_list_str = '-'
             else:
                 documents_str = 'Documents'
+                tdoc_list_str = 'Tdoc List'
 
             # 'Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents'
             self.tree.insert("", "end", tags=(tag,), values=(
@@ -116,7 +119,8 @@ class MeetingsTable(GenericTable):
                 meeting.end_date.strftime('%Y-%m-%d'),
                 meeting.tdoc_start,
                 meeting.tdoc_end,
-                documents_str
+                documents_str,
+                tdoc_list_str
             ))
 
         treeview_set_row_formatting(self.tree)
@@ -175,6 +179,11 @@ class MeetingsTable(GenericTable):
         if column == 6 and actual_value != '-':
             print(f'Clicked Documents link for meeting {meeting_name}')
             url_to_open = meeting[0].meeting_url_docs
+            open_url(url_to_open)
+
+        if column == 7 and actual_value != '-':
+            print(f'Clicked TDoc List link for meeting {meeting_name}')
+            url_to_open = meeting[0].meeting_tdoc_list_url
             open_url(url_to_open)
 
 
