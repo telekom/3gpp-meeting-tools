@@ -109,7 +109,7 @@ class SpecsTable(GenericTable):
             command=self.clear_filters).pack(side=tkinter.LEFT)
         tkinter.Button(
             self.top_frame,
-            text='Load specs',
+            text='Load ALL specs',
             command=self.load_new_specs).pack(side=tkinter.LEFT)
 
         self.tree.pack(fill='both', expand=True, side='left')
