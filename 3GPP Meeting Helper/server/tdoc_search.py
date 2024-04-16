@@ -171,6 +171,20 @@ class MeetingEntry(NamedTuple):
         utils.local_cache.create_folder_if_needed(full_path, create_dir=create_dir)
         return full_path
 
+    def get_local_agenda_folder_for_meeting(self, create_dir=False) -> str:
+        """
+        For a given meeting, returns the cache folder located at meeting_folder/Agenda and creates
+        it if it does not exist
+        Args:
+            create_dir: Whether to create the directory if it does not exist
+
+        Returns:
+
+        """
+        full_path = os.path.join(self.get_local_folder_for_meeting(), 'Agenda')
+        utils.local_cache.create_folder_if_needed(full_path, create_dir=create_dir)
+        return full_path
+
 
 # Loaded meeting entries
 loaded_meeting_entries: List[MeetingEntry] = []
