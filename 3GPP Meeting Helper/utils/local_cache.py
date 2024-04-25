@@ -162,9 +162,10 @@ def file_exists(local_filename: str) -> bool:
     """
     local_file_exists = os.path.exists(local_filename)
     if not local_file_exists:
+        print(f'{local_filename} does not exist')
         return False
     try:
-        local_file_size = os.path.getsize(local_file_exists)
+        local_file_size = os.path.getsize(local_filename)
         if local_file_size == 0:
             print(f'File {local_filename} is of size 0. Re-downloading')
             return False
@@ -173,4 +174,5 @@ def file_exists(local_filename: str) -> bool:
         traceback.print_exc()
         return False
 
+    print(f'{local_filename} exists')
     return True
