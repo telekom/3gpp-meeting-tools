@@ -18,6 +18,7 @@ from server import specs
 from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, \
     get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder, get_url_for_crs_page, \
     get_spec_page
+from utils.local_cache import file_exists
 
 
 class SpecsTable(GenericTable):
@@ -484,9 +485,9 @@ class SpecVersionsTable:
             # Fill in whether the local file is available
             spec_url = get_url_for_version_text(self.spec_entries, version_text)
             local_zip_file_path = download_spec_if_needed(spec_id, spec_url, return_only_target_local_filename=True)
-            local_zip_file_exists = os.path.exists(local_zip_file_path)
-            local_pdf_file_exists = os.path.exists(os.path.splitext(local_zip_file_path)[0] + '.pdf')
-            local_html_file_exists = os.path.exists(os.path.splitext(local_zip_file_path)[0] + '.html')
+            local_zip_file_exists = file_exists(local_zip_file_path)
+            local_pdf_file_exists = file_exists(os.path.splitext(local_zip_file_path)[0] + '.pdf')
+            local_html_file_exists = file_exists(os.path.splitext(local_zip_file_path)[0] + '.html')
             spec_locally_available = SpecVersionsTable.SpecLocallyAvailable(local_zip_file_exists,
                                                                             local_pdf_file_exists,
                                                                             local_html_file_exists)

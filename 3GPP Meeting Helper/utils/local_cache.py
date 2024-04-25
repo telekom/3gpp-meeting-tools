@@ -152,3 +152,25 @@ def convert_html_file_to_markup(
         print('Could not write file "{0}"'.format(destination_file))
         traceback.print_exc()
         return None
+
+
+def file_exists(local_filename: str) -> bool:
+    """
+    Returns whether the file exists, and if it exists, if it is NOT of null size
+    Args:
+        local_filename: The file path
+    """
+    local_file_exists = os.path.exists(local_filename)
+    if not local_file_exists:
+        return False
+    try:
+        local_file_size = os.path.getsize(local_file_exists)
+        if local_file_size == 0:
+            print(f'File {local_filename} is of size 0. Re-downloading')
+            return False
+    except OSError as e:
+        print("Could not ascertain downloaded file's size")
+        traceback.print_exc()
+        return False
+
+    return True
