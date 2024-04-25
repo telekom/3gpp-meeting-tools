@@ -37,7 +37,7 @@ class SpecsTable(GenericTable):
             parent,
             "Specs Table. Double-Click on Spec # or Release # to open",
             favicon,
-            [ 'Spec', 'Title', 'Versions', 'Local Cache', 'Group', 'CRs' ]
+            ['Spec', 'Title', 'Versions', 'Local Cache', 'Group', 'CRs']
         )
         self.parent_gui_tools = parent_gui_tools
 
@@ -356,9 +356,11 @@ class SpecVersionsTable:
     spec_id = None
 
     class SpecLocallyAvailable(NamedTuple):
-        doc: bool
+        zip: bool
         pdf: bool
         html: bool
+        pdf_mcc_clean: bool
+        html_mcc_clean: bool
 
     def __init__(self, parent, favicon, spec_id: str, spec_type: SpecType, initial_release: str,
                  parent_specs_table: SpecsTable):
@@ -485,21 +487,26 @@ class SpecVersionsTable:
             # Fill in whether the local file is available
             spec_url = get_url_for_version_text(self.spec_entries, version_text)
             local_zip_file_path = download_spec_if_needed(spec_id, spec_url, return_only_target_local_filename=True)
+            local_zip_file_path_without_extension = os.path.splitext(local_zip_file_path)[0]
             local_zip_file_exists = file_exists(local_zip_file_path)
             local_pdf_file_exists = file_exists(os.path.splitext(local_zip_file_path)[0] + '.pdf')
             local_html_file_exists = file_exists(os.path.splitext(local_zip_file_path)[0] + '.html')
-            spec_locally_available = SpecVersionsTable.SpecLocallyAvailable(local_zip_file_exists,
-                                                                            local_pdf_file_exists,
-                                                                            local_html_file_exists)
+            spec_locally_available = SpecVersionsTable.SpecLocallyAvailable(
+                zip=file_exists(local_zip_file_path),
+                pdf=file_exists(local_zip_file_path_without_extension + '.pdf'),
+                html=file_exists(local_zip_file_path_without_extension + '.html'),
+                pdf_mcc_clean=file_exists(local_zip_file_path_without_extension + '_MCCclean.pdf'),
+                html_mcc_clean=file_exists(local_zip_file_path_without_extension + '_MCCclean.html')
+            )
             self.spec_local_file_exists[self.spec_id] = spec_locally_available
 
             self.tree.insert("", "end", tags=(tag,), values=(
                 spec_name,
                 version_text,
                 upload_date,
-                ('Open' if spec_locally_available.doc else 'Download') + ' Word',
-                ('Open' if spec_locally_available.pdf else 'Download') + ' PDF',
-                ('Open' if spec_locally_available.html else 'Download') + ' HTML',
+                ('Open' if spec_locally_available.zip else 'Download') + ' Word',
+                ('Open' if spec_locally_available.pdf or spec_locally_available.pdf_mcc_clean else 'Download') + ' PDF',
+                ('Open' if spec_locally_available.html or spec_locally_available.html_mcc_clean else 'Download') + ' HTML',
                 'Click',
                 'Click'))
 
