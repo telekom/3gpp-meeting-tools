@@ -12,7 +12,7 @@ from parsing.spec_types import SpecType, SpecVersionMapping
 from server.common import decode_string, download_file_to_location
 from application.zip_files import unzip_files_in_zip_file
 from server.connection import get_html, HttpRequestTimeout
-from utils.local_cache import create_folder_if_needed
+from utils.local_cache import create_folder_if_needed, file_exists
 from config.cache import user_folder, root_folder
 import pandas as pd
 
@@ -379,7 +379,7 @@ def version_to_file_version(version: str) -> str:
 def download_spec_if_needed(
         spec_number: str,
         file_url: str,
-        return_only_target_local_filename: bool = False) -> List[str]:
+        return_only_target_local_filename: bool = False) -> List[str] | str:
     """
     Downloads a given specification from said URL. The file is stored in a cache folder and only
     (re-)downloaded if needed.
@@ -390,7 +390,8 @@ def download_spec_if_needed(
         file_url: The URL of the spec file (zip file typically) to download
 
     Returns:
-        list[str]: Absolute path of the downloaded (and unzipped) files
+        list[str]: Absolute path of the downloaded (and unzipped) files. Only the local file (zip) if
+        return_only_target_local_filename is set to True
     """
     spec_number = cleanup_spec_name(spec_number)
     spec_number = '{0}.{1}'.format(spec_number[0:2], spec_number[2:])
@@ -401,7 +402,7 @@ def download_spec_if_needed(
     if return_only_target_local_filename:
         return local_filename
 
-    if not os.path.exists(local_filename):
+    if not file_exists(local_filename):
         download_file_to_location(file_url, local_filename)
     files_in_zip = unzip_files_in_zip_file(local_filename)
     return files_in_zip

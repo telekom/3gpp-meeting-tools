@@ -11,6 +11,7 @@ import win32com.client
 
 # See https://docs.microsoft.com/en-us/office/vba/api/word.wdexportformat
 from application import sensitivity_label
+from utils.local_cache import file_exists
 
 # Global Word instance does not work (removed)
 # word = None
@@ -192,7 +193,7 @@ def export_document(
                 # See https://stackoverflow.com/questions/6011115/doc-to-pdf-using-python
                 out_file = file + extension
                 print('Export file path: {0}'.format(out_file))
-                if not os.path.exists(out_file):
+                if not file_exists(out_file):
                     if word is None:
                         word = get_word()
                     print('Converting {0} to {1}'.format(word_file, out_file))
