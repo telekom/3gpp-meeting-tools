@@ -167,7 +167,7 @@ def file_exists(local_filename: str) -> bool:
     try:
         local_file_size = os.path.getsize(local_filename)
         if local_file_size == 0:
-            print(f'File {local_filename} is of size 0. Re-downloading')
+            print(f'File {local_filename} is of size 0. Most probably corrupted')
             return False
     except OSError as e:
         print("Could not ascertain downloaded file's size")
