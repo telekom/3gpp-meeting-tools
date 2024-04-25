@@ -1,14 +1,18 @@
+import os.path
 import tkinter
 from tkinter import ttk
 from typing import List
 
 import pandas as pd
 
+from application.excel import open_excel_document
 from application.os import open_url
 from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting
 from server import tdoc_search
+from server.common import download_file_to_location
 from server.specs import version_to_file_version
 from server.tdoc_search import MeetingEntry
+from utils.local_cache import file_exists
 
 
 class MeetingsTable(GenericTable):
@@ -32,8 +36,8 @@ class MeetingsTable(GenericTable):
         set_column(self.tree, 'TDoc Start', width=100, center=True)
         set_column(self.tree, 'TDoc End', width=100, center=True)
         set_column(self.tree, 'Documents', width=100, center=True)
-        set_column(self.tree, 'TDoc List', width=120, center=True)
-        set_column(self.tree, 'TDoc Excel', width=120, center=True)
+        set_column(self.tree, 'TDoc List', width=100, center=True)
+        set_column(self.tree, 'TDoc Excel', width=100, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -46,6 +50,14 @@ class MeetingsTable(GenericTable):
 
         tkinter.Label(self.top_frame, text="Group: ").pack(side=tkinter.LEFT)
         self.combo_groups.pack(side=tkinter.LEFT)
+
+        self.redownload_tdoc_excel_if_exists_var = tkinter.IntVar()
+        self.redownload_tdoc_excel_if_exists = ttk.Checkbutton(
+            self.top_frame,
+            state='enabled',
+            variable=self.redownload_tdoc_excel_if_exists_var)
+        tkinter.Label(self.top_frame, text="    Re-download Excel if exists: ").pack(side=tkinter.LEFT)
+        self.redownload_tdoc_excel_if_exists.pack(side=tkinter.LEFT)
 
         tkinter.Label(self.top_frame, text="     ").pack(side=tkinter.LEFT)
         tkinter.Button(
@@ -191,9 +203,18 @@ class MeetingsTable(GenericTable):
             open_url(url_to_open)
 
         if column == 8 and actual_value != '-':
-            print(f'Clicked TDoc List link for meeting {meeting_name}')
-            url_to_open = meeting[0].meeting_tdoc_list_excel_url
-            open_url(url_to_open)
+            print(f'Clicked TDoc Excel link for meeting {meeting_name}')
+            download_folder = meeting[0].local_agenda_folder_path
+            local_path = os.path.join(download_folder, 'TDoc_List.xlsx')
+            file_already_exists = file_exists(local_path)
+            downloaded = False
+            if not file_already_exists or self.redownload_tdoc_excel_if_exists_var.get():
+                url_to_open = meeting[0].meeting_tdoc_list_excel_url
+                download_file_to_location(url_to_open, local_path)
+                downloaded = True
+            if not downloaded:
+                print('TDoc Excel list opened from cache')
+            open_excel_document(local_path)
 
 
 def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> str:
