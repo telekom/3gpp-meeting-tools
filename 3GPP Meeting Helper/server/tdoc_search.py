@@ -40,7 +40,6 @@ html_cache: Dict[str, str] = {k: os.path.join(local_cache_folder, k + '.htm') fo
                               meeting_pages_per_group.items()}
 markup_cache: Dict[str, str] = {k: os.path.join(local_cache_folder, k + '.md') for k, v in
                                 meeting_pages_per_group.items()}
-pickle_cache = os.path.join(local_cache_folder, '3gpp_meeting_list.pickle')
 
 # Example parsing of:
 #   - [SP-102](https://portal.3gpp.org/Home.aspx#/meeting?MtgId=60012) | 3GPPSA#102| [Edinburgh](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Invitation/)| [2023-12-11](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Agenda/)| [2023-12-15](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Report/)| [SP-231205 - SP-231807](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\\\docs\\)[full document list](https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=60012) | - | [Participants](https://webapp.etsi.org/3GPPRegistration/fViewPart.asp?mid=60012)| [Files](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\) | - | -

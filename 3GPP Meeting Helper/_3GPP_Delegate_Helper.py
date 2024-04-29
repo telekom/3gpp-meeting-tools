@@ -1,6 +1,8 @@
 import gui.config
 import gui.common
 import gui.meetings_table
+import gui.work_items_table
+import gui.specs_table
 import tkinter
 
 # GUI init
@@ -20,6 +22,25 @@ waiting_for_proxy_label = gui.common.set_waiting_for_proxy_message(main_frame)
 tk_root.wait_window(proxy_dialog.top)
 waiting_for_proxy_label.grid_forget()
 
-gui.meetings_table.MeetingsTable(parent=tk_root, favicon=gui.common.favicon, parent_gui_tools=None)
+# Row 4: Table containing all 3GPP specs
+launch_spec_table = tkinter.Button(
+    main_frame,
+    text='Open Specifications table',
+    command=lambda: gui.specs_table.SpecsTable(tk_root, gui.common.favicon, None))
+launch_spec_table.grid(row=0, column=0, columnspan=1, sticky="EW")
+
+# Row 4: Table containing all 3GPP meetings
+launch_spec_table = tkinter.Button(
+    main_frame,
+    text='Open Meetings table',
+    command=lambda: gui.meetings_table.MeetingsTable(tk_root, gui.common.favicon, None))
+launch_spec_table.grid(row=0, column=1, columnspan=1, sticky="EW")
+
+# Row 4: Table containing all 3GPP WIs
+launch_spec_table = tkinter.Button(
+    main_frame,
+    text='Open 3GPP WI table',
+    command=lambda: gui.work_items_table.WorkItemsTable(tk_root, gui.common.favicon, None))
+launch_spec_table.grid(row=0, column=2, columnspan=1, sticky="EW")
 
 tk_root.mainloop()
