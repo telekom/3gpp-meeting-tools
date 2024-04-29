@@ -9,7 +9,7 @@ from application.zip_files import unzip_files_in_zip_file
 from server.common import download_file_to_location
 import utils
 from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, get_cache_folder, \
-    create_folder_if_needed
+    create_folder_if_needed, file_exists
 
 # If more than this number of files are included in a zip file, the folder is opened instead.
 # Some TDocs, especially in plenary, could contain many, many TDocs, e.g. SP-230457 (22 documents)
@@ -479,8 +479,14 @@ def search_download_and_open_tdoc(tdoc_str: str) -> Tuple[Any, Any]:
     local_folder = os.path.join(tdoc_meeting.local_folder_path, tdoc_str)
     create_folder_if_needed(local_folder, create_dir=True)
     local_target = os.path.join(local_folder, f'{tdoc_str}.zip')
-    print(f'Downloading {tdoc_url} to {local_target}')
-    download_file_to_location(tdoc_url, local_target)
+
+    # Only download file if needed
+    if not file_exists(local_target):
+        print(f'Downloading {tdoc_url} to {local_target}')
+        download_file_to_location(tdoc_url, local_target)
+    else:
+        print(f'Using local cache for {tdoc_url} in {local_target}')
+
     files_in_zip = unzip_files_in_zip_file(local_target)
     if len(files_in_zip) <= maximum_number_of_files_to_open:
         opened_files, metadata_list = parsing.word.pywin32.open_files(files_in_zip, return_metadata=True)

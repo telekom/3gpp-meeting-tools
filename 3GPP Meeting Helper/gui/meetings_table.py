@@ -5,6 +5,7 @@ from typing import List
 
 import pandas as pd
 
+import server
 from application.excel import open_excel_document
 from application.os import open_url
 from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting
@@ -24,7 +25,7 @@ class MeetingsTable(GenericTable):
             favicon,
             ['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents', 'TDoc List', 'TDoc Excel']
         )
-        self.loaded_meeting_entries : List[MeetingEntry]|None = None
+        self.loaded_meeting_entries: List[MeetingEntry] | None = None
         self.parent_gui_tools = parent_gui_tools
 
         self.meeting_count = tkinter.StringVar()
@@ -40,6 +41,7 @@ class MeetingsTable(GenericTable):
         set_column(self.tree, 'TDoc Excel', width=100, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
+        column_separator_str = "     "
 
         # Filter by group (only filter we have in this view)
         all_groups = ['All']
@@ -48,18 +50,35 @@ class MeetingsTable(GenericTable):
         self.combo_groups.set('All')
         self.combo_groups.bind("<<ComboboxSelected>>", self.select_groups)
 
+        # Filter by 3GPP Group/WG
         tkinter.Label(self.top_frame, text="Group: ").pack(side=tkinter.LEFT)
         self.combo_groups.pack(side=tkinter.LEFT)
 
+        # Open/search TDoc
+        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        self.tkvar_tdoc_id = tkinter.StringVar(self.top_frame)
+        self.tdoc_entry = tkinter.Entry(self.top_frame, textvariable=self.tkvar_tdoc_id, width=15, font='TkDefaultFont')
+        self.button_open_tdoc = tkinter.Button(
+            self.top_frame,
+            text='Open TDoc',
+            command=self.on_open_tdoc
+        )
+        self.tdoc_entry.pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
+        self.button_open_tdoc.pack(side=tkinter.LEFT)
+
+        # Redownload TDoc Excel if it already exists
         self.redownload_tdoc_excel_if_exists_var = tkinter.IntVar()
         self.redownload_tdoc_excel_if_exists = ttk.Checkbutton(
             self.top_frame,
             state='enabled',
             variable=self.redownload_tdoc_excel_if_exists_var)
-        tkinter.Label(self.top_frame, text="    Re-download Excel if exists: ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="Re-download TDoc Excel if exists: ").pack(side=tkinter.LEFT)
         self.redownload_tdoc_excel_if_exists.pack(side=tkinter.LEFT)
 
-        tkinter.Label(self.top_frame, text="     ").pack(side=tkinter.LEFT)
+        # Load meeting data
+        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         tkinter.Button(
             self.top_frame,
             text='Load meetings',
@@ -216,6 +235,11 @@ class MeetingsTable(GenericTable):
                 print('TDoc Excel list opened from cache')
             open_excel_document(local_path)
 
+    def on_open_tdoc(self):
+        tdoc_to_open = self.tkvar_tdoc_id.get()
+        print(f'Opening {tdoc_to_open}')
+        server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open)
+
 
 def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> str:
     """
@@ -233,4 +257,3 @@ def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> s
     entry_to_load = spec_entries.loc[spec_entries.version == file_version, ['spec_url']]
     entry_to_load = entry_to_load.iloc[0]
     return entry_to_load.spec_url
-
