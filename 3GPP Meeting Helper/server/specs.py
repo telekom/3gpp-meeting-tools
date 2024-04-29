@@ -12,7 +12,7 @@ from parsing.spec_types import SpecType, SpecVersionMapping
 from server.common import decode_string, download_file_to_location
 from application.zip_files import unzip_files_in_zip_file
 from server.connection import get_html, HttpRequestTimeout
-from utils.local_cache import create_folder_if_needed, file_exists
+from utils.local_cache import create_folder_if_needed, file_exists, get_specs_cache_folder
 from config.cache import user_folder, root_folder
 import pandas as pd
 
@@ -275,12 +275,6 @@ def get_specs(
 
     server.specs.last_specs_df = specs_df
     return specs_df, last_spec_metadata
-
-
-def get_specs_cache_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs', 'server_cache'))
-    create_folder_if_needed(folder_name, create_dir)
-    return folder_name
 
 
 def get_specs_folder(create_dir=True, spec_id=None):

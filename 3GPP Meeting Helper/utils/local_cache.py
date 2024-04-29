@@ -176,3 +176,15 @@ def file_exists(local_filename: str) -> bool:
 
     print(f'{local_filename} exists')
     return True
+
+
+def get_specs_cache_folder(create_dir=True):
+    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs', 'server_cache'))
+    create_folder_if_needed(folder_name, create_dir)
+    return folder_name
+
+
+def get_work_items_cache_folder(create_dir=True):
+    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'work_items', 'server_cache'))
+    create_folder_if_needed(folder_name, create_dir)
+    return folder_name

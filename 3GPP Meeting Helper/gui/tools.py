@@ -13,9 +13,10 @@ import application.excel
 import application.meeting_helper
 import application.word
 import gui.main
+import gui.meetings_table
+import gui.work_items_table
 import gui.specs_table
 import gui.tdocs_table
-import gui.meetings_table
 import parsing.excel as excel_parser
 import parsing.html.common
 import parsing.outlook
@@ -94,20 +95,27 @@ class ToolsDialog:
                 get_tdocs_by_agenda_for_selected_meeting_fn=gui.main.get_tdocs_by_agenda_for_selected_meeting,
                 download_and_open_tdoc_fn=gui.main.download_and_open_tdoc,
             ))
-        self.launch_tdoc_table.grid(row=4, column=0, columnspan=int(columnspan / 2), sticky="EW")
+        self.launch_tdoc_table.grid(row=4, column=0, columnspan=int(columnspan / 4), sticky="EW")
 
         # Row 4: Table containing all 3GPP specs
         self.launch_spec_table = tkinter.Button(
             top,
             text='Open Specifications table',
             command=lambda: gui.specs_table.SpecsTable(gui.main.root, gui.main.favicon, self))
-        self.launch_spec_table.grid(row=4, column=2, columnspan=int(columnspan / 4), sticky="EW")
+        self.launch_spec_table.grid(row=4, column=1, columnspan=int(columnspan / 4), sticky="EW")
 
-        # Row 4: Table containing all 3GPP specs
+        # Row 4: Table containing all 3GPP meetings
         self.launch_spec_table = tkinter.Button(
             top,
             text='Open Meetings table',
             command=lambda: gui.meetings_table.MeetingsTable(gui.main.root, gui.main.favicon, self))
+        self.launch_spec_table.grid(row=4, column=2, columnspan=int(columnspan / 4), sticky="EW")
+
+        # Row 4: Table containing all 3GPP WIs
+        self.launch_spec_table = tkinter.Button(
+            top,
+            text='Open 3GPP WI table',
+            command=lambda: gui.work_items_table.WorkItemsTable(gui.main.root, gui.main.favicon, self))
         self.launch_spec_table.grid(row=4, column=3, columnspan=int(columnspan / 4), sticky="EW")
 
         self.tkvar_tdoc = tkinter.StringVar(top)

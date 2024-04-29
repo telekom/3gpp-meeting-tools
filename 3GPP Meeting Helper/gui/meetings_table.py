@@ -3,15 +3,12 @@ import tkinter
 from tkinter import ttk
 from typing import List
 
-import pandas as pd
-
 import server
 from application.excel import open_excel_document
 from application.os import open_url
 from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting
 from server import tdoc_search
 from server.common import download_file_to_location
-from server.specs import version_to_file_version
 from server.tdoc_search import MeetingEntry
 from utils.local_cache import file_exists
 
@@ -99,7 +96,7 @@ class MeetingsTable(GenericTable):
 
     def load_data(self, initial_load=False):
         """
-        Loads specifications frm the 3GPP website
+        Loads meetings from the 3GPP website
 
         Args:
             initial_load: Loads everything
@@ -241,19 +238,3 @@ class MeetingsTable(GenericTable):
         server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open)
 
 
-def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> str:
-    """
-    Returns the URL for the matching version. It is assumed that all rows in the DataFrame are for a single Spec.
-    Args:
-        spec_entries: DataFrame containing entries for a given specification
-        version_text: The version to be retrieved, e.g. 16.0.0
-
-    Returns:
-        The URL of the given specification/version.
-    """
-    file_version = version_to_file_version(version_text)
-
-    # Because of using '[[]]', it is sure that the returned object is a DataFrame and not a Series
-    entry_to_load = spec_entries.loc[spec_entries.version == file_version, ['spec_url']]
-    entry_to_load = entry_to_load.iloc[0]
-    return entry_to_load.spec_url
