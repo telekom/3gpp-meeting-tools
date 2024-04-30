@@ -221,7 +221,7 @@ class MeetingsTable(GenericTable):
         if column == 8 and actual_value != '-':
             print(f'Clicked TDoc Excel link for meeting {meeting_name}')
             download_folder = meeting[0].local_agenda_folder_path
-            local_path = os.path.join(download_folder, 'TDoc_List.xlsx')
+            local_path = os.path.join(download_folder, f'{meeting[0].meeting_name}_TDoc_List.xlsx')
             file_already_exists = file_exists(local_path)
             downloaded = False
             if not file_already_exists or self.redownload_tdoc_excel_if_exists_var.get():
