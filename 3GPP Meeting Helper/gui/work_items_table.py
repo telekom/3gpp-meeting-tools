@@ -1,16 +1,20 @@
-import os.path
+import re
+import textwrap
 import tkinter
 from tkinter import ttk
 from typing import List
 
 import server
-from application.excel import open_excel_document
 from application.os import open_url
 from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting
 from server import tdoc_search, wi_search
-from server.common import download_file_to_location
+from server.connection import get_html
+from server.tdoc_search import search_download_and_open_tdoc
 from server.wi_search import WiEntry, wgs_list, download_wi_list
-from utils.local_cache import file_exists
+from tdoc.utils import tdoc_generic_regex
+
+# To avoid matches for things like "utf-8"
+tdoc_id_match_regex = re.compile(r'contributionUid=(' + tdoc_generic_regex.pattern + r')')
 
 
 class WorkItemsTable(GenericTable):
@@ -20,18 +24,20 @@ class WorkItemsTable(GenericTable):
             parent,
             "Work Items Table. Double-click UID for WI page, on Code for WI CRs",
             favicon,
-            ['UID', 'Code', 'Title', 'Release', 'Lead body']
+            ['UID', 'Code', 'Title', 'Release', 'Lead body', 'WID']
         )
         self.loaded_work_item_entries: List[WiEntry] | None = None
+        self.filtered_work_item_entries: List[WiEntry] | None = None
         self.parent_gui_tools = parent_gui_tools
 
         self.wi_count = tkinter.StringVar()
 
         set_column(self.tree, 'UID', width=90, center=True)
-        set_column(self.tree, 'Code', width=230, center=True)
-        set_column(self.tree, 'Title', width=575, center=True)
+        set_column(self.tree, 'Code', width=230, center=False)
+        set_column(self.tree, 'Title', width=575, center=False)
         set_column(self.tree, 'Release', width=90, center=True)
         set_column(self.tree, 'Lead body', width=100, center=True)
+        set_column(self.tree, 'WID', width=50, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
         column_separator_str = "     "
@@ -92,16 +98,12 @@ class WorkItemsTable(GenericTable):
         wi_search.load_wi_entries()
         self.loaded_work_item_entries = wi_search.loaded_wi_entries
         print('Finished loading WIs')
+        self.apply_filters()
         self.insert_rows()
 
     def insert_rows(self):
-        wi_list_to_consider = self.loaded_work_item_entries
+        wi_list_to_consider = self.filtered_work_item_entries
         print(f'Populating WI table from {len(wi_list_to_consider)} WIs')
-
-        # Filter by selected group
-        selected_group = self.combo_groups.get()
-        if selected_group != 'All':
-            wi_list_to_consider = [m for m in wi_list_to_consider if m.lead_body == selected_group]
 
         # Sort list by date
         wi_list_to_consider.sort(reverse=True, key=lambda m: m.uid)
@@ -119,9 +121,10 @@ class WorkItemsTable(GenericTable):
             self.tree.insert("", "end", tags=(tag,), values=(
                 wi.uid,
                 wi.code,
-                wi.title,
+                textwrap.fill(wi.title, width=75),
                 wi.release,
-                wi.lead_body
+                textwrap.fill(wi.lead_body, width=10),
+                'Click'
             ))
 
         treeview_set_row_formatting(self.tree)
@@ -135,6 +138,14 @@ class WorkItemsTable(GenericTable):
 
     def apply_filters(self):
         self.tree.delete(*self.tree.get_children())
+
+        # Filter by selected group
+        wi_list_to_consider = self.loaded_work_item_entries
+        selected_group = self.combo_groups.get()
+        if selected_group != 'All':
+            wi_list_to_consider = [m for m in wi_list_to_consider if selected_group in m.lead_body]
+
+        self.filtered_work_item_entries = wi_list_to_consider
         self.insert_rows()
 
     def select_groups(self, *args):
@@ -167,6 +178,22 @@ class WorkItemsTable(GenericTable):
             print(f'Clicked on CR list for WI {uid}')
             url_to_open = wi[0].cr_list_url
             open_url(url_to_open)
+
+        if column == 5:
+            print(f'Clicked on WID {uid}. Will download latest WID version from {wi[0].wid_page_url}')
+            url_to_open = wi[0].wid_page_url
+            html_bytes = get_html(url_to_open)
+            if html_bytes is None:
+                print(f'Could not retrieve HTML for WID {uid}')
+                return
+            html_str = html_bytes.decode("utf-8")
+            tdoc_match = tdoc_id_match_regex.search(html_str)
+            if tdoc_match is None:
+                print(f'Could not find WID in HTML for WID {uid}')
+                return
+            tdoc_id = tdoc_match.group(1)
+            print(f'Last WID version is {tdoc_id}')
+            search_download_and_open_tdoc(tdoc_id)
 
     def on_open_tdoc(self):
         tdoc_to_open = self.tkvar_tdoc_id.get()

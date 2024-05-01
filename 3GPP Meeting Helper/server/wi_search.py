@@ -3,6 +3,7 @@ import re
 from typing import NamedTuple, List
 
 from server.common import download_file_to_location
+from server.connection import get_html
 from utils.local_cache import file_exists, convert_html_file_to_markup, \
     get_work_items_cache_folder
 
@@ -13,7 +14,7 @@ local_cache_file = os.path.join(local_cache_folder, 'wi_list.htm')
 local_cache_file_md = os.path.join(local_cache_folder, 'wi_list.md')
 
 wi_parse_regex = re.compile(
-    r'(?P<uid>[\d]+)\|(?P<code>[\w\-_\.]+)\|(?P<title>[\.\w \d\-‑;\&\(\)/:,<>=\+]+)\|(?P<release>[\w \d‑-]+)\|(?P<lead_body>[\w \d‑-]+)')
+    r'(?P<uid>[\d]+)\|(?P<code>[\w\-_\.]+)\|(?P<title>[\.\w \d\-‑;\&\(\)/:,<>=\+]+)\|(?P<release>[\w \d‑-]+)\|(?P<lead_body>[\w \d‑\-,]+)')
 
 
 class WiEntry(NamedTuple):
@@ -32,6 +33,10 @@ class WiEntry(NamedTuple):
     def wid_page_url(self) -> str:
         sid_page_url = f'https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={self.uid}'
         return sid_page_url
+
+    def retrieve_last_wid_tdoc_id_from_server(self):
+        url_to_download = self.wid_page_url
+        wi_html = file = get_html(url_to_download, cache=False)
 
 
 loaded_wi_entries: List[WiEntry] = []
@@ -52,6 +57,7 @@ def download_wi_list(re_download_if_exists=False):
 
 def filter_markdown_text(markdown_text: str) -> str:
     markdown_text = markdown_text.replace(' | ', '|').replace('| ', '|')
+    markdown_text = re.sub(r"\.[\.]{2,}[ ]", '', markdown_text, flags=re.M)
     return markdown_text
 
 
