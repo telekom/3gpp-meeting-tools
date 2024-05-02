@@ -70,13 +70,13 @@ class GenericTdoc:
         return f'GenericTdoc(\'{self.tdoc}\')'
 
 
-def is_generic_tdoc(tdoc: str) -> GenericTdoc:
+def is_generic_tdoc(tdoc: str) -> GenericTdoc | None:
     """
     Parses a TDoc ID and returns (if matching) information regarding this TDoc.
     Args:
         tdoc: A TDoc ID
 
-    Returns: Parsed TDoc information
+    Returns: Parsed TDoc information. None if this is not a valid TDoc ID
 
     """
     if (tdoc is None) or (tdoc == ''):
