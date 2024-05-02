@@ -9,7 +9,8 @@ from application.os import open_url
 from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting
 from server import tdoc_search
 from server.common import download_file_to_location
-from server.tdoc_search import MeetingEntry
+from server.tdoc_search import MeetingEntry, search_meeting_for_tdoc
+from tdoc.utils import is_generic_tdoc
 from utils.local_cache import file_exists
 
 
@@ -54,6 +55,7 @@ class MeetingsTable(GenericTable):
         # Open/search TDoc
         tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.tkvar_tdoc_id = tkinter.StringVar(self.top_frame)
+        self.tkvar_tdoc_id.trace_add('write', self.on_tdoc_search_change)
         self.tdoc_entry = tkinter.Entry(self.top_frame, textvariable=self.tkvar_tdoc_id, width=15, font='TkDefaultFont')
         self.button_open_tdoc = tkinter.Button(
             self.top_frame,
@@ -237,4 +239,14 @@ class MeetingsTable(GenericTable):
         print(f'Opening {tdoc_to_open}')
         server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open)
 
+    def on_tdoc_search_change(self, *args):
+        current_tdoc = self.tkvar_tdoc_id.get()
+        generic_tdoc = is_generic_tdoc(current_tdoc)
+        if generic_tdoc is None:
+            return
 
+        meeting_for_tdoc = search_meeting_for_tdoc(current_tdoc)
+        if meeting_for_tdoc is None:
+            return
+
+        print(f'TDoc search changed to {current_tdoc} of meeting {meeting_for_tdoc.meeting_name}')
