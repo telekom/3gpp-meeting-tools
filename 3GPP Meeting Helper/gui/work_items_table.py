@@ -4,10 +4,9 @@ import tkinter
 from tkinter import ttk
 from typing import List
 
-import server
 from application.os import open_url
 from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting
-from server import tdoc_search, wi_search
+from server import wi_search
 from server.connection import get_html
 from server.tdoc_search import search_download_and_open_tdoc
 from server.wi_search import WiEntry, wgs_list, download_wi_list
@@ -195,7 +194,4 @@ class WorkItemsTable(GenericTable):
             print(f'Last WID version is {tdoc_id}')
             search_download_and_open_tdoc(tdoc_id)
 
-    def on_open_tdoc(self):
-        tdoc_to_open = self.tkvar_tdoc_id.get()
-        print(f'Opening {tdoc_to_open}')
-        server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open)
+
