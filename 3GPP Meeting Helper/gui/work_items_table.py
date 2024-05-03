@@ -52,6 +52,15 @@ class WorkItemsTable(GenericTable):
         tkinter.Label(self.top_frame, text="Group: ").pack(side=tkinter.LEFT)
         self.combo_groups.pack(side=tkinter.LEFT)
 
+        # Open/search TDoc
+        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        self.tkvar_wi_name = tkinter.StringVar(self.top_frame)
+        self.tkvar_wi_name.trace_add('write', self.on_wi_search_change)
+        self.wi_entry = tkinter.Entry(self.top_frame, textvariable=self.tkvar_wi_name, width=15, font='TkDefaultFont')
+
+        self.wi_entry.pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
+
         # Redownload WI list if it already exists
         self.redownload_wi_list_if_exists_var = tkinter.IntVar()
         self.redownload_wi_list_if_exists = ttk.Checkbutton(
@@ -143,6 +152,14 @@ class WorkItemsTable(GenericTable):
         selected_group = self.combo_groups.get()
         if selected_group != 'All':
             wi_list_to_consider = [m for m in wi_list_to_consider if selected_group in m.lead_body]
+        wi_search_str = self.tkvar_wi_name.get()
+        if wi_search_str is not None and wi_search_str != '':
+            print(f'Filtering WIs with code/title/UID {wi_search_str}')
+            wi_search_str = wi_search_str.lower()
+            wi_list_to_consider = [m for m in wi_list_to_consider if
+                                   wi_search_str in m.code.lower() or
+                                   wi_search_str in m.title.lower() or
+                                   wi_search_str in m.uid.lower()]
 
         self.filtered_work_item_entries = wi_list_to_consider
         self.insert_rows()
@@ -194,4 +211,5 @@ class WorkItemsTable(GenericTable):
             print(f'Last WID version is {tdoc_id}')
             search_download_and_open_tdoc(tdoc_id)
 
-
+    def on_wi_search_change(self, *args):
+        self.apply_filters()

@@ -3,6 +3,8 @@ from tkinter import ttk
 from tkinter.ttk import Treeview
 from typing import List
 
+column_separator_str = "     "
+
 
 def set_column(tree: Treeview, col: str, label: str = None, width=None, sort=True, center=True):
     """

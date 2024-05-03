@@ -6,7 +6,7 @@ from typing import List
 import server
 from application.excel import open_excel_document
 from application.os import open_url
-from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting
+from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting, column_separator_str
 from server import tdoc_search
 from server.common import download_file_to_location
 from server.tdoc_search import MeetingEntry, search_meeting_for_tdoc
@@ -40,7 +40,6 @@ class MeetingsTable(GenericTable):
         set_column(self.tree, 'TDoc Excel', width=100, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
-        column_separator_str = "     "
 
         # Filter by group (only filter we have in this view)
         all_groups = ['All']
@@ -67,7 +66,7 @@ class MeetingsTable(GenericTable):
         tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
         self.button_open_tdoc.pack(side=tkinter.LEFT)
 
-        # Redownload TDoc Excel if it already exists
+        # Re-download TDoc Excel if it already exists
         self.redownload_tdoc_excel_if_exists_var = tkinter.IntVar()
         self.redownload_tdoc_excel_if_exists = ttk.Checkbutton(
             self.top_frame,
