@@ -108,7 +108,7 @@ def convert_html_file_to_markup(
         file_path: str,
         output_path: str = None,
         ignore_links=True,
-        filter_text_function: Callable[[str], str] = None) -> str:
+        filter_text_function: Callable[[str], str] = None) -> str | None:
     """
     Converts an HTML file to Markdown
     Args:
@@ -118,7 +118,7 @@ def convert_html_file_to_markup(
         file_path: The file's path
         ignore_links: Whether links should be included
 
-    Returns: The destination file
+    Returns: The destination file, None if the conversion could not be performed
 
     """
     if not os.path.exists(file_path):
