@@ -24,6 +24,7 @@ class MeetingsTable(GenericTable):
             ['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents', 'TDoc List', 'TDoc Excel']
         )
         self.loaded_meeting_entries: List[MeetingEntry] | None = None
+        self.chosen_meeting: MeetingEntry | None = None
         self.parent_gui_tools = parent_gui_tools
 
         self.meeting_count = tkinter.StringVar()
@@ -85,7 +86,7 @@ class MeetingsTable(GenericTable):
 
         # Main frame
         self.load_data(initial_load=True)
-        self.insert_current_meetings()
+        self.insert_rows()
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
@@ -110,13 +111,13 @@ class MeetingsTable(GenericTable):
             self.loaded_meeting_entries = tdoc_search.loaded_meeting_entries
         print('Finished loading meetings')
 
-    def insert_current_meetings(self):
-        self.insert_rows(self.loaded_meeting_entries)
-
-    def insert_rows(self, meeting_list: List[MeetingEntry]):
+    def insert_rows(self):
         print('Populating meetings table')
 
-        meeting_list_to_consider = meeting_list
+        if self.chosen_meeting is None:
+            meeting_list_to_consider = self.loaded_meeting_entries
+        else:
+            meeting_list_to_consider = [self.chosen_meeting]
 
         # Filter by selected group
         selected_group = self.combo_groups.get()
@@ -173,7 +174,7 @@ class MeetingsTable(GenericTable):
 
     def apply_filters(self):
         self.tree.delete(*self.tree.get_children())
-        self.insert_current_meetings()
+        self.insert_rows()
 
     def select_groups(self, *args):
         self.apply_filters()
@@ -240,13 +241,22 @@ class MeetingsTable(GenericTable):
         server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open)
 
     def on_tdoc_search_change(self, *args):
+        self.chosen_meeting = None
+        self.combo_groups.configure(state="enabled")
+
         current_tdoc = self.tkvar_tdoc_id.get()
         generic_tdoc = is_generic_tdoc(current_tdoc)
         if generic_tdoc is None:
+            self.apply_filters()
             return
 
         meeting_for_tdoc = search_meeting_for_tdoc(current_tdoc)
         if meeting_for_tdoc is None:
+            self.apply_filters()
             return
 
         print(f'TDoc search changed to {current_tdoc} of meeting {meeting_for_tdoc.meeting_name}')
+        self.chosen_meeting = meeting_for_tdoc
+        self.combo_groups.configure(state="disabled")
+
+        self.apply_filters()
