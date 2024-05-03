@@ -21,9 +21,9 @@ class WorkItemsTable(GenericTable):
     def __init__(self, parent, favicon, parent_gui_tools):
         super().__init__(
             parent,
-            "Work Items Table. Double-click UID for WI page, on Code for WI CRs",
+            "Work Items Table. Double-click UID for WI page",
             favicon,
-            ['UID', 'Code', 'Title', 'Release', 'Lead body', 'WID']
+            ['UID', 'Code', 'Title', 'Release', 'Lead body', 'WID', 'Specs', 'CRs']
         )
         self.loaded_work_item_entries: List[WiEntry] | None = None
         self.filtered_work_item_entries: List[WiEntry] | None = None
@@ -37,6 +37,8 @@ class WorkItemsTable(GenericTable):
         set_column(self.tree, 'Release', width=90, center=True)
         set_column(self.tree, 'Lead body', width=100, center=True)
         set_column(self.tree, 'WID', width=50, center=True)
+        set_column(self.tree, 'Specs', width=50, center=True)
+        set_column(self.tree, 'CRs', width=50, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
         column_separator_str = "     "
@@ -132,6 +134,8 @@ class WorkItemsTable(GenericTable):
                 textwrap.fill(wi.title, width=75),
                 wi.release,
                 textwrap.fill(wi.lead_body, width=10),
+                'Click',
+                'Click',
                 'Click'
             ))
 
@@ -190,11 +194,6 @@ class WorkItemsTable(GenericTable):
             url_to_open = wi[0].wid_page_url
             open_url(url_to_open)
 
-        if column == 1:
-            print(f'Clicked on CR list for WI {uid}')
-            url_to_open = wi[0].cr_list_url
-            open_url(url_to_open)
-
         if column == 5:
             print(f'Clicked on WID {uid}. Will download latest WID version from {wi[0].wid_page_url}')
             url_to_open = wi[0].wid_page_url
@@ -210,6 +209,16 @@ class WorkItemsTable(GenericTable):
             tdoc_id = tdoc_match.group(1)
             print(f'Last WID version is {tdoc_id}')
             search_download_and_open_tdoc(tdoc_id)
+
+        if column == 6:
+            print(f'Clicked on Spec list for WI {uid}')
+            url_to_open = wi[0].spec_list_url
+            open_url(url_to_open)
+
+        if column == 7:
+            print(f'Clicked on CR list for WI {uid}')
+            url_to_open = wi[0].cr_list_url
+            open_url(url_to_open)
 
     def on_wi_search_change(self, *args):
         self.apply_filters()
