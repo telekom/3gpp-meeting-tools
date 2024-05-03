@@ -30,6 +30,11 @@ class WiEntry(NamedTuple):
         return cr_list_url
 
     @property
+    def spec_list_url(self) -> str:
+        spec_list_url = f'https://portal.3gpp.org/Specifications.aspx?q=1&WiUid={self.uid}'
+        return spec_list_url
+
+    @property
     def wid_page_url(self) -> str:
         sid_page_url = f'https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={self.uid}'
         return sid_page_url
