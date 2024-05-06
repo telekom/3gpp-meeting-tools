@@ -39,6 +39,21 @@ class WiEntry(NamedTuple):
         sid_page_url = f'https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={self.uid}'
         return sid_page_url
 
+    @property
+    def wid_lead_body_list(self) -> List[str]:
+        """
+        Since the lead body may contain a list of comma-separated values, this property exposes an actual list of
+        lead bodies that can be used to generate the URLs to the 3GPP site Returns: List of lead boies, e.g. [R3, S2]
+        """
+        lead_bodies = [body.strip() for body in self.lead_body.split(',')]
+        return lead_bodies
+
+    @property
+    def wid_lead_body_list_urls(self) -> List[str]:
+        lead_bodies = [f'https://www.3gpp.org/dynareport?code=TSG-WG--{body}--wis.htm' for
+                       body in self.wid_lead_body_list]
+        return lead_bodies
+
     def retrieve_last_wid_tdoc_id_from_server(self):
         url_to_download = self.wid_page_url
         wi_html = file = get_html(url_to_download, cache=False)

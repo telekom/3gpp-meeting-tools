@@ -236,6 +236,12 @@ class WorkItemsTable(GenericTable):
             url_to_open = wi[0].wid_page_url
             open_url(url_to_open)
 
+        if column == 4:
+            print(f'Clicked on WI {uid}. Opening lead bodies')
+            urls_to_open = wi[0].wid_lead_body_list_urls
+            for url_to_open in urls_to_open:
+                open_url(url_to_open)
+
         if column == 5:
             print(f'Clicked on WID {uid}. Will download latest WID version from {wi[0].wid_page_url}')
             url_to_open = wi[0].wid_page_url
