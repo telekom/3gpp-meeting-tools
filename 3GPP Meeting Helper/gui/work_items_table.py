@@ -131,8 +131,10 @@ class WorkItemsTable(GenericTable):
             # print(f'{rel_str}->{return_value}')
             return return_value
 
-        self.release_list = list({wi.release for wi in self.loaded_work_item_entries})
-        self.release_list.sort(key=_sort_rel_str, reverse=True)
+        self.release_list = ['All']
+        release_list_from_items = list({wi.release for wi in self.loaded_work_item_entries})
+        release_list_from_items.sort(key=_sort_rel_str, reverse=True)
+        self.release_list.extend(release_list_from_items)
         self.combo_releases['values'] = self.release_list
 
         print('Finished loading WIs')
