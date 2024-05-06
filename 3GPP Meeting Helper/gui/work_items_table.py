@@ -2,7 +2,7 @@ import re
 import textwrap
 import tkinter
 from tkinter import ttk
-from typing import List
+from typing import List, Set
 
 from application.os import open_url
 from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting
@@ -25,6 +25,7 @@ class WorkItemsTable(GenericTable):
             favicon,
             ['UID', 'Code', 'Title', 'Release', 'Lead body', 'WID', 'Specs', 'CRs']
         )
+        self.release_list: List[str] | None = [f'Rel-{rel_number}' for rel_number in range(5, 19, 1)]
         self.loaded_work_item_entries: List[WiEntry] | None = None
         self.filtered_work_item_entries: List[WiEntry] | None = None
         self.parent_gui_tools = parent_gui_tools
@@ -43,7 +44,7 @@ class WorkItemsTable(GenericTable):
         self.tree.bind("<Double-Button-1>", self.on_double_click)
         column_separator_str = "     "
 
-        # Filter by group (only filter we have in this view)
+        # Filter by group
         all_groups = ['All']
         all_groups.extend(wgs_list)
         self.combo_groups = ttk.Combobox(self.top_frame, values=all_groups, state="readonly", width=6)
@@ -53,6 +54,18 @@ class WorkItemsTable(GenericTable):
         # Filter by 3GPP Group/WG
         tkinter.Label(self.top_frame, text="Group: ").pack(side=tkinter.LEFT)
         self.combo_groups.pack(side=tkinter.LEFT)
+
+        # Filter by release
+        all_releases = ['All']
+        all_releases.extend(self.release_list)
+        self.combo_releases = ttk.Combobox(self.top_frame, values=all_releases, state="readonly", width=6)
+        self.combo_releases.set('All')
+        self.combo_releases.bind("<<ComboboxSelected>>", self.select_releases)
+
+        # Filter by 3GPP Release
+        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="Release: ").pack(side=tkinter.LEFT)
+        self.combo_releases.pack(side=tkinter.LEFT)
 
         # Open/search TDoc
         tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
@@ -107,6 +120,21 @@ class WorkItemsTable(GenericTable):
 
         wi_search.load_wi_entries()
         self.loaded_work_item_entries = wi_search.loaded_wi_entries
+
+        def _sort_rel_str(rel_str) -> int:
+            return_value = 0
+            if 'R99' in rel_str:
+                return_value = 1
+            rel_match = re.match(r'Rel[\-‑]([\d]+)', rel_str)
+            if rel_match is not None:
+                return_value = int(rel_match.group(1))
+            # print(f'{rel_str}->{return_value}')
+            return return_value
+
+        self.release_list = list({wi.release for wi in self.loaded_work_item_entries})
+        self.release_list.sort(key=_sort_rel_str, reverse=True)
+        self.combo_releases['values'] = self.release_list
+
         print('Finished loading WIs')
         self.apply_filters()
         self.insert_rows()
@@ -155,7 +183,16 @@ class WorkItemsTable(GenericTable):
         wi_list_to_consider = self.loaded_work_item_entries
         selected_group = self.combo_groups.get()
         if selected_group != 'All':
+            print(f'Filtering by group {selected_group}')
             wi_list_to_consider = [m for m in wi_list_to_consider if selected_group in m.lead_body]
+
+        # Filter by selected release
+        selected_release = self.combo_releases.get()
+        if selected_release != 'All':
+            print(f'Filtering by release {selected_release}')
+            wi_list_to_consider = [m for m in wi_list_to_consider if selected_release in m.release]
+
+        # Filter by search string
         wi_search_str = self.tkvar_wi_name.get()
         if wi_search_str is not None and wi_search_str != '':
             print(f'Filtering WIs with code/title/UID {wi_search_str}')
@@ -169,6 +206,9 @@ class WorkItemsTable(GenericTable):
         self.insert_rows()
 
     def select_groups(self, *args):
+        self.apply_filters()
+
+    def select_releases(self, *args):
         self.apply_filters()
 
     def on_double_click(self, event):
