@@ -44,7 +44,9 @@ class TdocsTable(GenericTable):
             parent,
             f"SA2#{meeting_name} TDocs. Double-Click on TDoc # or revision # to open",
             favicon,
-            [ 'TDoc', 'AI', 'Type', 'Title', 'Source', 'Revs', 'Emails', 'Send @', 'Result' ]
+            [ 'TDoc', 'AI', 'Type', 'Title', 'Source', 'Revs', 'Emails', 'Send @', 'Result' ],
+            row_height=60,
+            display_rows=9
         )
         self.parent_gui_tools = parent_gui_tools
 

@@ -22,7 +22,8 @@ class MeetingsTable(GenericTable):
             "Meetings Table. Double-click start date for invitation. End date for report",
             favicon,
             ['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents', 'TDoc List', 'TDoc Excel'],
-            row_height=40
+            row_height=35,
+            display_rows=14
         )
         self.loaded_meeting_entries: List[MeetingEntry] | None = None
         self.chosen_meeting: MeetingEntry | None = None
