@@ -48,7 +48,7 @@ def treeview_set_row_formatting(tree: Treeview):
 
 class GenericTable:
 
-    def __init__(self, parent, title: str, favicon, column_names: List[str]):
+    def __init__(self, parent, title: str, favicon, column_names: List[str], row_height=60):
         """
         Base class for table GUIs in this application
         Args:
@@ -58,18 +58,20 @@ class GenericTable:
         """
         self.style_name = 'mystyle.Treeview'
         self.style = None
-        self.init_style()
+        self.init_style(row_height=row_height)
         self.top = tkinter.Toplevel(parent)
         self.top.title(title)
         self.top.iconbitmap(favicon)
         self.favicon = favicon
 
         self.top_frame = tkinter.Frame(self.top)
-        self.top_frame.pack(anchor='w')
         self.main_frame = tkinter.Frame(self.top)
-        self.main_frame.pack()
         self.bottom_frame = tkinter.Frame(self.top)
-        self.bottom_frame.pack(anchor='w')
+
+        # https://stackoverflow.com/questions/42074654/avoid-the-status-bar-footer-from-disappearing-in-a-gui-when-reducing-the-size
+        self.top_frame.pack(side=tkinter.TOP, fill=tkinter.X)
+        self.bottom_frame.pack(side=tkinter.BOTTOM, fill=tkinter.X)
+        self.main_frame.pack(side=tkinter.TOP, fill=tkinter.BOTH, expand=tkinter.YES)
 
         self.column_names = column_names
 
@@ -100,7 +102,7 @@ class GenericTable:
         return [elm for elm in self.style.map(self.style_name, query_opt=option) if
                 elm[:2] != ('!disabled', '!selected')]
 
-    def init_style(self):
+    def init_style(self, row_height):
         if self.style is None:
             self.style = ttk.Style()
             self.style.map(
@@ -111,7 +113,7 @@ class GenericTable:
                 self.style_name,
                 highlightthickness=0,
                 bd=0,
-                rowheight=60)
+                rowheight=row_height)
             # Modify the font of the headings
             # style.configure("mystyle.Treeview.Heading", font=('Calibri', 13, 'bold'))
             self.style.layout(self.style_name,
