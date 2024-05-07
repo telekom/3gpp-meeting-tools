@@ -48,10 +48,14 @@ def treeview_set_row_formatting(tree: Treeview):
 
 class GenericTable:
 
-    def __init__(self, parent, title: str, favicon, column_names: List[str], row_height=60):
+    def __init__(self, parent, title: str, favicon, column_names: List[str],
+                 row_height=55,
+                 display_rows=10):
         """
         Base class for table GUIs in this application
         Args:
+            display_rows: Number of rows to display in widget
+            row_height: Row height for each row in the widget
             parent: The caller GUI (e.g. tools dialog)
             title: The title of this GUI. Will appear at the top of the GUI
             favicon: Icon to show in the top-left corner of this GUI
@@ -82,7 +86,9 @@ class GenericTable:
             show='headings',
             selectmode="browse",
             style=self.style_name,
-            padding=[-5, -25, -5, -25])  # Left, top, right, bottom
+            padding=[-5, -25, -5, -25],
+            height=display_rows
+        )  # Left, top, right, bottom
 
         self.tree_scroll = ttk.Scrollbar(self.main_frame)
         self.tree_scroll.configure(command=self.tree.yview)
