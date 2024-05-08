@@ -6,7 +6,7 @@ import re
 import traceback
 from datetime import datetime
 from enum import Enum
-from typing import NamedTuple, List, Tuple
+from typing import NamedTuple, List, Tuple, Any
 
 from pandas import DataFrame
 
@@ -56,7 +56,7 @@ def rgb_to_hex(rgb):
     return iValue
 
 
-def get_metadata_from_doc(doc):
+def get_metadata_from_doc(doc) -> Tdoc:
     if doc is None:
         return Tdoc(title=None, source=None)
     try:
@@ -1017,7 +1017,7 @@ def open_file(file, return_metadata=False, go_to_page=1):
     return application.word.open_file(file, go_to_page=go_to_page, metadata_function=get_metadata_from_doc)
 
 
-def open_files(files, return_metadata=False, go_to_page=1):
+def open_files(files, return_metadata=False, go_to_page=1) -> int | Tuple[int,List[Any]]:
     # No metadata
     if not return_metadata:
         return application.word.open_files(files, go_to_page=go_to_page)

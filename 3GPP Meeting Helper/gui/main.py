@@ -5,7 +5,7 @@ import tkinter
 import tkinter.font
 import tkinter.ttk
 import traceback
-from typing import Tuple
+from typing import Tuple, List
 
 from pyperclip import copy as clipboard_copy
 
@@ -381,7 +381,7 @@ def download_and_open_tdoc(
         tdoc_id_to_override=None,
         cached_tdocs_list=None,
         copy_to_clipboard=False,
-        skip_opening=False):
+        skip_opening=False)-> str | List[str] | None:
     tkvar_tdoc_id.set(tkvar_tdoc_id.get().replace(' ', '').replace('\r', '').replace('\n', '').strip())
     if tdoc_id_to_override is None:
         # Normal flow

@@ -450,7 +450,7 @@ def fully_update_cache(redownload_if_exists=False):
     load_markdown_cache_to_memory()
 
 
-def search_download_and_open_tdoc(tdoc_str: str) -> Tuple[Any, Any]:
+def search_download_and_open_tdoc(tdoc_str: str) -> Tuple[None | int, None | List[Any]]:
     """
     Searches for a given TDoc. If the zip file contains many files (e.g. typical for plenary CR packs), it will only
     open the folder.
