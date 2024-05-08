@@ -5,6 +5,7 @@ import tkinter
 import traceback
 import webbrowser
 from tkinter import ttk
+from typing import Callable, Tuple, Any
 
 import pandas as pd
 import pyperclip
@@ -38,13 +39,17 @@ class TdocsTable(GenericTable):
             meeting_name: str,
             retrieve_current_tdocs_by_agenda_fn=None,
             get_tdocs_by_agenda_for_selected_meeting_fn=None,
-            download_and_open_tdoc_fn=None):
+            download_and_open_tdoc_fn=None,
+            get_current_meeting_name_fn: Callable[..., str] | None = None,
+            download_and_open_generic_tdoc_fn: Callable[[str], Tuple[Any, Any]] | None = None
+
+    ):
 
         super().__init__(
             parent,
             f"SA2#{meeting_name} TDocs. Double-Click on TDoc # or revision # to open",
             favicon,
-            [ 'TDoc', 'AI', 'Type', 'Title', 'Source', 'Revs', 'Emails', 'Send @', 'Result' ],
+            ['TDoc', 'AI', 'Type', 'Title', 'Source', 'Revs', 'Emails', 'Send @', 'Result'],
             row_height=60,
             display_rows=9
         )
@@ -54,6 +59,13 @@ class TdocsTable(GenericTable):
         self.retrieve_current_tdocs_by_agenda_fn = retrieve_current_tdocs_by_agenda_fn
         self.get_tdocs_by_agenda_for_selected_meeting_fn = get_tdocs_by_agenda_for_selected_meeting_fn
         self.download_and_open_tdoc_fn = download_and_open_tdoc_fn
+
+        # Used to check if we have the current meeting selected or not
+        self.meeting_name = meeting_name
+        self.get_current_meeting_name_fn: Callable[..., str] | None = get_current_meeting_name_fn
+
+        # If we have another meeting selected, a generic TDoc search is performed
+        self.download_and_open_generic_tdoc_fn = download_and_open_generic_tdoc_fn
 
         self.tdoc_count = tkinter.StringVar()
         self.revisions_list = None
@@ -168,17 +180,25 @@ class TdocsTable(GenericTable):
         else:
             return None
 
-    def download_and_open_tdoc(self, actual_value, skip_opening=False):
-        if self.download_and_open_tdoc_fn is not None:
+    def download_and_open_tdoc(self, tdoc_to_open, skip_opening=False):
+        # Case when we are searching documents for the currently selected meeting
+        if self.selected_meeting_is_this_one:
+            print(f'Opening TDoc {tdoc_to_open} of this meeting ({self.meeting_name})')
+            if self.download_and_open_tdoc_fn is None:
+                return None
             try:
                 return self.download_and_open_tdoc_fn(
-                    actual_value, copy_to_clipboard=True, skip_opening=skip_opening)
+                    tdoc_to_open, copy_to_clipboard=True, skip_opening=skip_opening)
             except:
-                print('Could not open TDoc {0} for Tdocs table'.format(actual_value))
+                print('Could not open TDoc {0} for Tdocs table'.format(tdoc_to_open))
                 traceback.print_exc()
                 return None
-        else:
+
+        # Case when we are searching documents for another meeting
+        print(f'Opening TDoc {tdoc_to_open} of another meeting (not {self.meeting_name})')
+        if self.download_and_open_generic_tdoc_fn is None:
             return None
+        return self.download_and_open_generic_tdoc_fn(tdoc_to_open)
 
     def load_data(self, reload=False, reload_ais=True):
         if reload:
@@ -508,6 +528,13 @@ class TdocsTable(GenericTable):
             print(subject)
             webbrowser.open('mailto:{0}?subject={1}'.format('3GPP_TSG_SA_WG2_EMEET@LIST.ETSI.ORG', subject), new=1)
             pyperclip.copy(subject)
+
+    @property
+    def selected_meeting_is_this_one(self):
+        if self.get_current_meeting_name_fn is None:
+            return True
+        current_meeting: str = self.get_current_meeting_name_fn()
+        return self.meeting_name == current_meeting
 
 
 class RevisionsTable:

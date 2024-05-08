@@ -28,6 +28,7 @@ import utils.local_cache
 from parsing.html.chairnotes import chairnotes_file_to_dataframe
 from parsing.html.revisions import extract_tdoc_revisions_from_html
 from server.specs import get_specs_folder
+from server.tdoc_search import search_download_and_open_tdoc
 from tdoc.utils import tdoc_regex
 
 
@@ -94,6 +95,8 @@ class ToolsDialog:
                 retrieve_current_tdocs_by_agenda_fn=lambda: gui.main.open_tdocs_by_agenda(open_this_file=False),
                 get_tdocs_by_agenda_for_selected_meeting_fn=gui.main.get_tdocs_by_agenda_for_selected_meeting,
                 download_and_open_tdoc_fn=gui.main.download_and_open_tdoc,
+                get_current_meeting_name_fn=gui.main.tkvar_meeting.get,
+                download_and_open_generic_tdoc_fn=search_download_and_open_tdoc
             ))
         self.launch_tdoc_table.grid(row=4, column=0, columnspan=int(columnspan / 4), sticky="EW")
 

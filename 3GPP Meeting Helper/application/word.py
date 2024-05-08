@@ -4,7 +4,7 @@ import shutil
 import traceback
 import zipfile
 from enum import Enum
-from typing import List
+from typing import List, Tuple, Any
 from zipfile import ZipFile
 
 import win32com.client
@@ -31,6 +31,7 @@ wdExportCreateHeadingBookmarks = 1
 
 # See https://docs.microsoft.com/en-us/dotnet/api/microsoft.office.interop.word.wdexportoptimizefor?view=word-pia
 wdExportOptimizeForPrint = 0
+
 
 def get_word(visible=True, display_alerts=False):
     try:
@@ -73,9 +74,9 @@ def open_word_document(filename='', set_as_active_document=True, visible=True, )
     return doc
 
 
-def open_file(file, go_to_page=1, metadata_function=None):
+def open_file(file, go_to_page=1, metadata_function=None) -> None | bool | Tuple[bool, Any]:
     if (file is None) or (file == ''):
-        return
+        return None
     metadata = None
     try:
         (head, tail) = os.path.split(file)
@@ -118,7 +119,7 @@ def open_file(file, go_to_page=1, metadata_function=None):
         return return_value
 
 
-def open_files(files, metadata_function=None, go_to_page=1):
+def open_files(files, metadata_function=None, go_to_page=1) -> int | Tuple[int, List[Any]]:
     if files is None:
         return 0
     opened_files = 0
@@ -173,7 +174,7 @@ def export_document(
 
     # Filter out some files (e.g. files with change tracking)
     if exclude_if_includes != '' and exclude_if_includes is not None:
-        word_files = [ e for e in word_files if exclude_if_includes not in e ]
+        word_files = [e for e in word_files if exclude_if_includes not in e]
 
     if export_format == ExportType.HTML:
         extension = '.html'
@@ -365,5 +366,3 @@ def get_reviews_for_active_document(search_author: str = None, replace_author: s
         print("Could not get reviews from active document")
         traceback.print_exc()
         return
-
-
