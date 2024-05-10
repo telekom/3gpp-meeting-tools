@@ -4,7 +4,7 @@ import shutil
 import traceback
 import zipfile
 from enum import Enum
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, NamedTuple, Callable
 from zipfile import ZipFile
 
 import win32com.client
@@ -119,10 +119,16 @@ def open_file(file, go_to_page=1, metadata_function=None) -> None | bool | Tuple
         return return_value
 
 
-def open_files(files, metadata_function=None, go_to_page=1) -> int | Tuple[int, List[Any]]:
+class WordTdoc(NamedTuple):
+    title: str | None
+    source: str | None
+
+
+def open_files(files, metadata_function: Callable[[Any], WordTdoc] | None = None, go_to_page=1) \
+        -> int | Tuple[int, List[WordTdoc]]:
     if files is None:
         return 0
-    opened_files = 0
+    opened_files_count = 0
     metadata_list = []
     for file in files:
         print('Opening {0}'.format(file))
@@ -131,6 +137,7 @@ def open_files(files, metadata_function=None, go_to_page=1) -> int | Tuple[int, 
                 file_opened, metadata = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
             else:
                 file_opened = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
+                metadata = []
         except:
             print('Could not open {0}'.format(file))
             traceback.print_exc()
@@ -138,13 +145,13 @@ def open_files(files, metadata_function=None, go_to_page=1) -> int | Tuple[int, 
             file_opened = None
             metadata = None
         if file_opened:
-            opened_files += 1
+            opened_files_count += 1
             if metadata_function is not None:
                 metadata_list.append(metadata)
     if metadata_function is not None:
-        return opened_files, metadata_list
+        return opened_files_count, metadata_list
     else:
-        return opened_files
+        return opened_files_count
 
 
 class ExportType(Enum):
