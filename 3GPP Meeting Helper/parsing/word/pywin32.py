@@ -6,14 +6,14 @@ import re
 import traceback
 from datetime import datetime
 from enum import Enum
-from typing import NamedTuple, List, Tuple, Any
+from typing import NamedTuple, List, Tuple
 
 from pandas import DataFrame
 
 import application.word
 import config.contributor_names as contributor_names
 import server.tdoc
-from application.word import get_word, open_word_document
+from application.word import get_word, open_word_document, WordTdoc
 from tdoc.utils import tdoc_regex
 
 title_regex = re.compile(r'Title:[\s\n]*(?P<title>.*)[\s\n]*\n', re.MULTILINE)
@@ -38,7 +38,6 @@ tdoc_list_ai_section_style = -3  # 'Überschrift 2'
 tdoc_list_ai_subsection_style = -4  # 'Überschrift 3'
 standard_style = -1  # 'Standard'
 
-Tdoc = collections.namedtuple('TDoc', 'title source')
 TdocStats = collections.namedtuple('TdocStats',
                                    'tdoc_count tdoc_handled_count result_agreed_count result_revised_count result_noted_count')
 
@@ -56,9 +55,9 @@ def rgb_to_hex(rgb):
     return iValue
 
 
-def get_metadata_from_doc(doc) -> Tdoc:
+def get_metadata_from_doc(doc) -> WordTdoc:
     if doc is None:
-        return Tdoc(title=None, source=None)
+        return WordTdoc(title=None, source=None)
     try:
         starting_text = ''
         tdoc_is_cr = False
@@ -92,7 +91,7 @@ def get_metadata_from_doc(doc) -> Tdoc:
 
     # https://stackoverflow.com/questions/32134396/python-regular-expression-caret-not-working-in-multiline-modes
     if starting_text == '':
-        return Tdoc(title=None, source=None)
+        return WordTdoc(title=None, source=None)
 
     if not tdoc_is_cr:
         title_match = title_regex.search(starting_text)
@@ -108,7 +107,7 @@ def get_metadata_from_doc(doc) -> Tdoc:
             title = cr_match.groupdict()['title'].strip()
             source = cr_match.groupdict()['source'].strip()
 
-    return Tdoc(title=title, source=source)
+    return WordTdoc(title=title, source=source)
 
 
 def parse_document(filename):
@@ -1017,7 +1016,7 @@ def open_file(file, return_metadata=False, go_to_page=1):
     return application.word.open_file(file, go_to_page=go_to_page, metadata_function=get_metadata_from_doc)
 
 
-def open_files(files, return_metadata=False, go_to_page=1) -> int | Tuple[int,List[Any]]:
+def open_files(files, return_metadata=False, go_to_page=1) -> int | Tuple[int, List[WordTdoc]]:
     # No metadata
     if not return_metadata:
         return application.word.open_files(files, go_to_page=go_to_page)
@@ -1069,7 +1068,7 @@ def extract_cell(table, row: int, column: int):
         return None
 
 
-def parse_cr(filename: str, ai: str = None, tdoc_number: str = None,  print_output=True, use_cache=True) -> CrMetadata:
+def parse_cr(filename: str, ai: str = None, tdoc_number: str = None, print_output=True, use_cache=True) -> CrMetadata:
     """
     Parses a CR and extracts the cover page information
     Returns:
@@ -1160,18 +1159,18 @@ def parse_cr(filename: str, ai: str = None, tdoc_number: str = None,  print_outp
             summary_table = all_tables[1]
             row_offsett = 1
 
-        title = extract_cell(summary_table, row=2+row_offsett, column=2)
-        source_to_wg = extract_cell(summary_table, row=4+row_offsett, column=2)
-        source_to_tsg = extract_cell(summary_table, row=5+row_offsett, column=2)
-        work_item_code = extract_cell(summary_table, row=7+row_offsett, column=2)
-        cr_date = extract_cell(summary_table, row=7+row_offsett, column=5)
-        category = extract_cell(summary_table, row=9+row_offsett, column=2)
-        release = extract_cell(summary_table, row=9+row_offsett, column=5)
+        title = extract_cell(summary_table, row=2 + row_offsett, column=2)
+        source_to_wg = extract_cell(summary_table, row=4 + row_offsett, column=2)
+        source_to_tsg = extract_cell(summary_table, row=5 + row_offsett, column=2)
+        work_item_code = extract_cell(summary_table, row=7 + row_offsett, column=2)
+        cr_date = extract_cell(summary_table, row=7 + row_offsett, column=5)
+        category = extract_cell(summary_table, row=9 + row_offsett, column=2)
+        release = extract_cell(summary_table, row=9 + row_offsett, column=5)
 
-        reason_for_change = extract_cell(summary_table, row=12+row_offsett, column=2)
-        summary_of_change = extract_cell(summary_table, row=14+row_offsett, column=2)
-        consequences_if_not_approved = extract_cell(summary_table, row=16+row_offsett, column=2)
-        clauses_affected = extract_cell(summary_table, row=18+row_offsett, column=2)
+        reason_for_change = extract_cell(summary_table, row=12 + row_offsett, column=2)
+        summary_of_change = extract_cell(summary_table, row=14 + row_offsett, column=2)
+        consequences_if_not_approved = extract_cell(summary_table, row=16 + row_offsett, column=2)
+        clauses_affected = extract_cell(summary_table, row=18 + row_offsett, column=2)
     except IndexError:
         print("Could not find third table in TDoc {0}".format(tdoc_number))
         title = ''

@@ -1,15 +1,14 @@
 import datetime
 import os.path
 import re
-from typing import NamedTuple, List, Tuple, Any, Dict
-import parsing.word.pywin32
+from typing import NamedTuple, List, Tuple, Dict
 
+import parsing.word.pywin32
 import tdoc.utils
+import utils
 from application.zip_files import unzip_files_in_zip_file
 from server.common import download_file_to_location
-import utils
-from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, get_cache_folder, \
-    create_folder_if_needed, file_exists
+from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, create_folder_if_needed, file_exists
 
 # If more than this number of files are included in a zip file, the folder is opened instead.
 # Some TDocs, especially in plenary, could contain many, many TDocs, e.g. SP-230457 (22 documents)
@@ -196,6 +195,13 @@ class MeetingEntry(NamedTuple):
     @property
     def local_tdoc_list_excel_path(self):
         return os.path.join(self.local_agenda_folder_path, 'TDoc_List.xlsx')
+
+
+class DownloadedWordTdocDocument(NamedTuple):
+    title: str | None
+    source: str | None
+    url: str | None
+    tdoc_id: str | None
 
 
 # Loaded meeting entries
@@ -450,7 +456,7 @@ def fully_update_cache(redownload_if_exists=False):
     load_markdown_cache_to_memory()
 
 
-def search_download_and_open_tdoc(tdoc_str: str) -> Tuple[None | int, None | List[Any]]:
+def search_download_and_open_tdoc(tdoc_str: str) -> Tuple[None | int, None | List[DownloadedWordTdocDocument]]:
     """
     Searches for a given TDoc. If the zip file contains many files (e.g. typical for plenary CR packs), it will only
     open the folder.
@@ -489,6 +495,8 @@ def search_download_and_open_tdoc(tdoc_str: str) -> Tuple[None | int, None | Lis
     files_in_zip = unzip_files_in_zip_file(local_target)
     if len(files_in_zip) <= maximum_number_of_files_to_open:
         opened_files, metadata_list = parsing.word.pywin32.open_files(files_in_zip, return_metadata=True)
+        metadata_list = [DownloadedWordTdocDocument(title=m.title, source=m.source, url=tdoc_url, tdoc_id=tdoc_str)
+                         for m in metadata_list if m is not None]
     else:
         print(
             f'More than {maximum_number_of_files_to_open} contained within {tdoc_str}. Opening folder instead of files')

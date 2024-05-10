@@ -3,6 +3,8 @@ import tkinter
 from tkinter import ttk
 from typing import List
 
+import pyperclip
+
 import server
 from application.excel import open_excel_document
 from application.os import open_url
@@ -238,8 +240,12 @@ class MeetingsTable(GenericTable):
 
     def on_open_tdoc(self):
         tdoc_to_open = self.tkvar_tdoc_id.get()
+        tdoc_to_open = tdoc_to_open.strip()
         print(f'Opening {tdoc_to_open}')
-        server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open)
+        opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open)
+        if metadata is not None:
+            print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
+            pyperclip.copy(metadata[0].url)
 
     def on_tdoc_search_change(self, *args):
         self.chosen_meeting = None

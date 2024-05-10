@@ -376,13 +376,19 @@ def on_press_enter_key(event=None):
         download_and_open_tdoc()
 
 
+def cleanup_tdoc_id_in_entry_box():
+    tkvar_tdoc_id.set(tkvar_tdoc_id.get().replace(' ', '').replace('\r', '').replace('\n', '').strip())
+
+
 # Button to open TDoc
 def download_and_open_tdoc(
         tdoc_id_to_override=None,
         cached_tdocs_list=None,
         copy_to_clipboard=False,
-        skip_opening=False)-> str | List[str] | None:
-    tkvar_tdoc_id.set(tkvar_tdoc_id.get().replace(' ', '').replace('\r', '').replace('\n', '').strip())
+        skip_opening=False) -> str | List[str] | None:
+
+    cleanup_tdoc_id_in_entry_box()
+
     if tdoc_id_to_override is None:
         # Normal flow
         tdoc_id = tkvar_tdoc_id.get()
@@ -547,7 +553,7 @@ def start_main_gui():
         main_frame,
         text='Override Tdocs by agenda',
         variable=tkvar_override_tdocs_by_agenda)
-    .grid(row=current_row, column=0))
+     .grid(row=current_row, column=0))
     tdocs_by_agenda_entry.config(state='readonly')
     tdocs_by_agenda_entry.grid(row=current_row, column=1, padx=10, pady=10)
 
