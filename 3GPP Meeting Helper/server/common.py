@@ -1,6 +1,8 @@
+import concurrent.futures
 import re
 import socket
 import traceback
+from typing import NamedTuple, List
 
 from server.connection import get_html
 from utils.local_cache import get_sa2_root_folder_local_cache
@@ -88,21 +90,53 @@ def get_sa2_folder():
     return html
 
 
-def download_file_to_location(url: str, local_location: str):
+def download_file_to_location(url: str, local_location: str) -> bool:
     """
     Downloads a given file to a local location
     Args:
         url:
         local_location:
+
+    Returns:
+        bool: Whether the file could be successfully downloaded
     """
     try:
         file = get_html(url, cache=False)
         with open(local_location, 'wb') as output:
             print('Saved {0}'.format(local_location))
             output.write(file)
+            return True
     except:
         print('Could not download file {0} to {1}'.format(url, local_location))
         traceback.print_exc()
+        return False
+
+
+class FileToDownload(NamedTuple):
+    remote_url: str
+    local_filepath: str
+
+
+def batch_download_file_to_location(files_to_download: List[FileToDownload]):
+    """
+    Downloads a list of URLs using a ThreadPoolExecutor
+    Args:
+        files_to_download: List of URLs to download and target local files to download to
+    """
+    # See https://docs.python.org/3/library/concurrent.futures.html
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_url = {executor.submit(
+            download_file_to_location,
+            file_to_download.remote_url,
+            file_to_download.local_filepath): file_to_download for file_to_download in files_to_download}
+        for future in concurrent.futures.as_completed(future_to_url):
+            file_to_download = future_to_url[future]
+            try:
+                file_downloaded = future.result()
+                if not file_downloaded:
+                    print(f'Could not download {file_to_download.remote_url}')
+            except Exception as exc:
+                print('%r generated an exception: %s' % (file_to_download, exc))
 
 
 def update_meeting_ftp_server(new_address):
