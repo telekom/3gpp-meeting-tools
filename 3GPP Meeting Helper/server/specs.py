@@ -1,7 +1,8 @@
+import concurrent.futures
 import os.path
 import pickle
 from urllib.parse import urlparse
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, NamedTuple
 
 import html2text
 
@@ -260,11 +261,29 @@ def get_specs(
     unique_specs.sort()
 
     # Download each spec's page, e.g. https://www.3gpp.org/DynaReport/23501.htm (or from cache)
-    for spec_to_download in unique_specs:
-        spec_page_markup = get_spec_page(spec_to_download, cache=cache)
-        spec_data = extract_spec_versions_from_spec_file(spec_page_markup)
-        spec_key = spec_data.spec[0:2] + '.' + spec_data.spec[2:]
-        last_spec_metadata[spec_key] = spec_data
+    class DownloadedSpecData(NamedTuple):
+        spec_key: str
+        spec_data: SpecVersionMapping
+
+    def get_spec_data(spec_to_download_str: str, cache_bool: bool) -> DownloadedSpecData:
+        spec_page_markup_from_server = get_spec_page(spec_to_download_str, cache=cache_bool)
+        spec_data_from_markdown = extract_spec_versions_from_spec_file(spec_page_markup_from_server)
+        spec_key_from_markdown = spec_data_from_markdown.spec[0:2] + '.' + spec_data_from_markdown.spec[2:]
+        return DownloadedSpecData(spec_key=spec_key_from_markdown, spec_data=spec_data_from_markdown)
+
+    # See https://docs.python.org/3/library/concurrent.futures.html
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_spec = {executor.submit(
+            get_spec_data,
+            spec_to_download_str,
+            cache): spec_to_download_str for spec_to_download_str in unique_specs}
+        for future in concurrent.futures.as_completed(future_to_spec):
+            spec_to_download = future_to_spec[future]
+            try:
+                downloaded_spec = future.result()
+                last_spec_metadata[downloaded_spec.spec_key] = downloaded_spec.spec_data
+            except Exception as exc:
+                print('%r generated an exception: %s' % (spec_to_download, exc))
 
     apply_spec_metadata_to_dataframe(specs_df, last_spec_metadata)
 
