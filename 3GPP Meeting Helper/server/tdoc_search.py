@@ -7,7 +7,7 @@ import parsing.word.pywin32
 import tdoc.utils
 import utils
 from application.zip_files import unzip_files_in_zip_file
-from server.common import download_file_to_location
+from server.common import download_file_to_location, FileToDownload, batch_download_file_to_location
 from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, create_folder_if_needed, file_exists
 
 # If more than this number of files are included in a zip file, the folder is opened instead.
@@ -224,12 +224,14 @@ def update_local_html_cache(redownload_if_exists=False):
         redownload_if_exists: Whether to force a download of the file(s) if they exist
     """
     print('Updating local cache')
+    files_to_download: List[FileToDownload] = []
     for k, v in meeting_pages_per_group.items():
         local_file = html_cache[k]
         if redownload_if_exists or not os.path.exists(local_file):
-            download_file_to_location(v, local_file)
+            files_to_download.append(FileToDownload(remote_url=v, local_filepath=local_file))
         else:
             print(f'Skipping download of {v} to {local_file}')
+    batch_download_file_to_location(files_to_download)
 
 
 def filter_markdown_text(markdown_text: str) -> str:
