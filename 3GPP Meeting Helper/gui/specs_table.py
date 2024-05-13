@@ -111,7 +111,7 @@ class SpecsTable(GenericTable):
         tkinter.Button(
             self.top_frame,
             text='Load ALL 2k+ specs',
-            command=self.load_new_specs).pack(side=tkinter.LEFT)
+            command=self.load_all_specs_from_server).pack(side=tkinter.LEFT)
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
@@ -218,7 +218,7 @@ class SpecsTable(GenericTable):
         # Refill list
         self.apply_filters()
 
-    def load_new_specs(self, *args):
+    def load_all_specs_from_server(self, *args):
         self.load_data(initial_load=True, check_for_new_specs=True)
         self.apply_filters()
 
