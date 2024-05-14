@@ -44,10 +44,13 @@ class ToolsDialog:
     bulk_ai_open_text = "Cache AIs (empty=all)"
     compare_tdocs_text = "Compare TDocs (left vs. right)"
 
-    def __init__(self, parent, favicon):
+    def __init__(self, parent: tkinter.Tk, favicon):
         top = self.top = tkinter.Toplevel(parent)
         top.title("Extended tools")
         top.iconbitmap(favicon)
+
+        self.favicon = favicon
+        self.top_level_widget: tkinter.Tk = parent
 
         columnspan = 4
 
@@ -89,8 +92,8 @@ class ToolsDialog:
             top,
             text='Open Tdoc table',
             command=lambda: gui.tdocs_table.TdocsTable(
-                gui.main.root,
-                gui.main.favicon,
+                self.top_level_widget,
+                self.favicon,
                 self,
                 gui.main.tkvar_meeting.get(),
                 retrieve_current_tdocs_by_agenda_fn=lambda: gui.main.open_tdocs_by_agenda(open_this_file=False),
@@ -105,21 +108,21 @@ class ToolsDialog:
         self.launch_spec_table = tkinter.Button(
             top,
             text='Open Specifications table',
-            command=lambda: gui.specs_table.SpecsTable(gui.main.root, gui.main.favicon, self))
+            command=lambda: gui.specs_table.SpecsTable(self.top_level_widget, self.favicon, self))
         self.launch_spec_table.grid(row=4, column=1, columnspan=int(columnspan / 4), sticky="EW")
 
         # Row 4: Table containing all 3GPP meetings
         self.launch_spec_table = tkinter.Button(
             top,
             text='Open Meetings table',
-            command=lambda: gui.meetings_table.MeetingsTable(gui.main.root, gui.main.favicon, self))
+            command=lambda: gui.meetings_table.MeetingsTable(self.top_level_widget, self.favicon, self))
         self.launch_spec_table.grid(row=4, column=2, columnspan=int(columnspan / 4), sticky="EW")
 
         # Row 4: Table containing all 3GPP WIs
         self.launch_spec_table = tkinter.Button(
             top,
             text='Open 3GPP WI table',
-            command=lambda: gui.work_items_table.WorkItemsTable(gui.main.root, gui.main.favicon, self))
+            command=lambda: gui.work_items_table.WorkItemsTable(self.top_level_widget, self.favicon, self))
         self.launch_spec_table.grid(row=4, column=3, columnspan=int(columnspan / 4), sticky="EW")
 
         self.tkvar_tdoc = tkinter.StringVar(top)
