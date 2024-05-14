@@ -112,6 +112,10 @@ class SpecsTable(GenericTable):
             self.top_frame,
             text='Load ALL 2k+ specs',
             command=self.load_all_specs_from_server).pack(side=tkinter.LEFT)
+        tkinter.Button(
+            self.top_frame,
+            text='Local Cache',
+            command=lambda: os.startfile(get_specs_folder())).pack(side=tkinter.LEFT)
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
