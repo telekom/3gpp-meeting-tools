@@ -1,6 +1,7 @@
 import concurrent.futures
 import os.path
 import pickle
+import re
 from urllib.parse import urlparse
 from typing import List, Tuple, Dict, NamedTuple
 
@@ -9,7 +10,7 @@ import html2text
 import server.specs
 from parsing.html.specs import extract_releases_from_latest_folder, extract_spec_series_from_spec_folder, \
     extract_spec_files_from_spec_folder, extract_spec_versions_from_spec_file, cleanup_spec_name
-from parsing.spec_types import SpecType, SpecVersionMapping
+from parsing.spec_types import SpecType, SpecVersionMapping, SpecSeries, SpecFile
 from server.common import decode_string, download_file_to_location
 from application.zip_files import unzip_files_in_zip_file
 from server.connection import get_html, HttpRequestTimeout
@@ -36,7 +37,11 @@ drafts_page = 'https://www.3gpp.org/ftp/Specs/latest-drafts'
 timeout_values = HttpRequestTimeout(3.05, 25)
 
 
-def get_html_page_and_save_cache(url: str, cache: bool, cache_file: str, cache_as_markup: bool) -> str:
+def get_html_page_and_save_cache(
+        url: str,
+        cache: bool,
+        cache_file: str,
+        cache_as_markup: bool) -> str:
     """
 
     Args:
@@ -54,6 +59,9 @@ def get_html_page_and_save_cache(url: str, cache: bool, cache_file: str, cache_a
         h = html2text.HTML2Text()
         h.ignore_links = False
         output_data = h.handle(html_decoded)
+
+        # Make file smaller
+        output_data = cleanup_markup_file(in_markup=output_data, log_str=url)
     else:
         output_data = html
 
@@ -70,6 +78,28 @@ def get_html_page_and_save_cache(url: str, cache: bool, cache_file: str, cache_a
     # If HTML is to be returned, bytes as-is are returned
     # If markup is to be returned, string is returned
     return output_data
+
+
+def cleanup_markup_file(in_markup: str, log_str: str) -> str:
+    """
+    General cleanup of a markup file
+    Args:
+        in_markup: the markup text (input)
+
+    Returns: Markup text after cleanup (output)
+
+    """
+    cleanup_markup = re.sub(r'\!\[\]\(images/.*\)', '', in_markup, flags=re.M)
+    cleanup_markup = re.sub(r'\[[ ]*##LOC\[[\w]+]##[ ]*]\(javascript:void\\\(0\\\);\)', '', cleanup_markup, flags=re.M)
+    cleanup_markup = (cleanup_markup
+                      .replace(' "Click to show meeting details"', '')
+                      .replace(' "Click to show meeting details"', '')
+                      .replace('"Click to download this version"', '')
+                      .replace('![icon](/ftp/geticon.axd?file=.zip)', '')
+                      )
+    print(
+        f'Cleaning up markup file {log_str}. IN: {len(in_markup)}, OUT: {len(cleanup_markup)}, {len(cleanup_markup) / len(in_markup) * 100}%')
+    return cleanup_markup
 
 
 def get_markup_file(file_url: str, cache: bool, cache_file: str, force_download=False) -> str:
@@ -97,6 +127,7 @@ def get_markup_file(file_url: str, cache: bool, cache_file: str, force_download=
             cache_file,
             cache,
             file_exists))
+
     return markup
 
 
@@ -218,21 +249,43 @@ def get_specs(
             series_data_per_release.append(series_data_for_release)
 
         all_specs_data = []
+
+        def task_per_series(series_to_process: SpecSeries) -> List[SpecFile]:
+            markup_series_data = get_series_folder_page(
+                series_data.series_url,
+                series_number=series_data.series,
+                release_number=series_data.release,
+                cache=latest_and_series_cache)
+            specs_data_for_series = extract_spec_files_from_spec_folder(
+                markup_series_data,
+                release=series_data.release,
+                series=series_data.series,
+                base_url=series_data.series_url)
+            return specs_data_for_series
+
+        all_spec_series:List[SpecSeries] = []
         for series_data_for_release in series_data_per_release:
-            # For each spec. series in each release, extract data
-            # For each release, extract data, e.g. from https://www.3gpp.org/ftp/Specs/latest/Rel-10/23_series
-            for series_data in series_data_for_release:
-                markup_series_data = get_series_folder_page(
-                    series_data.series_url,
-                    series_number=series_data.series,
-                    release_number=series_data.release,
-                    cache=latest_and_series_cache)
-                specs_data_for_series = extract_spec_files_from_spec_folder(
-                    markup_series_data,
-                    release=series_data.release,
-                    series=series_data.series,
-                    base_url=series_data.series_url)
-                all_specs_data.extend(specs_data_for_series)
+            all_spec_series.extend(series_data_for_release)
+
+        # For each spec. series in each release, extract data
+        # For each release, extract data, e.g. from https://www.3gpp.org/ftp/Specs/latest/Rel-10/23_series
+        # for series_data in all_spec_series:
+        #     all_specs_data.extend(task_per_series(series_data))
+
+        # See https://docs.python.org/3/library/concurrent.futures.html
+        # For each spec. series in each release, extract data
+        # For each release, extract data, e.g. from https://www.3gpp.org/ftp/Specs/latest/Rel-10/23_series
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_spec = {executor.submit(
+                task_per_series,
+                series_data): series_data for series_data in all_spec_series}
+            for future in concurrent.futures.as_completed(future_to_spec):
+                series_data = future_to_spec[future]
+                try:
+                    specs_data_for_series = future.result()
+                    all_specs_data.extend(specs_data_for_series)
+                except Exception as exc:
+                    print('%r generated an exception: %s' % (series_data, exc))
 
         # Retrieve Drafts folder
         # Get drafts page: https://www.3gpp.org/ftp/Specs/latest-drafts
@@ -272,7 +325,8 @@ def get_specs(
         return DownloadedSpecData(spec_key=spec_key_from_markdown, spec_data=spec_data_from_markdown)
 
     # See https://docs.python.org/3/library/concurrent.futures.html
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+    # 10 Executor threads because the spec. page is quite slow to load
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         future_to_spec = {executor.submit(
             get_spec_data,
             spec_to_download_str,
