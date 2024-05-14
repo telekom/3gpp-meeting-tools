@@ -4,7 +4,7 @@ import os.path
 import threading
 import tkinter
 import traceback
-from typing import List
+from typing import List, Callable
 
 import pandas
 import pythoncom
@@ -43,13 +43,19 @@ class ToolsDialog:
     bulk_ai_open_text = "Cache AIs (empty=all)"
     compare_tdocs_text = "Compare TDocs (left vs. right)"
 
-    def __init__(self, parent: tkinter.Tk, favicon):
+    def __init__(
+            self,
+            parent: tkinter.Tk,
+            favicon: str,
+            selected_meeting_fn: Callable[[], str]
+    ):
         top = self.top = tkinter.Toplevel(parent)
         top.title("Extended tools")
         top.iconbitmap(favicon)
 
         self.favicon = favicon
         self.top_level_widget: tkinter.Tk = parent
+        self.selected_meeting_fn = selected_meeting_fn
 
         columnspan = 4
 
@@ -68,18 +74,18 @@ class ToolsDialog:
         tkinter.Button(
             top,
             text="Open specs folder",
-            command=self.open_local_specs_folder).grid(row=0,
-                                                       column=2,
-                                                       columnspan=1,
-                                                       sticky="EW")
+            command=lambda: os.startfile(get_specs_folder())).grid(row=0,
+                                                                   column=2,
+                                                                   columnspan=1,
+                                                                   sticky="EW")
 
         tkinter.Button(
             top,
             text="Close Word",
-            command=self.close_word).grid(row=0,
-                                          column=3,
-                                          columnspan=1,
-                                          sticky="EW")
+            command=application.word.close_word).grid(row=0,
+                                                      column=3,
+                                                      columnspan=1,
+                                                      sticky="EW")
 
         # Row 1: Export TDocs by agenda to Excel
         self.export_button = tkinter.Button(top, text=ToolsDialog.export_text,
@@ -94,11 +100,11 @@ class ToolsDialog:
                 self.top_level_widget,
                 self.favicon,
                 self,
-                gui.main.tkvar_meeting.get(),
+                self.selected_meeting_fn(),
                 retrieve_current_tdocs_by_agenda_fn=lambda: gui.main.open_tdocs_by_agenda(open_this_file=False),
                 get_tdocs_by_agenda_for_selected_meeting_fn=gui.main.get_tdocs_by_agenda_for_selected_meeting,
                 download_and_open_tdoc_fn=gui.main.download_and_open_tdoc,
-                get_current_meeting_name_fn=gui.main.tkvar_meeting.get,
+                get_current_meeting_name_fn=self.selected_meeting_fn,
                 download_and_open_generic_tdoc_fn=search_download_and_open_tdoc
             ))
         self.launch_tdoc_table.grid(row=4, column=0, columnspan=int(columnspan / 4), sticky="EW")
@@ -254,20 +260,6 @@ class ToolsDialog:
         # Info after analyzing TDoc
         current_row = 9
 
-        # tkinter.ttk.Separator(top,orient=tkinter.HORIZONTAL).grid(row=current_row, columnspan=3, sticky=(tkinter.W,tkinter.E))
-
-        # current_row += 1
-        # tkinter.Label(top, text='Last opened TDoc:').grid(row=current_row, column=0)
-        # tkinter.Label(top, textvariable=self.tkvar_tdoc).grid(row=current_row, column=1)
-
-        # current_row += 1
-        # tkinter.Label(top, text='Original TDocs:').grid(row=current_row, column=0)
-        # self.original_tdocs_textbox = gui.main.get_text_with_scrollbar(current_row, 1, height=4, current_main_frame=top, width=100)
-
-        # current_row += 1
-        # tkinter.Label(top, text='Final TDocs:').grid(row=current_row, column=0)
-        # self.final_tdocs_textbox = gui.main.get_text_with_scrollbar(current_row, 1, height=4, current_main_frame=top, width=100)
-
         def set_original_tdocs(*args):
             self.original_tdocs_textbox.delete('1.0', tkinter.END)
             self.original_tdocs_textbox.insert(tkinter.END, self.tkvar_original_tdocs.get())
@@ -287,22 +279,15 @@ class ToolsDialog:
         top.grid_columnconfigure(3, weight=1)
 
     def open_local_meeting_folder(self):
-        selected_meeting = gui.main.tkvar_meeting.get()
+        selected_meeting = self.selected_meeting_fn()
         meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
             selected_meeting)
         if meeting_folder is not None:
             local_folder = utils.local_cache.get_meeting_folder(meeting_folder)
             os.startfile(local_folder)
 
-    def open_local_specs_folder(self):
-        local_folder = get_specs_folder()
-        os.startfile(local_folder)
-
-    def close_word(self):
-        application.word.close_word()
-
     def open_server_meeting_folder(self):
-        selected_meeting = gui.main.tkvar_meeting.get()
+        selected_meeting = self.selected_meeting_fn()
         meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
             selected_meeting)
         if meeting_folder is not None:
@@ -314,7 +299,7 @@ class ToolsDialog:
         if current_tdocs_by_agenda is None:
             print('Could not generate report. No current TDocsByAgenda found')
             return
-        selected_meeting = gui.main.tkvar_meeting.get()
+        selected_meeting = self.selected_meeting_fn()
         server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
             selected_meeting)
         ais_for_report = self.tkvar_ai_list_word_report.get()
@@ -364,9 +349,9 @@ class ToolsDialog:
             add_pivot_table=True):
         try:
             if selected_meeting is None:
-                selected_meeting = gui.main.tkvar_meeting.get()
+                selected_meeting = self.selected_meeting_fn()
             if output_meeting is None:
-                output_meeting = gui.main.tkvar_meeting.get()
+                output_meeting = self.selected_meeting_fn()
 
             input_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
                 selected_meeting)
@@ -569,7 +554,7 @@ class ToolsDialog:
             # Need to reinitialize COM on each thread
             # https://stackoverflow.com/questions/26745617/win32com-client-dispatch-cherrypy-coinitialize-has-not-been-called
             pythoncom.CoInitialize()
-            selected_meeting = gui.main.tkvar_meeting.get()
+            selected_meeting = self.selected_meeting_fn()
             generate_summary = self.outlook_generate_summary.get()
             parsing.outlook.process_email_approval(selected_meeting, generate_summary)
         finally:
@@ -596,7 +581,7 @@ class ToolsDialog:
         try:
             year_to_search = int(self.tkvar_year.get())
             meetings_to_check = application.meeting_helper.sa2_meeting_data.get_meetings_for_given_year(year_to_search)
-            output_meeting = gui.main.tkvar_meeting.get()
+            output_meeting = self.selected_meeting_fn()
 
             t = threading.Thread(
                 target=lambda: self.on_export_year_tdocs_by_agenda_to_excel(meetings_to_check, output_meeting,
@@ -666,7 +651,7 @@ class ToolsDialog:
             # Temporarily disable
             download_from_inbox = gui.main.inbox_is_for_this_meeting()
             meeting_folder_name = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
-                gui.main.tkvar_meeting.get())
+                self.selected_meeting_fn())
 
             do_something_on_thread(
                 task=lambda: server.tdoc.cache_tdocs(
@@ -736,7 +721,7 @@ class ToolsDialog:
             replace_author=final_author_name)
 
     def process_chairnotes(self):
-        selected_meeting = gui.main.tkvar_meeting.get()
+        selected_meeting = self.selected_meeting_fn()
         meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
             selected_meeting)
         local_file = server.chairnotes.download_chairnotes_file(meeting_folder)
