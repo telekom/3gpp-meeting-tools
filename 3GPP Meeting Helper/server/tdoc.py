@@ -1,3 +1,4 @@
+import concurrent.futures
 import datetime
 import os
 import os.path
@@ -169,6 +170,28 @@ def get_tdoc(
         return unzip_files_in_zip_file(tdoc_local_filename)
     else:
         return unzip_files_in_zip_file(tdoc_local_filename), zip_file_url
+
+
+def cache_tdocs(tdoc_list, download_from_inbox:bool, meeting_folder_name:str):
+    if tdoc_list is None:
+        return
+
+    # See https://docs.python.org/3/library/concurrent.futures.html
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_url = {executor.submit(
+            lambda tdoc_to_download_lambda: server.tdoc.get_tdoc(
+                meeting_folder_name=meeting_folder_name,
+                tdoc_id=tdoc_to_download_lambda,
+                use_inbox=download_from_inbox,
+                return_url=True,
+                searching_for_a_file=True),
+            tdoc_to_download_lambda): tdoc_to_download_lambda for tdoc_to_download_lambda in tdoc_list}
+        for future in concurrent.futures.as_completed(future_to_url):
+            file_to_download = future_to_url[future]
+            try:
+                retrieved_files, tdoc_url = future.result()
+            except Exception as exc:
+                print('%r generated an exception: %s' % (file_to_download, exc))
 
 
 def get_inbox_tdocs_list_cache_local_cache(create_dir=True):

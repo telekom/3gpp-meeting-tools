@@ -1,4 +1,3 @@
-import concurrent.futures
 import datetime
 import os
 import os.path
@@ -15,9 +14,9 @@ import application.meeting_helper
 import application.word
 import gui.main
 import gui.meetings_table
-import gui.work_items_table
 import gui.specs_table
 import gui.tdocs_table
+import gui.work_items_table
 import parsing.excel as excel_parser
 import parsing.html.common
 import parsing.outlook
@@ -30,7 +29,7 @@ from parsing.html.chairnotes import chairnotes_file_to_dataframe
 from parsing.html.revisions import extract_tdoc_revisions_from_html
 from server.specs import get_specs_folder
 from server.tdoc_search import search_download_and_open_tdoc
-from tdoc.utils import tdoc_regex
+from tdoc.utils import tdoc_regex, do_something_on_thread
 
 
 class ToolsDialog:
@@ -70,17 +69,17 @@ class ToolsDialog:
             top,
             text="Open specs folder",
             command=self.open_local_specs_folder).grid(row=0,
-                                                          column=2,
-                                                          columnspan=1,
-                                                          sticky="EW")
+                                                       column=2,
+                                                       columnspan=1,
+                                                       sticky="EW")
 
         tkinter.Button(
             top,
             text="Close Word",
             command=self.close_word).grid(row=0,
-                                                       column=3,
-                                                       columnspan=1,
-                                                       sticky="EW")
+                                          column=3,
+                                          columnspan=1,
+                                          sticky="EW")
 
         # Row 1: Export TDocs by agenda to Excel
         self.export_button = tkinter.Button(top, text=ToolsDialog.export_text,
@@ -152,7 +151,7 @@ class ToolsDialog:
                                                     command=self.outlook_email_approval)
         self.email_approval_button.grid(row=2, column=1, columnspan=2, sticky="EW")
         self.download_chairnotes = tkinter.Button(top, text="Process Chairman's Notes (be patient)",
-                                                    command=self.process_chairnotes)
+                                                  command=self.process_chairnotes)
         self.download_chairnotes.grid(row=2, column=3, columnspan=1, sticky="EW")
 
         # Row 3: Outlook tools (download email attachments)
@@ -287,10 +286,10 @@ class ToolsDialog:
         top.grid_columnconfigure(2, weight=1)
         top.grid_columnconfigure(3, weight=1)
 
-
     def open_local_meeting_folder(self):
         selected_meeting = gui.main.tkvar_meeting.get()
-        meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
+        meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+            selected_meeting)
         if meeting_folder is not None:
             local_folder = utils.local_cache.get_meeting_folder(meeting_folder)
             os.startfile(local_folder)
@@ -304,7 +303,8 @@ class ToolsDialog:
 
     def open_server_meeting_folder(self):
         selected_meeting = gui.main.tkvar_meeting.get()
-        meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
+        meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+            selected_meeting)
         if meeting_folder is not None:
             remote_folder = server.common.get_remote_meeting_folder(meeting_folder)
             os.startfile(remote_folder)
@@ -315,7 +315,8 @@ class ToolsDialog:
             print('Could not generate report. No current TDocsByAgenda found')
             return
         selected_meeting = gui.main.tkvar_meeting.get()
-        server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
+        server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+            selected_meeting)
         ais_for_report = self.tkvar_ai_list_word_report.get()
         if (ais_for_report is not None) and (ais_for_report != ''):
             try:
@@ -367,8 +368,10 @@ class ToolsDialog:
             if output_meeting is None:
                 output_meeting = gui.main.tkvar_meeting.get()
 
-            input_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
-            output_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(output_meeting)
+            input_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+                selected_meeting)
+            output_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+                output_meeting)
             inbox_active = gui.main.inbox_is_for_this_meeting()
 
             input_local_agenda_file = server.tdoc.download_agenda_file(selected_meeting, inbox_active)
@@ -621,32 +624,6 @@ class ToolsDialog:
                 destination_folder=utils.local_cache.get_cache_folder(),
                 add_pivot_table=False)
 
-    def cache_tdocs(self, tdoc_list):
-        if tdoc_list is None:
-            return
-
-        download_from_inbox = gui.main.inbox_is_for_this_meeting()
-        meeting_folder_name = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
-            gui.main.tkvar_meeting.get())
-
-        # See https://docs.python.org/3/library/concurrent.futures.html
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            future_to_url = {executor.submit(
-                lambda tdoc_to_download_lambda: server.tdoc.get_tdoc(
-                    meeting_folder_name=meeting_folder_name,
-                    tdoc_id=tdoc_to_download_lambda,
-                    use_inbox=download_from_inbox,
-                    return_url=True,
-                    searching_for_a_file=True),
-                tdoc_to_download_lambda): tdoc_to_download_lambda for tdoc_to_download_lambda in tdoc_list}
-            for future in concurrent.futures.as_completed(future_to_url):
-                file_to_download = future_to_url[future]
-                try:
-                    retrieved_files, tdoc_url = future.result()
-                except Exception as exc:
-                    print('%r generated an exception: %s' % (file_to_download, exc))
-
-
     def bulk_cache_ais(self):
         try:
             tdocs = application.meeting_helper.current_tdocs_by_agenda.tdocs
@@ -687,7 +664,20 @@ class ToolsDialog:
                     print('{0} items in AI {1}, total items: {2}'.format(len(ai_tdocs), ai, len(tdocs.index)))
 
             # Temporarily disable
-            self.cache_tdocs(tdocs_to_cache)
+            download_from_inbox = gui.main.inbox_is_for_this_meeting()
+            meeting_folder_name = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+                gui.main.tkvar_meeting.get())
+
+            do_something_on_thread(
+                task=lambda: server.tdoc.cache_tdocs(
+                    tdoc_list=tdocs_to_cache,
+                    download_from_inbox=download_from_inbox,
+                    meeting_folder_name=meeting_folder_name),
+                before_starting=lambda: self.ai_bulk_open_button.config(state=tkinter.DISABLED),
+                after_task=lambda: self.ai_bulk_open_button.config(state=tkinter.NORMAL),
+                on_error_log='General error performing bulk AI caching'
+            )
+
         except:
             print('General error performing bulk AI caching')
             traceback.print_exc()
@@ -747,7 +737,8 @@ class ToolsDialog:
 
     def process_chairnotes(self):
         selected_meeting = gui.main.tkvar_meeting.get()
-        meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(selected_meeting)
+        meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+            selected_meeting)
         local_file = server.chairnotes.download_chairnotes_file(meeting_folder)
         latest_chairnotes_df = chairnotes_file_to_dataframe(local_file)
         print(latest_chairnotes_df)
