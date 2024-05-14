@@ -1,3 +1,4 @@
+import concurrent.futures
 import datetime
 import os
 import os.path
@@ -621,15 +622,27 @@ class ToolsDialog:
         if tdoc_list is None:
             return
 
-        gui.main.open_downloaded_tdocs = False
-        for tdoc_to_download in tdoc_list:
-            try:
-                gui.main.tkvar_tdoc_id.set(tdoc_to_download)
-                gui.main.download_and_open_tdoc()
-            except:
-                print('Could not download TDoc {0}'.format(tdoc_to_download))
-                traceback.print_exc()
-        gui.main.open_downloaded_tdocs = True
+        download_from_inbox = gui.main.inbox_is_for_this_meeting()
+        meeting_folder_name = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+            gui.main.tkvar_meeting.get())
+
+        # See https://docs.python.org/3/library/concurrent.futures.html
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_url = {executor.submit(
+                lambda tdoc_to_download_lambda: server.tdoc.get_tdoc(
+                    meeting_folder_name=meeting_folder_name,
+                    tdoc_id=tdoc_to_download_lambda,
+                    use_inbox=download_from_inbox,
+                    return_url=True,
+                    searching_for_a_file=True),
+                tdoc_to_download_lambda): tdoc_to_download_lambda for tdoc_to_download_lambda in tdoc_list}
+            for future in concurrent.futures.as_completed(future_to_url):
+                file_to_download = future_to_url[future]
+                try:
+                    retrieved_files, tdoc_url = future.result()
+                except Exception as exc:
+                    print('%r generated an exception: %s' % (file_to_download, exc))
+
 
     def bulk_cache_ais(self):
         try:
