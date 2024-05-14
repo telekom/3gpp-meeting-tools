@@ -28,7 +28,12 @@ def get_word():
     return word
 
 
-def set_sensitivity_label(document):
+def set_sensitivity_label(
+        document,
+        label_id='55339bf0-f345-473a-9ec8-6ca7c8197055',
+        label_name='OFFEN',
+        set_date='2022-08-18T09:04:30Z'
+):
     # Added code in case sensitivity labels are required. Meeting documents are public
     did_something = False
     try:
@@ -43,9 +48,9 @@ def set_sensitivity_label(document):
             new_sl.ContentBits = 0
             new_sl.IsEnabled = True
             new_sl.Justification = ''
-            new_sl.LabelId = '55339bf0-f345-473a-9ec8-6ca7c8197055'
-            new_sl.LabelName = 'OFFEN'
-            new_sl.SetDate = '2022-08-18T09:04:30Z'
+            new_sl.LabelId = label_id
+            new_sl.LabelName = label_name
+            new_sl.SetDate = set_date
             new_sl.SiteId = str(uuid.uuid1())
             document.SensitivityLabel.SetLabel(new_sl, new_sl)
             print('  Set SensitivityLabel to {0}'.format(new_sl.LabelName))
@@ -89,9 +94,8 @@ main_frame.grid(column=0, row=0, sticky=(tkinter.N, tkinter.W, tkinter.E, tkinte
 tkvar_folder_name = tkinter.StringVar(root)
 
 open_tdoc_button = tkinter.Button(main_frame, text='Set Sensitivity Label', command=set_label_to_docs_list)
-open_tdoc_button.grid(row=0, column=1, padx=10, pady=10, sticky="EW",)
+open_tdoc_button.grid(row=0, column=1, padx=10, pady=10, sticky="EW", )
 folder_entry = tkinter.Entry(main_frame, textvariable=tkvar_folder_name, width=75, font='TkDefaultFont')
 folder_entry.grid(row=0, column=2, padx=10, pady=10)
 
 root.mainloop()
-
