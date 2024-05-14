@@ -540,7 +540,10 @@ def start_main_gui():
     (tkinter.Button(
         main_frame,
         text='Tools',
-        command=lambda: gui.tools.ToolsDialog(gui.main.root, gui.main.favicon))
+        command=lambda: gui.tools.ToolsDialog(
+            gui.main.root,
+            gui.main.favicon,
+            selected_meeting_fn=gui.main.tkvar_meeting.get))
      .grid(row=current_row, column=0, sticky="EW"))
     open_tdoc_button.configure(command=download_and_open_tdoc)
     root.bind('<Return>', on_press_enter_key)  # Bind the enter key in this frame to searching for the TDoc

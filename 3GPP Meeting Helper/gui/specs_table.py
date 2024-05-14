@@ -435,7 +435,7 @@ class SpecVersionsTable:
         tkinter.Button(
             frame_3,
             text='Open local folder',
-            command=self.open_cache_folder).pack(side=tkinter.LEFT)
+            command=lambda: os.startfile(get_specs_folder(spec_id=self.spec_id))).pack(side=tkinter.LEFT)
 
         tkinter.Button(
             frame_3,
@@ -634,10 +634,6 @@ class SpecVersionsTable:
 
         # ToDo: Save comparison document
         return comparison_document
-
-    def open_cache_folder(self):
-        folder_name = get_specs_folder(spec_id=self.spec_id)
-        os.startfile(folder_name)
 
     def reload_spec_file(self):
         get_spec_page(self.spec_id, cache=True, force_download=True)
