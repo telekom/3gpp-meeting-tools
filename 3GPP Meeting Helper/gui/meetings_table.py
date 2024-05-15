@@ -114,7 +114,7 @@ class MeetingsTable(GenericTable):
             self.loaded_meeting_entries = tdoc_search.loaded_meeting_entries
         print('Finished loading meetings')
 
-    def insert_rows(self):
+    def insert_rows(self, tdoc_override=False):
         print('Populating meetings table')
 
         if self.chosen_meeting is None:
@@ -124,7 +124,7 @@ class MeetingsTable(GenericTable):
 
         # Filter by selected group
         selected_group = self.combo_groups.get()
-        if selected_group != 'All':
+        if (selected_group != 'All') and (not tdoc_override):
             meeting_list_to_consider = [m for m in meeting_list_to_consider if m.meeting_group == selected_group]
 
         # Sort list by date
@@ -175,9 +175,9 @@ class MeetingsTable(GenericTable):
         self.load_data(initial_load=True)
         self.apply_filters()
 
-    def apply_filters(self):
+    def apply_filters(self, tdoc_override=False):
         self.tree.delete(*self.tree.get_children())
-        self.insert_rows()
+        self.insert_rows(tdoc_override=tdoc_override)
 
     def select_groups(self, *args):
         self.apply_filters()
@@ -266,4 +266,4 @@ class MeetingsTable(GenericTable):
         self.chosen_meeting = meeting_for_tdoc
         self.combo_groups.configure(state="disabled")
 
-        self.apply_filters()
+        self.apply_filters(tdoc_override=True)
