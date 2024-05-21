@@ -8,7 +8,7 @@ default_font_size = 12
 
 # Set application icon
 # https://stackoverflow.com/questions/18537918/set-window-icon
-favicon = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'favicon.ico')
+favicon = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', '..', 'favicon.ico')
 
 
 def fix_blurry_fonts_in_windows_10():

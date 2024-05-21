@@ -11,8 +11,8 @@ from pyperclip import copy as clipboard_copy
 
 import application.meeting_helper
 import application.word
-import gui.config
-import gui.tools
+import gui.network_config
+import gui.tools_overview
 import parsing.html.common
 import parsing.html.common as html_parser
 import parsing.word.pywin32
@@ -21,13 +21,13 @@ import server.tdoc
 import server.tdoc_search
 import tdoc.utils
 import utils.local_cache
-from gui.common import favicon
+from gui.common.utils import favicon
 
 # tkinter initialization
 root = tkinter.Tk()
 root.title("3GPP SA2 Meeting helper")
 
-root.iconbitmap(favicon)
+root.iconbitmap(gui.common.utils.favicon)
 
 # Add a grid
 main_frame = tkinter.Frame(root)
@@ -35,7 +35,7 @@ main_frame.grid(column=0, row=0, sticky=(tkinter.N, tkinter.W, tkinter.E, tkinte
 
 
 def set_waiting_for_proxy_message():
-    return gui.common.set_waiting_for_proxy_message(main_frame)
+    return gui.common.utils.set_waiting_for_proxy_message(main_frame)
 
 
 # global variables
@@ -513,7 +513,7 @@ def start_main_gui():
     (tkinter.Button(
         main_frame,
         text='Network config',
-        command=lambda: gui.config.NetworkConfigDialog(root, favicon, on_update_ftp=gui.main.update_ftp_button))
+        command=lambda: gui.network_config.NetworkConfigDialog(root, favicon, on_update_ftp=gui.main_gui.update_ftp_button))
      .grid(row=current_row, column=0, sticky="EW"))
     (tkinter.Checkbutton(
         main_frame,
@@ -538,10 +538,10 @@ def start_main_gui():
     (tkinter.Button(
         main_frame,
         text='Tools',
-        command=lambda: gui.tools.ToolsDialog(
-            gui.main.root,
-            gui.main.favicon,
-            selected_meeting_fn=gui.main.tkvar_meeting.get))
+        command=lambda: gui.tools_overview.ToolsDialog(
+            gui.main_gui.root,
+            gui.main_gui.favicon,
+            selected_meeting_fn=gui.main_gui.tkvar_meeting.get))
      .grid(row=current_row, column=0, sticky="EW"))
     open_tdoc_button.configure(command=download_and_open_tdoc)
     root.bind('<Return>', on_press_enter_key)  # Bind the enter key in this frame to searching for the TDoc
@@ -678,7 +678,7 @@ def start_main_gui():
 
 
 # Avoid circular references by setting the TDoc open function at runtime
-tdoc.utils.open_tdoc_for_compare_fn = lambda tdoc_id, cached_tdocs_list: gui.main.download_and_open_tdoc(
+tdoc.utils.open_tdoc_for_compare_fn = lambda tdoc_id, cached_tdocs_list: gui.main_gui.download_and_open_tdoc(
     tdoc_id_to_override=tdoc_id,
     cached_tdocs_list=cached_tdocs_list,
     skip_opening=True)

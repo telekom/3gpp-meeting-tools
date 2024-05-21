@@ -11,7 +11,7 @@ import application
 import application.word
 import parsing.word.pywin32 as word_parser
 from application.os import open_url_and_copy_to_clipboard
-from gui.generic_table import set_column, GenericTable, treeview_set_row_formatting
+from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from parsing.html.specs import extract_spec_files_from_spec_folder, cleanup_spec_name
 from parsing.spec_types import get_spec_full_name, SpecType
 from server import specs
@@ -42,12 +42,12 @@ class SpecsTable(GenericTable):
         self.root_widget = root_widget
         self.spec_count = tkinter.StringVar()
 
-        set_column(self.tree, 'Spec', "Spec #", width=110)
-        set_column(self.tree, 'Title', width=SpecsTable.title_width, center=False)
-        set_column(self.tree, 'Versions', width=70)
-        set_column(self.tree, 'Local Cache', width=80)
-        set_column(self.tree, 'Group', width=70)
-        set_column(self.tree, 'CRs', width=70)
+        self.set_column('Spec', "Spec #", width=110)
+        self.set_column('Title', width=SpecsTable.title_width, center=False)
+        self.set_column('Versions', width=70)
+        self.set_column('Local Cache', width=80)
+        self.set_column('Group', width=70)
+        self.set_column('CRs', width=70)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -404,14 +404,14 @@ class SpecVersionsTable(GenericTable):
         self.count = 0
         self.spec_entries = self.load_spec_data()
 
-        set_column(self.tree, 'Spec', "Spec #", width=110, center=True)
-        set_column(self.tree, 'Version', width=60, center=True)
-        set_column(self.tree, 'Upload Date', width=100, center=True)
-        set_column(self.tree, 'Open Word', width=122, center=True)
-        set_column(self.tree, 'Open PDF', width=115, center=True)
-        set_column(self.tree, 'Open HTML', width=127, center=True)
-        set_column(self.tree, '+Compare A', width=100, center=True)
-        set_column(self.tree, '+Compare B', width=100, center=True)
+        self.set_column('Spec', "Spec #", width=110, center=True)
+        self.set_column('Version', width=60, center=True)
+        self.set_column('Upload Date', width=100, center=True)
+        self.set_column('Open Word', width=122, center=True)
+        self.set_column('Open PDF', width=115, center=True)
+        self.set_column('Open HTML', width=127, center=True)
+        self.set_column('+Compare A', width=100, center=True)
+        self.set_column('+Compare B', width=100, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -515,7 +515,8 @@ class SpecVersionsTable(GenericTable):
                 upload_date,
                 ('Open' if spec_locally_available.zip else 'Download') + ' Word',
                 ('Open' if spec_locally_available.pdf or spec_locally_available.pdf_mcc_clean else 'Download') + ' PDF',
-                ('Open' if spec_locally_available.html or spec_locally_available.html_mcc_clean else 'Download') + ' HTML',
+                (
+                    'Open' if spec_locally_available.html or spec_locally_available.html_mcc_clean else 'Download') + ' HTML',
                 'Click',
                 'Click'
             )

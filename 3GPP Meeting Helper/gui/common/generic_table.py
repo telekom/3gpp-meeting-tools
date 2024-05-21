@@ -3,7 +3,7 @@ from tkinter import ttk
 from tkinter.ttk import Treeview
 from typing import List
 
-from gui.TkWidget import TkWidget
+from gui.common.tkinter_widget import TkWidget
 
 column_separator_str = "     "
 
@@ -142,3 +142,6 @@ class GenericTable(TkWidget):
     def clear_tree(self):
         if self.tree is not None:
             self.tree.delete(*self.tree.get_children())
+
+    def set_column(self, col: str, label: str = None, width=None, sort=True, center=True):
+        set_column(self.tree, col=col, label=label, width=width, sort=sort, center=center)
