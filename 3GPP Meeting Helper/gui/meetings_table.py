@@ -8,7 +8,7 @@ import pyperclip
 import server
 from application.excel import open_excel_document
 from application.os import open_url
-from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting, column_separator_str
+from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from server import tdoc_search
 from server.common import download_file_to_location
 from server.tdoc_search import MeetingEntry, search_meeting_for_tdoc
@@ -27,7 +27,8 @@ class MeetingsTable(GenericTable):
             parent_widget=parent_widget,
             widget_title="Meetings Table. Double-click start date for invitation. End date for report",
             favicon=favicon,
-            column_names=['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents', 'TDoc List', 'TDoc Excel'],
+            column_names=['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents', 'TDoc List',
+                          'TDoc Excel'],
             row_height=35,
             display_rows=14,
             root_widget=root_widget
@@ -38,15 +39,15 @@ class MeetingsTable(GenericTable):
 
         self.meeting_count = tkinter.StringVar()
 
-        set_column(self.tree, 'Meeting', width=200, center=True)
-        set_column(self.tree, 'Location', width=200, center=True)
-        set_column(self.tree, 'Start', width=120, center=True)
-        set_column(self.tree, 'End', width=120, center=True)
-        set_column(self.tree, 'TDoc Start', width=100, center=True)
-        set_column(self.tree, 'TDoc End', width=100, center=True)
-        set_column(self.tree, 'Documents', width=100, center=True)
-        set_column(self.tree, 'TDoc List', width=100, center=True)
-        set_column(self.tree, 'TDoc Excel', width=100, center=True)
+        self.set_column('Meeting', width=200, center=True)
+        self.set_column('Location', width=200, center=True)
+        self.set_column('Start', width=120, center=True)
+        self.set_column('End', width=120, center=True)
+        self.set_column('TDoc Start', width=100, center=True)
+        self.set_column('TDoc End', width=100, center=True)
+        self.set_column('Documents', width=100, center=True)
+        self.set_column('TDoc List', width=100, center=True)
+        self.set_column('TDoc Excel', width=100, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 

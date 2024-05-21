@@ -11,13 +11,15 @@ import pandas as pd
 import pyperclip
 
 import application
+import application.meeting_helper
 import gui
+import gui.main_gui
 import tdoc.utils
 import utils.local_cache
 from application import powerpoint
 from application.excel import open_excel_document, set_first_row_as_filter, vertically_center_all_text, save_wb, \
     set_column_width, set_wrap_text, hide_column
-from gui.generic_table import GenericTable, set_column, treeview_sort_column, treeview_set_row_formatting
+from gui.common.generic_table import GenericTable, treeview_sort_column, treeview_set_row_formatting
 from parsing.html.revisions import revisions_file_to_dataframe
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 from parsing.word.pywin32 import parse_list_of_crs
@@ -78,15 +80,15 @@ class TdocsTable(GenericTable):
         self.revisions_list = None
         self.revisions = None
 
-        set_column(self.tree, 'TDoc', "TDoc #", width=110)
-        set_column(self.tree, 'AI', width=50)
-        set_column(self.tree, 'Type', width=120)
-        set_column(self.tree, 'Title', width=TdocsTable.title_width, center=False)
-        set_column(self.tree, 'Source', width=TdocsTable.source_width, center=False)
-        set_column(self.tree, 'Revs', width=50)
-        set_column(self.tree, 'Emails', width=50)
-        set_column(self.tree, 'Send @', width=50, sort=False)
-        set_column(self.tree, 'Result', width=100)
+        self.set_column('TDoc', "TDoc #", width=110)
+        self.set_column('AI', width=50)
+        self.set_column('Type', width=120)
+        self.set_column('Title', width=TdocsTable.title_width, center=False)
+        self.set_column('Source', width=TdocsTable.source_width, center=False)
+        self.set_column('Revs', width=50)
+        self.set_column('Emails', width=50)
+        self.set_column('Send @', width=50, sort=False)
+        self.set_column('Result', width=100)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -354,7 +356,7 @@ class TdocsTable(GenericTable):
         print("Will export {0} CRs".format(len(file_path_list)))
         # print(file_path_list)
 
-        selected_meeting = gui.main.tkvar_meeting.get()
+        selected_meeting = gui.main_gui.tkvar_meeting.get()
 
         # Generate output filename for the CR summary Excel
         server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
@@ -571,10 +573,10 @@ class RevisionsTable(GenericTable):
         self.compare_a = tkinter.StringVar()
         self.compare_b = tkinter.StringVar()
 
-        set_column(self.tree, 'TDoc', "TDoc #", width=110, center=True)
-        set_column(self.tree, 'Rev.', width=50, center=True)
-        set_column(self.tree, 'Add to compare A', width=110, center=True)
-        set_column(self.tree, 'Add to compare B', width=110, center=True)
+        self.set_column('TDoc', "TDoc #", width=110, center=True)
+        self.set_column('Rev.', width=50, center=True)
+        self.set_column('Add to compare A', width=110, center=True)
+        self.set_column('Add to compare B', width=110, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 

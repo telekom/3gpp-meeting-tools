@@ -5,7 +5,7 @@ from tkinter import ttk
 from typing import List
 
 from application.os import open_url
-from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting
+from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from server import wi_search
 from server.connection import get_html
 from server.tdoc_search import search_download_and_open_tdoc
@@ -36,14 +36,14 @@ class WorkItemsTable(GenericTable):
 
         self.wi_count = tkinter.StringVar()
 
-        set_column(self.tree, 'UID', width=90, center=True)
-        set_column(self.tree, 'Code', width=230, center=False)
-        set_column(self.tree, 'Title', width=575, center=False)
-        set_column(self.tree, 'Release', width=90, center=True)
-        set_column(self.tree, 'Lead body', width=100, center=True)
-        set_column(self.tree, 'WID', width=50, center=True)
-        set_column(self.tree, 'Specs', width=50, center=True)
-        set_column(self.tree, 'CRs', width=50, center=True)
+        self.set_column('UID', width=90, center=True)
+        self.set_column('Code', width=230, center=False)
+        self.set_column('Title', width=575, center=False)
+        self.set_column('Release', width=90, center=True)
+        self.set_column('Lead body', width=100, center=True)
+        self.set_column('WID', width=50, center=True)
+        self.set_column('Specs', width=50, center=True)
+        self.set_column('CRs', width=50, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
         column_separator_str = "     "

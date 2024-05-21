@@ -7,7 +7,7 @@ from time import sleep
 
 import pandas as pd
 
-import gui.main
+import gui.main_gui
 import parsing.excel as excel_parser
 import server.common
 import server.tdoc
@@ -42,7 +42,7 @@ def get_attachment_data(text):
 def organize_email_approval_attachments(meeting_name, ai_folders):
     tmp_folder = utils.local_cache.get_tmp_folder()
     local_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting_name)
-    download_from_inbox = gui.main.inbox_is_for_this_meeting()
+    download_from_inbox = gui.main_gui.inbox_is_for_this_meeting()
     found_emails_with_chairmans_notes = []
     email_list = []
     checked_tdocs = set()
@@ -318,7 +318,7 @@ def process_email_approval(meeting_name, generate_summary=True):
         return
 
     # We will need this to organize the emails
-    tdoc_data = gui.main.open_tdocs_by_agenda(open_this_file=False)
+    tdoc_data = gui.main_gui.open_tdocs_by_agenda(open_this_file=False)
 
     print('Parsing SA2 emails and searching for email approval emails ({0})'.format(meeting_name))
     email_approval_emails = get_email_approval_emails(sa2_folder, sa2_email_approval_meeting_folder, tdoc_data)

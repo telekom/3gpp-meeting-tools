@@ -12,7 +12,8 @@ import pythoncom
 import application.excel
 import application.meeting_helper
 import application.word
-import gui.main
+import gui.main_gui
+import gui.common.utils
 import gui.meetings_table
 import gui.specs_table
 import gui.tdocs_table
@@ -24,8 +25,9 @@ import parsing.word.pywin32 as word_parser
 import server.chairnotes
 import server.common
 import server.tdoc
+import tdoc
 import utils.local_cache
-from gui.TkWidget import TkWidget
+from gui.common.tkinter_widget import TkWidget
 from parsing.html.chairnotes import chairnotes_file_to_dataframe
 from parsing.html.revisions import extract_tdoc_revisions_from_html
 from server.specs import get_specs_folder
@@ -105,9 +107,9 @@ class ToolsDialog(TkWidget):
                 favicon=self.favicon,
                 parent_widget=self.tk_top,
                 meeting_name=self.selected_meeting_fn(),
-                retrieve_current_tdocs_by_agenda_fn=lambda: gui.main.open_tdocs_by_agenda(open_this_file=False),
-                get_tdocs_by_agenda_for_selected_meeting_fn=gui.main.get_tdocs_by_agenda_for_selected_meeting,
-                download_and_open_tdoc_fn=gui.main.download_and_open_tdoc,
+                retrieve_current_tdocs_by_agenda_fn=lambda: gui.main_gui.open_tdocs_by_agenda(open_this_file=False),
+                get_tdocs_by_agenda_for_selected_meeting_fn=gui.main_gui.get_tdocs_by_agenda_for_selected_meeting,
+                download_and_open_tdoc_fn=gui.main_gui.download_and_open_tdoc,
                 get_current_meeting_name_fn=self.selected_meeting_fn,
                 download_and_open_generic_tdoc_fn=search_download_and_open_tdoc
             ))
@@ -225,7 +227,7 @@ class ToolsDialog(TkWidget):
         self.compare_tdocs_button = tkinter.Button(
             self.tk_top,
             text=ToolsDialog.compare_tdocs_text,
-            command=lambda: gui.main.compare_tdocs(
+            command=lambda: tdoc.utils.compare_tdocs(
                 get_entry_1_fn=self.tkvar_tdoc_to_compare_1.get,
                 get_entry_2_fn=self.tkvar_tdoc_to_compare_2.get))
         self.compare_tdocs_button.grid(row=7, column=0, columnspan=1, sticky="EW")
@@ -373,7 +375,7 @@ class ToolsDialog(TkWidget):
                 selected_meeting)
             output_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
                 output_meeting)
-            inbox_active = gui.main.inbox_is_for_this_meeting()
+            inbox_active = gui.main_gui.inbox_is_for_this_meeting()
 
             input_local_agenda_file = server.tdoc.download_agenda_file(selected_meeting, inbox_active)
             if input_local_agenda_file is None:
@@ -430,7 +432,7 @@ class ToolsDialog(TkWidget):
             add_pivot_summary=True):
         try:
             tdocs_by_agenda = parsing.html.common.tdocs_by_agenda(
-                gui.main.get_tdocs_by_agenda_file_or_url(local_agenda_file),
+                gui.main_gui.get_tdocs_by_agenda_file_or_url(local_agenda_file),
                 meeting_server_folder=meeting_folder
             )
 
@@ -665,7 +667,7 @@ class ToolsDialog(TkWidget):
                     print('{0} items in AI {1}, total items: {2}'.format(len(ai_tdocs), ai, len(tdocs.index)))
 
             # Temporarily disable
-            download_from_inbox = gui.main.inbox_is_for_this_meeting()
+            download_from_inbox = gui.main_gui.inbox_is_for_this_meeting()
             meeting_folder_name = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
                 self.selected_meeting_fn())
 
@@ -682,8 +684,6 @@ class ToolsDialog(TkWidget):
         except:
             print('General error performing bulk AI caching')
             traceback.print_exc()
-
-
 
     def replace_document_revisions_author(self):
         original_author_name_to_replace = self.original_author_name.get()

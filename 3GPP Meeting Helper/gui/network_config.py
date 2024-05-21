@@ -6,6 +6,7 @@ import traceback
 import server.connection
 from requests_digest_proxy import HTTPProxyDigestAuth
 
+
 # Wait for proxy settings
 # https://stackoverflow.com/questions/38678415/how-to-wait-for-response-from-modal-window-before-continuing-using-tkinter
 class NetworkConfigDialog:
