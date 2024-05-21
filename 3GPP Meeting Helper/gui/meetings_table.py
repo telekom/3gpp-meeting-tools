@@ -18,18 +18,23 @@ from utils.local_cache import file_exists
 
 class MeetingsTable(GenericTable):
 
-    def __init__(self, parent, favicon, parent_gui_tools):
-        super().__init__(
-            parent,
-            "Meetings Table. Double-click start date for invitation. End date for report",
+    def __init__(
+            self,
+            root_widget: tkinter.Tk,
             favicon,
-            ['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents', 'TDoc List', 'TDoc Excel'],
+            parent_widget: tkinter.Tk):
+        super().__init__(
+            parent_widget=parent_widget,
+            widget_title="Meetings Table. Double-click start date for invitation. End date for report",
+            favicon=favicon,
+            column_names=['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents', 'TDoc List', 'TDoc Excel'],
             row_height=35,
-            display_rows=14
+            display_rows=14,
+            root_widget=root_widget
         )
         self.loaded_meeting_entries: List[MeetingEntry] | None = None
         self.chosen_meeting: MeetingEntry | None = None
-        self.parent_gui_tools = parent_gui_tools
+        self.root_widget = root_widget
 
         self.meeting_count = tkinter.StringVar()
 
@@ -149,7 +154,7 @@ class MeetingsTable(GenericTable):
                 tdoc_excel_str = 'Tdoc Excel'
 
             # 'Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents'
-            self.tree.insert("", "end", tags=(tag,), values=(
+            values = (
                 meeting.meeting_name,
                 meeting.meeting_location,
                 meeting.start_date.strftime('%Y-%m-%d'),
@@ -159,7 +164,8 @@ class MeetingsTable(GenericTable):
                 documents_str,
                 tdoc_list_str,
                 tdoc_excel_str
-            ))
+            )
+            self.tree.insert("", "end", tags=(tag,), values=values)
 
         treeview_set_row_formatting(self.tree)
         self.meeting_count.set('{0} meetings'.format(count))

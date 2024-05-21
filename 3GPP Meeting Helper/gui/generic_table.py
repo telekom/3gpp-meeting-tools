@@ -3,6 +3,8 @@ from tkinter import ttk
 from tkinter.ttk import Treeview
 from typing import List
 
+from gui.TkWidget import TkWidget
+
 column_separator_str = "     "
 
 
@@ -15,8 +17,9 @@ def set_column(tree: Treeview, col: str, label: str = None, width=None, sort=Tru
         label: Label for the column (if any)
         width: Set column width (if any)
         sort: Whether to sort the column (asc)
-        center:  Whether to certer the column
+        center:  Whether to center the column
     """
+
     if label is None:
         label = col
     if sort:
@@ -46,31 +49,42 @@ def treeview_set_row_formatting(tree: Treeview):
     tree.tag_configure('even', background='#DFDFDF')
 
 
-class GenericTable:
+class GenericTable(TkWidget):
 
-    def __init__(self, parent, title: str, favicon, column_names: List[str],
-                 row_height=55,
-                 display_rows=10):
+    def __init__(
+            self,
+            parent_widget: tkinter.Tk,
+            widget_title: str,
+            favicon,
+            column_names: List[str],
+            row_height=55,
+            display_rows=10,
+            root_widget: tkinter.Tk | None = None,
+    ):
         """
         Base class for table GUIs in this application
         Args:
             display_rows: Number of rows to display in widget
             row_height: Row height for each row in the widget
-            parent: The caller GUI (e.g. tools dialog)
-            title: The title of this GUI. Will appear at the top of the GUI
+            parent_widget: The caller GUI (e.g. tools dialog)
+            widget_title: The title of this GUI. Will appear at the top of the GUI
             favicon: Icon to show in the top-left corner of this GUI
         """
-        self.style_name = 'mystyle.Treeview'
+
+        super().__init__(
+            root_widget=root_widget,
+            parent_widget=parent_widget,
+            widget_title=widget_title,
+            favicon=favicon
+        )
+
+        self.style_name = f'mystyle.Treeview.{self.class_type}'
         self.style = None
         self.init_style(row_height=row_height)
-        self.top = tkinter.Toplevel(parent)
-        self.top.title(title)
-        self.top.iconbitmap(favicon)
-        self.favicon = favicon
 
-        self.top_frame = tkinter.Frame(self.top)
-        self.main_frame = tkinter.Frame(self.top)
-        self.bottom_frame = tkinter.Frame(self.top)
+        self.top_frame = tkinter.Frame(self.tk_top)
+        self.main_frame = tkinter.Frame(self.tk_top)
+        self.bottom_frame = tkinter.Frame(self.tk_top)
 
         # https://stackoverflow.com/questions/42074654/avoid-the-status-bar-footer-from-disappearing-in-a-gui-when-reducing-the-size
         self.top_frame.pack(side=tkinter.TOP, fill=tkinter.X)
@@ -124,3 +138,7 @@ class GenericTable:
             # style.configure("mystyle.Treeview.Heading", font=('Calibri', 13, 'bold'))
             self.style.layout(self.style_name,
                               [(self.style_name + '.treearea', {'sticky': 'nswe'})])  # Remove the borders
+
+    def clear_tree(self):
+        if self.tree is not None:
+            self.tree.delete(*self.tree.get_children())
