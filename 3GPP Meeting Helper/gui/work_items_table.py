@@ -2,7 +2,7 @@ import re
 import textwrap
 import tkinter
 from tkinter import ttk
-from typing import List, Set
+from typing import List
 
 from application.os import open_url
 from gui.generic_table import GenericTable, set_column, treeview_set_row_formatting
@@ -18,17 +18,21 @@ tdoc_id_match_regex = re.compile(r'contributionUid=(' + tdoc_generic_regex.patte
 
 class WorkItemsTable(GenericTable):
 
-    def __init__(self, parent, favicon, parent_gui_tools):
+    def __init__(
+            self,
+            parent_widget: tkinter.Tk,
+            favicon,
+            root_widget: tkinter.Tk | None = None):
         super().__init__(
-            parent,
+            parent_widget,
             "Work Items Table. Double-click UID for WI page",
             favicon,
-            ['UID', 'Code', 'Title', 'Release', 'Lead body', 'WID', 'Specs', 'CRs']
+            ['UID', 'Code', 'Title', 'Release', 'Lead body', 'WID', 'Specs', 'CRs'],
+            root_widget=root_widget
         )
         self.release_list: List[str] | None = [f'Rel-{rel_number}' for rel_number in range(5, 19, 1)]
         self.loaded_work_item_entries: List[WiEntry] | None = None
         self.filtered_work_item_entries: List[WiEntry] | None = None
-        self.parent_gui_tools = parent_gui_tools
 
         self.wi_count = tkinter.StringVar()
 

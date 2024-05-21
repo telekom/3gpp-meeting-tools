@@ -12,6 +12,7 @@ import pyperclip
 
 import application
 import gui
+import tdoc.utils
 import utils.local_cache
 from application import powerpoint
 from application.excel import open_excel_document, set_first_row_as_filter, vertically_center_all_text, save_wb, \
@@ -33,9 +34,8 @@ class TdocsTable(GenericTable):
 
     def __init__(
             self,
-            parent,
             favicon,
-            parent_gui_tools,
+            parent_widget: tkinter.Tk,
             meeting_name: str,
             retrieve_current_tdocs_by_agenda_fn=None,
             get_tdocs_by_agenda_for_selected_meeting_fn=None,
@@ -46,15 +46,22 @@ class TdocsTable(GenericTable):
     ):
 
         super().__init__(
-            parent,
-            f"SA2#{meeting_name} TDocs. Double-Click on TDoc # or revision # to open",
-            favicon,
-            ['TDoc', 'AI', 'Type', 'Title', 'Source', 'Revs', 'Emails', 'Send @', 'Result'],
+            parent_widget=parent_widget,
+            widget_title=f"SA2#{meeting_name} TDocs. Double-Click on TDoc # or revision # to open",
+            favicon=favicon,
+            column_names=[
+                'TDoc',
+                'AI', 'Type',
+                'Title',
+                'Source',
+                'Revs',
+                'Emails',
+                'Send @',
+                'Result'],
             row_height=60,
-            display_rows=9
+            display_rows=9,
+            root_widget=None
         )
-        self.parent_gui_tools = parent_gui_tools
-
         # Functions to update data from the main GUI
         self.retrieve_current_tdocs_by_agenda_fn = retrieve_current_tdocs_by_agenda_fn
         self.get_tdocs_by_agenda_for_selected_meeting_fn = get_tdocs_by_agenda_for_selected_meeting_fn
@@ -407,7 +414,7 @@ class TdocsTable(GenericTable):
 
         self.current_tdocs = tdocs_for_ai
 
-        self.tree.delete(*self.tree.get_children())
+        super().clear_tree()
         self.insert_current_tdocs()
 
         if load_data:
@@ -510,11 +517,10 @@ class TdocsTable(GenericTable):
         if column == 5:
             print('Opening revisions for {0}'.format(tdoc_id))
             RevisionsTable(
-                self.top,
+                self.tk_top,
                 self.favicon,
                 tdoc_id,
                 self.revisions_list,
-                self.parent_gui_tools,
                 parent_tdocs_table=self)
         if column == 6:
             print('Opening emails for {0}'.format(tdoc_id))
@@ -537,62 +543,61 @@ class TdocsTable(GenericTable):
         return self.meeting_name == current_meeting
 
 
-class RevisionsTable:
+class RevisionsTable(GenericTable):
 
-    def __init__(self, parent, favicon, tdoc_id, revisions_df, parent_gui_tools, parent_tdocs_table: TdocsTable):
-        top = self.top = tkinter.Toplevel(parent)
-        top.title("Revisions for {0}".format(tdoc_id))
-        top.iconbitmap(favicon)
+    def __init__(
+            self,
+            parent_widget: tkinter.Tk,
+            favicon: str,
+            tdoc_id,
+            revisions_df,
+            parent_tdocs_table):
+
+        super().__init__(
+            parent_widget=parent_widget,
+            favicon=favicon,
+            widget_title="Revisions for {0}".format(tdoc_id),
+            root_widget=None,
+            column_names=['TDoc', 'Rev.', 'Add to compare A', 'Add to compare B']
+        )
+
         revisions = revisions_df.loc[tdoc_id, :]
         self.tdoc_id = tdoc_id
-        self.parent_gui_tools = parent_gui_tools
         self.parent_tdocs_table = parent_tdocs_table
         print('{0} Revisions'.format(len(revisions)))
 
-        frame_1 = tkinter.Frame(top)
-        frame_1.pack()
-        frame_2 = tkinter.Frame(top)
-        frame_2.pack(anchor='w')
-        frame_3 = tkinter.Frame(top)
-        frame_3.pack(anchor='w')
+        self.count = 0
 
         self.compare_a = tkinter.StringVar()
         self.compare_b = tkinter.StringVar()
 
-        self.tree = ttk.Treeview(
-            frame_1,
-            columns=('TDoc', 'Rev.', 'Add to compare A', 'Add to compare B'),
-            show='headings',
-            selectmode="browse",
-            style=parent_tdocs_table.style_name,
-            height=8)  # Height in rows
+        set_column(self.tree, 'TDoc', "TDoc #", width=110, center=True)
+        set_column(self.tree, 'Rev.', width=50, center=True)
+        set_column(self.tree, 'Add to compare A', width=110, center=True)
+        set_column(self.tree, 'Add to compare B', width=110, center=True)
 
-        set_column(self.tree, 'TDoc', "TDoc #", width=110)
-        set_column(self.tree, 'Rev.', width=50)
-        set_column(self.tree, 'Add to compare A', width=110)
-        set_column(self.tree, 'Add to compare B', width=110)
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        self.count = 0
-        self.insert_rows(revisions)
+        self.footer_label = tkinter.StringVar()
+        self.set_footer_label()
+        tkinter.Label(self.bottom_frame, textvariable=self.footer_label).pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, textvariable=self.compare_a).pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, text='  vs.  ').pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, textvariable=self.compare_b).pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, text='  ').pack(side=tkinter.LEFT)
 
-        self.tree_scroll = ttk.Scrollbar(frame_1)
-        self.tree_scroll.configure(command=self.tree.yview)
-        self.tree.configure(yscrollcommand=self.tree_scroll.set)
+        tkinter.Button(
+            self.bottom_frame,
+            text='Compare!',
+            command=self.compare_tdocs).pack(side=tkinter.LEFT)
+
+        # Main frame
+        self.insert_rows(revisions)
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
-        tkinter.Label(frame_2, text="{0} Documents".format(self.count)).pack(side=tkinter.LEFT)
-
-        tkinter.Label(frame_3, textvariable=self.compare_a).pack(side=tkinter.LEFT)
-        tkinter.Label(frame_3, text='  vs.  ').pack(side=tkinter.LEFT)
-        tkinter.Label(frame_3, textvariable=self.compare_b).pack(side=tkinter.LEFT)
-        tkinter.Label(frame_3, text='  ').pack(side=tkinter.LEFT)
-
-        tkinter.Button(
-            frame_3,
-            text='Compare!',
-            command=self.compare_tdocs).pack(side=tkinter.LEFT)
+    def set_footer_label(self):
+        self.footer_label.set("{0} Documents. ".format(self.count))
 
     def insert_rows(self, df):
         count = 0
@@ -625,17 +630,18 @@ class RevisionsTable:
             else:
                 tag = 'even'
 
-            self.tree.insert("", "end", tags=(tag,), values=(
+            values = (
                 idx,
                 row['Revisions'],
                 'Click',
-                'Click'))
+                'Click')
+            self.tree.insert("", "end", tags=(tag,), values=values)
+
+        treeview_sort_column(self.tree, 'Rev.')
 
         self.count = count
-
-        self.tree.tag_configure('odd', background='#E8E8E8')
-        self.tree.tag_configure('even', background='#DFDFDF')
-        treeview_sort_column(self.tree, 'Rev.')
+        treeview_set_row_formatting(self.tree)
+        self.set_footer_label()
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
@@ -666,19 +672,13 @@ class RevisionsTable:
             self.parent_tdocs_table.download_and_open_tdoc(tdoc_to_search)
         if column == 2:
             self.compare_a.set(tdoc_to_search)
-            try:
-                self.parent_gui_tools.tkvar_tdoc_to_compare_1.set(tdoc_to_search)
-            except:
-                pass
         if column == 3:
             self.compare_b.set(tdoc_to_search)
-            try:
-                self.parent_gui_tools.tkvar_tdoc_to_compare_2.set(tdoc_to_search)
-            except:
-                pass
 
     def compare_tdocs(self):
         compare_a = self.compare_a.get()
         compare_b = self.compare_b.get()
         print('Comparing {0} vs. {1}'.format(compare_a, compare_b))
-        self.parent_gui_tools.compare_tdocs(entry_1=compare_a, entry_2=compare_b)
+        tdoc.utils.compare_tdocs(
+            entry_1=compare_a,
+            entry_2=compare_b)

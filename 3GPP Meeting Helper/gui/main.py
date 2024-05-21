@@ -9,8 +9,8 @@ from typing import Tuple, List
 
 from pyperclip import copy as clipboard_copy
 
-import application.word
 import application.meeting_helper
+import application.word
 import gui.config
 import gui.tools
 import parsing.html.common
@@ -386,7 +386,6 @@ def download_and_open_tdoc(
         cached_tdocs_list=None,
         copy_to_clipboard=False,
         skip_opening=False) -> str | List[str] | None:
-
     cleanup_tdoc_id_in_entry_box()
 
     if tdoc_id_to_override is None:
@@ -413,6 +412,12 @@ def download_and_open_tdoc(
         use_inbox=download_from_inbox,
         return_url=True,
         searching_for_a_file=True)
+
+    if cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
+        if retrieved_files is not None:
+            print("Added files to cached TDocs list: {0}".format(retrieved_files))
+            cached_tdocs_list.extend(retrieved_files)
+
     if skip_opening:
         return retrieved_files
     if copy_to_clipboard:
@@ -438,19 +443,12 @@ def download_and_open_tdoc(
     except:
         print('Could not load TDoc agenda info for {0}'.format(tkvar_tdoc_id.get()))
     if (retrieved_files is None) or (len(retrieved_files) == 0):
-        tdoc_year, tdoc_number = tdoc.utils.get_tdoc_year(tdoc_id)
-        # Needed to add this so that comparison of TDocs between meetings can work
-        if not open_downloaded_tdocs:
-            if retrieved_files is not None and cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
-                print("Added files to cached TDocs list: {0}".format(retrieved_files))
-                cached_tdocs_list.extend(retrieved_files)
+        pass
     else:
         if not open_downloaded_tdocs:
             found_string = 'Cached file(s)'
-            opened_files = 0
             metadata_list = []
-            if cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
-                cached_tdocs_list.extend(retrieved_files)
+
         else:
             opened_files, metadata_list = parsing.word.pywin32.open_files(retrieved_files, return_metadata=True)
             found_string = 'Opened {0} file(s)'.format(opened_files)
@@ -677,3 +675,10 @@ def start_main_gui():
     main_frame.grid_columnconfigure(0, weight=1)
     main_frame.grid_columnconfigure(1, weight=1)
     main_frame.grid_columnconfigure(2, weight=1)
+
+
+# Avoid circular references by setting the TDoc open function at runtime
+tdoc.utils.open_tdoc_for_compare_fn = lambda tdoc_id, cached_tdocs_list: gui.main.download_and_open_tdoc(
+    tdoc_id_to_override=tdoc_id,
+    cached_tdocs_list=cached_tdocs_list,
+    skip_opening=True)

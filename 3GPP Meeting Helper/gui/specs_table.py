@@ -32,15 +32,14 @@ class SpecsTable(GenericTable):
     filter_text = None
     filter_group = None
 
-    def __init__(self, parent, favicon, parent_gui_tools):
+    def __init__(self, root_widget, favicon, parent_widget):
         super().__init__(
-            parent,
+            parent_widget,
             "Specs Table. Double-Click on Spec # or Release # to open",
             favicon,
             ['Spec', 'Title', 'Versions', 'Local Cache', 'Group', 'CRs']
         )
-        self.parent_gui_tools = parent_gui_tools
-
+        self.root_widget = root_widget
         self.spec_count = tkinter.StringVar()
 
         set_column(self.tree, 'Spec', "Spec #", width=110)
@@ -321,7 +320,7 @@ class SpecsTable(GenericTable):
             print('Clicked versions for spec ID {0}: {1}'.format(spec_id, actual_value))
             current_spec_metadata = self.spec_metadata[spec_id]
             SpecVersionsTable(
-                self.top,
+                self.tk_top,
                 self.favicon,
                 spec_id,
                 current_spec_metadata.type,
@@ -355,7 +354,7 @@ def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> s
     return entry_to_load.spec_url
 
 
-class SpecVersionsTable:
+class SpecVersionsTable(GenericTable):
     spec_entries = None
     spec_id = None
 
@@ -366,81 +365,87 @@ class SpecVersionsTable:
         pdf_mcc_clean: bool
         html_mcc_clean: bool
 
-    def __init__(self, parent, favicon, spec_id: str, spec_type: SpecType, initial_release: str,
-                 parent_specs_table: SpecsTable):
-        top = self.top = tkinter.Toplevel(parent)
-        top.title("{0}, initial planned release: {1}".format(spec_id, initial_release))
-        top.iconbitmap(favicon)
+    def __init__(
+            self,
+            parent: tkinter.Tk,
+            favicon,
+            spec_id: str,
+            spec_type: SpecType,
+            initial_release: str,
+            parent_specs_table: SpecsTable):
+        super().__init__(
+            root_widget=None,
+            parent_widget=parent,
+            widget_title="{0}, initial planned release: {1}".format(spec_id, initial_release),
+            favicon=favicon,
+            column_names=[
+                'Spec',
+                'Version',
+                'Upload Date',
+                'Open Word',
+                'Open PDF',
+                'Open HTML',
+                '+Compare A',
+                '+Compare B']
+        )
 
         self.spec_id = spec_id
         self.spec_type = spec_type
+
         self.parent_specs_table = parent_specs_table
         self.spec_local_file_exists: dict[str, SpecVersionsTable.SpecLocallyAvailable] = {}
-
-        frame_1 = tkinter.Frame(top)
-        frame_1.pack()
-        frame_2 = tkinter.Frame(top)
-        frame_2.pack(anchor='w')
-        frame_3 = tkinter.Frame(top)
-        frame_3.pack(anchor='w')
 
         self.compare_a = tkinter.StringVar()
         self.compare_b = tkinter.StringVar()
 
-        self.tree = ttk.Treeview(
-            frame_1,
-            columns=('Spec', 'Version', 'Upload Date', 'Open Word', 'Open PDF', 'Open HTML', '+Compare A',
-                     '+Compare B'),
-            show='headings',
-            selectmode="browse",
-            style=parent_specs_table.style_name,
-            height=8)  # Height in rows
-
-        set_column(self.tree, 'Spec', "Spec #", width=110)
-        set_column(self.tree, 'Version', width=60)
-        set_column(self.tree, 'Upload Date', width=100)
-        set_column(self.tree, 'Open Word', width=122)
-        set_column(self.tree, 'Open PDF', width=115)
-        set_column(self.tree, 'Open HTML', width=127)
-        set_column(self.tree, '+Compare A', width=100)
-        set_column(self.tree, '+Compare B', width=100)
-        self.tree.bind("<Double-Button-1>", self.on_double_click)
-
         # Before we start inserting rows, we need to load the spec archive for this specification
         # Done here because probably not all specs will be equally accessed. Thus, new versions can be reloaded
         # whenever needed
+        self.count = 0
         self.spec_entries = self.load_spec_data()
 
-        self.count = 0
-        self.insert_rows()
+        set_column(self.tree, 'Spec', "Spec #", width=110, center=True)
+        set_column(self.tree, 'Version', width=60, center=True)
+        set_column(self.tree, 'Upload Date', width=100, center=True)
+        set_column(self.tree, 'Open Word', width=122, center=True)
+        set_column(self.tree, 'Open PDF', width=115, center=True)
+        set_column(self.tree, 'Open HTML', width=127, center=True)
+        set_column(self.tree, '+Compare A', width=100, center=True)
+        set_column(self.tree, '+Compare B', width=100, center=True)
 
-        self.tree_scroll = ttk.Scrollbar(frame_1)
-        self.tree_scroll.configure(command=self.tree.yview)
-        self.tree.configure(yscrollcommand=self.tree_scroll.set)
-        self.tree.pack(fill='both', expand=True, side='left')
-        self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
+        self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        tkinter.Label(frame_2, text="{0} Spec versions".format(self.count)).pack(side=tkinter.LEFT)
+        self.footer_label = tkinter.StringVar()
+        self.set_footer_label()
 
-        tkinter.Label(frame_3, textvariable=self.compare_a).pack(side=tkinter.LEFT)
-        tkinter.Label(frame_3, text='  vs.  ').pack(side=tkinter.LEFT)
-        tkinter.Label(frame_3, textvariable=self.compare_b).pack(side=tkinter.LEFT)
-        tkinter.Label(frame_3, text='  ').pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, textvariable=self.footer_label).pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, textvariable=self.compare_a).pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, text='  vs.  ').pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, textvariable=self.compare_b).pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, text='  ').pack(side=tkinter.LEFT)
 
         tkinter.Button(
-            frame_3,
+            self.bottom_frame,
             text='Compare!',
             command=self.compare_spec_versions).pack(side=tkinter.LEFT)
 
         tkinter.Button(
-            frame_3,
+            self.bottom_frame,
             text='Open local folder',
             command=lambda: os.startfile(get_specs_folder(spec_id=self.spec_id))).pack(side=tkinter.LEFT)
 
         tkinter.Button(
-            frame_3,
+            self.bottom_frame,
             text='Re-load spec file',
             command=self.reload_spec_file).pack(side=tkinter.LEFT)
+
+        # Main frame
+        self.insert_rows()
+        self.tree.pack(fill='both', expand=True, side='left')
+        self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
+
+    def set_footer_label(self):
+        self.footer_label.set("{0} Spec versions. ".format(self.count))
 
     def load_spec_data(self) -> pd.DataFrame:
         """
@@ -504,7 +509,7 @@ class SpecVersionsTable:
             )
             self.spec_local_file_exists[self.spec_id] = spec_locally_available
 
-            self.tree.insert("", "end", tags=(tag,), values=(
+            values = (
                 spec_name,
                 version_text,
                 upload_date,
@@ -512,12 +517,14 @@ class SpecVersionsTable:
                 ('Open' if spec_locally_available.pdf or spec_locally_available.pdf_mcc_clean else 'Download') + ' PDF',
                 ('Open' if spec_locally_available.html or spec_locally_available.html_mcc_clean else 'Download') + ' HTML',
                 'Click',
-                'Click'))
+                'Click'
+            )
+            self.tree.insert("", "end", tags=(tag,), values=values)
+            print(f'INSERTED {values}')
 
         self.count = count
-
-        self.tree.tag_configure('odd', background='#E8E8E8')
-        self.tree.tag_configure('even', background='#DFDFDF')
+        treeview_set_row_formatting(self.tree)
+        self.set_footer_label()
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
@@ -643,5 +650,5 @@ class SpecVersionsTable:
         self.reload_table()
 
     def reload_table(self):
-        self.tree.delete(*self.tree.get_children())
+        super().clear_tree()
         self.insert_rows()
