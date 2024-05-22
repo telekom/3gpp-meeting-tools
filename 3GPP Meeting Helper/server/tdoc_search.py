@@ -196,6 +196,10 @@ class MeetingEntry(NamedTuple):
     def local_tdoc_list_excel_path(self):
         return os.path.join(self.local_agenda_folder_path, 'TDoc_List.xlsx')
 
+    @property
+    def is_li(self):
+        return '-LI' in self.meeting_number
+
 
 class DownloadedWordTdocDocument(NamedTuple):
     title: str | None
@@ -418,6 +422,10 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
     # print(meeting_entries)
 
 
+def group_is_li(group_name: str) -> bool:
+    return group_name.lower() == 's3i'
+
+
 def search_meeting_for_tdoc(tdoc_str: str) -> MeetingEntry | None:
     """
     Searches for a specific TDoc in the loaded meeting list
@@ -430,11 +438,23 @@ def search_meeting_for_tdoc(tdoc_str: str) -> MeetingEntry | None:
     parsed_tdoc = tdoc.utils.is_generic_tdoc(tdoc_str)
     if parsed_tdoc is None:
         return None
+
     print(f'Searching for group {parsed_tdoc.group}, tdoc {parsed_tdoc.number}')
-    group_meetings = [m for m in loaded_meeting_entries if parsed_tdoc.group == m.meeting_group]
-    print(f'{len(group_meetings)} Group meetings for group {parsed_tdoc.group}')
+    if group_is_li(parsed_tdoc.group):
+        group_to_search = 'S3'
+        sa3_li_tdoc = True
+    else:
+        group_to_search = parsed_tdoc.group
+        sa3_li_tdoc = False
+
+    group_meetings = [m for m in loaded_meeting_entries if group_to_search == m.meeting_group]
+    print(f'{len(group_meetings)} Group meetings for group {group_to_search}')
     matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
                          m.tdoc_start.number <= parsed_tdoc.number <= m.tdoc_end.number]
+
+    # Whether a SA3 meeting is LI is encoded in the meeting number
+    if sa3_li_tdoc:
+        matching_meetings = [m for m in matching_meetings if m.is_li]
 
     if len(matching_meetings) > 0:
         matching_meeting = matching_meetings[0]
