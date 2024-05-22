@@ -55,9 +55,9 @@ def rgb_to_hex(rgb):
     return iValue
 
 
-def get_metadata_from_doc(doc) -> WordTdoc:
+def get_metadata_from_doc(doc, path:str) -> WordTdoc:
     if doc is None:
-        return WordTdoc(title=None, source=None)
+        return WordTdoc(title=None, source=None, path=None)
     try:
         starting_text = ''
         tdoc_is_cr = False
@@ -91,7 +91,7 @@ def get_metadata_from_doc(doc) -> WordTdoc:
 
     # https://stackoverflow.com/questions/32134396/python-regular-expression-caret-not-working-in-multiline-modes
     if starting_text == '':
-        return WordTdoc(title=None, source=None)
+        return WordTdoc(title=None, source=None, path=None)
 
     if not tdoc_is_cr:
         title_match = title_regex.search(starting_text)
@@ -107,12 +107,12 @@ def get_metadata_from_doc(doc) -> WordTdoc:
             title = cr_match.groupdict()['title'].strip()
             source = cr_match.groupdict()['source'].strip()
 
-    return WordTdoc(title=title, source=source)
+    return WordTdoc(title=title, source=source, path=path)
 
 
 def parse_document(filename):
     doc = open_word_document(filename)
-    return get_metadata_from_doc(doc)
+    return get_metadata_from_doc(doc, path=filename)
 
 
 def insert_text_and_format(doc, text, style, old_style, insert_range=None):
@@ -975,25 +975,25 @@ def diff_sources(source1, source2):
 
 
 def compare_documents(
-        tdoc_1,
-        tdoc_2,
+        original_tdoc,
+        revised_tdoc,
         compare_formatting=True,
         compare_case_changes=True,
         compare_whitespace=True):
-    if tdoc_1 is None or tdoc_1 == '' or tdoc_2 is None or tdoc_2 == '':
+    if original_tdoc is None or original_tdoc == '' or revised_tdoc is None or revised_tdoc == '':
         print('Empty or None tdoc_input')
         return
     try:
         word_application = get_word()
-        print('Comparing {0} and {1}'.format(tdoc_1, tdoc_2))
-        doc_1 = open_word_document(filename=tdoc_1, set_as_active_document=False)
-        doc_2 = open_word_document(filename=tdoc_2, set_as_active_document=False)
+        print('Comparing {0} and {1}'.format(original_tdoc, revised_tdoc))
+        original_doc = open_word_document(filename=original_tdoc, set_as_active_document=False)
+        revised_doc = open_word_document(filename=revised_tdoc, set_as_active_document=False)
 
         # Call Word's compare feature
         # Destination=wdCompareDestinationNew (see https://docs.microsoft.com/en-us/office/vba/api/word.wdcomparedestination)
         comparison_document = word_application.CompareDocuments(
-            OriginalDocument=doc_1,
-            RevisedDocument=doc_2,
+            OriginalDocument=original_doc,
+            RevisedDocument=revised_doc,
             Destination=2,  # wdCompareDestinationNew
             IgnoreAllComparisonWarnings=True,
             CompareFormatting=compare_formatting,

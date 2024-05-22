@@ -14,6 +14,7 @@ from server.common import download_file_to_location
 from server.tdoc_search import MeetingEntry, search_meeting_for_tdoc
 from tdoc.utils import is_generic_tdoc
 from utils.local_cache import file_exists
+import parsing.word.pywin32 as word_parser
 
 
 class MeetingsTable(GenericTable):
@@ -92,6 +93,19 @@ class MeetingsTable(GenericTable):
             self.top_frame,
             text='Load meetings',
             command=self.load_meetings).pack(side=tkinter.LEFT)
+
+        # Compare TDoc
+        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        self.tkvar_tdoc_id_2 = tkinter.StringVar(self.top_frame)
+        self.tdoc_entry_2 = tkinter.Entry(self.top_frame, textvariable=self.tkvar_tdoc_id_2, width=15, font='TkDefaultFont')
+        self.button_compare_tdoc = tkinter.Button(
+            self.top_frame,
+            text='Compare TDoc',
+            command=self.on_compare_tdoc
+        )
+        self.tdoc_entry_2.pack(side=tkinter.LEFT)
+        tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
+        self.button_compare_tdoc.pack(side=tkinter.LEFT)
 
         # Main frame
         self.load_data(initial_load=True)
@@ -253,6 +267,21 @@ class MeetingsTable(GenericTable):
         if metadata is not None:
             print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
             pyperclip.copy(metadata[0].url)
+
+    def on_compare_tdoc(self):
+        tdoc1_to_open = self.tkvar_tdoc_id.get()
+        tdoc1_to_open = tdoc1_to_open.strip()
+
+        tdoc2_to_open = self.tkvar_tdoc_id_2.get()
+        tdoc2_to_open = tdoc2_to_open.strip()
+
+        print(f'Comparing {tdoc1_to_open}  (original) vs. {tdoc2_to_open}')
+        opened_docs1, metadata1 = server.tdoc_search.search_download_and_open_tdoc(tdoc1_to_open, skip_open=True)
+        opened_docs2, metadata2 = server.tdoc_search.search_download_and_open_tdoc(tdoc2_to_open, skip_open=True)
+        doc_1 = metadata1[0].path
+        doc_2 = metadata2[0].path
+        print(f'Comparing {doc_1} vs. {doc_2}')
+        word_parser.compare_documents(doc_1, doc_2)
 
     def on_tdoc_search_change(self, *args):
         self.chosen_meeting = None
