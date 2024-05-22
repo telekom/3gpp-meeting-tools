@@ -91,7 +91,7 @@ def open_file(file, go_to_page=1, metadata_function=None) -> None | bool | Tuple
         if ((extension == 'doc') or (extension == 'docx')) and not_mac_metadata:
             doc = open_word_document(file)
             if metadata_function is not None:
-                metadata = metadata_function(doc)
+                metadata = metadata_function(doc, file)
             else:
                 metadata = None
             if go_to_page != 1:
@@ -122,9 +122,10 @@ def open_file(file, go_to_page=1, metadata_function=None) -> None | bool | Tuple
 class WordTdoc(NamedTuple):
     title: str | None
     source: str | None
+    path: str | None
 
 
-def open_files(files, metadata_function: Callable[[Any], WordTdoc] | None = None, go_to_page=1) \
+def open_files(files, metadata_function: Callable[[Any, str], WordTdoc] | None = None, go_to_page=1) \
         -> int | Tuple[int, List[WordTdoc]]:
     if files is None:
         return 0
@@ -135,6 +136,7 @@ def open_files(files, metadata_function: Callable[[Any], WordTdoc] | None = None
         try:
             if metadata_function is not None:
                 file_opened, metadata = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
+                metadata = WordTdoc(title=metadata.title, source=metadata.source, path=file)
             else:
                 file_opened = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
                 metadata = []

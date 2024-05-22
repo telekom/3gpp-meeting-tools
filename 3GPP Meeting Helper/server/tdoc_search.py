@@ -202,6 +202,7 @@ class DownloadedWordTdocDocument(NamedTuple):
     source: str | None
     url: str | None
     tdoc_id: str | None
+    path: str | None
 
 
 # Loaded meeting entries
@@ -458,11 +459,15 @@ def fully_update_cache(redownload_if_exists=False):
     load_markdown_cache_to_memory()
 
 
-def search_download_and_open_tdoc(tdoc_str: str) -> Tuple[None | int, None | List[DownloadedWordTdocDocument]]:
+def search_download_and_open_tdoc(
+        tdoc_str: str,
+        skip_open=False
+) -> Tuple[None | int, None | List[DownloadedWordTdocDocument]]:
     """
     Searches for a given TDoc. If the zip file contains many files (e.g. typical for plenary CR packs), it will only
     open the folder.
     Args:
+        skip_open: Whether to skip opening the files
         tdoc_str: The TDoc ID
 
     Returns: The files that were opened
@@ -495,15 +500,27 @@ def search_download_and_open_tdoc(tdoc_str: str) -> Tuple[None | int, None | Lis
         print(f'Using local cache for {tdoc_url} in {local_target}')
 
     files_in_zip = unzip_files_in_zip_file(local_target)
-    if len(files_in_zip) <= maximum_number_of_files_to_open:
+    if (len(files_in_zip) <= maximum_number_of_files_to_open) and (not skip_open):
         opened_files, metadata_list = parsing.word.pywin32.open_files(files_in_zip, return_metadata=True)
-        metadata_list = [DownloadedWordTdocDocument(title=m.title, source=m.source, url=tdoc_url, tdoc_id=tdoc_str)
-                         for m in metadata_list if m is not None]
+        metadata_list = [DownloadedWordTdocDocument(
+            title=m.title,
+            source=m.source,
+            url=tdoc_url,
+            tdoc_id=tdoc_str,
+            path=m.path)
+            for m in metadata_list if m is not None]
     else:
-        print(
-            f'More than {maximum_number_of_files_to_open} contained within {tdoc_str}. Opening folder instead of files')
         folder_to_open, first_file = os.path.split(files_in_zip[0])
-        os.startfile(folder_to_open)
+        if not skip_open:
+            print(
+                f'More than {maximum_number_of_files_to_open} contained within {tdoc_str}. Opening folder instead of files')
+            os.startfile(folder_to_open)
         opened_files = folder_to_open
-        metadata_list = None
+        metadata_list = [DownloadedWordTdocDocument(
+            title=None,
+            source=None,
+            url=None,
+            tdoc_id=None,
+            path=m)
+            for m in files_in_zip if m is not None if (m is not None) and (('.doc' in m) or '.docx' in m)]
     return opened_files, metadata_list
