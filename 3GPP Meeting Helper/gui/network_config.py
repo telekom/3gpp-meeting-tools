@@ -98,7 +98,7 @@ class NetworkConfigDialog:
         self.top.destroy()
 
     def ko(self):
-        # No need to setup a proxy
+        # No need to set up a proxy
         server.connection.non_cached_http_session.proxies = None
         self.top.destroy()
 
