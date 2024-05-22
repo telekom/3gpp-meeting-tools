@@ -1,7 +1,7 @@
 import os.path
 import tkinter
 from tkinter import ttk
-from typing import List
+from typing import List, Tuple, Any
 
 import pyperclip
 
@@ -38,7 +38,8 @@ class MeetingsTable(GenericTable):
         self.chosen_meeting: MeetingEntry | None = None
         self.root_widget = root_widget
 
-        self.meeting_count = tkinter.StringVar()
+        self.meeting_count_tk_str = tkinter.StringVar()
+        self.compare_text_tk_str = tkinter.StringVar()
 
         self.set_column('Meeting', width=200, center=True)
         self.set_column('Location', width=200, center=True)
@@ -97,11 +98,17 @@ class MeetingsTable(GenericTable):
         # Compare TDoc
         tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.tkvar_tdoc_id_2 = tkinter.StringVar(self.top_frame)
-        self.tdoc_entry_2 = tkinter.Entry(self.top_frame, textvariable=self.tkvar_tdoc_id_2, width=15, font='TkDefaultFont')
+        self.tkvar_tdoc_id_2.trace_add('write', self.on_tdoc_compare_change)
+        self.tdoc_entry_2 = tkinter.Entry(
+            self.top_frame,
+            textvariable=self.tkvar_tdoc_id_2,
+            width=15,
+            font='TkDefaultFont')
         self.button_compare_tdoc = tkinter.Button(
             self.top_frame,
             text='Compare TDocs',
-            command=self.on_compare_tdoc
+            command=self.on_compare_tdoc,
+            state=tkinter.DISABLED
         )
         self.tdoc_entry_2.pack(side=tkinter.LEFT)
         tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
@@ -115,7 +122,12 @@ class MeetingsTable(GenericTable):
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
         # Bottom frame
-        tkinter.Label(self.bottom_frame, textvariable=self.meeting_count).pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, textvariable=self.meeting_count_tk_str).pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, text="  ").pack(side=tkinter.LEFT)
+        tkinter.Label(self.bottom_frame, textvariable=self.compare_text_tk_str).pack(side=tkinter.LEFT)
+
+        # Update text in lower frame
+        self.on_tdoc_compare_change()
 
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
@@ -183,7 +195,7 @@ class MeetingsTable(GenericTable):
             self.tree.insert("", "end", tags=(tag,), values=values)
 
         treeview_set_row_formatting(self.tree)
-        self.meeting_count.set('{0} meetings'.format(count))
+        self.meeting_count_tk_str.set('{0} meetings'.format(count))
 
     def clear_filters(self, *args):
         self.combo_groups.set('All')
@@ -260,8 +272,7 @@ class MeetingsTable(GenericTable):
             open_excel_document(local_path)
 
     def on_open_tdoc(self):
-        tdoc_to_open = self.tkvar_tdoc_id.get()
-        tdoc_to_open = tdoc_to_open.strip()
+        tdoc_to_open = self.tdoc
         print(f'Opening {tdoc_to_open}')
         opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open)
         if metadata is not None:
@@ -269,11 +280,8 @@ class MeetingsTable(GenericTable):
             pyperclip.copy(metadata[0].url)
 
     def on_compare_tdoc(self):
-        tdoc1_to_open = self.tkvar_tdoc_id.get()
-        tdoc1_to_open = tdoc1_to_open.strip()
-
-        tdoc2_to_open = self.tkvar_tdoc_id_2.get()
-        tdoc2_to_open = tdoc2_to_open.strip()
+        tdoc1_to_open = self.tdoc
+        tdoc2_to_open = self.original_tdoc
 
         print(f'Comparing {tdoc2_to_open}  (original) vs. {tdoc1_to_open}')
         opened_docs1, metadata1 = server.tdoc_search.search_download_and_open_tdoc(tdoc1_to_open, skip_open=True)
@@ -283,16 +291,22 @@ class MeetingsTable(GenericTable):
         print(f'Comparing {doc_2} vs. {doc_1}')
         word_parser.compare_documents(doc_2, doc_1)
 
+    @property
+    def tdoc(self) -> str | None:
+        current_tdoc = self.tkvar_tdoc_id.get()
+        return current_tdoc.strip() if current_tdoc is not None else None
+
+    @property
+    def original_tdoc(self) -> str | None:
+        current_tdoc = self.tkvar_tdoc_id_2.get()
+        return current_tdoc.strip() if current_tdoc is not None else None
+
     def on_tdoc_search_change(self, *args):
         self.chosen_meeting = None
         self.combo_groups.configure(state="enabled")
 
-        current_tdoc = self.tkvar_tdoc_id.get()
-        if current_tdoc is not None:
-            current_tdoc = current_tdoc.strip()
-
-        generic_tdoc = is_generic_tdoc(current_tdoc)
-        if generic_tdoc is None:
+        current_tdoc = self.tdoc
+        if is_generic_tdoc(current_tdoc) is None:
             self.apply_filters()
             return
 
@@ -306,3 +320,18 @@ class MeetingsTable(GenericTable):
         self.combo_groups.configure(state="disabled")
 
         self.apply_filters(tdoc_override=True)
+
+    def on_tdoc_compare_change(self, *args):
+        revised_tdoc = self.tdoc
+        original_tdoc = self.original_tdoc
+        revised_tdoc_is_correct = (is_generic_tdoc(revised_tdoc) is not None)
+        original_tdoc_is_correct = (is_generic_tdoc(original_tdoc) is not None)
+
+        if revised_tdoc_is_correct and original_tdoc_is_correct:
+            self.compare_text_tk_str.set(f"Click to compare changes from {original_tdoc} to {revised_tdoc}")
+            self.button_compare_tdoc.configure(state=tkinter.NORMAL)
+        else:
+            self.compare_text_tk_str.set("To compare TDocs, input two TDocs to compare")
+            self.button_compare_tdoc.configure(state=tkinter.DISABLED)
+
+
