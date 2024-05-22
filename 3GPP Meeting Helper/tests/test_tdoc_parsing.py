@@ -2,6 +2,7 @@ import unittest
 import os.path
 import parsing.word.pywin32 as word_parser
 
+
 class Test_test_tdoc_parsing(unittest.TestCase):
     def test_S2_1811605(self):
         tdoc = 'S2-1811605_S2_129_Draft_Rep_v006rm.doc'
@@ -72,6 +73,7 @@ class Test_test_tdoc_parsing(unittest.TestCase):
         parsed_tdoc = word_parser.parse_document(file_name)
         self.assertEqual(parsed_tdoc.title, 'Adding SFSF function for eSBA')
         self.assertEqual(parsed_tdoc.source, 'ZTE')
+
 
 if __name__ == '__main__':
     unittest.main()

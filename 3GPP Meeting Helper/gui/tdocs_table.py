@@ -14,6 +14,7 @@ import application
 import application.meeting_helper
 import gui
 import gui.main_gui
+import parsing.word.pywin32
 import tdoc.utils
 import utils.local_cache
 from application import powerpoint
@@ -681,6 +682,6 @@ class RevisionsTable(GenericTable):
         compare_a = self.compare_a.get()
         compare_b = self.compare_b.get()
         print('Comparing {0} vs. {1}'.format(compare_a, compare_b))
-        tdoc.utils.compare_tdocs(
+        parsing.word.pywin32.compare_tdocs(
             entry_1=compare_a,
             entry_2=compare_b)

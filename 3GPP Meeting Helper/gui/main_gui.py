@@ -678,7 +678,7 @@ def start_main_gui():
 
 
 # Avoid circular references by setting the TDoc open function at runtime
-tdoc.utils.open_tdoc_for_compare_fn = lambda tdoc_id, cached_tdocs_list: gui.main_gui.download_and_open_tdoc(
+parsing.word.pywin32.open_tdoc_for_compare_fn = lambda tdoc_id, cached_tdocs_list: gui.main_gui.download_and_open_tdoc(
     tdoc_id_to_override=tdoc_id,
     cached_tdocs_list=cached_tdocs_list,
     skip_opening=True)
