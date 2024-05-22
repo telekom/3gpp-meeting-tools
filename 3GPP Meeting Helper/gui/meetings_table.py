@@ -259,6 +259,9 @@ class MeetingsTable(GenericTable):
         self.combo_groups.configure(state="enabled")
 
         current_tdoc = self.tkvar_tdoc_id.get()
+        if current_tdoc is not None:
+            current_tdoc = current_tdoc.strip()
+
         generic_tdoc = is_generic_tdoc(current_tdoc)
         if generic_tdoc is None:
             self.apply_filters()
