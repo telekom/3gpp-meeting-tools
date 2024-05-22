@@ -175,9 +175,9 @@ def export_document(
     Returns:
         String list containing local paths to the converted PDF files
     """
-    pdf_files = []
+    converted_files = []
     if word_files is None or len(word_files) == 0:
-        return pdf_files
+        return converted_files
 
     # Filter out some files (e.g. files with change tracking)
     if exclude_if_includes != '' and exclude_if_includes is not None:
@@ -216,8 +216,18 @@ def export_document(
                         doc.Revisions.AcceptAll()
 
                     if export_format == ExportType.PDF:
+                        # .doc files often give problems when exporting to PDF. First convert to .docx
+                        if ext == '.doc':
+                            print('A POPUP MAY APPEAR ASKING YOU TO SET A SENSITIVITY LABEL (.doc file extension)')
+                            print('Unfortunately, VBA cannot automate this step. Please set the label manually')
+                            converted_docx_list = export_document(
+                                [word_file],
+                                ExportType.DOCX)
+                            docx_version = converted_docx_list[0]
+                        doc = word.Documents.Open(docx_version)
+
                         # See https://docs.microsoft.com/en-us/office/vba/api/word.document.exportasfixedformat
-                        print('PDF Conversion started')
+                        print(f'PDF Conversion started: OutputFileName={out_file}')
                         doc.ExportAsFixedFormat(
                             OutputFileName=out_file,
                             ExportFormat=wdExportFormatPDF,
@@ -243,11 +253,11 @@ def export_document(
                     print('Converted {0} to {1}'.format(word_file, out_file))
                 else:
                     print('{0} already exists. No need to convert'.format(out_file))
-                pdf_files.append(out_file)
+                converted_files.append(out_file)
     except:
         print('Could not export Word document')
         traceback.print_exc()
-    return pdf_files
+    return converted_files
 
 
 def close_word(force=True):
