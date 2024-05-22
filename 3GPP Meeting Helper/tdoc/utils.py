@@ -2,8 +2,7 @@ import collections
 import re
 import threading
 import traceback
-from typing import Callable, List, Any
-import parsing.word.pywin32 as word_parser
+from typing import Callable
 
 # Common Regular Expressions for parsing TDoc names
 
@@ -191,58 +190,3 @@ def do_something_on_thread(
     t = threading.Thread(target=thread_task)
     t.start()
 
-
-open_tdoc_for_compare_fn: Callable[[str, List[Any]], None] | None = None
-
-
-def compare_tdocs(
-        entry_1: str | None = None,
-        entry_2: str | None = None,
-        get_entry_1_fn: Callable[..., str] | None = None,
-        get_entry_2_fn: Callable[..., str] | None = None
-):
-    try:
-        tdocs_1 = []
-        tdocs_2 = []
-        if (entry_1 is None) and (get_entry_1_fn is not None):
-            entry_1 = get_entry_1_fn()
-        if (entry_2 is None) and (get_entry_2_fn is not None):
-            entry_2 = get_entry_1_fn()
-        match_1 = tdoc_regex.match(entry_1)
-        match_2 = tdoc_regex.match(entry_2)
-
-        # Strip revision number from any input (we will search for the matching document on the list)
-        search_1 = '{0}-{1}{2}'.format(match_1.group('group'), match_1.group('year'), match_1.group('tdoc_number'))
-        search_2 = '{0}-{1}{2}'.format(match_2.group('group'), match_2.group('year'), match_2.group('tdoc_number'))
-
-        # Download (cache) documents to compare
-        if open_tdoc_for_compare_fn is None:
-            print(f'Could not open documents. Document open function not set')
-            return
-
-        open_tdoc_for_compare_fn(
-            entry_1,
-            tdocs_1)
-        open_tdoc_for_compare_fn(
-            entry_2,
-            tdocs_2)
-
-        # There may be several documents (e.g. other TDocs as attachment). Strip the list to the most likely
-        # candidates to be the actual TDoc
-        tdocs_1 = [e for e in tdocs_1 if search_1 in e]
-        tdocs_2 = [e for e in tdocs_2 if search_2 in e]
-
-        print('TDoc to compare 1: {0}'.format(tdocs_1))
-        print('TDoc to compare 2: {0}'.format(tdocs_2))
-
-        if len(tdocs_1) == 0 or len(tdocs_2) == 0:
-            print('Need two TDocs to compare. One of them does not contain TDocs')
-            return
-
-        tdocs_1 = tdocs_1[0]
-        tdocs_2 = tdocs_2[0]
-
-        word_parser.compare_documents(tdocs_1, tdocs_2)
-    except:
-        print('Could not compare documents')
-        traceback.print_exc()

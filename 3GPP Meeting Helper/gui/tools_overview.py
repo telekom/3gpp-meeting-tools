@@ -21,6 +21,7 @@ import gui.work_items_table
 import parsing.excel as excel_parser
 import parsing.html.common
 import parsing.outlook
+import parsing.word.pywin32
 import parsing.word.pywin32 as word_parser
 import server.chairnotes
 import server.common
@@ -227,7 +228,7 @@ class ToolsDialog(TkWidget):
         self.compare_tdocs_button = tkinter.Button(
             self.tk_top,
             text=ToolsDialog.compare_tdocs_text,
-            command=lambda: tdoc.utils.compare_tdocs(
+            command=lambda: parsing.word.pywin32.compare_tdocs(
                 get_entry_1_fn=self.tkvar_tdoc_to_compare_1.get,
                 get_entry_2_fn=self.tkvar_tdoc_to_compare_2.get))
         self.compare_tdocs_button.grid(row=7, column=0, columnspan=1, sticky="EW")

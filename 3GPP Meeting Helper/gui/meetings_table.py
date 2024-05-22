@@ -1,10 +1,11 @@
 import os.path
 import tkinter
 from tkinter import ttk
-from typing import List, Tuple, Any
+from typing import List
 
 import pyperclip
 
+import parsing.word.pywin32 as word_parser
 import server
 from application.excel import open_excel_document
 from application.os import open_url
@@ -14,7 +15,6 @@ from server.common import download_file_to_location
 from server.tdoc_search import MeetingEntry, search_meeting_for_tdoc
 from tdoc.utils import is_generic_tdoc
 from utils.local_cache import file_exists
-import parsing.word.pywin32 as word_parser
 
 
 class MeetingsTable(GenericTable):
@@ -304,6 +304,9 @@ class MeetingsTable(GenericTable):
     def on_tdoc_search_change(self, *args):
         self.chosen_meeting = None
         self.combo_groups.configure(state="enabled")
+
+        # Update lower footer
+        self.on_tdoc_compare_change()
 
         current_tdoc = self.tdoc
         if is_generic_tdoc(current_tdoc) is None:
