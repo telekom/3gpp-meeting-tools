@@ -100,7 +100,7 @@ class MeetingsTable(GenericTable):
         self.tdoc_entry_2 = tkinter.Entry(self.top_frame, textvariable=self.tkvar_tdoc_id_2, width=15, font='TkDefaultFont')
         self.button_compare_tdoc = tkinter.Button(
             self.top_frame,
-            text='Compare TDoc',
+            text='Compare TDocs',
             command=self.on_compare_tdoc
         )
         self.tdoc_entry_2.pack(side=tkinter.LEFT)
