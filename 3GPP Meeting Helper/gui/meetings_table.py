@@ -275,13 +275,13 @@ class MeetingsTable(GenericTable):
         tdoc2_to_open = self.tkvar_tdoc_id_2.get()
         tdoc2_to_open = tdoc2_to_open.strip()
 
-        print(f'Comparing {tdoc1_to_open}  (original) vs. {tdoc2_to_open}')
+        print(f'Comparing {tdoc2_to_open}  (original) vs. {tdoc1_to_open}')
         opened_docs1, metadata1 = server.tdoc_search.search_download_and_open_tdoc(tdoc1_to_open, skip_open=True)
         opened_docs2, metadata2 = server.tdoc_search.search_download_and_open_tdoc(tdoc2_to_open, skip_open=True)
         doc_1 = metadata1[0].path
         doc_2 = metadata2[0].path
-        print(f'Comparing {doc_1} vs. {doc_2}')
-        word_parser.compare_documents(doc_1, doc_2)
+        print(f'Comparing {doc_2} vs. {doc_1}')
+        word_parser.compare_documents(doc_2, doc_1)
 
     def on_tdoc_search_change(self, *args):
         self.chosen_meeting = None
