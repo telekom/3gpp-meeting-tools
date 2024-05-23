@@ -15,6 +15,7 @@ from server.common import download_file_to_location
 from server.tdoc_search import MeetingEntry, search_meeting_for_tdoc
 from tdoc.utils import is_generic_tdoc
 from utils.local_cache import file_exists
+import gui.common.utils
 
 
 class MeetingsTable(GenericTable):
@@ -72,11 +73,17 @@ class MeetingsTable(GenericTable):
         self.button_open_tdoc = tkinter.Button(
             self.top_frame,
             text='Open TDoc',
-            command=self.on_open_tdoc
+            command=self.on_open_tdoc,
+            state=tkinter.DISABLED
         )
         self.tdoc_entry.pack(side=tkinter.LEFT)
         tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
         self.button_open_tdoc.pack(side=tkinter.LEFT)
+
+        gui.common.utils.bind_key_to_button(
+            frame=self.tk_top,
+            key_press='<Return>',
+            tk_button=self.button_open_tdoc)
 
         # Re-download TDoc Excel if it already exists
         self.redownload_tdoc_excel_if_exists_var = tkinter.IntVar()
@@ -310,9 +317,13 @@ class MeetingsTable(GenericTable):
 
         current_tdoc = self.tdoc
         if is_generic_tdoc(current_tdoc) is None:
+            # Disable button to search if TDoc is not valid
+            self.button_open_tdoc.configure(state=tkinter.DISABLED)
             self.apply_filters()
             return
 
+        # Enable button to search if TDoc is valid
+        self.button_open_tdoc.configure(state=tkinter.NORMAL)
         meeting_for_tdoc = search_meeting_for_tdoc(current_tdoc)
         if meeting_for_tdoc is None:
             self.apply_filters()
