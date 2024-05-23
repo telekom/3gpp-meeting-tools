@@ -301,19 +301,20 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
 
     print(f'Loading meeting entries from meeting list: {groups_to_load_str}')
 
-    def server_url_replace(meeting_url: str | None) -> str | None:
+    def server_url_replace(a_url: str | None) -> str | None:
         """
         Cleans up the URL and returns an absolute URL pointing to the 3GPP HTTP(s) file server
         Args:
-            meeting_url: A relative URL as parsed form the markdown cache,
+            a_url: A relative URL as parsed form the markdown cache,
             e.g. /../../../\\ftp\\tsg_sa\\TSG_SA\\TSGS_60\\Invitation/
 
         Returns: An absolute URL
 
         """
-        if meeting_url is None:
-            return meeting_url
-        return (meeting_url
+        if a_url is None:
+            return a_url
+        return (a_url
+                .replace('ftpTSG_SA', 'ftp/TSG_SA') # See https://www.3gpp.org/dynareport?code=Meetings-S5.htm for SA5#154
                 .replace(r'\\', '/')
                 .replace('/../../..//ftp/', 'https://www.3gpp.org/ftp/')
                 .replace('//', '/')
