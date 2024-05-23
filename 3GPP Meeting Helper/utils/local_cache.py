@@ -154,7 +154,7 @@ def convert_html_file_to_markup(
         return None
 
 
-def file_exists(local_filename: str) -> bool:
+def file_exists(local_filename: str, print_log: bool=False) -> bool:
     """
     Returns whether the file exists, and if it exists, if it is NOT of null size
     Args:
@@ -162,7 +162,8 @@ def file_exists(local_filename: str) -> bool:
     """
     local_file_exists = os.path.exists(local_filename)
     if not local_file_exists:
-        print(f'{local_filename} does not exist')
+        if print_log:
+            (f'{local_filename} does not exist')
         return False
     try:
         local_file_size = os.path.getsize(local_filename)
@@ -174,7 +175,8 @@ def file_exists(local_filename: str) -> bool:
         traceback.print_exc()
         return False
 
-    print(f'{local_filename} exists')
+    if print_log:
+        print(f'{local_filename} exists')
     return True
 
 
