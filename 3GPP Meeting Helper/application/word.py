@@ -136,7 +136,10 @@ def open_files(files, metadata_function: Callable[[Any, str], WordTdoc] | None =
         try:
             if metadata_function is not None:
                 file_opened, metadata = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
-                metadata = WordTdoc(title=metadata.title, source=metadata.source, path=file)
+                metadata = WordTdoc(
+                    title=metadata.title if metadata is not None else None,
+                    source=metadata.source if metadata is not None else None,
+                    path=file)
             else:
                 file_opened = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
                 metadata = []

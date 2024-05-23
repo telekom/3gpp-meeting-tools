@@ -30,3 +30,20 @@ def set_waiting_for_proxy_message(main_frame):
     label = tkinter.Label(main_frame, text="Please configure proxy")
     label.grid(row=0, column=0)
     return label
+
+
+def bind_key_to_button(frame: tkinter.Tk | tkinter.Toplevel, key_press: str, tk_button: tkinter.Button):
+    def on_key_button_press(*args):
+        print('<Return>> key pressed')
+        try:
+            button_status = tk_button['state']
+        except:
+            button_status = tkinter.DISABLED
+
+        print('button_status={0}'.format(button_status))
+        if button_status == tkinter.NORMAL:
+            tk_button.invoke()
+
+    # Bind the enter key in this frame to a button press (if the button is active)
+    frame.bind(key_press, on_key_button_press)
+    print('Bound <Return> key to TDoc search')
