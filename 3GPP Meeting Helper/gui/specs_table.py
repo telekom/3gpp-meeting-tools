@@ -521,7 +521,7 @@ class SpecVersionsTable(GenericTable):
                 'Click'
             )
             self.tree.insert("", "end", tags=(tag,), values=values)
-            print(f'INSERTED {values}')
+            # print(f'INSERTED {values}')
 
         self.count = count
         treeview_set_row_formatting(self.tree)
