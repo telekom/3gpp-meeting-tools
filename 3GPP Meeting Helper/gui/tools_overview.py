@@ -68,14 +68,6 @@ class ToolsDialog(TkWidget):
         # https://stackoverflow.com/questions/1892339/how-to-make-a-tkinter-window-jump-to-the-front
         # top.attributes("-topmost", True)
 
-        ttk.Button(
-            self.tk_top,
-            text="Open specs folder",
-            command=lambda: os.startfile(get_specs_folder())).grid(row=0,
-                                                                   column=2,
-                                                                   columnspan=1,
-                                                                   sticky="EW")
-
         # Row 1: Export TDocs by agenda to Excel
         self.export_button = ttk.Button(self.tk_top, text=ToolsDialog.export_text,
                                             command=self.export_tdocs_by_agenda_to_excel)

@@ -25,10 +25,11 @@ import server.tdoc_search
 import tdoc.utils
 import utils.local_cache
 import utils.threading
+from application.tkinter_config import root, font_big, ttk_style_tbutton_big, ttk_style_tbutton_medium, font_medium
 from gui.common.utils import favicon
+from server.specs import get_specs_folder
 
 # tkinter initialization
-root = tkinter.Tk()
 root.title("3GPP SA2 Meeting helper")
 
 root.iconbitmap(gui.common.utils.favicon)
@@ -83,13 +84,13 @@ tkvar_last_tdoc_url.set('')
 # Tkinter elements that require variables
 open_tdoc_button = ttk.Button(
     main_frame,
-    textvariable=tkvar_tdoc_id_full)
+    textvariable=tkvar_tdoc_id_full,
+    style=ttk_style_tbutton_medium)
 tdoc_entry = tkinter.Entry(
     main_frame,
     textvariable=tkvar_tdoc_id,
-    width=27,
-    font='TkDefaultFont',
-    justify='center')
+    justify='center',
+    font=font_medium)
 open_last_agenda_button = ttk.Button(
     main_frame,
     text='Open last agenda')
@@ -99,9 +100,7 @@ tkinter_checkbutton_3gpp_wifi_available = ttk.Checkbutton(
     variable=tkvar_3gpp_wifi_available)
 tdocs_by_agenda_entry = tkinter.Entry(
     main_frame,
-    textvariable=tkvar_tdocs_by_agenda_path,
-    width=27,
-    font='TkDefaultFont')
+    textvariable=tkvar_tdocs_by_agenda_path)
 
 # Other variables
 last_override_tdocs_by_agenda = ''
@@ -442,7 +441,8 @@ def start_main_gui():
     tk_combobox_meetings = ttk.Combobox(
         main_frame,
         textvariable=tkvar_meeting,
-        values=application.meeting_helper.sa2_meeting_data.meeting_names
+        values=application.meeting_helper.sa2_meeting_data.meeting_names,
+        font=font_big
     )
 
     # Variable-change callbacks
@@ -468,13 +468,27 @@ def start_main_gui():
     tkvar_tdoc_id.trace('w', set_tdoc_id_full)
     tkvar_search_tdoc.trace('w', set_tdoc_id_full)
 
-    # Row: Inbox info
+    # Row: Network configuration and application data update
     current_row = 0
+    (ttk.Button(
+        main_frame,
+        text='Network config',
+        command=lambda: gui.network_config.NetworkConfigDialog(
+            root,
+            favicon,
+            on_update_ftp=gui.main_gui.update_ftp_button))
+     .grid(
+        row=current_row,
+        column=0,
+        sticky="EW"))
+
+    # Row: Meeting Selector
+    current_row += 1
     tk_combobox_meetings.grid(
         row=current_row,
         column=0,
         columnspan=2,
-        sticky="ew",
+        sticky=tkinter.E + tkinter.W,
         padx=10,
         pady=10)
 
@@ -485,29 +499,25 @@ def start_main_gui():
 
     # Row: Dropdown menu and meeting info
     current_row += 1
-    (ttk.Button(
-        main_frame,
-        text='Network config',
-        command=lambda: gui.network_config.NetworkConfigDialog(
-            root,
-            favicon,
-            on_update_ftp=gui.main_gui.update_ftp_button))
-    .grid(
-        row=current_row,
-        column=0,
-        sticky="EW"))
 
     open_last_agenda_button.grid(
         row=current_row,
-        column=1,
+        column=0,
         sticky="EW")
-
     ttk.Button(
         main_frame,
         text='Open TDocs by Agenda',
         command=open_tdocs_by_agenda).grid(
         row=current_row,
+        column=1,
+        sticky="EW")
+    ttk.Button(
+        main_frame,
+        text="Open server meeting folder",
+        command=open_server_meeting_folder).grid(
+        row=current_row,
         column=2,
+        columnspan=1,
         sticky="EW")
 
     # Row: Open TDoc
@@ -536,7 +546,7 @@ def start_main_gui():
             gui.main_gui.root,
             gui.main_gui.favicon,
             selected_meeting_fn=gui.main_gui.tkvar_meeting.get))
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         sticky="EW"))
@@ -565,24 +575,25 @@ def start_main_gui():
         main_frame,
         text='Search Netovate',
         command=search_netovate)
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         sticky="EW"))
 
     # Row: Open local folder, open server folder
     current_row += 1
-    ttk.Button(main_frame,
-               text="Open local meeting folder",
-               command=open_local_meeting_folder).grid(
+    ttk.Button(
+        main_frame,
+        text="Open local meeting folder",
+        command=open_local_meeting_folder).grid(
         row=current_row,
         column=0,
         columnspan=1,
         sticky="EW")
     ttk.Button(
         main_frame,
-        text="Open server meeting folder",
-        command=open_server_meeting_folder).grid(
+        text="Open local specs folder",
+        command=lambda: os.startfile(get_specs_folder())).grid(
         row=current_row,
         column=1,
         columnspan=1,
@@ -639,7 +650,7 @@ def start_main_gui():
         main_frame,
         text='Override Tdocs by agenda',
         variable=tkvar_override_tdocs_by_agenda)
-    .grid(
+     .grid(
         row=current_row,
         column=0))
     tdocs_by_agenda_entry.config(state='readonly')
