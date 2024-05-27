@@ -213,7 +213,7 @@ def detect_3gpp_network_state():
     # Checks whether the inbox is from the selected meeting and sets
     # some labels accordingly
 
-    previous_state = application.meeting_helper.last_known_3gpp_network_status
+    previous_state = tkvar_3gpp_wifi_available.get()
     new_state = server.common.we_are_in_meeting_network()
     if new_state:
         tkvar_3gpp_wifi_available.set(True)
@@ -222,6 +222,8 @@ def detect_3gpp_network_state():
 
     if new_state != previous_state:
         print(f'Changed 3GPP network state from {previous_state} to {new_state}')
+
+    root.after(ms=10000, func=detect_3gpp_network_state)
 
 
 def change_meeting_dropdown(*args):
@@ -440,9 +442,6 @@ def download_and_open_tdoc(
 
 def start_main_gui():
     load_application_data()
-    utils.threading.do_something_periodically_on_thread(
-        task=detect_3gpp_network_state,
-        interval_s=10)
 
     tkvar_meeting.set(
         application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(
@@ -487,7 +486,7 @@ def start_main_gui():
             root,
             favicon,
             on_update_ftp=gui.main_gui.update_ftp_button))
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         sticky="EW"))
@@ -495,7 +494,7 @@ def start_main_gui():
         main_frame,
         text='Reload meeting info',
         command=lambda: load_application_data(reload_inbox_tdocs_by_agenda=True))
-    .grid(
+     .grid(
         row=current_row,
         column=1,
         sticky="EW"))
@@ -564,7 +563,7 @@ def start_main_gui():
             gui.main_gui.root,
             gui.main_gui.favicon,
             selected_meeting_fn=gui.main_gui.tkvar_meeting.get))
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         sticky="EW"))
@@ -593,7 +592,7 @@ def start_main_gui():
         main_frame,
         text='Search Netovate',
         command=search_netovate)
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         sticky="EW"))
@@ -828,6 +827,9 @@ def start_main_gui():
     main_frame.grid_columnconfigure(0, weight=1)
     main_frame.grid_columnconfigure(1, weight=1)
     main_frame.grid_columnconfigure(2, weight=1)
+
+    # Finish by setting periodic checking of the network status
+    root.after(ms=10000, func=detect_3gpp_network_state)
 
 
 # Avoid circular references by setting the TDoc open function at runtime
