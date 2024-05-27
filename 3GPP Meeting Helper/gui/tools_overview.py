@@ -12,8 +12,8 @@ import pythoncom
 import application.excel
 import application.meeting_helper
 import application.word
-import gui.main_gui
 import gui.common.utils
+import gui.main_gui
 import gui.meetings_table
 import gui.specs_table
 import gui.tdocs_table
@@ -26,13 +26,11 @@ import parsing.word.pywin32 as word_parser
 import server.chairnotes
 import server.common
 import server.tdoc
-import tdoc
 import utils.local_cache
 from gui.common.tkinter_widget import TkWidget
 from parsing.html.chairnotes import chairnotes_file_to_dataframe
 from parsing.html.revisions import extract_tdoc_revisions_from_html
 from server.specs import get_specs_folder
-from server.tdoc_search import search_download_and_open_tdoc
 from tdoc.utils import do_something_on_thread
 
 
@@ -68,17 +66,7 @@ class ToolsDialog(TkWidget):
         # Set the window to the front and wait until it is closed
         # https://stackoverflow.com/questions/1892339/how-to-make-a-tkinter-window-jump-to-the-front
         # top.attributes("-topmost", True)
-        tkinter.Button(self.tk_top,
-                       text="Open local folder for selected meeting",
-                       command=self.open_local_meeting_folder).grid(
-            row=0, column=0, columnspan=1, sticky="EW")
-        tkinter.Button(
-            self.tk_top,
-            text="Open server meeting folder",
-            command=self.open_server_meeting_folder).grid(row=0,
-                                                          column=1,
-                                                          columnspan=1,
-                                                          sticky="EW")
+
         tkinter.Button(
             self.tk_top,
             text="Open specs folder",
@@ -99,22 +87,6 @@ class ToolsDialog(TkWidget):
         self.export_button = tkinter.Button(self.tk_top, text=ToolsDialog.export_text,
                                             command=self.export_tdocs_by_agenda_to_excel)
         self.export_button.grid(row=1, column=0, columnspan=columnspan, sticky="EW")
-
-        # Row 4: Table containing all meeting TDocs
-        self.launch_tdoc_table = tkinter.Button(
-            self.tk_top,
-            text='Open Tdoc table',
-            command=lambda: gui.tdocs_table.TdocsTable(
-                favicon=self.favicon,
-                parent_widget=self.tk_top,
-                meeting_name=self.selected_meeting_fn(),
-                retrieve_current_tdocs_by_agenda_fn=lambda: gui.main_gui.open_tdocs_by_agenda(open_this_file=False),
-                get_tdocs_by_agenda_for_selected_meeting_fn=gui.main_gui.get_tdocs_by_agenda_for_selected_meeting,
-                download_and_open_tdoc_fn=gui.main_gui.download_and_open_tdoc,
-                get_current_meeting_name_fn=self.selected_meeting_fn,
-                download_and_open_generic_tdoc_fn=search_download_and_open_tdoc
-            ))
-        self.launch_tdoc_table.grid(row=4, column=0, columnspan=int(columnspan / 4), sticky="EW")
 
         # Row 4: Table containing all 3GPP specs
         self.launch_spec_table = tkinter.Button(
@@ -296,22 +268,6 @@ class ToolsDialog(TkWidget):
         self.tk_top.grid_columnconfigure(1, weight=1)
         self.tk_top.grid_columnconfigure(2, weight=1)
         self.tk_top.grid_columnconfigure(3, weight=1)
-
-    def open_local_meeting_folder(self):
-        selected_meeting = self.selected_meeting_fn()
-        meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
-            selected_meeting)
-        if meeting_folder is not None:
-            local_folder = utils.local_cache.get_meeting_folder(meeting_folder)
-            os.startfile(local_folder)
-
-    def open_server_meeting_folder(self):
-        selected_meeting = self.selected_meeting_fn()
-        meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
-            selected_meeting)
-        if meeting_folder is not None:
-            remote_folder = server.common.get_remote_meeting_folder(meeting_folder)
-            os.startfile(remote_folder)
 
     def generate_word_report(self):
         current_tdocs_by_agenda = gui.main.open_tdocs_by_agenda(open_this_file=False)

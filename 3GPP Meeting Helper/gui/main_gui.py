@@ -12,6 +12,7 @@ import application.meeting_helper
 import application.word
 import gui.network_config
 import gui.tools_overview
+import gui.tdocs_table
 import parsing.html.common
 import parsing.html.common as html_parser
 import parsing.word.pywin32
@@ -111,6 +112,23 @@ last_override_tdocs_by_agenda = ''
 
 
 # Utility methods
+def open_local_meeting_folder(*args):
+    selected_meeting = gui.main_gui.tkvar_meeting.get()
+    meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+        selected_meeting)
+    if meeting_folder is not None:
+        local_folder = utils.local_cache.get_meeting_folder(meeting_folder)
+        os.startfile(local_folder)
+
+
+def open_server_meeting_folder(*args):
+    selected_meeting = gui.main_gui.tkvar_meeting.get()
+    meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+        selected_meeting)
+    if meeting_folder is not None:
+        remote_folder = server.common.get_remote_meeting_folder(meeting_folder)
+        os.startfile(remote_folder)
+
 def inbox_is_for_this_meeting():
     meeting_number_from_dropdown = tkvar_meeting.get().split(',')[0]
     return tkvar_inbox_meeting.get() == meeting_number_from_dropdown
@@ -469,37 +487,75 @@ def start_main_gui():
 
     # Row: Inbox info
     current_row = 0
-    open_last_agenda_button.grid(row=0, column=0, sticky="EW")
-    meeting_dropdown_list.grid(row=current_row, column=1, sticky="ew", padx=10, pady=10)
-    tkinter.Button(main_frame, text='TDocs by Agenda', command=open_tdocs_by_agenda).grid(row=current_row, column=2,
-                                                                                          padx=10, pady=10, sticky="EW")
+    meeting_dropdown_list.grid(
+        row=current_row,
+        column=0,
+        sticky="ew",
+        padx=10,
+        pady=10)
+    open_last_agenda_button.grid(
+        row=current_row,
+        column=1,
+        sticky="EW")
+    tkinter.Button(
+        main_frame,
+        text='TDocs by Agenda',
+        command=open_tdocs_by_agenda).grid(
+        row=current_row,
+        column=2,
+        padx=10,
+        pady=10,
+        sticky="EW")
 
     # Row: Dropdown menu and meeting info
     current_row += 1
     (tkinter.Button(
         main_frame,
         text='Network config',
-        command=lambda: gui.network_config.NetworkConfigDialog(root, favicon,
-                                                               on_update_ftp=gui.main_gui.update_ftp_button))
-     .grid(row=current_row, column=0, sticky="EW"))
+        command=lambda: gui.network_config.NetworkConfigDialog(
+            root,
+            favicon,
+            on_update_ftp=gui.main_gui.update_ftp_button))
+     .grid(
+        row=current_row,
+        column=0,
+        sticky="EW"))
     (tkinter.Checkbutton(
         main_frame,
         text='3GPP sync (HTTP)',
         state='disabled',
         variable=tkinter_label_sync)
-     .grid(row=current_row, column=1))
+     .grid(
+        row=current_row,
+        column=1))
     update_ftp_button()
-    meeting_ftp_button.grid(row=current_row, column=2)
+    meeting_ftp_button.grid(
+        row=current_row,
+        column=2)
 
     # Row: Open TDoc
     current_row += 1
-    tkinter.Label(main_frame, text="Open TDoc").grid(row=current_row, column=0)
-    tdoc_entry.grid(row=current_row, column=1, padx=10, pady=10)
-    current_row += 1
-    tkinter.Checkbutton(main_frame, text='Search all WGs/meetings', variable=tkvar_search_tdoc).grid(row=current_row,
-                                                                                                     column=2)
+    tdoc_entry.grid(
+        row=current_row,
+        column=0,
+        padx=10,
+        pady=10)
+    open_tdoc_button.grid(
+        row=current_row,
+        column=1,
+        padx=10,
+        pady=10,
+        sticky="EW")
+    open_tdoc_button.configure(command=download_and_open_tdoc)
+    tkinter.Checkbutton(
+        main_frame,
+        text='Search all WGs/meetings',
+        variable=tkvar_search_tdoc).grid(
+        row=current_row,
+        column=2)
 
-    # Rows: Download TDoc button and last agenda
+    # Row: Tools, TDoc table, Open Netovate
+    current_row += 1
     (tkinter.Button(
         main_frame,
         text='Tools',
@@ -507,15 +563,63 @@ def start_main_gui():
             gui.main_gui.root,
             gui.main_gui.favicon,
             selected_meeting_fn=gui.main_gui.tkvar_meeting.get))
-     .grid(row=current_row, column=0, sticky="EW"))
-    open_tdoc_button.configure(command=download_and_open_tdoc)
+     .grid(
+        row=current_row,
+        column=0,
+        sticky="EW"))
 
+    tdoc_table_button = tkinter.Button(
+        main_frame,
+        text='Open Tdoc table',
+        command=lambda: gui.tdocs_table.TdocsTable(
+            favicon=favicon,
+            parent_widget=root,
+            meeting_name=gui.main_gui.tkvar_meeting.get(),
+            retrieve_current_tdocs_by_agenda_fn=lambda: gui.main_gui.open_tdocs_by_agenda(open_this_file=False),
+            get_tdocs_by_agenda_for_selected_meeting_fn=gui.main_gui.get_tdocs_by_agenda_for_selected_meeting,
+            download_and_open_tdoc_fn=gui.main_gui.download_and_open_tdoc,
+            get_current_meeting_name_fn=gui.main_gui.tkvar_meeting.get,
+            download_and_open_generic_tdoc_fn=server.tdoc_search.search_download_and_open_tdoc
+        ))
+    tdoc_table_button.grid(
+        row=current_row,
+        column=1,
+        columnspan=1,
+        sticky="EW")
+
+    # Add button to check Netovate (useful if you are searching for documents from other WGs
+    (tkinter.Button(
+        main_frame,
+        text='Search Netovate',
+        command=search_netovate)
+     .grid(
+        row=current_row,
+        column=2,
+        sticky="EW"))
+
+    # Row: Open local folder, open server folder
+    current_row += 1
+    tkinter.Button(main_frame,
+                   text="Open local folder for selected meeting",
+                   command=open_local_meeting_folder).grid(
+        row=current_row,
+        column=0,
+        columnspan=1,
+        sticky="EW")
+    tkinter.Button(
+        main_frame,
+        text="Open server meeting folder",
+        command=open_server_meeting_folder).grid(
+        row=current_row,
+        column=1,
+        columnspan=1,
+        sticky="EW")
+
+    # Configure <RETURN> key shortcut to open a Tdoc
     gui.common.utils.bind_key_to_button(
         frame=root,
         key_press='<Return>',
         tk_button=open_tdoc_button)
-
-    open_tdoc_button.grid(row=current_row, column=1, padx=10, pady=10, sticky="EW")
 
     # Override TDocs by Agenda if it is malformed
     current_row += 1
@@ -523,16 +627,15 @@ def start_main_gui():
         main_frame,
         text='Override Tdocs by agenda',
         variable=tkvar_override_tdocs_by_agenda)
-     .grid(row=current_row, column=0))
+     .grid(
+        row=current_row,
+        column=0))
     tdocs_by_agenda_entry.config(state='readonly')
-    tdocs_by_agenda_entry.grid(row=current_row, column=1, padx=10, pady=10)
-
-    # Add button to check Netovate (useful if you are searching for documents from other WGs
-    (tkinter.Button(
-        main_frame,
-        text='Search Netovate',
-        command=search_netovate)
-     .grid(row=current_row, column=2, sticky="EW"))
+    tdocs_by_agenda_entry.grid(
+        row=current_row,
+        column=1,
+        padx=10,
+        pady=10)
 
     def set_override_tdocs_by_agenda_var(*args):
         global last_override_tdocs_by_agenda
