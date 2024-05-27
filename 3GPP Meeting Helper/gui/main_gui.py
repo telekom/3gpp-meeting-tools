@@ -2,6 +2,7 @@ import os.path
 import threading
 import tkinter
 import tkinter.font
+import tkinter.scrolledtext
 from tkinter import ttk
 import traceback
 from typing import Tuple, List
@@ -165,7 +166,7 @@ def reset_status_labels():
 
 
 def update_ftp_button():
-    meeting_ftp_button.config(text=server.common.private_server + ' (FTP)')
+    meeting_ftp_button.config(text=server.common.private_server + ' (3GPP Wifi)')
 
 
 def get_tdocs_by_agenda_file_or_url(target):
@@ -246,14 +247,22 @@ tkvar_meeting.trace('w', change_meeting_dropdown)
 
 
 # Text boxes
-def get_text_with_scrollbar(row, column, height=2, current_main_frame=main_frame, width=50):
-    scrollbar = tkinter.Scrollbar(current_main_frame)
-    text = tkinter.Text(current_main_frame, height=height, width=width)
-    scrollbar.config(command=text.yview)
-    text.config(yscrollcommand=scrollbar.set)
+def get_text_with_scrollbar(
+        row,
+        column,
+        height=2,
+        current_main_frame=main_frame,
+        width=50
+):
+
+    text = tkinter.scrolledtext.ScrolledText(
+        current_main_frame,
+        height=height,
+        width=width,
+        wrap=tkinter.WORD
+    )
 
     text.grid(row=row, column=column, columnspan=2)
-    scrollbar.grid(row=row, column=column + 2, sticky=tkinter.N + tkinter.S + tkinter.W)
     return text
 
 
@@ -501,7 +510,7 @@ def start_main_gui():
 
     (ttk.Checkbutton(
         main_frame,
-        text='3GPP sync (HTTP)',
+        text='3GPP sync',
         state='disabled',
         variable=tkinter_label_sync)
      .grid(
@@ -537,8 +546,6 @@ def start_main_gui():
         command=open_tdocs_by_agenda).grid(
         row=current_row,
         column=2,
-        padx=10,
-        pady=10,
         sticky="EW")
 
     # Row: Open TDoc
@@ -633,7 +640,7 @@ def start_main_gui():
         key_press='<Return>',
         tk_button=open_tdoc_button)
 
-    # Row 4: Table containing all 3GPP specs
+    # Row: Table containing all 3GPP specs
     current_row += 1
     launch_spec_table = ttk.Button(
         main_frame,
@@ -644,7 +651,7 @@ def start_main_gui():
             favicon=favicon))
     launch_spec_table.grid(row=current_row, column=0, columnspan=1, sticky="EW")
 
-    # Row 4: Table containing all 3GPP meetings
+    # Row: Table containing all 3GPP meetings
     launch_spec_table = ttk.Button(
         main_frame,
         text='Open Meetings table',
@@ -654,7 +661,7 @@ def start_main_gui():
             favicon=favicon))
     launch_spec_table.grid(row=current_row, column=1, columnspan=1, sticky="EW")
 
-    # Row 4: Table containing all 3GPP WIs
+    # Row: Table containing all 3GPP WIs
     launch_spec_table = ttk.Button(
         main_frame,
         text='Open 3GPP WI table',
@@ -732,16 +739,32 @@ def start_main_gui():
 
     # Row: Infos
     current_row += 1
-    ttk.Label(main_frame, textvariable=tkvar_tdoc_download_result).grid(row=current_row, column=1)
-    ttk.Label(main_frame, textvariable=tkvar_last_agenda_vtext).grid(row=current_row, column=2)
+    ttk.Label(
+        main_frame, 
+        textvariable=tkvar_tdoc_download_result).grid(
+        row=current_row, 
+        column=1)
+    ttk.Label(
+        main_frame, 
+        textvariable=tkvar_last_agenda_vtext).grid(
+        row=current_row, 
+        column=2)
 
     # Row: info from last document
     current_row += 1
-    tkinter.ttk.Separator(main_frame, orient=tkinter.HORIZONTAL).grid(row=current_row, columnspan=3,
-                                                                      sticky="WE")
+    tkinter.ttk.Separator(
+        main_frame, 
+        orient=tkinter.HORIZONTAL).grid(
+        row=current_row,
+        columnspan=3,
+        sticky="WE")
 
     current_row += 1
-    ttk.Label(main_frame, text='Last document:').grid(row=current_row, column=0)
+    ttk.Label(
+        main_frame, 
+        text='Last document:').grid(
+        row=current_row, 
+        column=0)
 
     # Last opened document    
     def set_last_doc_title(*args):
@@ -769,20 +792,46 @@ def start_main_gui():
     tkvar_last_tdoc_status.trace('w', set_last_doc_status)
 
     current_row += 1
-    ttk.Label(main_frame, text='Title:').grid(row=current_row, column=0)
-    last_tdoc_title = get_text_with_scrollbar(current_row, 1)
+    ttk.Label(
+        main_frame, 
+        text='Title:').grid(
+        row=current_row, 
+        column=0)
+    last_tdoc_title = get_text_with_scrollbar(
+        current_row,
+        1)
 
     current_row += 1
-    ttk.Label(main_frame, text='Source:').grid(row=current_row, column=0)
-    last_tdoc_source = get_text_with_scrollbar(current_row, 1)
+    ttk.Label(
+        main_frame, 
+        text='Source:').grid(
+        row=current_row, 
+        column=0)
+    last_tdoc_source = get_text_with_scrollbar(
+        current_row,
+        1)
 
     current_row += 1
-    ttk.Label(main_frame, text='URL:').grid(row=current_row, column=0)
-    last_tdoc_url = get_text_with_scrollbar(current_row, 1, height=1)
+    ttk.Label(
+        main_frame, 
+        text='URL:').grid(
+        row=current_row, 
+        column=0)
+    last_tdoc_url = get_text_with_scrollbar(
+        current_row, 1, 
+        height=1
+    )
 
     current_row += 1
-    ttk.Label(main_frame, text='Status:').grid(row=current_row, column=0)
-    last_tdoc_status = get_text_with_scrollbar(current_row, 1, height=1)
+    ttk.Label(
+        main_frame, 
+        text='Status:').grid(
+        row=current_row, 
+        column=0)
+    last_tdoc_status = get_text_with_scrollbar(
+        current_row,
+        1, 
+        height=1)
 
     # Configure column row widths
     main_frame.grid_columnconfigure(0, weight=1)
