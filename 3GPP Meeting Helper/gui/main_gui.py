@@ -92,7 +92,7 @@ open_tdoc_button = ttk.Button(
 tdoc_entry = ttk.Entry(
     main_frame,
     textvariable=tkvar_tdoc_id,
-    width=25,
+    width=27,
     font='TkDefaultFont')
 open_last_agenda_button = ttk.Button(
     main_frame,
@@ -128,6 +128,7 @@ def open_server_meeting_folder(*args):
     if meeting_folder is not None:
         remote_folder = server.common.get_remote_meeting_folder(meeting_folder)
         os.startfile(remote_folder)
+
 
 def inbox_is_for_this_meeting():
     meeting_number_from_dropdown = tkvar_meeting.get().split(',')[0]
@@ -493,19 +494,19 @@ def start_main_gui():
         sticky="ew",
         padx=10,
         pady=10)
-    open_last_agenda_button.grid(
-        row=current_row,
-        column=1,
-        sticky="EW")
-    ttk.Button(
+
+    (ttk.Checkbutton(
         main_frame,
-        text='TDocs by Agenda',
-        command=open_tdocs_by_agenda).grid(
+        text='3GPP sync (HTTP)',
+        state='disabled',
+        variable=tkinter_label_sync)
+     .grid(
         row=current_row,
-        column=2,
-        padx=10,
-        pady=10,
-        sticky="EW")
+        column=1))
+    update_ftp_button()
+    meeting_ftp_button.grid(
+        row=current_row,
+        column=2)
 
     # Row: Dropdown menu and meeting info
     current_row += 1
@@ -520,18 +521,21 @@ def start_main_gui():
         row=current_row,
         column=0,
         sticky="EW"))
-    (ttk.Checkbutton(
+
+    open_last_agenda_button.grid(
+        row=current_row,
+        column=1,
+        sticky="EW")
+
+    ttk.Button(
         main_frame,
-        text='3GPP sync (HTTP)',
-        state='disabled',
-        variable=tkinter_label_sync)
-     .grid(
+        text='TDocs by Agenda',
+        command=open_tdocs_by_agenda).grid(
         row=current_row,
-        column=1))
-    update_ftp_button()
-    meeting_ftp_button.grid(
-        row=current_row,
-        column=2)
+        column=2,
+        padx=10,
+        pady=10,
+        sticky="EW")
 
     # Row: Open TDoc
     current_row += 1
@@ -563,7 +567,7 @@ def start_main_gui():
             gui.main_gui.root,
             gui.main_gui.favicon,
             selected_meeting_fn=gui.main_gui.tkvar_meeting.get))
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         sticky="EW"))
@@ -592,7 +596,7 @@ def start_main_gui():
         main_frame,
         text='Search Netovate',
         command=search_netovate)
-     .grid(
+    .grid(
         row=current_row,
         column=2,
         sticky="EW"))
@@ -600,8 +604,8 @@ def start_main_gui():
     # Row: Open local folder, open server folder
     current_row += 1
     ttk.Button(main_frame,
-                   text="Open local folder for selected meeting",
-                   command=open_local_meeting_folder).grid(
+               text="Open local meeting folder",
+               command=open_local_meeting_folder).grid(
         row=current_row,
         column=0,
         columnspan=1,
@@ -612,6 +616,14 @@ def start_main_gui():
         command=open_server_meeting_folder).grid(
         row=current_row,
         column=1,
+        columnspan=1,
+        sticky="EW")
+    ttk.Button(
+        main_frame,
+        text="Close Word",
+        command=application.word.close_word).grid(
+        row=current_row,
+        column=2,
         columnspan=1,
         sticky="EW")
 
@@ -627,7 +639,7 @@ def start_main_gui():
         main_frame,
         text='Override Tdocs by agenda',
         variable=tkvar_override_tdocs_by_agenda)
-     .grid(
+    .grid(
         row=current_row,
         column=0))
     tdocs_by_agenda_entry.config(state='readonly')
