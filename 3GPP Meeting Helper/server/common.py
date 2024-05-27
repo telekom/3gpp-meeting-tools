@@ -61,10 +61,12 @@ def get_remote_meeting_folder(
 ):
 
     if use_private_server:
+        # e.g., http://10.10.10.10/ftp/SA/SA2//Docs/S2-2405873.zip
         url_prefix = sa2_url_private_server
+        folder = url_prefix
     else:
         url_prefix = sa2_url
-    folder = url_prefix + meeting_folder_name + '/'
+        folder = url_prefix + meeting_folder_name + '/'
     if use_inbox:
         folder = folder + 'Inbox/'
     return folder
