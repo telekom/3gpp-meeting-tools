@@ -249,7 +249,7 @@ class WorkItemsTable(GenericTable):
         if column == 5:
             print(f'Clicked on WID {uid}. Will download latest WID version from {wi[0].wid_page_url}')
             url_to_open = wi[0].wid_page_url
-            html_bytes = get_remote_file(url_to_open)
+            html_bytes = get_remote_file(url_to_open, cache=True)
             if html_bytes is None:
                 print(f'Could not retrieve HTML for WID {uid}')
                 return

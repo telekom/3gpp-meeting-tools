@@ -236,7 +236,7 @@ def update_local_html_cache(redownload_if_exists=False):
             files_to_download.append(FileToDownload(remote_url=v, local_filepath=local_file))
         else:
             print(f'Skipping download of {v} to {local_file}')
-    batch_download_file_to_location(files_to_download)
+    batch_download_file_to_location(files_to_download, cache=True)
 
 
 def filter_markdown_text(markdown_text: str) -> str:
