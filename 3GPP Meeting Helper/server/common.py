@@ -8,15 +8,16 @@ from server.connection import get_remote_file
 from utils.local_cache import get_sa2_root_folder_local_cache
 
 """Retrieves data from the 3GPP web server"""
-private_server = '10.10.10.10'
 default_http_proxy = 'http://lanbctest:8080'
-http_server = 'https://www.3gpp.org/ftp/'
-group_folder = 'tsg_sa/WG2_Arch/'
+private_server = '10.10.10.10'
+public_server = 'www.3gpp.org'
+wg_folder_public_server = 'ftp/tsg_sa/WG2_Arch/'
+wg_folder_private_server = 'ftp/SA/SA2/'
 sync_folder = 'Meetings_3GPP_SYNC/SA2/'
-meeting_folder = 'ftp/SA/SA2/'
-sa2_url = ''
-sa2_url_sync = ''
-sa2_url_meeting = ''
+
+sa2_url = 'https://' + public_server + '/' + wg_folder_public_server
+sa2_url_sync = 'https://' + public_server + '/' + sync_folder
+sa2_url_private_server = 'http://' + private_server + '/' + wg_folder_private_server
 
 
 def decode_string(str_to_decode: bytes, log_name, print_error=False) -> str | bytes:
@@ -49,19 +50,23 @@ def decode_string(str_to_decode: bytes, log_name, print_error=False) -> str | by
 
 
 def get_sa2_tdoc_list(meeting_folder_name):
-    url = get_remote_meeting_folder(meeting_folder_name, use_inbox=False) + 'TdocsByAgenda.htm'
+    url = get_remote_meeting_folder(meeting_folder_name, use_private_server=False) + 'TdocsByAgenda.htm'
     return get_remote_file(url)
 
 
 def get_remote_meeting_folder(
         meeting_folder_name,
-        use_inbox=False,
-        searching_for_a_file=False
+        use_private_server=False,
+        use_inbox=False
 ):
-    if not use_inbox:
-        folder = sa2_url + meeting_folder_name + '/'
+
+    if use_private_server:
+        url_prefix = sa2_url_private_server
     else:
-        folder = get_inbox_url(searching_for_a_file)
+        url_prefix = sa2_url
+    folder = url_prefix + meeting_folder_name + '/'
+    if use_inbox:
+        folder = folder + 'Inbox/'
     return folder
 
 
@@ -73,7 +78,7 @@ def get_inbox_root(searching_for_a_file=False):
     if not we_are_in_meeting_network():
         folder = sa2_url_sync
     else:
-        folder = sa2_url_meeting
+        folder = sa2_url_private_server
     return folder
 
 
@@ -147,16 +152,5 @@ def batch_download_file_to_location(files_to_download: List[FileToDownload], cac
                 print('%r generated an exception: %s' % (file_to_download, exc))
 
 
-def update_meeting_ftp_server(new_address):
-    if (new_address is None) or (new_address == ''):
-        return
-    global private_server
-    private_server = new_address
-    update_urls()
 
 
-def update_urls():
-    global sa2_url, sa2_url_sync, sa2_url_meeting
-    sa2_url = http_server + group_folder
-    sa2_url_sync = http_server + sync_folder
-    sa2_url_meeting = 'http://' + private_server + '/' + meeting_folder

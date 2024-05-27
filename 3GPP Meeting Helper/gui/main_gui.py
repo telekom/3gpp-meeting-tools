@@ -278,7 +278,7 @@ def get_tdocs_by_agenda_for_selected_meeting(
         open_tdocs_by_agenda_in_browser=False):
     return_data = server.tdoc.get_tdocs_by_agenda_for_selected_meeting(
         meeting_folder=meeting_folder,
-        inbox_active=tkvar_3gpp_wifi_available.get(),
+        use_private_server=tkvar_3gpp_wifi_available.get(),
         open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
 
     # Optional download of revisions
@@ -375,9 +375,8 @@ def download_and_open_tdoc(
     retrieved_files, tdoc_url = server.tdoc.get_tdoc(
         meeting_folder_name=meeting_folder_name,
         tdoc_id=tdoc_id,
-        use_inbox=tkvar_3gpp_wifi_available.get(),
-        return_url=True,
-        searching_for_a_file=True)
+        use_private_server=tkvar_3gpp_wifi_available.get(),
+        return_url=True)
 
     if cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
         if retrieved_files is not None:

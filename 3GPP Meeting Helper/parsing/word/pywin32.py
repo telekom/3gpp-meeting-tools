@@ -325,7 +325,7 @@ def fill_in_table(
 
     tdocs = df.index.tolist()
     server_urls = dict(
-        [(tdoc, server.tdoc.get_remote_filename(meeting_folder, tdoc, use_inbox=False)) for tdoc in tdocs])
+        [(tdoc, server.tdoc.get_remote_filename(meeting_folder, tdoc, use_private_server=False)) for tdoc in tdocs])
 
     # Fill in TDoc data
     row_idx = 2
@@ -397,7 +397,7 @@ def fill_in_table(
                                 server_urls[m_tdoc] = server.tdoc.get_remote_filename(
                                     meeting_folder,
                                     m_tdoc,
-                                    use_inbox=False)
+                                    use_private_server=False)
 
                                 tdoc_url = server_urls[m_tdoc]
                             tdoc_range = table.Cell(Row=row_idx, Column=col_idx + 2).Range

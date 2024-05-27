@@ -44,13 +44,10 @@ class NetworkConfigDialog:
         ttk.Button(top, text="No proxy and close window", command=self.ko).grid(row=3, column=2, sticky="EW")
 
         ttk.Label(top, text="Meeting HTTP server").grid(row=4, column=0)
-        self.meeting_server = tkinter.Entry(top)
-        self.meeting_server.insert(0, server.common.private_server)
-        self.meeting_server.grid(row=4, column=1, columnspan=2, sticky="EW")
-        ttk.Button(
+        self.meeting_server = ttk.Label(
             top,
-            text="Apply FTP meeting server address",
-            command=self.store_meeting_ftp_address).grid(row=5, column=1, sticky="EW")
+            text=server.common.private_server)
+        self.meeting_server.grid(row=4, column=1, columnspan=2, sticky="EW")
 
         # Configure column row widths
         top.grid_columnconfigure(0, weight=1)
@@ -103,11 +100,3 @@ class NetworkConfigDialog:
         server.connection.non_cached_http_session.proxies = None
         self.top.destroy()
 
-    def store_meeting_ftp_address(self):
-        server.common.update_meeting_ftp_server(self.meeting_server.get())
-        self.meeting_server.delete(0, 'end')
-        self.meeting_server.insert(0, server.common.private_server)
-        try:
-            self.on_update_ftp()
-        except:
-            print('Could not update FTP address label')

@@ -17,8 +17,8 @@ import server.common
 import tdoc.utils
 import tdoc.utils
 import utils.local_cache
-from server.common import get_remote_meeting_folder, get_inbox_root, update_urls
 from application.zip_files import unzip_files_in_zip_file
+from server.common import get_remote_meeting_folder, get_inbox_root
 from server.connection import get_remote_file
 from utils.local_cache import get_cache_folder, get_local_revisions_filename, get_local_drafts_filename, \
     get_meeting_folder, get_local_agenda_folder
@@ -33,9 +33,6 @@ folder_ftp_names_regex = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][a
 
 # tdoc_url = 'https://portal.3gpp.org/ngppapp/DownloadTDoc.aspx?contributionUid=S2-2202451'
 # Then, search for javascript: window.location.href='https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_150E_Electronic_2022-04/Docs/S2-2202451.zip';//]]> -> extract
-
-
-update_urls()
 
 
 def get_sa2_inbox_current_tdoc(searching_for_a_file=False):
@@ -116,10 +113,21 @@ def get_sa2_drafts_tdoc_list(meeting_folder):
 def get_tdoc(
         meeting_folder_name,
         tdoc_id,
-        use_inbox=False,
+        use_private_server=False,
         return_url=False,
-        searching_for_a_file=False,
         use_email_approval_inbox=False):
+    """
+    Retrieves a TDoc
+    Args:
+        meeting_folder_name: The folder name as in the 3GPP server
+        tdoc_id: A TDoc ID, e.g.: S2-240001
+        use_private_server: Whether to download from 10.10.10.10
+        return_url: The returned URL
+        use_email_approval_inbox: Whether to use the email approval inbox
+
+    Returns:
+
+    """
     if '*' in tdoc_id:
         is_draft = True
         tdoc_id = tdoc_id.replace('*', '')
@@ -135,24 +143,23 @@ def get_tdoc(
     zip_file_url = get_remote_filename(
         meeting_folder_name,
         tdoc_id,
-        use_inbox,
-        searching_for_a_file,
+        use_private_server,
         use_email_approval_inbox=use_email_approval_inbox,
         is_draft=is_draft)
     if not os.path.exists(tdoc_local_filename):
         # TODO: change to also FTP support
         tdoc_file = get_remote_file(zip_file_url, cache=False)
         if tdoc_file is None:
-            if use_inbox:
+            if use_private_server:
                 # Retry without inbox
-                return_value = get_tdoc(meeting_folder_name, tdoc_id, use_inbox=False)
+                return_value = get_tdoc(meeting_folder_name, tdoc_id, use_private_server=False)
             else:
                 if not use_email_approval_inbox:
                     # Retry in INBOX folder
                     return_value = get_tdoc(
                         meeting_folder_name,
                         tdoc_id,
-                        use_inbox=False,
+                        use_private_server=False,
                         use_email_approval_inbox=True)
                 else:
                     # No need to retry
@@ -178,7 +185,7 @@ def get_tdoc(
         return unzip_files_in_zip_file(tdoc_local_filename), zip_file_url
 
 
-def cache_tdocs(tdoc_list, download_from_inbox:bool, meeting_folder_name:str):
+def cache_tdocs(tdoc_list, download_from_inbox: bool, meeting_folder_name: str):
     if tdoc_list is None:
         return
 
@@ -188,9 +195,8 @@ def cache_tdocs(tdoc_list, download_from_inbox:bool, meeting_folder_name:str):
             lambda tdoc_to_download_lambda: server.tdoc.get_tdoc(
                 meeting_folder_name=meeting_folder_name,
                 tdoc_id=tdoc_to_download_lambda,
-                use_inbox=download_from_inbox,
-                return_url=True,
-                searching_for_a_file=True),
+                use_private_server=download_from_inbox,
+                return_url=True),
             tdoc_to_download_lambda): tdoc_to_download_lambda for tdoc_to_download_lambda in tdoc_list}
         for future in concurrent.futures.as_completed(future_to_url):
             file_to_download = future_to_url[future]
@@ -254,30 +260,24 @@ def get_local_tdocs_by_agenda_filename(meeting_folder_name):
 def get_remote_filename(
         meeting_folder_name,
         tdoc_id,
-        use_inbox=False,
-        searching_for_a_file=False,
+        use_private_server=False,
         use_email_approval_inbox=False,
         is_draft=False
 ):
-    folder = get_remote_meeting_folder(meeting_folder_name, use_inbox, searching_for_a_file)
+    folder = get_remote_meeting_folder(meeting_folder_name=meeting_folder_name, use_private_server=use_private_server)
 
-    if not use_inbox:
-        # Check if this is a TDoc revision. If yes, change the folder to the revisions folder. Need to see how this
-        # works during a meeting, but this is something to test in 2021 :P
-        year, tdoc_number, revision = tdoc.utils.get_tdoc_year(tdoc_id, include_revision=True)
-        if revision is not None:
-            if not is_draft:
-                folder = get_remote_meeting_revisions_folder(folder)
-            else:
-                folder = get_remote_meeting_drafts_folder(folder)
+    # Check if this is a TDoc revision. If yes, change the folder to the revisions' folder.
+    year, tdoc_number, revision = tdoc.utils.get_tdoc_year(tdoc_id, include_revision=True)
+    if revision is not None:
+        if not is_draft:
+            folder = get_remote_meeting_revisions_folder(folder)
         else:
-            if use_email_approval_inbox:
-                folder += 'Inbox/'
-            else:
-                folder += 'Docs/'
-    elif use_inbox:
-        # No need to add 'Docs/'
-        pass
+            folder = get_remote_meeting_drafts_folder(folder)
+    else:
+        if use_email_approval_inbox:
+            folder += 'Inbox/'
+        else:
+            folder += 'Docs/'
 
     return folder + tdoc_id + '.zip'
 
@@ -300,7 +300,7 @@ def get_remote_agenda_folder(meeting_folder_name, use_inbox=False):
 
 
 def get_remote_agenda_update_folder_for_inbox(meeting_folder_name):
-    folder = get_remote_meeting_folder(meeting_folder_name, use_inbox=True)
+    folder = get_remote_meeting_folder(meeting_folder_name, use_private_server=True)
     folder += 'Agenda_Updates/'
     return folder
 
@@ -345,7 +345,7 @@ class AgendaType(Enum):
     SESSION_PLAN = 2
 
 
-def get_latest_agenda_file(agenda_files, agenda_type: AgendaType = AgendaType.AGENDA) -> str|None:
+def get_latest_agenda_file(agenda_files, agenda_type: AgendaType = AgendaType.AGENDA) -> str | None:
     if agenda_files is None:
         return None
 
@@ -457,30 +457,27 @@ def get_last_agenda(meeting_folder):
             session_plan_version_str = session_plan_match.groupdict()['version']
             session_plan_version_int = int(agenda_version_str)
         except ValueError as e:
-            print(f"Could not parse session plan version: {session_plan_version_str}. Session plan: {last_session_plan}")
+            print(
+                f"Could not parse session plan version: {session_plan_version_str}. Session plan: {last_session_plan}")
             traceback.print_exc()
 
     return AgendaInfo(
-            agenda_path=agenda_path,
-            agenda_version_int=agenda_version_int,
-            session_plan_path=session_plan_path,
-            session_plan_version_int=session_plan_version_int)
-
-
-# Begin with updated URLs
-update_urls()
+        agenda_path=agenda_path,
+        agenda_version_int=agenda_version_int,
+        session_plan_path=session_plan_path,
+        session_plan_version_int=session_plan_version_int)
 
 
 def get_tdocs_by_agenda_for_selected_meeting(
         meeting_folder: str,
-        inbox_active=False,
+        use_private_server=False,
         save_file_to=None,
         open_tdocs_by_agenda_in_browser=False):
     """
     Returns the HTML of a TdocsByAgenda file for a given meeting
     Args:
         meeting_folder: The meeting folder as named in the 3GPP server
-        inbox_active: Whether the inbox is to be used
+        use_private_server: Whether the private server (10.10.10.10) is to be used
         save_file_to: Where to save the file to
         open_tdocs_by_agenda_in_browser: Whether to open the file in the browser
 
@@ -493,7 +490,7 @@ def get_tdocs_by_agenda_for_selected_meeting(
     datetime_inbox = datetime.datetime.min
     datetime_3gpp = datetime.datetime.min
 
-    if inbox_active:
+    if use_private_server:
         print('Getting TDocs by agenda from inbox')
         html_inbox = get_sa2_inbox_tdoc_list(
             open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser,
@@ -512,7 +509,7 @@ def get_tdocs_by_agenda_for_selected_meeting(
     if datetime_inbox is None:
         datetime_inbox = datetime.datetime.min
 
-    if inbox_active:
+    if use_private_server:
         if datetime_3gpp > datetime_inbox:
             html = html_3gpp
             print('3GPP server TDocs by agenda are more recent')
