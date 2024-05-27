@@ -78,6 +78,10 @@ def get_tmp_folder(create_dir=True):
     return folder_name
 
 
+def get_webcache_file():
+    folder_name = get_tmp_folder()
+    return os.path.join(folder_name, '.webcache')
+
 def get_spec_folder(create_dir=True):
     folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs'))
     create_folder_if_needed(folder_name, create_dir)

@@ -6,14 +6,21 @@ from urllib.parse import urlparse
 
 import requests
 from cachecontrol import CacheControl
+from cachecontrol.caches import FileCache
+
+from utils.local_cache import get_webcache_file
 
 non_cached_http_session = requests.Session()
-http_session = CacheControl(non_cached_http_session)
+file_cache = FileCache(get_webcache_file())
+http_session = CacheControl(non_cached_http_session, cache=file_cache)
 
 # Avoid getting sometimes 403s
-http_session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'})
+# user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0'
+user_agent = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
+http_session.headers.update({'User-Agent': user_agent})
 
+
+# https://stackoverflow.com/questions/60171502/requests-get-is-very-slow
 
 class HttpRequestTimeout(NamedTuple):
     # Connect timeout: it is the number of seconds
@@ -63,14 +70,16 @@ def get_remote_file(
         return None
     try:
         if (o.scheme == 'http') or (o.scheme == 'https'):
-            print('HTTP GET {0}'.format(url))
             if timeout is None:
                 timeout_tuple = (timeout_values.connect_timeout, timeout_values.read_timeout)
             else:
                 timeout_tuple = (timeout.connect_timeout, timeout.read_timeout)
             if cache:
+                print('HTTP cached GET {0}'.format(url))
+                # r = requests.get(url, timeout=timeout_tuple)
                 r = http_session.get(url, timeout=timeout_tuple)
             else:
+                print('HTTP non-cached GET {0}'.format(url))
                 r = non_cached_http_session.get(url, timeout=timeout_tuple)
             if r.status_code != 200:
                 print('HTTP GET {0}: {1}'.format(url, r.status_code))

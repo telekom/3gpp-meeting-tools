@@ -53,7 +53,7 @@ def get_html_page_and_save_cache(
     Returns:
         The retrieved data, either in HTML or Markup format
     """
-    html = get_remote_file(url, timeout=timeout_values)
+    html = get_remote_file(url, timeout=timeout_values, cache=False)
     if cache_as_markup:
         html_decoded = decode_string(html, "cache_file".format(html))
         h = html2text.HTML2Text()
