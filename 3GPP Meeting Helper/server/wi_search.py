@@ -3,12 +3,11 @@ import re
 from typing import NamedTuple, List
 
 from server.common import download_file_to_location
-from server.connection import get_html
 from utils.local_cache import file_exists, convert_html_file_to_markup, \
     get_work_items_cache_folder
 
 sid_page = 'https://www.3gpp.org/dynareport?code=WI-List.htm'
-wgs_list = [ 'SP', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'CP', 'C1', 'C3', 'C6', 'RP', 'R1', 'R2', 'R3', 'R4', 'R5' ]
+wgs_list = ['SP', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'CP', 'C1', 'C3', 'C6', 'RP', 'R1', 'R2', 'R3', 'R4', 'R5']
 local_cache_folder = get_work_items_cache_folder()
 local_cache_file = os.path.join(local_cache_folder, 'wi_list.htm')
 local_cache_file_md = os.path.join(local_cache_folder, 'wi_list.md')
@@ -53,10 +52,6 @@ class WiEntry(NamedTuple):
         lead_bodies = [f'https://www.3gpp.org/dynareport?code=TSG-WG--{body}--wis.htm' for
                        body in self.wid_lead_body_list]
         return lead_bodies
-
-    def retrieve_last_wid_tdoc_id_from_server(self):
-        url_to_download = self.wid_page_url
-        wi_html = file = get_html(url_to_download, cache=False)
 
 
 loaded_wi_entries: List[WiEntry] = []

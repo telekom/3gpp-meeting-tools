@@ -19,7 +19,7 @@ import tdoc.utils
 import utils.local_cache
 from server.common import get_remote_meeting_folder, get_inbox_root, update_urls
 from application.zip_files import unzip_files_in_zip_file
-from server.connection import get_html
+from server.connection import get_remote_file
 from utils.local_cache import get_cache_folder, get_local_revisions_filename, get_local_drafts_filename, \
     get_meeting_folder, get_local_agenda_folder
 
@@ -40,7 +40,7 @@ update_urls()
 
 def get_sa2_inbox_current_tdoc(searching_for_a_file=False):
     url = get_inbox_root(searching_for_a_file) + 'CurDoc.htm'
-    return get_html(url)
+    return get_remote_file(url)
 
 
 def get_sa2_inbox_tdoc_list(open_tdocs_by_agenda_in_browser=False):
@@ -49,14 +49,14 @@ def get_sa2_inbox_tdoc_list(open_tdocs_by_agenda_in_browser=False):
         os.startfile(url)
     # Return back cached HTML if there is an error retrieving the remote HTML
     fallback_cache = get_inbox_tdocs_list_cache_local_cache()
-    online_html = get_html(url, file_to_return_if_error=fallback_cache)
+    online_html = get_remote_file(url, file_to_return_if_error=fallback_cache)
     return online_html
 
 
 def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None, open_tdocs_by_agenda_in_browser=False):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'TdocsByAgenda.htm'
-    returned_html = get_html(url, file_to_return_if_error=save_file_to)
+    returned_html = get_remote_file(url, file_to_return_if_error=save_file_to)
 
     if open_tdocs_by_agenda_in_browser:
         os.startfile(url)
@@ -66,14 +66,14 @@ def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None, open_tdocs_by_a
         return returned_html
 
     # In some cases, the original TDocsByAgenda was removed (e.g. 136AH meeting). In this case, we have to look for a substitute
-    folder_contents = get_html(remote_folder)
+    folder_contents = get_remote_file(remote_folder)
     parsed_folder = html_parser.parse_3gpp_http_ftp(folder_contents)
     tdocs_by_agenda_files = [file for file in parsed_folder.files if
                              ('TdocsByAgenda' in file) and (('.htm' in file) or ('.html' in file))]
     if len(tdocs_by_agenda_files) > 0:
         file_to_get = tdocs_by_agenda_files[0]
         url = remote_folder + file_to_get
-        new_html = get_html(url)
+        new_html = get_remote_file(url)
         return new_html
     else:
         print('Returned TdocsByAgenda as NONE. Something went wrong when retrieving TDocsByAgenda.htm...')
@@ -83,7 +83,7 @@ def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None, open_tdocs_by_a
 def get_sa2_docs_tdoc_list(meeting_folder, save_file_to=None):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'Docs'
-    returned_html = get_html(url, file_to_return_if_error=save_file_to)
+    returned_html = get_remote_file(url, file_to_return_if_error=save_file_to)
 
     return returned_html
 
@@ -91,7 +91,7 @@ def get_sa2_docs_tdoc_list(meeting_folder, save_file_to=None):
 def get_sa2_revisions_tdoc_list(meeting_folder, save_file_to=None):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'INBOX/Revisions'
-    returned_html = get_html(url, file_to_return_if_error=save_file_to)
+    returned_html = get_remote_file(url, file_to_return_if_error=save_file_to)
 
     return returned_html
 
@@ -99,7 +99,7 @@ def get_sa2_revisions_tdoc_list(meeting_folder, save_file_to=None):
 def get_sa2_drafts_tdoc_list(meeting_folder):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'INBOX/DRAFTS'
-    returned_html = get_html(url)
+    returned_html = get_remote_file(url)
 
     # In this case, we also need to retrieve all sub-pages
     # TO-DO!!!!
@@ -135,7 +135,7 @@ def get_tdoc(
         is_draft=is_draft)
     if not os.path.exists(tdoc_local_filename):
         # TODO: change to also FTP support
-        tdoc_file = get_html(zip_file_url, cache=False)
+        tdoc_file = get_remote_file(zip_file_url, cache=False)
         if tdoc_file is None:
             if use_inbox:
                 # Retry without inbox
@@ -300,13 +300,13 @@ def get_remote_agenda_update_folder_for_inbox(meeting_folder_name):
 
 def get_agenda_files(meeting_folder_name, use_inbox=False):
     url = get_remote_agenda_folder(meeting_folder_name, use_inbox=use_inbox)
-    html = get_html(url)
+    html = get_remote_file(url)
     if html is None:
         return
     if use_inbox:
         # Starting from SA2#157, Agenda updates have been placed in the /Inbox/Agenda_Updates folder
         url_inbox_agenda_updates = get_remote_agenda_update_folder_for_inbox(meeting_folder_name)
-        html_inbox_agenda_updates = get_html(url_inbox_agenda_updates)
+        html_inbox_agenda_updates = get_remote_file(url_inbox_agenda_updates)
         if html_inbox_agenda_updates is not None:
             html = html_inbox_agenda_updates
             url = url_inbox_agenda_updates
@@ -321,7 +321,7 @@ def get_agenda_files(meeting_folder_name, use_inbox=False):
         local_file = os.path.join(agenda_folder, agenda_file)
         filename, file_extension = os.path.splitext(local_file)
         if not os.path.isfile(local_file):
-            html = get_html(agenda_url, cache=False)
+            html = get_remote_file(agenda_url, cache=False)
             if html is None:
                 continue
             with open(local_file, 'wb') as output:

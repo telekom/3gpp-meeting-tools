@@ -4,7 +4,7 @@ import traceback
 import server.common
 import utils.local_cache
 from server.common import get_remote_meeting_folder, get_inbox_root
-from server.connection import get_html
+from server.connection import get_remote_file
 from utils.local_cache import get_meeting_folder
 
 
@@ -28,7 +28,7 @@ def download_chairnotes_file(meeting):
 def get_sa2_chairnotes_list(meeting_folder):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'INBOX/Chair_Notes'
-    returned_html = get_html(url)
+    returned_html = get_remote_file(url)
 
     return returned_html
 

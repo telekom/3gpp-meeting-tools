@@ -4,7 +4,7 @@ import socket
 import traceback
 from typing import NamedTuple, List
 
-from server.connection import get_html
+from server.connection import get_remote_file
 from utils.local_cache import get_sa2_root_folder_local_cache
 
 """Retrieves data from the 3GPP web server"""
@@ -19,16 +19,16 @@ sa2_url_sync = ''
 sa2_url_meeting = ''
 
 
-def decode_string(str_to_decode: bytes, log_name, print_error=False) -> str:
+def decode_string(str_to_decode: bytes, log_name, print_error=False) -> str | bytes:
     """
-    Decodes a HTML (binary) input using different encodings
+    Decodes an HTML (binary) input using different encodings
     Args:
         str_to_decode: The input to decode
         log_name: The name of the file (for logging)
         print_error: Whether to print decodign errors
 
     Returns:
-        The decoded text
+        The decoded text (string), a bytes object if it could not be decoded
     """
     encodings_to_try = [
         'utf-8',
@@ -50,7 +50,7 @@ def decode_string(str_to_decode: bytes, log_name, print_error=False) -> str:
 
 def get_sa2_tdoc_list(meeting_folder_name):
     url = get_remote_meeting_folder(meeting_folder_name, use_inbox=False) + 'TdocsByAgenda.htm'
-    return get_html(url)
+    return get_remote_file(url)
 
 
 def get_remote_meeting_folder(meeting_folder_name, use_inbox=False, searching_for_a_file=False):
@@ -86,7 +86,7 @@ def we_are_in_meeting_network(searching_for_a_file=False):
 
 
 def get_sa2_folder():
-    html = get_html(sa2_url, file_to_return_if_error=get_sa2_root_folder_local_cache())
+    html = get_remote_file(sa2_url, file_to_return_if_error=get_sa2_root_folder_local_cache())
     return html
 
 
@@ -101,14 +101,13 @@ def download_file_to_location(url: str, local_location: str) -> bool:
         bool: Whether the file could be successfully downloaded
     """
     try:
-        file = get_html(url, cache=False)
+        file = get_remote_file(url, cache=False)
         with open(local_location, 'wb') as output:
             print('Saved {0}'.format(local_location))
             output.write(file)
             return True
-    except:
-        print('Could not download file {0} to {1}'.format(url, local_location))
-        traceback.print_exc()
+    except Exception as e:
+        print(f'Could not download file {url} to {local_location}: {e}')
         return False
 
 

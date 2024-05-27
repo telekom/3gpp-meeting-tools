@@ -611,10 +611,10 @@ class ToolsDialog(TkWidget):
             traceback.print_exc()
 
     def on_export_year_tdocs_by_agenda_to_excel(self, meetings_to_check, output_meeting, filename):
-        last_folder = meetings_to_check.meeting_folders[-1]
+        last_folder = meetings_to_check.meeting_names[-1]
         current_dt_str = application.meeting_helper.get_now_time_str()
 
-        for meeting_to_check in meetings_to_check.meeting_folders:
+        for meeting_to_check in meetings_to_check.meeting_names:
             print(meeting_to_check)
             close_file = meeting_to_check != last_folder
             self.export_tdocs_by_agenda_to_excel(
