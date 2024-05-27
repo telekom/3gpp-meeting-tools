@@ -96,7 +96,8 @@ tdoc_entry = tkinter.Entry(
     main_frame,
     textvariable=tkvar_tdoc_id,
     width=27,
-    font='TkDefaultFont')
+    font='TkDefaultFont',
+    justify='center')
 open_last_agenda_button = ttk.Button(
     main_frame,
     text='Open last agenda')
