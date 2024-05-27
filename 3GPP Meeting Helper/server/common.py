@@ -13,7 +13,7 @@ private_server = '10.10.10.10'
 public_server = 'www.3gpp.org'
 wg_folder_public_server = 'ftp/tsg_sa/WG2_Arch/'
 wg_folder_private_server = 'ftp/SA/SA2/'
-sync_folder = 'Meetings_3GPP_SYNC/SA2/'
+sync_folder = 'ftp/Meetings_3GPP_SYNC/SA2/'
 
 sa2_url = 'https://' + public_server + '/' + wg_folder_public_server
 sa2_url_sync = 'https://' + public_server + '/' + sync_folder
