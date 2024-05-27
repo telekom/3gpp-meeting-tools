@@ -81,6 +81,7 @@ def do_something_periodically_on_thread(
             )
             time.sleep(interval_s)
 
+    print(f'Starting thread with task loop {task} ({interval_s}s)')
     t = threading.Thread(target=thread_task)
     t.start()
     return cancellation_token
