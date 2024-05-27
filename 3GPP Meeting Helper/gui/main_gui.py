@@ -25,7 +25,7 @@ import server.tdoc_search
 import tdoc.utils
 import utils.local_cache
 import utils.threading
-from application.tkinter_config import root, font_big, ttk_style_tbutton_big, ttk_style_tbutton_medium, font_medium
+from application.tkinter_config import root, font_big, ttk_style_tbutton_medium, font_medium
 from gui.common.utils import favicon
 from server.specs import get_specs_folder
 
@@ -175,10 +175,11 @@ def load_application_data(reload_inbox_tdocs_by_agenda=False):
         inbox_tdoc_list_html)
 
     # Load SA2 meeting data
-    sa2_folder_html = server.common.get_sa2_folder()
+    sa2_meeting_list_from_server_html = server.common.get_sa2_folder(force_redownload=reload_inbox_tdocs_by_agenda)
     application.meeting_helper.sa2_meeting_data = html_parser.parse_3gpp_meeting_list_object(
-        sa2_folder_html,
-        ordered=True, remove_old_meetings=True)
+        sa2_meeting_list_from_server_html,
+        ordered=True,
+        remove_old_meetings=True)
 
     # Double-check
     if application.meeting_helper.current_tdocs_by_agenda is not None:
@@ -205,9 +206,9 @@ def set_inbox_from_selected_meeting_state():
     # some labels accordingly
 
     if server.common.we_are_in_meeting_network():
-        tkvar_3gpp_wifi_available.set(1)
+        tkvar_3gpp_wifi_available.set(True)
     else:
-        tkvar_3gpp_wifi_available.set(0)
+        tkvar_3gpp_wifi_available.set(False)
 
 
 def change_meeting_dropdown(*args):
@@ -403,11 +404,6 @@ def download_and_open_tdoc(
         print(f'Could not get current TdocsByAgenda: {e}')
         tdoc_status = '<unknown>'
     tkvar_last_tdoc_status.set(tdoc_status)
-    try:
-        # ToDo: download current TDocs by agenda
-        pass
-    except Exception as e:
-        print(f'Could not load TDoc agenda info for {tkvar_tdoc_id.get()}: {e}')
     if (retrieved_files is None) or (len(retrieved_files) == 0):
         pass
     else:
@@ -480,6 +476,14 @@ def start_main_gui():
      .grid(
         row=current_row,
         column=0,
+        sticky="EW"))
+    (ttk.Button(
+        main_frame,
+        text='Reload meeting info',
+        command=lambda: load_application_data(reload_inbox_tdocs_by_agenda=True))
+     .grid(
+        row=current_row,
+        column=1,
         sticky="EW"))
 
     # Row: Meeting Selector
