@@ -93,9 +93,9 @@ main_frame.grid(column=0, row=0, sticky=(tkinter.N, tkinter.W, tkinter.E, tkinte
 
 tkvar_folder_name = tkinter.StringVar(root)
 
-open_tdoc_button = tkinter.Button(main_frame, text='Set Sensitivity Label', command=set_label_to_docs_list)
+open_tdoc_button = ttk.Button(main_frame, text='Set Sensitivity Label', command=set_label_to_docs_list)
 open_tdoc_button.grid(row=0, column=1, padx=10, pady=10, sticky="EW", )
-folder_entry = tkinter.Entry(main_frame, textvariable=tkvar_folder_name, width=75, font='TkDefaultFont')
+folder_entry = ttk.Entry(main_frame, textvariable=tkvar_folder_name, width=75, font='TkDefaultFont')
 folder_entry.grid(row=0, column=2, padx=10, pady=10)
 
 root.mainloop()

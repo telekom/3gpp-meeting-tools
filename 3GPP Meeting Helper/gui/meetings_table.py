@@ -62,22 +62,22 @@ class MeetingsTable(GenericTable):
         self.combo_groups.bind("<<ComboboxSelected>>", self.select_groups)
 
         # Filter by 3GPP Group/WG
-        tkinter.Label(self.top_frame, text="Group: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Group: ").pack(side=tkinter.LEFT)
         self.combo_groups.pack(side=tkinter.LEFT)
 
         # Open/search TDoc
-        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.tkvar_tdoc_id = tkinter.StringVar(self.top_frame)
         self.tkvar_tdoc_id.trace_add('write', self.on_tdoc_search_change)
-        self.tdoc_entry = tkinter.Entry(self.top_frame, textvariable=self.tkvar_tdoc_id, width=15, font='TkDefaultFont')
-        self.button_open_tdoc = tkinter.Button(
+        self.tdoc_entry = ttk.Entry(self.top_frame, textvariable=self.tkvar_tdoc_id, width=15, font='TkDefaultFont')
+        self.button_open_tdoc = ttk.Button(
             self.top_frame,
             text='Open TDoc',
             command=self.on_open_tdoc,
             state=tkinter.DISABLED
         )
         self.tdoc_entry.pack(side=tkinter.LEFT)
-        tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
         self.button_open_tdoc.pack(side=tkinter.LEFT)
 
         gui.common.utils.bind_key_to_button(
@@ -91,34 +91,34 @@ class MeetingsTable(GenericTable):
             self.top_frame,
             state='enabled',
             variable=self.redownload_tdoc_excel_if_exists_var)
-        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        tkinter.Label(self.top_frame, text="Re-download TDoc Excel if exists: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Re-download TDoc Excel if exists: ").pack(side=tkinter.LEFT)
         self.redownload_tdoc_excel_if_exists.pack(side=tkinter.LEFT)
 
         # Load meeting data
-        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        tkinter.Button(
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        ttk.Button(
             self.top_frame,
             text='Load meetings',
             command=self.load_meetings).pack(side=tkinter.LEFT)
 
         # Compare TDoc
-        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.tkvar_tdoc_id_2 = tkinter.StringVar(self.top_frame)
         self.tkvar_tdoc_id_2.trace_add('write', self.on_tdoc_compare_change)
-        self.tdoc_entry_2 = tkinter.Entry(
+        self.tdoc_entry_2 = ttk.Entry(
             self.top_frame,
             textvariable=self.tkvar_tdoc_id_2,
             width=15,
             font='TkDefaultFont')
-        self.button_compare_tdoc = tkinter.Button(
+        self.button_compare_tdoc = ttk.Button(
             self.top_frame,
             text='Compare TDocs',
             command=self.on_compare_tdoc,
             state=tkinter.DISABLED
         )
         self.tdoc_entry_2.pack(side=tkinter.LEFT)
-        tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
         self.button_compare_tdoc.pack(side=tkinter.LEFT)
 
         # Main frame
@@ -129,9 +129,9 @@ class MeetingsTable(GenericTable):
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
         # Bottom frame
-        tkinter.Label(self.bottom_frame, textvariable=self.meeting_count_tk_str).pack(side=tkinter.LEFT)
-        tkinter.Label(self.bottom_frame, text="  ").pack(side=tkinter.LEFT)
-        tkinter.Label(self.bottom_frame, textvariable=self.compare_text_tk_str).pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, textvariable=self.meeting_count_tk_str).pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, text="  ").pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, textvariable=self.compare_text_tk_str).pack(side=tkinter.LEFT)
 
         # Update text in lower frame
         self.on_tdoc_compare_change()
