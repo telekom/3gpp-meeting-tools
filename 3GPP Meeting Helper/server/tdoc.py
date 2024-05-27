@@ -495,7 +495,10 @@ def get_tdocs_by_agenda_for_selected_meeting(
 
     if inbox_active:
         print('Getting TDocs by agenda from inbox')
-        html_inbox = get_sa2_inbox_tdoc_list(open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
+        html_inbox = get_sa2_inbox_tdoc_list(
+            open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser,
+            use_cached_file_if_available=True
+        )
         datetime_inbox = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_date(html_inbox)
 
     print('Getting TDocs by agenda from server')

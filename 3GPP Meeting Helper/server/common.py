@@ -87,8 +87,12 @@ def we_are_in_meeting_network():
     return ip_is_meeting_ip
 
 
-def get_sa2_folder():
-    html = get_remote_file(sa2_url, cached_file_to_return_if_error=get_sa2_root_folder_local_cache())
+def get_sa2_folder(force_redownload=False):
+    html = get_remote_file(
+        sa2_url,
+        cached_file_to_return_if_error=get_sa2_root_folder_local_cache(),
+        use_cached_file_if_available=not force_redownload
+    )
     return html
 
 
