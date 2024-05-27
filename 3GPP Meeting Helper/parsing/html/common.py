@@ -145,6 +145,15 @@ def parse_3gpp_http_ftp_v2(html):
 
 
 def parse_current_document(html):
+    """
+    Parses the "current document" HTML file. Do note that this file is not always used (used mainly by Maurice)
+    and not in breakout sessions. So it is not always reliable.
+    Args:
+        html:
+
+    Returns:
+
+    """
     if html is None or html == '':
         return None
     parsed = lh.fromstring(html)

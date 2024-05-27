@@ -1,6 +1,5 @@
 import os.path
 import threading
-import time
 import tkinter
 import tkinter.font
 import tkinter.ttk
@@ -55,7 +54,6 @@ tkvar_last_agenda_vtext = tkinter.StringVar(root)
 tkvar_tdoc_download_result = tkinter.StringVar()
 tkvar_tdoc_id = tkinter.StringVar(root)
 tkvar_tdoc_id_full = tkinter.StringVar(root)
-tkvar_follow_current_tdoc = tkinter.IntVar(root)
 tkvar_search_tdoc = tkinter.IntVar(root)
 
 tkvar_tdocs_by_agenda_exist = tkinter.BooleanVar(root)
@@ -76,7 +74,6 @@ tkinter_label_inbox.set(0)
 tkvar_last_agenda_version.set('')
 tkvar_tdoc_download_result.set('')
 tkvar_tdoc_id.set('S2-XXXXXXX')
-tkvar_follow_current_tdoc.set(0)
 tkvar_search_tdoc.set(0)
 tkvar_tdocs_by_agenda_exist.set(False)
 
@@ -225,20 +222,6 @@ def change_meeting_dropdown(*args):
 tkvar_meeting.trace('w', change_meeting_dropdown)
 
 
-def on_follow_current_doc_change(*args):
-    follow_current_tdoc = tkvar_follow_current_tdoc.get()
-    if follow_current_tdoc:
-        set_selected_meeting_to_inbox_meeting()
-        tdoc_entry.config(state='readonly')
-        # Force update
-        retrieve_current_doc_yes()
-    else:
-        tdoc_entry.config(state='normal')
-
-
-tkvar_follow_current_tdoc.trace('w', on_follow_current_doc_change)
-
-
 # Text boxes
 def get_text_with_scrollbar(row, column, height=2, current_main_frame=main_frame, width=50):
     scrollbar = tkinter.Scrollbar(current_main_frame)
@@ -251,25 +234,6 @@ def get_text_with_scrollbar(row, column, height=2, current_main_frame=main_frame
     return text
 
 
-# Current doc checker thread
-def retrieve_current_doc_yes():
-    current_tdoc_html = server.tdoc.get_sa2_inbox_current_tdoc(searching_for_a_file=True)
-    current_tdoc = html_parser.parse_current_document(current_tdoc_html)
-    if current_tdoc is not None:
-        tkvar_tdoc_id.set(current_tdoc)
-
-
-def retrieve_current_doc():
-    while True:
-        # Case when we change the WLAN during the meeting
-        set_inbox_from_selected_meeting_state()
-        if tkvar_follow_current_tdoc.get():
-            retrieve_current_doc_yes()
-        else:
-            pass
-        time.sleep(10)
-
-
 def search_netovate():
     """
     Search the Netovate website for a specific TDoc
@@ -278,11 +242,6 @@ def search_netovate():
     netovate_url = 'http://netovate.com/doc-search/?fname={0}'.format(tdoc_id)
     print('Opening {0}'.format(netovate_url))
     os.startfile(netovate_url)
-
-
-def start_check_current_doc_thread():
-    t = threading.Thread(target=retrieve_current_doc)
-    t.start()
 
 
 # Downloads the TDocs by Agenda file
@@ -409,7 +368,7 @@ def download_and_open_tdoc(
     # Search in meeting
     download_from_inbox = inbox_is_for_this_meeting()
     meeting_folder_name = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
-            tkvar_meeting.get())
+        tkvar_meeting.get())
     retrieved_files, tdoc_url = server.tdoc.get_tdoc(
         meeting_folder_name=meeting_folder_name,
         tdoc_id=tdoc_id,
@@ -520,7 +479,8 @@ def start_main_gui():
     (tkinter.Button(
         main_frame,
         text='Network config',
-        command=lambda: gui.network_config.NetworkConfigDialog(root, favicon, on_update_ftp=gui.main_gui.update_ftp_button))
+        command=lambda: gui.network_config.NetworkConfigDialog(root, favicon,
+                                                               on_update_ftp=gui.main_gui.update_ftp_button))
      .grid(row=current_row, column=0, sticky="EW"))
     (tkinter.Checkbutton(
         main_frame,
@@ -535,8 +495,6 @@ def start_main_gui():
     current_row += 1
     tkinter.Label(main_frame, text="Open TDoc").grid(row=current_row, column=0)
     tdoc_entry.grid(row=current_row, column=1, padx=10, pady=10)
-    tkinter.Checkbutton(main_frame, text='Track current TDoc ', variable=tkvar_follow_current_tdoc).grid(
-        row=current_row, column=2)
     current_row += 1
     tkinter.Checkbutton(main_frame, text='Search all WGs/meetings', variable=tkvar_search_tdoc).grid(row=current_row,
                                                                                                      column=2)
