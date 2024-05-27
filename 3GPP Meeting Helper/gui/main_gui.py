@@ -31,7 +31,7 @@ root.iconbitmap(gui.common.utils.favicon)
 
 # Add a grid
 main_frame = tkinter.Frame(root)
-main_frame.grid(column=0, row=0, sticky=(tkinter.N, tkinter.W, tkinter.E, tkinter.S))
+main_frame.grid(column=0, row=0, sticky=''.join([tkinter.N, tkinter.W, tkinter.E, tkinter.S]))
 
 
 def set_waiting_for_proxy_message():
@@ -88,12 +88,26 @@ tkvar_last_tdoc_url.set('')
 tkvar_inbox_from_selected_meeting = tkinter.BooleanVar(root)
 
 # Tkinter elements that require variables
-open_tdoc_button = tkinter.Button(main_frame, textvariable=tkvar_tdoc_id_full)
-tdoc_entry = tkinter.Entry(main_frame, textvariable=tkvar_tdoc_id, width=25, font='TkDefaultFont')
-open_last_agenda_button = tkinter.Button(main_frame, text='Open last agenda')
-meeting_ftp_button = tkinter.Checkbutton(main_frame, state='disabled', variable=tkinter_label_inbox)
-tdocs_by_agenda_entry = tkinter.Entry(main_frame, textvariable=tkvar_tdocs_by_agenda_path, width=25,
-                                      font='TkDefaultFont')
+open_tdoc_button = tkinter.Button(
+    main_frame,
+    textvariable=tkvar_tdoc_id_full)
+tdoc_entry = tkinter.Entry(
+    main_frame,
+    textvariable=tkvar_tdoc_id,
+    width=25,
+    font='TkDefaultFont')
+open_last_agenda_button = tkinter.Button(
+    main_frame,
+    text='Open last agenda')
+meeting_ftp_button = tkinter.Checkbutton(
+    main_frame,
+    state='disabled',
+    variable=tkinter_label_inbox)
+tdocs_by_agenda_entry = tkinter.Entry(
+    main_frame,
+    textvariable=tkvar_tdocs_by_agenda_path,
+    width=25,
+    font='TkDefaultFont')
 
 # Other variables
 last_override_tdocs_by_agenda = ''
@@ -272,12 +286,13 @@ def start_check_current_doc_thread():
 
 
 # Downloads the TDocs by Agenda file
-def open_tdocs_by_agenda(open_this_file=True) -> parsing.html.common.tdocs_by_agenda:
+def open_tdocs_by_agenda(open_this_file=True) -> parsing.html.common.tdocs_by_agenda | None:
     try:
         (meeting_server_folder, local_file) = get_local_tdocs_by_agenda_filename_for_current_meeting()
         if meeting_server_folder is None:
             return None
-    except:
+    except Exception as e:
+        print(f'Could not get local TdocsByAgenda {e}')
         return None
 
     # Save opened Tdocs by Agenda file to global application
@@ -332,7 +347,7 @@ def get_tdocs_by_agenda_for_selected_meeting(
     return return_data
 
 
-def get_local_tdocs_by_agenda_filename_for_current_meeting() -> Tuple[str, str]:
+def get_local_tdocs_by_agenda_filename_for_current_meeting() -> Tuple[str, str] | Tuple[None, None] | None:
     """
     Gets the current file for the TDocsByAgenda file, as well as the meeting server's folder name
     Returns: A tuple containing (meeting_server_folder, local_file)
@@ -349,8 +364,8 @@ def get_local_tdocs_by_agenda_filename_for_current_meeting() -> Tuple[str, str]:
         local_file = server.tdoc.get_local_tdocs_by_agenda_filename(meeting_server_folder)
 
         return meeting_server_folder, local_file
-    except:
-        print('Could not retrieve local TdocsByAgenda filename for current meeting')
+    except Exception as e:
+        print(f'Could not retrieve local TdocsByAgenda filename for current meeting: {e}')
         traceback.print_exc()
         return None
 
@@ -393,9 +408,11 @@ def download_and_open_tdoc(
 
     # Search in meeting
     download_from_inbox = inbox_is_for_this_meeting()
+    meeting_folder_name = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
+            tkvar_meeting.get())
     retrieved_files, tdoc_url = server.tdoc.get_tdoc(
-        application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(tkvar_meeting.get()),
-        tdoc_id,
+        meeting_folder_name=meeting_folder_name,
+        tdoc_id=tdoc_id,
         use_inbox=download_from_inbox,
         return_url=True,
         searching_for_a_file=True)
@@ -421,14 +438,15 @@ def download_and_open_tdoc(
         tdoc_status = application.meeting_helper.current_tdocs_by_agenda.tdocs.at[tdoc_id, 'Result']
         if tdoc_status is None:
             tdoc_status = ''
-    except:
+    except Exception as e:
+        print(f'Could not get current TdocsByAgenda: {e}')
         tdoc_status = '<unknown>'
     tkvar_last_tdoc_status.set(tdoc_status)
     try:
         # ToDo: download current TDocs by agenda
         pass
-    except:
-        print('Could not load TDoc agenda info for {0}'.format(tkvar_tdoc_id.get()))
+    except Exception as e:
+        print(f'Could not load TDoc agenda info for {tkvar_tdoc_id.get()}: {e}')
     if (retrieved_files is None) or (len(retrieved_files) == 0):
         pass
     else:
@@ -459,8 +477,10 @@ def start_main_gui():
     tkvar_meeting.set(application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(
         application.meeting_helper.current_tdocs_by_agenda.meeting_number))
 
-    popupMenu = tkinter.OptionMenu(main_frame, tkvar_meeting,
-                                   *application.meeting_helper.sa2_meeting_data.meeting_folders)
+    meeting_dropdown_list = tkinter.OptionMenu(
+        main_frame,
+        tkvar_meeting,
+        *application.meeting_helper.sa2_meeting_data.meeting_names)
 
     # Variable-change callbacks
     def set_tdoc_id_full(*args):
@@ -491,7 +511,7 @@ def start_main_gui():
     # Row: Inbox info
     current_row = 0
     open_last_agenda_button.grid(row=0, column=0, sticky="EW")
-    popupMenu.grid(row=current_row, column=1, sticky="ew", padx=10, pady=10)
+    meeting_dropdown_list.grid(row=current_row, column=1, sticky="ew", padx=10, pady=10)
     tkinter.Button(main_frame, text='TDocs by Agenda', command=open_tdocs_by_agenda).grid(row=current_row, column=2,
                                                                                           padx=10, pady=10, sticky="EW")
 

@@ -5,6 +5,7 @@ import traceback
 import application.outlook
 import config.cache as local_cache_config
 import server
+from parsing.html.common import MeetingData
 
 # Read config
 config = configparser.ConfigParser()
@@ -13,7 +14,7 @@ config.read('config.ini')
 
 sa2_current_meeting_tdoc_data = None
 sa2_inbox_tdoc_data = None
-sa2_meeting_data = None
+sa2_meeting_data: MeetingData | None = None
 
 # Global store of the current TDocsByAgenda data
 # No type hint to avoid circular references. It should be ": parsing.html.tdocs_by_agenda.tdocs_by_agenda"

@@ -7,7 +7,7 @@ from typing import List
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from server import wi_search
-from server.connection import get_html
+from server.connection import get_remote_file
 from server.tdoc_search import search_download_and_open_tdoc
 from server.wi_search import WiEntry, wgs_list, download_wi_list
 from tdoc.utils import tdoc_generic_regex
@@ -249,7 +249,7 @@ class WorkItemsTable(GenericTable):
         if column == 5:
             print(f'Clicked on WID {uid}. Will download latest WID version from {wi[0].wid_page_url}')
             url_to_open = wi[0].wid_page_url
-            html_bytes = get_html(url_to_open)
+            html_bytes = get_remote_file(url_to_open)
             if html_bytes is None:
                 print(f'Could not retrieve HTML for WID {uid}')
                 return

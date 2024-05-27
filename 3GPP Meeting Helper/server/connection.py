@@ -1,7 +1,7 @@
 import re
 import traceback
 from ftplib import FTP
-from typing import NamedTuple, Any, Tuple
+from typing import NamedTuple, Any
 from urllib.parse import urlparse
 
 import requests
@@ -33,7 +33,7 @@ class HttpRequestTimeout(NamedTuple):
 timeout_values = HttpRequestTimeout(3.05, 6)
 
 
-def get_html(
+def get_remote_file(
         url,
         cache=True,
         try_update_folders=True,
@@ -41,9 +41,9 @@ def get_html(
         timeout: HttpRequestTimeout = None
 ) -> bytes | None:
     """
-    Downloads a given HTML file
+    Downloads a given file via HTML or FTP
     Args:
-        url: The URL of the file
+        url: The URL of the file (http://, https://, ftp://)
         cache: Whether HTTP cache should be used (default=Yes)
         try_update_folders: Used for FTP retrieval
         file_to_return_if_error: Can override an error, in which case this file is returned

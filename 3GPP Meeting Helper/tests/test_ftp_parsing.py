@@ -85,10 +85,10 @@ class Test_test_ftp_parsing(unittest.TestCase):
         self.assertIsNotNone(meeting_list)
         self.assertEqual(meeting_list.length, 156)
         
-        self.assertEqual(meeting_list.meeting_folders[131], '25')
+        self.assertEqual(meeting_list.meeting_names[131], '25')
         self.assertEqual(meeting_list.get_server_folder_for_meeting_choice('25'), 'TSGS2_25')
 
-        self.assertEqual(meeting_list.meeting_folders[130], '26, Toronto')
+        self.assertEqual(meeting_list.meeting_names[130], '26, Toronto')
         self.assertEqual(meeting_list.get_server_folder_for_meeting_choice('26, Toronto'), 'TSGS2_26_Toronto')
         self.assertEqual(meeting_list.get_meeting_text_for_given_meeting_number('26'), '26, Toronto')
         self.assertEqual(meeting_list.get_meeting_text_for_given_meeting_number(26), '26, Toronto')
@@ -96,10 +96,10 @@ class Test_test_ftp_parsing(unittest.TestCase):
         self.assertEqual(meeting_list.get_year_from_meeting_number('26'), 2017)
         self.assertEqual(meeting_list.get_year_from_meeting_number(26), 2017)
 
-        self.assertEqual(meeting_list.meeting_folders[6], '129BIS, West Palm Beach')
+        self.assertEqual(meeting_list.meeting_names[6], '129BIS, West Palm Beach')
         self.assertEqual(meeting_list.get_server_folder_for_meeting_choice('129BIS, West Palm Beach'), 'TSGS2_129BIS_West_Palm_Beach')
 
-        self.assertEqual(meeting_list.meeting_folders[4], '130, Kochi')
+        self.assertEqual(meeting_list.meeting_names[4], '130, Kochi')
         self.assertEqual(meeting_list.get_server_folder_for_meeting_choice('130, Kochi'), 'TSGS2_130_Kochi')
 
     def test_meeting_list_with_date(self):

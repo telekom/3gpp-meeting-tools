@@ -22,10 +22,14 @@ from tdoc.utils import title_cr_regex
 
 class Meeting(NamedTuple):
     """
-    Represents a 3GPP Meeting (text, folder, date)
+    Represents a 3GPP Meeting (text, folder, date) as parsed from the page.
+    e.g., https://www.3gpp.org/ftp/tsg_sa/WG2_Arch
     """
+    # e.g.: 163, Jeju 2024-05
     text: str
+    # e.g.: TSGS2_163_Jeju_2024-05
     folder: str
+    # As parsed from the server page. e.g.: 2024/05/26 22:45
     date: datetime.datetime
 
 
@@ -254,7 +258,7 @@ class MeetingData:
 
     def __init__(self, meeting_data: List[Meeting]):
         self._meeting_data = meeting_data
-        self._meeting_folders = [t.text for t in self._meeting_data]
+        self._meeting_names = [t.text for t in self._meeting_data]
         self._meeting_mapping = {t.text: t.folder for t in self._meeting_data}
         self._meeting_number_to_menu_option_mapping = {t.text.split(',')[0].strip(): t.text for t in self._meeting_data}
         self._meeting_text_to_year_mapping = {t.text: t.date.year for t in self._meeting_data}
@@ -264,8 +268,8 @@ class MeetingData:
         return self._meeting_data
 
     @property
-    def meeting_folders(self):
-        return self._meeting_folders
+    def meeting_names(self):
+        return self._meeting_names
 
     def get_server_folder_for_meeting_choice(self, text):
         try:
