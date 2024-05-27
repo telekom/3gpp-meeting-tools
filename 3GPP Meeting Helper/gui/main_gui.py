@@ -13,6 +13,9 @@ import application.word
 import gui.network_config
 import gui.tools_overview
 import gui.tdocs_table
+import gui.specs_table
+import gui.meetings_table
+import gui.work_items_table
 import parsing.html.common
 import parsing.html.common as html_parser
 import parsing.word.pywin32
@@ -628,6 +631,37 @@ def start_main_gui():
         frame=root,
         key_press='<Return>',
         tk_button=open_tdoc_button)
+
+    # Row 4: Table containing all 3GPP specs
+    current_row += 1
+    launch_spec_table = ttk.Button(
+        main_frame,
+        text='Open Specifications table',
+        command=lambda: gui.specs_table.SpecsTable(
+            root_widget=root,
+            parent_widget=root,
+            favicon=favicon))
+    launch_spec_table.grid(row=current_row, column=0, columnspan=1, sticky="EW")
+
+    # Row 4: Table containing all 3GPP meetings
+    launch_spec_table = ttk.Button(
+        main_frame,
+        text='Open Meetings table',
+        command=lambda: gui.meetings_table.MeetingsTable(
+            root_widget=root,
+            parent_widget=root,
+            favicon=favicon))
+    launch_spec_table.grid(row=current_row, column=1, columnspan=1, sticky="EW")
+
+    # Row 4: Table containing all 3GPP WIs
+    launch_spec_table = ttk.Button(
+        main_frame,
+        text='Open 3GPP WI table',
+        command=lambda: gui.work_items_table.WorkItemsTable(
+            root_widget=root,
+            parent_widget=root,
+            favicon=favicon))
+    launch_spec_table.grid(row=current_row, column=2, columnspan=1, sticky="EW")
 
     # Override TDocs by Agenda if it is malformed
     current_row += 1
