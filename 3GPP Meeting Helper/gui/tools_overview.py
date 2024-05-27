@@ -76,14 +76,6 @@ class ToolsDialog(TkWidget):
                                                                    columnspan=1,
                                                                    sticky="EW")
 
-        ttk.Button(
-            self.tk_top,
-            text="Close Word",
-            command=application.word.close_word).grid(row=0,
-                                                      column=3,
-                                                      columnspan=1,
-                                                      sticky="EW")
-
         # Row 1: Export TDocs by agenda to Excel
         self.export_button = ttk.Button(self.tk_top, text=ToolsDialog.export_text,
                                             command=self.export_tdocs_by_agenda_to_excel)
