@@ -51,6 +51,14 @@ open_downloaded_tdocs = True
 tkvar_meeting = tkinter.StringVar(root)
 tkvar_3gpp_wifi_available = tkinter.BooleanVar(root)
 
+
+def set_3gpp_network_status_in_application_info(*args):
+    application.meeting_helper.last_known_3gpp_network_status = tkvar_3gpp_wifi_available.get()
+
+
+tkvar_3gpp_wifi_available.trace('w', set_3gpp_network_status_in_application_info)
+tkvar_3gpp_wifi_available.set(False)
+
 tkvar_last_agenda_version = tkinter.StringVar(root)
 tkvar_last_agenda_vtext = tkinter.StringVar(root)
 tkvar_tdoc_download_result = tkinter.StringVar()
@@ -201,18 +209,22 @@ def set_agenda_version_text(*args):
 tkvar_last_agenda_version.trace('w', set_agenda_version_text)
 
 
-def set_inbox_from_selected_meeting_state():
+def detect_3gpp_network_state():
     # Checks whether the inbox is from the selected meeting and sets
     # some labels accordingly
 
-    if server.common.we_are_in_meeting_network():
+    previous_state = application.meeting_helper.last_known_3gpp_network_status
+    new_state = server.common.we_are_in_meeting_network()
+    if new_state:
         tkvar_3gpp_wifi_available.set(True)
     else:
         tkvar_3gpp_wifi_available.set(False)
 
+    if new_state != previous_state:
+        print(f'Changed 3GPP network state from {previous_state} to {new_state}')
+
 
 def change_meeting_dropdown(*args):
-    set_inbox_from_selected_meeting_state()
     reset_status_labels()
     open_tdocs_by_agenda(open_this_file=False)
 
@@ -428,6 +440,9 @@ def download_and_open_tdoc(
 
 def start_main_gui():
     load_application_data()
+    utils.threading.do_something_periodically_on_thread(
+        task=detect_3gpp_network_state,
+        interval_s=10)
 
     tkvar_meeting.set(
         application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(
@@ -472,7 +487,7 @@ def start_main_gui():
             root,
             favicon,
             on_update_ftp=gui.main_gui.update_ftp_button))
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         sticky="EW"))
@@ -480,7 +495,7 @@ def start_main_gui():
         main_frame,
         text='Reload meeting info',
         command=lambda: load_application_data(reload_inbox_tdocs_by_agenda=True))
-     .grid(
+    .grid(
         row=current_row,
         column=1,
         sticky="EW"))
@@ -549,7 +564,7 @@ def start_main_gui():
             gui.main_gui.root,
             gui.main_gui.favicon,
             selected_meeting_fn=gui.main_gui.tkvar_meeting.get))
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         sticky="EW"))
@@ -578,7 +593,7 @@ def start_main_gui():
         main_frame,
         text='Search Netovate',
         command=search_netovate)
-     .grid(
+    .grid(
         row=current_row,
         column=2,
         sticky="EW"))
@@ -653,7 +668,7 @@ def start_main_gui():
         main_frame,
         text='Override Tdocs by agenda',
         variable=tkvar_override_tdocs_by_agenda)
-     .grid(
+    .grid(
         row=current_row,
         column=0))
     tdocs_by_agenda_entry.config(state='readonly')
