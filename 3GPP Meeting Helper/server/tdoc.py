@@ -43,20 +43,26 @@ def get_sa2_inbox_current_tdoc(searching_for_a_file=False):
     return get_remote_file(url)
 
 
-def get_sa2_inbox_tdoc_list(open_tdocs_by_agenda_in_browser=False):
+def get_sa2_inbox_tdoc_list(
+        open_tdocs_by_agenda_in_browser=False,
+        use_cached_file_if_available=False):
     url = get_inbox_root(searching_for_a_file=True) + 'TdocsByAgenda.htm'
     if open_tdocs_by_agenda_in_browser:
         os.startfile(url)
     # Return back cached HTML if there is an error retrieving the remote HTML
     fallback_cache = get_inbox_tdocs_list_cache_local_cache()
-    online_html = get_remote_file(url, file_to_return_if_error=fallback_cache)
+    online_html = get_remote_file(
+        url,
+        cached_file_to_return_if_error=fallback_cache,
+        use_cached_file_if_available=use_cached_file_if_available
+    )
     return online_html
 
 
 def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None, open_tdocs_by_agenda_in_browser=False):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'TdocsByAgenda.htm'
-    returned_html = get_remote_file(url, file_to_return_if_error=save_file_to)
+    returned_html = get_remote_file(url, cached_file_to_return_if_error=save_file_to)
 
     if open_tdocs_by_agenda_in_browser:
         os.startfile(url)
@@ -83,7 +89,7 @@ def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None, open_tdocs_by_a
 def get_sa2_docs_tdoc_list(meeting_folder, save_file_to=None):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'Docs'
-    returned_html = get_remote_file(url, file_to_return_if_error=save_file_to)
+    returned_html = get_remote_file(url, cached_file_to_return_if_error=save_file_to)
 
     return returned_html
 
@@ -91,7 +97,7 @@ def get_sa2_docs_tdoc_list(meeting_folder, save_file_to=None):
 def get_sa2_revisions_tdoc_list(meeting_folder, save_file_to=None):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'INBOX/Revisions'
-    returned_html = get_remote_file(url, file_to_return_if_error=save_file_to)
+    returned_html = get_remote_file(url, cached_file_to_return_if_error=save_file_to)
 
     return returned_html
 

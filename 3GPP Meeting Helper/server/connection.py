@@ -8,7 +8,7 @@ import requests
 from cachecontrol import CacheControl
 from cachecontrol.caches import FileCache
 
-from utils.local_cache import get_webcache_file
+from utils.local_cache import get_webcache_file, file_exists
 
 non_cached_http_session = requests.Session()
 file_cache = FileCache(get_webcache_file())
@@ -44,29 +44,44 @@ def get_remote_file(
         url,
         cache=True,
         try_update_folders=True,
-        file_to_return_if_error=None,
-        timeout: HttpRequestTimeout = None
+        cached_file_to_return_if_error=None,
+        timeout: HttpRequestTimeout = None,
+        use_cached_file_if_available = False
 ) -> bytes | None:
     """
     Downloads a given file via HTML or FTP
     Args:
+        use_cached_file_if_available: Skips the download if the file is available
         url: The URL of the file (http://, https://, ftp://)
         cache: Whether HTTP cache should be used (default=Yes)
         try_update_folders: Used for FTP retrieval
-        file_to_return_if_error: Can override an error, in which case this file is returned
+        cached_file_to_return_if_error: Can override an error, in which case this file is returned. If the file is
+        successfully retrieved, the file is stored there
         timeout: Timeout value for the HTTP connection
         # ToDo if needed: Content-Disposition: attachment;filename="TDoc_List_Meeting_SA2#162.xlsx"
 
-    Returns:
+    Returns: The data or if there is an error None
 
     """
-    if file_to_return_if_error is not None:
-        print('Returning {0} in case of HTTP(s) error'.format(file_to_return_if_error))
+    if (use_cached_file_if_available and
+            (cached_file_to_return_if_error is not None) and
+            file_exists(cached_file_to_return_if_error)):
+        print(f'Skipping download of {url}. Returning {cached_file_to_return_if_error}')
+        try:
+            with open(cached_file_to_return_if_error, "rb") as f:
+                print("Returning cached file {0}".format(cached_file_to_return_if_error))
+                return f.read()
+        except Exception as e:
+            print(f"Could not read file {cached_file_to_return_if_error}: {e}")
+            return None
+
+    if cached_file_to_return_if_error is not None:
+        print(f'Returning {cached_file_to_return_if_error} in case of HTTP(s) error')
     try:
         o = urlparse(url)
-    except:
-        # Not an URL
-        print('{0} not an URL'.format(url))
+    except Exception as e:
+        # Not a URL
+        print(f'{url} not an URL: {e}')
         return None
     try:
         if (o.scheme == 'http') or (o.scheme == 'https'):
@@ -83,28 +98,27 @@ def get_remote_file(
                 r = non_cached_http_session.get(url, timeout=timeout_tuple)
             if r.status_code != 200:
                 print('HTTP GET {0}: {1}'.format(url, r.status_code))
-                if file_to_return_if_error is not None:
+                if cached_file_to_return_if_error is not None:
                     try:
-                        with open(file_to_return_if_error, "rb") as f:
-                            cached_file = f.read()
-                            print("Returning cached file {0}".format(file_to_return_if_error))
-                            return cached_file
-                    except:
-                        print("Could not read file {0}".format(file_to_return_if_error))
+                        with open(cached_file_to_return_if_error, "rb") as f:
+                            print("Returning cached file {0}".format(cached_file_to_return_if_error))
+                            return f.read()
+                    except Exception as e:
+                        print(f"Could not read file {cached_file_to_return_if_error}: {e}")
                         return None
                 else:
                     return None
 
             html_content = r.content
-            if file_to_return_if_error is not None:
+            if cached_file_to_return_if_error is not None:
                 try:
                     # Write to cache
-                    with open(file_to_return_if_error, "wb") as file:
+                    with open(cached_file_to_return_if_error, "wb") as file:
                         file.write(html_content)
-                    print('Cached content to to {0}'.format(file_to_return_if_error))
-                except:
+                    print(f'Cached content to to {cached_file_to_return_if_error}')
+                except Exception as e:
                     traceback.print_exc()
-                    print('Could not cache file to {0}'.format(file_to_return_if_error))
+                    print(f'Could not cache file to {cached_file_to_return_if_error}: {e}')
             return html_content
         elif o.scheme == 'ftp':
             # Do FTP download
@@ -119,7 +133,7 @@ def get_remote_file(
                         data.append(more_data)
 
                     try:
-                        ftp.retrbinary('RETR {0}'.format(o.path), callback=handle_binary)
+                        ftp.retrbinary(f'RETR {o.path}', callback=handle_binary)
                     except Exception as ftp_exception:
                         if not try_update_folders:
                             raise ftp_exception
@@ -143,8 +157,8 @@ def get_remote_file(
                                 folder_content_matches = ['{0}/{1}'.format(folder_to_test, e.group(1)) for e in
                                                           folder_content_matches if e is not None]
                                 update_folders.extend(folder_content_matches)
-                            except:
-                                print('Could not scan directories in dir {0} in FTP server'.format(folder_to_test))
+                            except Exception as e:
+                                print(f'Could not scan directories in dir {folder_to_test} in FTP server: {e}')
                         found_in_update_folder = False
                         last_exception = ftp_exception
                         if len(update_folders) > 0:
@@ -163,18 +177,18 @@ def get_remote_file(
                     # https://stackoverflow.com/questions/17068100/joining-byte-list-with-python
                     data = b''.join(data)
                     return data
-            except:
-                print('FTP {0} RETR {1} ERROR'.format(o.netloc, o.path))
-    except:
-        if file_to_return_if_error is not None:
+            except Exception as e:
+                print(f'FTP {o.netloc} RETR {o.path} ERROR: {e}')
+    except Exception as e:
+        if cached_file_to_return_if_error is not None:
             try:
                 # Read from cache
-                with open(file_to_return_if_error, "rb") as file:
+                with open(cached_file_to_return_if_error, "rb") as file:
                     file_content = file.read()
-                print('Could not load from {1}. Read cached content from {0}'.format(file_to_return_if_error, url))
+                print('Could not load from {1}. Read cached content from {0}'.format(cached_file_to_return_if_error, url))
                 return file_content
-            except:
-                print('Could not read cache file from {0}'.format(file_to_return_if_error))
+            except Exception as e:
+                print(f'Could not read cache file from {cached_file_to_return_if_error}: {e}')
                 return None
         else:
             traceback.print_exc()

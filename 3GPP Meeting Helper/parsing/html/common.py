@@ -349,8 +349,9 @@ class TdocsByAgendaData(object):
                     html = f.read()
             else:
                 html = path_or_html
-        except:
+        except Exception as e:
             html = path_or_html
+            print(f'Could not parse HTML or path: {e}')
 
         if html is None:
             print('No HTML to parse. Maybe a communication error occured?')

@@ -157,13 +157,21 @@ def get_tdocs_by_agenda_file_or_url(target):
     return target
 
 
-def load_application_data():
+def load_application_data(reload_inbox_tdocs_by_agenda=False):
+    """
+    Load application data necessary for the GUI to work Args: reload_inbox_tdocs_by_agenda: Whether to force a (
+    re-)download of https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/SA2/TdocsByAgenda.htm
+    """
     global inbox_tdoc_list_html
 
-    file_to_parse = server.tdoc.get_sa2_inbox_tdoc_list(open_tdocs_by_agenda_in_browser=False)
+    tdocs_by_agenda_from_sa2_inbox_bytes = server.tdoc.get_sa2_inbox_tdoc_list(
+        open_tdocs_by_agenda_in_browser=False,
+        use_cached_file_if_available=not reload_inbox_tdocs_by_agenda)
 
-    # In case we override the file
-    inbox_tdoc_list_html = get_tdocs_by_agenda_file_or_url(file_to_parse)
+    # Substitutes the bytes content with a target file path if we want to override
+    inbox_tdoc_list_html = get_tdocs_by_agenda_file_or_url(tdocs_by_agenda_from_sa2_inbox_bytes)
+
+    # Parse TdocsByAgenda contents
     application.meeting_helper.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(
         inbox_tdoc_list_html)
 
@@ -496,7 +504,7 @@ def start_main_gui():
 
     ttk.Button(
         main_frame,
-        text='TDocs by Agenda',
+        text='Open TDocs by Agenda',
         command=open_tdocs_by_agenda).grid(
         row=current_row,
         column=2,
