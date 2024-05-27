@@ -72,4 +72,3 @@ def get_now_time_str():
 if home_directory is not None:
     local_cache_config.user_folder = home_directory
 
-last_known_3gpp_network_status = False
