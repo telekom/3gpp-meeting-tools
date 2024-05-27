@@ -69,7 +69,7 @@ class MeetingsTable(GenericTable):
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.tkvar_tdoc_id = tkinter.StringVar(self.top_frame)
         self.tkvar_tdoc_id.trace_add('write', self.on_tdoc_search_change)
-        self.tdoc_entry = ttk.Entry(self.top_frame, textvariable=self.tkvar_tdoc_id, width=15, font='TkDefaultFont')
+        self.tdoc_entry = tkinter.Entry(self.top_frame, textvariable=self.tkvar_tdoc_id, width=15, font='TkDefaultFont')
         self.button_open_tdoc = ttk.Button(
             self.top_frame,
             text='Open TDoc',
@@ -106,7 +106,7 @@ class MeetingsTable(GenericTable):
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.tkvar_tdoc_id_2 = tkinter.StringVar(self.top_frame)
         self.tkvar_tdoc_id_2.trace_add('write', self.on_tdoc_compare_change)
-        self.tdoc_entry_2 = ttk.Entry(
+        self.tdoc_entry_2 = tkinter.Entry(
             self.top_frame,
             textvariable=self.tkvar_tdoc_id_2,
             width=15,

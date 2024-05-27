@@ -75,7 +75,7 @@ class WorkItemsTable(GenericTable):
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.tkvar_wi_name = tkinter.StringVar(self.top_frame)
         self.tkvar_wi_name.trace_add('write', self.on_wi_search_change)
-        self.wi_entry = ttk.Entry(self.top_frame, textvariable=self.tkvar_wi_name, width=15, font='TkDefaultFont')
+        self.wi_entry = tkinter.Entry(self.top_frame, textvariable=self.tkvar_wi_name, width=15, font='TkDefaultFont')
 
         self.wi_entry.pack(side=tkinter.LEFT)
         ttk.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)

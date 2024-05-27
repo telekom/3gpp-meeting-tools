@@ -57,7 +57,7 @@ class SpecsTable(GenericTable):
         # Can also do this:
         # https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
-        self.search_entry = ttk.Entry(
+        self.search_entry = tkinter.Entry(
             self.top_frame,
             textvariable=self.search_text,
             width=20,
