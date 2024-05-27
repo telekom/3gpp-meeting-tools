@@ -88,7 +88,7 @@ def we_are_in_meeting_network():
 
 
 def get_sa2_folder():
-    html = get_remote_file(sa2_url, file_to_return_if_error=get_sa2_root_folder_local_cache())
+    html = get_remote_file(sa2_url, cached_file_to_return_if_error=get_sa2_root_folder_local_cache())
     return html
 
 
