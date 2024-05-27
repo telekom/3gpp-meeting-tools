@@ -1,21 +1,20 @@
 import os.path
-import threading
 import tkinter
 import tkinter.font
 import tkinter.scrolledtext
-from tkinter import ttk
 import traceback
+from tkinter import ttk
 from typing import Tuple, List
 
 from pyperclip import copy as clipboard_copy
 
 import application.meeting_helper
 import application.word
-import gui.network_config
-import gui.tools_overview
-import gui.tdocs_table
-import gui.specs_table
 import gui.meetings_table
+import gui.network_config
+import gui.specs_table
+import gui.tdocs_table
+import gui.tools_overview
 import gui.work_items_table
 import parsing.html.common
 import parsing.html.common as html_parser
@@ -25,6 +24,7 @@ import server.tdoc
 import server.tdoc_search
 import tdoc.utils
 import utils.local_cache
+import utils.threading
 from gui.common.utils import favicon
 
 # tkinter initialization
@@ -48,11 +48,7 @@ open_downloaded_tdocs = True
 
 # Tkinter variables
 tkvar_meeting = tkinter.StringVar(root)
-tkvar_inbox_meeting = tkinter.StringVar(root)
-tkvar_inbox_meeting_label = tkinter.StringVar(root)
-tkinter_label_3gpp = tkinter.IntVar(root)
-tkinter_label_sync = tkinter.IntVar(root)
-tkinter_label_inbox = tkinter.IntVar(root)
+tkvar_3gpp_wifi_available = tkinter.BooleanVar(root)
 
 tkvar_last_agenda_version = tkinter.StringVar(root)
 tkvar_last_agenda_vtext = tkinter.StringVar(root)
@@ -73,9 +69,6 @@ tkvar_tdocs_by_agenda_path = tkinter.StringVar(root)
 tkvar_tdocs_by_agenda_path.set('')
 
 # Initial (static) values
-tkinter_label_3gpp.set(1)
-tkinter_label_sync.set(0)
-tkinter_label_inbox.set(0)
 tkvar_last_agenda_version.set('')
 tkvar_tdoc_download_result.set('')
 tkvar_tdoc_id.set('S2-XXXXXXX')
@@ -86,8 +79,6 @@ tkvar_last_doc_tdoc.set('')
 tkvar_last_doc_title.set('')
 tkvar_last_doc_source.set('')
 tkvar_last_tdoc_url.set('')
-
-tkvar_inbox_from_selected_meeting = tkinter.BooleanVar(root)
 
 # Tkinter elements that require variables
 open_tdoc_button = ttk.Button(
@@ -102,10 +93,10 @@ tdoc_entry = tkinter.Entry(
 open_last_agenda_button = ttk.Button(
     main_frame,
     text='Open last agenda')
-meeting_ftp_button = ttk.Checkbutton(
+tkinter_checkbutton_3gpp_wifi_available = ttk.Checkbutton(
     main_frame,
     state='disabled',
-    variable=tkinter_label_inbox)
+    variable=tkvar_3gpp_wifi_available)
 tdocs_by_agenda_entry = tkinter.Entry(
     main_frame,
     textvariable=tkvar_tdocs_by_agenda_path,
@@ -135,19 +126,6 @@ def open_server_meeting_folder(*args):
         os.startfile(remote_folder)
 
 
-def inbox_is_for_this_meeting():
-    meeting_number_from_dropdown = tkvar_meeting.get().split(',')[0]
-    return tkvar_inbox_meeting.get() == meeting_number_from_dropdown
-
-
-def set_selected_meeting_to_inbox_meeting():
-    # Sets the selected meeting to the current inbox meeting
-    if application.meeting_helper.sa2_meeting_data is None:
-        return
-    tkvar_meeting.set(application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(
-        tkvar_inbox_meeting.get()))
-
-
 def reset_status_labels():
     tkvar_last_agenda_version.set('')
     tkvar_tdoc_download_result.set('')
@@ -166,7 +144,7 @@ def reset_status_labels():
 
 
 def update_ftp_button():
-    meeting_ftp_button.config(text=server.common.private_server + ' (3GPP Wifi)')
+    tkinter_checkbutton_3gpp_wifi_available.config(text=server.common.private_server + ' (3GPP Wifi)')
 
 
 def get_tdocs_by_agenda_file_or_url(target):
@@ -182,7 +160,7 @@ def get_tdocs_by_agenda_file_or_url(target):
 def load_application_data():
     global inbox_tdoc_list_html
 
-    file_to_parse = server.tdoc.get_sa2_inbox_tdoc_list()
+    file_to_parse = server.tdoc.get_sa2_inbox_tdoc_list(open_tdocs_by_agenda_in_browser=False)
 
     # In case we override the file
     inbox_tdoc_list_html = get_tdocs_by_agenda_file_or_url(file_to_parse)
@@ -204,14 +182,6 @@ def load_application_data():
             n_email_approval))
 
 
-# Variable-change callbacks
-def set_inbox_label(*args):
-    tkvar_inbox_meeting_label.set('Inbox meeting: {0}'.format(tkvar_inbox_meeting.get()))
-
-
-tkvar_inbox_meeting.trace('w', set_inbox_label)
-
-
 def set_agenda_version_text(*args):
     current_version = tkvar_last_agenda_version.get()
     if (current_version is None) or (current_version == ''):
@@ -226,15 +196,11 @@ tkvar_last_agenda_version.trace('w', set_agenda_version_text)
 def set_inbox_from_selected_meeting_state():
     # Checks whether the inbox is from the selected meeting and sets
     # some labels accordingly
-    tkvar_inbox_from_selected_meeting.set(inbox_is_for_this_meeting())
-    if inbox_is_for_this_meeting():
-        tkinter_label_sync.set(1)
-        if server.common.we_are_in_meeting_network(searching_for_a_file=True):
-            tkinter_label_inbox.set(1)
-        else:
-            tkinter_label_inbox.set(0)
+
+    if server.common.we_are_in_meeting_network():
+        tkvar_3gpp_wifi_available.set(1)
     else:
-        tkinter_label_sync.set(0)
+        tkvar_3gpp_wifi_available.set(0)
 
 
 def change_meeting_dropdown(*args):
@@ -254,7 +220,6 @@ def get_text_with_scrollbar(
         current_main_frame=main_frame,
         width=50
 ):
-
     text = tkinter.scrolledtext.ScrolledText(
         current_main_frame,
         height=height,
@@ -277,7 +242,7 @@ def search_netovate():
 
 
 # Downloads the TDocs by Agenda file
-def open_tdocs_by_agenda(open_this_file=True) -> parsing.html.common.tdocs_by_agenda | None:
+def open_tdocs_by_agenda(open_this_file=True) -> parsing.html.common.TdocsByAgendaData | None:
     try:
         (meeting_server_folder, local_file) = get_local_tdocs_by_agenda_filename_for_current_meeting()
         if meeting_server_folder is None:
@@ -303,10 +268,9 @@ def get_tdocs_by_agenda_for_selected_meeting(
         return_revisions_file=False,
         return_drafts_file=False,
         open_tdocs_by_agenda_in_browser=False):
-    inbox_active = inbox_is_for_this_meeting()
     return_data = server.tdoc.get_tdocs_by_agenda_for_selected_meeting(
-        meeting_folder,
-        inbox_active,
+        meeting_folder=meeting_folder,
+        inbox_active=tkvar_3gpp_wifi_available.get(),
         open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
 
     # Optional download of revisions
@@ -388,7 +352,7 @@ def download_and_open_tdoc(
         # Used to compare two tdocs
         tdoc_id = tdoc_id_to_override
 
-    # If we are performing a TDoc search
+    # If we are performing a global TDoc search
     if tkvar_search_tdoc.get():
         print(f'Will search for TDoc {tdoc_id}')
         retrieved_files, metadata_list = server.tdoc_search.search_download_and_open_tdoc(tdoc_id)
@@ -398,13 +362,12 @@ def download_and_open_tdoc(
         return retrieved_files
 
     # Search in meeting
-    download_from_inbox = inbox_is_for_this_meeting()
     meeting_folder_name = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
         tkvar_meeting.get())
     retrieved_files, tdoc_url = server.tdoc.get_tdoc(
         meeting_folder_name=meeting_folder_name,
         tdoc_id=tdoc_id,
-        use_inbox=download_from_inbox,
+        use_inbox=tkvar_3gpp_wifi_available.get(),
         return_url=True,
         searching_for_a_file=True)
 
@@ -464,14 +427,15 @@ def download_and_open_tdoc(
 def start_main_gui():
     load_application_data()
 
-    tkvar_inbox_meeting.set(application.meeting_helper.current_tdocs_by_agenda.meeting_number)
-    tkvar_meeting.set(application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(
-        application.meeting_helper.current_tdocs_by_agenda.meeting_number))
+    tkvar_meeting.set(
+        application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(
+            application.meeting_helper.current_tdocs_by_agenda.meeting_number))
 
-    meeting_dropdown_list = ttk.OptionMenu(
+    tk_combobox_meetings = ttk.Combobox(
         main_frame,
-        tkvar_meeting,
-        *application.meeting_helper.sa2_meeting_data.meeting_names)
+        textvariable=tkvar_meeting,
+        values=application.meeting_helper.sa2_meeting_data.meeting_names
+    )
 
     # Variable-change callbacks
     def set_tdoc_id_full(*args):
@@ -496,28 +460,18 @@ def start_main_gui():
     tkvar_tdoc_id.trace('w', set_tdoc_id_full)
     tkvar_search_tdoc.trace('w', set_tdoc_id_full)
 
-    # Set initial selection to the inbox meeting (should be the current one)
-    set_selected_meeting_to_inbox_meeting()
-
     # Row: Inbox info
     current_row = 0
-    meeting_dropdown_list.grid(
+    tk_combobox_meetings.grid(
         row=current_row,
         column=0,
+        columnspan=2,
         sticky="ew",
         padx=10,
         pady=10)
 
-    (ttk.Checkbutton(
-        main_frame,
-        text='3GPP sync',
-        state='disabled',
-        variable=tkinter_label_sync)
-     .grid(
-        row=current_row,
-        column=1))
     update_ftp_button()
-    meeting_ftp_button.grid(
+    tkinter_checkbutton_3gpp_wifi_available.grid(
         row=current_row,
         column=2)
 
@@ -530,7 +484,7 @@ def start_main_gui():
             root,
             favicon,
             on_update_ftp=gui.main_gui.update_ftp_button))
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         sticky="EW"))
@@ -574,7 +528,7 @@ def start_main_gui():
             gui.main_gui.root,
             gui.main_gui.favicon,
             selected_meeting_fn=gui.main_gui.tkvar_meeting.get))
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         sticky="EW"))
@@ -603,7 +557,7 @@ def start_main_gui():
         main_frame,
         text='Search Netovate',
         command=search_netovate)
-     .grid(
+    .grid(
         row=current_row,
         column=2,
         sticky="EW"))
@@ -677,7 +631,7 @@ def start_main_gui():
         main_frame,
         text='Override Tdocs by agenda',
         variable=tkvar_override_tdocs_by_agenda)
-     .grid(
+    .grid(
         row=current_row,
         column=0))
     tdocs_by_agenda_entry.config(state='readonly')
@@ -710,9 +664,11 @@ def start_main_gui():
     tkvar_tdocs_by_agenda_path.trace('w', set_override_tdocs_by_agenda_path)
 
     def on_open_last_agenda(*args):
-        open_last_agenda_button.config(state='disabled')
-        t = threading.Thread(target=open_last_agenda(*args))
-        t.start()
+        utils.threading.do_something_on_thread(
+            task=open_last_agenda(*args),
+            before_starting=open_last_agenda_button.config(state='disabled'),
+            after_task=open_last_agenda_button.config(state='normal')
+        )
 
     open_last_agenda_button.configure(command=on_open_last_agenda)
 
@@ -721,8 +677,6 @@ def start_main_gui():
             meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
                 tkvar_meeting.get())
             server.tdoc.get_agenda_files(meeting_folder, use_inbox=False)
-            if inbox_is_for_this_meeting():
-                server.tdoc.get_agenda_files(meeting_folder, use_inbox=True)
             last_agenda_info = server.tdoc.get_last_agenda(meeting_folder)
             if last_agenda_info is not None:
                 # Starting with SA2#161, there is also a Session Plan (separated from the agenda)
@@ -734,26 +688,26 @@ def start_main_gui():
                     tkvar_last_agenda_version.set('v' + str(last_agenda_info.session_plan_version_int))
             else:
                 tkvar_last_agenda_version.set('Not found')
-        finally:
-            open_last_agenda_button.config(state='normal')
+        except Exception as e:
+            print(f'Could not open last agenda: {e}')
 
     # Row: Infos
     current_row += 1
     ttk.Label(
-        main_frame, 
+        main_frame,
         textvariable=tkvar_tdoc_download_result).grid(
-        row=current_row, 
+        row=current_row,
         column=1)
     ttk.Label(
-        main_frame, 
+        main_frame,
         textvariable=tkvar_last_agenda_vtext).grid(
-        row=current_row, 
+        row=current_row,
         column=2)
 
     # Row: info from last document
     current_row += 1
     tkinter.ttk.Separator(
-        main_frame, 
+        main_frame,
         orient=tkinter.HORIZONTAL).grid(
         row=current_row,
         columnspan=3,
@@ -761,9 +715,9 @@ def start_main_gui():
 
     current_row += 1
     ttk.Label(
-        main_frame, 
+        main_frame,
         text='Last document:').grid(
-        row=current_row, 
+        row=current_row,
         column=0)
 
     # Last opened document    
@@ -793,9 +747,9 @@ def start_main_gui():
 
     current_row += 1
     ttk.Label(
-        main_frame, 
+        main_frame,
         text='Title:').grid(
-        row=current_row, 
+        row=current_row,
         column=0)
     last_tdoc_title = get_text_with_scrollbar(
         current_row,
@@ -803,9 +757,9 @@ def start_main_gui():
 
     current_row += 1
     ttk.Label(
-        main_frame, 
+        main_frame,
         text='Source:').grid(
-        row=current_row, 
+        row=current_row,
         column=0)
     last_tdoc_source = get_text_with_scrollbar(
         current_row,
@@ -813,24 +767,24 @@ def start_main_gui():
 
     current_row += 1
     ttk.Label(
-        main_frame, 
+        main_frame,
         text='URL:').grid(
-        row=current_row, 
+        row=current_row,
         column=0)
     last_tdoc_url = get_text_with_scrollbar(
-        current_row, 1, 
+        current_row, 1,
         height=1
     )
 
     current_row += 1
     ttk.Label(
-        main_frame, 
+        main_frame,
         text='Status:').grid(
-        row=current_row, 
+        row=current_row,
         column=0)
     last_tdoc_status = get_text_with_scrollbar(
         current_row,
-        1, 
+        1,
         height=1)
 
     # Configure column row widths
