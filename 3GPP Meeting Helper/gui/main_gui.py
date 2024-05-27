@@ -2,7 +2,7 @@ import os.path
 import threading
 import tkinter
 import tkinter.font
-import tkinter.ttk
+from tkinter import ttk
 import traceback
 from typing import Tuple, List
 
@@ -86,22 +86,22 @@ tkvar_last_tdoc_url.set('')
 tkvar_inbox_from_selected_meeting = tkinter.BooleanVar(root)
 
 # Tkinter elements that require variables
-open_tdoc_button = tkinter.Button(
+open_tdoc_button = ttk.Button(
     main_frame,
     textvariable=tkvar_tdoc_id_full)
-tdoc_entry = tkinter.Entry(
+tdoc_entry = ttk.Entry(
     main_frame,
     textvariable=tkvar_tdoc_id,
     width=25,
     font='TkDefaultFont')
-open_last_agenda_button = tkinter.Button(
+open_last_agenda_button = ttk.Button(
     main_frame,
     text='Open last agenda')
-meeting_ftp_button = tkinter.Checkbutton(
+meeting_ftp_button = ttk.Checkbutton(
     main_frame,
     state='disabled',
     variable=tkinter_label_inbox)
-tdocs_by_agenda_entry = tkinter.Entry(
+tdocs_by_agenda_entry = ttk.Entry(
     main_frame,
     textvariable=tkvar_tdocs_by_agenda_path,
     width=25,
@@ -454,7 +454,7 @@ def start_main_gui():
     tkvar_meeting.set(application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(
         application.meeting_helper.current_tdocs_by_agenda.meeting_number))
 
-    meeting_dropdown_list = tkinter.OptionMenu(
+    meeting_dropdown_list = ttk.OptionMenu(
         main_frame,
         tkvar_meeting,
         *application.meeting_helper.sa2_meeting_data.meeting_names)
@@ -497,7 +497,7 @@ def start_main_gui():
         row=current_row,
         column=1,
         sticky="EW")
-    tkinter.Button(
+    ttk.Button(
         main_frame,
         text='TDocs by Agenda',
         command=open_tdocs_by_agenda).grid(
@@ -509,7 +509,7 @@ def start_main_gui():
 
     # Row: Dropdown menu and meeting info
     current_row += 1
-    (tkinter.Button(
+    (ttk.Button(
         main_frame,
         text='Network config',
         command=lambda: gui.network_config.NetworkConfigDialog(
@@ -520,7 +520,7 @@ def start_main_gui():
         row=current_row,
         column=0,
         sticky="EW"))
-    (tkinter.Checkbutton(
+    (ttk.Checkbutton(
         main_frame,
         text='3GPP sync (HTTP)',
         state='disabled',
@@ -547,7 +547,7 @@ def start_main_gui():
         pady=10,
         sticky="EW")
     open_tdoc_button.configure(command=download_and_open_tdoc)
-    tkinter.Checkbutton(
+    ttk.Checkbutton(
         main_frame,
         text='Search all WGs/meetings',
         variable=tkvar_search_tdoc).grid(
@@ -556,7 +556,7 @@ def start_main_gui():
 
     # Row: Tools, TDoc table, Open Netovate
     current_row += 1
-    (tkinter.Button(
+    (ttk.Button(
         main_frame,
         text='Tools',
         command=lambda: gui.tools_overview.ToolsDialog(
@@ -568,7 +568,7 @@ def start_main_gui():
         column=0,
         sticky="EW"))
 
-    tdoc_table_button = tkinter.Button(
+    tdoc_table_button = ttk.Button(
         main_frame,
         text='Open Tdoc table',
         command=lambda: gui.tdocs_table.TdocsTable(
@@ -588,7 +588,7 @@ def start_main_gui():
         sticky="EW")
 
     # Add button to check Netovate (useful if you are searching for documents from other WGs
-    (tkinter.Button(
+    (ttk.Button(
         main_frame,
         text='Search Netovate',
         command=search_netovate)
@@ -599,14 +599,14 @@ def start_main_gui():
 
     # Row: Open local folder, open server folder
     current_row += 1
-    tkinter.Button(main_frame,
+    ttk.Button(main_frame,
                    text="Open local folder for selected meeting",
                    command=open_local_meeting_folder).grid(
         row=current_row,
         column=0,
         columnspan=1,
         sticky="EW")
-    tkinter.Button(
+    ttk.Button(
         main_frame,
         text="Open server meeting folder",
         command=open_server_meeting_folder).grid(
@@ -623,7 +623,7 @@ def start_main_gui():
 
     # Override TDocs by Agenda if it is malformed
     current_row += 1
-    (tkinter.Checkbutton(
+    (ttk.Checkbutton(
         main_frame,
         text='Override Tdocs by agenda',
         variable=tkvar_override_tdocs_by_agenda)
@@ -691,8 +691,8 @@ def start_main_gui():
 
     # Row: Infos
     current_row += 1
-    tkinter.Label(main_frame, textvariable=tkvar_tdoc_download_result).grid(row=current_row, column=1)
-    tkinter.Label(main_frame, textvariable=tkvar_last_agenda_vtext).grid(row=current_row, column=2)
+    ttk.Label(main_frame, textvariable=tkvar_tdoc_download_result).grid(row=current_row, column=1)
+    ttk.Label(main_frame, textvariable=tkvar_last_agenda_vtext).grid(row=current_row, column=2)
 
     # Row: info from last document
     current_row += 1
@@ -700,7 +700,7 @@ def start_main_gui():
                                                                       sticky="WE")
 
     current_row += 1
-    tkinter.Label(main_frame, text='Last document:').grid(row=current_row, column=0)
+    ttk.Label(main_frame, text='Last document:').grid(row=current_row, column=0)
 
     # Last opened document    
     def set_last_doc_title(*args):
@@ -728,19 +728,19 @@ def start_main_gui():
     tkvar_last_tdoc_status.trace('w', set_last_doc_status)
 
     current_row += 1
-    tkinter.Label(main_frame, text='Title:').grid(row=current_row, column=0)
+    ttk.Label(main_frame, text='Title:').grid(row=current_row, column=0)
     last_tdoc_title = get_text_with_scrollbar(current_row, 1)
 
     current_row += 1
-    tkinter.Label(main_frame, text='Source:').grid(row=current_row, column=0)
+    ttk.Label(main_frame, text='Source:').grid(row=current_row, column=0)
     last_tdoc_source = get_text_with_scrollbar(current_row, 1)
 
     current_row += 1
-    tkinter.Label(main_frame, text='URL:').grid(row=current_row, column=0)
+    ttk.Label(main_frame, text='URL:').grid(row=current_row, column=0)
     last_tdoc_url = get_text_with_scrollbar(current_row, 1, height=1)
 
     current_row += 1
-    tkinter.Label(main_frame, text='Status:').grid(row=current_row, column=0)
+    ttk.Label(main_frame, text='Status:').grid(row=current_row, column=0)
     last_tdoc_status = get_text_with_scrollbar(current_row, 1, height=1)
 
     # Configure column row widths

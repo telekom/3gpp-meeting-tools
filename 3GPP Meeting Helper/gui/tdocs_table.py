@@ -15,7 +15,6 @@ import application.meeting_helper
 import gui
 import gui.main_gui
 import parsing.word.pywin32
-import tdoc.utils
 import utils.local_cache
 from application import powerpoint
 from application.excel import open_excel_document, set_first_row_as_filter, vertically_center_all_text, save_wb, \
@@ -100,10 +99,10 @@ class TdocsTable(GenericTable):
         # Can also do this:
         # https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
-        self.search_entry = tkinter.Entry(self.top_frame, textvariable=self.search_text, width=25, font='TkDefaultFont')
+        self.search_entry = ttk.Entry(self.top_frame, textvariable=self.search_text, width=25, font='TkDefaultFont')
         self.search_text.trace_add(['write', 'unset'], self.select_text)
 
-        tkinter.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)
         self.search_entry.pack(side=tkinter.LEFT)
 
         all_types = ['All']
@@ -124,31 +123,31 @@ class TdocsTable(GenericTable):
         self.combo_result.set('All')
         self.combo_result.bind("<<ComboboxSelected>>", self.select_result)
 
-        tkinter.Label(self.top_frame, text="  By Type: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="  By Type: ").pack(side=tkinter.LEFT)
         self.combo_type.pack(side=tkinter.LEFT)
 
-        tkinter.Label(self.top_frame, text="  By AI: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="  By AI: ").pack(side=tkinter.LEFT)
         self.combo_ai.pack(side=tkinter.LEFT)
 
-        tkinter.Label(self.top_frame, text="  By Result: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="  By Result: ").pack(side=tkinter.LEFT)
         self.combo_result.pack(side=tkinter.LEFT)
 
-        tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
-        tkinter.Button(
+        ttk.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
+        ttk.Button(
             self.top_frame,
             text='Clear filters',
             command=self.clear_filters).pack(side=tkinter.LEFT)
-        tkinter.Button(
+        ttk.Button(
             self.top_frame,
             text='Reload data',
             command=self.reload_data).pack(side=tkinter.LEFT)
 
-        tkinter.Button(
+        ttk.Button(
             self.top_frame,
             text='Merge PPTs',
             command=self.merge_pptx_files).pack(side=tkinter.LEFT)
 
-        tkinter.Button(
+        ttk.Button(
             self.top_frame,
             text='Export CRs',
             command=self.export_crs).pack(side=tkinter.LEFT)
@@ -156,7 +155,7 @@ class TdocsTable(GenericTable):
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
-        tkinter.Label(self.bottom_frame, textvariable=self.tdoc_count).pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, textvariable=self.tdoc_count).pack(side=tkinter.LEFT)
 
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
@@ -583,13 +582,13 @@ class RevisionsTable(GenericTable):
 
         self.footer_label = tkinter.StringVar()
         self.set_footer_label()
-        tkinter.Label(self.bottom_frame, textvariable=self.footer_label).pack(side=tkinter.LEFT)
-        tkinter.Label(self.bottom_frame, textvariable=self.compare_a).pack(side=tkinter.LEFT)
-        tkinter.Label(self.bottom_frame, text='  vs.  ').pack(side=tkinter.LEFT)
-        tkinter.Label(self.bottom_frame, textvariable=self.compare_b).pack(side=tkinter.LEFT)
-        tkinter.Label(self.bottom_frame, text='  ').pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, textvariable=self.footer_label).pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, textvariable=self.compare_a).pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, text='  vs.  ').pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, textvariable=self.compare_b).pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, text='  ').pack(side=tkinter.LEFT)
 
-        tkinter.Button(
+        ttk.Button(
             self.bottom_frame,
             text='Compare!',
             command=self.compare_tdocs).pack(side=tkinter.LEFT)

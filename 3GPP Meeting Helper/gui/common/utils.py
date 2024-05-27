@@ -2,6 +2,7 @@ import ctypes
 import os
 import sys
 import tkinter
+from tkinter import ttk
 import tkinter.font
 
 default_font_size = 12
@@ -27,7 +28,7 @@ def set_font_size(size=default_font_size):
 
 
 def set_waiting_for_proxy_message(main_frame):
-    label = tkinter.Label(main_frame, text="Please configure proxy")
+    label = ttk.Label(main_frame, text="Please configure proxy")
     label.grid(row=0, column=0)
     return label
 

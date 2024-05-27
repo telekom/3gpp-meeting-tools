@@ -57,10 +57,14 @@ class SpecsTable(GenericTable):
         # Can also do this:
         # https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
-        self.search_entry = tkinter.Entry(self.top_frame, textvariable=self.search_text, width=20, font='TkDefaultFont')
+        self.search_entry = ttk.Entry(
+            self.top_frame,
+            textvariable=self.search_text,
+            width=20,
+            font='TkDefaultFont')
         self.search_text.trace_add(['write', 'unset'], self.select_text)
 
-        tkinter.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)
         self.search_entry.pack(side=tkinter.LEFT)
 
         # Filter by specification series
@@ -73,7 +77,7 @@ class SpecsTable(GenericTable):
         self.combo_series.set('All')
         self.combo_series.bind("<<ComboboxSelected>>", self.select_series)
 
-        tkinter.Label(self.top_frame, text="  Series: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="  Series: ").pack(side=tkinter.LEFT)
         self.combo_series.pack(side=tkinter.LEFT)
 
         # Filter by specification release
@@ -86,7 +90,7 @@ class SpecsTable(GenericTable):
         self.combo_releases.set('All')
         self.combo_releases.bind("<<ComboboxSelected>>", self.select_releases)
 
-        tkinter.Label(self.top_frame, text="  Release: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="  Release: ").pack(side=tkinter.LEFT)
         self.combo_releases.pack(side=tkinter.LEFT)
 
         # Filter by group responsibility release
@@ -99,19 +103,19 @@ class SpecsTable(GenericTable):
         self.combo_groups.set('All')
         self.combo_groups.bind("<<ComboboxSelected>>", self.select_groups)
 
-        tkinter.Label(self.top_frame, text="  WG: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="  WG: ").pack(side=tkinter.LEFT)
         self.combo_groups.pack(side=tkinter.LEFT)
 
-        tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
-        tkinter.Button(
+        ttk.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
+        ttk.Button(
             self.top_frame,
             text='Clear filters',
             command=self.clear_filters).pack(side=tkinter.LEFT)
-        tkinter.Button(
+        ttk.Button(
             self.top_frame,
             text='Load ALL 2k+ specs',
             command=self.load_all_specs_from_server).pack(side=tkinter.LEFT)
-        tkinter.Button(
+        ttk.Button(
             self.top_frame,
             text='Local Cache',
             command=lambda: os.startfile(get_specs_folder())).pack(side=tkinter.LEFT)
@@ -119,7 +123,7 @@ class SpecsTable(GenericTable):
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
-        tkinter.Label(self.bottom_frame, textvariable=self.spec_count).pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, textvariable=self.spec_count).pack(side=tkinter.LEFT)
 
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
@@ -418,23 +422,23 @@ class SpecVersionsTable(GenericTable):
         self.footer_label = tkinter.StringVar()
         self.set_footer_label()
 
-        tkinter.Label(self.bottom_frame, textvariable=self.footer_label).pack(side=tkinter.LEFT)
-        tkinter.Label(self.bottom_frame, textvariable=self.compare_a).pack(side=tkinter.LEFT)
-        tkinter.Label(self.bottom_frame, text='  vs.  ').pack(side=tkinter.LEFT)
-        tkinter.Label(self.bottom_frame, textvariable=self.compare_b).pack(side=tkinter.LEFT)
-        tkinter.Label(self.bottom_frame, text='  ').pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, textvariable=self.footer_label).pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, textvariable=self.compare_a).pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, text='  vs.  ').pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, textvariable=self.compare_b).pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, text='  ').pack(side=tkinter.LEFT)
 
-        tkinter.Button(
+        ttk.Button(
             self.bottom_frame,
             text='Compare!',
             command=self.compare_spec_versions).pack(side=tkinter.LEFT)
 
-        tkinter.Button(
+        ttk.Button(
             self.bottom_frame,
             text='Open local folder',
             command=lambda: os.startfile(get_specs_folder(spec_id=self.spec_id))).pack(side=tkinter.LEFT)
 
-        tkinter.Button(
+        ttk.Button(
             self.bottom_frame,
             text='Re-load spec file',
             command=self.reload_spec_file).pack(side=tkinter.LEFT)

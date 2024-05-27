@@ -56,7 +56,7 @@ class WorkItemsTable(GenericTable):
         self.combo_groups.bind("<<ComboboxSelected>>", self.select_groups)
 
         # Filter by 3GPP Group/WG
-        tkinter.Label(self.top_frame, text="Group: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Group: ").pack(side=tkinter.LEFT)
         self.combo_groups.pack(side=tkinter.LEFT)
 
         # Filter by release
@@ -67,18 +67,18 @@ class WorkItemsTable(GenericTable):
         self.combo_releases.bind("<<ComboboxSelected>>", self.select_releases)
 
         # Filter by 3GPP Release
-        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        tkinter.Label(self.top_frame, text="Release: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Release: ").pack(side=tkinter.LEFT)
         self.combo_releases.pack(side=tkinter.LEFT)
 
         # Open/search TDoc
-        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.tkvar_wi_name = tkinter.StringVar(self.top_frame)
         self.tkvar_wi_name.trace_add('write', self.on_wi_search_change)
-        self.wi_entry = tkinter.Entry(self.top_frame, textvariable=self.tkvar_wi_name, width=15, font='TkDefaultFont')
+        self.wi_entry = ttk.Entry(self.top_frame, textvariable=self.tkvar_wi_name, width=15, font='TkDefaultFont')
 
         self.wi_entry.pack(side=tkinter.LEFT)
-        tkinter.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
 
         # Redownload WI list if it already exists
         self.redownload_wi_list_if_exists_var = tkinter.IntVar()
@@ -86,13 +86,13 @@ class WorkItemsTable(GenericTable):
             self.top_frame,
             state='enabled',
             variable=self.redownload_wi_list_if_exists_var)
-        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        tkinter.Label(self.top_frame, text="Re-download WI list if exists: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Re-download WI list if exists: ").pack(side=tkinter.LEFT)
         self.redownload_wi_list_if_exists.pack(side=tkinter.LEFT)
 
         # Load meeting data
-        tkinter.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        tkinter.Button(
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        ttk.Button(
             self.top_frame,
             text='Load WIs',
             command=self.load_data).pack(side=tkinter.LEFT)
@@ -105,7 +105,7 @@ class WorkItemsTable(GenericTable):
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
         # Bottom frame
-        tkinter.Label(self.bottom_frame, textvariable=self.wi_count).pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, textvariable=self.wi_count).pack(side=tkinter.LEFT)
 
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview

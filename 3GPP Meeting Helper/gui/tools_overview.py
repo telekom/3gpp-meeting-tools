@@ -3,6 +3,7 @@ import os
 import os.path
 import threading
 import tkinter
+from tkinter import ttk
 import traceback
 from typing import List, Callable
 
@@ -67,7 +68,7 @@ class ToolsDialog(TkWidget):
         # https://stackoverflow.com/questions/1892339/how-to-make-a-tkinter-window-jump-to-the-front
         # top.attributes("-topmost", True)
 
-        tkinter.Button(
+        ttk.Button(
             self.tk_top,
             text="Open specs folder",
             command=lambda: os.startfile(get_specs_folder())).grid(row=0,
@@ -75,7 +76,7 @@ class ToolsDialog(TkWidget):
                                                                    columnspan=1,
                                                                    sticky="EW")
 
-        tkinter.Button(
+        ttk.Button(
             self.tk_top,
             text="Close Word",
             command=application.word.close_word).grid(row=0,
@@ -84,12 +85,12 @@ class ToolsDialog(TkWidget):
                                                       sticky="EW")
 
         # Row 1: Export TDocs by agenda to Excel
-        self.export_button = tkinter.Button(self.tk_top, text=ToolsDialog.export_text,
+        self.export_button = ttk.Button(self.tk_top, text=ToolsDialog.export_text,
                                             command=self.export_tdocs_by_agenda_to_excel)
         self.export_button.grid(row=1, column=0, columnspan=columnspan, sticky="EW")
 
         # Row 4: Table containing all 3GPP specs
-        self.launch_spec_table = tkinter.Button(
+        self.launch_spec_table = ttk.Button(
             self.tk_top,
             text='Open Specifications table',
             command=lambda: gui.specs_table.SpecsTable(
@@ -99,7 +100,7 @@ class ToolsDialog(TkWidget):
         self.launch_spec_table.grid(row=4, column=1, columnspan=int(columnspan / 4), sticky="EW")
 
         # Row 4: Table containing all 3GPP meetings
-        self.launch_spec_table = tkinter.Button(
+        self.launch_spec_table = ttk.Button(
             self.tk_top,
             text='Open Meetings table',
             command=lambda: gui.meetings_table.MeetingsTable(
@@ -109,7 +110,7 @@ class ToolsDialog(TkWidget):
         self.launch_spec_table.grid(row=4, column=2, columnspan=int(columnspan / 4), sticky="EW")
 
         # Row 4: Table containing all 3GPP WIs
-        self.launch_spec_table = tkinter.Button(
+        self.launch_spec_table = ttk.Button(
             self.tk_top,
             text='Open 3GPP WI table',
             command=lambda: gui.work_items_table.WorkItemsTable(
@@ -137,42 +138,42 @@ class ToolsDialog(TkWidget):
             else:
                 self.outlook_button_text.set(ToolsDialog.outlook_text_2)
 
-        self.email_attachments_generate_summary_checkbox = tkinter.Checkbutton(self.tk_top,
+        self.email_attachments_generate_summary_checkbox = ttk.Checkbutton(self.tk_top,
                                                                                text="Cache emails & Excel summary",
                                                                                variable=self.outlook_generate_summary,
                                                                                command=change_outlook_button_label)
         self.email_attachments_generate_summary_checkbox.grid(row=2, column=0, sticky="EW")
-        self.email_approval_button = tkinter.Button(self.tk_top, textvariable=self.outlook_button_text,
+        self.email_approval_button = ttk.Button(self.tk_top, textvariable=self.outlook_button_text,
                                                     command=self.outlook_email_approval)
         self.email_approval_button.grid(row=2, column=1, columnspan=2, sticky="EW")
-        self.download_chairnotes = tkinter.Button(self.tk_top, text="Process Chairman's Notes (be patient)",
+        self.download_chairnotes = ttk.Button(self.tk_top, text="Process Chairman's Notes (be patient)",
                                                   command=self.process_chairnotes)
         self.download_chairnotes.grid(row=2, column=3, columnspan=1, sticky="EW")
 
         # Row 3: Outlook tools (download email attachments)
-        self.email_attachments_button = tkinter.Button(self.tk_top, text=ToolsDialog.outlook_attachment_text,
+        self.email_attachments_button = ttk.Button(self.tk_top, text=ToolsDialog.outlook_attachment_text,
                                                        command=self.outlook_email_attachments)
         self.email_attachments_button.grid(row=3, column=0, columnspan=columnspan, sticky="EW")
 
         # Row 5: Export tdocs from a given year
         self.tkvar_year = tkinter.StringVar(self.tk_top)
-        self.year_entry = tkinter.Entry(self.tk_top, textvariable=self.tkvar_year, width=25, font='TkDefaultFont')
+        self.year_entry = ttk.Entry(self.tk_top, textvariable=self.tkvar_year, width=25, font='TkDefaultFont')
         self.year_entry.insert(0, str(datetime.datetime.now().year))
         self.year_entry.grid(row=5, column=0, padx=10, pady=10)
         self.year_entry.config(state='normal')
-        self.tdoc_report_button = tkinter.Button(self.tk_top, text=ToolsDialog.export_year_text,
+        self.tdoc_report_button = ttk.Button(self.tk_top, text=ToolsDialog.export_year_text,
                                                  command=self.export_year_tdocs_by_agenda_to_excel)
         self.tdoc_report_button.grid(row=5, column=1, columnspan=3, sticky="EW")
 
         # Row 6A: Generate Word report
-        self.tdoc_word_report_button = tkinter.Button(
+        self.tdoc_word_report_button = ttk.Button(
             self.tk_top,
             text=ToolsDialog.word_report_text,
             command=self.generate_word_report)
         self.tdoc_word_report_button.grid(row=6, column=0, columnspan=1, sticky="EW")
 
         self.tkvar_ai_list_word_report = tkinter.StringVar(self.tk_top)
-        self.ai_list_entry_word_report = tkinter.Entry(
+        self.ai_list_entry_word_report = ttk.Entry(
             self.tk_top,
             textvariable=self.tkvar_ai_list_word_report,
             width=30,
@@ -181,14 +182,14 @@ class ToolsDialog(TkWidget):
         self.ai_list_entry_word_report.grid(row=6, column=1, columnspan=1, padx=10, pady=10, sticky="EW")
 
         # Row 6B: Bulk AI cache
-        self.ai_bulk_open_button = tkinter.Button(
+        self.ai_bulk_open_button = ttk.Button(
             self.tk_top,
             text=ToolsDialog.bulk_ai_open_text,
             command=self.bulk_cache_ais)
         self.ai_bulk_open_button.grid(row=6, column=2, columnspan=1, sticky="EW")
 
         self.tkvar_ai_list = tkinter.StringVar(self.tk_top)
-        self.ai_list_entry = tkinter.Entry(
+        self.ai_list_entry = ttk.Entry(
             self.tk_top,
             textvariable=self.tkvar_ai_list,
             width=30,
@@ -197,7 +198,7 @@ class ToolsDialog(TkWidget):
         self.ai_list_entry.grid(row=6, column=3, columnspan=1, padx=10, pady=10, sticky="EW")
 
         # Row 7: Compare
-        self.compare_tdocs_button = tkinter.Button(
+        self.compare_tdocs_button = ttk.Button(
             self.tk_top,
             text=ToolsDialog.compare_tdocs_text,
             command=lambda: parsing.word.pywin32.compare_tdocs(
@@ -206,7 +207,7 @@ class ToolsDialog(TkWidget):
         self.compare_tdocs_button.grid(row=7, column=0, columnspan=1, sticky="EW")
 
         self.tkvar_tdoc_to_compare_1 = tkinter.StringVar(self.tk_top)
-        self.tdoc_to_compare_1_entry = tkinter.Entry(
+        self.tdoc_to_compare_1_entry = ttk.Entry(
             self.tk_top,
             textvariable=self.tkvar_tdoc_to_compare_1,
             width=30,
@@ -215,7 +216,7 @@ class ToolsDialog(TkWidget):
         self.tdoc_to_compare_1_entry.grid(row=7, column=1, columnspan=1, padx=10, pady=10, sticky="EW")
 
         self.tkvar_tdoc_to_compare_2 = tkinter.StringVar(self.tk_top)
-        self.tdoc_to_compare_2_entry = tkinter.Entry(
+        self.tdoc_to_compare_2_entry = ttk.Entry(
             self.tk_top,
             textvariable=self.tkvar_tdoc_to_compare_2,
             width=30,
@@ -224,14 +225,14 @@ class ToolsDialog(TkWidget):
         self.tdoc_to_compare_2_entry.grid(row=7, column=2, columnspan=1, padx=10, pady=10, sticky="EW")
 
         # Row 8: Replace Author names in active document
-        self.replace_author_names_button = tkinter.Button(
+        self.replace_author_names_button = ttk.Button(
             self.tk_top,
             text="Replace Active Doc's review author",
             command=self.replace_document_revisions_author)
         self.replace_author_names_button.grid(row=8, column=0, columnspan=1, sticky="EW")
 
         self.original_author_name = tkinter.StringVar(self.tk_top)
-        self.original_author_name_entry = tkinter.Entry(
+        self.original_author_name_entry = ttk.Entry(
             self.tk_top,
             textvariable=self.original_author_name,
             width=30,
@@ -240,7 +241,7 @@ class ToolsDialog(TkWidget):
         self.original_author_name_entry.grid(row=8, column=1, columnspan=1, padx=10, pady=10, sticky="EW")
 
         self.final_author_name = tkinter.StringVar(self.tk_top)
-        self.final_author_name_entry = tkinter.Entry(
+        self.final_author_name_entry = ttk.Entry(
             self.tk_top,
             textvariable=self.final_author_name,
             width=30,
