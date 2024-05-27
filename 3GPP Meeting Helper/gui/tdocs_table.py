@@ -99,7 +99,7 @@ class TdocsTable(GenericTable):
         # Can also do this:
         # https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
-        self.search_entry = ttk.Entry(self.top_frame, textvariable=self.search_text, width=25, font='TkDefaultFont')
+        self.search_entry = tkinter.Entry(self.top_frame, textvariable=self.search_text, width=25, font='TkDefaultFont')
         self.search_text.trace_add(['write', 'unset'], self.select_text)
 
         ttk.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)

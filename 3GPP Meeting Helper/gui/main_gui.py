@@ -89,7 +89,7 @@ tkvar_inbox_from_selected_meeting = tkinter.BooleanVar(root)
 open_tdoc_button = ttk.Button(
     main_frame,
     textvariable=tkvar_tdoc_id_full)
-tdoc_entry = ttk.Entry(
+tdoc_entry = tkinter.Entry(
     main_frame,
     textvariable=tkvar_tdoc_id,
     width=27,
@@ -101,10 +101,10 @@ meeting_ftp_button = ttk.Checkbutton(
     main_frame,
     state='disabled',
     variable=tkinter_label_inbox)
-tdocs_by_agenda_entry = ttk.Entry(
+tdocs_by_agenda_entry = tkinter.Entry(
     main_frame,
     textvariable=tkvar_tdocs_by_agenda_path,
-    width=25,
+    width=27,
     font='TkDefaultFont')
 
 # Other variables
@@ -541,14 +541,10 @@ def start_main_gui():
     current_row += 1
     tdoc_entry.grid(
         row=current_row,
-        column=0,
-        padx=10,
-        pady=10)
+        column=0)
     open_tdoc_button.grid(
         row=current_row,
         column=1,
-        padx=10,
-        pady=10,
         sticky="EW")
     open_tdoc_button.configure(command=download_and_open_tdoc)
     ttk.Checkbutton(
@@ -567,7 +563,7 @@ def start_main_gui():
             gui.main_gui.root,
             gui.main_gui.favicon,
             selected_meeting_fn=gui.main_gui.tkvar_meeting.get))
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         sticky="EW"))
@@ -596,7 +592,7 @@ def start_main_gui():
         main_frame,
         text='Search Netovate',
         command=search_netovate)
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         sticky="EW"))
@@ -639,15 +635,13 @@ def start_main_gui():
         main_frame,
         text='Override Tdocs by agenda',
         variable=tkvar_override_tdocs_by_agenda)
-    .grid(
+     .grid(
         row=current_row,
         column=0))
     tdocs_by_agenda_entry.config(state='readonly')
     tdocs_by_agenda_entry.grid(
         row=current_row,
-        column=1,
-        padx=10,
-        pady=10)
+        column=1)
 
     def set_override_tdocs_by_agenda_var(*args):
         global last_override_tdocs_by_agenda

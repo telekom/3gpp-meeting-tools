@@ -149,7 +149,7 @@ class ToolsDialog(TkWidget):
 
         # Row 5: Export tdocs from a given year
         self.tkvar_year = tkinter.StringVar(self.tk_top)
-        self.year_entry = ttk.Entry(self.tk_top, textvariable=self.tkvar_year, width=25, font='TkDefaultFont')
+        self.year_entry = tkinter.Entry(self.tk_top, textvariable=self.tkvar_year, width=25, font='TkDefaultFont')
         self.year_entry.insert(0, str(datetime.datetime.now().year))
         self.year_entry.grid(row=5, column=0, padx=10, pady=10)
         self.year_entry.config(state='normal')
@@ -165,7 +165,7 @@ class ToolsDialog(TkWidget):
         self.tdoc_word_report_button.grid(row=6, column=0, columnspan=1, sticky="EW")
 
         self.tkvar_ai_list_word_report = tkinter.StringVar(self.tk_top)
-        self.ai_list_entry_word_report = ttk.Entry(
+        self.ai_list_entry_word_report = tkinter.Entry(
             self.tk_top,
             textvariable=self.tkvar_ai_list_word_report,
             width=30,
@@ -181,7 +181,7 @@ class ToolsDialog(TkWidget):
         self.ai_bulk_open_button.grid(row=6, column=2, columnspan=1, sticky="EW")
 
         self.tkvar_ai_list = tkinter.StringVar(self.tk_top)
-        self.ai_list_entry = ttk.Entry(
+        self.ai_list_entry = tkinter.Entry(
             self.tk_top,
             textvariable=self.tkvar_ai_list,
             width=30,
@@ -199,7 +199,7 @@ class ToolsDialog(TkWidget):
         self.compare_tdocs_button.grid(row=7, column=0, columnspan=1, sticky="EW")
 
         self.tkvar_tdoc_to_compare_1 = tkinter.StringVar(self.tk_top)
-        self.tdoc_to_compare_1_entry = ttk.Entry(
+        self.tdoc_to_compare_1_entry = tkinter.Entry(
             self.tk_top,
             textvariable=self.tkvar_tdoc_to_compare_1,
             width=30,
@@ -208,7 +208,7 @@ class ToolsDialog(TkWidget):
         self.tdoc_to_compare_1_entry.grid(row=7, column=1, columnspan=1, padx=10, pady=10, sticky="EW")
 
         self.tkvar_tdoc_to_compare_2 = tkinter.StringVar(self.tk_top)
-        self.tdoc_to_compare_2_entry = ttk.Entry(
+        self.tdoc_to_compare_2_entry = tkinter.Entry(
             self.tk_top,
             textvariable=self.tkvar_tdoc_to_compare_2,
             width=30,
@@ -224,7 +224,7 @@ class ToolsDialog(TkWidget):
         self.replace_author_names_button.grid(row=8, column=0, columnspan=1, sticky="EW")
 
         self.original_author_name = tkinter.StringVar(self.tk_top)
-        self.original_author_name_entry = ttk.Entry(
+        self.original_author_name_entry = tkinter.Entry(
             self.tk_top,
             textvariable=self.original_author_name,
             width=30,
@@ -233,7 +233,7 @@ class ToolsDialog(TkWidget):
         self.original_author_name_entry.grid(row=8, column=1, columnspan=1, padx=10, pady=10, sticky="EW")
 
         self.final_author_name = tkinter.StringVar(self.tk_top)
-        self.final_author_name_entry = ttk.Entry(
+        self.final_author_name_entry = tkinter.Entry(
             self.tk_top,
             textvariable=self.final_author_name,
             width=30,
