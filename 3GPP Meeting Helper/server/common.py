@@ -90,7 +90,7 @@ def get_sa2_folder():
     return html
 
 
-def download_file_to_location(url: str, local_location: str) -> bool:
+def download_file_to_location(url: str, local_location: str, cache=False) -> bool:
     """
     Downloads a given file to a local location
     Args:
@@ -101,7 +101,7 @@ def download_file_to_location(url: str, local_location: str) -> bool:
         bool: Whether the file could be successfully downloaded
     """
     try:
-        file = get_remote_file(url, cache=False)
+        file = get_remote_file(url, cache=cache)
         with open(local_location, 'wb') as output:
             print('Saved {0}'.format(local_location))
             output.write(file)
@@ -116,10 +116,11 @@ class FileToDownload(NamedTuple):
     local_filepath: str
 
 
-def batch_download_file_to_location(files_to_download: List[FileToDownload]):
+def batch_download_file_to_location(files_to_download: List[FileToDownload], cache=False):
     """
     Downloads a list of URLs using a ThreadPoolExecutor
     Args:
+        cache: Whether the session's cache should be used
         files_to_download: List of URLs to download and target local files to download to
     """
     # See https://docs.python.org/3/library/concurrent.futures.html
@@ -127,7 +128,9 @@ def batch_download_file_to_location(files_to_download: List[FileToDownload]):
         future_to_url = {executor.submit(
             download_file_to_location,
             file_to_download.remote_url,
-            file_to_download.local_filepath): file_to_download for file_to_download in files_to_download}
+            file_to_download.local_filepath,
+            cache
+        ): file_to_download for file_to_download in files_to_download}
         for future in concurrent.futures.as_completed(future_to_url):
             file_to_download = future_to_url[future]
             try:
