@@ -81,36 +81,6 @@ class ToolsDialog(TkWidget):
                                             command=self.export_tdocs_by_agenda_to_excel)
         self.export_button.grid(row=1, column=0, columnspan=columnspan, sticky="EW")
 
-        # Row 4: Table containing all 3GPP specs
-        self.launch_spec_table = ttk.Button(
-            self.tk_top,
-            text='Open Specifications table',
-            command=lambda: gui.specs_table.SpecsTable(
-                root_widget=self.root_widget,
-                parent_widget=self.tk_top,
-                favicon=self.favicon))
-        self.launch_spec_table.grid(row=4, column=1, columnspan=int(columnspan / 4), sticky="EW")
-
-        # Row 4: Table containing all 3GPP meetings
-        self.launch_spec_table = ttk.Button(
-            self.tk_top,
-            text='Open Meetings table',
-            command=lambda: gui.meetings_table.MeetingsTable(
-                root_widget=self.root_widget,
-                parent_widget=self.tk_top,
-                favicon=self.favicon))
-        self.launch_spec_table.grid(row=4, column=2, columnspan=int(columnspan / 4), sticky="EW")
-
-        # Row 4: Table containing all 3GPP WIs
-        self.launch_spec_table = ttk.Button(
-            self.tk_top,
-            text='Open 3GPP WI table',
-            command=lambda: gui.work_items_table.WorkItemsTable(
-                root_widget=self.root_widget,
-                parent_widget=self.tk_top,
-                favicon=self.favicon))
-        self.launch_spec_table.grid(row=4, column=3, columnspan=int(columnspan / 4), sticky="EW")
-
         self.tkvar_tdoc = tkinter.StringVar(self.tk_top)
         self.tkvar_original_tdocs = tkinter.StringVar(self.tk_top)
         self.tkvar_final_tdocs = tkinter.StringVar(self.tk_top)
