@@ -14,5 +14,4 @@ waiting_for_proxy_label.grid_forget()
 
 gui.main_gui.start_main_gui()
 
-gui.main_gui.start_check_current_doc_thread()
 gui.main_gui.root.mainloop()
