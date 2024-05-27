@@ -13,7 +13,7 @@ default_http_proxy = 'http://lanbctest:8080'
 http_server = 'https://www.3gpp.org/ftp/'
 group_folder = 'tsg_sa/WG2_Arch/'
 sync_folder = 'Meetings_3GPP_SYNC/SA2/'
-meeting_folder = 'SA/SA2/'
+meeting_folder = 'ftp/SA/SA2/'
 sa2_url = ''
 sa2_url_sync = ''
 sa2_url_meeting = ''
@@ -53,7 +53,11 @@ def get_sa2_tdoc_list(meeting_folder_name):
     return get_remote_file(url)
 
 
-def get_remote_meeting_folder(meeting_folder_name, use_inbox=False, searching_for_a_file=False):
+def get_remote_meeting_folder(
+        meeting_folder_name,
+        use_inbox=False,
+        searching_for_a_file=False
+):
     if not use_inbox:
         folder = sa2_url + meeting_folder_name + '/'
     else:
@@ -66,18 +70,16 @@ def get_inbox_url(searching_for_a_file=False):
 
 
 def get_inbox_root(searching_for_a_file=False):
-    if not we_are_in_meeting_network(searching_for_a_file):
+    if not we_are_in_meeting_network():
         folder = sa2_url_sync
     else:
         folder = sa2_url_meeting
     return folder
 
 
-def we_are_in_meeting_network(searching_for_a_file=False):
-    # Since 10.10.10.10 uses only FTP, we will only return it for files, NOT
-    # for folder searches
-    if not searching_for_a_file:
-        return False
+def we_are_in_meeting_network():
+    # Before, 10.10.10.10 used only FTP, so we had to differentiate between files and folders. Now,
+    # we can always just use HTTP (albeit no HTTPs in 10.10.10.10)
     ip_addresses = [i[4][0] for i in socket.getaddrinfo(socket.gethostname(), None)]
     matches = [re.match(r'10.10.(\d)+.(\d)+', ip_address) for ip_address in ip_addresses]
     matches = [match for match in matches if match is not None]
@@ -153,4 +155,4 @@ def update_urls():
     global sa2_url, sa2_url_sync, sa2_url_meeting
     sa2_url = http_server + group_folder
     sa2_url_sync = http_server + sync_folder
-    sa2_url_meeting = 'ftp://' + private_server + '/' + meeting_folder
+    sa2_url_meeting = 'http://' + private_server + '/' + meeting_folder

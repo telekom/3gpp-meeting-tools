@@ -313,7 +313,7 @@ class MeetingData:
         return MeetingData(filtered_meeting_data)
 
 
-class tdocs_by_agenda(object):
+class TdocsByAgendaData(object):
     """Contains the information for the "Tdocs by Agenda" meeting file"""
     revision_of_regex = re.compile(r'.*Revision of (?P<tdoc>[S\d-]*)( from (?P<previous_meeting>S[\d\w#-]*))?')
     revised_to_regex = re.compile(
@@ -367,7 +367,7 @@ class tdocs_by_agenda(object):
             return parsed_html
 
     def get_tdoc_by_agenda_date(path_or_html: str) -> datetime.datetime:
-        html = tdocs_by_agenda.get_tdoc_by_agenda_html(path_or_html, return_raw_html=True)
+        html = TdocsByAgendaData.get_tdoc_by_agenda_html(path_or_html, return_raw_html=True)
         email_approval_results = False
 
         if html is None:
@@ -375,10 +375,10 @@ class tdocs_by_agenda(object):
             return None
 
         try:
-            search_result = tdocs_by_agenda.creation_date_regex.search(html)
+            search_result = TdocsByAgendaData.creation_date_regex.search(html)
             if search_result is None:
                 print('Could not parse date from TDocs by Agenda file, trying with LastSaved')
-                search_result = tdocs_by_agenda.creation_date_regex_if_fails.search(html)
+                search_result = TdocsByAgendaData.creation_date_regex_if_fails.search(html)
                 email_approval_results = (html.find('This CR was agreed') != -1)
                 if email_approval_results:
                     print(
@@ -400,15 +400,16 @@ class tdocs_by_agenda(object):
             return None
 
     def __init__(self, path_or_html, v=2, html_hash='', meeting_server_folder=''):
-        self.tdocs = None
+        self.tdocs: pd.DataFrame | None = None
 
         print('Parsing TDocsByAgenda file: version {0}'.format(v))
-        raw_html = tdocs_by_agenda.get_tdoc_by_agenda_html(path_or_html, return_raw_html=True)
+        raw_html = TdocsByAgendaData.get_tdoc_by_agenda_html(path_or_html, return_raw_html=True)
 
         try:
-            self.meeting_number = tdocs_by_agenda.get_meeting_number(raw_html)
-        except:
+            self.meeting_number = TdocsByAgendaData.get_meeting_number(raw_html)
+        except Exception as e:
             self.meeting_number = 'Unknown'
+            print(f'Could not get Meeting number: {e}')
         print('Parsed meeting number: {0}'.format(self.meeting_number))
         self.meeting_server_folder: str = meeting_server_folder
 
@@ -416,8 +417,8 @@ class tdocs_by_agenda(object):
 
         if v == 1:
             # print('XPath fro title: ' + html.xpath('//P/FONT/B').tostring())
-            html = tdocs_by_agenda.get_tdoc_by_agenda_html(path_or_html)
-            dataframe = tdocs_by_agenda.read_tdocs_by_agenda(html)
+            html = TdocsByAgendaData.get_tdoc_by_agenda_html(path_or_html)
+            dataframe = TdocsByAgendaData.read_tdocs_by_agenda(html)
         else:
             if meeting_server_folder != '' and html_hash != '':
                 cache_file_name = get_cache_filepath(meeting_server_folder, html_hash)
@@ -445,7 +446,7 @@ class tdocs_by_agenda(object):
                     traceback.print_exc()
 
             if not dataframe_from_cache:
-                dataframe = tdocs_by_agenda.read_tdocs_by_agenda_v2(raw_html, force_html=True)
+                dataframe = TdocsByAgendaData.read_tdocs_by_agenda_v2(raw_html, force_html=True)
 
         # Cleanup Unicode characters (see https://stackoverflow.com/questions/42306755/how-to-remove-illegal-characters-so-a-dataframe-can-write-to-excel)
         if not dataframe_from_cache:
@@ -457,19 +458,19 @@ class tdocs_by_agenda(object):
         if not dataframe_from_cache:
             print('Cleaning up comments column')
             try:
-                dataframe['Comments'] = dataframe['Comments'].apply(lambda x: tdocs_by_agenda.clean_up_comment(x))
+                dataframe['Comments'] = dataframe['Comments'].apply(lambda x: TdocsByAgendaData.clean_up_comment(x))
             except:
                 print('Could not clean-up comments')
                 traceback.print_exc()
 
         # Other cleanups that happened over the time
-        dataframe['Title'] = dataframe['Title'].apply(lambda x: tdocs_by_agenda.clean_up_title(x))
+        dataframe['Title'] = dataframe['Title'].apply(lambda x: TdocsByAgendaData.clean_up_title(x))
 
         # Assign dataframe
-        self.tdocs: pd.DataFrame = dataframe
+        self.tdocs = dataframe
 
         if not dataframe_from_cache:
-            tdocs_by_agenda.get_original_and_final_tdocs(self.tdocs)
+            TdocsByAgendaData.get_original_and_final_tdocs(self.tdocs)
             self.others_cosigners, self.tdocs = config.contributor_names.add_contributor_columns_to_tdoc_list(
                 self.tdocs, self.meeting_server_folder)
             self.contributor_columns = config.contributor_names.get_contributor_columns()
@@ -497,7 +498,7 @@ class tdocs_by_agenda(object):
         Returns: The meeting number based on the HTML of TDocsByAgenda
         """
         print('Parsing TDocsByAgenda meeting number')
-        meeting_number_match = tdocs_by_agenda.meeting_number_regex.search(tdocs_by_agenda_html)
+        meeting_number_match = TdocsByAgendaData.meeting_number_regex.search(tdocs_by_agenda_html)
         if meeting_number_match is None:
             print('Could not parse meeting number from TDocsByAgenda HTML')
             return 'Unknown'
@@ -511,14 +512,14 @@ class tdocs_by_agenda(object):
         if force_html:
             html = path_or_html
         else:
-            html = tdocs_by_agenda.get_tdoc_by_agenda_html(path_or_html, return_raw_html=True)
+            html = TdocsByAgendaData.get_tdoc_by_agenda_html(path_or_html, return_raw_html=True)
         print('TDocsByAgenda: HTML file length: {0}'.format(len(html)))
 
         if assert_if_tdocs_by_agenda_post_sa2_159(html):
             print("TDocsByAgenda is newer than SA2#159")
             df_tdocs = parse_tdocs_by_agenda_v3(html)
             # Post-processing
-            df_tdocs = tdocs_by_agenda.post_process_df_tdocs(df_tdocs)
+            df_tdocs = TdocsByAgendaData.post_process_df_tdocs(df_tdocs)
             return df_tdocs
         else:
             print("TDocsByAgenda is prior to SA2#159")
@@ -760,7 +761,7 @@ class tdocs_by_agenda(object):
         print('TDocsByAgenda: {0} TDocs marked as "For e-mail approval"'.format(n_email_approval))
 
         # Post-processing
-        df_tdocs = tdocs_by_agenda.post_process_df_tdocs(df_tdocs)
+        df_tdocs = TdocsByAgendaData.post_process_df_tdocs(df_tdocs)
 
         return df_tdocs
 
@@ -824,7 +825,7 @@ class tdocs_by_agenda(object):
         print('{0} TDocs entries parsed'.format(len(df_tdocs)))
 
         # Post-processing
-        df_tdocs = tdocs_by_agenda.post_process_df_tdocs(df_tdocs)
+        df_tdocs = TdocsByAgendaData.post_process_df_tdocs(df_tdocs)
 
         return df_tdocs
 
@@ -883,7 +884,7 @@ class tdocs_by_agenda(object):
                 if original_tdocs == ',':
                     df_tdocs.at[index, 'Original TDocs'] = index
                 else:
-                    df_tdocs.at[index, 'Original TDocs'] = tdocs_by_agenda.get_original_tdocs(
+                    df_tdocs.at[index, 'Original TDocs'] = TdocsByAgendaData.get_original_tdocs(
                         original_tdocs,
                         df_tdocs,
                         index, 0).replace(',', ', ')
@@ -891,7 +892,7 @@ class tdocs_by_agenda(object):
                 if final_tdocs == ',':
                     df_tdocs.at[index, 'Final TDocs'] = index
                 else:
-                    df_tdocs.at[index, 'Final TDocs'] = tdocs_by_agenda.get_final_tdocs(
+                    df_tdocs.at[index, 'Final TDocs'] = TdocsByAgendaData.get_final_tdocs(
                         final_tdocs,
                         df_tdocs,
                         index,
@@ -905,7 +906,7 @@ class tdocs_by_agenda(object):
         if len(tdocs_split) > 1:
             tdocs_split = [e for e in tdocs_split if (e != '') and (e is not None)]
         if len(tdocs_split) > 1:
-            return join_results(tdocs_split, df_tdocs, tdocs_by_agenda.get_original_tdocs, original_index, n_recursion)
+            return join_results(tdocs_split, df_tdocs, TdocsByAgendaData.get_original_tdocs, original_index, n_recursion)
 
         # We know that length is 1
         tdoc = tdocs_split[0].strip()
@@ -942,7 +943,7 @@ class tdocs_by_agenda(object):
             all_parents = ', '.join([revision_of, merge_of])
 
         return sort_and_remove_duplicates_from_list(
-            tdocs_by_agenda.get_original_tdocs(all_parents, df_tdocs, original_index, n_recursion + 1))
+            TdocsByAgendaData.get_original_tdocs(all_parents, df_tdocs, original_index, n_recursion + 1))
 
     # Given a TDoc, returns the TDoc or TDocs that ultimately originate from this TDoc
     def get_final_tdocs(tdocs, df_tdocs, original_index, n_recursion):
@@ -950,7 +951,7 @@ class tdocs_by_agenda(object):
         if len(tdocs_split) > 1:
             tdocs_split = [e for e in tdocs_split if (e != '') and (e is not None)]
         if len(tdocs_split) > 1:
-            return join_results(tdocs_split, df_tdocs, tdocs_by_agenda.get_final_tdocs, original_index, n_recursion)
+            return join_results(tdocs_split, df_tdocs, TdocsByAgendaData.get_final_tdocs, original_index, n_recursion)
 
         # We know that length is 1
         tdoc = tdocs_split[0].strip()
@@ -961,7 +962,7 @@ class tdocs_by_agenda(object):
             return tdoc
 
         if tdoc not in df_tdocs.index:
-            tdoc = tdocs_by_agenda.try_to_correct_tdoc_typo(tdoc)
+            tdoc = TdocsByAgendaData.try_to_correct_tdoc_typo(tdoc)
 
         try:
             revisions = df_tdocs.at[tdoc, 'Revised to']
@@ -982,15 +983,15 @@ class tdocs_by_agenda(object):
             all_children = ', '.join([revisions, merges])
 
         return sort_and_remove_duplicates_from_list(
-            tdocs_by_agenda.get_final_tdocs(all_children, df_tdocs, original_index, n_recursion + 1))
+            TdocsByAgendaData.get_final_tdocs(all_children, df_tdocs, original_index, n_recursion + 1))
 
     def try_to_correct_tdoc_typo(tdoc):
-        if tdoc not in tdocs_by_agenda.tdoc_typos.keys():
+        if tdoc not in TdocsByAgendaData.tdoc_typos.keys():
             return tdoc
-        return tdocs_by_agenda.tdoc_typos[tdoc]
+        return TdocsByAgendaData.tdoc_typos[tdoc]
 
 
-def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder='') -> tdocs_by_agenda:
+def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder='') -> TdocsByAgendaData:
     if (path_or_html is None) or (path_or_html == ''):
         print('Parse TDocsByAgenda skipped. path_or_html={0}, meeting_server_folder={1}'.format(path_or_html,
                                                                                                 meeting_server_folder))
@@ -1016,7 +1017,7 @@ def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder='') -> td
             last_tdocs_by_agenda = tdocs_by_document_cache[html_hash]
         else:
             print('TdocsByAgenda {0} not in cache'.format(html_hash))
-            last_tdocs_by_agenda = tdocs_by_agenda(
+            last_tdocs_by_agenda = TdocsByAgendaData(
                 path_or_html,
                 html_hash=html_hash,
                 meeting_server_folder=meeting_server_folder)
@@ -1048,7 +1049,7 @@ def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder='') -> td
     else:
         # Path-based fetching uses no hash
         print('TDocsByAgenda retrieval based on path')
-        the_tdocs_by_agenda = tdocs_by_agenda(path_or_html)
+        the_tdocs_by_agenda = TdocsByAgendaData(path_or_html)
         last_tdocs_by_agenda = the_tdocs_by_agenda
 
     return last_tdocs_by_agenda

@@ -1,8 +1,5 @@
 import collections
 import re
-import threading
-import traceback
-from typing import Callable
 
 # Common Regular Expressions for parsing TDoc names
 
@@ -159,34 +156,4 @@ def get_tdoc_year(tdoc, include_revision=False):
     except:
         return year, tdoc_number, None
 
-
-def do_something_on_thread(
-        task: Callable[[], None] | None,
-        before_starting: Callable[[], None] | None = None,
-        after_task: Callable[[], None] | None = None,
-        on_error_log: str = None):
-    """
-    Does something on a Thread (e.g. bulk download)
-    Args:
-        on_error_log: What to print in case of an exception
-        task: The task to do
-        before_starting: Something to do before starting the task
-        after_task: Something to do after the task is finished or if an exception is thrown
-    """
-    if before_starting is not None:
-        before_starting()
-
-    def thread_task():
-        try:
-            task()
-        except:
-            if on_error_log is not None:
-                print(on_error_log)
-            traceback.print_exc()
-        finally:
-            if after_task is not None:
-                after_task()
-
-    t = threading.Thread(target=thread_task)
-    t.start()
 

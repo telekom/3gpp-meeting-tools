@@ -2,14 +2,14 @@ import unittest
 import os
 
 import parsing
-from parsing.html.common import tdocs_by_agenda
+from parsing.html.common import TdocsByAgendaData
 import parsing.html.tdocs_by_agenda_v3
 
 
 class TestTdocsByAgenda(unittest.TestCase):
     def test_129Bis(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '129Bis.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '129BIS', 'Expected 129BIS')
 
@@ -39,7 +39,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_129(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '129.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '129', 'Expected 129')
 
@@ -50,7 +50,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_128Bis(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '128Bis.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '128BIS', 'Expected 128BIS')
 
@@ -61,7 +61,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_128(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '128.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '128', 'Expected 128')
 
@@ -72,7 +72,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_inbox(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', 'inbox.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '129BIS', 'Expected 129BIS')
 
@@ -84,7 +84,7 @@ class TestTdocsByAgenda(unittest.TestCase):
     def test_130_1(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2019.01.22 TdocsByAgenda.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '130', 'Expected 130')
 
@@ -96,7 +96,7 @@ class TestTdocsByAgenda(unittest.TestCase):
     def test_130_2(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2019.01.24 TdocsByAgenda.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '130', 'Expected 130')
 
@@ -107,7 +107,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_130_3(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '2019.01.31 130.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '130', 'Expected 130S')
 
@@ -140,7 +140,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_130_4(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '2019.01.31 130.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '130', 'Expected 130S')
 
@@ -173,7 +173,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_date_130(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '2019.01.31 130.htm')
-        datetime = tdocs_by_agenda.get_tdoc_by_agenda_date(file_name)
+        datetime = TdocsByAgendaData.get_tdoc_by_agenda_date(file_name)
         self.assertEqual(datetime.year, 2019)
         self.assertEqual(datetime.month, 1)
         self.assertEqual(datetime.day, 25)
@@ -182,7 +182,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_date_129Bis(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '129Bis.htm')
-        datetime = tdocs_by_agenda.get_tdoc_by_agenda_date(file_name)
+        datetime = TdocsByAgendaData.get_tdoc_by_agenda_date(file_name)
         self.assertEqual(datetime.year, 2018)
         self.assertEqual(datetime.month, 11)
         self.assertEqual(datetime.day, 30)
@@ -191,7 +191,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_date_129(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '129.htm')
-        datetime = tdocs_by_agenda.get_tdoc_by_agenda_date(file_name)
+        datetime = TdocsByAgendaData.get_tdoc_by_agenda_date(file_name)
         self.assertEqual(datetime.year, 2018)
         self.assertEqual(datetime.month, 10)
         self.assertEqual(datetime.day, 27)
@@ -200,7 +200,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_date_128Bis(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '128Bis.htm')
-        datetime = tdocs_by_agenda.get_tdoc_by_agenda_date(file_name)
+        datetime = TdocsByAgendaData.get_tdoc_by_agenda_date(file_name)
         self.assertEqual(datetime.year, 2018)
         self.assertEqual(datetime.month, 8)
         self.assertEqual(datetime.day, 31)
@@ -209,7 +209,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_date_128(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '128.htm')
-        datetime = tdocs_by_agenda.get_tdoc_by_agenda_date(file_name)
+        datetime = TdocsByAgendaData.get_tdoc_by_agenda_date(file_name)
         self.assertEqual(datetime.year, 2018)
         self.assertEqual(datetime.month, 7)
         self.assertEqual(datetime.day, 13)
@@ -218,31 +218,31 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_date_comparison_128_128Bis(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '128Bis.htm')
-        datetime_128Bis = tdocs_by_agenda.get_tdoc_by_agenda_date(file_name)
+        datetime_128Bis = TdocsByAgendaData.get_tdoc_by_agenda_date(file_name)
 
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '128.htm')
-        datetime_128 = tdocs_by_agenda.get_tdoc_by_agenda_date(file_name)
+        datetime_128 = TdocsByAgendaData.get_tdoc_by_agenda_date(file_name)
 
         self.assertGreater(datetime_128Bis, datetime_128)
 
     def test_corrupt_dtdocs_by_agenda(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2019.07.02 TDocsByAgenda_wrong.html')
-        datetime = tdocs_by_agenda.get_tdoc_by_agenda_date(file_name)
+        datetime = TdocsByAgendaData.get_tdoc_by_agenda_date(file_name)
         self.assertEqual(datetime.year, 2019)
         self.assertEqual(datetime.month, 6)
         self.assertEqual(datetime.day, 28)
         self.assertEqual(datetime.hour, 16)
         self.assertEqual(datetime.minute, 36)
 
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
         self.assertEqual(meeting.meeting_number, 'Unknown', 'Expected Unknown')
         self.assertEqual(len(meeting.tdocs), 1, 'Expected TDoc entries')
 
     def test_exported_dtdocs_by_agenda_v1(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2019.01.24 TdocsByAgenda.htm')
-        meeting = tdocs_by_agenda(file_name, v=1)
+        meeting = TdocsByAgendaData(file_name, v=1)
 
         self.assertEqual(meeting.meeting_number, '130', 'Expected 130')
         self.assertEqual(len(meeting.tdocs), 1026, 'Expected TDoc entries')
@@ -250,14 +250,14 @@ class TestTdocsByAgenda(unittest.TestCase):
     def test_exported_dtdocs_by_agenda_v2(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2019.01.24 TdocsByAgenda.htm')
-        meeting = tdocs_by_agenda(file_name, v=2)
+        meeting = TdocsByAgendaData(file_name, v=2)
 
         self.assertEqual(meeting.meeting_number, '130', 'Expected 130')
         self.assertEqual(len(meeting.tdocs), 1026, 'Expected TDoc entries')
 
     def test_exported_dtdocs_by_agenda_134_v2(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '134.htm')
-        meeting = tdocs_by_agenda(file_name, v=2)
+        meeting = TdocsByAgendaData(file_name, v=2)
 
         self.assertEqual(meeting.meeting_number, '134', 'Expected 134')
         self.assertEqual(len(meeting.tdocs), 1802, 'Expected TDoc entries')
@@ -266,28 +266,28 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_136(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '136.html')
-        meeting = tdocs_by_agenda(file_name, v=2)
+        meeting = TdocsByAgendaData(file_name, v=2)
 
         self.assertEqual(meeting.meeting_number, '136', 'Expected 136')
         self.assertEqual(len(meeting.tdocs), 1201, 'Expected TDoc entries')
 
     def test_136_v2(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '136_v2.html')
-        meeting = tdocs_by_agenda(file_name, v=2)
+        meeting = TdocsByAgendaData(file_name, v=2)
 
         self.assertEqual(meeting.meeting_number, '136', 'Expected 136')
         self.assertEqual(len(meeting.tdocs), 1762, 'Expected TDoc entries')
 
     def test_136_v3(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '136_v3.html')
-        meeting = tdocs_by_agenda(file_name, v=2)
+        meeting = TdocsByAgendaData(file_name, v=2)
 
         self.assertEqual(meeting.meeting_number, '136', 'Expected 136')
         self.assertEqual(len(meeting.tdocs), 1815, 'Expected TDoc entries')
 
     def test_136_missing_ais(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '136_missing_AIs.html')
-        meeting = tdocs_by_agenda(file_name, v=2)
+        meeting = TdocsByAgendaData(file_name, v=2)
 
         self.assertEqual(meeting.meeting_number, '136', 'Expected 136')
         self.assertEqual(len(meeting.tdocs), 1857, 'Expected TDoc entries')
@@ -302,7 +302,7 @@ class TestTdocsByAgenda(unittest.TestCase):
     def test_137e(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2020.02.24 TdocsByAgenda SA2-137E.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '137', 'Expected 137')
         self.assertEqual(len(meeting.tdocs), 544, 'Expected TDoc entries')
@@ -313,7 +313,7 @@ class TestTdocsByAgenda(unittest.TestCase):
     def test_137e_v2(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2020.02.29 TdocsByAgenda SA2-137E.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '137', 'Expected 137')
         self.assertEqual(len(meeting.tdocs), 713, 'Expected TDoc entries')
@@ -323,7 +323,7 @@ class TestTdocsByAgenda(unittest.TestCase):
 
     def test_138e(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', '138E_final.html')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '138E', 'Expected 138E')
         self.assertEqual(len(meeting.tdocs), 824, 'Expected TDoc entries')
@@ -343,7 +343,7 @@ class TestTdocsByAgenda(unittest.TestCase):
     def test_155(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2023.02.14 TdocsByAgenda SA2-155.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
 
         self.assertEqual(meeting.meeting_number, '155', 'Expected 155')
         self.assertEqual(len(meeting.tdocs), 991, 'Expected TDoc entries')
@@ -351,21 +351,21 @@ class TestTdocsByAgenda(unittest.TestCase):
     def test_159_format_155_file(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2023.02.14 TdocsByAgenda SA2-155.htm')
-        html_content = parsing.html.common.tdocs_by_agenda.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
+        html_content = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
         is_159_format = parsing.html.tdocs_by_agenda_v3.assert_if_tdocs_by_agenda_post_sa2_159(html_content)
         self.assertFalse(is_159_format)
 
     def test_159_format_159_file_v2(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2023.10.03 TdocsByAgenda SA2-159_v2.htm')
-        html_content = parsing.html.common.tdocs_by_agenda.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
+        html_content = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
         is_159_format = parsing.html.tdocs_by_agenda_v3.assert_if_tdocs_by_agenda_post_sa2_159(html_content)
         self.assertTrue(is_159_format)
 
     def test_159_file_v2(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2023.10.03 TdocsByAgenda SA2-159_v2.htm')
-        html_content = parsing.html.common.tdocs_by_agenda.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
+        html_content = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
         sa2_159_content = parsing.html.tdocs_by_agenda_v3.parse_tdocs_by_agenda_v3(html_content)
         test_row = sa2_159_content.loc['S2-2310462', :]
         # print(test_row)
@@ -378,7 +378,7 @@ class TestTdocsByAgenda(unittest.TestCase):
     def test_159_meeting_number_159_file_v2(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2023.10.03 TdocsByAgenda SA2-159_v2.htm')
-        meeting = tdocs_by_agenda(file_name)
+        meeting = TdocsByAgendaData(file_name)
         self.assertEqual(meeting.meeting_number, '159', 'Expected 159')
         self.assertEqual(len(meeting.tdocs), 1190, 'Expected 1190 TDoc entries')
 
