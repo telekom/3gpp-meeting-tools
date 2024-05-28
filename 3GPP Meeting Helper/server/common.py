@@ -21,6 +21,8 @@ sa2_url = host_public_server + '/' + wg_folder_public_server
 sa2_url_sync = host_public_server + '/' + sync_folder
 sa2_url_private_server = host_private_server + '/' + wg_folder_private_server
 
+tdocs_by_agenda_for_checking_meeting_number_in_meeting = 'http://10.10.10.10/ftp/SA/SA2/TdocsByAgenda.htm'
+
 
 def decode_string(str_to_decode: bytes, log_name, print_error=False) -> str | bytes:
     """
@@ -113,8 +115,9 @@ def download_file_to_location(url: str, local_location: str, cache=False) -> boo
     """
     Downloads a given file to a local location
     Args:
-        url:
-        local_location:
+        cache: Whether to use HTTP caching
+        url: The URL to download
+        local_location: Where to download the file to
 
     Returns:
         bool: Whether the file could be successfully downloaded
