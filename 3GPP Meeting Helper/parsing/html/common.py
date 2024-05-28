@@ -494,7 +494,7 @@ class TdocsByAgendaData(object):
 
         return title_str.replace(r'&apos;', "'").replace(r'&amp;', "&").replace(r'&#39;', "'")
 
-    def get_meeting_number(tdocs_by_agenda_html) -> str:
+    def get_meeting_number(tdocs_by_agenda_html:str) -> str:
         """
         Returns: The meeting number based on the HTML of TDocsByAgenda
         """

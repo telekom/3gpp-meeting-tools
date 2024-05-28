@@ -234,6 +234,12 @@ def get_inbox_tdocs_list_cache_local_cache(create_dir=True):
     return inbox_cache
 
 
+def get_private_server_tdocs_by_agenda_local_cache(create_dir=True):
+    cache_folder = get_cache_folder(create_dir)
+    cache_file = os.path.join(cache_folder, '3gpp_server_TdocsByAgenda.html')
+    return cache_file
+
+
 def get_local_folder(
         meeting_folder_name,
         tdoc_id,
