@@ -1,6 +1,5 @@
 import threading
 import time
-import traceback
 from typing import Callable
 
 
@@ -21,18 +20,25 @@ def do_something_on_thread(
         after_task: Something to do after the task is finished or if an exception is thrown
     """
     if before_starting is not None:
-        before_starting()
+        try:
+            before_starting()
+        except Exception as e_pre:
+            print(f'Could not execute pre-task: {e_pre}')
 
     def thread_task():
         try:
-            task()
-        except:
+            if task is not None:
+                task()
+        except Exception as e_task:
             if on_error_log is not None:
                 print(on_error_log)
-            traceback.print_exc()
+            print(f'Could not execute task: {e_task}')
         finally:
             if after_task is not None:
-                after_task()
+                try:
+                    after_task()
+                except Exception as e_post:
+                    print(f'Could not execute post-task: {e_post}')
 
     if on_thread:
         t = threading.Thread(target=thread_task)
