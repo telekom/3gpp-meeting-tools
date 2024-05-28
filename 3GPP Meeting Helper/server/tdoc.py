@@ -45,6 +45,7 @@ def get_sa2_inbox_tdoc_list(
         open_tdocs_by_agenda_in_browser=False,
         use_cached_file_if_available=False):
     url = get_inbox_root(searching_for_a_file=True) + 'TdocsByAgenda.htm'
+    print(f'Retrieving TdocsByAgenda from Inbox ({url}): open={open_tdocs_by_agenda_in_browser}, use cache={use_cached_file_if_available}')
     if open_tdocs_by_agenda_in_browser:
         os.startfile(url)
     # Return back cached HTML if there is an error retrieving the remote HTML
