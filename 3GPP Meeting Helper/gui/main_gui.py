@@ -549,7 +549,9 @@ def start_main_gui():
     current_row += 1
     tdoc_entry.grid(
         row=current_row,
-        column=0)
+        column=0,
+        padx=10,
+        pady=10)
     open_tdoc_button.grid(
         row=current_row,
         column=1,
