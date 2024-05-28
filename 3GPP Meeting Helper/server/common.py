@@ -15,9 +15,11 @@ wg_folder_public_server = 'ftp/tsg_sa/WG2_Arch/'
 wg_folder_private_server = 'ftp/SA/SA2/'
 sync_folder = 'ftp/Meetings_3GPP_SYNC/SA2/'
 
-sa2_url = 'https://' + public_server + '/' + wg_folder_public_server
-sa2_url_sync = 'https://' + public_server + '/' + sync_folder
-sa2_url_private_server = 'http://' + private_server + '/' + wg_folder_private_server
+host_public_server = 'https://' + public_server
+host_private_server = 'http://' + private_server
+sa2_url = host_public_server + '/' + wg_folder_public_server
+sa2_url_sync = host_public_server + '/' + sync_folder
+sa2_url_private_server = host_private_server + '/' + wg_folder_private_server
 
 
 def decode_string(str_to_decode: bytes, log_name, print_error=False) -> str | bytes:
@@ -57,17 +59,21 @@ def get_sa2_tdoc_list(meeting_folder_name):
 def get_remote_meeting_folder(
         meeting_folder_name,
         use_private_server=False,
-        use_inbox=False
+        use_inbox=False,
+        override_folder_path: str = None
 ):
-
-    if use_private_server:
-        # e.g., http://10.10.10.10/ftp/SA/SA2//Docs/S2-2405873.zip
-        url_prefix = sa2_url_private_server
-        folder = url_prefix
+    if override_folder_path is not None:
+        if use_private_server:
+            folder = host_private_server + '/' + override_folder_path
+        else:
+            folder = host_public_server + '/' + override_folder_path
+    elif use_private_server:
+        # e.g., http://10.10.10.10/ftp/SA/SA2/Docs/S2-2405873.zip
+        folder = sa2_url_private_server
     else:
         url_prefix = sa2_url
         folder = url_prefix + meeting_folder_name + '/'
-    if use_inbox:
+    if use_inbox and (override_folder_path is not None):
         folder = folder + 'Inbox/'
     return folder
 
@@ -152,7 +158,3 @@ def batch_download_file_to_location(files_to_download: List[FileToDownload], cac
                     print(f'Could not download {file_to_download.remote_url}')
             except Exception as exc:
                 print('%r generated an exception: %s' % (file_to_download, exc))
-
-
-
-

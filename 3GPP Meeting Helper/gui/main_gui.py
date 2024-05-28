@@ -386,11 +386,19 @@ def download_and_open_tdoc(
     # Search in meeting
     meeting_folder_name = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
         tkvar_meeting.get())
+
+    using_private_server = tkvar_3gpp_wifi_available.get()
+    if using_private_server:
+        additional_folders = ['ftp/SA/SA2/Inbox/']
+    else:
+        additional_folders = None
     retrieved_files, tdoc_url = server.tdoc.get_tdoc(
         meeting_folder_name=meeting_folder_name,
         tdoc_id=tdoc_id,
-        use_private_server=tkvar_3gpp_wifi_available.get(),
-        return_url=True)
+        use_private_server=using_private_server,
+        return_url=True,
+        additional_folders=additional_folders
+    )
 
     if cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
         if retrieved_files is not None:
@@ -486,7 +494,7 @@ def start_main_gui():
             root,
             favicon,
             on_update_ftp=gui.main_gui.update_ftp_button))
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         sticky="EW"))
@@ -494,7 +502,7 @@ def start_main_gui():
         main_frame,
         text='Reload meeting info',
         command=lambda: load_application_data(reload_inbox_tdocs_by_agenda=True))
-     .grid(
+    .grid(
         row=current_row,
         column=1,
         sticky="EW"))
@@ -563,7 +571,7 @@ def start_main_gui():
             gui.main_gui.root,
             gui.main_gui.favicon,
             selected_meeting_fn=gui.main_gui.tkvar_meeting.get))
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         sticky="EW"))
@@ -592,7 +600,7 @@ def start_main_gui():
         main_frame,
         text='Search Netovate',
         command=search_netovate)
-     .grid(
+    .grid(
         row=current_row,
         column=2,
         sticky="EW"))
@@ -829,7 +837,7 @@ def start_main_gui():
     main_frame.grid_columnconfigure(2, weight=1)
 
     # Finish by setting periodic checking of the network status
-    root.after(ms=10000, func=detect_3gpp_network_state)
+    root.after(ms=1000, func=detect_3gpp_network_state)
 
 
 # Avoid circular references by setting the TDoc open function at runtime
