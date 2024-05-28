@@ -45,7 +45,6 @@ def set_waiting_for_proxy_message():
 
 # global variables
 inbox_tdoc_list_html = None
-open_downloaded_tdocs = True
 
 # Tkinter variables
 tkvar_meeting = tkinter.StringVar(root)
@@ -304,8 +303,9 @@ def open_tdocs_by_agenda(open_this_file=True) -> parsing.html.common.TdocsByAgen
         return None
 
     # Save opened Tdocs by Agenda file to global application
-    html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder,
-                                                    open_tdocs_by_agenda_in_browser=open_this_file)
+    html = get_tdocs_by_agenda_for_selected_meeting(
+        meeting_server_folder,
+        open_tdocs_by_agenda_in_browser=open_this_file)
     print('Retrieved local TDocsByAgenda data for {0}. Parsing TDocs'.format(meeting_server_folder))
     application.meeting_helper.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(
         html,
@@ -320,6 +320,7 @@ def get_tdocs_by_agenda_for_selected_meeting(
         return_revisions_file=False,
         return_drafts_file=False,
         open_tdocs_by_agenda_in_browser=False):
+
     return_data = server.tdoc.get_tdocs_by_agenda_for_selected_meeting(
         meeting_folder=meeting_folder,
         use_private_server=tkvar_3gpp_wifi_available.get(),
@@ -458,13 +459,9 @@ def download_and_open_tdoc(
     if (retrieved_files is None) or (len(retrieved_files) == 0):
         pass
     else:
-        if not open_downloaded_tdocs:
-            found_string = 'Cached file(s)'
-            metadata_list = []
+        opened_files, metadata_list = parsing.word.pywin32.open_files(retrieved_files, return_metadata=True)
+        found_string = 'Opened {0} file(s)'.format(opened_files)
 
-        else:
-            opened_files, metadata_list = parsing.word.pywin32.open_files(retrieved_files, return_metadata=True)
-            found_string = 'Opened {0} file(s)'.format(opened_files)
         tkvar_last_doc_tdoc.set(tkvar_tdoc_id.get())
         tkvar_tdoc_download_result.set(found_string)
         if len(metadata_list) > 0:
