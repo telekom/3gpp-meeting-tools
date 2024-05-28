@@ -538,6 +538,7 @@ def get_tdocs_by_agenda_for_selected_meeting(
         datetime_inbox = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_date(html_inbox)
 
     print('Getting TDocs by agenda from server')
+    # print(inspect.stack())
     html_3gpp = get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=save_file_to,
                                           open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
     datetime_3gpp = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_date(html_3gpp)
