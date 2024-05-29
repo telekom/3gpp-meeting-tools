@@ -525,10 +525,8 @@ def get_tdocs_by_agenda_for_selected_meeting(
     """
     # If the inbox is active, we need to download both and return the newest one
     html_inbox = None
-    html_3gpp = None
 
     datetime_inbox = datetime.datetime.min
-    datetime_3gpp = datetime.datetime.min
 
     if use_private_server:
         print('Getting TDocs by agenda from inbox')
@@ -536,6 +534,8 @@ def get_tdocs_by_agenda_for_selected_meeting(
             open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser,
             use_cached_file_if_available=True
         )
+        # Avoid opening the file twice
+        open_tdocs_by_agenda_in_browser = False
         datetime_inbox = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_date(html_inbox)
 
     print('Getting TDocs by agenda from server')
