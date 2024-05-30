@@ -212,7 +212,7 @@ def set_agenda_version_text(*args):
 tkvar_last_agenda_version.trace('w', set_agenda_version_text)
 
 
-def detect_3gpp_network_state():
+def detect_3gpp_network_state(loop=True, interval_ms=10000):
     # Checks whether the inbox is from the selected meeting and sets
     # some labels accordingly
 
@@ -254,7 +254,8 @@ def detect_3gpp_network_state():
             print(f'(Re-)enabling meeting drop-down list')
             tk_combobox_meetings['state'] = tkinter.NORMAL
 
-    root.after(ms=10000, func=detect_3gpp_network_state)
+    if loop:
+        root.after(ms=interval_ms, func=detect_3gpp_network_state)
 
 
 def change_meeting_dropdown(*args):
@@ -322,7 +323,6 @@ def get_tdocs_by_agenda_for_selected_meeting(
         return_revisions_file=False,
         return_drafts_file=False,
         open_tdocs_by_agenda_in_browser=False):
-
     return_data = server.tdoc.get_tdocs_by_agenda_for_selected_meeting(
         meeting_folder=meeting_folder,
         use_private_server=tkvar_3gpp_wifi_available.get(),
@@ -417,18 +417,22 @@ def download_and_open_tdoc(
         return retrieved_files
 
     # Search in meeting
-    meeting_folder_name = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
-        tkvar_meeting.get())
+    meeting_name = tkvar_meeting.get()
+    meeting_data = application.meeting_helper.sa2_meeting_data
+    meeting_folder_name = meeting_data.get_server_folder_for_meeting_choice(meeting_name)
 
     using_private_server = tkvar_3gpp_wifi_available.get()
     if using_private_server:
         additional_folders = ['ftp/SA/SA2/Inbox/']
     else:
-        additional_folders = None
+        additional_folders = [
+            f'ftp/tsg_sa/WG2_Arch/{meeting_folder_name}/INBOX/'
+        ]
+
     retrieved_files, tdoc_url = server.tdoc.get_tdoc(
         meeting_folder_name=meeting_folder_name,
         tdoc_id=tdoc_id,
-        use_private_server=using_private_server,
+        server_type=server.common.ServerType.PRIVATE if using_private_server else server.common.ServerType.PUBLIC,
         return_url=True,
         additional_folders=additional_folders
     )
@@ -449,6 +453,7 @@ def download_and_open_tdoc(
         print('Copied TDoc ID and URL (if available) to clipboard: {0}'.format(clipboard_text))
     # Set file information if available
     tkvar_last_tdoc_url.set(tdoc_url)
+
     # Set current status if found
     try:
         tdoc_status = application.meeting_helper.current_tdocs_by_agenda.tdocs.at[tdoc_id, 'Result']
@@ -479,6 +484,7 @@ def download_and_open_tdoc(
 
 def start_main_gui():
     load_application_data()
+    detect_3gpp_network_state(loop=False)  # We start the loop outside of this function and asynchronously
 
     tkvar_meeting.set(
         application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(
@@ -864,7 +870,8 @@ def start_main_gui():
     main_frame.grid_columnconfigure(2, weight=1)
 
     # Finish by setting periodic checking of the network status
-    root.after(ms=1000, func=detect_3gpp_network_state)
+    network_check_interval_ms = 10000
+    root.after(ms=10000, func=lambda: detect_3gpp_network_state(loop=True, interval_ms=network_check_interval_ms))
 
 
 # Avoid circular references by setting the TDoc open function at runtime

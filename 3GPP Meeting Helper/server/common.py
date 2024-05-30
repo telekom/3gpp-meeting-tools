@@ -2,6 +2,7 @@ import concurrent.futures
 import re
 import socket
 import traceback
+from enum import Enum
 from typing import NamedTuple, List
 
 from server.connection import get_remote_file
@@ -13,6 +14,7 @@ private_server = '10.10.10.10'
 public_server = 'www.3gpp.org'
 wg_folder_public_server = 'ftp/tsg_sa/WG2_Arch/'
 wg_folder_private_server = 'ftp/SA/SA2/'
+
 sync_folder = 'ftp/Meetings_3GPP_SYNC/SA2/'
 
 host_public_server = 'https://' + public_server
@@ -22,6 +24,92 @@ sa2_url_sync = host_public_server + '/' + sync_folder
 sa2_url_private_server = host_private_server + '/' + wg_folder_private_server
 
 tdocs_by_agenda_for_checking_meeting_number_in_meeting = 'http://10.10.10.10/ftp/SA/SA2/TdocsByAgenda.htm'
+
+
+class ServerType(Enum):
+    PUBLIC = 1
+    PRIVATE = 2
+
+
+class DocumentType(Enum):
+    TDOCS_BY_AGENDA = 1
+    AGENDA = 2
+    TDOC = 3
+    MEETING_ROOT = 4
+    CHAIR_NOTES = 5
+
+
+class TdocType(Enum):
+    NORMAL = 1
+    REVISION = 2
+    DRAFT = 3
+
+
+def get_document_folder_url(
+        server_type: ServerType,
+        document_type: DocumentType,
+        meeting_folder_in_server: str,
+        tdoc_type: TdocType | None = None
+) -> List[str]:
+    """
+    Returns a list of all the places a target file of the specified type could be located in
+    Args:
+        meeting_folder_in_server: Used for public servers to generate the full URL (not really used for private server)
+        server_type: Whether we want the address for the internal 3GPP WiFi (F2F) or public server
+        document_type: Whether we are searching for a TDoc, TDocsByAgenda or Agenda file
+        tdoc_type: Type of Tdoc (normal or revision). If not included, assumed normal
+
+    Returns:
+
+    """
+    # To Do
+    match server_type:
+        case ServerType.PRIVATE:
+            host_address = 'http://' + private_server + '/'
+        case _:
+            host_address = 'https://' + public_server + '/'
+    match document_type:
+        case DocumentType.CHAIR_NOTES:
+            folders = [
+                'ftp/SA/SA2/INBOX/Chair_Notes'
+            ] if server_type == ServerType.PRIVATE \
+                else [
+                f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/Chair_Notes'
+            ]
+        case DocumentType.TDOCS_BY_AGENDA | DocumentType.MEETING_ROOT:
+            folders = [
+                'ftp/SA/SA2/'
+            ] if server_type == ServerType.PRIVATE \
+                else [
+                f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/'
+            ]
+        case DocumentType.AGENDA:
+            folders = [
+                'ftp/SA/SA2/Agenda/',
+                'ftp/SA/SA2/INBOX/DRAFTS/_Session_Plan_Updates/'
+            ] if server_type == ServerType.PRIVATE \
+                else [
+                f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/Agenda/',
+                f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/DRAFTS/_Session_Plan_Updates/'
+            ]
+        case _:
+            # A TDoc
+            match tdoc_type:
+                case None | TdocType.NORMAL:
+                    # Normal TDoc
+                    folders = ['ftp/SA/SA2/Docs/'] if server_type == ServerType.PRIVATE \
+                        else [f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/Docs/']
+                case TdocType.DRAFT:
+                    # Draft TDoc (sub-folders not included!)
+                    folders = ['ftp/SA/SA2/INBOX/DRAFTS/'] if server_type == ServerType.PRIVATE \
+                        else [f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/DRAFTS/']
+                case _:
+                    # Revision
+                    # No revisions in F2F meetings
+                    folders = [] if server_type == ServerType.PRIVATE \
+                        else [f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/Revisions/']
+    target_folders = [host_address + folder for folder in folders]
+    return target_folders
 
 
 def decode_string(str_to_decode: bytes, log_name, print_error=False) -> str | bytes:
@@ -78,10 +166,6 @@ def get_remote_meeting_folder(
     if use_inbox and (override_folder_path is not None):
         folder = folder + 'Inbox/'
     return folder
-
-
-def get_inbox_url(searching_for_a_file=False):
-    return get_inbox_root(searching_for_a_file) + 'Inbox/'
 
 
 def get_inbox_root(searching_for_a_file=False):
