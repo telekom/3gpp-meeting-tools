@@ -173,20 +173,8 @@ def get_tdoc(
             if tdoc_file is not None:
                 break
         if tdoc_file is None:
-            if use_private_server:
-                # Retry without inbox
-                return_value = get_tdoc(meeting_folder_name, tdoc_id, use_private_server=False)
-            else:
-                if not use_email_approval_inbox:
-                    # Retry in INBOX folder
-                    return_value = get_tdoc(
-                        meeting_folder_name,
-                        tdoc_id,
-                        use_private_server=False,
-                        use_email_approval_inbox=True)
-                else:
-                    # No need to retry
-                    return_value = None
+            # No need to retry. Additional download folders are now implemented outside of this fuction
+            return_value = None
             if not return_url:
                 return return_value
             else:
