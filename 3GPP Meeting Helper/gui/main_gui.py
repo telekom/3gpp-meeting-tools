@@ -455,7 +455,7 @@ def download_and_open_tdoc(
         if tdoc_status is None:
             tdoc_status = ''
     except Exception as e:
-        print(f'Could not get current TdocsByAgenda: {e}')
+        print(f'Could not find Tdoc {tdoc_id} in TdocsByAgenda: {e}, {type(e)}')
         tdoc_status = '<unknown>'
     tkvar_last_tdoc_status.set(tdoc_status)
     if (retrieved_files is None) or (len(retrieved_files) == 0):
