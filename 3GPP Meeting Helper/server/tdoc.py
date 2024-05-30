@@ -115,7 +115,7 @@ def get_sa2_drafts_tdoc_list(meeting_folder):
 def get_tdoc(
         meeting_folder_name,
         tdoc_id,
-        use_private_server=False,
+        server_type: server.common.ServerType = server.common.ServerType.PUBLIC,
         return_url=False,
         use_email_approval_inbox=False,
         additional_folders: List[str] | None = None
@@ -123,16 +123,21 @@ def get_tdoc(
     """
     Retrieves a TDoc
     Args:
+        server_type: The type of server we are using (public/www.3gpp.org or private/10.10.10.10)
         additional_folders: A list of additional folder to search in the server, e.g. ['ftp/SA/SA2/Inbox/']
         meeting_folder_name: The folder name as in the 3GPP server
         tdoc_id: A TDoc ID, e.g.: S2-240001
-        use_private_server: Whether to download from 10.10.10.10
         return_url: The returned URL
         use_email_approval_inbox: Whether to use the email approval inbox
 
     Returns:
 
     """
+    if server_type == server.common.ServerType.PRIVATE:
+        use_private_server = True
+    else:
+        use_private_server = False
+
     if '*' in tdoc_id:
         is_draft = True
         tdoc_id = tdoc_id.replace('*', '')
@@ -144,6 +149,7 @@ def get_tdoc(
             return None
         else:
             return None, None
+
     tdoc_local_filename = get_local_filename(meeting_folder_name, tdoc_id, is_draft=is_draft)
     zip_file_list: List[str] = []
     zip_file_url = get_remote_filename(
@@ -206,7 +212,7 @@ def cache_tdocs(tdoc_list, download_from_inbox: bool, meeting_folder_name: str):
             lambda tdoc_to_download_lambda: server.tdoc.get_tdoc(
                 meeting_folder_name=meeting_folder_name,
                 tdoc_id=tdoc_to_download_lambda,
-                use_private_server=download_from_inbox,
+                server_type=server.common.ServerType.PRIVATE if download_from_inbox else server.common.ServerType.PUBLIC,
                 return_url=True),
             tdoc_to_download_lambda): tdoc_to_download_lambda for tdoc_to_download_lambda in tdoc_list}
         for future in concurrent.futures.as_completed(future_to_url):
@@ -554,6 +560,7 @@ def get_tdocs_by_agenda_for_selected_meeting(
 
 def download_agenda_file(meeting, inbox_active=False, open_tdocs_by_agenda_in_browser=False):
     try:
+        print('Downloading Agenda File')
         meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
             meeting)
         local_file = get_local_tdocs_by_agenda_filename(meeting_server_folder)
@@ -564,13 +571,13 @@ def download_agenda_file(meeting, inbox_active=False, open_tdocs_by_agenda_in_br
             return None
         utils.local_cache.write_data_and_open_file(html, local_file)
         return local_file
-    except:
-        print('Could not download agenda file for {0}'.format(meeting))
+    except Exception as e:
+        print(f'Could not download agenda file for {meeting}: {e}')
         traceback.print_exc()
         return None
 
 
-def download_docs_file(meeting) -> str:
+def download_docs_file(meeting) -> str | None:
     """
     Downloads the docs list for a given meeting,
     e.g. https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_156E_Electronic_2023-04/Docs
@@ -590,13 +597,13 @@ def download_docs_file(meeting) -> str:
             return None
         utils.local_cache.write_data_and_open_file(html, local_file)
         return local_file
-    except:
-        print('Could get not docs file for {0}'.format(meeting))
+    except Exception as e:
+        print(f'Could get not docs file for {meeting}: {e}')
         traceback.print_exc()
         return None
 
 
-def download_revisions_file(meeting) -> str:
+def download_revisions_file(meeting) -> str | None:
     """
     Downloads the revisions list for a given meeting,
     e.g. https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_156E_Electronic_2023-04/INBOX/Revisions
@@ -616,13 +623,13 @@ def download_revisions_file(meeting) -> str:
             return None
         utils.local_cache.write_data_and_open_file(html, local_file)
         return local_file
-    except:
-        print('Could get not revisions file for {0}'.format(meeting))
+    except Exception as e:
+        print(f'Could get not revisions file for {meeting}: {e}')
         traceback.print_exc()
         return None
 
 
-def download_drafts_file(meeting) -> str:
+def download_drafts_file(meeting) -> str | None:
     """
     Downloads the drafts list for a given meeting,
     e.g. https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_156E_Electronic_2023-04/INBOX/DRAFTS
@@ -642,7 +649,7 @@ def download_drafts_file(meeting) -> str:
             return None
         utils.local_cache.write_data_and_open_file(html, local_file)
         return local_file
-    except:
-        print('Could not get drafts file for {0}'.format(meeting))
+    except Exception as e:
+        print(f'Could not get drafts file for {meeting}: {e}')
         traceback.print_exc()
         return None

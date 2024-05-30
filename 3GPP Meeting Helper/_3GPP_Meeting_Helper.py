@@ -13,5 +13,4 @@ gui.main_gui.root.wait_window(proxy_dialog.top)
 waiting_for_proxy_label.grid_forget()
 
 gui.main_gui.start_main_gui()
-
 gui.main_gui.root.mainloop()
