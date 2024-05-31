@@ -259,6 +259,7 @@ def detect_3gpp_network_state(loop=True, interval_ms=10000):
 
 
 def change_meeting_dropdown(*args):
+    print(f'Meeting dropdown changed to {tkvar_meeting.get()}')
     reset_status_labels()
     open_tdocs_by_agenda(open_this_file=False)
 
@@ -323,6 +324,7 @@ def get_tdocs_by_agenda_for_selected_meeting(
         return_revisions_file=False,
         return_drafts_file=False,
         open_tdocs_by_agenda_in_browser=False):
+
     return_data = server.tdoc.get_tdocs_by_agenda_for_selected_meeting(
         meeting_folder=meeting_folder,
         use_private_server=tkvar_3gpp_wifi_available.get(),
