@@ -154,7 +154,8 @@ def reset_status_labels():
             current_value = tkvar_tdoc_id.get()
             if not tdoc.utils.is_sa2_tdoc(current_value):
                 tkvar_tdoc_id.set('S2-' + str(year)[2:4] + 'XXXXX')
-        except:
+        except Exception as e:
+            print(f'Could not get and parse TDoc: {e}')
             pass
 
 
@@ -345,9 +346,10 @@ def get_tdocs_by_agenda_for_selected_meeting(
     if return_revisions_file:
         try:
             revisions_file = server.tdoc.download_revisions_file(meeting_folder)
-        except:
+        except Exception as e:
             # Not all meetings have revisions
             # traceback.print_exc()
+            print(f'Exception downloading revisions file for {meeting_folder}: {e}')
             pass
 
     # Optional download of drafts
@@ -355,9 +357,10 @@ def get_tdocs_by_agenda_for_selected_meeting(
     if return_drafts_file:
         try:
             drafts_file = server.tdoc.download_drafts_file(meeting_folder)
-        except:
+        except Exception as e:
             # Not all meetings have drafts
             # traceback.print_exc()
+            print(f'Could not download drafts folder for {meeting_folder}: {e}')
             pass
 
     if return_revisions_file and return_drafts_file:
@@ -396,7 +399,8 @@ def current_tdocs_by_agenda_exists():
     try:
         (meeting_server_folder, local_file) = get_local_tdocs_by_agenda_filename_for_current_meeting()
         return os.path.isfile(local_file)
-    except:
+    except Exception as e:
+        print(f'Could not get local TdocsByAgenda filename for current meeting: {e}')
         return False
 
 
@@ -537,7 +541,7 @@ def start_main_gui():
             root,
             favicon,
             on_update_ftp=gui.main_gui.update_ftp_button))
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         sticky="EW",
@@ -547,7 +551,7 @@ def start_main_gui():
         main_frame,
         text='Reload meeting info',
         command=lambda: load_application_data(reload_inbox_tdocs_by_agenda=True))
-    .grid(
+     .grid(
         row=current_row,
         column=1,
         sticky="EW",
@@ -618,7 +622,7 @@ def start_main_gui():
         main_frame,
         text='Search all WGs/meetings',
         variable=tkvar_search_tdoc)
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         padx=10
@@ -633,7 +637,7 @@ def start_main_gui():
             gui.main_gui.root,
             gui.main_gui.favicon,
             selected_meeting_fn=gui.main_gui.tkvar_meeting.get))
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         sticky="EW",
@@ -654,20 +658,20 @@ def start_main_gui():
             download_and_open_generic_tdoc_fn=server.tdoc_search.search_download_and_open_tdoc
         ))
     (tdoc_table_button
-    .grid(
+     .grid(
         row=current_row,
         column=1,
         columnspan=1,
         sticky="EW",
         padx=0
-    ))
+     ))
 
     # Add button to check Netovate (useful if you are searching for documents from other WGs
     (ttk.Button(
         main_frame,
         text='Search Netovate',
         command=search_netovate)
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         sticky="EW",
@@ -680,7 +684,7 @@ def start_main_gui():
         main_frame,
         text="Open local meeting folder",
         command=open_local_meeting_folder)
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         columnspan=1,
@@ -691,7 +695,7 @@ def start_main_gui():
         main_frame,
         text="Open local specs folder",
         command=lambda: os.startfile(get_specs_folder()))
-    .grid(
+     .grid(
         row=current_row,
         column=1,
         columnspan=1,
@@ -702,7 +706,7 @@ def start_main_gui():
         main_frame,
         text="Close Word",
         command=application.word.close_word)
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         columnspan=1,
@@ -732,7 +736,7 @@ def start_main_gui():
         columnspan=1,
         sticky="EW",
         padx=10
-    ))
+     ))
 
     # Row: Table containing all 3GPP meetings
     launch_meetings_table = ttk.Button(
@@ -749,7 +753,7 @@ def start_main_gui():
         columnspan=1,
         sticky="EW",
         padx=0
-    ))
+     ))
 
     # Row: Table containing all 3GPP WIs
     launch_spec_table = ttk.Button(
@@ -760,13 +764,13 @@ def start_main_gui():
             parent_widget=root,
             favicon=favicon))
     (launch_spec_table
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         columnspan=1,
         sticky="EW",
         padx=10
-    ))
+     ))
 
     # Override TDocs by Agenda if it is malformed
     current_row += 1
@@ -807,8 +811,9 @@ def start_main_gui():
             if os.path.exists(current_path):
                 print('Forcing loading TDocs by Agenda from {0}'.format(current_path))
                 load_application_data()
-        except:
+        except Exception as e:
             # Do nothing, path is not valid
+            print(f'Could not load TDocs by Agenda from {current_path}: {e}')
             return
 
     tkvar_override_tdocs_by_agenda.trace('w', set_override_tdocs_by_agenda_var)
@@ -847,7 +852,7 @@ def start_main_gui():
     (ttk.Label(
         main_frame,
         textvariable=tkvar_tdoc_download_result)
-    .grid(
+     .grid(
         row=current_row,
         column=1,
         padx=10
@@ -855,7 +860,7 @@ def start_main_gui():
     (ttk.Label(
         main_frame,
         textvariable=tkvar_last_agenda_vtext)
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         padx=10
