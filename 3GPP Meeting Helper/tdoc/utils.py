@@ -153,7 +153,8 @@ def get_tdoc_year(tdoc, include_revision=False):
     try:
         revision = match_groups['revision']
         return year, tdoc_number, revision
-    except:
+    except Exception as e:
+        print(f'Could not parse TDoc string {tdoc}: {e}')
         return year, tdoc_number, None
 
 

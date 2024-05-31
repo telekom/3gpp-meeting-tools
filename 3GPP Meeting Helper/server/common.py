@@ -45,11 +45,12 @@ class TdocType(Enum):
     DRAFT = 3
 
 
-def get_document_folder_url(
+def get_document_or_folder_url(
         server_type: ServerType,
         document_type: DocumentType,
         meeting_folder_in_server: str,
-        tdoc_type: TdocType | None = None
+        tdoc_type: TdocType | None = None,
+        override_folder_path: str | None = None
 ) -> List[str]:
     """
     Returns a list of all the places a target file of the specified type could be located in
@@ -68,6 +69,11 @@ def get_document_folder_url(
             host_address = 'http://' + private_server + '/'
         case _:
             host_address = 'https://' + public_server + '/'
+
+    # Skip the rest if we are overriding the path
+    if override_folder_path is not None:
+        return [f'{host_address}{override_folder_path}']
+
     match document_type:
         case DocumentType.CHAIR_NOTES:
             folders = [
@@ -109,6 +115,13 @@ def get_document_folder_url(
                     folders = [] if server_type == ServerType.PRIVATE \
                         else [f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/Revisions/']
     target_folders = [host_address + folder for folder in folders]
+
+    print(f'Target folder for meeting '
+          f'{meeting_folder_in_server}, '
+          f'{server_type}, '
+          f'{document_type}, '
+          f'{tdoc_type}, '
+          f'override {override_folder_path}: {target_folders}')
     return target_folders
 
 

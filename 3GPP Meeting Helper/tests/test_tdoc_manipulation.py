@@ -4,11 +4,11 @@ import tdoc.utils as tdoc
 
 class Test_test(unittest.TestCase):
     def test_remote_tdoc_name(self):
-        name = server.get_remote_filename('TSGS2_129BIS_West_Palm_Beach', 'S2-18134567')
+        name = server.get_remote_filename_for_tdoc('TSGS2_129BIS_West_Palm_Beach', 'S2-18134567')
         self.assertEqual(name, "http://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_129BIS_West_Palm_Beach/Docs/S2-18134567.zip")
 
     def test_remote_tdoc_name_with_Revision(self):
-        name = server.get_remote_filename('TSGS2_129BIS_West_Palm_Beach', 'S2-18134567r09')
+        name = server.get_remote_filename_for_tdoc('TSGS2_129BIS_West_Palm_Beach', 'S2-18134567r09')
         self.assertEqual(name, "http://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_129BIS_West_Palm_Beach/Inbox/Revisions/S2-18134567r09.zip")
 
     def test_tdoc_id_none(self):

@@ -325,7 +325,7 @@ def fill_in_table(
 
     tdocs = df.index.tolist()
     server_urls = dict(
-        [(tdoc, server.tdoc.get_remote_filename(meeting_folder, tdoc, use_private_server=False)) for tdoc in tdocs])
+        [(tdoc, server.tdoc.get_remote_filename_for_tdoc(meeting_folder, tdoc, use_private_server=False)) for tdoc in tdocs])
 
     # Fill in TDoc data
     row_idx = 2
@@ -394,7 +394,7 @@ def fill_in_table(
                                 tdoc_url = server_urls[m_tdoc]
                             except:
                                 # May not be in this set of URLs. Note that the URL *may* not exist if it is from another meeting!
-                                server_urls[m_tdoc] = server.tdoc.get_remote_filename(
+                                server_urls[m_tdoc] = server.tdoc.get_remote_filename_for_tdoc(
                                     meeting_folder,
                                     m_tdoc,
                                     use_private_server=False)

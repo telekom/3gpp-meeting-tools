@@ -18,7 +18,8 @@ import tdoc.utils
 import tdoc.utils
 import utils.local_cache
 from application.zip_files import unzip_files_in_zip_file
-from server.common import get_remote_meeting_folder, get_inbox_root
+from server.common import get_remote_meeting_folder, get_inbox_root, ServerType, TdocType, DocumentType, \
+    get_document_or_folder_url
 from server.connection import get_remote_file
 from utils.local_cache import get_cache_folder, get_local_revisions_filename, get_local_drafts_filename, \
     get_meeting_folder, get_local_agenda_folder
@@ -45,7 +46,8 @@ def get_sa2_inbox_tdoc_list(
         open_tdocs_by_agenda_in_browser=False,
         use_cached_file_if_available=False):
     url = get_inbox_root(searching_for_a_file=True) + 'TdocsByAgenda.htm'
-    print(f'Retrieving TdocsByAgenda from Inbox ({url}): open={open_tdocs_by_agenda_in_browser}, use cache={use_cached_file_if_available}')
+    print(
+        f'Retrieving TdocsByAgenda from Inbox ({url}): open={open_tdocs_by_agenda_in_browser}, use cache={use_cached_file_if_available}')
     if open_tdocs_by_agenda_in_browser:
         os.startfile(url)
     # Return back cached HTML if there is an error retrieving the remote HTML
@@ -152,21 +154,19 @@ def get_tdoc(
 
     tdoc_local_filename = get_local_filename(meeting_folder_name, tdoc_id, is_draft=is_draft)
     zip_file_list: List[str] = []
-    zip_file_url = get_remote_filename(
+    zip_file_url = get_remote_filename_for_tdoc(
         meeting_folder_name=meeting_folder_name,
         tdoc_id=tdoc_id,
         use_private_server=use_private_server,
-        use_email_approval_inbox=use_email_approval_inbox,
         is_draft=is_draft)
     zip_file_list.append(zip_file_url)
     if additional_folders is not None:
         print(f'Searching additional folders in {additional_folders}')
         for additional_folder in additional_folders:
-            additional_zip_file_url = get_remote_filename(
+            additional_zip_file_url = get_remote_filename_for_tdoc(
                 meeting_folder_name=meeting_folder_name,
                 tdoc_id=tdoc_id,
                 use_private_server=use_private_server,
-                use_email_approval_inbox=use_email_approval_inbox,
                 is_draft=is_draft,
                 override_folder_path=additional_folder)
             zip_file_list.append(additional_zip_file_url)
@@ -272,48 +272,36 @@ def get_local_filename(meeting_folder_name, tdoc_id, create_dir=True, is_draft=F
     return os.path.join(folder_name, tdoc_id + '.zip')
 
 
-def get_local_invitation_folder(meeting_folder_name, create_dir=True):
-    meeting_folder = get_meeting_folder(meeting_folder_name)
-    folder_name = os.path.join(meeting_folder, 'Invitation')
-    if create_dir and (not os.path.exists(folder_name)):
-        os.makedirs(folder_name, exist_ok=True)
-    return folder_name
-
-
 def get_local_tdocs_by_agenda_filename(meeting_folder_name):
     folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
     return os.path.join(folder, 'TdocsByAgenda.htm')
 
 
-def get_remote_filename(
+def get_remote_filename_for_tdoc(
         meeting_folder_name,
-        tdoc_id,
+        tdoc_id: str,
         use_private_server=False,
-        use_email_approval_inbox=False,
         is_draft=False,
         override_folder_path: str = None
-):
-    folder = get_remote_meeting_folder(
-        meeting_folder_name=meeting_folder_name,
-        use_private_server=use_private_server,
+) -> str | None:
+    # Check if this is a TDoc revision. If yes, change the folder to the revisions' folder.
+    year, tdoc_number, revision = tdoc.utils.get_tdoc_year(tdoc_id, include_revision=True)
+    server_type = ServerType.PRIVATE if use_private_server else ServerType.PUBLIC
+    tdoc_type = TdocType.DRAFT if is_draft else (TdocType.REVISION if revision else TdocType.NORMAL)
+
+    # Instead of using get_remote_meeting_folder() (old function)
+    folder = get_document_or_folder_url(
+        server_type=server_type,
+        document_type=DocumentType.TDOC,
+        meeting_folder_in_server=meeting_folder_name,
+        tdoc_type=tdoc_type,
         override_folder_path=override_folder_path
     )
 
-    # Check if this is a TDoc revision. If yes, change the folder to the revisions' folder.
-    year, tdoc_number, revision = tdoc.utils.get_tdoc_year(tdoc_id, include_revision=True)
-    if revision is not None:
-        if not is_draft:
-            folder = get_remote_meeting_revisions_folder(folder)
-        else:
-            folder = get_remote_meeting_drafts_folder(folder)
-    else:
-        if override_folder_path is None:
-            if use_email_approval_inbox:
-                folder += 'Inbox/'
-            else:
-                folder += 'Docs/'
+    if len(folder) == 0:
+        return None
 
-    return folder + tdoc_id + '.zip'
+    return folder[0] + tdoc_id + '.zip'
 
 
 def get_remote_meeting_revisions_folder(meeting_folder_ending_with_slash):

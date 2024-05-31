@@ -36,7 +36,10 @@ root.iconbitmap(gui.common.utils.favicon)
 
 # Add a grid
 main_frame = tkinter.Frame(root)
-main_frame.grid(column=0, row=0, sticky=''.join([tkinter.N, tkinter.W, tkinter.E, tkinter.S]))
+main_frame.grid(
+    column=0,
+    row=0,
+    sticky=tkinter.N + tkinter.W + tkinter.E + tkinter.S)
 
 
 def set_waiting_for_proxy_message():
@@ -109,9 +112,11 @@ tkinter_checkbutton_3gpp_wifi_available = ttk.Checkbutton(
     main_frame,
     state='disabled',
     variable=tkvar_3gpp_wifi_available)
-tdocs_by_agenda_entry = tkinter.Entry(
+override_tdocs_by_agenda_entry = tkinter.Entry(
     main_frame,
-    textvariable=tkvar_tdocs_by_agenda_path)
+    textvariable=tkvar_tdocs_by_agenda_path,
+    width=87
+)
 
 # Other variables
 last_override_tdocs_by_agenda = ''
@@ -273,7 +278,7 @@ def get_text_with_scrollbar(
         column,
         height=2,
         current_main_frame=main_frame,
-        width=50
+        width=90
 ):
     text = tkinter.scrolledtext.ScrolledText(
         current_main_frame,
@@ -282,7 +287,13 @@ def get_text_with_scrollbar(
         wrap=tkinter.WORD
     )
 
-    text.grid(row=row, column=column, columnspan=2)
+    text.grid(
+        row=row,
+        column=column,
+        columnspan=3,
+        padx=10,
+        sticky=tkinter.W
+    )
     return text
 
 
@@ -324,7 +335,6 @@ def get_tdocs_by_agenda_for_selected_meeting(
         return_revisions_file=False,
         return_drafts_file=False,
         open_tdocs_by_agenda_in_browser=False):
-
     return_data = server.tdoc.get_tdocs_by_agenda_for_selected_meeting(
         meeting_folder=meeting_folder,
         use_private_server=tkvar_3gpp_wifi_available.get(),
@@ -530,7 +540,9 @@ def start_main_gui():
     .grid(
         row=current_row,
         column=0,
-        sticky="EW"))
+        sticky="EW",
+        padx=10
+    ))
     (ttk.Button(
         main_frame,
         text='Reload meeting info',
@@ -538,7 +550,9 @@ def start_main_gui():
     .grid(
         row=current_row,
         column=1,
-        sticky="EW"))
+        sticky="EW",
+        padx=0
+    ))
 
     # Row: Meeting Selector
     current_row += 1
@@ -553,7 +567,9 @@ def start_main_gui():
     update_ftp_button()
     tkinter_checkbutton_3gpp_wifi_available.grid(
         row=current_row,
-        column=2)
+        column=2,
+        padx=10
+    )
 
     # Row: Dropdown menu and meeting info
     current_row += 1
@@ -561,14 +577,18 @@ def start_main_gui():
     open_last_agenda_button.grid(
         row=current_row,
         column=0,
-        sticky="EW")
+        sticky="EW",
+        padx=10
+    )
     ttk.Button(
         main_frame,
         text='Open TDocs by Agenda',
         command=open_tdocs_by_agenda).grid(
         row=current_row,
         column=1,
-        sticky="EW")
+        sticky="EW",
+        padx=0
+    )
     ttk.Button(
         main_frame,
         text="Open server meeting folder",
@@ -576,7 +596,9 @@ def start_main_gui():
         row=current_row,
         column=2,
         columnspan=1,
-        sticky="EW")
+        sticky="EW",
+        padx=10
+    )
 
     # Row: Open TDoc
     current_row += 1
@@ -588,14 +610,19 @@ def start_main_gui():
     open_tdoc_button.grid(
         row=current_row,
         column=1,
-        sticky="EW")
+        sticky="EW",
+        padx=0
+    )
     open_tdoc_button.configure(command=download_and_open_tdoc)
-    ttk.Checkbutton(
+    (ttk.Checkbutton(
         main_frame,
         text='Search all WGs/meetings',
-        variable=tkvar_search_tdoc).grid(
+        variable=tkvar_search_tdoc)
+    .grid(
         row=current_row,
-        column=2)
+        column=2,
+        padx=10
+    ))
 
     # Row: Tools, TDoc table, Open Netovate
     current_row += 1
@@ -609,7 +636,9 @@ def start_main_gui():
     .grid(
         row=current_row,
         column=0,
-        sticky="EW"))
+        sticky="EW",
+        padx=10
+    ))
 
     tdoc_table_button = ttk.Button(
         main_frame,
@@ -624,11 +653,14 @@ def start_main_gui():
             get_current_meeting_name_fn=gui.main_gui.tkvar_meeting.get,
             download_and_open_generic_tdoc_fn=server.tdoc_search.search_download_and_open_tdoc
         ))
-    tdoc_table_button.grid(
+    (tdoc_table_button
+    .grid(
         row=current_row,
         column=1,
         columnspan=1,
-        sticky="EW")
+        sticky="EW",
+        padx=0
+    ))
 
     # Add button to check Netovate (useful if you are searching for documents from other WGs
     (ttk.Button(
@@ -638,34 +670,45 @@ def start_main_gui():
     .grid(
         row=current_row,
         column=2,
-        sticky="EW"))
+        sticky="EW",
+        padx=10
+    ))
 
     # Row: Open local folder, open server folder
     current_row += 1
-    ttk.Button(
+    (ttk.Button(
         main_frame,
         text="Open local meeting folder",
-        command=open_local_meeting_folder).grid(
+        command=open_local_meeting_folder)
+    .grid(
         row=current_row,
         column=0,
         columnspan=1,
-        sticky="EW")
-    ttk.Button(
+        sticky="EW",
+        padx=10
+    ))
+    (ttk.Button(
         main_frame,
         text="Open local specs folder",
-        command=lambda: os.startfile(get_specs_folder())).grid(
+        command=lambda: os.startfile(get_specs_folder()))
+    .grid(
         row=current_row,
         column=1,
         columnspan=1,
-        sticky="EW")
-    ttk.Button(
+        sticky="EW",
+        padx=0
+    ))
+    (ttk.Button(
         main_frame,
         text="Close Word",
-        command=application.word.close_word).grid(
+        command=application.word.close_word)
+    .grid(
         row=current_row,
         column=2,
         columnspan=1,
-        sticky="EW")
+        sticky="EW",
+        padx=10
+    ))
 
     # Configure <RETURN> key shortcut to open a Tdoc
     gui.common.utils.bind_key_to_button(
@@ -682,17 +725,31 @@ def start_main_gui():
             root_widget=root,
             parent_widget=root,
             favicon=favicon))
-    launch_spec_table.grid(row=current_row, column=0, columnspan=1, sticky="EW")
+    (launch_spec_table
+     .grid(
+        row=current_row,
+        column=0,
+        columnspan=1,
+        sticky="EW",
+        padx=10
+    ))
 
     # Row: Table containing all 3GPP meetings
-    launch_spec_table = ttk.Button(
+    launch_meetings_table = ttk.Button(
         main_frame,
         text='Open Meetings table',
         command=lambda: gui.meetings_table.MeetingsTable(
             root_widget=root,
             parent_widget=root,
             favicon=favicon))
-    launch_spec_table.grid(row=current_row, column=1, columnspan=1, sticky="EW")
+    (launch_meetings_table
+     .grid(
+        row=current_row,
+        column=1,
+        columnspan=1,
+        sticky="EW",
+        padx=0
+    ))
 
     # Row: Table containing all 3GPP WIs
     launch_spec_table = ttk.Button(
@@ -702,7 +759,14 @@ def start_main_gui():
             root_widget=root,
             parent_widget=root,
             favicon=favicon))
-    launch_spec_table.grid(row=current_row, column=2, columnspan=1, sticky="EW")
+    (launch_spec_table
+    .grid(
+        row=current_row,
+        column=2,
+        columnspan=1,
+        sticky="EW",
+        padx=10
+    ))
 
     # Override TDocs by Agenda if it is malformed
     current_row += 1
@@ -710,23 +774,31 @@ def start_main_gui():
         main_frame,
         text='Override Tdocs by agenda',
         variable=tkvar_override_tdocs_by_agenda)
-    .grid(
+     .grid(
         row=current_row,
-        column=0))
-    tdocs_by_agenda_entry.config(state='readonly')
-    tdocs_by_agenda_entry.grid(
+        column=2,
+        padx=10,
+        sticky=tkinter.W
+    ))
+    override_tdocs_by_agenda_entry.config(state='readonly')
+    (override_tdocs_by_agenda_entry
+     .grid(
         row=current_row,
-        column=1)
+        column=0,
+        padx=10,
+        sticky=tkinter.W,
+        columnspan=2
+     ))
 
     def set_override_tdocs_by_agenda_var(*args):
         global last_override_tdocs_by_agenda
         current_value = tkvar_override_tdocs_by_agenda.get()
         if not current_value:
-            tdocs_by_agenda_entry.config(state='readonly')
+            override_tdocs_by_agenda_entry.config(state='readonly')
             last_override_tdocs_by_agenda = tkvar_tdocs_by_agenda_path.get()
             tkvar_tdocs_by_agenda_path.set('')
         else:
-            tdocs_by_agenda_entry.config(state='normal')
+            override_tdocs_by_agenda_entry.config(state='normal')
             tkvar_tdocs_by_agenda_path.set(last_override_tdocs_by_agenda)
 
     def set_override_tdocs_by_agenda_path(*args):
@@ -772,32 +844,45 @@ def start_main_gui():
 
     # Row: Infos
     current_row += 1
-    ttk.Label(
+    (ttk.Label(
         main_frame,
-        textvariable=tkvar_tdoc_download_result).grid(
+        textvariable=tkvar_tdoc_download_result)
+    .grid(
         row=current_row,
-        column=1)
-    ttk.Label(
+        column=1,
+        padx=10
+    ))
+    (ttk.Label(
         main_frame,
-        textvariable=tkvar_last_agenda_vtext).grid(
+        textvariable=tkvar_last_agenda_vtext)
+    .grid(
         row=current_row,
-        column=2)
+        column=2,
+        padx=10
+    ))
 
     # Row: info from last document
     current_row += 1
-    tkinter.ttk.Separator(
+    (tkinter.ttk.Separator(
         main_frame,
-        orient=tkinter.HORIZONTAL).grid(
+        orient=tkinter.HORIZONTAL)
+     .grid(
         row=current_row,
         columnspan=3,
-        sticky="WE")
+        sticky="WE",
+        padx=10
+    ))
 
     current_row += 1
-    ttk.Label(
+    (ttk.Label(
         main_frame,
-        text='Last document:').grid(
+        text='Last opened document:')
+     .grid(
         row=current_row,
-        column=0)
+        column=0,
+        sticky=tkinter.W,
+        padx=10
+    ))
 
     # Last opened document    
     def set_last_doc_title(*args):
@@ -825,45 +910,29 @@ def start_main_gui():
     tkvar_last_tdoc_status.trace('w', set_last_doc_status)
 
     current_row += 1
-    ttk.Label(
-        main_frame,
-        text='Title:').grid(
-        row=current_row,
-        column=0)
+    # Title
     last_tdoc_title = get_text_with_scrollbar(
         current_row,
-        1)
+        0)
 
     current_row += 1
-    ttk.Label(
-        main_frame,
-        text='Source:').grid(
-        row=current_row,
-        column=0)
+    # Source
     last_tdoc_source = get_text_with_scrollbar(
         current_row,
-        1)
+        0)
 
     current_row += 1
-    ttk.Label(
-        main_frame,
-        text='URL:').grid(
-        row=current_row,
-        column=0)
+    # URL
     last_tdoc_url = get_text_with_scrollbar(
-        current_row, 1,
+        current_row, 0,
         height=1
     )
 
     current_row += 1
-    ttk.Label(
-        main_frame,
-        text='Status:').grid(
-        row=current_row,
-        column=0)
+    # Status
     last_tdoc_status = get_text_with_scrollbar(
         current_row,
-        1,
+        0,
         height=1)
 
     # Configure column row widths

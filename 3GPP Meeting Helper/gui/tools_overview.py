@@ -352,7 +352,7 @@ class ToolsDialog(TkWidget):
             tdocs_df = tdocs_by_agenda.tdocs.iloc[:, 0:19]
 
             tdocs = tdocs_df.index.tolist()
-            server_urls = [(tdoc, server.tdoc.get_remote_filename(meeting_folder, tdoc, use_private_server=False)) for tdoc in
+            server_urls = [(tdoc, server.tdoc.get_remote_filename_for_tdoc(meeting_folder, tdoc, use_private_server=False)) for tdoc in
                            tdocs]
             tdocs_df.loc[:, parsing.excel.session_comments_column] = ''
 
