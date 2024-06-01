@@ -1285,7 +1285,7 @@ def compare_tdocs(
         if (entry_1 is None) and (get_entry_1_fn is not None):
             entry_1 = get_entry_1_fn()
         if (entry_2 is None) and (get_entry_2_fn is not None):
-            entry_2 = get_entry_1_fn()
+            entry_2 = get_entry_2_fn()
         match_1 = tdoc_regex.match(entry_1)
         match_2 = tdoc_regex.match(entry_2)
 
@@ -1310,8 +1310,8 @@ def compare_tdocs(
         tdocs_1 = [e for e in tdocs_1 if search_1 in e]
         tdocs_2 = [e for e in tdocs_2 if search_2 in e]
 
-        print('TDoc to compare 1: {0}'.format(tdocs_1))
-        print('TDoc to compare 2: {0}'.format(tdocs_2))
+        print(f'TDoc to compare 1: {tdocs_1}. Input: {entry_1}')
+        print(f'TDoc to compare 2: {tdocs_2}. Input: {entry_2}')
 
         if len(tdocs_1) == 0 or len(tdocs_2) == 0:
             print('Need two TDocs to compare. One of them does not contain TDocs')
