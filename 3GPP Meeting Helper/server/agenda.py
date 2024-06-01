@@ -132,9 +132,9 @@ def get_last_agenda(meeting_folder):
         session_plan_path = os.path.join(agenda_folder, last_session_plan)
         session_plan_version_str = ''
         try:
-            session_plan_match = agenda_docx_regex.match(last_agenda)
+            session_plan_match = agenda_docx_regex.match(last_session_plan)
             session_plan_version_str = session_plan_match.groupdict()['version']
-            session_plan_version_int = int(agenda_version_str)
+            session_plan_version_int = int(session_plan_version_str)
         except ValueError as e:
             print(
                 f"Could not parse session plan version: {session_plan_version_str}. "
