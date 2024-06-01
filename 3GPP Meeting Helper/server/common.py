@@ -6,7 +6,7 @@ from enum import Enum
 from typing import NamedTuple, List
 
 from server.connection import get_remote_file
-from utils.local_cache import get_sa2_root_folder_local_cache
+from utils.local_cache import get_sa2_root_folder_local_cache, file_exists
 
 """Retrieves data from the 3GPP web server"""
 default_http_proxy = 'http://lanbctest:8080'
@@ -55,6 +55,7 @@ def get_document_or_folder_url(
     """
     Returns a list of all the places a target file of the specified type could be located in
     Args:
+        override_folder_path: If this parameter is included, it constructs a folder path for the selected server type
         meeting_folder_in_server: Used for public servers to generate the full URL (not really used for private server)
         server_type: Whether we want the address for the internal 3GPP WiFi (F2F) or public server
         document_type: Whether we are searching for a TDoc, TDocsByAgenda or Agenda file
@@ -202,13 +203,16 @@ def we_are_in_meeting_network():
 def get_sa2_folder(force_redownload=False):
     html = get_remote_file(
         sa2_url,
-        cached_file_to_return_if_error=get_sa2_root_folder_local_cache(),
+        cached_file_to_return_if_error_or_cache=get_sa2_root_folder_local_cache(),
         use_cached_file_if_available=not force_redownload
     )
     return html
 
 
-def download_file_to_location(url: str, local_location: str, cache=False) -> bool:
+def download_file_to_location(
+        url: str,
+        local_location: str,
+        cache=False) -> bool:
     """
     Downloads a given file to a local location
     Args:
@@ -220,7 +224,11 @@ def download_file_to_location(url: str, local_location: str, cache=False) -> boo
         bool: Whether the file could be successfully downloaded
     """
     try:
-        file = get_remote_file(url, cache=cache)
+        file = get_remote_file(
+            url,
+            cache=cache,
+            use_cached_file_if_available=True,
+            cached_file_to_return_if_error_or_cache=local_location)
         with open(local_location, 'wb') as output:
             print('Saved {0}'.format(local_location))
             output.write(file)
