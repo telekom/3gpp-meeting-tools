@@ -211,10 +211,11 @@ def load_application_data(reload_inbox_tdocs_by_agenda=False):
 
 def set_agenda_version_text(*args):
     current_version = tkvar_last_agenda_version.get()
+    print(f'Setting last agenda text to {current_version}')
     if (current_version is None) or (current_version == ''):
-        tkvar_last_agenda_vtext.set('No known last agenda')
+        tkvar_last_agenda_vtext.set('No known last agenda/session plan')
     else:
-        tkvar_last_agenda_vtext.set('Last Agenda: ' + tkvar_last_agenda_version.get())
+        tkvar_last_agenda_vtext.set(tkvar_last_agenda_version.get())
 
 
 tkvar_last_agenda_version.trace('w', set_agenda_version_text)
@@ -841,12 +842,14 @@ def start_main_gui():
             last_agenda_info = server.agenda.get_last_agenda(meeting_folder)
             if last_agenda_info is not None:
                 # Starting with SA2#161, there is also a Session Plan (separated from the agenda)
+                last_agenda_text_str = ''
                 if last_agenda_info.agenda_path is not None:
                     parsing.word.pywin32.open_file(last_agenda_info.agenda_path)
-                    tkvar_last_agenda_version.set('v' + str(last_agenda_info.agenda_version_int))
+                    last_agenda_text_str += 'Last Agenda: v' + str(last_agenda_info.agenda_version_int)
                 if last_agenda_info.session_plan_path is not None:
                     parsing.word.pywin32.open_file(last_agenda_info.session_plan_path)
-                    tkvar_last_agenda_version.set('v' + str(last_agenda_info.session_plan_version_int))
+                    last_agenda_text_str += ', last Session Plan: v' + str(last_agenda_info.session_plan_version_int)
+                tkvar_last_agenda_version.set(last_agenda_text_str)
             else:
                 tkvar_last_agenda_version.set('Not found')
         except Exception as e:
