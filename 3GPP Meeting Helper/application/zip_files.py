@@ -13,7 +13,8 @@ def unzip_files_in_zip_file(zip_file):
     # versions... Added exception catch as the file may probably be already open
     try:
         zip_ref.extractall(tdoc_folder)
-    except:
-        print('Could not extract files')
-        traceback.print_exc()
+    except PermissionError as pe:
+        print(f'Permission error when unzipping files in {zip_file}. Maybe file is open?')
+    except Exception as e:
+        print(f'Could not extract files in {zip_file}: {e}')
     return [os.path.join(tdoc_folder, file) for file in files_in_zip]

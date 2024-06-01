@@ -5,7 +5,7 @@ import os.path
 import re
 import traceback
 from enum import Enum
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Tuple
 from urllib.parse import urljoin
 
 import application.meeting_helper
@@ -54,7 +54,7 @@ def get_sa2_inbox_tdoc_list(
     fallback_cache = get_inbox_tdocs_list_cache_local_cache()
     online_html = get_remote_file(
         url,
-        cached_file_to_return_if_error=fallback_cache,
+        cached_file_to_return_if_error_or_cache=fallback_cache,
         use_cached_file_if_available=use_cached_file_if_available
     )
     return online_html
@@ -63,7 +63,7 @@ def get_sa2_inbox_tdoc_list(
 def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None, open_tdocs_by_agenda_in_browser=False):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'TdocsByAgenda.htm'
-    returned_html = get_remote_file(url, cached_file_to_return_if_error=save_file_to)
+    returned_html = get_remote_file(url, cached_file_to_return_if_error_or_cache=save_file_to)
 
     if open_tdocs_by_agenda_in_browser:
         os.startfile(url)
@@ -90,7 +90,7 @@ def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None, open_tdocs_by_a
 def get_sa2_docs_tdoc_list(meeting_folder, save_file_to=None):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'Docs'
-    returned_html = get_remote_file(url, cached_file_to_return_if_error=save_file_to)
+    returned_html = get_remote_file(url, cached_file_to_return_if_error_or_cache=save_file_to)
 
     return returned_html
 
@@ -98,7 +98,7 @@ def get_sa2_docs_tdoc_list(meeting_folder, save_file_to=None):
 def get_sa2_revisions_tdoc_list(meeting_folder, save_file_to=None):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'INBOX/Revisions'
-    returned_html = get_remote_file(url, cached_file_to_return_if_error=save_file_to)
+    returned_html = get_remote_file(url, cached_file_to_return_if_error_or_cache=save_file_to)
 
     return returned_html
 
@@ -304,62 +304,51 @@ def get_remote_filename_for_tdoc(
     return folder[0] + tdoc_id + '.zip'
 
 
-def get_remote_meeting_revisions_folder(meeting_folder_ending_with_slash):
-    return meeting_folder_ending_with_slash + 'Inbox/Revisions/'
+def get_agenda_files(
+        meeting_folder_name,
+        server_type: ServerType) -> None:
+    """
+    Retrieves all the agenda (and session plan) files from the agenda folders (both in drafts and non-drafts)
+    Args:
+        meeting_folder_name: The server folder name for this meeting
+        server_type: Whether we are querying the private (3GPP WiFi) or public (www.3gpp.org) server
+    """
+    server_folders = get_document_or_folder_url(
+        server_type=server_type,
+        document_type=DocumentType.AGENDA,
+        meeting_folder_in_server=meeting_folder_name)
 
+    print(f'Will download all agenda files in {server_folders}')
+    agenda_folders = [retrieved_data
+                      for retrieved_data
+                      in [(server_folder, get_remote_file(server_folder, cache=False)) for server_folder in server_folders]
+                      if retrieved_data[1] is not None]
 
-def get_remote_meeting_drafts_folder(meeting_folder_ending_with_slash):
-    return meeting_folder_ending_with_slash + 'Inbox/DRAFTS/'
-
-
-def get_remote_agenda_folder(meeting_folder_name, use_inbox=False):
-    folder = get_remote_meeting_folder(meeting_folder_name, use_inbox)
-    if use_inbox:
-        folder += 'Drafts/'
-    else:
-        folder += 'Agenda/'
-    return folder
-
-
-def get_remote_agenda_update_folder_for_inbox(meeting_folder_name):
-    folder = get_remote_meeting_folder(meeting_folder_name, use_private_server=True)
-    folder += 'Agenda_Updates/'
-    return folder
-
-
-def get_agenda_files(meeting_folder_name, use_inbox=False):
-    url = get_remote_agenda_folder(meeting_folder_name, use_inbox=use_inbox)
-    html = get_remote_file(url)
-    if html is None:
-        return
-    if use_inbox:
-        # Starting from SA2#157, Agenda updates have been placed in the /Inbox/Agenda_Updates folder
-        url_inbox_agenda_updates = get_remote_agenda_update_folder_for_inbox(meeting_folder_name)
-        html_inbox_agenda_updates = get_remote_file(url_inbox_agenda_updates)
-        if html_inbox_agenda_updates is not None:
-            html = html_inbox_agenda_updates
-            url = url_inbox_agenda_updates
-    parsed_folder = html_parser.parse_3gpp_http_ftp(html)
-    agenda_files = [file for file in parsed_folder.files if agenda_regex.match(file)]
-    agenda_folder = get_local_agenda_folder(meeting_folder_name)
-    real_agenda_files = []
-    if len(agenda_files) == 0:
-        return
+    agenda_files: List[Tuple[str, str]] = []
+    agenda_local_folder = get_local_agenda_folder(meeting_folder_name)
+    for agenda_folder in agenda_folders:
+        folder_url = agenda_folder[0]
+        html = agenda_folder[1]
+        parsed_folder = html_parser.parse_3gpp_http_ftp(html)
+        agenda_files_in_folder = [file for file in parsed_folder.files if agenda_regex.match(file)]
+        agenda_files_url_local_file_in_folder = [
+            (urljoin(folder_url, f), os.path.join(agenda_local_folder, f))
+            for f in agenda_files_in_folder]
+        agenda_files.extend(agenda_files_url_local_file_in_folder)
+    print(f'Will download agenda files: ')
     for agenda_file in agenda_files:
-        agenda_url = urljoin(url, agenda_file)
-        local_file = os.path.join(agenda_folder, agenda_file)
+        print(f'  {agenda_file[0]}')
+
+    for agenda_file in agenda_files:
+        local_file = agenda_file[1]
+        server.common.download_file_to_location(
+            url=agenda_file[0],
+            local_location=local_file,
+            cache=True)
         filename, file_extension = os.path.splitext(local_file)
-        if not os.path.isfile(local_file):
-            html = get_remote_file(agenda_url, cache=False)
-            if html is None:
-                continue
-            with open(local_file, 'wb') as output:
-                output.write(html)
+
         if file_extension == '.zip':
-            unzipped_files = unzip_files_in_zip_file(local_file)
-            real_agenda_files.extend(unzipped_files)
-        else:
-            real_agenda_files.append(local_file)
+            unzip_files_in_zip_file(local_file)
 
 
 class AgendaType(Enum):

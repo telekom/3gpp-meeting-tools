@@ -832,7 +832,10 @@ def start_main_gui():
         try:
             meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
                 tkvar_meeting.get())
-            server.tdoc.get_agenda_files(meeting_folder, use_inbox=False)
+            private_server = tkvar_3gpp_wifi_available.get()
+            server.tdoc.get_agenda_files(
+                meeting_folder,
+                server_type=server.common.ServerType.PRIVATE if private_server else server.common.ServerType.PUBLIC)
             last_agenda_info = server.tdoc.get_last_agenda(meeting_folder)
             if last_agenda_info is not None:
                 # Starting with SA2#161, there is also a Session Plan (separated from the agenda)
