@@ -19,6 +19,7 @@ import gui.work_items_table
 import parsing.html.common
 import parsing.html.common as html_parser
 import parsing.word.pywin32
+import server.agenda
 import server.common
 import server.tdoc
 import server.tdoc_search
@@ -235,7 +236,7 @@ def detect_3gpp_network_state(loop=True, interval_ms=10000):
         tdocsbyagenda_url = server.common.tdocs_by_agenda_for_checking_meeting_number_in_meeting
 
         if new_state:
-            # Jumping from normal network to 3GPP Wifi
+            # Jumping from normal network to 3GPP Wi-fi
             # Download from 10.10.10.10 TdocsByAgenda and check meeting number
             # Then freeze the meeting choice to the one found
 
@@ -256,7 +257,7 @@ def detect_3gpp_network_state(loop=True, interval_ms=10000):
                 tkvar_meeting.set(meeting_text)
             tk_combobox_meetings['state'] = tkinter.DISABLED
         else:
-            # Jumping from 3GPP Wifi to normal network
+            # Jumping from 3GPP Wi-fi to normal network
             print(f'(Re-)enabling meeting drop-down list')
             tk_combobox_meetings['state'] = tkinter.NORMAL
 
@@ -833,10 +834,10 @@ def start_main_gui():
             meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
                 tkvar_meeting.get())
             private_server = tkvar_3gpp_wifi_available.get()
-            server.tdoc.get_agenda_files(
+            server.agenda.get_agenda_files(
                 meeting_folder,
                 server_type=server.common.ServerType.PRIVATE if private_server else server.common.ServerType.PUBLIC)
-            last_agenda_info = server.tdoc.get_last_agenda(meeting_folder)
+            last_agenda_info = server.agenda.get_last_agenda(meeting_folder)
             if last_agenda_info is not None:
                 # Starting with SA2#161, there is also a Session Plan (separated from the agenda)
                 if last_agenda_info.agenda_path is not None:

@@ -24,6 +24,7 @@ import parsing.html.common
 import parsing.outlook
 import parsing.word.pywin32
 import parsing.word.pywin32 as word_parser
+import server.agenda
 import server.chairnotes
 import server.common
 import server.tdoc
@@ -253,7 +254,7 @@ class ToolsDialog(TkWidget):
         print('TDocsByAgenda: {0} TDocs marked as "For e-mail approval"'.format(n_email_approval))
 
         # Force Agenda cache for the section titles
-        server.tdoc.get_last_agenda(server_folder)
+        server.agenda.get_last_agenda(server_folder)
 
         doc = application.word.open_word_document()
         word_parser.insert_doc_data_to_doc_by_wi(
@@ -289,7 +290,7 @@ class ToolsDialog(TkWidget):
                 output_meeting)
             inbox_active = gui.main_gui.inbox_is_for_this_meeting()
 
-            input_local_agenda_file = server.tdoc.download_agenda_file(selected_meeting, inbox_active)
+            input_local_agenda_file = server.agenda.download_agenda_file(selected_meeting, inbox_active)
             if input_local_agenda_file is None:
                 print('Could not find agenda file for {0}'.format(selected_meeting))
                 return

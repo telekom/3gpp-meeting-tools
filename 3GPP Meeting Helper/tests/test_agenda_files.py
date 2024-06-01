@@ -1,4 +1,6 @@
 import unittest
+
+import server.agenda
 import server.tdoc as server
 
 class Test_test_agenda_files(unittest.TestCase):
@@ -40,7 +42,7 @@ class Test_test_agenda_files(unittest.TestCase):
             'S2-1911962_SA2-136-Agenda_v2.docx',
             'S2-1911975_SA2-136-Agenda_v3.docx',
             'Some other file.docx']
-        latest_agenda = server.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
         self.assertIsNotNone(latest_agenda)
         self.assertEqual(latest_agenda, 'S2-1911975_SA2-136-Agenda_v3.docx')
 
@@ -51,7 +53,7 @@ class Test_test_agenda_files(unittest.TestCase):
             'draft_S2-1910847_SA2-136-Agenda-v10.docx',
             'draft_S2-1910847_SA2-136-Agenda-v1.docx',
             'Some other file.docx']
-        latest_agenda = server.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
         self.assertIsNotNone(latest_agenda)
         self.assertEqual(latest_agenda, 'draft_S2-1910847_SA2-136-Agenda-v10.docx')
 
@@ -61,7 +63,7 @@ class Test_test_agenda_files(unittest.TestCase):
             'Draft_S2-2309205_SA2-158-Agenda - r5.docx',
             'Draft_S2-2309205_SA2-158-Agenda%20-%20r4.docx',
             'Draft_S2-2309205_SA2-158-Agenda%20-%20r8.docx']
-        latest_agenda = server.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
         self.assertIsNotNone(latest_agenda)
         self.assertEqual(latest_agenda, 'Draft_S2-2309205_SA2-158-Agenda%20-%20r8.docx')
 
@@ -71,53 +73,53 @@ class Test_test_agenda_files(unittest.TestCase):
             'S2-1911962_SA2-136-Agenda_v2.docx',
             'S2-1911975_SA2-136-Agenda_v3.docx',
             'Some other file.docx']
-        latest_agenda = server.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
         self.assertIsNotNone(latest_agenda)
         self.assertEqual(latest_agenda, 'S2-1911975_SA2-136-Agenda_v3.docx')
 
     def test_agenda_file_list_with_non_agendas(self):
         agenda_list = [ 
             'Some other file.docx']
-        latest_agenda = server.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
         self.assertIsNone(latest_agenda)
 
     def test_agenda_file_list_with_empty(self):
         agenda_list = []
-        latest_agenda = server.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
         self.assertIsNone(latest_agenda)
 
     def test_agenda_file_list_with_none(self):
         agenda_list = None
-        latest_agenda = server.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
         self.assertIsNone(latest_agenda)
 
     def test_file_names(self):
         file_name = 'S2-2000001_SA2-136AH-Agenda_v1-cl.docx'
-        version = server.get_agenda_file_version_number(file_name)
+        version = server.agenda.get_agenda_file_version_number(file_name)
         self.assertEqual(version, 2000001.01)
 
         file_name = 'S2-2000001_SA2-136AH-Agenda_v1-rm.docx'
-        version = server.get_agenda_file_version_number(file_name)
+        version = server.agenda.get_agenda_file_version_number(file_name)
         self.assertEqual(version, 2000001.01)
 
         file_name = 'S2-2000001_SA2-136AH-Agenda_v2.docx'
-        version = server.get_agenda_file_version_number(file_name)
+        version = server.agenda.get_agenda_file_version_number(file_name)
         self.assertEqual(version, 2000001.02)
 
         file_name = 'S2-2000001_SA2-136AH-Agenda_v2-cl.docx'
-        version = server.get_agenda_file_version_number(file_name)
+        version = server.agenda.get_agenda_file_version_number(file_name)
         self.assertEqual(version, 2000001.02)
 
         file_name = 'S2-2000001_SA2-136AH-Agenda_v1cl.docx'
-        version = server.get_agenda_file_version_number(file_name)
+        version = server.agenda.get_agenda_file_version_number(file_name)
         self.assertEqual(version, 2000001.01)
 
         file_name = 'S2-2000001_SA2-136AH-Agenda_v1rm.docx'
-        version = server.get_agenda_file_version_number(file_name)
+        version = server.agenda.get_agenda_file_version_number(file_name)
         self.assertEqual(version, 2000001.01)
 
         file_name = 'Agenda_v1rm.docx'
-        version = server.get_agenda_file_version_number(file_name)
+        version = server.agenda.get_agenda_file_version_number(file_name)
         self.assertEqual(version, 0.01)
 
 if __name__ == '__main__':
