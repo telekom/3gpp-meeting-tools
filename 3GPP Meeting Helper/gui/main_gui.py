@@ -100,7 +100,8 @@ tkvar_last_tdoc_url.set('')
 open_tdoc_button = ttk.Button(
     main_frame,
     textvariable=tkvar_tdoc_id_full,
-    style=ttk_style_tbutton_medium)
+    style=ttk_style_tbutton_medium,
+    width=20)
 tdoc_entry = tkinter.Entry(
     main_frame,
     textvariable=tkvar_tdoc_id,
@@ -108,7 +109,7 @@ tdoc_entry = tkinter.Entry(
     font=font_big)
 open_last_agenda_button = ttk.Button(
     main_frame,
-    text='Open last agenda')
+    text='Last agenda')
 tkinter_checkbutton_3gpp_wifi_available = ttk.Checkbutton(
     main_frame,
     state='disabled',
@@ -587,7 +588,7 @@ def start_main_gui():
     )
     ttk.Button(
         main_frame,
-        text='Open TDocs by Agenda',
+        text='TDocs by Agenda',
         command=open_tdocs_by_agenda).grid(
         row=current_row,
         column=1,
@@ -596,7 +597,7 @@ def start_main_gui():
     )
     ttk.Button(
         main_frame,
-        text="Open server meeting folder",
+        text="Server meeting folder",
         command=open_server_meeting_folder).grid(
         row=current_row,
         column=2,
@@ -647,7 +648,7 @@ def start_main_gui():
 
     tdoc_table_button = ttk.Button(
         main_frame,
-        text='Open Tdoc table',
+        text='Tdoc table',
         command=lambda: gui.tdocs_table.TdocsTable(
             favicon=favicon,
             parent_widget=root,
@@ -683,7 +684,7 @@ def start_main_gui():
     current_row += 1
     (ttk.Button(
         main_frame,
-        text="Open local meeting folder",
+        text="Local meeting folder",
         command=open_local_meeting_folder)
      .grid(
         row=current_row,
@@ -694,7 +695,7 @@ def start_main_gui():
     ))
     (ttk.Button(
         main_frame,
-        text="Open local specs folder",
+        text="Local specs folder",
         command=lambda: os.startfile(get_specs_folder()))
      .grid(
         row=current_row,
@@ -725,7 +726,7 @@ def start_main_gui():
     current_row += 1
     launch_spec_table = ttk.Button(
         main_frame,
-        text='Open Specifications table',
+        text='Specifications table',
         command=lambda: gui.specs_table.SpecsTable(
             root_widget=root,
             parent_widget=root,
@@ -742,7 +743,7 @@ def start_main_gui():
     # Row: Table containing all 3GPP meetings
     launch_meetings_table = ttk.Button(
         main_frame,
-        text='Open Meetings table',
+        text='Meetings table',
         command=lambda: gui.meetings_table.MeetingsTable(
             root_widget=root,
             parent_widget=root,
@@ -759,7 +760,7 @@ def start_main_gui():
     # Row: Table containing all 3GPP WIs
     launch_spec_table = ttk.Button(
         main_frame,
-        text='Open 3GPP WI table',
+        text='3GPP WI table',
         command=lambda: gui.work_items_table.WorkItemsTable(
             root_widget=root,
             parent_widget=root,
