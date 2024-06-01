@@ -71,7 +71,7 @@ tkvar_last_agenda_vtext = tkinter.StringVar(root)
 tkvar_tdoc_download_result = tkinter.StringVar()
 tkvar_tdoc_id = tkinter.StringVar(root)
 tkvar_tdoc_id_full = tkinter.StringVar(root)
-tkvar_search_tdoc = tkinter.IntVar(root)
+tkvar_global_tdoc_search = tkinter.IntVar(root)
 
 tkvar_tdocs_by_agenda_exist = tkinter.BooleanVar(root)
 tkvar_last_doc_tdoc = tkinter.StringVar(root)
@@ -88,7 +88,7 @@ tkvar_tdocs_by_agenda_path.set('')
 tkvar_last_agenda_version.set('')
 tkvar_tdoc_download_result.set('')
 tkvar_tdoc_id.set('S2-XXXXXXX')
-tkvar_search_tdoc.set(0)
+tkvar_global_tdoc_search.set(0)
 tkvar_tdocs_by_agenda_exist.set(False)
 
 tkvar_last_doc_tdoc.set('')
@@ -427,7 +427,7 @@ def download_and_open_tdoc(
         tdoc_id = tdoc_id_to_override
 
     # If we are performing a global TDoc search
-    if tkvar_search_tdoc.get():
+    if tkvar_global_tdoc_search.get():
         print(f'Will search for TDoc {tdoc_id}')
         retrieved_files, metadata_list = server.tdoc_search.search_download_and_open_tdoc(tdoc_id)
         if retrieved_files is None:
@@ -516,7 +516,7 @@ def start_main_gui():
     def set_tdoc_id_full(*args):
         # Sets the label for the download button
         tdoc_id = tkvar_tdoc_id.get()
-        if tkvar_search_tdoc.get():
+        if tkvar_global_tdoc_search.get():
             command_string = 'Search'
         else:
             command_string = 'Open'
@@ -533,7 +533,7 @@ def start_main_gui():
 
     set_tdoc_id_full()
     tkvar_tdoc_id.trace('w', set_tdoc_id_full)
-    tkvar_search_tdoc.trace('w', set_tdoc_id_full)
+    tkvar_global_tdoc_search.trace('w', set_tdoc_id_full)
 
     # Row: Network configuration and application data update
     current_row = 0
@@ -624,7 +624,7 @@ def start_main_gui():
     (ttk.Checkbutton(
         main_frame,
         text='Search all WGs/meetings',
-        variable=tkvar_search_tdoc)
+        variable=tkvar_global_tdoc_search)
      .grid(
         row=current_row,
         column=2,
@@ -774,6 +774,54 @@ def start_main_gui():
         sticky="EW",
         padx=10
      ))
+
+    def compare_tdocs():
+        if not tkvar_global_tdoc_search.get():
+            # Code when using the current meeting information (SA2)
+            parsing.word.pywin32.compare_tdocs(
+                get_entry_1_fn=tkvar_tdoc_to_compare_1.get,
+                get_entry_2_fn=tkvar_tdoc_to_compare_2.get)
+        else:
+            # Global search
+            server.tdoc_search.compare_two_tdocs(tkvar_tdoc_to_compare_1.get(), tkvar_tdoc_to_compare_2.get())
+
+    # Row: Compare two TDocs
+    current_row += 1
+    compare_tdocs_button = ttk.Button(
+        main_frame,
+        text="Compare TDocs (left vs. right)",
+        command=compare_tdocs)
+    compare_tdocs_button.grid(
+        row=current_row,
+        column=0,
+        columnspan=1,
+        sticky="EW",
+        padx=10)
+
+    tkvar_tdoc_to_compare_1 = tkinter.StringVar(main_frame)
+    tdoc_to_compare_1_entry = tkinter.Entry(
+        main_frame,
+        textvariable=tkvar_tdoc_to_compare_1,
+        width=25)
+    tdoc_to_compare_1_entry.insert(0, '')
+    tdoc_to_compare_1_entry.grid(
+        row=current_row,
+        column=1,
+        columnspan=1,
+        sticky="EW")
+
+    tkvar_tdoc_to_compare_2 = tkinter.StringVar(main_frame)
+    tdoc_to_compare_2_entry = tkinter.Entry(
+        main_frame,
+        textvariable=tkvar_tdoc_to_compare_2,
+        width=25)
+    tdoc_to_compare_2_entry.insert(0, '')
+    tdoc_to_compare_2_entry.grid(
+        row=current_row,
+        column=2,
+        columnspan=1,
+        padx=10,
+        sticky="EW")
 
     # Override TDocs by Agenda if it is malformed
     current_row += 1

@@ -3,8 +3,8 @@ import os
 import os.path
 import threading
 import tkinter
-from tkinter import ttk
 import traceback
+from tkinter import ttk
 from typing import List, Callable
 
 import pandas
@@ -32,7 +32,6 @@ import utils.local_cache
 from gui.common.tkinter_widget import TkWidget
 from parsing.html.chairnotes import chairnotes_file_to_dataframe
 from parsing.html.revisions import extract_tdoc_revisions_from_html
-from server.specs import get_specs_folder
 from utils.threading import do_something_on_thread
 
 
@@ -45,7 +44,6 @@ class ToolsDialog(TkWidget):
     word_report_text = 'Word report for AIs (empty=all)'
     bulk_tdoc_open_text = "Cache TDocs"
     bulk_ai_open_text = "Cache AIs (empty=all)"
-    compare_tdocs_text = "Compare TDocs (left vs. right)"
 
     def __init__(
             self,
@@ -151,33 +149,6 @@ class ToolsDialog(TkWidget):
             font='TkDefaultFont')
         self.ai_list_entry.insert(0, '')
         self.ai_list_entry.grid(row=6, column=3, columnspan=1, padx=10, pady=10, sticky="EW")
-
-        # Row 7: Compare
-        self.compare_tdocs_button = ttk.Button(
-            self.tk_top,
-            text=ToolsDialog.compare_tdocs_text,
-            command=lambda: parsing.word.pywin32.compare_tdocs(
-                get_entry_1_fn=self.tkvar_tdoc_to_compare_1.get,
-                get_entry_2_fn=self.tkvar_tdoc_to_compare_2.get))
-        self.compare_tdocs_button.grid(row=7, column=0, columnspan=1, sticky="EW")
-
-        self.tkvar_tdoc_to_compare_1 = tkinter.StringVar(self.tk_top)
-        self.tdoc_to_compare_1_entry = tkinter.Entry(
-            self.tk_top,
-            textvariable=self.tkvar_tdoc_to_compare_1,
-            width=30,
-            font='TkDefaultFont')
-        self.tdoc_to_compare_1_entry.insert(0, '')
-        self.tdoc_to_compare_1_entry.grid(row=7, column=1, columnspan=1, padx=10, pady=10, sticky="EW")
-
-        self.tkvar_tdoc_to_compare_2 = tkinter.StringVar(self.tk_top)
-        self.tdoc_to_compare_2_entry = tkinter.Entry(
-            self.tk_top,
-            textvariable=self.tkvar_tdoc_to_compare_2,
-            width=30,
-            font='TkDefaultFont')
-        self.tdoc_to_compare_2_entry.insert(0, '')
-        self.tdoc_to_compare_2_entry.grid(row=7, column=2, columnspan=1, padx=10, pady=10, sticky="EW")
 
         # Row 8: Replace Author names in active document
         self.replace_author_names_button = ttk.Button(

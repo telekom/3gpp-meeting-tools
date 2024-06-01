@@ -5,14 +5,13 @@ from typing import List
 
 import pyperclip
 
-import parsing.word.pywin32 as word_parser
 import server
 from application.excel import open_excel_document
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from server import tdoc_search
 from server.common import download_file_to_location
-from server.tdoc_search import MeetingEntry, search_meeting_for_tdoc
+from server.tdoc_search import MeetingEntry, search_meeting_for_tdoc, compare_two_tdocs
 from tdoc.utils import is_generic_tdoc
 from utils.local_cache import file_exists
 import gui.common.utils
@@ -22,9 +21,9 @@ class MeetingsTable(GenericTable):
 
     def __init__(
             self,
-            root_widget: tkinter.Tk,
+            root_widget: tkinter.Tk | None,
             favicon,
-            parent_widget: tkinter.Tk):
+            parent_widget: tkinter.Tk | None):
         super().__init__(
             parent_widget=parent_widget,
             widget_title="Meetings Table. Double-click start date for invitation. End date for report",
@@ -228,7 +227,8 @@ class MeetingsTable(GenericTable):
         item_values = self.tree.item(item_id)['values']
         try:
             actual_value = item_values[column]
-        except:
+        except Exception as e:
+            print(f'Could not process TreeView double-click: {e}')
             actual_value = None
 
         meeting_name = item_values[0]
@@ -290,13 +290,7 @@ class MeetingsTable(GenericTable):
         tdoc1_to_open = self.tdoc
         tdoc2_to_open = self.original_tdoc
 
-        print(f'Comparing {tdoc2_to_open}  (original) vs. {tdoc1_to_open}')
-        opened_docs1, metadata1 = server.tdoc_search.search_download_and_open_tdoc(tdoc1_to_open, skip_open=True)
-        opened_docs2, metadata2 = server.tdoc_search.search_download_and_open_tdoc(tdoc2_to_open, skip_open=True)
-        doc_1 = metadata1[0].path
-        doc_2 = metadata2[0].path
-        print(f'Comparing {doc_2} vs. {doc_1}')
-        word_parser.compare_documents(doc_2, doc_1)
+        compare_two_tdocs(tdoc1_to_open, tdoc2_to_open)
 
     @property
     def tdoc(self) -> str | None:
@@ -347,5 +341,3 @@ class MeetingsTable(GenericTable):
         else:
             self.compare_text_tk_str.set("To compare TDocs, input two TDocs to compare")
             self.button_compare_tdoc.configure(state=tkinter.DISABLED)
-
-
