@@ -9,7 +9,14 @@ class TkWidget:
             widget_title: str | None = None,
             favicon: str | None = None
     ):
+        """
 
+        Args:
+            root_widget: The root widget
+            parent_widget: The caller GUI (e.g. tools dialog)
+            widget_title: The title of this GUI. Will appear at the top of the GUI
+            favicon: Icon to show in the top-left corner of this GUI. File path
+        """
         self.root_widget: tkinter.Tk = root_widget
         self.parent_widget: tkinter.Tk = parent_widget
         self.class_type = type(self).__name__

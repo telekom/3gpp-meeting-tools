@@ -53,7 +53,7 @@ class GenericTable(TkWidget):
 
     def __init__(
             self,
-            parent_widget: tkinter.Tk,
+            parent_widget: tkinter.Tk | None,
             widget_title: str,
             favicon,
             column_names: List[str],
@@ -64,11 +64,12 @@ class GenericTable(TkWidget):
         """
         Base class for table GUIs in this application
         Args:
+            root_widget: The root widget
             display_rows: Number of rows to display in widget
             row_height: Row height for each row in the widget
             parent_widget: The caller GUI (e.g. tools dialog)
             widget_title: The title of this GUI. Will appear at the top of the GUI
-            favicon: Icon to show in the top-left corner of this GUI
+            favicon: Icon to show in the top-left corner of this GUI. File path
         """
 
         super().__init__(

@@ -314,7 +314,8 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
         if a_url is None:
             return a_url
         return (a_url
-                .replace('ftpTSG_SA', 'ftp/TSG_SA') # See https://www.3gpp.org/dynareport?code=Meetings-S5.htm for SA5#154
+                .replace('ftpTSG_SA',
+                         'ftp/TSG_SA')  # See https://www.3gpp.org/dynareport?code=Meetings-S5.htm for SA5#154
                 .replace(r'\\', '/')
                 .replace('/../../..//ftp/', 'https://www.3gpp.org/ftp/')
                 .replace('//', '/')
@@ -545,3 +546,13 @@ def search_download_and_open_tdoc(
             path=m)
             for m in files_in_zip if m is not None if (m is not None) and (('.doc' in m) or '.docx' in m)]
     return opened_files, metadata_list
+
+
+def compare_two_tdocs(tdoc1_to_open: str, tdoc2_to_open: str):
+    print(f'Comparing {tdoc2_to_open}  (original) vs. {tdoc1_to_open}')
+    opened_docs1, metadata1 = search_download_and_open_tdoc(tdoc1_to_open, skip_open=True)
+    opened_docs2, metadata2 = search_download_and_open_tdoc(tdoc2_to_open, skip_open=True)
+    doc_1 = metadata1[0].path
+    doc_2 = metadata2[0].path
+    print(f'Comparing {doc_2} vs. {doc_1}')
+    parsing.word.pywin32.compare_documents(doc_2, doc_1)

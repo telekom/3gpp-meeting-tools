@@ -34,7 +34,10 @@ launch_spec_table.grid(row=0, column=0, columnspan=1, sticky="EW")
 launch_spec_table = ttk.Button(
     main_frame,
     text='Open Meetings table',
-    command=lambda: gui.meetings_table.MeetingsTable(tk_root, gui.common.utils.favicon, None))
+    command=lambda: gui.meetings_table.MeetingsTable(
+        root_widget=tk_root,
+        favicon=gui.common.utils.favicon,
+        parent_widget=None))
 launch_spec_table.grid(row=0, column=1, columnspan=1, sticky="EW")
 
 # Row 4: Table containing all 3GPP WIs
