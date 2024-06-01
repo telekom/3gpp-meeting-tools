@@ -6,7 +6,7 @@ from enum import Enum
 from typing import NamedTuple, List
 
 from server.connection import get_remote_file
-from utils.local_cache import get_sa2_root_folder_local_cache, file_exists
+from utils.local_cache import get_sa2_root_folder_local_cache
 
 """Retrieves data from the 3GPP web server"""
 default_http_proxy = 'http://lanbctest:8080'
@@ -153,11 +153,6 @@ def decode_string(str_to_decode: bytes, log_name, print_error=False) -> str | by
 
     print(f"Could not decode {log_name}. Returning HTML as-is")
     return str_to_decode
-
-
-def get_sa2_tdoc_list(meeting_folder_name):
-    url = get_remote_meeting_folder(meeting_folder_name, use_private_server=False) + 'TdocsByAgenda.htm'
-    return get_remote_file(url)
 
 
 def get_remote_meeting_folder(

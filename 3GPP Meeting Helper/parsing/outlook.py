@@ -102,8 +102,8 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
             else:
                 # Avoid repeated calls to get_tdoc()
                 pass
-            local_folder_for_tdoc = server.tdoc.get_local_folder(local_meeting_folder, tdoc_id, create_dir=True,
-                                                            email_approval=True)
+            local_folder_for_tdoc = server.tdoc.get_local_folder_for_tdoc(local_meeting_folder, tdoc_id, create_dir=True,
+                                                                          email_approval=True)
 
             try:
                 sender = mail_item.Sender
