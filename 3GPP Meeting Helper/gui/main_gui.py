@@ -59,6 +59,7 @@ tk_combobox_meetings = ttk.Combobox(
 tkvar_3gpp_wifi_available = tkinter.BooleanVar(root)
 
 
+
 def set_3gpp_network_status_in_application_info(*args):
     application.meeting_helper.last_known_3gpp_network_status = tkvar_3gpp_wifi_available.get()
 
@@ -512,8 +513,24 @@ def start_main_gui():
     tk_combobox_meetings['values'] = application.meeting_helper.sa2_meeting_data.meeting_names
     tk_combobox_meetings['font'] = font_big
 
+    def compare_tdocs():
+        if not tkvar_global_tdoc_search.get():
+            # Code when using the current meeting information (SA2)
+            parsing.word.pywin32.compare_tdocs(
+                get_entry_1_fn=tkvar_tdoc_to_compare_1.get,
+                get_entry_2_fn=tkvar_tdoc_to_compare_2.get)
+        else:
+            # Global search
+            server.tdoc_search.compare_two_tdocs(tkvar_tdoc_to_compare_1.get(), tkvar_tdoc_to_compare_2.get())
+
+    compare_tdocs_button_str = "Compare TDocs for{0} meeting (left vs. right)"
+    compare_tdocs_button = ttk.Button(
+        main_frame,
+        text=compare_tdocs_button_str.format(' this'),
+        command=compare_tdocs)
+
     # Variable-change callbacks
-    def set_tdoc_id_full(*args):
+    def on_change_global_search(*args):
         # Sets the label for the download button
         tdoc_id = tkvar_tdoc_id.get()
         if tkvar_global_tdoc_search.get():
@@ -531,9 +548,15 @@ def start_main_gui():
             # Disable button
             open_tdoc_button.configure(state=tkinter.DISABLED)
 
-    set_tdoc_id_full()
-    tkvar_tdoc_id.trace('w', set_tdoc_id_full)
-    tkvar_global_tdoc_search.trace('w', set_tdoc_id_full)
+        # Set the label for the compare button
+        if tkvar_global_tdoc_search.get():
+            compare_tdocs_button['text'] = compare_tdocs_button_str.format(' this')
+        else:
+            compare_tdocs_button['text'] = compare_tdocs_button_str.format(' all')
+
+    on_change_global_search()
+    tkvar_tdoc_id.trace('w', on_change_global_search)
+    tkvar_global_tdoc_search.trace('w', on_change_global_search)
 
     # Row: Network configuration and application data update
     current_row = 0
@@ -775,22 +798,8 @@ def start_main_gui():
         padx=10
      ))
 
-    def compare_tdocs():
-        if not tkvar_global_tdoc_search.get():
-            # Code when using the current meeting information (SA2)
-            parsing.word.pywin32.compare_tdocs(
-                get_entry_1_fn=tkvar_tdoc_to_compare_1.get,
-                get_entry_2_fn=tkvar_tdoc_to_compare_2.get)
-        else:
-            # Global search
-            server.tdoc_search.compare_two_tdocs(tkvar_tdoc_to_compare_1.get(), tkvar_tdoc_to_compare_2.get())
-
     # Row: Compare two TDocs
     current_row += 1
-    compare_tdocs_button = ttk.Button(
-        main_frame,
-        text="Compare TDocs (left vs. right)",
-        command=compare_tdocs)
     compare_tdocs_button.grid(
         row=current_row,
         column=0,

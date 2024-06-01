@@ -1314,7 +1314,8 @@ def compare_tdocs(
         print(f'TDoc to compare 2: {tdocs_2}. Input: {entry_2}')
 
         if len(tdocs_1) == 0 or len(tdocs_2) == 0:
-            print('Need two TDocs to compare. One of them does not contain TDocs')
+            print('Need two TDocs to compare. One of them does not contain TDocs. Maybe TDocsByAgenda is outdated? '
+                  'Or a local search was performed and not all TDocs are from this meeting?')
             return
 
         tdocs_1 = tdocs_1[0]
