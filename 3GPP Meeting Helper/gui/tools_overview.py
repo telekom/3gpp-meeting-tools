@@ -259,7 +259,7 @@ class ToolsDialog(TkWidget):
                 selected_meeting)
             output_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
                 output_meeting)
-            inbox_active = gui.main_gui.inbox_is_for_this_meeting()
+            inbox_active = False
 
             input_local_agenda_file = server.agenda.download_agenda_file(selected_meeting, inbox_active)
             if input_local_agenda_file is None:
