@@ -592,9 +592,6 @@ class RevisionsTable(GenericTable):
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        self.footer_label = tkinter.StringVar()
-        self.set_footer_label()
-        ttk.Label(self.bottom_frame, textvariable=self.footer_label).pack(side=tkinter.LEFT)
         ttk.Label(self.bottom_frame, textvariable=self.compare_a).pack(side=tkinter.LEFT)
         ttk.Label(self.bottom_frame, text='  vs.  ').pack(side=tkinter.LEFT)
         ttk.Label(self.bottom_frame, textvariable=self.compare_b).pack(side=tkinter.LEFT)
@@ -609,9 +606,6 @@ class RevisionsTable(GenericTable):
         self.insert_rows(revisions)
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
-
-    def set_footer_label(self):
-        self.footer_label.set("{0} Documents. ".format(self.count))
 
     def insert_rows(self, df):
         count = 0
@@ -655,7 +649,6 @@ class RevisionsTable(GenericTable):
 
         self.count = count
         treeview_set_row_formatting(self.tree)
-        self.set_footer_label()
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
