@@ -31,7 +31,7 @@ import utils.threading
 from application.tkinter_config import root, font_big, ttk_style_tbutton_medium
 from gui.common.utils import favicon
 from server.specs import get_specs_folder
-from server.tdocs_by_agenda import get_tdocs_by_agenda_for_specific_meeting
+from server.tdocs_by_agenda import get_tdocs_by_agenda_for_specific_meeting, get_sa2_inbox_tdoc_list
 
 # tkinter initialization
 root.title("3GPP SA2 Meeting helper")
@@ -185,7 +185,7 @@ def load_application_data(reload_inbox_tdocs_by_agenda=False):
     """
     global inbox_tdoc_list_html
 
-    tdocs_by_agenda_from_sa2_inbox_bytes = server.tdoc.get_sa2_inbox_tdoc_list(
+    tdocs_by_agenda_from_sa2_inbox_bytes = get_sa2_inbox_tdoc_list(
         open_tdocs_by_agenda_in_browser=False,
         use_cached_file_if_available=not reload_inbox_tdocs_by_agenda)
 
@@ -237,7 +237,7 @@ def detect_3gpp_network_state(loop=True, interval_ms=10000):
 
     if new_state != previous_state:
         print(f'Changed 3GPP network state from {previous_state} to {new_state}')
-        cache_tdocsbyagenda_path = server.tdoc.get_private_server_tdocs_by_agenda_local_cache()
+        cache_tdocsbyagenda_path = utils.local_cache.get_private_server_tdocs_by_agenda_local_cache()
         tdocsbyagenda_url = server.common.tdocs_by_agenda_for_checking_meeting_number_in_meeting
 
         if new_state:
