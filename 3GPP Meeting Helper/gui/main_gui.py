@@ -18,17 +18,20 @@ import gui.tools_overview
 import gui.work_items_table
 import parsing.html.common
 import parsing.html.common as html_parser
+import parsing.html.tdocs_by_agenda
 import parsing.word.pywin32
 import server.agenda
 import server.common
 import server.tdoc
 import server.tdoc_search
+import server.tdocs_by_agenda
 import tdoc.utils
 import utils.local_cache
 import utils.threading
 from application.tkinter_config import root, font_big, ttk_style_tbutton_medium
 from gui.common.utils import favicon
 from server.specs import get_specs_folder
+from server.tdocs_by_agenda import get_tdocs_by_agenda_for_specific_meeting
 
 # tkinter initialization
 root.title("3GPP SA2 Meeting helper")
@@ -57,7 +60,6 @@ tk_combobox_meetings = ttk.Combobox(
     textvariable=tkvar_meeting,
 )
 tkvar_3gpp_wifi_available = tkinter.BooleanVar(root)
-
 
 
 def set_3gpp_network_status_in_application_info(*args):
@@ -191,7 +193,7 @@ def load_application_data(reload_inbox_tdocs_by_agenda=False):
     inbox_tdoc_list_html = get_tdocs_by_agenda_file_or_url(tdocs_by_agenda_from_sa2_inbox_bytes)
 
     # Parse TdocsByAgenda contents
-    application.meeting_helper.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(
+    application.meeting_helper.current_tdocs_by_agenda = parsing.html.tdocs_by_agenda.get_tdocs_by_agenda_with_cache(
         inbox_tdoc_list_html)
 
     # Load SA2 meeting data
@@ -248,7 +250,7 @@ def detect_3gpp_network_state(loop=True, interval_ms=10000):
                 if utils.local_cache.file_exists(cache_tdocsbyagenda_path):
                     with open(cache_tdocsbyagenda_path, "r") as f:
                         cache_tdocsbyagenda_html_str = f.read()
-                    meeting_number = parsing.html.common.TdocsByAgendaData.get_meeting_number(
+                    meeting_number = parsing.html.tdocs_by_agenda.TdocsByAgendaData.get_meeting_number(
                         cache_tdocsbyagenda_html_str)
                     meeting_data = application.meeting_helper.sa2_meeting_data
                     meeting_text = meeting_data.get_meeting_text_for_given_meeting_number(meeting_number)
@@ -313,67 +315,45 @@ def search_netovate():
 
 
 # Downloads the TDocs by Agenda file
-def open_tdocs_by_agenda(open_this_file=True) -> parsing.html.common.TdocsByAgendaData | None:
-    try:
-        (meeting_server_folder, local_file) = get_local_tdocs_by_agenda_filename_for_current_meeting()
-        if meeting_server_folder is None:
+def open_tdocs_by_agenda(
+        open_this_file=True,
+        meeting_server_folder: str | None = None
+) -> parsing.html.tdocs_by_agenda.TdocsByAgendaData | None:
+    """
+    Retrieves the TdocsByAgenda file for this meeting (or a specific meeting)
+    Args:
+        meeting_server_folder: If specified, manually a given meeting server folder to use
+        open_this_file: Whether to open the file after the function call
+
+    Returns:
+
+    """
+    if meeting_server_folder is None:
+        try:
+            (meeting_server_folder, local_file) = get_local_tdocs_by_agenda_filename_for_current_meeting()
+            if meeting_server_folder is None:
+                return None
+        except Exception as e:
+            print(f'Could not get local TdocsByAgenda {e}')
             return None
-    except Exception as e:
-        print(f'Could not get local TdocsByAgenda {e}')
-        return None
+    # local_file is not needed, so no need to call utils.local_cache.get_tdocs_by_agenda_filename(meeting_server_folder)
 
     # Save opened Tdocs by Agenda file to global application
-    html = get_tdocs_by_agenda_for_selected_meeting(
+    tdocs_by_agenda_data = get_tdocs_by_agenda_for_specific_meeting(
         meeting_server_folder,
-        open_tdocs_by_agenda_in_browser=open_this_file)
-    print('Retrieved local TDocsByAgenda data for {0}. Parsing TDocs'.format(meeting_server_folder))
-    application.meeting_helper.current_tdocs_by_agenda = html_parser.get_tdocs_by_agenda_with_cache(
-        html,
+        use_private_server=tkvar_3gpp_wifi_available.get(),
+        open_tdocs_by_agenda_in_browser=open_this_file,
+        get_revisions_file=True,
+        get_drafts_file=True
+    )
+
+    # Updates global repository in application data object
+    print(f'Retrieved local TDocsByAgenda data for meeting {meeting_server_folder}. Parsing TDocs')
+    application.meeting_helper.current_tdocs_by_agenda = parsing.html.tdocs_by_agenda.get_tdocs_by_agenda_with_cache(
+        tdocs_by_agenda_data.tdocs_by_agenda_html_bytes,
         meeting_server_folder=meeting_server_folder)
 
-    utils.local_cache.write_data_and_open_file(html, local_file)
     return application.meeting_helper.current_tdocs_by_agenda
-
-
-def get_tdocs_by_agenda_for_selected_meeting(
-        meeting_folder,
-        return_revisions_file=False,
-        return_drafts_file=False,
-        open_tdocs_by_agenda_in_browser=False):
-    return_data = server.tdoc.get_tdocs_by_agenda_for_selected_meeting(
-        meeting_folder=meeting_folder,
-        use_private_server=tkvar_3gpp_wifi_available.get(),
-        open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
-
-    # Optional download of revisions
-    revisions_file = None
-    if return_revisions_file:
-        try:
-            revisions_file = server.tdoc.download_revisions_file(meeting_folder)
-        except Exception as e:
-            # Not all meetings have revisions
-            # traceback.print_exc()
-            print(f'Exception downloading revisions file for {meeting_folder}: {e}')
-            pass
-
-    # Optional download of drafts
-    drafts_file = None
-    if return_drafts_file:
-        try:
-            drafts_file = server.tdoc.download_drafts_file(meeting_folder)
-        except Exception as e:
-            # Not all meetings have drafts
-            # traceback.print_exc()
-            print(f'Could not download drafts folder for {meeting_folder}: {e}')
-            pass
-
-    if return_revisions_file and return_drafts_file:
-        return return_data, revisions_file, drafts_file
-
-    if return_revisions_file and not return_drafts_file:
-        return return_data, revisions_file
-
-    return return_data
 
 
 def get_local_tdocs_by_agenda_filename_for_current_meeting() -> Tuple[str, str] | Tuple[None, None] | None:
@@ -390,7 +370,7 @@ def get_local_tdocs_by_agenda_filename_for_current_meeting() -> Tuple[str, str] 
             print('Get TdocsByAgenda for {0} from local file'.format(current_selection))
         meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
             current_selection)
-        local_file = server.tdoc.get_local_tdocs_by_agenda_filename(meeting_server_folder)
+        local_file = utils.local_cache.get_tdocs_by_agenda_filename(meeting_server_folder)
 
         return meeting_server_folder, local_file
     except Exception as e:
@@ -442,19 +422,11 @@ def download_and_open_tdoc(
     meeting_folder_name = meeting_data.get_server_folder_for_meeting_choice(meeting_name)
 
     using_private_server = tkvar_3gpp_wifi_available.get()
-    if using_private_server:
-        additional_folders = ['ftp/SA/SA2/Inbox/']
-    else:
-        additional_folders = [
-            f'ftp/tsg_sa/WG2_Arch/{meeting_folder_name}/INBOX/'
-        ]
 
     retrieved_files, tdoc_url = server.tdoc.get_tdoc(
         meeting_folder_name=meeting_folder_name,
         tdoc_id=tdoc_id,
-        server_type=server.common.ServerType.PRIVATE if using_private_server else server.common.ServerType.PUBLIC,
-        return_url=True,
-        additional_folders=additional_folders
+        server_type=server.common.ServerType.PRIVATE if using_private_server else server.common.ServerType.PUBLIC
     )
 
     if cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
@@ -567,7 +539,7 @@ def start_main_gui():
             root,
             favicon,
             on_update_ftp=gui.main_gui.update_ftp_button))
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         sticky="EW",
@@ -577,7 +549,7 @@ def start_main_gui():
         main_frame,
         text='Reload meeting info',
         command=lambda: load_application_data(reload_inbox_tdocs_by_agenda=True))
-     .grid(
+    .grid(
         row=current_row,
         column=1,
         sticky="EW",
@@ -670,19 +642,26 @@ def start_main_gui():
         padx=10
     ))
 
-    tdoc_table_button = ttk.Button(
-        main_frame,
-        text='Tdoc table',
-        command=lambda: gui.tdocs_table.TdocsTable(
+    def on_open_tdocs_table_button():
+        (meeting_server_folder, local_file) = get_local_tdocs_by_agenda_filename_for_current_meeting()
+        gui.tdocs_table.TdocsTable(
             favicon=favicon,
             parent_widget=root,
             meeting_name=gui.main_gui.tkvar_meeting.get(),
-            retrieve_current_tdocs_by_agenda_fn=lambda: gui.main_gui.open_tdocs_by_agenda(open_this_file=False),
-            get_tdocs_by_agenda_for_selected_meeting_fn=gui.main_gui.get_tdocs_by_agenda_for_selected_meeting,
+            meeting_server_folder=meeting_server_folder,
             download_and_open_tdoc_fn=gui.main_gui.download_and_open_tdoc,
-            get_current_meeting_name_fn=gui.main_gui.tkvar_meeting.get,
-            download_and_open_generic_tdoc_fn=server.tdoc_search.search_download_and_open_tdoc
-        ))
+            update_tdocs_by_agenda_fn=lambda: open_tdocs_by_agenda(
+                open_this_file=False,
+                meeting_server_folder=meeting_server_folder
+            ),
+            download_and_open_generic_tdoc_fn=server.tdoc_search.search_download_and_open_tdoc,
+            get_current_meeting_name_fn=tkvar_meeting.get
+        )
+
+    tdoc_table_button = ttk.Button(
+        main_frame,
+        text='Tdoc table',
+        command=on_open_tdocs_table_button)
     (tdoc_table_button
      .grid(
         row=current_row,
@@ -690,14 +669,14 @@ def start_main_gui():
         columnspan=1,
         sticky="EW",
         padx=0
-     ))
+    ))
 
     # Add button to check Netovate (useful if you are searching for documents from other WGs
     (ttk.Button(
         main_frame,
         text='Search Netovate',
         command=search_netovate)
-     .grid(
+    .grid(
         row=current_row,
         column=2,
         sticky="EW",
@@ -710,7 +689,7 @@ def start_main_gui():
         main_frame,
         text="Local meeting folder",
         command=open_local_meeting_folder)
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         columnspan=1,
@@ -721,7 +700,7 @@ def start_main_gui():
         main_frame,
         text="Local specs folder",
         command=lambda: os.startfile(get_specs_folder()))
-     .grid(
+    .grid(
         row=current_row,
         column=1,
         columnspan=1,
@@ -732,7 +711,7 @@ def start_main_gui():
         main_frame,
         text="Close Word",
         command=application.word.close_word)
-     .grid(
+    .grid(
         row=current_row,
         column=2,
         columnspan=1,
@@ -756,13 +735,13 @@ def start_main_gui():
             parent_widget=root,
             favicon=favicon))
     (launch_spec_table
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         columnspan=1,
         sticky="EW",
         padx=10
-     ))
+    ))
 
     # Row: Table containing all 3GPP meetings
     launch_meetings_table = ttk.Button(
@@ -773,13 +752,13 @@ def start_main_gui():
             parent_widget=root,
             favicon=favicon))
     (launch_meetings_table
-     .grid(
+    .grid(
         row=current_row,
         column=1,
         columnspan=1,
         sticky="EW",
         padx=0
-     ))
+    ))
 
     # Row: Table containing all 3GPP WIs
     launch_spec_table = ttk.Button(
@@ -790,13 +769,13 @@ def start_main_gui():
             parent_widget=root,
             favicon=favicon))
     (launch_spec_table
-     .grid(
+    .grid(
         row=current_row,
         column=2,
         columnspan=1,
         sticky="EW",
         padx=10
-     ))
+    ))
 
     # Row: Compare two TDocs
     current_row += 1
@@ -838,7 +817,7 @@ def start_main_gui():
         main_frame,
         text='Override Tdocs by agenda',
         variable=tkvar_override_tdocs_by_agenda)
-     .grid(
+    .grid(
         row=current_row,
         column=2,
         padx=10,
@@ -846,13 +825,13 @@ def start_main_gui():
     ))
     override_tdocs_by_agenda_entry.config(state='readonly')
     (override_tdocs_by_agenda_entry
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         padx=10,
         sticky=tkinter.W,
         columnspan=2
-     ))
+    ))
 
     def set_override_tdocs_by_agenda_var(*args):
         global last_override_tdocs_by_agenda
@@ -917,7 +896,7 @@ def start_main_gui():
     (ttk.Label(
         main_frame,
         textvariable=tkvar_tdoc_download_result)
-     .grid(
+    .grid(
         row=current_row,
         column=1,
         padx=10
@@ -925,7 +904,7 @@ def start_main_gui():
     (ttk.Label(
         main_frame,
         textvariable=tkvar_last_agenda_vtext)
-     .grid(
+    .grid(
         row=current_row,
         column=2,
         padx=10
@@ -936,7 +915,7 @@ def start_main_gui():
     (tkinter.ttk.Separator(
         main_frame,
         orient=tkinter.HORIZONTAL)
-     .grid(
+    .grid(
         row=current_row,
         columnspan=3,
         sticky="WE",
@@ -947,7 +926,7 @@ def start_main_gui():
     (ttk.Label(
         main_frame,
         text='Last opened document:')
-     .grid(
+    .grid(
         row=current_row,
         column=0,
         sticky=tkinter.W,

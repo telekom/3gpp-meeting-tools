@@ -7,5 +7,5 @@ import os
 import parsing.html.tdocs_by_agenda
 
 file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tests', 'tdocs_by_agenda', '136_v2.html')
-meeting = parsing.html.common.TdocsByAgendaData(file_name, v=2)
+meeting = parsing.html.tdocs_by_agenda.TdocsByAgendaData(file_name, v=2)
 print(meeting)

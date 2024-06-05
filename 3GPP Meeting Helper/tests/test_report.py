@@ -85,7 +85,7 @@ class Test_test_report(unittest.TestCase):
     def test_test_df_by_wi_sa134_broken_formatting(self):
         html = '134-2.html'
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', html)
-        tdocs_by_agenda = parsing.html.common.TdocsByAgendaData(file_name)
+        tdocs_by_agenda = parsing.html.tdocs_by_agenda.TdocsByAgendaData(file_name)
         df = tdocs_by_agenda.tdocs
 
         # Broken between 6.14 and 6.15.1
@@ -99,7 +99,7 @@ class Test_test_report(unittest.TestCase):
     def test_test_df_by_wi_sa134(self):
         html = '134-2.html'
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', html)
-        tdocs_by_agenda = parsing.html.common.TdocsByAgendaData(file_name)
+        tdocs_by_agenda = parsing.html.tdocs_by_agenda.TdocsByAgendaData(file_name)
         df = tdocs_by_agenda.tdocs
 
         doc = application.word.open_word_document()
@@ -110,7 +110,7 @@ class Test_test_report(unittest.TestCase):
         html = '134-2.html'
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', html)
         template = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'reports', 'Report_3GPP_DT_template.docx')
-        tdocs_by_agenda = parsing.html.common.TdocsByAgendaData(file_name)
+        tdocs_by_agenda = parsing.html.tdocs_by_agenda.TdocsByAgendaData(file_name)
         df = tdocs_by_agenda.tdocs
 
         doc = application.word.open_word_document(filename=template)
@@ -141,7 +141,7 @@ class Test_test_report(unittest.TestCase):
     def test_test_df_by_wi_sa134_DT_dtocs(self):
         html = '134-2.html'
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda', html)
-        tdocs_by_agenda = parsing.html.common.TdocsByAgendaData(file_name)
+        tdocs_by_agenda = parsing.html.tdocs_by_agenda.TdocsByAgendaData(file_name)
         df = tdocs_by_agenda.tdocs
 
         ais_to_output = ['6.14', '6.15', '6.15.1']

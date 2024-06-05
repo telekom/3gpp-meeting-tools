@@ -194,3 +194,8 @@ def get_work_items_cache_folder(create_dir=True):
     folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'work_items', 'server_cache'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
+
+
+def get_tdocs_by_agenda_filename(meeting_folder_name):
+    folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
+    return os.path.join(folder, 'TdocsByAgenda.htm')
