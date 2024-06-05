@@ -112,9 +112,11 @@ def get_document_or_folder_url(
                         else [f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/DRAFTS/']
                 case _:
                     # Revision
-                    # No revisions in F2F meetings
+                    # No revisions in F2F meetings (at least during the F2F phase)
                     folders = [] if server_type == ServerType.PRIVATE \
-                        else [f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/Revisions/']
+                        else [
+                        f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/Revisions/',
+                        f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/e-mail_Approval/Revisions/']
     target_folders = [host_address + folder for folder in folders]
 
     print(f'Target folder for meeting '

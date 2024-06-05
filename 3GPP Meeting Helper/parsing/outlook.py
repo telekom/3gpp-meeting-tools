@@ -96,8 +96,7 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                 server.tdoc.get_tdoc(
                     local_meeting_folder,
                     tdoc_id,
-                    server_type=server.common.ServerType.PRIVATE if download_from_inbox else server.common.ServerType.PUBLIC,
-                    return_url=True)
+                    server_type=server.common.ServerType.PRIVATE if download_from_inbox else server.common.ServerType.PUBLIC)
                 checked_tdocs.add(tdoc_id)
             else:
                 # Avoid repeated calls to get_tdoc()

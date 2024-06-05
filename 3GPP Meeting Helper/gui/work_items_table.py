@@ -4,6 +4,8 @@ import tkinter
 from tkinter import ttk
 from typing import List
 
+import pyperclip
+
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from server import wi_search
@@ -223,7 +225,8 @@ class WorkItemsTable(GenericTable):
         item_values = self.tree.item(item_id)['values']
         try:
             actual_value = item_values[column]
-        except:
+        except Exception as e:
+            print(f'Could not retrieve value for item ID {item_id}: {e}')
             actual_value = None
 
         print("You clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
@@ -235,42 +238,43 @@ class WorkItemsTable(GenericTable):
             print("Empty value")
             return
 
-        if column == 0:
-            print(f'Clicked on WI {uid}')
-            url_to_open = wi[0].wid_page_url
-            open_url(url_to_open)
-
-        if column == 4:
-            print(f'Clicked on WI {uid}. Opening lead bodies')
-            urls_to_open = wi[0].wid_lead_body_list_urls
-            for url_to_open in urls_to_open:
+        match column:
+            case 0:
+                print(f'Clicked on WI {uid}')
+                url_to_open = wi[0].wid_page_url
                 open_url(url_to_open)
-
-        if column == 5:
-            print(f'Clicked on WID {uid}. Will download latest WID version from {wi[0].wid_page_url}')
-            url_to_open = wi[0].wid_page_url
-            html_bytes = get_remote_file(url_to_open, cache=True)
-            if html_bytes is None:
-                print(f'Could not retrieve HTML for WID {uid}')
-                return
-            html_str = html_bytes.decode("utf-8")
-            tdoc_match = tdoc_id_match_regex.search(html_str)
-            if tdoc_match is None:
-                print(f'Could not find WID in HTML for WID {uid}')
-                return
-            tdoc_id = tdoc_match.group(1)
-            print(f'Last WID version is {tdoc_id}')
-            search_download_and_open_tdoc(tdoc_id)
-
-        if column == 6:
-            print(f'Clicked on Spec list for WI {uid}')
-            url_to_open = wi[0].spec_list_url
-            open_url(url_to_open)
-
-        if column == 7:
-            print(f'Clicked on CR list for WI {uid}')
-            url_to_open = wi[0].cr_list_url
-            open_url(url_to_open)
+            case 4:
+                print(f'Clicked on WI {uid}. Opening lead bodies')
+                urls_to_open = wi[0].wid_lead_body_list_urls
+                for url_to_open in urls_to_open:
+                    open_url(url_to_open)
+            case 5:
+                print(f'Clicked on WID {uid}. Will download latest WID version from {wi[0].wid_page_url}')
+                url_to_open = wi[0].wid_page_url
+                html_bytes = get_remote_file(url_to_open, cache=True)
+                if html_bytes is None:
+                    print(f'Could not retrieve HTML for WID {uid}')
+                    return
+                html_str = html_bytes.decode("utf-8")
+                tdoc_match = tdoc_id_match_regex.search(html_str)
+                if tdoc_match is None:
+                    print(f'Could not find WID in HTML for WID {uid}')
+                    return
+                tdoc_id = tdoc_match.group(1)
+                print(f'Last WID version is {tdoc_id}')
+                opened_files, metadata_list = search_download_and_open_tdoc(tdoc_id)
+                if metadata_list is not None and len(metadata_list) > 0:
+                    wid_url = metadata_list[0].url
+                    print(f'Copied URL of latest WID to clipboard: {wid_url}')
+                    pyperclip.copy(wid_url)
+            case 6:
+                print(f'Clicked on Spec list for WI {uid}')
+                url_to_open = wi[0].spec_list_url
+                open_url(url_to_open)
+            case 7:
+                print(f'Clicked on CR list for WI {uid}')
+                url_to_open = wi[0].cr_list_url
+                open_url(url_to_open)
 
     def on_wi_search_change(self, *args):
         self.apply_filters()

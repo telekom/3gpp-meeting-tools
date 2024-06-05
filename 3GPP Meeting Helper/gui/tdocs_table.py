@@ -23,6 +23,7 @@ from gui.common.generic_table import GenericTable, treeview_sort_column, treevie
 from parsing.html.revisions import revisions_file_to_dataframe
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 from parsing.word.pywin32 import parse_list_of_crs
+from parsing.html.tdocs_by_agenda import TdocsByAgendaData
 
 
 class TdocsTable(GenericTable):
@@ -39,14 +40,26 @@ class TdocsTable(GenericTable):
             favicon,
             parent_widget: tkinter.Tk,
             meeting_name: str,
-            retrieve_current_tdocs_by_agenda_fn=None,
-            get_tdocs_by_agenda_for_selected_meeting_fn=None,
+            meeting_server_folder: str,
+            update_tdocs_by_agenda_fn: Callable[[], TdocsByAgendaData | None],
+            get_current_meeting_name_fn: Callable[[], str],
             download_and_open_tdoc_fn=None,
-            get_current_meeting_name_fn: Callable[..., str] | None = None,
             download_and_open_generic_tdoc_fn: Callable[[str], Tuple[Any, Any]] | None = None
 
     ):
-
+        """
+        Opens the TDoc table
+        Args:
+            favicon: The favicon to use
+            parent_widget: The parent widget
+            meeting_name: The meeting names (reader-friendly string)
+            meeting_server_folder: The folder name in the 3GPP server
+            update_tdocs_by_agenda_fn: A function that updates the TDocsByAgenda data in application.meeting_helper
+            get_current_meeting_name_fn: Retrieves the currently selected meeting (needed for choosing between the
+            generic and non-generic Tdoc retrieval functions
+            download_and_open_tdoc_fn: Retrieves a TDoc from the currently-selected meeting
+            download_and_open_generic_tdoc_fn: Retrieves a TDoc from any meeting (generic TDoc)
+        """
         super().__init__(
             parent_widget=parent_widget,
             widget_title=f"SA2#{meeting_name} TDocs. Double-Click on TDoc # or revision # to open",
@@ -65,13 +78,13 @@ class TdocsTable(GenericTable):
             root_widget=None
         )
         # Functions to update data from the main GUI
-        self.retrieve_current_tdocs_by_agenda_fn = retrieve_current_tdocs_by_agenda_fn
-        self.get_tdocs_by_agenda_for_selected_meeting_fn = get_tdocs_by_agenda_for_selected_meeting_fn
+        self.meeting_server_folder = meeting_server_folder
+        self.get_current_meeting_name_fn = get_current_meeting_name_fn
         self.download_and_open_tdoc_fn = download_and_open_tdoc_fn
 
         # Used to check if we have the current meeting selected or not
         self.meeting_name = meeting_name
-        self.get_current_meeting_name_fn: Callable[..., str] | None = get_current_meeting_name_fn
+        self.update_tdocs_by_agenda_fn = update_tdocs_by_agenda_fn
 
         # If we have another meeting selected, a generic TDoc search is performed
         self.download_and_open_generic_tdoc_fn = download_and_open_generic_tdoc_fn
@@ -164,26 +177,24 @@ class TdocsTable(GenericTable):
         """
         Calls retrieve_current_tdocs_by_agenda_fn and updates all_tdocs variable with the retrieved data
         """
-        if self.retrieve_current_tdocs_by_agenda_fn is not None:
+        if self.update_tdocs_by_agenda_fn is not None:
             try:
-                current_tdocs_by_agenda = self.retrieve_current_tdocs_by_agenda_fn()
+                self.update_tdocs_by_agenda_fn()
+                current_tdocs_by_agenda = application.meeting_helper.current_tdocs_by_agenda
                 self.all_tdocs = current_tdocs_by_agenda.tdocs
                 self.meeting_number = current_tdocs_by_agenda.meeting_number
                 self.meeting_server_folder = current_tdocs_by_agenda.meeting_server_folder
                 print('Loaded meeting {0}, server folder {1}'.format(self.meeting_number, self.meeting_server_folder))
-            except:
-                print('Could not retrieve current TdocsByAgenda for Tdocs table')
+            except Exception as e:
+                print(f'Could not retrieve current TdocsByAgenda for Tdocs table: {e}')
                 traceback.print_exc()
 
-    def get_tdocs_by_agenda_for_selected_meeting(self, meeting_server_folder):
-        if self.get_tdocs_by_agenda_for_selected_meeting_fn is not None:
+    def get_tdocs_by_agenda(self) -> TdocsByAgendaData | None:
+        if self.update_tdocs_by_agenda_fn is not None:
             try:
-                return self.get_tdocs_by_agenda_for_selected_meeting_fn(
-                    meeting_server_folder,
-                    return_revisions_file=True,
-                    return_drafts_file=True)
-            except:
-                print('Could not get TdocsByAgenda, Drafts, Revisions for Tdocs table')
+                return self.update_tdocs_by_agenda_fn()
+            except Exception as e:
+                print(f'Could not get TdocsByAgenda, Drafts, Revisions for Tdocs table: {e}')
                 traceback.print_exc()
                 return None
         else:
@@ -198,8 +209,8 @@ class TdocsTable(GenericTable):
             try:
                 return self.download_and_open_tdoc_fn(
                     tdoc_to_open, copy_to_clipboard=True, skip_opening=skip_opening)
-            except:
-                print('Could not open TDoc {0} for Tdocs table'.format(tdoc_to_open))
+            except Exception as e:
+                print(f'Could not open TDoc {tdoc_to_open} for Tdocs table: {e}')
                 traceback.print_exc()
                 return None
 
@@ -217,13 +228,13 @@ class TdocsTable(GenericTable):
             self.retrieve_current_tdocs_by_agenda()
 
             meeting_server_folder = self.meeting_server_folder
-            tdocs_by_agenda_file, revisions_file, drafts_file = self.get_tdocs_by_agenda_for_selected_meeting(
-                meeting_server_folder)
+            print(f'Meeting server folder is {meeting_server_folder}')
+            self.get_tdocs_by_agenda()
 
             self.revisions, self.revisions_list = revisions_file_to_dataframe(
-                revisions_file,
-                self.current_tdocs,
-                drafts_file=drafts_file)
+                revisions_file=utils.local_cache.get_local_revisions_filename(meeting_server_folder),
+                meeting_tdocs=self.current_tdocs,
+                drafts_file=utils.local_cache.get_local_drafts_filename(meeting_server_folder))
 
         # Rewrite the current tdocs dataframe with the retrieved data. Resets the search filters
         self.current_tdocs = self.all_tdocs
@@ -255,7 +266,8 @@ class TdocsTable(GenericTable):
                     rev_number = self.revisions.loc[idx, 'Revisions']
                     try:
                         rev_number_converted = int(rev_number.replace('*', ''))
-                    except:
+                    except Exception as e:
+                        print(f'Could not convert revision number to int. Set to 0: {e}')
                         rev_number_converted = 0
                     if rev_number_converted < 1:
                         revision_count = ''
@@ -265,7 +277,8 @@ class TdocsTable(GenericTable):
                     # Not found
                     revision_count = ''  # Zero is left empty
                     pass
-                except:
+                except Exception as e:
+                    print(f'Could not set revision count. Sent to empty: {e}')
                     revision_count = ''  # Error is left empty
                     traceback.print_exc()
 
@@ -308,8 +321,8 @@ class TdocsTable(GenericTable):
                 try:
                     all_extracted_files.extend(extracted_files)
                     all_titles.append(self.current_tdocs.at[tdoc_id, 'Title'])
-                except:
-                    print('Could not iterate output from {0}: {1}'.format(tdoc_id, extracted_files))
+                except Exception as e:
+                    print(f'Could not iterate output from {tdoc_id}, extracted files={extracted_files}: {e}')
 
         all_extracted_files = [e for e in all_extracted_files if '.ppt' in e.lower()]
         print('Opened PowerPoint files:')
@@ -341,8 +354,8 @@ class TdocsTable(GenericTable):
         for tdoc_to_export in tdocs_to_export:
             try:
                 tdoc_path = self.download_and_open_tdoc(tdoc_to_export[0], skip_opening=True)
-            except:
-                print("Could not retrieve file path for {0}".format(tdoc_to_export))
+            except Exception as e:
+                print(f"Could not retrieve file path for {tdoc_to_export}: {e}")
                 tdoc_path = None
             # Take by default the first file
 
@@ -370,10 +383,8 @@ class TdocsTable(GenericTable):
         crs_df = crs_df.set_index('TDoc')
 
         # Avoid IllegalCharacterError due to some control characters
-        # See https://stackoverflow.com/questions/28837057/pandas-writing-an-excel-file-containing-unicode-illegalcharactererror
+        # https://stackoverflow.com/questions/28837057/pandas-writing-an-excel-file-containing-unicode-illegalcharactererror
         crs_df.to_excel(excel_export_filename, sheet_name="CRs", engine='xlsxwriter')
-
-        # ToDo: Some formatting of the CR metadata
 
         print("Opening {0}".format(excel_export_filename))
         wb = open_excel_document(excel_export_filename)
@@ -506,7 +517,8 @@ class TdocsTable(GenericTable):
         item_values = self.tree.item(item_id)['values']
         try:
             actual_value = item_values[column]
-        except:
+        except Exception as e:
+            print(f'Could not parse actual value: {e}')
             actual_value = None
         tdoc_id = item_values[0]
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
@@ -651,7 +663,8 @@ class RevisionsTable(GenericTable):
         item_values = self.tree.item(item_id)['values']
         try:
             actual_value = item_values[column]
-        except:
+        except Exception as e:
+            print(f'Could not parse actual value for column {column}: {e}')
             actual_value = None
 
         # Some issues with automatic conversion which we solve here
@@ -666,16 +679,18 @@ class RevisionsTable(GenericTable):
         else:
             tdoc_to_search = tdoc_id + revision
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
-        if column == 0:
-            print('Opening {0}'.format(actual_value))
-            self.parent_tdocs_table.download_and_open_tdoc(actual_value)
-        if column == 1:
-            print('Opening {0}'.format(tdoc_to_search))
-            self.parent_tdocs_table.download_and_open_tdoc(tdoc_to_search)
-        if column == 2:
-            self.compare_a.set(tdoc_to_search)
-        if column == 3:
-            self.compare_b.set(tdoc_to_search)
+
+        match column:
+            case 0:
+                print('Opening {0}'.format(actual_value))
+                self.parent_tdocs_table.download_and_open_tdoc(actual_value)
+            case 1:
+                print('Opening {0}'.format(tdoc_to_search))
+                self.parent_tdocs_table.download_and_open_tdoc(tdoc_to_search)
+            case 2:
+                self.compare_a.set(tdoc_to_search)
+            case 3:
+                self.compare_b.set(tdoc_to_search)
 
     def compare_tdocs(self):
         compare_a = self.compare_a.get()

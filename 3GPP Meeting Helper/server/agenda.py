@@ -15,8 +15,8 @@ from parsing.html import common as html_parser
 from server.common import ServerType, get_document_or_folder_url, DocumentType
 from server.connection import get_remote_file
 from server.tdoc import agenda_docx_regex, agenda_draft_docx_regex, agenda_version_regex, ai_names_cache, \
-    get_local_tdocs_by_agenda_filename, get_tdocs_by_agenda_for_selected_meeting, agenda_regex
-from utils.local_cache import get_local_agenda_folder
+    get_tdocs_by_agenda_for_selected_meeting, agenda_regex
+from utils.local_cache import get_local_agenda_folder, get_tdocs_by_agenda_filename
 
 
 class AgendaType(Enum):
@@ -153,9 +153,11 @@ def download_agenda_file(meeting, inbox_active=False, open_tdocs_by_agenda_in_br
         print('Downloading Agenda File')
         meeting_server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
             meeting)
-        local_file = get_local_tdocs_by_agenda_filename(meeting_server_folder)
-        html = get_tdocs_by_agenda_for_selected_meeting(meeting_server_folder, inbox_active,
-                                                        open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
+        local_file = get_tdocs_by_agenda_filename(meeting_server_folder)
+        html = get_tdocs_by_agenda_for_selected_meeting(
+            meeting_server_folder,
+            inbox_active,
+            open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
         if html is None:
             print('Agenda file for {0} not found'.format(meeting))
             return None

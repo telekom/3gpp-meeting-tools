@@ -5,7 +5,8 @@ import traceback
 import application.outlook
 import config.cache as local_cache_config
 import server
-from parsing.html.common import MeetingData, TdocsByAgendaData
+from parsing.html.common import MeetingData
+from parsing.html.tdocs_by_agenda import TdocsByAgendaData
 
 # Read config
 config = configparser.ConfigParser()

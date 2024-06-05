@@ -21,6 +21,7 @@ import gui.tdocs_table
 import gui.work_items_table
 import parsing.excel as excel_parser
 import parsing.html.common
+import parsing.html.tdocs_by_agenda
 import parsing.outlook
 import parsing.word.pywin32
 import parsing.word.pywin32 as word_parser
@@ -267,7 +268,8 @@ class ToolsDialog(TkWidget):
                 return
 
             if destination_folder is None:
-                (head, tail) = os.path.split(server.tdoc.get_local_tdocs_by_agenda_filename(output_meeting_folder))
+                (head, tail) = os.path.split(
+                    utils.local_cache.get_tdocs_by_agenda_filename(output_meeting_folder))
             else:
                 head = destination_folder
             if current_dt_str is None:
@@ -315,7 +317,7 @@ class ToolsDialog(TkWidget):
             process_comments=True,
             add_pivot_summary=True):
         try:
-            tdocs_by_agenda = parsing.html.common.TdocsByAgendaData(
+            tdocs_by_agenda = parsing.html.tdocs_by_agenda.TdocsByAgendaData(
                 gui.main_gui.get_tdocs_by_agenda_file_or_url(local_agenda_file),
                 meeting_server_folder=meeting_folder
             )
@@ -528,11 +530,14 @@ class ToolsDialog(TkWidget):
                 meeting_server_folder = application.meeting_helper.current_tdocs_by_agenda.meeting_server_folder
 
                 docs_file = server.tdoc.download_docs_file(meeting_server_folder)
-                revisions_file = server.tdoc.download_revisions_file(meeting_server_folder)
+                revisions_file, revisions_folder_url = server.tdoc.download_revisions_file(meeting_server_folder)
                 drafts_file = server.tdoc.download_drafts_file(meeting_server_folder)
 
-                docs_list = extract_tdoc_revisions_from_html(docs_file, is_draft=False, is_path=True,
-                                                             ignore_revision=True)
+                docs_list = extract_tdoc_revisions_from_html(
+                    docs_file,
+                    is_draft=False,
+                    is_path=True,
+                    ignore_revision=True)
                 revisions_list = extract_tdoc_revisions_from_html(revisions_file, is_draft=False, is_path=True)
                 drafts_list = extract_tdoc_revisions_from_html(drafts_file, is_draft=True, is_path=True)
 

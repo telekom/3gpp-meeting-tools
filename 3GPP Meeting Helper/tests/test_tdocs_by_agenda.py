@@ -2,7 +2,8 @@ import unittest
 import os
 
 import parsing
-from parsing.html.common import TdocsByAgendaData
+import parsing.html.tdocs_by_agenda
+from parsing.html.tdocs_by_agenda import TdocsByAgendaData
 import parsing.html.tdocs_by_agenda_v3
 
 
@@ -351,21 +352,21 @@ class TestTdocsByAgenda(unittest.TestCase):
     def test_159_format_155_file(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2023.02.14 TdocsByAgenda SA2-155.htm')
-        html_content = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
+        html_content = parsing.html.tdocs_by_agenda.TdocsByAgendaData.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
         is_159_format = parsing.html.tdocs_by_agenda_v3.assert_if_tdocs_by_agenda_post_sa2_159(html_content)
         self.assertFalse(is_159_format)
 
     def test_159_format_159_file_v2(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2023.10.03 TdocsByAgenda SA2-159_v2.htm')
-        html_content = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
+        html_content = parsing.html.tdocs_by_agenda.TdocsByAgendaData.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
         is_159_format = parsing.html.tdocs_by_agenda_v3.assert_if_tdocs_by_agenda_post_sa2_159(html_content)
         self.assertTrue(is_159_format)
 
     def test_159_file_v2(self):
         file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
                                  '2023.10.03 TdocsByAgenda SA2-159_v2.htm')
-        html_content = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
+        html_content = parsing.html.tdocs_by_agenda.TdocsByAgendaData.get_tdoc_by_agenda_html(file_name, return_raw_html=True)
         sa2_159_content = parsing.html.tdocs_by_agenda_v3.parse_tdocs_by_agenda_v3(html_content)
         test_row = sa2_159_content.loc['S2-2310462', :]
         # print(test_row)

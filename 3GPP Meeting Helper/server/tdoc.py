@@ -4,10 +4,11 @@ import os
 import os.path
 import re
 import traceback
-from typing import List
+from typing import List, Tuple
 
 import parsing.html.common
 import parsing.html.common as html_parser
+import parsing.html.tdocs_by_agenda
 import parsing.word.docx
 import server.common
 import tdoc.utils
@@ -18,7 +19,7 @@ from server.common import get_remote_meeting_folder, get_inbox_root, ServerType,
     get_document_or_folder_url
 from server.connection import get_remote_file
 from utils.local_cache import get_cache_folder, get_local_revisions_filename, get_local_drafts_filename, \
-    get_meeting_folder, get_local_agenda_folder
+    get_meeting_folder
 
 agenda_regex = re.compile(r'.*(?P<type>(Agenda|Session( |%20)Plan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\..*')
 agenda_docx_regex = re.compile(
@@ -56,10 +57,16 @@ def get_sa2_inbox_tdoc_list(
     return online_html
 
 
-def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None, open_tdocs_by_agenda_in_browser=False):
-    remote_folder = get_remote_meeting_folder(meeting_folder)
+def get_sa2_meeting_tdoc_list(
+        meeting_folder_in_server,
+        save_file_to=None,
+        open_tdocs_by_agenda_in_browser=False):
+    remote_folder = get_remote_meeting_folder(meeting_folder_in_server)
     url = remote_folder + 'TdocsByAgenda.htm'
-    returned_html = get_remote_file(url, cached_file_to_return_if_error_or_cache=save_file_to)
+    returned_html = get_remote_file(
+        url,
+        cache=save_file_to is not None,
+        cached_file_to_return_if_error_or_cache=save_file_to)
 
     if open_tdocs_by_agenda_in_browser:
         os.startfile(url)
@@ -68,7 +75,8 @@ def get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=None, open_tdocs_by_a
     if returned_html is not None:
         return returned_html
 
-    # In some cases, the original TDocsByAgenda was removed (e.g. 136AH meeting). In this case, we have to look for a substitute
+    # In some cases, the original TDocsByAgenda was removed (e.g. 136AH meeting).
+    # In this case, we have to look for a substitute
     folder_contents = get_remote_file(remote_folder)
     parsed_folder = html_parser.parse_3gpp_http_ftp(folder_contents)
     tdocs_by_agenda_files = [file for file in parsed_folder.files if
@@ -113,20 +121,14 @@ def get_sa2_drafts_tdoc_list(meeting_folder):
 def get_tdoc(
         meeting_folder_name,
         tdoc_id,
-        server_type: server.common.ServerType = server.common.ServerType.PUBLIC,
-        return_url=False,
-        use_email_approval_inbox=False,
-        additional_folders: List[str] | None = None
+        server_type: server.common.ServerType = server.common.ServerType.PUBLIC
 ):
     """
     Retrieves a TDoc
     Args:
         server_type: The type of server we are using (public/www.3gpp.org or private/10.10.10.10)
-        additional_folders: A list of additional folder to search in the server, e.g. ['ftp/SA/SA2/Inbox/']
         meeting_folder_name: The folder name as in the 3GPP server
         tdoc_id: A TDoc ID, e.g.: S2-240001
-        return_url: The returned URL
-        use_email_approval_inbox: Whether to use the email approval inbox
 
     Returns:
 
@@ -143,33 +145,21 @@ def get_tdoc(
         is_draft = False
 
     if not tdoc.utils.is_sa2_tdoc(tdoc_id):
-        if not return_url:
-            return None
-        else:
-            return None, None
+        return None, None
 
     tdoc_local_filename = get_local_filename_for_tdoc(meeting_folder_name, tdoc_id, is_draft=is_draft)
-    zip_file_list: List[str] = []
-    zip_file_url = get_remote_filename_for_tdoc(
+    zip_file_list = get_remote_filename_candidates_for_tdoc(
         meeting_folder_name=meeting_folder_name,
         tdoc_id=tdoc_id,
         use_private_server=use_private_server,
         is_draft=is_draft)
-    zip_file_list.append(zip_file_url)
-    if additional_folders is not None:
-        print(f'Searching additional folders in {additional_folders}')
-        for additional_folder in additional_folders:
-            additional_zip_file_url = get_remote_filename_for_tdoc(
-                meeting_folder_name=meeting_folder_name,
-                tdoc_id=tdoc_id,
-                use_private_server=use_private_server,
-                is_draft=is_draft,
-                override_folder_path=additional_folder)
-            zip_file_list.append(additional_zip_file_url)
+    zip_file_url = None
+
     if not os.path.exists(tdoc_local_filename):
         # Try all the candidates until we find a working one (e.g. in /Docs and /Inbox)
         print(f'Downloading from: {zip_file_list}')
         tdoc_file = None
+
         for zip_file_url in zip_file_list:
             tdoc_file = get_remote_file(zip_file_url, cache=False)
             if tdoc_file is not None:
@@ -177,25 +167,16 @@ def get_tdoc(
         if tdoc_file is None:
             # No need to retry. Additional download folders are now implemented outside of this fuction
             return_value = None
-            if not return_url:
-                return return_value
-            else:
-                return return_value, zip_file_url
+            return return_value, zip_file_url
         # Drive zip file to disk
         with open(tdoc_local_filename, 'wb') as output:
             output.write(tdoc_file)
 
     # If the file does not now exist, there was an error (e.g. not found)
     if not os.path.exists(tdoc_local_filename):
-        if not return_url:
-            return None
-        else:
-            return None, None
+        return None, None
 
-    if not return_url:
-        return unzip_files_in_zip_file(tdoc_local_filename)
-    else:
-        return unzip_files_in_zip_file(tdoc_local_filename), zip_file_url
+    return unzip_files_in_zip_file(tdoc_local_filename), zip_file_url
 
 
 def cache_tdocs(tdoc_list, download_from_inbox: bool, meeting_folder_name: str):
@@ -208,8 +189,7 @@ def cache_tdocs(tdoc_list, download_from_inbox: bool, meeting_folder_name: str):
             lambda tdoc_to_download_lambda: server.tdoc.get_tdoc(
                 meeting_folder_name=meeting_folder_name,
                 tdoc_id=tdoc_to_download_lambda,
-                server_type=server.common.ServerType.PRIVATE if download_from_inbox else server.common.ServerType.PUBLIC,
-                return_url=True),
+                server_type=server.common.ServerType.PRIVATE if download_from_inbox else server.common.ServerType.PUBLIC),
             tdoc_to_download_lambda): tdoc_to_download_lambda for tdoc_to_download_lambda in tdoc_list}
         for future in concurrent.futures.as_completed(future_to_url):
             file_to_download = future_to_url[future]
@@ -276,9 +256,41 @@ def get_local_filename_for_tdoc(
     return os.path.join(folder_name, tdoc_id + '.zip')
 
 
-def get_local_tdocs_by_agenda_filename(meeting_folder_name):
-    folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
-    return os.path.join(folder, 'TdocsByAgenda.htm')
+def get_remote_filename_candidates_for_tdoc(
+        meeting_folder_name,
+        tdoc_id: str,
+        use_private_server=False,
+        is_draft=False,
+        override_folder_path: str = None
+) -> List[str]:
+    """
+    Returns all possible locations of a TDoc
+    Args:
+        meeting_folder_name: The meeting folder name in the 3GPP server
+        tdoc_id: The TDoc ID
+        use_private_server: What type of server we are using
+        is_draft: Whether this is a draft document
+        override_folder_path: Folder override
+
+    Returns: A list of candidate URLs
+
+    """
+    # Check if this is a TDoc revision. If yes, change the folder to the revisions' folder.
+    year, tdoc_number, revision = tdoc.utils.get_tdoc_year(tdoc_id, include_revision=True)
+    server_type = ServerType.PRIVATE if use_private_server else ServerType.PUBLIC
+    tdoc_type = TdocType.DRAFT if is_draft else (TdocType.REVISION if revision else TdocType.NORMAL)
+
+    # Instead of using get_remote_meeting_folder() (old function)
+    candidate_folders = get_document_or_folder_url(
+        server_type=server_type,
+        document_type=DocumentType.TDOC,
+        meeting_folder_in_server=meeting_folder_name,
+        tdoc_type=tdoc_type,
+        override_folder_path=override_folder_path
+    )
+
+    candidate_urls = [candidate_folder + tdoc_id + '.zip' for candidate_folder in candidate_folders]
+    return candidate_urls
 
 
 def get_remote_filename_for_tdoc(
@@ -288,24 +300,30 @@ def get_remote_filename_for_tdoc(
         is_draft=False,
         override_folder_path: str = None
 ) -> str | None:
-    # Check if this is a TDoc revision. If yes, change the folder to the revisions' folder.
-    year, tdoc_number, revision = tdoc.utils.get_tdoc_year(tdoc_id, include_revision=True)
-    server_type = ServerType.PRIVATE if use_private_server else ServerType.PUBLIC
-    tdoc_type = TdocType.DRAFT if is_draft else (TdocType.REVISION if revision else TdocType.NORMAL)
+    """
+    Returns the first possible locations of a TDoc
+    Args:
+        meeting_folder_name: The meeting folder name in the 3GPP server
+        tdoc_id: The TDoc ID
+        use_private_server: What type of server we are using
+        is_draft: Whether this is a draft document
+        override_folder_path: Folder override
 
-    # Instead of using get_remote_meeting_folder() (old function)
-    folder = get_document_or_folder_url(
-        server_type=server_type,
-        document_type=DocumentType.TDOC,
-        meeting_folder_in_server=meeting_folder_name,
-        tdoc_type=tdoc_type,
+    Returns: One possible candidate URL
+
+    """
+    candidate_folders = get_remote_filename_candidates_for_tdoc(
+        meeting_folder_name=meeting_folder_name,
+        tdoc_id=tdoc_id,
+        use_private_server=use_private_server,
+        is_draft=is_draft,
         override_folder_path=override_folder_path
     )
 
-    if len(folder) == 0:
+    if len(candidate_folders) == 0:
         return None
 
-    return folder[0] + tdoc_id + '.zip'
+    return candidate_folders[0] + tdoc_id + '.zip'
 
 
 ai_names_cache = {}
@@ -314,57 +332,36 @@ ai_names_cache = {}
 def get_tdocs_by_agenda_for_selected_meeting(
         meeting_folder: str,
         use_private_server=False,
-        save_file_to=None,
-        open_tdocs_by_agenda_in_browser=False):
+        open_tdocs_by_agenda_in_browser=False) -> bytes | None:
     """
     Returns the HTML of a TdocsByAgenda file for a given meeting
     Args:
         meeting_folder: The meeting folder as named in the 3GPP server
         use_private_server: Whether the private server (10.10.10.10) is to be used
-        save_file_to: Where to save the file to
         open_tdocs_by_agenda_in_browser: Whether to open the file in the browser
 
-    Returns: The HTML contents (bytes)
+    Returns: The HTML contents (bytes) or None if it could not be retrieved
     """
-    # If the inbox is active, we need to download both and return the newest one
-    html_inbox = None
+    print(f'Retrieving TDocsByAgenda for meeting {meeting_folder}')
+    tdocs_by_agenda_server_folder = get_document_or_folder_url(
+        server_type=ServerType.PRIVATE if use_private_server else ServerType.PUBLIC,
+        document_type=DocumentType.TDOCS_BY_AGENDA,
+        meeting_folder_in_server=meeting_folder,
+        tdoc_type=None)
+    if len(tdocs_by_agenda_server_folder) == 0:
+        print(f'Could not retrieve TDocs by Agenda for meeting {meeting_folder}. No target folders for URL retrieval')
+        return
+    target_url = tdocs_by_agenda_server_folder[0] + 'TdocsByAgenda.htm'
+    local_file = utils.local_cache.get_tdocs_by_agenda_filename(meeting_folder_name=meeting_folder)
+    tdocs_by_agenda_html = server.connection.get_remote_file(
+        target_url,
+        cache=True,
+        cached_file_to_return_if_error_or_cache=local_file)
+    if open_tdocs_by_agenda_in_browser:
+        print(f'Opening local TDocsByAgenda file {local_file}')
+        os.startfile(local_file)
 
-    datetime_inbox = datetime.datetime.min
-
-    if use_private_server:
-        print('Getting TDocs by agenda from inbox')
-        html_inbox = get_sa2_inbox_tdoc_list(
-            open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser,
-            use_cached_file_if_available=True
-        )
-        # Avoid opening the file twice
-        open_tdocs_by_agenda_in_browser = False
-        datetime_inbox = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_date(html_inbox)
-
-    print('Getting TDocs by agenda from server')
-    # print(inspect.stack())
-    html_3gpp = get_sa2_meeting_tdoc_list(meeting_folder, save_file_to=save_file_to,
-                                          open_tdocs_by_agenda_in_browser=open_tdocs_by_agenda_in_browser)
-    datetime_3gpp = parsing.html.common.TdocsByAgendaData.get_tdoc_by_agenda_date(html_3gpp)
-
-    if datetime_3gpp is None:
-        datetime_3gpp = datetime.datetime.min
-
-    if datetime_inbox is None:
-        datetime_inbox = datetime.datetime.min
-
-    if use_private_server:
-        if datetime_3gpp > datetime_inbox:
-            html = html_3gpp
-            print('3GPP server TDocs by agenda are more recent')
-        else:
-            html = html_inbox
-            print('Inbox TDocs by agenda are more recent')
-        print('3GPP server: {0}, Inbox: {1}'.format(str(datetime_3gpp), str(datetime_inbox)))
-    else:
-        html = html_3gpp
-        print('TDocs by agenda are from 3GPP server (not inbox)')
-    return html
+    return tdocs_by_agenda_html
 
 
 def download_docs_file(meeting) -> str | None:
@@ -393,7 +390,7 @@ def download_docs_file(meeting) -> str | None:
         return None
 
 
-def download_revisions_file(meeting) -> str | None:
+def download_revisions_file(meeting) -> Tuple[str, str] | Tuple[None, None]:
     """
     Downloads the revisions list for a given meeting,
     e.g. https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_156E_Electronic_2023-04/INBOX/Revisions
@@ -407,16 +404,31 @@ def download_revisions_file(meeting) -> str | None:
         meeting_server_folder = meeting  # e.g. TSGS2_144E_Electronic
         print('Retrieving revisions for {0} meeting'.format(meeting))
         local_file = get_local_revisions_filename(meeting_server_folder)
-        html = get_sa2_revisions_tdoc_list(meeting_server_folder, save_file_to=local_file)
+        folder_candidates_for_revisions = get_document_or_folder_url(
+            server_type=ServerType.PUBLIC,
+            document_type=DocumentType.TDOC,
+            meeting_folder_in_server=meeting,
+            tdoc_type=TdocType.REVISION
+        )
+        html = None
+        folder_url = None
+        for folder_candidate_for_revisions in folder_candidates_for_revisions:
+            html = get_remote_file(
+                url=folder_candidate_for_revisions,
+                cached_file_to_return_if_error_or_cache=local_file)
+            if html is not None:
+                folder_url = folder_candidate_for_revisions
+                break
         if html is None:
             print('Revisions file for {0} not found'.format(meeting))
-            return None
+            return None, None
         utils.local_cache.write_data_and_open_file(html, local_file)
-        return local_file
+        print(f'Found revisions file under {folder_url}. Saved to {local_file}')
+        return local_file, folder_url
     except Exception as e:
         print(f'Could get not revisions file for {meeting}: {e}')
         traceback.print_exc()
-        return None
+        return None, None
 
 
 def download_drafts_file(meeting) -> str | None:
