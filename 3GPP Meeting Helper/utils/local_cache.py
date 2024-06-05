@@ -199,3 +199,9 @@ def get_work_items_cache_folder(create_dir=True):
 def get_tdocs_by_agenda_filename(meeting_folder_name):
     folder = get_local_agenda_folder(meeting_folder_name, create_dir=True)
     return os.path.join(folder, 'TdocsByAgenda.htm')
+
+
+def get_private_server_tdocs_by_agenda_local_cache(create_dir=True):
+    cache_folder = get_cache_folder(create_dir)
+    cache_file = os.path.join(cache_folder, '3gpp_server_TdocsByAgenda.html')
+    return cache_file

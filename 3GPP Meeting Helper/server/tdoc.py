@@ -1,15 +1,10 @@
 import concurrent.futures
-import datetime
 import os
 import os.path
 import re
 import traceback
 from typing import List, Tuple
 
-import parsing.html.common
-import parsing.html.common as html_parser
-import parsing.html.tdocs_by_agenda
-import parsing.word.docx
 import server.common
 import tdoc.utils
 import tdoc.utils
@@ -39,69 +34,9 @@ def get_sa2_inbox_current_tdoc(searching_for_a_file=False):
     return get_remote_file(url)
 
 
-def get_sa2_inbox_tdoc_list(
-        open_tdocs_by_agenda_in_browser=False,
-        use_cached_file_if_available=False):
-    url = get_inbox_root(searching_for_a_file=True) + 'TdocsByAgenda.htm'
-    print(
-        f'Retrieving TdocsByAgenda from Inbox ({url}): open={open_tdocs_by_agenda_in_browser}, use cache={use_cached_file_if_available}')
-    if open_tdocs_by_agenda_in_browser:
-        os.startfile(url)
-    # Return back cached HTML if there is an error retrieving the remote HTML
-    fallback_cache = get_inbox_tdocs_list_cache_local_cache()
-    online_html = get_remote_file(
-        url,
-        cached_file_to_return_if_error_or_cache=fallback_cache,
-        use_cached_file_if_available=use_cached_file_if_available
-    )
-    return online_html
-
-
-def get_sa2_meeting_tdoc_list(
-        meeting_folder_in_server,
-        save_file_to=None,
-        open_tdocs_by_agenda_in_browser=False):
-    remote_folder = get_remote_meeting_folder(meeting_folder_in_server)
-    url = remote_folder + 'TdocsByAgenda.htm'
-    returned_html = get_remote_file(
-        url,
-        cache=save_file_to is not None,
-        cached_file_to_return_if_error_or_cache=save_file_to)
-
-    if open_tdocs_by_agenda_in_browser:
-        os.startfile(url)
-
-    # Normal case
-    if returned_html is not None:
-        return returned_html
-
-    # In some cases, the original TDocsByAgenda was removed (e.g. 136AH meeting).
-    # In this case, we have to look for a substitute
-    folder_contents = get_remote_file(remote_folder)
-    parsed_folder = html_parser.parse_3gpp_http_ftp(folder_contents)
-    tdocs_by_agenda_files = [file for file in parsed_folder.files if
-                             ('TdocsByAgenda' in file) and (('.htm' in file) or ('.html' in file))]
-    if len(tdocs_by_agenda_files) > 0:
-        file_to_get = tdocs_by_agenda_files[0]
-        url = remote_folder + file_to_get
-        new_html = get_remote_file(url)
-        return new_html
-    else:
-        print('Returned TdocsByAgenda as NONE. Something went wrong when retrieving TDocsByAgenda.htm...')
-        return None
-
-
 def get_sa2_docs_tdoc_list(meeting_folder, save_file_to=None):
     remote_folder = get_remote_meeting_folder(meeting_folder)
     url = remote_folder + 'Docs'
-    returned_html = get_remote_file(url, cached_file_to_return_if_error_or_cache=save_file_to)
-
-    return returned_html
-
-
-def get_sa2_revisions_tdoc_list(meeting_folder, save_file_to=None):
-    remote_folder = get_remote_meeting_folder(meeting_folder)
-    url = remote_folder + 'INBOX/Revisions'
     returned_html = get_remote_file(url, cached_file_to_return_if_error_or_cache=save_file_to)
 
     return returned_html
@@ -203,12 +138,6 @@ def get_inbox_tdocs_list_cache_local_cache(create_dir=True):
     cache_folder = get_cache_folder(create_dir)
     inbox_cache = os.path.join(cache_folder, 'InboxCache.html')
     return inbox_cache
-
-
-def get_private_server_tdocs_by_agenda_local_cache(create_dir=True):
-    cache_folder = get_cache_folder(create_dir)
-    cache_file = os.path.join(cache_folder, '3gpp_server_TdocsByAgenda.html')
-    return cache_file
 
 
 def get_local_folder_for_tdoc(
@@ -327,41 +256,6 @@ def get_remote_filename_for_tdoc(
 
 
 ai_names_cache = {}
-
-
-def get_tdocs_by_agenda_for_selected_meeting(
-        meeting_folder: str,
-        use_private_server=False,
-        open_tdocs_by_agenda_in_browser=False) -> bytes | None:
-    """
-    Returns the HTML of a TdocsByAgenda file for a given meeting
-    Args:
-        meeting_folder: The meeting folder as named in the 3GPP server
-        use_private_server: Whether the private server (10.10.10.10) is to be used
-        open_tdocs_by_agenda_in_browser: Whether to open the file in the browser
-
-    Returns: The HTML contents (bytes) or None if it could not be retrieved
-    """
-    print(f'Retrieving TDocsByAgenda for meeting {meeting_folder}')
-    tdocs_by_agenda_server_folder = get_document_or_folder_url(
-        server_type=ServerType.PRIVATE if use_private_server else ServerType.PUBLIC,
-        document_type=DocumentType.TDOCS_BY_AGENDA,
-        meeting_folder_in_server=meeting_folder,
-        tdoc_type=None)
-    if len(tdocs_by_agenda_server_folder) == 0:
-        print(f'Could not retrieve TDocs by Agenda for meeting {meeting_folder}. No target folders for URL retrieval')
-        return
-    target_url = tdocs_by_agenda_server_folder[0] + 'TdocsByAgenda.htm'
-    local_file = utils.local_cache.get_tdocs_by_agenda_filename(meeting_folder_name=meeting_folder)
-    tdocs_by_agenda_html = server.connection.get_remote_file(
-        target_url,
-        cache=True,
-        cached_file_to_return_if_error_or_cache=local_file)
-    if open_tdocs_by_agenda_in_browser:
-        print(f'Opening local TDocsByAgenda file {local_file}')
-        os.startfile(local_file)
-
-    return tdocs_by_agenda_html
 
 
 def download_docs_file(meeting) -> str | None:
