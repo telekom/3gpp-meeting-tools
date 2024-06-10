@@ -6,6 +6,7 @@ from typing import List
 import pyperclip
 
 import server
+import utils.local_cache
 from application.excel import open_excel_document
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
@@ -28,8 +29,8 @@ class MeetingsTable(GenericTable):
             parent_widget=parent_widget,
             widget_title="Meetings Table. Double-click start date for invitation. End date for report",
             favicon=favicon,
-            column_names=['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents', 'TDoc List',
-                          'TDoc Excel'],
+            column_names=['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents',
+                          'Cache', 'TDoc List', 'TDoc Excel'],
             row_height=35,
             display_rows=14,
             root_widget=root_widget
@@ -48,6 +49,7 @@ class MeetingsTable(GenericTable):
         self.set_column('TDoc Start', width=100, center=True)
         self.set_column('TDoc End', width=100, center=True)
         self.set_column('Documents', width=100, center=True)
+        self.set_column('Cache', width=50, center=True)
         self.set_column('TDoc List', width=100, center=True)
         self.set_column('TDoc Excel', width=100, center=True)
 
@@ -179,10 +181,12 @@ class MeetingsTable(GenericTable):
 
             if meeting.meeting_url_docs is None or meeting.meeting_url_docs == '':
                 documents_str = '-'
+                cache_str = '-'
                 tdoc_list_str = '-'
                 tdoc_excel_str = '-'
             else:
-                documents_str = 'Documents'
+                documents_str = 'Link'
+                cache_str = 'Open'
                 tdoc_list_str = 'Tdoc List'
                 tdoc_excel_str = 'Tdoc Excel'
 
@@ -195,6 +199,7 @@ class MeetingsTable(GenericTable):
                 meeting.tdoc_start,
                 meeting.tdoc_end,
                 documents_str,
+                cache_str,
                 tdoc_list_str,
                 tdoc_excel_str
             )
@@ -260,11 +265,17 @@ class MeetingsTable(GenericTable):
             open_url(url_to_open)
 
         if column == 7 and actual_value != '-':
+            print(f'Clicked Cache link for meeting {meeting_name}')
+            path_to_open = meeting[0].local_folder_path
+            utils.local_cache.create_folder_if_needed(path_to_open, create_dir=True)
+            open_url(path_to_open)
+
+        if column == 8 and actual_value != '-':
             print(f'Clicked TDoc List link for meeting {meeting_name}')
             url_to_open = meeting[0].meeting_tdoc_list_url
             open_url(url_to_open)
 
-        if column == 8 and actual_value != '-':
+        if column == 9 and actual_value != '-':
             print(f'Clicked TDoc Excel link for meeting {meeting_name}')
             download_folder = meeting[0].local_agenda_folder_path
             local_path = os.path.join(download_folder, f'{meeting[0].meeting_name}_TDoc_List.xlsx')
