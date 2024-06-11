@@ -1,4 +1,5 @@
 import concurrent.futures
+import os.path
 import re
 import socket
 import traceback
@@ -6,7 +7,7 @@ from enum import Enum
 from typing import NamedTuple, List
 
 from server.connection import get_remote_file
-from utils.local_cache import get_sa2_root_folder_local_cache
+from utils.local_cache import get_sa2_root_folder_local_cache, file_exists, create_folder_if_needed
 
 """Retrieves data from the 3GPP web server"""
 default_http_proxy = 'http://lanbctest:8080'
@@ -226,6 +227,12 @@ def download_file_to_location(
             cache=cache,
             use_cached_file_if_available=True,
             cached_file_to_return_if_error_or_cache=local_location)
+        if file is None:
+            print(f'No file saved to disk. No data to write for {local_location}')
+            return False
+        # Create folder if needed
+        local_folder = os.path.dirname(local_location)
+        create_folder_if_needed(local_folder, create_dir=True)
         with open(local_location, 'wb') as output:
             print('Saved {0}'.format(local_location))
             output.write(file)

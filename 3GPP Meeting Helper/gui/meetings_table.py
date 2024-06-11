@@ -329,7 +329,7 @@ class MeetingsTable(GenericTable):
 
         # Enable button to search if TDoc is valid
         self.button_open_tdoc.configure(state=tkinter.NORMAL)
-        meeting_for_tdoc = search_meeting_for_tdoc(current_tdoc)
+        meeting_for_tdoc = search_meeting_for_tdoc(current_tdoc, return_last_meeting_if_tdoc_is_new=True)
         if meeting_for_tdoc is None:
             self.apply_filters()
             return
