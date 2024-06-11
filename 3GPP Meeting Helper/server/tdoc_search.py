@@ -428,10 +428,16 @@ def group_is_li(group_name: str) -> bool:
     return group_name.lower() == 's3i'
 
 
-def search_meeting_for_tdoc(tdoc_str: str) -> MeetingEntry | None:
+def search_meeting_for_tdoc(
+        tdoc_str: str,
+        return_last_meeting_if_tdoc_is_new: bool = False
+) -> MeetingEntry | None:
     """
     Searches for a specific TDoc in the loaded meeting list
     Args:
+        return_last_meeting_if_tdoc_is_new: Allows you to specify that the last meeting with allocated TDocs should be
+        returned if no meeting is found. e.g., RP-241153 is actually TSGR_104, although the meeting officially only got
+        allocated from RP-240861 to RP-240906 (2025.06.11)
         tdoc_str: A TDoc ID
 
     Returns: A meeting containing this TDoc. None if none found or if the input TDoc is not a TDoc.
@@ -462,8 +468,16 @@ def search_meeting_for_tdoc(tdoc_str: str) -> MeetingEntry | None:
         matching_meeting = matching_meetings[0]
         print(f'Matching meeting found for TDoc {tdoc_str}: {matching_meeting.meeting_name}')
     else:
-        matching_meeting = None
-        print(f'Matching meeting NOT found for TDoc {tdoc_str}')
+        if return_last_meeting_if_tdoc_is_new:
+            matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
+                                 m.tdoc_start.number <= parsed_tdoc.number and m.tdoc_end.number <= parsed_tdoc.number]
+        if len(matching_meetings) > 0:
+            matching_meeting = matching_meetings[0]
+            print(f'Set meeting for TDoc {tdoc_str} as last meeting with available documents: '
+                  f'{matching_meeting.meeting_name}')
+        else:
+            matching_meeting = None
+            print(f'Matching meeting NOT found for TDoc {tdoc_str}')
 
     return matching_meeting
 
@@ -505,13 +519,12 @@ def search_download_and_open_tdoc(
         convert_local_cache_to_markdown()
         load_markdown_cache_to_memory()
 
-    tdoc_meeting = search_meeting_for_tdoc(tdoc_str)
+    tdoc_meeting = search_meeting_for_tdoc(tdoc_str, return_last_meeting_if_tdoc_is_new=True)
     if tdoc_meeting is None:
         return None, None
 
     tdoc_url = tdoc_meeting.get_tdoc_url(tdoc_str)
     local_folder = os.path.join(tdoc_meeting.local_folder_path, tdoc_str)
-    create_folder_if_needed(local_folder, create_dir=True)
     local_target = os.path.join(local_folder, f'{tdoc_str}.zip')
 
     # Only download file if needed
@@ -520,6 +533,10 @@ def search_download_and_open_tdoc(
         download_file_to_location(tdoc_url, local_target)
     else:
         print(f'Using local cache for {tdoc_url} in {local_target}')
+
+    if not file_exists(local_target):
+        print(f'No file to open in {local_target}')
+        return None, None
 
     files_in_zip = unzip_files_in_zip_file(local_target)
     if (len(files_in_zip) <= maximum_number_of_files_to_open) and (not skip_open):

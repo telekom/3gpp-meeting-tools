@@ -167,7 +167,7 @@ def file_exists(local_filename: str, print_log: bool=False) -> bool:
     local_file_exists = os.path.exists(local_filename)
     if not local_file_exists:
         if print_log:
-            (f'{local_filename} does not exist')
+            print(f'{local_filename} does not exist')
         return False
     try:
         local_file_size = os.path.getsize(local_filename)
@@ -175,7 +175,7 @@ def file_exists(local_filename: str, print_log: bool=False) -> bool:
             print(f'File {local_filename} is of size 0. Most probably corrupted')
             return False
     except OSError as e:
-        print("Could not ascertain downloaded file's size")
+        print(f"Could not ascertain downloaded file's size: {e}")
         traceback.print_exc()
         return False
 
