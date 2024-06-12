@@ -12,9 +12,11 @@ import pyperclip
 
 import application
 import application.meeting_helper
+import application.tkinter_config
 import gui
 import gui.main_gui
 import parsing.word.pywin32
+import server.network
 import utils.local_cache
 from application import powerpoint
 from application.excel import open_excel_document, set_first_row_as_filter, vertically_center_all_text, save_wb, \
@@ -369,7 +371,7 @@ class TdocsTable(GenericTable):
         print("Will export {0} CRs".format(len(file_path_list)))
         # print(file_path_list)
 
-        selected_meeting = gui.main_gui.tkvar_meeting.get()
+        selected_meeting = application.tkinter_config.tkvar_meeting.get()
 
         # Generate output filename for the CR summary Excel
         server_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(

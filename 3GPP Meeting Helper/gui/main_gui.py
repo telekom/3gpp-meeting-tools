@@ -9,6 +9,7 @@ from typing import Tuple, List
 from pyperclip import copy as clipboard_copy
 
 import application.meeting_helper
+import application.tkinter_config
 import application.word
 import gui.meetings_table
 import gui.network_config
@@ -22,13 +23,15 @@ import parsing.html.tdocs_by_agenda
 import parsing.word.pywin32
 import server.agenda
 import server.common
+import server.network
 import server.tdoc
 import server.tdoc_search
 import server.tdocs_by_agenda
 import tdoc.utils
 import utils.local_cache
 import utils.threading
-from application.tkinter_config import root, font_big, ttk_style_tbutton_medium
+from application.tkinter_config import root, font_big, ttk_style_tbutton_medium, main_frame, tkvar_3gpp_wifi_available, \
+    tkvar_meeting, tk_combobox_meetings
 from gui.common.utils import favicon
 from server.network import detect_3gpp_network_state
 from server.specs import get_specs_folder
@@ -40,7 +43,6 @@ root.title("3GPP SA2 Meeting helper")
 root.iconbitmap(gui.common.utils.favicon)
 
 # Add a grid
-main_frame = tkinter.Frame(root)
 main_frame.grid(
     column=0,
     row=0,
@@ -53,14 +55,6 @@ def set_waiting_for_proxy_message():
 
 # global variables
 inbox_tdoc_list_html = None
-
-# Tkinter variables
-tkvar_meeting = tkinter.StringVar(root)
-tk_combobox_meetings = ttk.Combobox(
-    main_frame,
-    textvariable=tkvar_meeting,
-)
-tkvar_3gpp_wifi_available = tkinter.BooleanVar(root)
 
 
 def set_3gpp_network_status_in_application_info(*args):
@@ -130,7 +124,7 @@ last_override_tdocs_by_agenda = ''
 
 # Utility methods
 def open_local_meeting_folder(*args):
-    selected_meeting = gui.main_gui.tkvar_meeting.get()
+    selected_meeting = application.tkinter_config.tkvar_meeting.get()
     meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
         selected_meeting)
     if meeting_folder is not None:
@@ -139,7 +133,7 @@ def open_local_meeting_folder(*args):
 
 
 def open_server_meeting_folder(*args):
-    selected_meeting = gui.main_gui.tkvar_meeting.get()
+    selected_meeting = application.tkinter_config.tkvar_meeting.get()
     meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
         selected_meeting)
     if meeting_folder is not None:
@@ -589,7 +583,7 @@ def start_main_gui():
         command=lambda: gui.tools_overview.ToolsDialog(
             gui.main_gui.root,
             gui.main_gui.favicon,
-            selected_meeting_fn=gui.main_gui.tkvar_meeting.get))
+            selected_meeting_fn=application.tkinter_config.tkvar_meeting.get))
      .grid(
         row=current_row,
         column=0,
@@ -602,7 +596,7 @@ def start_main_gui():
         gui.tdocs_table.TdocsTable(
             favicon=favicon,
             parent_widget=root,
-            meeting_name=gui.main_gui.tkvar_meeting.get(),
+            meeting_name=application.tkinter_config.tkvar_meeting.get(),
             meeting_server_folder=meeting_server_folder,
             download_and_open_tdoc_fn=gui.main_gui.download_and_open_tdoc,
             update_tdocs_by_agenda_fn=lambda: open_tdocs_by_agenda(

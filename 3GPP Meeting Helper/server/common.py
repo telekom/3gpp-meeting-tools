@@ -46,16 +46,125 @@ class TdocType(Enum):
     DRAFT = 3
 
 
+class WorkingGroup(Enum):
+    SP = 1
+    S1 = 2
+    S2 = 3
+    S3 = 4
+    S3LI = 5
+    S4 = 6
+    S5 = 7
+    S6 = 8
+    CP = 9
+    C1 = 10
+    C3 = 11
+    C4 = 12
+    C6 = 13
+    RP = 14
+    R1 = 15
+    R2 = 16
+    R3 = 17
+    R4 = 18
+    R5 = 19
+
+    def get_wg_folder_name(self, server_type: ServerType) -> str:
+        match server_type:
+            case ServerType.PRIVATE:
+                prefix = 'ftp'
+                match self:
+                    case WorkingGroup.SP:
+                        return f'{prefix}/SA'
+                    case WorkingGroup.S1:
+                        return f'{prefix}/SA/SA1'
+                    case WorkingGroup.S2:
+                        return f'{prefix}/SA/SA2'
+                    case WorkingGroup.S3:
+                        return f'{prefix}/SA/SA3'
+                    case WorkingGroup.S3LI:
+                        return f'{prefix}/SA/SA3LI'
+                    case WorkingGroup.S4:
+                        return f'{prefix}/SA/SA4'
+                    case WorkingGroup.S5:
+                        return f'{prefix}/SA/SA5'
+                    case WorkingGroup.S6:
+                        return f'{prefix}/SA/SA6'
+                    case WorkingGroup.CP:
+                        return f'{prefix}/CT'
+                    case WorkingGroup.C1:
+                        return f'{prefix}/CT1'
+                    case WorkingGroup.C3:
+                        return f'{prefix}/CT3'
+                    case WorkingGroup.C4:
+                        return f'{prefix}/CT4'
+                    case WorkingGroup.C6:
+                        return f'{prefix}/CT6'
+                    case WorkingGroup.RP:
+                        return f'{prefix}/RAN'
+                    case WorkingGroup.R1:
+                        return f'{prefix}/RAN1'
+                    case WorkingGroup.R2:
+                        return f'{prefix}/RAN2'
+                    case WorkingGroup.R3:
+                        return f'{prefix}/RAN3'
+                    case WorkingGroup.R4:
+                        return f'{prefix}/RAN4'
+                    case WorkingGroup.R5:
+                        return f'{prefix}/RAN5'
+            case _:
+                prefix = 'ftp'
+                match self:
+                    case WorkingGroup.SP:
+                        return f'{prefix}/tsg_sa/TSG_SA'
+                    case WorkingGroup.S1:
+                        return f'{prefix}/tsg_sa/WG1_Serv'
+                    case WorkingGroup.S2:
+                        return f'{prefix}/tsg_sa/WG2_Arch'
+                    case WorkingGroup.S3:
+                        return f'{prefix}/tsg_sa/WG3_Security'
+                    case WorkingGroup.S3LI:
+                        return f'{prefix}/tsg_sa/WG3_Security/TSGS3_LI'
+                    case WorkingGroup.S4:
+                        return f'{prefix}/tsg_sa/WG4_CODEC'
+                    case WorkingGroup.S5:
+                        return f'{prefix}/tsg_sa/WG5_TM'
+                    case WorkingGroup.S6:
+                        return f'{prefix}/tsg_sa/WG6_MissionCritical'
+                    case WorkingGroup.CP:
+                        return f'{prefix}/tsg_ct/TSG_CT'
+                    case WorkingGroup.C1:
+                        return f'{prefix}/tsg_ct/WG1_mm-cc-sm_ex-CN1'
+                    case WorkingGroup.C3:
+                        return f'{prefix}/tsg_ct/WG3_interworking_ex-CN3'
+                    case WorkingGroup.C4:
+                        return f'{prefix}/tsg_ct/WG4_protocollars_ex-CN4'
+                    case WorkingGroup.C6:
+                        return f'{prefix}/tsg_ct/WG6_Smartcard_Ex-T3'
+                    case WorkingGroup.RP:
+                        return f'{prefix}/tsg_ran/TSG_RAN'
+                    case WorkingGroup.R1:
+                        return f'{prefix}/tsg_ran/WG1_RL1'
+                    case WorkingGroup.R2:
+                        return f'{prefix}/tsg_ran/WG2_RL2'
+                    case WorkingGroup.R3:
+                        return f'{prefix}/tsg_ran/WG3_Iu'
+                    case WorkingGroup.R4:
+                        return f'{prefix}/tsg_ran/WG4_Radio'
+                    case WorkingGroup.R5:
+                        return f'{prefix}/tsg_ran/WG5_Test_ex-T1'
+
+
 def get_document_or_folder_url(
         server_type: ServerType,
         document_type: DocumentType,
         meeting_folder_in_server: str,
         tdoc_type: TdocType | None = None,
-        override_folder_path: str | None = None
+        override_folder_path: str | None = None,
+        working_group: WorkingGroup = WorkingGroup.S2
 ) -> List[str]:
     """
     Returns a list of all the places a target file of the specified type could be located in
     Args:
+        working_group: Optional parameter to specify the WG of the folder (needed for generating some paths)
         override_folder_path: If this parameter is included, it constructs a folder path for the selected server type
         meeting_folder_in_server: Used for public servers to generate the full URL (not really used for private server)
         server_type: Whether we want the address for the internal 3GPP WiFi (F2F) or public server
@@ -65,7 +174,7 @@ def get_document_or_folder_url(
     Returns:
 
     """
-    # To Do
+    # To Do: add WG type
     match server_type:
         case ServerType.PRIVATE:
             host_address = 'http://' + private_server + '/'
@@ -76,48 +185,49 @@ def get_document_or_folder_url(
     if override_folder_path is not None:
         return [f'{host_address}{override_folder_path}']
 
+    root_folder = working_group.get_wg_folder_name(server_type)
     match document_type:
         case DocumentType.CHAIR_NOTES:
             folders = [
-                'ftp/SA/SA2/INBOX/Chair_Notes'
+                f'{root_folder}/INBOX/Chair_Notes'
             ] if server_type == ServerType.PRIVATE \
                 else [
-                f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/Chair_Notes'
+                f'{root_folder}/{meeting_folder_in_server}/INBOX/Chair_Notes'
             ]
         case DocumentType.TDOCS_BY_AGENDA | DocumentType.MEETING_ROOT:
             folders = [
-                'ftp/SA/SA2/'
+                f'{root_folder}/'
             ] if server_type == ServerType.PRIVATE \
                 else [
-                f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/'
+                f'{root_folder}/{meeting_folder_in_server}/'
             ]
         case DocumentType.AGENDA:
             folders = [
-                'ftp/SA/SA2/Agenda/',
-                'ftp/SA/SA2/INBOX/DRAFTS/_Session_Plan_Updates/'
+                f'{root_folder}/Agenda/',
+                f'{root_folder}/INBOX/DRAFTS/_Session_Plan_Updates/'
             ] if server_type == ServerType.PRIVATE \
                 else [
-                f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/Agenda/',
-                f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/DRAFTS/_Session_Plan_Updates/'
+                f'{root_folder}/{meeting_folder_in_server}/Agenda/',
+                f'{root_folder}/{meeting_folder_in_server}/INBOX/DRAFTS/_Session_Plan_Updates/'
             ]
         case _:
             # A TDoc
             match tdoc_type:
                 case None | TdocType.NORMAL:
                     # Normal TDoc
-                    folders = ['ftp/SA/SA2/Docs/'] if server_type == ServerType.PRIVATE \
-                        else [f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/Docs/']
+                    folders = [f'{root_folder}/Docs/'] if server_type == ServerType.PRIVATE \
+                        else [f'{root_folder}/{meeting_folder_in_server}/Docs/']
                 case TdocType.DRAFT:
                     # Draft TDoc (sub-folders not included!)
-                    folders = ['ftp/SA/SA2/INBOX/DRAFTS/'] if server_type == ServerType.PRIVATE \
-                        else [f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/DRAFTS/']
+                    folders = [f'{root_folder}/INBOX/DRAFTS/'] if server_type == ServerType.PRIVATE \
+                        else [f'{root_folder}/{meeting_folder_in_server}/INBOX/DRAFTS/']
                 case _:
                     # Revision
                     # No revisions in F2F meetings (at least during the F2F phase)
                     folders = [] if server_type == ServerType.PRIVATE \
                         else [
-                        f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/Revisions/',
-                        f'ftp/tsg_sa/WG2_Arch/{meeting_folder_in_server}/INBOX/e-mail_Approval/Revisions/']
+                        f'{root_folder}/{meeting_folder_in_server}/INBOX/Revisions/',
+                        f'{root_folder}/{meeting_folder_in_server}/INBOX/e-mail_Approval/Revisions/']
     target_folders = [host_address + folder for folder in folders]
 
     print(f'Target folder for meeting '
