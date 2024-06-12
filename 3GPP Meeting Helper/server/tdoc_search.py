@@ -25,6 +25,7 @@ meeting_pages_per_group: dict[str, str] = {
     'CP': 'https://www.3gpp.org/dynareport?code=Meetings-CP.htm',
     'C1': 'https://www.3gpp.org/dynareport?code=Meetings-C1.htm',
     'C3': 'https://www.3gpp.org/dynareport?code=Meetings-C3.htm',
+    'C4': 'https://www.3gpp.org/dynareport?code=Meetings-C4.htm',
     'C6': 'https://www.3gpp.org/dynareport?code=Meetings-C6.htm',
     'RP': 'https://www.3gpp.org/dynareport?code=Meetings-RP.htm',
     'R1': 'https://www.3gpp.org/dynareport?code=Meetings-R1.htm',

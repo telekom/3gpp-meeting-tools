@@ -4,7 +4,7 @@ import application.meeting_helper
 import parsing.html
 import server.common
 import utils.local_cache
-from gui.main_gui import tkvar_3gpp_wifi_available, tkvar_meeting, tk_combobox_meetings
+from application.tkinter_config import tkvar_3gpp_wifi_available, tkvar_meeting, tk_combobox_meetings
 
 
 def detect_3gpp_network_state(
@@ -62,3 +62,5 @@ def detect_3gpp_network_state(
 
     if loop:
         root.after(ms=interval_ms, func=lambda: detect_3gpp_network_state(root))
+
+
