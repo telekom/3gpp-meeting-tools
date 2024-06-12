@@ -7,7 +7,7 @@ from enum import Enum
 from typing import NamedTuple, List
 
 from server.connection import get_remote_file
-from utils.local_cache import get_sa2_root_folder_local_cache, file_exists, create_folder_if_needed
+from utils.local_cache import get_sa2_root_folder_local_cache, create_folder_if_needed
 
 """Retrieves data from the 3GPP web server"""
 default_http_proxy = 'http://lanbctest:8080'
