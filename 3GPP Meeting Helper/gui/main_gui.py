@@ -30,6 +30,7 @@ import utils.local_cache
 import utils.threading
 from application.tkinter_config import root, font_big, ttk_style_tbutton_medium
 from gui.common.utils import favicon
+from server.network import detect_3gpp_network_state
 from server.specs import get_specs_folder
 from server.tdocs_by_agenda import get_tdocs_by_agenda_for_specific_meeting, get_sa2_inbox_tdoc_list
 
@@ -222,52 +223,6 @@ def set_agenda_version_text(*args):
 
 
 tkvar_last_agenda_version.trace('w', set_agenda_version_text)
-
-
-def detect_3gpp_network_state(loop=True, interval_ms=10000):
-    # Checks whether the inbox is from the selected meeting and sets
-    # some labels accordingly
-
-    previous_state = tkvar_3gpp_wifi_available.get()
-    new_state = server.common.we_are_in_meeting_network()
-    if new_state:
-        tkvar_3gpp_wifi_available.set(True)
-    else:
-        tkvar_3gpp_wifi_available.set(False)
-
-    if new_state != previous_state:
-        print(f'Changed 3GPP network state from {previous_state} to {new_state}')
-        cache_tdocsbyagenda_path = utils.local_cache.get_private_server_tdocs_by_agenda_local_cache()
-        tdocsbyagenda_url = server.common.tdocs_by_agenda_for_checking_meeting_number_in_meeting
-
-        if new_state:
-            # Jumping from normal network to 3GPP Wi-fi
-            # Download from 10.10.10.10 TdocsByAgenda and check meeting number
-            # Then freeze the meeting choice to the one found
-
-            meeting_text = None
-            if server.common.download_file_to_location(tdocsbyagenda_url, cache_tdocsbyagenda_path):
-                if utils.local_cache.file_exists(cache_tdocsbyagenda_path):
-                    with open(cache_tdocsbyagenda_path, "r") as f:
-                        cache_tdocsbyagenda_html_str = f.read()
-                    meeting_number = parsing.html.tdocs_by_agenda.TdocsByAgendaData.get_meeting_number(
-                        cache_tdocsbyagenda_html_str)
-                    meeting_data = application.meeting_helper.sa2_meeting_data
-                    meeting_text = meeting_data.get_meeting_text_for_given_meeting_number(meeting_number)
-                    print(f'Current meeting (10.10.10.10) is {meeting_number}: {meeting_text}')
-
-            print(f'Selecting meeting {meeting_text} and disabling meeting drop-down list')
-            if tkvar_meeting.get() != meeting_text:
-                # Trigger change only if necessary
-                tkvar_meeting.set(meeting_text)
-            tk_combobox_meetings['state'] = tkinter.DISABLED
-        else:
-            # Jumping from 3GPP Wi-fi to normal network
-            print(f'(Re-)enabling meeting drop-down list')
-            tk_combobox_meetings['state'] = tkinter.NORMAL
-
-    if loop:
-        root.after(ms=interval_ms, func=detect_3gpp_network_state)
 
 
 def change_meeting_dropdown(*args):
@@ -476,7 +431,7 @@ def download_and_open_tdoc(
 
 def start_main_gui():
     load_application_data()
-    detect_3gpp_network_state(loop=False)  # We start the loop outside of this function and asynchronously
+    detect_3gpp_network_state(root, loop=False)  # We start the loop outside of this function and asynchronously
 
     tkvar_meeting.set(
         application.meeting_helper.sa2_meeting_data.get_meeting_text_for_given_meeting_number(
@@ -991,7 +946,7 @@ def start_main_gui():
 
     # Finish by setting periodic checking of the network status
     network_check_interval_ms = 10000
-    root.after(ms=10000, func=lambda: detect_3gpp_network_state(loop=True, interval_ms=network_check_interval_ms))
+    root.after(ms=10000, func=lambda: detect_3gpp_network_state(root, loop=True, interval_ms=network_check_interval_ms))
 
 
 # Avoid circular references by setting the TDoc open function at runtime
