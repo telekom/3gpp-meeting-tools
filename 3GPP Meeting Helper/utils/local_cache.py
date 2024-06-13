@@ -187,7 +187,11 @@ def file_exists(local_filename: str, print_log: bool = False) -> bool:
 
 
 def get_specs_cache_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'specs', 'server_cache'))
+    folder_name = os.path.expanduser(os.path.join(
+        CacheConfig.user_folder,
+        CacheConfig.root_folder,
+        'specs',
+        'server_cache'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 

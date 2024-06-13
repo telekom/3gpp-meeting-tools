@@ -2,12 +2,14 @@ import concurrent.futures
 import os.path
 import pickle
 import re
+import shutil
 from urllib.parse import urlparse
 from typing import List, Tuple, Dict, NamedTuple
 
 import html2text
+from pandas import DataFrame
 
-import server.specs
+import utils.local_cache
 from parsing.html.specs import extract_releases_from_latest_folder, extract_spec_series_from_spec_folder, \
     extract_spec_files_from_spec_folder, extract_spec_versions_from_spec_file, cleanup_spec_name
 from parsing.spec_types import SpecType, SpecVersionMapping, SpecSeries, SpecFile
@@ -61,7 +63,7 @@ def get_html_page_and_save_cache(
         output_data = h.handle(html_decoded)
 
         # Make file smaller
-        output_data = cleanup_markup_file(in_markup=output_data, log_str=url)
+        output_data = cleanup_spec_markup_file(in_markup=output_data, log_str=url)
     else:
         output_data = html
 
@@ -80,10 +82,11 @@ def get_html_page_and_save_cache(
     return output_data
 
 
-def cleanup_markup_file(in_markup: str, log_str: str) -> str:
+def cleanup_spec_markup_file(in_markup: str, log_str: str) -> str:
     """
     General cleanup of a markup file
     Args:
+        log_str: Whether to print a log message
         in_markup: the markup text (input)
 
     Returns: Markup text after cleanup (output)
@@ -166,12 +169,12 @@ def get_spec_page(spec_number: str, cache=False, force_download=False):
     return markup
 
 
-# Moved outside of the function so that the last cached files can be stored in-memory between function calls. This is
+# Moved outside the function so that the last cached files can be stored in-memory between function calls. This is
 # useful when reloading a single spec file
 last_spec_metadata: dict[str, SpecVersionMapping] = {}
 
 # Contains the last loaded specifications dataframe
-last_specs_df = None
+last_specs_df: DataFrame | None = None
 
 
 def get_specs(
@@ -195,9 +198,25 @@ def get_specs(
         https://www.3gpp.org/ftp/Specs/latest and and a dictionary containing specification metadata, e.g.
         the specification title, obtained from scraping all of the https://www.3gpp.org/DynaReport/{spec_name}.htm
         pages in the 3GPP server.
-        Also metadata containing title and other information for the related specifications
+        Also, metadata containing title and other information for the related specifications
 
     """
+    try:
+        current_file_directory = os.path.dirname(os.path.abspath(__file__))
+        cache_file_target_folder = utils.local_cache.get_specs_cache_folder()
+        file_name = 'server_cache.zip'
+        source_cache_file = os.path.join(current_file_directory, file_name)
+        target_cache_file = os.path.join(cache_file_target_folder, file_name)
+        if not file_exists(target_cache_file) and file_exists(source_cache_file):
+            print(f'Copying spec cache file to {target_cache_file}')
+            utils.local_cache.create_folder_if_needed(cache_file_target_folder, create_dir=True)
+            shutil.copyfile(source_cache_file, target_cache_file)
+            unzipped_files = unzip_files_in_zip_file(target_cache_file)
+            print(f'Unzipped {len(unzipped_files)} spec files to {cache_file_target_folder}')
+    except Exception as e:
+        print(f'Could not copy spec cache file: {e}')
+
+    global last_specs_df, last_spec_metadata
     print('Loading specs: cache={0}, check for new specs={1}, override pickle cache={2}, load only={3}'.format(
         cache,
         check_for_new_specs,
@@ -210,9 +229,9 @@ def get_specs(
         if cache and (not check_for_new_specs) and os.path.exists(specs_df_cache_file):
             with open(specs_df_cache_file, "rb") as f:
                 print('Loading spec cache from {0}'.format(specs_df_cache_file))
-                specs_df, server.specs.last_spec_metadata = pickle.load(f)
-            server.specs.last_specs_df = specs_df
-            return specs_df, server.specs.last_spec_metadata
+                specs_df, last_spec_metadata = pickle.load(f)
+            last_specs_df = specs_df
+            return specs_df, last_spec_metadata
 
     if cache and (not check_for_new_specs):
         latest_and_series_cache = True
@@ -224,7 +243,7 @@ def get_specs(
     if len(load_only_spec_list) > 0:
         # Selectively reloading a known spec does not require to require all of the spec series data
         print('Skipping loading series data (loading only {0})'.format(load_only_spec_list))
-        specs_df = server.specs.last_specs_df
+        specs_df = last_specs_df
     else:
         print('Loading series data')
 
@@ -346,7 +365,7 @@ def get_specs(
             print('Storing spec cache in {0}'.format(specs_df_cache_file))
             pickle.dump([specs_df, last_spec_metadata], f)
 
-    server.specs.last_specs_df = specs_df
+    last_specs_df = specs_df
     return specs_df, last_spec_metadata
 
 
