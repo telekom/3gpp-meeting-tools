@@ -5,6 +5,7 @@ import traceback
 import application.outlook
 import config.cache as local_cache_config
 import server
+from config.word import WordConfig
 from parsing.html.common import MeetingData
 from parsing.html.tdocs_by_agenda import TdocsByAgendaData
 
@@ -52,19 +53,44 @@ try:
 except Exception as e:
     print(f'Not using Contributor Name for Word report: {e}')
 
+home_directory = '~'
 try:
     home_directory = config['GENERAL']['HomeDirectory']
     print(f'Using Home Directory {home_directory}')
 except Exception as e:
-    home_directory = '~'
     print(f'HomeDirectory not set. Using "{home_directory}": {e}')
+finally:
+    local_cache_config.CacheConfig.user_folder = home_directory
 
+application_folder = '3GPP_SA2_Meeting_Helper'
 try:
     application_folder = config['GENERAL']['ApplicationFolder']
     print(f'Using Application Folder {application_folder}')
 except Exception as e:
-    application_folder = '3GPP_SA2_Meeting_Helper'
     print(f'ApplicationFolder not set. Using "{application_folder}": {e}')
+finally:
+    local_cache_config.CacheConfig.root_folder = application_folder
+
+WordConfig.sensitivity_level_label_id = None
+WordConfig.sensitivity_level_label_name = None
+WordConfig.save_document_after_setting_sensitivity_label = False
+try:
+    WordConfig.sensitivity_level_label_id = config['WORD']['SensitivityLevelLabelId']
+    print(f'Set Word Sensitivity Label ID to {WordConfig.sensitivity_level_label_id}')
+except Exception as e:
+    print(f'Set Word Sensitivity Label ID not set. Using "{WordConfig.sensitivity_level_label_id}": {e}')
+try:
+    WordConfig.sensitivity_level_label_name = config['WORD']['SensitivityLevelLabelName']
+    print(f'Set Word Sensitivity Label name to {WordConfig.sensitivity_level_label_name}')
+except Exception as e:
+    print(f'Set Word Sensitivity Label name not set. Using "{WordConfig.sensitivity_level_label_name}": {e}')
+try:
+    WordConfig.save_document_after_setting_sensitivity_label = config['WORD']['SaveDocumentAfterSettingSensitivityLabel'].lower() in ("yes", "true")
+    print(f'Word will save document after setting sensitivity level '
+          f'{WordConfig.save_document_after_setting_sensitivity_label}')
+except Exception as e:
+    print(f'Saving after setting sensitivity level not set. Using "'
+          f'{WordConfig.save_document_after_setting_sensitivity_label}": {e}')
 
 print('Loaded configuration file')
 
@@ -77,10 +103,4 @@ def get_now_time_str():
     return current_dt_str
 
 
-# Configurable placement of the cache
-if home_directory is not None:
-    local_cache_config.CacheConfig.user_folder = home_directory
-
-if application_folder is not None:
-    local_cache_config.CacheConfig.root_folder = application_folder
 
