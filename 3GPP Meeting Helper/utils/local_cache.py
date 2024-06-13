@@ -4,11 +4,11 @@ from typing import Callable
 
 import html2text
 
-from config.cache import user_folder, root_folder
+from config.cache import CacheConfig
 
 
 def get_cache_folder(create_dir=False):
-    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'cache'))
+    folder_name = os.path.expanduser(os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'cache'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
@@ -73,7 +73,7 @@ def write_data_and_open_file(data, local_file):
 
 
 def get_tmp_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'tmp'))
+    folder_name = os.path.expanduser(os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'tmp'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
@@ -82,8 +82,9 @@ def get_webcache_file():
     folder_name = get_tmp_folder()
     return os.path.join(folder_name, '.webcache')
 
+
 def get_spec_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs'))
+    folder_name = os.path.expanduser(os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'specs'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
@@ -97,7 +98,7 @@ def get_meeting_list_folder(create_dir=True) -> str:
     Returns: The path of the folder
 
     """
-    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'meetings'))
+    folder_name = os.path.expanduser(os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'meetings'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
@@ -133,8 +134,8 @@ def convert_html_file_to_markup(
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
             html_content = file.read()
-    except:
-        print('Could not open file "{0}"'.format(html_content))
+    except Exception as e:
+        print(f'Could not open file "{html_content}": {e}')
         return None
     h = html2text.HTML2Text()
     h.ignore_links = ignore_links
@@ -152,16 +153,17 @@ def convert_html_file_to_markup(
         with open(destination_file, 'w', encoding='utf-8') as file:
             file.write(markdown_text)
         return destination_file
-    except:
-        print('Could not write file "{0}"'.format(destination_file))
+    except Exception as e:
+        print(f'Could not write file "{destination_file}": {e}')
         traceback.print_exc()
         return None
 
 
-def file_exists(local_filename: str, print_log: bool=False) -> bool:
+def file_exists(local_filename: str, print_log: bool = False) -> bool:
     """
     Returns whether the file exists, and if it exists, if it is NOT of null size
     Args:
+        print_log: Whether to print a log related to whether the file exists
         local_filename: The file path
     """
     local_file_exists = os.path.exists(local_filename)
@@ -185,13 +187,13 @@ def file_exists(local_filename: str, print_log: bool=False) -> bool:
 
 
 def get_specs_cache_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs', 'server_cache'))
+    folder_name = os.path.expanduser(os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'specs', 'server_cache'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
 
 def get_work_items_cache_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join(user_folder, root_folder, 'work_items', 'server_cache'))
+    folder_name = os.path.expanduser(os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'work_items', 'server_cache'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 

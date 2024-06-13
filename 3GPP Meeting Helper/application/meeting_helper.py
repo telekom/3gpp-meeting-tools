@@ -19,7 +19,7 @@ sa2_meeting_data: MeetingData | None = None
 
 # Global store of the current TDocsByAgenda data
 # No type hint to avoid circular references. It should be ": parsing.html.tdocs_by_agenda.tdocs_by_agenda"
-current_tdocs_by_agenda: TdocsByAgendaData = None
+current_tdocs_by_agenda: TdocsByAgendaData | None = None
 
 word_own_reporter_name = None
 home_directory = None
@@ -29,8 +29,8 @@ try:
     server.default_http_proxy = config['HTTP']['DefaultHttpProxy']
     sa2_list_folder_name = config['OUTLOOK']['Sa2MailingListFolder']
     sa2_email_approval_folder_name = config['OUTLOOK']['Sa2EmailApprovalFolder']
-except KeyError:
-    print('Could not load configuration file')
+except KeyError as e:
+    print(f'Could not load configuration file: {e}')
     traceback.print_exc()
 
     server.default_http_proxy = ""
@@ -48,15 +48,23 @@ if len(sa2_email_approval_folder_name) > 0 and sa2_email_approval_folder_name[0]
 # Write other configuration
 try:
     word_own_reporter_name = config['REPORTING']['ContributorName']
-    print('Using Contributor Name for Word report {0}'.format(word_own_reporter_name))
-except:
-    pass
+    print(f'Using Contributor Name for Word report {word_own_reporter_name}')
+except Exception as e:
+    print(f'Not using Contributor Name for Word report: {e}')
 
 try:
     home_directory = config['GENERAL']['HomeDirectory']
-    print('Using Home Directory {0}'.format(home_directory))
-except:
-    pass
+    print(f'Using Home Directory {home_directory}')
+except Exception as e:
+    home_directory = '~'
+    print(f'HomeDirectory not set. Using "{home_directory}": {e}')
+
+try:
+    application_folder = config['GENERAL']['ApplicationFolder']
+    print(f'Using Application Folder {application_folder}')
+except Exception as e:
+    application_folder = '3GPP_SA2_Meeting_Helper'
+    print(f'ApplicationFolder not set. Using "{application_folder}": {e}')
 
 print('Loaded configuration file')
 
@@ -71,5 +79,8 @@ def get_now_time_str():
 
 # Configurable placement of the cache
 if home_directory is not None:
-    local_cache_config.user_folder = home_directory
+    local_cache_config.CacheConfig.user_folder = home_directory
+
+if application_folder is not None:
+    local_cache_config.CacheConfig.root_folder = application_folder
 
