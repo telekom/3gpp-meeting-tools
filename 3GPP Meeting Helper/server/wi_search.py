@@ -8,9 +8,20 @@ from utils.local_cache import file_exists, convert_html_file_to_markup, \
 
 sid_page = 'https://www.3gpp.org/dynareport?code=WI-List.htm'
 wgs_list = ['SP', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'CP', 'C1', 'C3', 'C6', 'RP', 'R1', 'R2', 'R3', 'R4', 'R5']
-local_cache_folder = get_work_items_cache_folder()
-local_cache_file = os.path.join(local_cache_folder, 'wi_list.htm')
-local_cache_file_md = os.path.join(local_cache_folder, 'wi_list.md')
+
+initialized = False
+local_cache_folder = ''
+local_cache_file = ''
+local_cache_file_md = ''
+
+
+def initialize():
+    global initialized, local_cache_folder, local_cache_file, local_cache_file_md
+    local_cache_folder = get_work_items_cache_folder()
+    local_cache_file = os.path.join(local_cache_folder, 'wi_list.htm')
+    local_cache_file_md = os.path.join(local_cache_folder, 'wi_list.md')
+    initialized = True
+
 
 wi_parse_regex = re.compile(
     r'(?P<uid>[\d]+)\|(?P<code>[\w\-_\.]+)\|(?P<title>[\.\w \d\-‑;\&\(\)/:,<>=\+]+)\|(?P<release>[\w \d‑-]+)\|(?P<lead_body>[\w \d‑\-,]+)')
@@ -58,6 +69,8 @@ loaded_wi_entries: List[WiEntry] = []
 
 
 def download_wi_list(re_download_if_exists=False):
+    if not initialized:
+        initialize()
     if re_download_if_exists or not file_exists(local_cache_file):
         download_file_to_location(sid_page, local_cache_file)
 
@@ -77,6 +90,8 @@ def filter_markdown_text(markdown_text: str) -> str:
 
 
 def load_wi_entries(re_download_if_exists=False):
+    if not initialized:
+        initialize()
     global loaded_wi_entries
 
     if not file_exists(local_cache_file_md) or re_download_if_exists:

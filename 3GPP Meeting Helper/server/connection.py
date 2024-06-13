@@ -11,8 +11,9 @@ from cachecontrol.caches import FileCache
 from utils.local_cache import get_webcache_file, file_exists
 
 non_cached_http_session = requests.Session()
-file_cache = FileCache(get_webcache_file())
-http_session = CacheControl(non_cached_http_session, cache=file_cache)
+print(f'Created Non-Cached HTTP Session')
+http_session = CacheControl(non_cached_http_session, cache=FileCache(get_webcache_file()))
+print(f'Created Cached HTTP Session')
 
 # Avoid getting sometimes 403s
 # user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0'
