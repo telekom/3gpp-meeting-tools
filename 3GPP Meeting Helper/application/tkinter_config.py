@@ -12,9 +12,3 @@ ttk_style_tbutton_medium = 'my.medium.TButton'
 ttk.Style().configure(ttk_style_tbutton_big, font=font_big)
 ttk.Style().configure(ttk_style_tbutton_medium, font=font_medium)
 main_frame = tkinter.Frame(root)
-tkvar_3gpp_wifi_available = tkinter.BooleanVar(root)
-tkvar_meeting = tkinter.StringVar(root)
-tk_combobox_meetings = ttk.Combobox(
-    main_frame,
-    textvariable=tkvar_meeting,
-)
