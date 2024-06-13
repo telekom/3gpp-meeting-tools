@@ -1,5 +1,7 @@
 import tkinter
 from tkinter import ttk
+
+import config.networking
 import server.common
 from urllib.parse import urlparse, quote_plus
 import traceback
@@ -25,7 +27,7 @@ class NetworkConfigDialog:
 
         ttk.Label(top, text="HTTP proxy host:port").grid(row=0, column=0)
         self.proxy_server = tkinter.Entry(top)
-        self.proxy_server.insert(0, server.common.default_http_proxy)
+        self.proxy_server.insert(0, config.networking.default_http_proxy)
         self.proxy_server.grid(row=0, column=1, columnspan=2, sticky="EW")
 
         ttk.Label(top, text="HTTP proxy user").grid(row=1, column=0)
@@ -42,7 +44,7 @@ class NetworkConfigDialog:
         ttk.Label(top, text="Meeting HTTP server").grid(row=4, column=0)
         self.meeting_server = ttk.Label(
             top,
-            text=server.common.private_server)
+            text=config.networking.private_server)
         self.meeting_server.grid(row=4, column=1, columnspan=2, sticky="EW")
 
         # Configure column row widths

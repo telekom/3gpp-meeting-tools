@@ -85,7 +85,9 @@ try:
 except Exception as e:
     print(f'Set Word Sensitivity Label name not set. Using "{WordConfig.sensitivity_level_label_name}": {e}')
 try:
-    WordConfig.save_document_after_setting_sensitivity_label = config['WORD']['SaveDocumentAfterSettingSensitivityLabel'].lower() in ("yes", "true")
+    WordConfig.save_document_after_setting_sensitivity_label = config['WORD'][
+                                                                   'SaveDocumentAfterSettingSensitivityLabel'].lower() in (
+                                                                   "yes", "true")
     print(f'Word will save document after setting sensitivity level '
           f'{WordConfig.save_document_after_setting_sensitivity_label}')
 except Exception as e:
@@ -94,6 +96,8 @@ except Exception as e:
 
 print('Loaded configuration file')
 
+last_known_3gpp_network_status = False
+
 
 def get_now_time_str():
     current_dt = datetime.datetime.now()
@@ -101,6 +105,3 @@ def get_now_time_str():
                                                                             current_dt.day, current_dt.hour,
                                                                             current_dt.minute, current_dt.second)
     return current_dt_str
-
-
-

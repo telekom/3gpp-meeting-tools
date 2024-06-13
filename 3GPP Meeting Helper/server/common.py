@@ -6,15 +6,11 @@ import traceback
 from enum import Enum
 from typing import NamedTuple, List
 
+from config.networking import private_server, public_server, wg_folder_public_server, wg_folder_private_server
 from server.connection import get_remote_file
 from utils.local_cache import get_sa2_root_folder_local_cache, create_folder_if_needed
 
 """Retrieves data from the 3GPP web server"""
-default_http_proxy = 'http://lanbctest:8080'
-private_server = '10.10.10.10'
-public_server = 'www.3gpp.org'
-wg_folder_public_server = 'ftp/tsg_sa/WG2_Arch/'
-wg_folder_private_server = 'ftp/SA/SA2/'
 
 sync_folder = 'ftp/Meetings_3GPP_SYNC/SA2/'
 
