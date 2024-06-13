@@ -8,7 +8,7 @@ import tdoc.utils
 import utils
 from application.zip_files import unzip_files_in_zip_file
 from server.common import download_file_to_location, FileToDownload, batch_download_file_to_location
-from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, create_folder_if_needed, file_exists
+from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, file_exists
 
 # If more than this number of files are included in a zip file, the folder is opened instead.
 # Some TDocs, especially in plenary, could contain many, many TDocs, e.g. SP-230457 (22 documents)
@@ -35,11 +35,21 @@ meeting_pages_per_group: dict[str, str] = {
     'R5': 'https://www.3gpp.org/dynareport?code=Meetings-R5.htm',
 }
 
-local_cache_folder = get_meeting_list_folder()
-html_cache: Dict[str, str] = {k: os.path.join(local_cache_folder, k + '.htm') for k, v in
-                              meeting_pages_per_group.items()}
-markup_cache: Dict[str, str] = {k: os.path.join(local_cache_folder, k + '.md') for k, v in
-                                meeting_pages_per_group.items()}
+initialized = False
+local_cache_folder = ''
+html_cache: Dict[str, str] = {}
+markup_cache: Dict[str, str] = {}
+
+
+def initialize():
+    global initialized, local_cache_folder, html_cache, markup_cache
+    local_cache_folder = get_meeting_list_folder()
+    html_cache = {k: os.path.join(local_cache_folder, k + '.htm') for k, v in
+                  meeting_pages_per_group.items()}
+    markup_cache = {k: os.path.join(local_cache_folder, k + '.md') for k, v in
+                    meeting_pages_per_group.items()}
+    initialized = True
+
 
 # Example parsing of:
 #   - [SP-102](https://portal.3gpp.org/Home.aspx#/meeting?MtgId=60012) | 3GPPSA#102| [Edinburgh](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Invitation/)| [2023-12-11](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Agenda/)| [2023-12-15](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\Report/)| [SP-231205 - SP-231807](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\\\docs\\)[full document list](https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=60012) | - | [Participants](https://webapp.etsi.org/3GPPRegistration/fViewPart.asp?mid=60012)| [Files](/../../../\\ftp\\TSG_SA\\TSG_SA\\TSGS_102_Edinburgh_2023-12\\) | - | -
@@ -229,6 +239,8 @@ def update_local_html_cache(redownload_if_exists=False):
     Args:
         redownload_if_exists: Whether to force a download of the file(s) if they exist
     """
+    if not initialized:
+        initialize()
     print('Updating local cache')
     files_to_download: List[FileToDownload] = []
     for k, v in meeting_pages_per_group.items():
@@ -272,6 +284,8 @@ def convert_local_cache_to_markdown():
     """
         Convert local cache to markdown
     """
+    if not initialized:
+        initialize()
     for k, v in html_cache.items():
         if os.path.exists(v):
             convert_html_file_to_markup(
@@ -288,6 +302,8 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
     Returns: 3GPP meeting list
 
     """
+    if not initialized:
+        initialize()
     global loaded_meeting_entries
     loaded_meeting_entries = []
 
