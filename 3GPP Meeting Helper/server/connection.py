@@ -12,13 +12,22 @@ from utils.local_cache import get_webcache_file, file_exists
 
 non_cached_http_session = requests.Session()
 print(f'Created Non-Cached HTTP Session')
-http_session = CacheControl(non_cached_http_session, cache=FileCache(get_webcache_file()))
-print(f'Created Cached HTTP Session')
+
+initialized_http_session = False
+http_session: CacheControl = None
 
 # Avoid getting sometimes 403s
 # user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0'
 user_agent = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
-http_session.headers.update({'User-Agent': user_agent})
+
+
+def initialize_http_session():
+    global initialized_http_session, http_session
+    file_cache_path = get_webcache_file()
+    http_session = CacheControl(non_cached_http_session, cache=FileCache(file_cache_path))
+    http_session.headers.update({'User-Agent': user_agent})
+    initialized_http_session = True
+    print(f'Created Cached HTTP Session. File cache path: {file_cache_path}')
 
 
 # https://stackoverflow.com/questions/60171502/requests-get-is-very-slow
@@ -93,6 +102,8 @@ def get_remote_file(
             if cache:
                 print('HTTP cached GET {0}'.format(url))
                 # r = requests.get(url, timeout=timeout_tuple)
+                if not initialized_http_session:
+                    initialize_http_session()
                 r = http_session.get(url, timeout=timeout_tuple)
             else:
                 print('HTTP non-cached GET {0}'.format(url))
