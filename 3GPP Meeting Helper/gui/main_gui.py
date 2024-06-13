@@ -488,7 +488,7 @@ def start_main_gui():
             root,
             favicon,
             on_update_ftp=gui.main_gui.update_ftp_button))
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         sticky="EW",
@@ -498,7 +498,7 @@ def start_main_gui():
         main_frame,
         text='Reload meeting info',
         command=lambda: load_application_data(reload_inbox_tdocs_by_agenda=True))
-    .grid(
+     .grid(
         row=current_row,
         column=1,
         sticky="EW",
@@ -618,14 +618,14 @@ def start_main_gui():
         columnspan=1,
         sticky="EW",
         padx=0
-    ))
+     ))
 
     # Add button to check Netovate (useful if you are searching for documents from other WGs
     (ttk.Button(
         main_frame,
         text='Search Netovate',
         command=search_netovate)
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         sticky="EW",
@@ -638,7 +638,7 @@ def start_main_gui():
         main_frame,
         text="Local meeting folder",
         command=open_local_meeting_folder)
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         columnspan=1,
@@ -649,7 +649,7 @@ def start_main_gui():
         main_frame,
         text="Local specs folder",
         command=lambda: os.startfile(get_specs_folder()))
-    .grid(
+     .grid(
         row=current_row,
         column=1,
         columnspan=1,
@@ -660,7 +660,7 @@ def start_main_gui():
         main_frame,
         text="Close Word",
         command=application.word.close_word)
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         columnspan=1,
@@ -684,13 +684,13 @@ def start_main_gui():
             parent_widget=root,
             favicon=favicon))
     (launch_spec_table
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         columnspan=1,
         sticky="EW",
         padx=10
-    ))
+     ))
 
     # Row: Table containing all 3GPP meetings
     launch_meetings_table = ttk.Button(
@@ -701,13 +701,13 @@ def start_main_gui():
             parent_widget=root,
             favicon=favicon))
     (launch_meetings_table
-    .grid(
+     .grid(
         row=current_row,
         column=1,
         columnspan=1,
         sticky="EW",
         padx=0
-    ))
+     ))
 
     # Row: Table containing all 3GPP WIs
     launch_spec_table = ttk.Button(
@@ -718,13 +718,13 @@ def start_main_gui():
             parent_widget=root,
             favicon=favicon))
     (launch_spec_table
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         columnspan=1,
         sticky="EW",
         padx=10
-    ))
+     ))
 
     # Row: Compare two TDocs
     current_row += 1
@@ -766,7 +766,7 @@ def start_main_gui():
         main_frame,
         text='Override Tdocs by agenda',
         variable=tkvar_override_tdocs_by_agenda)
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         padx=10,
@@ -774,13 +774,13 @@ def start_main_gui():
     ))
     override_tdocs_by_agenda_entry.config(state='readonly')
     (override_tdocs_by_agenda_entry
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         padx=10,
         sticky=tkinter.W,
         columnspan=2
-    ))
+     ))
 
     def set_override_tdocs_by_agenda_var(*args):
         global last_override_tdocs_by_agenda
@@ -845,7 +845,7 @@ def start_main_gui():
     (ttk.Label(
         main_frame,
         textvariable=tkvar_tdoc_download_result)
-    .grid(
+     .grid(
         row=current_row,
         column=1,
         padx=10
@@ -853,7 +853,7 @@ def start_main_gui():
     (ttk.Label(
         main_frame,
         textvariable=tkvar_last_agenda_vtext)
-    .grid(
+     .grid(
         row=current_row,
         column=2,
         padx=10
@@ -864,7 +864,7 @@ def start_main_gui():
     (tkinter.ttk.Separator(
         main_frame,
         orient=tkinter.HORIZONTAL)
-    .grid(
+     .grid(
         row=current_row,
         columnspan=3,
         sticky="WE",
@@ -875,7 +875,7 @@ def start_main_gui():
     (ttk.Label(
         main_frame,
         text='Last opened document:')
-    .grid(
+     .grid(
         row=current_row,
         column=0,
         sticky=tkinter.W,
