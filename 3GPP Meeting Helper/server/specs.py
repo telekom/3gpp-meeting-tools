@@ -15,7 +15,7 @@ from server.common import decode_string, download_file_to_location
 from application.zip_files import unzip_files_in_zip_file
 from server.connection import get_remote_file, HttpRequestTimeout
 from utils.local_cache import create_folder_if_needed, file_exists, get_specs_cache_folder
-from config.cache import user_folder, root_folder
+from config.cache import CacheConfig
 import pandas as pd
 
 specs_url = 'https://www.3gpp.org/ftp/Specs/latest'
@@ -361,9 +361,16 @@ def get_specs_folder(create_dir=True, spec_id=None):
 
     """
     if spec_id is None:
-        folder_name: str = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs'))
+        folder_name: str = os.path.expanduser(os.path.join(
+            CacheConfig.user_folder,
+            CacheConfig.root_folder,
+            'specs'))
     else:
-        folder_name: str = os.path.expanduser(os.path.join(user_folder, root_folder, 'specs', spec_id))
+        folder_name: str = os.path.expanduser(os.path.join(
+            CacheConfig.user_folder,
+            CacheConfig.root_folder,
+            'specs',
+            spec_id))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
