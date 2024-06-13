@@ -118,8 +118,8 @@ def get_markup_file(file_url: str, cache: bool, cache_file: str, force_download=
     Returns:
         The markdown-converted HTML file
     """
-    file_exists = os.path.exists(cache_file)
-    if cache and file_exists and (not force_download):
+    this_file_exists = os.path.exists(cache_file)
+    if cache and this_file_exists and (not force_download):
         print('Loading {0}'.format(cache_file))
         with open(cache_file, mode='r', encoding='utf-8') as file:
             markup = file.read()
@@ -129,7 +129,7 @@ def get_markup_file(file_url: str, cache: bool, cache_file: str, force_download=
         print('Markup file at {0} could not be retrieved: cache={1}, file exists: {2}'.format(
             cache_file,
             cache,
-            file_exists))
+            this_file_exists))
 
     return markup
 
@@ -282,7 +282,7 @@ def get_specs(
                 base_url=series_data.series_url)
             return specs_data_for_series
 
-        all_spec_series:List[SpecSeries] = []
+        all_spec_series: List[SpecSeries] = []
         for series_data_for_release in series_data_per_release:
             all_spec_series.extend(series_data_for_release)
 
@@ -551,11 +551,15 @@ def get_archive_page_for_spec(spec_number_with_dot: str) -> Tuple[str, str]:
     return spec_archive_url, series_number
 
 
-def get_spec_archive_remote_folder(spec_number_with_dot, cache=False, force_download=False) -> Tuple[str, str, str]:
+def get_spec_archive_remote_folder(
+        spec_number_with_dot,
+        cache=False,
+        force_download=False) -> Tuple[str, str, str]:
     """
     For a given specification, retrieves the 3GPP spec archive page,
     e.g., https://www.3gpp.org/ftp/Specs/archive/23_series/23.206
     Args:
+        force_download: Whether to download regardless of cache status
         spec_number_with_dot: The specification number including the dot, e.g., 23.206
         cache: Whether the file should be cached or not
 
