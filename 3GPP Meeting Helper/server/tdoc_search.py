@@ -84,6 +84,12 @@ meeting_without_report_regex = re.compile(
 meeting_without_invitation_regex = re.compile(
     r"\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[?(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\) \| (?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+) \| (?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+) \| \\\- \| \[Register\]")
 
+# Meetings such as this one:
+# [S6-62-AdHoc-e](https://portal.3gpp.org/Home.aspx#/meeting?MtgId=60688) | 3GPPSA6#62-AdHoc-e | [Online](/../../../\\ftp\\tsg_sa\\WG6_MissionCritical\\Ad-hoc_meetings\\2024-07-10_adhoc\\Invitation/) | [2024-07-10](/../../../\\ftp\\tsg_sa\\WG6_MissionCritical\\Ad-hoc_meetings\\2024-07-10_adhoc\\Agenda/) | 2024-07-18 | - | [Register](https://webapp.etsi.org/3GPPRegistration/fMain.asp?mid=60688) | [Participants](https://webapp.etsi.org/3GPPRegistration/fViewPart.asp?mid=60688) | [Files](/../../../\\ftp\\tsg_sa\\WG6_MissionCritical\\Ad-hoc_meetings\\2024-07-10_adhoc\\) | [ICS](https://portal.3gpp.org/webapp/meetingCalendar/ical.asp?qMTG_ID=60688) | -
+meeting_sa6_adhocs = re.compile(
+    r"\[(?P<meeting_group>[a-zA-Z][\d\w]+)\-(?P<meeting_number>[\d\-\w ]+)\]\((?P<meeting_url_3gu>[^ ]+)\)[ ]?\|[ ]?(?P<meeting_name>[^ ]+)[ ]?\|[ ]?\[?(?P<meeting_location>[^\]]+)\]\((?P<meeting_url_invitation>[^ ]+)\) \| \[(?P<start_year>[\d]+)\-(?P<start_month>[\d]+)\-(?P<start_day>[\d]+)\]\((?P<meeting_url_agenda>[^ ]+)\)[ ]?\|[ ]?(?P<end_year>[\d]+)\-(?P<end_month>[\d]+)\-(?P<end_day>[\d]+) \| - \| \[Register\]"
+)
+
 # Used to split the generated Markup text
 meeting_split_regex = re.compile(r'(\[[a-zA-Z][\d\w]+\-[\d\-\w ]+\]\([^ ]+\))')
 
@@ -436,6 +442,39 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
             ]
             loaded_meeting_entries.extend(meeting_matches_parsed)
             print(f'Added {len(meeting_matches_parsed)} meetings without invitation to group {k}')
+
+            # Some SA6 meetings
+            meeting_matches = meeting_sa6_adhocs.finditer(markup_file_content)
+            meeting_matches_parsed = [
+                MeetingEntry(
+                    meeting_group=m.group('meeting_group'),
+                    meeting_number=m.group('meeting_number'),
+                    meeting_url_3gu=server_url_replace(m.group('meeting_url_3gu')),
+                    meeting_name=m.group('meeting_name'),
+                    meeting_location=m.group('meeting_location'),
+                    meeting_url_invitation='',
+                    start_date=datetime.datetime(
+                        year=int(m.group('start_year')),
+                        month=int(m.group('start_month')),
+                        day=int(m.group('start_day'))),
+                    meeting_url_agenda='',
+                    end_date=datetime.datetime(
+                        year=int(m.group('end_year')),
+                        month=int(m.group('end_month')),
+                        day=int(m.group('end_day'))),
+                    meeting_url_report='',
+                    tdoc_start=None,
+                    tdoc_end=None,
+                    meeting_url_docs='',
+                    meeting_folder_url=''
+                )
+                for m in meeting_matches if
+                m is not None and
+                m.group('start_year') is not None and
+                m.group('end_year') is not None
+            ]
+            loaded_meeting_entries.extend(meeting_matches_parsed)
+            print(f'Added {len(meeting_matches_parsed)} meetings for some adhoc meetings {k}')
         else:
             print(f'Not found: {v}')
     # print(meeting_entries)
