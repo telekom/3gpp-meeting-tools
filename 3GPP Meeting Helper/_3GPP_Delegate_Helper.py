@@ -8,6 +8,7 @@ import gui.meetings_table
 import gui.network_config
 import gui.specs_table
 import gui.work_items_table
+from application.word import close_word
 
 from config.networking import NetworkingConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
@@ -63,7 +64,19 @@ launch_spec_table.grid(
     column=2,
     sticky="EW")
 
-# Row 2: 3GPP Wi-fi status
+# Row 2:
+(ttk.Button(
+        main_frame,
+        text="Close Word",
+        command=close_word)
+     .grid(
+        row=1,
+        column=0,
+        columnspan=1,
+        sticky="EW"
+    ))
+
+# 3GPP Wi-fi status
 tkinter_checkbutton_3gpp_wifi_available = ttk.Checkbutton(
     main_frame,
     state='disabled',
