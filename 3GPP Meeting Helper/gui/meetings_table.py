@@ -171,6 +171,7 @@ class MeetingsTable(GenericTable):
         meeting_list_to_consider.sort(reverse=True, key=lambda m: (m.start_date, m.meeting_group))
 
         count = 0
+        previous_row: None|MeetingEntry = None
         for idx, meeting in enumerate(meeting_list_to_consider):
             count = count + 1
             mod = count % 2
@@ -190,12 +191,25 @@ class MeetingsTable(GenericTable):
                 tdoc_list_str = 'Tdoc List'
                 tdoc_excel_str = 'Tdoc Excel'
 
+            # Overwrite for case of co-located meetings
+            if ((previous_row is not None) and
+                    (previous_row.meeting_location == meeting.meeting_location) and
+                    (previous_row.start_date == meeting.start_date) and
+                    (previous_row.end_date == meeting.end_date)):
+                location_str = '"'
+                start_date_str = '"'
+                end_date_str = '"'
+            else:
+                location_str = meeting.meeting_location
+                start_date_str = meeting.start_date.strftime('%Y-%m-%d')
+                end_date_str = meeting.end_date.strftime('%Y-%m-%d')
+
             # 'Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents'
             values = (
                 meeting.meeting_name,
-                meeting.meeting_location,
-                meeting.start_date.strftime('%Y-%m-%d'),
-                meeting.end_date.strftime('%Y-%m-%d'),
+                location_str,
+                start_date_str,
+                end_date_str,
                 meeting.tdoc_start,
                 meeting.tdoc_end,
                 documents_str,
@@ -204,6 +218,7 @@ class MeetingsTable(GenericTable):
                 tdoc_excel_str
             )
             self.tree.insert("", "end", tags=(tag,), values=values)
+            previous_row = meeting
 
         treeview_set_row_formatting(self.tree)
         self.meeting_count_tk_str.set('{0} meetings'.format(count))
@@ -215,7 +230,7 @@ class MeetingsTable(GenericTable):
         self.apply_filters()
 
     def load_meetings(self, *args):
-        tdoc_search.update_local_html_cache(redownload_if_exists=True)
+        tdoc_search.fully_update_cache(redownload_if_exists=True)
         self.load_data(initial_load=True)
         self.apply_filters()
 
