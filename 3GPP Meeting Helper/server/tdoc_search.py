@@ -1,6 +1,7 @@
 import datetime
 import os.path
 import re
+import time
 from typing import NamedTuple, List, Tuple, Dict
 
 import parsing.word.pywin32
@@ -37,17 +38,21 @@ meeting_pages_per_group: dict[str, str] = {
 
 initialized = False
 local_cache_folder = ''
-html_cache: Dict[str, str] = {}
-markup_cache: Dict[str, str] = {}
+
+# Group name as key
+html_cache_files: Dict[str, str] = {}
+markup_cache_files: Dict[str, str] = {}
 
 
 def initialize():
-    global initialized, local_cache_folder, html_cache, markup_cache
+    print(f'Starting meeting list one-time initialization')
+    global initialized, local_cache_folder, html_cache_files, markup_cache_files
     local_cache_folder = get_meeting_list_folder()
-    html_cache = {k: os.path.join(local_cache_folder, k + '.htm') for k, v in
-                  meeting_pages_per_group.items()}
-    markup_cache = {k: os.path.join(local_cache_folder, k + '.md') for k, v in
-                    meeting_pages_per_group.items()}
+    html_cache_files = {k: os.path.join(local_cache_folder, k + '.htm') for k, v in
+                        meeting_pages_per_group.items()}
+    markup_cache_files = {k: os.path.join(local_cache_folder, k + '.md') for k, v in
+                          meeting_pages_per_group.items()}
+    print(f'Finished meeting list one-time initialization')
     initialized = True
 
 
@@ -238,24 +243,31 @@ def get_meeting_groups() -> List[str]:
     return [k for k, v in meeting_pages_per_group.items()]
 
 
-def update_local_html_cache(redownload_if_exists=False):
+def update_local_html_cache(redownload_if_exists=False) -> List[str]:
     """
     Download the meeting files to the cache
 
     Args:
         redownload_if_exists: Whether to force a download of the file(s) if they exist
+    Returns: The groups that were downloaded
     """
     if not initialized:
         initialize()
     print('Updating local cache')
     files_to_download: List[FileToDownload] = []
+    downloaded_group_meetings: List[str] = []
     for k, v in meeting_pages_per_group.items():
-        local_file = html_cache[k]
+        local_file = html_cache_files[k]
         if redownload_if_exists or not os.path.exists(local_file):
-            files_to_download.append(FileToDownload(remote_url=v, local_filepath=local_file))
+            files_to_download.append(FileToDownload(
+                remote_url=v,
+                local_filepath=local_file
+            ))
+            downloaded_group_meetings.append(k)
         else:
-            print(f'Skipping download of {v} to {local_file}')
+            print(f'Skipping download of {k} group to {local_file}')
     batch_download_file_to_location(files_to_download, cache=True)
+    return downloaded_group_meetings
 
 
 def filter_markdown_text(markdown_text: str) -> str:
@@ -286,20 +298,28 @@ def filter_markdown_text(markdown_text: str) -> str:
     return full_text
 
 
-def convert_local_cache_to_markdown():
+def convert_local_cache_to_markdown(downloaded_groups:List[str]):
     """
         Convert local cache to markdown
     """
     if not initialized:
         initialize()
-    for k, v in html_cache.items():
+    start = time.time()
+    print(f'Converting local cache to markdown')
+    for k, v in html_cache_files.items():
         if os.path.exists(v):
-            convert_html_file_to_markup(
-                v,
-                output_path=markup_cache[k],
-                ignore_links=False,
-                filter_text_function=filter_markdown_text
-            )
+            if not os.path.exists(markup_cache_files[k]) or k in downloaded_groups:
+                print(f'Markup conversion for {k} group')
+                convert_html_file_to_markup(
+                    v,
+                    output_path=markup_cache_files[k],
+                    ignore_links=False,
+                    filter_text_function=filter_markdown_text
+                )
+            else:
+                print(f'Skipped Markup conversion for {k} group')
+    end = time.time()
+    print(f'Finished converting local cache to markdown ({end-start:.2f}s)')
 
 
 def load_markdown_cache_to_memory(groups: List[str] = None):
@@ -310,10 +330,13 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
     """
     if not initialized:
         initialize()
+
+    start = time.time()
+    print(f'Loading markdown meeting cache')
     global loaded_meeting_entries
     loaded_meeting_entries = []
 
-    items_to_load = markup_cache.items()
+    items_to_load = markup_cache_files.items()
     if groups is None or len(groups) == 0:
         # Load all
         pass
@@ -321,8 +344,8 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
         items_to_load = [kvp for kvp in items_to_load if kvp[0] in groups]
 
     groups_to_load_str = ', '.join([k for k, v in items_to_load])
-
-    print(f'Loading meeting entries from meeting list: {groups_to_load_str}')
+    end = time.time()
+    print(f'Loading meeting entries from meeting list: {groups_to_load_str} ({end-start:.2f})')
 
     def server_url_replace(a_url: str | None) -> str | None:
         """
@@ -477,7 +500,9 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
             print(f'Added {len(meeting_matches_parsed)} meetings for some adhoc meetings {k}')
         else:
             print(f'Not found: {v}')
-    # print(meeting_entries)
+
+    end = time.time()
+    print(f'Finished loading meetings ({end-start:.2f}s)')
 
 
 def group_is_li(group_name: str) -> bool:
@@ -546,9 +571,11 @@ def fully_update_cache(redownload_if_exists=False):
         redownload_if_exists: Whether to re-download the files even if they exist
 
     """
-    update_local_html_cache(redownload_if_exists=redownload_if_exists)
-    convert_local_cache_to_markdown()
+    print('Triggering update of local cache')
+    downloaded_groups = update_local_html_cache(redownload_if_exists=redownload_if_exists)
+    convert_local_cache_to_markdown(downloaded_groups)
     load_markdown_cache_to_memory()
+    print('Finished update of local cache')
 
 
 def search_download_and_open_tdoc(
@@ -570,10 +597,7 @@ def search_download_and_open_tdoc(
 
     # Load data if needed
     if len(loaded_meeting_entries) == 0:
-        print('Triggering update of local cache')
-        update_local_html_cache(redownload_if_exists=False)
-        convert_local_cache_to_markdown()
-        load_markdown_cache_to_memory()
+        fully_update_cache()
 
     tdoc_meeting = search_meeting_for_tdoc(tdoc_str, return_last_meeting_if_tdoc_is_new=True)
     if tdoc_meeting is None:
