@@ -34,12 +34,14 @@ def set_waiting_for_proxy_message(main_frame):
 
 
 def bind_key_to_button(
-        frame: tkinter.Tk | tkinter.Toplevel, key_press: str,
+        frame: tkinter.Tk | tkinter.Toplevel,
+        key_press: str,
         tk_button: tkinter.Button,
-        check_state=True
+        check_state=True,
+        task_str='TDoc search'
 ):
     def on_key_button_press(*args):
-        print('<Return>> key pressed')
+        print(f'{key_press} pressed')
         try:
             button_status = tk_button['state']
         except Exception as e:
@@ -60,4 +62,4 @@ def bind_key_to_button(
 
     # Bind the enter key in this frame to a button press (if the button is active)
     frame.bind(key_press, on_key_button_press)
-    print('Bound <Return> key to TDoc search')
+    print(f'Bound {key_press} key to {task_str}')
