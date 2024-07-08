@@ -298,7 +298,7 @@ def filter_markdown_text(markdown_text: str) -> str:
     return full_text
 
 
-def convert_local_cache_to_markdown(downloaded_groups:List[str]):
+def convert_local_cache_to_markdown(downloaded_groups: List[str]):
     """
         Convert local cache to markdown
     """
@@ -319,7 +319,7 @@ def convert_local_cache_to_markdown(downloaded_groups:List[str]):
             else:
                 print(f'Skipped Markup conversion for {k} group')
     end = time.time()
-    print(f'Finished converting local cache to markdown ({end-start:.2f}s)')
+    print(f'Finished converting local cache to markdown ({end - start:.2f}s)')
 
 
 def load_markdown_cache_to_memory(groups: List[str] = None):
@@ -345,7 +345,7 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
 
     groups_to_load_str = ', '.join([k for k, v in items_to_load])
     end = time.time()
-    print(f'Loading meeting entries from meeting list: {groups_to_load_str} ({end-start:.2f})')
+    print(f'Loading meeting entries from meeting list: {groups_to_load_str} ({end - start:.2f})')
 
     def server_url_replace(a_url: str | None) -> str | None:
         """
@@ -367,142 +367,104 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
                 .replace('//', '/')
                 .replace(':/', '://'))
 
+    regex_list: List[re.Pattern] = [
+        meeting_regex,
+        meeting_without_report_regex,
+        meeting_without_invitation_regex,
+        meeting_sa6_adhocs]
+
+    def parse_match_to_meeting_entry(a_match: re.Match) -> MeetingEntry:
+        m_matches: Dict[str, str] = a_match.groupdict()
+        meeting_group = None
+        meeting_number = None
+        meeting_url_3gu = None
+        meeting_name = None
+        meeting_location = None
+        meeting_url_invitation = None
+        start_date = None
+        meeting_url_agenda = None
+        end_date = None
+        meeting_url_report = None
+        tdoc_start = None
+        tdoc_end = None
+        meeting_url_docs = None
+        meeting_folder_url = None
+
+        for k, v in m_matches.items():
+            match k:
+                case 'meeting_group':
+                    meeting_group = v
+                case 'meeting_number':
+                    meeting_number = v
+                case 'meeting_url_3gu':
+                    meeting_url_3gu = server_url_replace(v)
+                case 'meeting_name':
+                    meeting_name = v
+                case 'meeting_location':
+                    meeting_location = v
+                case 'meeting_url_invitation':
+                    meeting_url_invitation = server_url_replace(v)
+                case 'start_year':
+                    start_date = datetime.datetime(
+                        year=int(v),
+                        month=int(m_matches['start_month']),
+                        day=int(m_matches['start_day']))
+                case 'meeting_url_agenda':
+                    meeting_url_agenda = server_url_replace(v)
+                case 'end_year':
+                    end_date = datetime.datetime(
+                        year=int(v),
+                        month=int(m_matches['end_month']),
+                        day=int(m_matches['end_day']))
+                case 'meeting_url_report':
+                    meeting_url_report = server_url_replace(v)
+                case 'tdoc_start':
+                    tdoc_start = tdoc.utils.is_generic_tdoc(v)
+                case 'tdoc_end':
+                    tdoc_end = tdoc.utils.is_generic_tdoc(v)
+                case 'meeting_url_docs':
+                    meeting_url_docs = server_url_replace(v)
+                case 'files_url':
+                    meeting_folder_url = server_url_replace(v)
+
+        return MeetingEntry(
+            meeting_group=meeting_group,
+            meeting_number=meeting_number,
+            meeting_url_3gu=meeting_url_3gu,
+            meeting_name=meeting_name,
+            meeting_location=meeting_location,
+            meeting_url_invitation=meeting_url_invitation,
+            start_date=start_date,
+            meeting_url_agenda=meeting_url_agenda,
+            end_date=end_date,
+            meeting_url_report=meeting_url_report,
+            tdoc_start=tdoc_start,
+            tdoc_end=tdoc_end,
+            meeting_url_docs=meeting_url_docs,
+            meeting_folder_url=meeting_folder_url
+        )
+
     for k, v in items_to_load:
         if os.path.exists(v):
             print(f'Loading meetings for group {k}')
             with open(v, 'r', encoding='utf-8') as file:
                 markup_file_content = file.read()
 
-            # Finished meetings
-            meeting_matches = meeting_regex.finditer(markup_file_content)
-            meeting_matches_parsed = [
-                MeetingEntry(
-                    meeting_group=m.group('meeting_group'),
-                    meeting_number=m.group('meeting_number'),
-                    meeting_url_3gu=server_url_replace(m.group('meeting_url_3gu')),
-                    meeting_name=m.group('meeting_name'),
-                    meeting_location=m.group('meeting_location'),
-                    meeting_url_invitation=server_url_replace(m.group('meeting_url_invitation')),
-                    start_date=datetime.datetime(
-                        year=int(m.group('start_year')),
-                        month=int(m.group('start_month')),
-                        day=int(m.group('start_day'))),
-                    meeting_url_agenda=server_url_replace(m.group('meeting_url_agenda')),
-                    end_date=datetime.datetime(
-                        year=int(m.group('end_year')),
-                        month=int(m.group('end_month')),
-                        day=int(m.group('end_day'))),
-                    meeting_url_report=server_url_replace(m.group('meeting_url_report')),
-                    tdoc_start=tdoc.utils.is_generic_tdoc(m.group('tdoc_start')),
-                    tdoc_end=tdoc.utils.is_generic_tdoc(m.group('tdoc_end')),
-                    meeting_url_docs=server_url_replace(m.group('meeting_url_docs')),
-                    meeting_folder_url=server_url_replace(m.group('files_url'))
-                )
-                for m in meeting_matches if m is not None
-            ]
-            loaded_meeting_entries.extend(meeting_matches_parsed)
-            print(f'Added {len(meeting_matches_parsed)} finished meetings to group {k}')
+            # Check different regex patterns
+            parsed_meetings_for_k: List[MeetingEntry] = []
+            for regex_to_check in regex_list:
+                meeting_matches = regex_to_check.finditer(markup_file_content)
+                already_parsed_meetings = [m.meeting_number for m in parsed_meetings_for_k]
+                matches_to_process = [m for m in meeting_matches
+                                      if m is not None and m.group('meeting_number') not in already_parsed_meetings]
 
-            # Meetings for which a report is not yet ready
-            meeting_matches = meeting_without_report_regex.finditer(markup_file_content)
-            meeting_matches_parsed = [
-                MeetingEntry(
-                    meeting_group=m.group('meeting_group'),
-                    meeting_number=m.group('meeting_number'),
-                    meeting_url_3gu=server_url_replace(m.group('meeting_url_3gu')),
-                    meeting_name=m.group('meeting_name'),
-                    meeting_location=m.group('meeting_location'),
-                    meeting_url_invitation=server_url_replace(m.group('meeting_url_invitation')),
-                    start_date=datetime.datetime(
-                        year=int(m.group('start_year')),
-                        month=int(m.group('start_month')),
-                        day=int(m.group('start_day'))),
-                    meeting_url_agenda=server_url_replace(m.group('meeting_url_agenda')),
-                    end_date=datetime.datetime(
-                        year=int(m.group('end_year')),
-                        month=int(m.group('end_month')),
-                        day=int(m.group('end_day'))),
-                    meeting_url_report='',
-                    tdoc_start=tdoc.utils.is_generic_tdoc(m.group('tdoc_start')),
-                    tdoc_end=tdoc.utils.is_generic_tdoc(m.group('tdoc_end')),
-                    meeting_url_docs=server_url_replace(m.group('meeting_url_docs')),
-                    meeting_folder_url=server_url_replace(m.group('files_url'))
-                )
-                for m in meeting_matches if m is not None
-            ]
-            loaded_meeting_entries.extend(meeting_matches_parsed)
-            print(f'Added {len(meeting_matches_parsed)} started but unfinished meetings to group {k}')
-
-            # Meetings for which an invitation is not yet ready
-            meeting_matches = meeting_without_invitation_regex.finditer(markup_file_content)
-            meeting_matches_parsed = [
-                MeetingEntry(
-                    meeting_group=m.group('meeting_group'),
-                    meeting_number=m.group('meeting_number'),
-                    meeting_url_3gu=server_url_replace(m.group('meeting_url_3gu')),
-                    meeting_name=m.group('meeting_name'),
-                    meeting_location=m.group('meeting_location'),
-                    meeting_url_invitation='',
-                    start_date=datetime.datetime(
-                        year=int(m.group('start_year')),
-                        month=int(m.group('start_month')),
-                        day=int(m.group('start_day'))),
-                    meeting_url_agenda='',
-                    end_date=datetime.datetime(
-                        year=int(m.group('end_year')),
-                        month=int(m.group('end_month')),
-                        day=int(m.group('end_day'))),
-                    meeting_url_report='',
-                    tdoc_start=None,
-                    tdoc_end=None,
-                    meeting_url_docs='',
-                    meeting_folder_url=''
-                )
-                for m in meeting_matches if
-                m is not None and
-                m.group('start_year') is not None and
-                m.group('end_year') is not None
-            ]
-            loaded_meeting_entries.extend(meeting_matches_parsed)
-            print(f'Added {len(meeting_matches_parsed)} meetings without invitation to group {k}')
-
-            # Some SA6 meetings
-            meeting_matches = meeting_sa6_adhocs.finditer(markup_file_content)
-            meeting_matches_parsed = [
-                MeetingEntry(
-                    meeting_group=m.group('meeting_group'),
-                    meeting_number=m.group('meeting_number'),
-                    meeting_url_3gu=server_url_replace(m.group('meeting_url_3gu')),
-                    meeting_name=m.group('meeting_name'),
-                    meeting_location=m.group('meeting_location'),
-                    meeting_url_invitation='',
-                    start_date=datetime.datetime(
-                        year=int(m.group('start_year')),
-                        month=int(m.group('start_month')),
-                        day=int(m.group('start_day'))),
-                    meeting_url_agenda='',
-                    end_date=datetime.datetime(
-                        year=int(m.group('end_year')),
-                        month=int(m.group('end_month')),
-                        day=int(m.group('end_day'))),
-                    meeting_url_report='',
-                    tdoc_start=None,
-                    tdoc_end=None,
-                    meeting_url_docs='',
-                    meeting_folder_url=''
-                )
-                for m in meeting_matches if
-                m is not None and
-                m.group('start_year') is not None and
-                m.group('end_year') is not None
-            ]
-            loaded_meeting_entries.extend(meeting_matches_parsed)
-            print(f'Added {len(meeting_matches_parsed)} meetings for some adhoc meetings {k}')
+                meetings_to_add = [parse_match_to_meeting_entry(m) for m in matches_to_process]
+                loaded_meeting_entries.extend(meetings_to_add)
         else:
             print(f'Not found: {v}')
 
     end = time.time()
-    print(f'Finished loading meetings ({end-start:.2f}s)')
+    print(f'Finished loading meetings ({end - start:.2f}s)')
 
 
 def group_is_li(group_name: str) -> bool:
