@@ -5,6 +5,7 @@ import config.networking
 import server.common
 from urllib.parse import urlparse, quote_plus
 import traceback
+import gui.common.utils
 
 import server.connection
 
@@ -38,8 +39,17 @@ class NetworkConfigDialog:
         self.proxy_password = tkinter.Entry(top, show='*')
         self.proxy_password.grid(row=2, column=1, columnspan=2, sticky="EW")
 
-        ttk.Button(top, text="Use HTTP proxy and close window", command=self.ok).grid(row=3, column=1, sticky="EW")
+        ok_button = ttk.Button(top, text="Press enter to use HTTP proxy and close window", command=self.ok)
+        ok_button.grid(row=3, column=1, sticky="EW")
         ttk.Button(top, text="No proxy and close window", command=self.ko).grid(row=3, column=2, sticky="EW")
+
+        gui.common.utils.bind_key_to_button(
+            frame=top,
+            key_press='<Return>',
+            tk_button=ok_button,
+            check_state=False,
+            task_str='Set HTTP(s) proxy'
+        )
 
         ttk.Label(top, text="Meeting HTTP server").grid(row=4, column=0)
         self.meeting_server = ttk.Label(
