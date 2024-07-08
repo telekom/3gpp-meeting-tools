@@ -33,16 +33,29 @@ def set_waiting_for_proxy_message(main_frame):
     return label
 
 
-def bind_key_to_button(frame: tkinter.Tk | tkinter.Toplevel, key_press: str, tk_button: tkinter.Button):
+def bind_key_to_button(
+        frame: tkinter.Tk | tkinter.Toplevel, key_press: str,
+        tk_button: tkinter.Button,
+        check_state=True
+):
     def on_key_button_press(*args):
         print('<Return>> key pressed')
         try:
             button_status = tk_button['state']
-        except:
+        except Exception as e:
+            print(f'Could not get button status: {e}')
             button_status = tkinter.DISABLED
 
-        print('button_status={0}'.format(button_status))
-        if button_status == tkinter.NORMAL:
+        if check_state:
+            print(f'Button state="{button_status}"')
+            match button_status:
+                case tkinter.NORMAL:
+                    print(f'Invoking button {tk_button}')
+                    tk_button.invoke()
+                case _:
+                    print(f'Not invoking button. Not in state "{tkinter.NORMAL}"')
+        else:
+            print(f'Invoking button without state check: {tk_button}')
             tk_button.invoke()
 
     # Bind the enter key in this frame to a button press (if the button is active)

@@ -1,7 +1,7 @@
 import tkinter
 from tkinter import ttk
 
-import application.tkinter_config
+from application.tkinter_config import root, main_frame, font_big, ttk_style_tbutton_medium
 import config.networking
 import gui.common.utils
 import gui.meetings_table
@@ -13,16 +13,17 @@ from application.word import close_word
 from config.networking import NetworkingConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from server.network import detect_3gpp_network_state
+import server.tdoc_search
 
 # GUI init
-tk_root = application.tkinter_config.root
+tk_root = root
 tk_root.title("3GPP Delegate helper")
 tk_root.iconbitmap(gui.common.utils.favicon)
 
 gui.common.utils.fix_blurry_fonts_in_windows_10()
 gui.common.utils.set_font_size()
 
-main_frame = application.tkinter_config.main_frame
+main_frame = main_frame
 main_frame.grid(column=0, row=0, sticky=''.join([tkinter.N, tkinter.W, tkinter.E, tkinter.S]))
 
 # Launch proxy config window and wait until it is closed
@@ -66,15 +67,15 @@ launch_spec_table.grid(
 
 # Row 2:
 (ttk.Button(
-        main_frame,
-        text="Close Word",
-        command=close_word)
-     .grid(
-        row=1,
-        column=0,
-        columnspan=1,
-        sticky="EW"
-    ))
+    main_frame,
+    text="Close Word",
+    command=close_word)
+.grid(
+    row=1,
+    column=0,
+    columnspan=1,
+    sticky="EW"
+))
 
 # 3GPP Wi-fi status
 tkinter_checkbutton_3gpp_wifi_available = ttk.Checkbutton(
@@ -86,6 +87,48 @@ tkinter_checkbutton_3gpp_wifi_available.grid(
     row=1,
     column=2,
     padx=10
+)
+
+# Open TDoc
+tkvar_tdoc_id = tkinter.StringVar(root)
+tkvar_tdoc_id_full = tkinter.StringVar(root)
+open_tdoc_button = ttk.Button(
+    main_frame,
+    text='Search TDoc',
+    style=ttk_style_tbutton_medium,
+    width=20)
+tdoc_entry = tkinter.Entry(
+    main_frame,
+    textvariable=tkvar_tdoc_id,
+    justify='center',
+    font=font_big)
+
+tdoc_entry.grid(
+    row=2,
+    column=0,
+    padx=10,
+    pady=10)
+open_tdoc_button.grid(
+    row=2,
+    column=1,
+    sticky="EW",
+    padx=0
+)
+
+
+def search_and_open_tdoc():
+    tdoc_str = tkvar_tdoc_id.get()
+    print(f'Will search for TDoc {tdoc_str}')
+    retrieved_files, metadata_list = server.tdoc_search.search_download_and_open_tdoc(tdoc_str)
+
+
+open_tdoc_button.configure(command=search_and_open_tdoc)
+# Configure <RETURN> key shortcut to open a Tdoc
+gui.common.utils.bind_key_to_button(
+    frame=root,
+    key_press='<Return>',
+    tk_button=open_tdoc_button,
+    check_state=False
 )
 
 tk_root.after(
