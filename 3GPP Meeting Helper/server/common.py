@@ -64,9 +64,11 @@ class WorkingGroup(Enum):
     R5 = 19
 
     def get_wg_folder_name(self, server_type: ServerType) -> str:
+        # Groups have different names depending on where you access them!
         match server_type:
             case ServerType.PRIVATE:
                 # When we are connected to 10.10.10.10
+                # See https://www.3gpp.org/ftp/Meetings_3GPP_SYNC
                 prefix = 'ftp'
                 match self:
                     case WorkingGroup.SP:
@@ -148,6 +150,16 @@ class WorkingGroup(Enum):
                         return f'{prefix}/tsg_ran/WG4_Radio'
                     case WorkingGroup.R5:
                         return f'{prefix}/tsg_ran/WG5_Test_ex-T1'
+
+    def get_wg_inbox_folder(self, server_type: ServerType) -> str:
+        """
+        Returns the inbox folder for this meeting
+        Args:
+            server_type (object):
+        """
+        wg_folder = self.get_wg_folder_name(server_type)
+        inbox_folder = f'{wg_folder}/Inbox'
+        return inbox_folder
 
 
 def get_document_or_folder_url(
