@@ -70,7 +70,7 @@ launch_spec_table.grid(
     main_frame,
     text="Close Word",
     command=close_word)
-.grid(
+ .grid(
     row=1,
     column=0,
     columnspan=1,

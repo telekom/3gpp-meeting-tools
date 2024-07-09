@@ -66,6 +66,7 @@ class WorkingGroup(Enum):
     def get_wg_folder_name(self, server_type: ServerType) -> str:
         match server_type:
             case ServerType.PRIVATE:
+                # When we are connected to 10.10.10.10
                 prefix = 'ftp'
                 match self:
                     case WorkingGroup.SP:
@@ -181,49 +182,57 @@ def get_document_or_folder_url(
     if override_folder_path is not None:
         return [f'{host_address}{override_folder_path}']
 
-    root_folder = working_group.get_wg_folder_name(server_type)
+    wg_folder = working_group.get_wg_folder_name(server_type)
     match document_type:
         case DocumentType.CHAIR_NOTES:
             folders = [
-                f'{root_folder}/INBOX/Chair_Notes'
+                f'{wg_folder}/INBOX/Chair_Notes'
             ] if server_type == ServerType.PRIVATE \
                 else [
-                f'{root_folder}/{meeting_folder_in_server}/INBOX/Chair_Notes'
+                f'{wg_folder}/{meeting_folder_in_server}/INBOX/Chair_Notes'
             ]
         case DocumentType.TDOCS_BY_AGENDA | DocumentType.MEETING_ROOT:
             folders = [
-                f'{root_folder}/'
+                f'{wg_folder}/'
             ] if server_type == ServerType.PRIVATE \
                 else [
-                f'{root_folder}/{meeting_folder_in_server}/'
+                f'{wg_folder}/{meeting_folder_in_server}/'
             ]
         case DocumentType.AGENDA:
             folders = [
-                f'{root_folder}/Agenda/',
-                f'{root_folder}/INBOX/DRAFTS/_Session_Plan_Updates/'
+                f'{wg_folder}/Agenda/',
+                f'{wg_folder}/INBOX/DRAFTS/_Session_Plan_Updates/'
             ] if server_type == ServerType.PRIVATE \
                 else [
-                f'{root_folder}/{meeting_folder_in_server}/Agenda/',
-                f'{root_folder}/{meeting_folder_in_server}/INBOX/DRAFTS/_Session_Plan_Updates/'
+                f'{wg_folder}/{meeting_folder_in_server}/Agenda/',
+                f'{wg_folder}/{meeting_folder_in_server}/INBOX/DRAFTS/_Session_Plan_Updates/'
             ]
         case _:
             # A TDoc
             match tdoc_type:
                 case None | TdocType.NORMAL:
                     # Normal TDoc
-                    folders = [f'{root_folder}/Docs/'] if server_type == ServerType.PRIVATE \
-                        else [f'{root_folder}/{meeting_folder_in_server}/Docs/']
+                    folders = [
+                        f'{wg_folder}/Docs/',
+                        f'{wg_folder}/INBOX/'
+                    ] if server_type == ServerType.PRIVATE \
+                        else [
+                        f'{wg_folder}/{meeting_folder_in_server}/Docs/',
+                        f'{wg_folder}/{meeting_folder_in_server}/INBOX/'
+                    ]
                 case TdocType.DRAFT:
                     # Draft TDoc (sub-folders not included!)
-                    folders = [f'{root_folder}/INBOX/DRAFTS/'] if server_type == ServerType.PRIVATE \
-                        else [f'{root_folder}/{meeting_folder_in_server}/INBOX/DRAFTS/']
+                    folders = [
+                        f'{wg_folder}/INBOX/DRAFTS/'
+                    ] if server_type == ServerType.PRIVATE \
+                        else [f'{wg_folder}/{meeting_folder_in_server}/INBOX/DRAFTS/']
                 case _:
                     # Revision
                     # No revisions in F2F meetings (at least during the F2F phase)
                     folders = [] if server_type == ServerType.PRIVATE \
                         else [
-                        f'{root_folder}/{meeting_folder_in_server}/INBOX/Revisions/',
-                        f'{root_folder}/{meeting_folder_in_server}/INBOX/e-mail_Approval/Revisions/']
+                        f'{wg_folder}/{meeting_folder_in_server}/INBOX/Revisions/',
+                        f'{wg_folder}/{meeting_folder_in_server}/INBOX/e-mail_Approval/Revisions/']
     target_folders = [host_address + folder for folder in folders]
 
     print(f'Target folder for meeting '
