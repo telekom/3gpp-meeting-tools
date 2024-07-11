@@ -32,49 +32,50 @@ waiting_for_proxy_label = gui.common.utils.set_waiting_for_proxy_message(main_fr
 tk_root.wait_window(proxy_dialog.top)
 waiting_for_proxy_label.grid_forget()
 
+button_width = 25
+
 # Row 1: Table containing all 3GPP specs
 launch_spec_table = ttk.Button(
     main_frame,
-    text='Open Specifications table',
-    command=lambda: gui.specs_table.SpecsTable(tk_root, gui.common.utils.favicon, None))
+    text='Specifications',
+    width=button_width,
+    command=lambda: gui.specs_table.SpecsTable(tk_root, gui.common.utils.favicon, parent_widget=None))
 launch_spec_table.grid(
     row=0,
-    column=0,
-    sticky="EW")
+    column=0)
 
 # Row 1: Table containing all 3GPP meetings
 launch_spec_table = ttk.Button(
     main_frame,
-    text='Open Meetings table',
+    text='Meetings',
+    width=button_width,
     command=lambda: gui.meetings_table.MeetingsTable(
         root_widget=tk_root,
         favicon=gui.common.utils.favicon,
         parent_widget=None))
 launch_spec_table.grid(
     row=0,
-    column=1,
-    sticky="EW")
+    column=1)
 
 # Row 1: Table containing all 3GPP WIs
 launch_spec_table = ttk.Button(
     main_frame,
-    text='Open 3GPP WI table',
-    command=lambda: gui.work_items_table.WorkItemsTable(tk_root, gui.common.utils.favicon, None))
+    width=button_width,
+    text='3GPP WIs',
+    command=lambda: gui.work_items_table.WorkItemsTable(tk_root, gui.common.utils.favicon, root_widget=None))
 launch_spec_table.grid(
     row=0,
-    column=2,
-    sticky="EW")
+    column=2)
 
 # Row 2:
 (ttk.Button(
     main_frame,
+    width=button_width,
     text="Close Word",
     command=close_word)
  .grid(
     row=1,
-    column=0,
-    columnspan=1,
-    sticky="EW"
+    column=0
 ))
 
 # 3GPP Wi-fi status
@@ -94,11 +95,12 @@ tkvar_tdoc_id = tkinter.StringVar(root)
 tkvar_tdoc_id_full = tkinter.StringVar(root)
 open_tdoc_button = ttk.Button(
     main_frame,
+    width=20,
     text='Search TDoc',
-    style=ttk_style_tbutton_medium,
-    width=20)
+    style=ttk_style_tbutton_medium)
 tdoc_entry = tkinter.Entry(
     main_frame,
+    width=13,
     textvariable=tkvar_tdoc_id,
     justify='center',
     font=font_big)
@@ -110,9 +112,7 @@ tdoc_entry.grid(
     pady=10)
 open_tdoc_button.grid(
     row=2,
-    column=1,
-    sticky="EW",
-    padx=0
+    column=1
 )
 
 
