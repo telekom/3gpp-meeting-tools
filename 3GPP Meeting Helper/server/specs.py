@@ -43,7 +43,7 @@ def get_html_page_and_save_cache(
         url: str,
         cache: bool,
         cache_file: str,
-        cache_as_markup: bool) -> str:
+        cache_as_markup: bool) -> str | None:
     """
 
     Args:
@@ -56,6 +56,9 @@ def get_html_page_and_save_cache(
         The retrieved data, either in HTML or Markup format
     """
     html = get_remote_file(url, timeout=timeout_values, cache=False)
+    if html is None:
+        print(f'Could NOT retrieve specs file for {url}')
+        return None
     if cache_as_markup:
         html_decoded = decode_string(html, "cache_file".format(html))
         h = html2text.HTML2Text()

@@ -109,7 +109,7 @@ def get_remote_file(
                 print('HTTP non-cached GET {0}'.format(url))
                 r = non_cached_http_session.get(url, timeout=timeout_tuple)
             if r.status_code != 200:
-                print('HTTP GET {0}: {1}'.format(url, r.status_code))
+                print(f'HTTP GET {url}: {r.status_code}, {r.reason}')
                 if cached_file_to_return_if_error_or_cache is not None:
                     try:
                         with open(cached_file_to_return_if_error_or_cache, "rb") as f:
