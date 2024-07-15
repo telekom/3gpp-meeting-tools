@@ -8,6 +8,7 @@ import requests
 from cachecontrol import CacheControl
 from cachecontrol.caches import FileCache
 
+import config.networking
 from utils.local_cache import get_webcache_file, file_exists
 
 non_cached_http_session = requests.Session()
@@ -16,16 +17,12 @@ print(f'Created Non-Cached HTTP Session')
 initialized_http_session = False
 http_session: CacheControl = None
 
-# Avoid getting sometimes 403s
-# user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0'
-user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0'
-
 
 def initialize_http_session():
     global initialized_http_session, http_session
     file_cache_path = get_webcache_file()
     http_session = CacheControl(non_cached_http_session, cache=FileCache(file_cache_path))
-    http_session.headers.update({'User-Agent': user_agent})
+    http_session.headers.update({'User-Agent': config.networking.http_user_agent})
     initialized_http_session = True
     print(f'Created Cached HTTP Session. File cache path: {file_cache_path}')
 
