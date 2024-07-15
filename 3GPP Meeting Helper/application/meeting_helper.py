@@ -4,15 +4,16 @@ import traceback
 
 import application.outlook
 import config.cache as local_cache_config
-import server
 from config.word import WordConfig
+
+import config.networking
 from parsing.html.common import MeetingData
 from parsing.html.tdocs_by_agenda import TdocsByAgendaData
 
 # Read config
-config = configparser.ConfigParser()
-config.sections()
-config.read('config.ini')
+config_parser = configparser.ConfigParser()
+config_parser.sections()
+config_parser.read('config.ini')
 
 sa2_current_meeting_tdoc_data = None
 sa2_inbox_tdoc_data = None
@@ -25,16 +26,22 @@ current_tdocs_by_agenda: TdocsByAgendaData | None = None
 word_own_reporter_name = None
 home_directory = None
 
+# Default Proxy
+try:
+    config.networking.default_http_proxy = config_parser['HTTP']['DefaultHttpProxy']
+    print(f'Set default HTTP(s) proxy to {config.networking.default_http_proxy}')
+except KeyError as e:
+    print(f'Could not read default HTTP proxy: {e}')
+    traceback.print_exc()
+
 # Write config
 try:
-    server.default_http_proxy = config['HTTP']['DefaultHttpProxy']
-    sa2_list_folder_name = config['OUTLOOK']['Sa2MailingListFolder']
-    sa2_email_approval_folder_name = config['OUTLOOK']['Sa2EmailApprovalFolder']
+    sa2_list_folder_name = config_parser['OUTLOOK']['Sa2MailingListFolder']
+    sa2_email_approval_folder_name = config_parser['OUTLOOK']['Sa2EmailApprovalFolder']
 except KeyError as e:
     print(f'Could not load configuration file: {e}')
     traceback.print_exc()
 
-    server.default_http_proxy = ""
     sa2_list_folder_name = ""
     sa2_email_approval_folder_name = ""
 
@@ -48,14 +55,14 @@ if len(sa2_email_approval_folder_name) > 0 and sa2_email_approval_folder_name[0]
 
 # Write other configuration
 try:
-    word_own_reporter_name = config['REPORTING']['ContributorName']
+    word_own_reporter_name = config_parser['REPORTING']['ContributorName']
     print(f'Using Contributor Name for Word report {word_own_reporter_name}')
 except Exception as e:
     print(f'Not using Contributor Name for Word report: {e}')
 
 home_directory = '~'
 try:
-    home_directory = config['GENERAL']['HomeDirectory']
+    home_directory = config_parser['GENERAL']['HomeDirectory']
     print(f'Using Home Directory {home_directory}')
 except Exception as e:
     print(f'HomeDirectory not set. Using "{home_directory}": {e}')
@@ -64,7 +71,7 @@ finally:
 
 application_folder = '3GPP_SA2_Meeting_Helper'
 try:
-    application_folder = config['GENERAL']['ApplicationFolder']
+    application_folder = config_parser['GENERAL']['ApplicationFolder']
     print(f'Using Application Folder {application_folder}')
 except Exception as e:
     print(f'ApplicationFolder not set. Using "{application_folder}": {e}')
@@ -75,17 +82,17 @@ WordConfig.sensitivity_level_label_id = None
 WordConfig.sensitivity_level_label_name = None
 WordConfig.save_document_after_setting_sensitivity_label = False
 try:
-    WordConfig.sensitivity_level_label_id = config['WORD']['SensitivityLevelLabelId']
+    WordConfig.sensitivity_level_label_id = config_parser['WORD']['SensitivityLevelLabelId']
     print(f'Set Word Sensitivity Label ID to {WordConfig.sensitivity_level_label_id}')
 except Exception as e:
     print(f'Set Word Sensitivity Label ID not set. Using "{WordConfig.sensitivity_level_label_id}": {e}')
 try:
-    WordConfig.sensitivity_level_label_name = config['WORD']['SensitivityLevelLabelName']
+    WordConfig.sensitivity_level_label_name = config_parser['WORD']['SensitivityLevelLabelName']
     print(f'Set Word Sensitivity Label name to {WordConfig.sensitivity_level_label_name}')
 except Exception as e:
     print(f'Set Word Sensitivity Label name not set. Using "{WordConfig.sensitivity_level_label_name}": {e}')
 try:
-    WordConfig.save_document_after_setting_sensitivity_label = config['WORD'][
+    WordConfig.save_document_after_setting_sensitivity_label = config_parser['WORD'][
                                                                    'SaveDocumentAfterSettingSensitivityLabel'].lower() in (
                                                                    "yes", "true")
     print(f'Word will save document after setting sensitivity level '
@@ -93,6 +100,14 @@ try:
 except Exception as e:
     print(f'Saving after setting sensitivity level not set. Using "'
           f'{WordConfig.save_document_after_setting_sensitivity_label}": {e}')
+
+try:
+    config.networking.http_user_agent = config_parser['HTTP']['UserAgent']
+    print(f'Using HTTP User Agent "{config.networking.http_user_agent}"')
+except Exception as e:
+    print(f'HTTP User Agent not set. Using "{config.networking.http_user_agent}": {e}')
+finally:
+    local_cache_config.CacheConfig.root_folder = application_folder
 
 print('Loaded configuration file')
 
