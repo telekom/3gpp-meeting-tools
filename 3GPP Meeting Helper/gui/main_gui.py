@@ -611,7 +611,7 @@ def start_main_gui():
 
     tdoc_table_button = ttk.Button(
         main_frame,
-        text='Tdoc table',
+        text='Meeting TDocs',
         command=on_open_tdocs_table_button)
     (tdoc_table_button
      .grid(
@@ -680,7 +680,7 @@ def start_main_gui():
     current_row += 1
     launch_spec_table = ttk.Button(
         main_frame,
-        text='Specifications table',
+        text='Specifications',
         command=lambda: gui.specs_table.SpecsTable(
             root_widget=root,
             parent_widget=root,
@@ -697,7 +697,7 @@ def start_main_gui():
     # Row: Table containing all 3GPP meetings
     launch_meetings_table = ttk.Button(
         main_frame,
-        text='Meetings table',
+        text='Meetings',
         command=lambda: gui.meetings_table.MeetingsTable(
             root_widget=root,
             parent_widget=root,
@@ -714,7 +714,7 @@ def start_main_gui():
     # Row: Table containing all 3GPP WIs
     launch_spec_table = ttk.Button(
         main_frame,
-        text='3GPP WI table',
+        text='3GPP WIs',
         command=lambda: gui.work_items_table.WorkItemsTable(
             root_widget=root,
             parent_widget=root,
