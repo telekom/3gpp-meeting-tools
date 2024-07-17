@@ -103,8 +103,10 @@ def cleanup_spec_markup_file(in_markup: str, log_str: str) -> str:
                       .replace('"Click to download this version"', '')
                       .replace('![icon](/ftp/geticon.axd?file=.zip)', '')
                       )
-    print(
-        f'Cleaning up markup file {log_str}. IN: {len(in_markup)}, OUT: {len(cleanup_markup)}, {len(cleanup_markup) / len(in_markup) * 100}%')
+
+    markup_clenup_percentage = len(cleanup_markup) / len(in_markup) * 100
+    print(f'Cleaning up markup file {log_str}. IN: {len(in_markup)}, OUT: {len(cleanup_markup)}, '
+          f'{markup_clenup_percentage:.2f}%')
     return cleanup_markup
 
 
