@@ -23,7 +23,9 @@ import pandas as pd
 specs_url = 'https://www.3gpp.org/ftp/Specs/latest'
 
 # Specification page, e.g., https://www.3gpp.org/DynaReport/23501.htm
-spec_page = 'https://www.3gpp.org/DynaReport/{0}.htm'
+# spec_page = 'https://www.3gpp.org/DynaReport/{0}.htm'
+# Changed to https://www.3gpp.org/dynareport?code=29505.htm
+spec_page = 'https://www.3gpp.org/dynareport?code={0}.htm'
 
 # Specification archive page, e.g., https://www.3gpp.org/ftp/Specs/archive/24_series/24.011
 spec_archive_page = 'https://www.3gpp.org/ftp/Specs/archive/{0}_series/{1}'
