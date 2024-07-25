@@ -72,7 +72,11 @@ def download_wi_list(re_download_if_exists=False):
     if not initialized:
         initialize()
     if re_download_if_exists or not file_exists(local_cache_file):
-        download_file_to_location(sid_page, local_cache_file)
+        download_file_to_location(
+            sid_page,
+            local_cache_file,
+            force_download=True
+        )
 
     if re_download_if_exists or not file_exists(local_cache_file_md):
         convert_html_file_to_markup(

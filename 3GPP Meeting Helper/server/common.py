@@ -337,22 +337,29 @@ def get_sa2_folder(force_redownload=False):
 def download_file_to_location(
         url: str,
         local_location: str,
-        cache=False) -> bool:
+        cache=False,
+        force_download=False
+) -> bool:
     """
     Downloads a given file to a local location
     Args:
         cache: Whether to use HTTP caching
         url: The URL to download
         local_location: Where to download the file to
+        force_download: Whether to force a download
 
     Returns:
         bool: Whether the file could be successfully downloaded
     """
     try:
+        if force_download:
+            use_cached_file_if_available = False
+        else:
+            use_cached_file_if_available = True
         file = get_remote_file(
             url,
             cache=cache,
-            use_cached_file_if_available=True,
+            use_cached_file_if_available=use_cached_file_if_available,
             cached_file_to_return_if_error_or_cache=local_location)
         if file is None:
             print(f'No file saved to disk. No data to write for {local_location}')
