@@ -150,6 +150,18 @@ class MeetingEntry(NamedTuple):
         return id_match.group('meeting_id')
 
     @property
+    def meeting_calendar_ics_url(self) -> str | None:
+        """
+        Generates a URL for the 3GPP server containing the calendar entry in ICS format
+        Returns: The URL of the ICS file
+
+        """
+        the_meeting_id = self.meeting_id
+        if the_meeting_id is None:
+            return None
+        return f"https://portal.3gpp.org/webservices/Rest/Meetings.svc/GetiCal/{the_meeting_id}.ics"
+
+    @property
     def meeting_tdoc_list_url(self) -> str | None:
         """
         Returns, based on the meeting ID, the TDoc list URL from the 3GPP portal
