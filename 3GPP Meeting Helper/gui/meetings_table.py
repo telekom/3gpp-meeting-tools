@@ -27,7 +27,7 @@ class MeetingsTable(GenericTable):
             parent_widget: tkinter.Tk | None):
         super().__init__(
             parent_widget=parent_widget,
-            widget_title="Meetings Table. Double-click start date for invitation. End date for report",
+            widget_title="Meetings Table. Double-click: location for ICS, start date for invitation, end date for report",
             favicon=favicon,
             column_names=['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents',
                           'Cache', 'TDoc List', 'TDoc Excel'],
@@ -263,6 +263,19 @@ class MeetingsTable(GenericTable):
             print(f'Clicked on meeting {meeting_name}')
             url_to_open = meeting[0].meeting_url_3gu
             open_url(url_to_open)
+
+        if column == 1:
+            print(f'Clicked on meeting {meeting_name} location')
+            url_to_open = meeting[0].meeting_calendar_ics_url
+            # Using generic folder because meeting folder may not yet exist
+            download_folder = utils.local_cache.get_meeting_list_folder()
+            local_path = os.path.join(download_folder, f'{meeting[0].meeting_name}.ics')
+            download_file_to_location(url_to_open, local_path, force_download=True)
+            if utils.local_cache.file_exists(local_path):
+                os.startfile(local_path)
+                print(f'Opened ICS file {local_path}')
+            else:
+                print(f'Could not open ICS file {local_path}')
 
         if column == 2:
             print(f'Clicked on start date for meeting {meeting_name}')
