@@ -183,8 +183,8 @@ class MeetingsTable(GenericTable):
             if meeting.meeting_url_docs is None or meeting.meeting_url_docs == '':
                 documents_str = '-'
                 cache_str = '-'
-                tdoc_list_str = '-'
-                tdoc_excel_str = '-'
+                tdoc_list_str = 'Tdoc List'
+                tdoc_excel_str = 'Tdoc Excel'
             else:
                 documents_str = 'Link'
                 cache_str = 'Open'
