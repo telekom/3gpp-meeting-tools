@@ -93,7 +93,7 @@ class MeetingsTable(GenericTable):
             state='enabled',
             variable=self.redownload_tdoc_excel_if_exists_var)
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        ttk.Label(self.top_frame, text="Re-download TDoc Excel if exists: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Re-download TDoc Excel: ").pack(side=tkinter.LEFT)
         self.redownload_tdoc_excel_if_exists.pack(side=tkinter.LEFT)
 
         # Load meeting data
