@@ -147,6 +147,8 @@ class TdocsTableFromExcel(GenericTable):
         filtered_df = df[
             df.index.str.contains(filter_str, case=False) |
             df["Title"].str.contains(filter_str, case=False) |
+            df["Related WIs"].str.contains(filter_str, case=False) |
+            df["Source"].str.contains(filter_str, case=False) |
             df["Secretary Remarks"].str.contains(filter_str, case=False)]
         self.tdocs_current_df = filtered_df
         self.tree.delete(*self.tree.get_children())
