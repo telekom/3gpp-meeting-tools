@@ -17,16 +17,15 @@ import gui
 import gui.common.common_elements
 import gui.main_gui
 import parsing.word.pywin32
-import server.network
 import utils.local_cache
 from application import powerpoint
 from application.excel import open_excel_document, set_first_row_as_filter, vertically_center_all_text, save_wb, \
     set_column_width, set_wrap_text, hide_column
 from gui.common.generic_table import GenericTable, treeview_sort_column, treeview_set_row_formatting
 from parsing.html.revisions import revisions_file_to_dataframe
+from parsing.html.tdocs_by_agenda import TdocsByAgendaData
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 from parsing.word.pywin32 import parse_list_of_crs
-from parsing.html.tdocs_by_agenda import TdocsByAgendaData
 
 
 class TdocsTable(GenericTable):
@@ -115,7 +114,11 @@ class TdocsTable(GenericTable):
         # Can also do this:
         # https://stackoverflow.com/questions/33781047/tkinter-drop-down-list-of-check-boxes-combo-boxes
         self.search_text = tkinter.StringVar()
-        self.search_entry = tkinter.Entry(self.top_frame, textvariable=self.search_text, width=25, font='TkDefaultFont')
+        self.search_entry = tkinter.Entry(
+            self.top_frame,
+            textvariable=self.search_text,
+            width=25,
+            font='TkDefaultFont')
         self.search_text.trace_add(['write', 'unset'], self.select_text)
 
         ttk.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)
@@ -123,19 +126,31 @@ class TdocsTable(GenericTable):
 
         all_types = ['All']
         all_types.extend(list(self.current_tdocs["Type"].unique()))
-        self.combo_type = ttk.Combobox(self.top_frame, values=all_types, state="readonly")
+        self.combo_type = ttk.Combobox(
+            self.top_frame,
+            values=all_types,
+            state="readonly",
+            width=20)
         self.combo_type.set('All')
         self.combo_type.bind("<<ComboboxSelected>>", self.select_type)
 
         all_ais = ['All']
         all_ais.extend(list(self.current_tdocs["AI"].unique()))
-        self.combo_ai = ttk.Combobox(self.top_frame, values=all_ais, state="readonly", width=10)
+        self.combo_ai = ttk.Combobox(
+            self.top_frame,
+            values=all_ais,
+            state="readonly",
+            width=7)
         self.combo_ai.set('All')
         self.combo_ai.bind("<<ComboboxSelected>>", self.select_ai)
 
         all_results = ['All']
         all_results.extend(list(self.current_tdocs["Result"].unique()))
-        self.combo_result = ttk.Combobox(self.top_frame, values=all_results, state="readonly")
+        self.combo_result = ttk.Combobox(
+            self.top_frame,
+            values=all_results,
+            state="readonly",
+            width=12)
         self.combo_result.set('All')
         self.combo_result.bind("<<ComboboxSelected>>", self.select_result)
 
