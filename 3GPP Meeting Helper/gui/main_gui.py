@@ -32,7 +32,7 @@ import server.tdocs_by_agenda
 import tdoc.utils
 import utils.local_cache
 import utils.threading
-from application.tkinter_config import root, font_big, ttk_style_tbutton_medium
+from application.tkinter_config import root, font_normal, font_medium, font_big, ttk_style_tbutton_medium
 from gui.common.common_elements import tkvar_3gpp_wifi_available, tkvar_meeting
 from config.networking import NetworkingConfig
 from gui.common.utils import favicon
@@ -472,7 +472,7 @@ def start_main_gui():
             open_tdoc_button.configure(state=tkinter.DISABLED)
 
         # Set the label for the compare button
-        if tkvar_global_tdoc_search.get():
+        if not tkvar_global_tdoc_search.get():
             compare_tdocs_button['text'] = compare_tdocs_button_str.format(' this')
         else:
             compare_tdocs_button['text'] = compare_tdocs_button_str.format(' all')
@@ -514,8 +514,7 @@ def start_main_gui():
         column=0,
         columnspan=2,
         sticky=tkinter.E + tkinter.W,
-        padx=10,
-        pady=10)
+        padx=10)
 
     update_ftp_button()
     tkinter_checkbutton_3gpp_wifi_available.grid(
@@ -741,24 +740,25 @@ def start_main_gui():
     tdoc_to_compare_1_entry = tkinter.Entry(
         main_frame,
         textvariable=tkvar_tdoc_to_compare_1,
-        width=25)
+        width=25,
+        font=font_medium)
     tdoc_to_compare_1_entry.insert(0, '')
     tdoc_to_compare_1_entry.grid(
         row=current_row,
         column=1,
-        columnspan=1,
-        sticky="EW")
+        sticky="EW",
+        pady=10)
 
     tkvar_tdoc_to_compare_2 = tkinter.StringVar(main_frame)
     tdoc_to_compare_2_entry = tkinter.Entry(
         main_frame,
         textvariable=tkvar_tdoc_to_compare_2,
-        width=25)
+        width=25,
+        font=font_medium)
     tdoc_to_compare_2_entry.insert(0, '')
     tdoc_to_compare_2_entry.grid(
         row=current_row,
         column=2,
-        columnspan=1,
         padx=10,
         sticky="EW")
 

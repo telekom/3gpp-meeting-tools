@@ -96,6 +96,16 @@ class MeetingsTable(GenericTable):
         ttk.Label(self.top_frame, text="Re-download TDoc Excel: ").pack(side=tkinter.LEFT)
         self.redownload_tdoc_excel_if_exists.pack(side=tkinter.LEFT)
 
+        # Open TDoc Excel as table
+        self.open_tdoc_excel_as_table_var = tkinter.IntVar()
+        self.open_tdoc_excel_as_table = ttk.Checkbutton(
+            self.top_frame,
+            state='enabled',
+            variable=self.open_tdoc_excel_as_table_var)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Open Excel as table: ").pack(side=tkinter.LEFT)
+        self.open_tdoc_excel_as_table.pack(side=tkinter.LEFT)
+
         # Load meeting data
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         ttk.Button(
@@ -314,8 +324,15 @@ class MeetingsTable(GenericTable):
                 download_file_to_location(url_to_open, local_path)
                 downloaded = True
             if not downloaded:
-                print('TDoc Excel list opened from cache')
-            open_excel_document(local_path)
+                print('TDoc Excel list from cache')
+            if not self.open_tdoc_excel_as_table:
+                print(f'Opening Excel {local_path}')
+                open_excel_document(local_path)
+            else:
+                # ToDo
+                # Open TDoc table from Excel
+                print(f'Opening TDoc table based on {local_path}')
+                pass
 
     def on_open_tdoc(self):
         tdoc_to_open = self.tdoc
