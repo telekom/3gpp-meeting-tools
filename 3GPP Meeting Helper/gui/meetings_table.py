@@ -325,7 +325,7 @@ class MeetingsTable(GenericTable):
                 downloaded = True
             if not downloaded:
                 print('TDoc Excel list from cache')
-            if not self.open_tdoc_excel_as_table:
+            if not self.open_tdoc_excel_as_table_var.get():
                 print(f'Opening Excel {local_path}')
                 open_excel_document(local_path)
             else:
