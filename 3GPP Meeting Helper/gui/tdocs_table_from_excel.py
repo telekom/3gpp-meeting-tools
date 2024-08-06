@@ -54,6 +54,8 @@ class TdocsTableFromExcel(GenericTable):
         self.tdocs_df = self.tdocs_df.sort_values(by=[
             'Sort Order',
             self.tdocs_df.index.name])
+        self.tdocs_current_df = self.tdocs_df
+
         self.tdoc_count = tkinter.StringVar()
 
         super().__init__(
@@ -79,6 +81,18 @@ class TdocsTableFromExcel(GenericTable):
         self.set_column('Source', width=TdocsTableFromExcel.source_width, center=False)
         self.set_column('Details', width=75)
         self.set_column('Secretary Remarks', width=400)
+
+        self.search_text = tkinter.StringVar()
+        self.search_entry = tkinter.Entry(
+            self.top_frame,
+            textvariable=self.search_text,
+            width=25,
+            font='TkDefaultFont')
+        self.search_text.trace_add(['write', 'unset'], self.select_text)
+        ttk.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)
+        self.search_entry.pack(
+            side=tkinter.LEFT,
+            pady=10)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -123,10 +137,24 @@ class TdocsTableFromExcel(GenericTable):
                     tdoc_str=tdoc_id,
                     tdoc_row=self.tdocs_df.loc[tdoc_id])
 
+    def select_text(self, *args):
+        filter_str = self.search_text.get()
+        print(f'Filtering by "{filter_str}"')
+        df = self.tdocs_df
+
+        # Search in TDoc ID and title
+        filtered_df = df[
+            df.index.str.contains(filter_str, case=False) |
+            df["Title"].str.contains(filter_str, case=False) |
+            df["Secretary Remarks"].str.contains(filter_str, case=False)]
+        self.tdocs_current_df = filtered_df
+        self.tree.delete(*self.tree.get_children())
+        self.insert_rows()
+
     def insert_rows(self):
         print('Populating TDocs table')
         count = 0
-        for idx, row in self.tdocs_df.iterrows():
+        for idx, row in self.tdocs_current_df.iterrows():
             count = count + 1
             mod = count % 2
             if mod > 0:
@@ -158,6 +186,7 @@ class TdocDetailsFromExcel(GenericTable):
     ):
         self.tdoc_id = tdoc_str
         self.tdoc_row = tdoc_row
+
         super().__init__(
             parent_widget=parent_widget,
             widget_title=f"{tdoc_str}",
@@ -165,15 +194,25 @@ class TdocDetailsFromExcel(GenericTable):
             column_names=[
                 'Info',
                 'Content'],
-            row_height=60,
+            row_height=30,
             display_rows=9,
             root_widget=root_widget
         )
 
         self.set_column('Info', width=250, center=False)
-        self.set_column('Content', width=1000, center=False)
+        self.set_column('Content', width=1500, center=False)
 
         self.insert_rows()
+
+        (ttk.Label(
+            self.top_frame,
+            text=textwrap.fill(
+                f"Abstract: {self.tdoc_row['Abstract']}",
+                width=240))
+         .pack(
+            side=tkinter.LEFT,
+            pady=10)
+        )
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
@@ -188,7 +227,6 @@ class TdocDetailsFromExcel(GenericTable):
             'Contact',
             'Type',
             'For',
-            'Abstract',
             'Secretary Remarks',
             'Agenda item',
             'Agenda item description',
@@ -230,6 +268,6 @@ class TdocDetailsFromExcel(GenericTable):
 
             self.tree.insert("", "end", tags=(tag,), values=(
                 row_name,
-                textwrap.fill(row_value, width=100)))
+                textwrap.fill(str(row_value), width=210)))
 
             treeview_set_row_formatting(self.tree)
