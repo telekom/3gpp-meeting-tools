@@ -8,6 +8,7 @@ import pyperclip
 from pandas import DataFrame
 
 import server
+from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from server.tdoc_search import MeetingEntry
 from tdoc.utils import are_generic_tdocs
@@ -202,6 +203,7 @@ class TdocDetailsFromExcel(GenericTable):
         self.set_column('Info', width=250, center=False)
         self.set_column('Content', width=1500, center=False)
 
+        self.tree.bind("<Double-Button-1>", self.on_double_click)
         self.insert_rows()
 
         (ttk.Label(
@@ -212,7 +214,7 @@ class TdocDetailsFromExcel(GenericTable):
          .pack(
             side=tkinter.LEFT,
             pady=10)
-        )
+         )
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
@@ -270,6 +272,40 @@ class TdocDetailsFromExcel(GenericTable):
 
             self.tree.insert("", "end", tags=(tag,), values=(
                 row_name,
-                textwrap.fill(str(row_value), width=210)))
+                textwrap.fill(str(row_value), width=250)))
 
             treeview_set_row_formatting(self.tree)
+
+    def on_double_click(self, event):
+        item_id = self.tree.identify("item", event.x, event.y)
+        column = int(self.tree.identify_column(event.x)[1:]) - 1  # "#1" -> 0 (one-indexed in TCL)
+
+        # Trigger only if the descriptions are clicked
+        if column != 1:
+            return
+
+        item_values = self.tree.item(item_id)['values']
+        try:
+            actual_value = item_values[column]
+        except Exception as e:
+            print(f'Could not process TreeView double-click: {e}')
+            actual_value = None
+
+        if actual_value is None or actual_value == '':
+            return
+
+        row_name = item_values[0]
+        match row_name:
+            case 'TDoc' | 'Secretary Remarks':
+                print(f'Clicked on TDoc {actual_value}')
+                tdocs_to_open = are_generic_tdocs(actual_value)
+                for tdoc_to_open in tdocs_to_open:
+                    print(f'Opening {tdoc_to_open.tdoc}')
+                    opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open.tdoc)
+                    if metadata is not None:
+                        print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
+                        pyperclip.copy(metadata[0].url)
+            case "Contact":
+                person_id = self.tdoc_row["Contact ID"]
+                url_to_open = f'https://webapp.etsi.org/teldir/ListPersDetails.asp?PersId={person_id}'
+                open_url(url_to_open)
