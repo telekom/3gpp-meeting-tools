@@ -2,6 +2,7 @@ import textwrap
 import tkinter
 from tkinter import ttk
 
+import numpy as np
 import pandas as pd
 import pyperclip
 from pandas import DataFrame
@@ -34,6 +35,23 @@ class TdocsTableFromExcel(GenericTable):
         self.tdoc_excel_path = tdoc_excel_path
         self.tdocs_df: DataFrame = pd.read_excel(io=self.tdoc_excel_path, index_col=0)
         self.tdocs_df = self.tdocs_df.fillna(value='')
+
+        def agenda_sort_item(input_str):
+            if input_str is None or input_str == np.nan or input_str == '':
+                return 0
+            input_split = [int(i) for i in input_str.split('.')]
+            out_value = input_split[0] * 1000
+            if len(input_split) > 1:
+                out_value = out_value + input_split[1] * 10
+            if len(input_split) > 2:
+                out_value = out_value + input_split[2]
+            return out_value
+
+        self.tdocs_df['Sort Order'] = self.tdocs_df['Agenda item'].map(agenda_sort_item)
+
+        self.tdocs_df = self.tdocs_df.sort_values(by=[
+            'Sort Order',
+            self.tdocs_df.index.name])
         self.tdoc_count = tkinter.StringVar()
 
         super().__init__(
@@ -81,7 +99,7 @@ class TdocsTableFromExcel(GenericTable):
             print(f'Could not process TreeView double-click: {e}')
             actual_value = None
 
-        if actual_value is None or actual_value=='':
+        if actual_value is None or actual_value == '':
             return
 
         match column:
