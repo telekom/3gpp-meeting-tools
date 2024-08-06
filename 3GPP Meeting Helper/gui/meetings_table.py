@@ -59,7 +59,11 @@ class MeetingsTable(GenericTable):
         # Filter by group (only filter we have in this view)
         all_groups = ['All']
         all_groups.extend(tdoc_search.get_meeting_groups())
-        self.combo_groups = ttk.Combobox(self.top_frame, values=all_groups, state="readonly", width=6)
+        self.combo_groups = ttk.Combobox(
+            self.top_frame,
+            values=all_groups,
+            state="readonly",
+            width=5)
         self.combo_groups.set('All')
         self.combo_groups.bind("<<ComboboxSelected>>", self.select_groups)
 
@@ -94,18 +98,31 @@ class MeetingsTable(GenericTable):
             state='enabled',
             variable=self.redownload_tdoc_excel_if_exists_var)
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        ttk.Label(self.top_frame, text="Re-download TDoc Excel: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Re-DL TDoc list: ").pack(side=tkinter.LEFT)
         self.redownload_tdoc_excel_if_exists.pack(side=tkinter.LEFT)
 
         # Open TDoc Excel as table
         self.open_tdoc_excel_as_table_var = tkinter.IntVar()
-        self.open_tdoc_excel_as_table = ttk.Checkbutton(
+
+        def toggle_excel_choice_btn(*args):
+            match self.open_tdoc_excel_choice_var.get():
+                case "Excel":
+                    self.open_tdoc_excel_choice_var.set("Table")
+                    self.open_tdoc_excel_as_table_var.set(True)
+                case _:
+                    self.open_tdoc_excel_choice_var.set("Excel")
+                    self.open_tdoc_excel_as_table_var.set(False)
+        self.open_tdoc_excel_choice_var = tkinter.StringVar()
+        toggle_excel_choice_btn() # Init to "Excel"
+        self.open_tdoc_excel_choice_btn = ttk.Button(
             self.top_frame,
-            state='enabled',
-            variable=self.open_tdoc_excel_as_table_var)
+            textvariable=self.open_tdoc_excel_choice_var,
+            command=toggle_excel_choice_btn,
+            width=5
+        )
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        ttk.Label(self.top_frame, text="Open Excel as table: ").pack(side=tkinter.LEFT)
-        self.open_tdoc_excel_as_table.pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Open TDocs as ").pack(side=tkinter.LEFT)
+        self.open_tdoc_excel_choice_btn.pack(side=tkinter.LEFT)
 
         # Load meeting data
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)

@@ -80,7 +80,7 @@ class TdocsTableFromExcel(GenericTable):
         self.set_column('Title', width=TdocsTableFromExcel.title_width, center=False)
         self.set_column('Source', width=TdocsTableFromExcel.source_width, center=False)
         self.set_column('Details', width=75)
-        self.set_column('Secretary Remarks', width=400)
+        self.set_column('Secretary Remarks', width=400, center=False)
 
         self.search_text = tkinter.StringVar()
         self.search_entry = tkinter.Entry(
