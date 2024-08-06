@@ -102,9 +102,11 @@ class TdocsTableFromExcel(GenericTable):
         if actual_value is None or actual_value == '':
             return
 
+        tdoc_id = item_values[0]
+
         match column:
             case 0 | 6:
-                print(f'Clicked on TDoc {actual_value}. Row: {item_values[0]}')
+                print(f'Clicked on TDoc {actual_value}. Row: {tdoc_id}')
                 tdocs_to_open = are_generic_tdocs(actual_value)
                 for tdoc_to_open in tdocs_to_open:
                     print(f'Opening {tdoc_to_open.tdoc}')
@@ -112,6 +114,14 @@ class TdocsTableFromExcel(GenericTable):
                     if metadata is not None:
                         print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
                         pyperclip.copy(metadata[0].url)
+            case 5:
+
+                TdocDetailsFromExcel(
+                    favicon=self.favicon,
+                    parent_widget=self.tk_top,
+                    root_widget=self.root_widget,
+                    tdoc_str=tdoc_id,
+                    tdoc_row=self.tdocs_df.loc[tdoc_id])
 
     def insert_rows(self):
         print('Populating TDocs table')
@@ -135,3 +145,91 @@ class TdocsTableFromExcel(GenericTable):
 
             treeview_set_row_formatting(self.tree)
             self.tdoc_count.set('{0} documents'.format(count))
+
+
+class TdocDetailsFromExcel(GenericTable):
+    def __init__(
+            self,
+            favicon,
+            parent_widget: tkinter.Tk,
+            tdoc_str: str,
+            tdoc_row,
+            root_widget: tkinter.Tk | None = None,
+    ):
+        self.tdoc_id = tdoc_str
+        self.tdoc_row = tdoc_row
+        super().__init__(
+            parent_widget=parent_widget,
+            widget_title=f"{tdoc_str}",
+            favicon=favicon,
+            column_names=[
+                'Info',
+                'Content'],
+            row_height=60,
+            display_rows=9,
+            root_widget=root_widget
+        )
+
+        self.set_column('Info', width=250, center=False)
+        self.set_column('Content', width=1000, center=False)
+
+        self.insert_rows()
+
+        self.tree.pack(fill='both', expand=True, side='left')
+        self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
+
+    def insert_rows(self):
+        print('Populating TDocs table')
+        count = 0
+        for row_name in [
+            'TDoc',
+            'Title',
+            'Source',
+            'Contact',
+            'Type',
+            'For',
+            'Abstract',
+            'Secretary Remarks',
+            'Agenda item',
+            'Agenda item description',
+            'TDoc Status',
+            'Is revision of',
+            'Revised to',
+            'Release',
+            'Spec',
+            'Version',
+            'Related WIs',
+            'CR',
+            'CR revision',
+            'CR category',
+            'TSG CR Pack',
+            'UICC',
+            'ME',
+            'RAN',
+            'CN',
+            'Clauses Affected',
+            'Reply to',
+            'To',
+            'Cc',
+            'Original LS',
+            'Reply in'
+        ]:
+
+            count = count + 1
+            mod = count % 2
+            if mod > 0:
+                tag = 'odd'
+            else:
+                tag = 'even'
+
+            match row_name:
+                case 'TDoc':
+                    row_value = self.tdoc_id
+                case _:
+                    row_value = self.tdoc_row[row_name]
+
+            self.tree.insert("", "end", tags=(tag,), values=(
+                row_name,
+                textwrap.fill(row_value, width=100)))
+
+            treeview_set_row_formatting(self.tree)
