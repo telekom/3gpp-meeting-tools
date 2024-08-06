@@ -31,7 +31,7 @@ class MeetingsTable(GenericTable):
             widget_title="Meetings Table. Double-click: location for ICS, start date for invitation, end date for report",
             favicon=favicon,
             column_names=['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents',
-                          'Cache', 'TDoc List', 'TDoc Excel'],
+                          'Cache', 'TDocs (3GPP)', 'TDocs (Local)'],
             row_height=35,
             display_rows=14,
             root_widget=root_widget
@@ -51,8 +51,8 @@ class MeetingsTable(GenericTable):
         self.set_column('TDoc End', width=100, center=True)
         self.set_column('Documents', width=100, center=True)
         self.set_column('Cache', width=50, center=True)
-        self.set_column('TDoc List', width=100, center=True)
-        self.set_column('TDoc Excel', width=100, center=True)
+        self.set_column('TDocs (3GPP)', width=100, center=True)
+        self.set_column('TDocs (Local)', width=100, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -194,13 +194,13 @@ class MeetingsTable(GenericTable):
             if meeting.meeting_url_docs is None or meeting.meeting_url_docs == '':
                 documents_str = '-'
                 cache_str = '-'
-                tdoc_list_str = 'Tdoc List'
-                tdoc_excel_str = 'Tdoc Excel'
+                tdoc_list_str = 'Link'
+                tdoc_excel_str = 'Open'
             else:
                 documents_str = 'Link'
                 cache_str = 'Open'
-                tdoc_list_str = 'Tdoc List'
-                tdoc_excel_str = 'Tdoc Excel'
+                tdoc_list_str = 'Link'
+                tdoc_excel_str = 'Open'
 
             # Overwrite for case of co-located meetings
             if ((previous_row is not None) and
