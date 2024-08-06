@@ -8,7 +8,13 @@ from gui.common.tkinter_widget import TkWidget
 column_separator_str = "     "
 
 
-def set_column(tree: Treeview, col: str, label: str = None, width=None, sort=True, center=True):
+def set_column(
+        tree: Treeview,
+        col: str,
+        label: str = None,
+        width=None,
+        sort=True,
+        center=True):
     """
     Sets a Treeview's column
     Args:
