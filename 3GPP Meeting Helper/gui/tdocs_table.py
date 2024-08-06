@@ -64,7 +64,7 @@ class TdocsTable(GenericTable):
         """
         super().__init__(
             parent_widget=parent_widget,
-            widget_title=f"SA2#{meeting_name} TDocs. Double-Click on TDoc # or revision # to open",
+            widget_title=f"{meeting_name} TDocs",
             favicon=favicon,
             column_names=[
                 'TDoc',

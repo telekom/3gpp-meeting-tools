@@ -10,6 +10,7 @@ import utils.local_cache
 from application.excel import open_excel_document
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
+from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
 from server.common import download_file_to_location
 from server.tdoc_search import MeetingEntry, search_meeting_for_tdoc, compare_two_tdocs
@@ -332,7 +333,12 @@ class MeetingsTable(GenericTable):
                 # ToDo
                 # Open TDoc table from Excel
                 print(f'Opening TDoc table based on {local_path}')
-                pass
+                TdocsTableFromExcel(
+                    favicon=self.favicon,
+                    parent_widget=self.tk_top,
+                    meeting=meeting[0],
+                    root_widget=self.root_widget,
+                    tdoc_excel_path=local_path)
 
     def on_open_tdoc(self):
         tdoc_to_open = self.tdoc
