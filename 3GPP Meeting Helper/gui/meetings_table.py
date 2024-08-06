@@ -347,7 +347,6 @@ class MeetingsTable(GenericTable):
                 print(f'Opening Excel {local_path}')
                 open_excel_document(local_path)
             else:
-                # ToDo
                 # Open TDoc table from Excel
                 print(f'Opening TDoc table based on {local_path}')
                 TdocsTableFromExcel(
