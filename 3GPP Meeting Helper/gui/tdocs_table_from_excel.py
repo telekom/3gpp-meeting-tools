@@ -263,6 +263,8 @@ class TdocDetailsFromExcel(GenericTable):
             match row_name:
                 case 'TDoc':
                     row_value = self.tdoc_id
+                case 'CR' | 'CR revision':
+                    row_value = f'{self.tdoc_row[row_name]:0.0f}'
                 case _:
                     row_value = self.tdoc_row[row_name]
 
