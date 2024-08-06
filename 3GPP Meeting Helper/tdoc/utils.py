@@ -1,5 +1,6 @@
 import collections
 import re
+from typing import List
 
 # Common Regular Expressions for parsing TDoc names
 
@@ -59,7 +60,10 @@ class GenericTdoc:
         return self._number
 
     @property
-    def tdoc(self):
+    def tdoc(self) -> str:
+        """
+        Returns: The TDoc ID that was used to create this TDoc object.
+        """
         return self._tdoc
 
     def __str__(self) -> str:
@@ -67,6 +71,23 @@ class GenericTdoc:
 
     def __repr__(self) -> str:
         return f'GenericTdoc(\'{self.tdoc}\')'
+
+
+def are_generic_tdocs(str_with_tdocs: str) -> List[GenericTdoc]:
+    """
+    Same as is_generic_tdoc but works on text containing one or more TDoc strings.
+    Args:
+        str_with_tdocs: A string
+
+    Returns: Parsed TDoc information. Empty list if none are found
+    """
+    if str_with_tdocs is None or str_with_tdocs == '':
+        return []
+
+    tdoc_candidates = tdoc_generic_regex.finditer(str_with_tdocs)
+    out_list = [is_generic_tdoc(r.group(0)) for r in tdoc_candidates]
+    out_list = [o for o in out_list if o is not None]
+    return out_list
 
 
 def is_generic_tdoc(tdoc: str) -> GenericTdoc | None:
@@ -156,5 +177,3 @@ def get_tdoc_year(tdoc, include_revision=False):
     except Exception as e:
         print(f'Could not parse TDoc string {tdoc}: {e}')
         return year, tdoc_number, None
-
-

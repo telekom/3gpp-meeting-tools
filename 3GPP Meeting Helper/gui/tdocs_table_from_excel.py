@@ -10,6 +10,7 @@ from pandas import DataFrame
 import server
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from server.tdoc_search import MeetingEntry
+from tdoc.utils import are_generic_tdocs
 
 
 class TdocsTableFromExcel(GenericTable):
@@ -35,6 +36,7 @@ class TdocsTableFromExcel(GenericTable):
         self.tdoc_excel_path = tdoc_excel_path
         self.tdocs_df: DataFrame = pd.read_excel(io=self.tdoc_excel_path, index_col=0)
         self.tdocs_df = self.tdocs_df.fillna(value='')
+        self.tdocs_df['Secretary Remarks'] = self.tdocs_df['Secretary Remarks'].str.replace('<br/><br/>', '. ')
 
         def agenda_sort_item(input_str):
             if input_str is None or input_str == np.nan or input_str == '':
@@ -56,7 +58,7 @@ class TdocsTableFromExcel(GenericTable):
 
         super().__init__(
             parent_widget=parent_widget,
-            widget_title=f"{meeting.meeting_name} TDocs. Double-Click on TDoc # or revision # to open",
+            widget_title=f"{meeting.meeting_name} TDocs. Double-Click on TDoc # or secretary remarks # to open",
             favicon=favicon,
             column_names=[
                 'TDoc',
@@ -64,7 +66,6 @@ class TdocsTableFromExcel(GenericTable):
                 'Title',
                 'Source',
                 'Details',
-                'Rev. of',
                 'Secretary Remarks'],
             row_height=60,
             display_rows=9,
@@ -77,8 +78,7 @@ class TdocsTableFromExcel(GenericTable):
         self.set_column('Title', width=TdocsTableFromExcel.title_width, center=False)
         self.set_column('Source', width=TdocsTableFromExcel.source_width, center=False)
         self.set_column('Details', width=75)
-        self.set_column('Rev. of', width=100)
-        self.set_column('Secretary Remarks', width=300)
+        self.set_column('Secretary Remarks', width=400)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -105,12 +105,13 @@ class TdocsTableFromExcel(GenericTable):
         match column:
             case 0 | 6:
                 print(f'Clicked on TDoc {actual_value}. Row: {item_values[0]}')
-                tdoc_to_open = actual_value
-                print(f'Opening {tdoc_to_open}')
-                opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open)
-                if metadata is not None:
-                    print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
-                    pyperclip.copy(metadata[0].url)
+                tdocs_to_open = are_generic_tdocs(actual_value)
+                for tdoc_to_open in tdocs_to_open:
+                    print(f'Opening {tdoc_to_open.tdoc}')
+                    opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open.tdoc)
+                    if metadata is not None:
+                        print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
+                        pyperclip.copy(metadata[0].url)
 
     def insert_rows(self):
         print('Populating TDocs table')
@@ -130,8 +131,7 @@ class TdocsTableFromExcel(GenericTable):
                 textwrap.fill(row['Title'], width=70),
                 textwrap.fill(row['Source'], width=25),
                 'Click',
-                row['Is revision of'],
-                textwrap.fill(row['Secretary Remarks'], width=35)))
+                textwrap.fill(row['Secretary Remarks'], width=50)))
 
             treeview_set_row_formatting(self.tree)
             self.tdoc_count.set('{0} documents'.format(count))
