@@ -1,3 +1,4 @@
+import numbers
 import textwrap
 import tkinter
 from tkinter import ttk
@@ -268,7 +269,9 @@ class TdocDetailsFromExcel(GenericTable):
                 case 'TDoc':
                     row_value = self.tdoc_id
                 case 'CR' | 'CR revision':
-                    row_value = f'{self.tdoc_row[row_name]:0.0f}'
+                    row_value = self.tdoc_row[row_name]
+                    if isinstance(row_value, numbers.Number):
+                        row_value = f'{row_value:0.0f}'
                 case _:
                     row_value = self.tdoc_row[row_name]
 
