@@ -379,6 +379,7 @@ def download_file_to_location(
 class FileToDownload(NamedTuple):
     remote_url: str
     local_filepath: str
+    force_download: bool
 
 
 def batch_download_file_to_location(files_to_download: List[FileToDownload], cache=False):
@@ -394,7 +395,8 @@ def batch_download_file_to_location(files_to_download: List[FileToDownload], cac
             download_file_to_location,
             file_to_download.remote_url,
             file_to_download.local_filepath,
-            cache
+            cache,
+            file_to_download.force_download
         ): file_to_download for file_to_download in files_to_download}
         for future in concurrent.futures.as_completed(future_to_url):
             file_to_download = future_to_url[future]
