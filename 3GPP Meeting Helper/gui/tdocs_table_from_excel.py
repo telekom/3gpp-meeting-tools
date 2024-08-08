@@ -12,7 +12,7 @@ import server
 from application.excel import open_excel_document, set_autofilter_values
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
-from server.tdoc_search import MeetingEntry
+from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs
 from tdoc.utils import are_generic_tdocs
 
 
@@ -162,12 +162,24 @@ class TdocsTableFromExcel(GenericTable):
         )
         self.open_excel_btn.pack(side=tkinter.LEFT)
 
+        self.download_btn = ttk.Button(
+            self.top_frame,
+            text='Download',
+            command=self.download_tdocs,
+        )
+        self.download_btn.pack(side=tkinter.LEFT)
+
         self.insert_rows()
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
         ttk.Label(self.bottom_frame, textvariable=self.tdoc_count).pack(side=tkinter.LEFT)
+
+    def download_tdocs(self):
+        tdoc_list = self.tdocs_current_df.index.tolist()
+        if len(tdoc_list) > 0:
+            batch_search_and_download_tdocs(tdoc_list)
 
     def open_and_filter_excel(self):
         wb = open_excel_document(self.tdoc_excel_path)
