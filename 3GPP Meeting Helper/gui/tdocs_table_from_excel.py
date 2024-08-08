@@ -9,6 +9,7 @@ import pyperclip
 from pandas import DataFrame
 
 import server
+from application.excel import open_excel_document, set_autofilter_values
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from server.tdoc_search import MeetingEntry
@@ -147,12 +148,33 @@ class TdocsTableFromExcel(GenericTable):
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
+        self.open_excel_btn = ttk.Button(
+            self.top_frame,
+            text='Open Excel',
+            command=lambda: open_excel_document(self.tdoc_excel_path),
+        )
+        self.open_excel_btn.pack(side=tkinter.LEFT)
+
+        self.open_excel_btn = ttk.Button(
+            self.top_frame,
+            text='Filter Excel',
+            command=self.open_and_filter_excel,
+        )
+        self.open_excel_btn.pack(side=tkinter.LEFT)
+
         self.insert_rows()
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
 
         ttk.Label(self.bottom_frame, textvariable=self.tdoc_count).pack(side=tkinter.LEFT)
+
+    def open_and_filter_excel(self):
+        wb = open_excel_document(self.tdoc_excel_path)
+        tdoc_list = self.tdocs_current_df.index.tolist()
+        if len(tdoc_list) > 0:
+            print(f'Filtering TDoc list for {len(tdoc_list)} TDocs shown')
+            set_autofilter_values(wb=wb, value_list=tdoc_list)
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)

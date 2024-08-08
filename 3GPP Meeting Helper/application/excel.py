@@ -1,4 +1,5 @@
 import traceback
+from typing import List
 
 import win32com.client
 
@@ -22,6 +23,15 @@ def get_excel():
 
 
 def open_excel_document(filename=None, sheet_name=None):
+    """
+
+    Args:
+        filename: File to open
+        sheet_name: Sheet name in the Workbook
+
+    Returns: A Worbook object. See https://learn.microsoft.com/en-us/office/vba/api/excel.workbook
+
+    """
     if (filename is None) or (filename == ''):
         wb = get_excel().Workbooks.Add()
     else:
@@ -47,10 +57,44 @@ def set_first_row_as_filter(wb, ws_name=None, already_activated=False):
         else:
             ws = wb.Sheets(ws_name)
             ws.Activate()
+
+        # See https://learn.microsoft.com/en-us/office/vba/api/excel.range.autofilter
+        # If you omit all the arguments, this method simply toggles the display of the
+        #  AutoFilter drop-down arrows in the specified range.
         ws.Range("1:1").AutoFilter()
         ws.Cells(2, 2).Select()
         get_excel().ActiveWindow.FreezePanes = True
-    except:
+    except Exception as e:
+        print(f'Could not set first row as filter: {e}')
+        traceback.print_exc()
+
+
+def set_autofilter_values(
+        wb,
+        value_list: List[str],
+        ws_name=None,
+        already_activated=False,
+        column_one_indexed=1
+):
+    try:
+        if not already_activated:
+            wb.Activate()
+        if ws_name is None:
+            ws = wb.ActiveSheet
+        else:
+            ws = wb.Sheets(ws_name)
+            ws.Activate()
+
+        # https://learn.microsoft.com/en-us/office/vba/api/excel.xlautofilteroperator
+        # TDoc
+        # xlFilterValues
+        ws.Range("1:1").AutoFilter(
+            Criteria1=value_list,
+            Field=column_one_indexed,
+            Operator=7
+        )
+    except Exception as e:
+        print(f'Could not set autofilter: {e}')
         traceback.print_exc()
 
 
@@ -113,7 +157,7 @@ def set_column_width(column_letter: str, wb, width: int):
     column_letter = column_letter.upper()
     wb.Activate()
     ws = wb.ActiveSheet
-    ws.Range(column_letter+":"+column_letter).ColumnWidth = width
+    ws.Range(column_letter + ":" + column_letter).ColumnWidth = width
 
 
 def hide_column(column_letter: str, wb):
@@ -126,7 +170,7 @@ def hide_column(column_letter: str, wb):
     column_letter = column_letter.upper()
     wb.Activate()
     ws = wb.ActiveSheet
-    ws.Range(column_letter+":"+column_letter).EntireColumn.Hidden = True
+    ws.Range(column_letter + ":" + column_letter).EntireColumn.Hidden = True
 
 
 def set_wrap_text(wb):
