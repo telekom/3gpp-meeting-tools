@@ -551,7 +551,7 @@ def fully_update_cache(redownload_if_exists=False):
     """
     print('Triggering update of local cache')
     downloaded_groups = update_local_html_cache(redownload_if_exists=redownload_if_exists)
-    convert_local_cache_to_markdown(downloaded_groups, force_conversion=True)
+    convert_local_cache_to_markdown(downloaded_groups, force_conversion=redownload_if_exists)
     load_markdown_cache_to_memory()
     print('Finished update of local cache')
 

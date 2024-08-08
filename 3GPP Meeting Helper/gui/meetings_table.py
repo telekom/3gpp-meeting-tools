@@ -178,7 +178,7 @@ class MeetingsTable(GenericTable):
         # Load specs data
         print('Loading revision data for LATEST specs per release for table')
         if initial_load:
-            tdoc_search.fully_update_cache()
+            tdoc_search.fully_update_cache(redownload_if_exists=False)
             self.loaded_meeting_entries = tdoc_search.loaded_meeting_entries
         print('Finished loading meetings')
 
