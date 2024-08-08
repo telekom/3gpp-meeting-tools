@@ -36,6 +36,8 @@ class TdocsTableFromExcel(GenericTable):
             tdoc_excel_path: Path to the Excel file from the 3GPP server containing the TDoc list
         """
         self.tdoc_excel_path = tdoc_excel_path
+
+        # Load and cleanup DataFrame
         self.tdocs_df: DataFrame = pd.read_excel(io=self.tdoc_excel_path, index_col=0)
         self.tdocs_df = self.tdocs_df.fillna(value='')
         self.tdocs_df['Secretary Remarks'] = self.tdocs_df['Secretary Remarks'].str.replace('<br/><br/>', '. ')
@@ -58,6 +60,15 @@ class TdocsTableFromExcel(GenericTable):
             self.tdocs_df.index.name])
         self.tdocs_current_df = self.tdocs_df
 
+        # Fill in drop-down filters
+        self.release_list = ['All']
+        ai_items = self.tdocs_df['Release'].unique().tolist()
+        ai_items.sort()
+        self.release_list.extend(ai_items)
+        self.ai_list = ['All']
+        self.ai_list.extend(self.tdocs_df['Agenda item'].unique().tolist())
+
+        # Document counter
         self.tdoc_count = tkinter.StringVar()
 
         super().__init__(
@@ -90,11 +101,34 @@ class TdocsTableFromExcel(GenericTable):
             textvariable=self.search_text,
             width=25,
             font='TkDefaultFont')
-        self.search_text.trace_add(['write', 'unset'], self.select_text)
+        self.search_text.trace_add(['write', 'unset'], self.select_rows)
         ttk.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)
         self.search_entry.pack(
             side=tkinter.LEFT,
             pady=10)
+
+        # Drop-down lists
+        self.combo_release = ttk.Combobox(
+            self.top_frame,
+            values=self.release_list,
+            state="readonly",
+            width=10)
+        self.combo_release.set('All')
+        self.combo_release.bind("<<ComboboxSelected>>", self.select_rows)
+
+        self.combo_ai = ttk.Combobox(
+            self.top_frame,
+            values=self.ai_list,
+            state="readonly",
+            width=10)
+        self.combo_ai.set('All')
+        self.combo_ai.bind("<<ComboboxSelected>>", self.select_rows)
+
+        ttk.Label(self.top_frame, text="  AI: ").pack(side=tkinter.LEFT)
+        self.combo_ai.pack(side=tkinter.LEFT)
+
+        ttk.Label(self.top_frame, text="  Release: ").pack(side=tkinter.LEFT)
+        self.combo_release.pack(side=tkinter.LEFT)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -139,18 +173,35 @@ class TdocsTableFromExcel(GenericTable):
                     tdoc_str=tdoc_id,
                     tdoc_row=self.tdocs_df.loc[tdoc_id])
 
-    def select_text(self, *args):
+    def select_rows(self, *args):
         filter_str = self.search_text.get()
-        print(f'Filtering by "{filter_str}"')
-        df = self.tdocs_df
+        filtered_df = self.tdocs_df
 
-        # Search in TDoc ID and title
-        filtered_df = df[
-            df.index.str.contains(filter_str, case=False) |
-            df["Title"].str.contains(filter_str, case=False) |
-            df["Related WIs"].str.contains(filter_str, case=False) |
-            df["Source"].str.contains(filter_str, case=False) |
-            df["Secretary Remarks"].str.contains(filter_str, case=False)]
+        if filter_str is not None and filter_str != '':
+            print(f'Filtering by "{filter_str}"')
+
+            # Search in TDoc ID and title
+            filtered_df = filtered_df[
+                filtered_df.index.str.contains(filter_str, case=False) |
+                filtered_df["Title"].str.contains(filter_str, case=False) |
+                filtered_df["Related WIs"].str.contains(filter_str, case=False) |
+                filtered_df["Source"].str.contains(filter_str, case=False) |
+                filtered_df["Secretary Remarks"].str.contains(filter_str, case=False)]
+
+        ai_filter = self.combo_ai.get()
+        if ai_filter != 'All':
+            print(f'Filtering by AI: "{ai_filter}"')
+            filtered_df = filtered_df[filtered_df["Agenda item"] == ai_filter]
+
+        rel_filter = self.combo_release.get()
+        if rel_filter != 'All':
+            print(f'Filtering by Release: "{rel_filter}"')
+            if rel_filter != '':
+                filtered_df = filtered_df[
+                    filtered_df["Release"].str.contains(rel_filter, case=False)]
+            else:
+                filtered_df = filtered_df[filtered_df["Release"] == '']
+
         self.tdocs_current_df = filtered_df
         self.tree.delete(*self.tree.get_children())
         self.insert_rows()
@@ -214,10 +265,10 @@ class TdocDetailsFromExcel(GenericTable):
             text=textwrap.fill(
                 f"Abstract: {self.tdoc_row['Abstract']}",
                 width=240))
-         .pack(
+        .pack(
             side=tkinter.LEFT,
             pady=10)
-         )
+        )
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
