@@ -67,6 +67,10 @@ class TdocsTableFromExcel(GenericTable):
         self.release_list.extend(ai_items)
         self.ai_list = ['All']
         self.ai_list.extend(self.tdocs_df['Agenda item'].unique().tolist())
+        self.type_list = ['All']
+        type_items = self.tdocs_df['Type'].unique().tolist()
+        type_items.sort()
+        self.type_list.extend(type_items)
 
         # Document counter
         self.tdoc_count = tkinter.StringVar()
@@ -124,11 +128,22 @@ class TdocsTableFromExcel(GenericTable):
         self.combo_ai.set('All')
         self.combo_ai.bind("<<ComboboxSelected>>", self.select_rows)
 
+        self.combo_type = ttk.Combobox(
+            self.top_frame,
+            values=self.type_list,
+            state="readonly",
+            width=10)
+        self.combo_type.set('All')
+        self.combo_type.bind("<<ComboboxSelected>>", self.select_rows)
+
         ttk.Label(self.top_frame, text="  AI: ").pack(side=tkinter.LEFT)
         self.combo_ai.pack(side=tkinter.LEFT)
 
         ttk.Label(self.top_frame, text="  Release: ").pack(side=tkinter.LEFT)
         self.combo_release.pack(side=tkinter.LEFT)
+
+        ttk.Label(self.top_frame, text="  Type: ").pack(side=tkinter.LEFT)
+        self.combo_type.pack(side=tkinter.LEFT)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -193,14 +208,15 @@ class TdocsTableFromExcel(GenericTable):
             print(f'Filtering by AI: "{ai_filter}"')
             filtered_df = filtered_df[filtered_df["Agenda item"] == ai_filter]
 
+        type_filter = self.combo_type.get()
+        if type_filter != 'All':
+            print(f'Filtering by Type: "{type_filter}"')
+            filtered_df = filtered_df[filtered_df["Type"] == type_filter]
+
         rel_filter = self.combo_release.get()
         if rel_filter != 'All':
             print(f'Filtering by Release: "{rel_filter}"')
-            if rel_filter != '':
-                filtered_df = filtered_df[
-                    filtered_df["Release"].str.contains(rel_filter, case=False)]
-            else:
-                filtered_df = filtered_df[filtered_df["Release"] == '']
+            filtered_df = filtered_df[filtered_df["Release"] == rel_filter]
 
         self.tdocs_current_df = filtered_df
         self.tree.delete(*self.tree.get_children())
