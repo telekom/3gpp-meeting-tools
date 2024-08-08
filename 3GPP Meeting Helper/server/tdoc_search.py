@@ -205,13 +205,15 @@ class MeetingEntry(NamedTuple):
         return self.meeting_url_docs + tdoc_file
 
     @property
-    def local_folder_path(self) -> str:
+    def local_folder_path(self) -> str | None:
         """
         For a given meeting, returns the cache folder and creates it if it does not exist
         Returns:
 
         """
         folder_name = self.meeting_folder
+        if folder_name is None:
+            return None
         full_path = os.path.join(utils.local_cache.get_cache_folder(), folder_name)
         return full_path
 
@@ -274,7 +276,8 @@ def update_local_html_cache(redownload_if_exists=False) -> List[str]:
         if redownload_if_exists or not os.path.exists(local_file):
             files_to_download.append(FileToDownload(
                 remote_url=v,
-                local_filepath=local_file
+                local_filepath=local_file,
+                force_download=True
             ))
             downloaded_group_meetings.append(k)
         else:
@@ -311,7 +314,7 @@ def filter_markdown_text(markdown_text: str) -> str:
     return full_text
 
 
-def convert_local_cache_to_markdown(downloaded_groups: List[str]):
+def convert_local_cache_to_markdown(downloaded_groups: List[str], force_conversion=False):
     """
         Convert local cache to markdown
     """
@@ -321,7 +324,7 @@ def convert_local_cache_to_markdown(downloaded_groups: List[str]):
     print(f'Converting local cache to markdown')
     for k, v in html_cache_files.items():
         if os.path.exists(v):
-            if not os.path.exists(markup_cache_files[k]) or k in downloaded_groups:
+            if force_conversion or (not os.path.exists(markup_cache_files[k]) or k in downloaded_groups):
                 print(f'Markup conversion for {k} group')
                 convert_html_file_to_markup(
                     v,
@@ -548,7 +551,7 @@ def fully_update_cache(redownload_if_exists=False):
     """
     print('Triggering update of local cache')
     downloaded_groups = update_local_html_cache(redownload_if_exists=redownload_if_exists)
-    convert_local_cache_to_markdown(downloaded_groups)
+    convert_local_cache_to_markdown(downloaded_groups, force_conversion=True)
     load_markdown_cache_to_memory()
     print('Finished update of local cache')
 
