@@ -13,7 +13,7 @@ import server
 from application.excel import open_excel_document, set_autofilter_values
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
-from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs, search_meeting_for_tdoc
+from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs
 from tdoc.utils import are_generic_tdocs
 
 
