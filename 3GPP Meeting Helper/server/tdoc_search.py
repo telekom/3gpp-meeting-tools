@@ -1,3 +1,4 @@
+import concurrent.futures
 import datetime
 import os.path
 import re
@@ -617,6 +618,34 @@ def search_download_and_open_tdoc(
             path=m)
             for m in files_in_zip if m is not None if (m is not None) and (('.doc' in m) or '.docx' in m)]
     return opened_files, metadata_list
+
+
+def batch_search_and_download_tdocs(
+        tdoc_list: List[str],
+):
+    """
+    PArrallel download of a list of TDocs, e.g. for caching purposes
+    Args:
+        tdoc_list: A list of TDoc IDs
+    """
+    if tdoc_list is None or not isinstance(tdoc_list, list) or len(tdoc_list) < 1:
+        return
+
+    # See https://docs.python.org/3/library/concurrent.futures.html
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_dl = {executor.submit(
+            search_download_and_open_tdoc,
+            tdoc_str,
+            True
+        ): tdoc_str for tdoc_str in tdoc_list}
+        for future in concurrent.futures.as_completed(future_to_dl):
+            tdoc_to_download = future_to_dl[future]
+            try:
+                file_downloaded = future.result()
+                if not file_downloaded:
+                    print(f'Could not download {tdoc_to_download}')
+            except Exception as exc:
+                print('%r generated an exception: %s' % (tdoc_to_download, exc))
 
 
 def compare_two_tdocs(tdoc1_to_open: str, tdoc2_to_open: str):
