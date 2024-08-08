@@ -1,4 +1,5 @@
 import numbers
+import os
 import textwrap
 import tkinter
 from tkinter import ttk
@@ -12,7 +13,7 @@ import server
 from application.excel import open_excel_document, set_autofilter_values
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
-from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs
+from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs, search_meeting_for_tdoc
 from tdoc.utils import are_generic_tdocs
 
 
@@ -42,6 +43,7 @@ class TdocsTableFromExcel(GenericTable):
         self.tdocs_df: DataFrame = pd.read_excel(io=self.tdoc_excel_path, index_col=0)
         self.tdocs_df = self.tdocs_df.fillna(value='')
         self.tdocs_df['Secretary Remarks'] = self.tdocs_df['Secretary Remarks'].str.replace('<br/><br/>', '. ')
+        self.meeting = meeting
 
         def agenda_sort_item(input_str):
             if input_str is None or input_str == np.nan or input_str == '':
@@ -152,6 +154,7 @@ class TdocsTableFromExcel(GenericTable):
             self.top_frame,
             text='Open Excel',
             command=lambda: open_excel_document(self.tdoc_excel_path),
+            width=9
         )
         self.open_excel_btn.pack(side=tkinter.LEFT)
 
@@ -159,6 +162,7 @@ class TdocsTableFromExcel(GenericTable):
             self.top_frame,
             text='Filter Excel',
             command=self.open_and_filter_excel,
+            width=8
         )
         self.open_excel_btn.pack(side=tkinter.LEFT)
 
@@ -166,8 +170,17 @@ class TdocsTableFromExcel(GenericTable):
             self.top_frame,
             text='Download',
             command=self.download_tdocs,
+            width=8
         )
         self.download_btn.pack(side=tkinter.LEFT)
+
+        self.cache_btn = ttk.Button(
+            self.top_frame,
+            text='Cache',
+            command=lambda: os.startfile(meeting.local_folder_path),
+            width=5
+        )
+        self.cache_btn.pack(side=tkinter.LEFT)
 
         self.insert_rows()
 
