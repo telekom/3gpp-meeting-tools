@@ -71,15 +71,20 @@ def extract_spec_files_from_spec_folder(
     """
     # Need to account to TR numbers and old release numbers. Examples:
     # 23700-07-h00.zip, 23003-aa0.zip, 23034-800.zip
+
+    print(f'Base URL: {base_url}')
+    versions = [(m.group(0), m.group(1), m.group(3)) for m in spec_zipfile_regex.finditer(specs_page_markup)]
+    versions = [v for v in versions if len(v[1]) > 2]
+    print(f'Versions: {versions}')
     specs = [
         SpecFile(
-            m.group(0),
-            '{0}.{1}'.format(m.group(1)[0:2], m.group(1)[2:]),
-            m.group(3),
+            v[0],
+            '{0}.{1}'.format(v[1][0:2], v[1][2:]),
+            v[2],
             series,
             release,
             base_url,
-            base_url + '/' + m.group(0)) for m in spec_zipfile_regex.finditer(specs_page_markup)]
+            base_url + '/' + v[0]) for v in versions]
 
     if auto_fill:
         specs_autofill = []
