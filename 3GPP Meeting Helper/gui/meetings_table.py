@@ -212,7 +212,7 @@ class MeetingsTable(GenericTable):
                 documents_str = '-'
                 cache_str = '-'
                 tdoc_list_str = 'Link'
-                tdoc_excel_str = 'Open'
+                tdoc_excel_str = '-'
             else:
                 documents_str = 'Link'
                 cache_str = 'Open'
