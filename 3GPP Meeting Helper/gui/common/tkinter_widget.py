@@ -34,3 +34,9 @@ class TkWidget:
             self.tk_top.title(widget_title)
         if self.favicon is not None:
             self.tk_top.iconbitmap(favicon)
+
+        def close(event):
+            print(f'Closing {self.tk_top.winfo_name()}')
+            self.tk_top.withdraw()
+        self.tk_top.bind('<Escape>', close)
+
