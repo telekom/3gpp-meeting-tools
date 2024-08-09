@@ -80,7 +80,7 @@ class TdocsTableFromExcel(GenericTable):
 
         super().__init__(
             parent_widget=parent_widget,
-            widget_title=f"{meeting.meeting_name} TDocs. Double-Click on TDoc # or secretary remarks # to open",
+            widget_title=f"{meeting.meeting_name} ({meeting.meeting_location}). Double-Click on TDoc # or secretary remarks # to open",
             favicon=favicon,
             column_names=[
                 'TDoc',
