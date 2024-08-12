@@ -20,9 +20,15 @@ http_session: CacheControl = None
 
 def initialize_http_session():
     global initialized_http_session, http_session
+
+    # Set cache
     file_cache_path = get_webcache_file()
     http_session = CacheControl(non_cached_http_session, cache=FileCache(file_cache_path))
+
+    # Set User-Agent
     http_session.headers.update({'User-Agent': config.networking.http_user_agent})
+    non_cached_http_session.headers.update({'User-Agent': config.networking.http_user_agent})
+
     initialized_http_session = True
     print(f'Created Cached HTTP Session. File cache path: {file_cache_path}')
 
@@ -96,17 +102,18 @@ def get_remote_file(
                 timeout_tuple = (timeout_values.connect_timeout, timeout_values.read_timeout)
             else:
                 timeout_tuple = (timeout.connect_timeout, timeout.read_timeout)
+
+            if not initialized_http_session:
+                initialize_http_session()
             if cache:
                 print('HTTP cached GET {0}'.format(url))
                 # r = requests.get(url, timeout=timeout_tuple)
-                if not initialized_http_session:
-                    initialize_http_session()
                 r = http_session.get(url, timeout=timeout_tuple)
             else:
                 print('HTTP non-cached GET {0}'.format(url))
                 r = non_cached_http_session.get(url, timeout=timeout_tuple)
             if r.status_code != 200:
-                print(f'HTTP GET {url}: {r.status_code}, {r.reason}. Content: \n{r.content}')
+                print(f'HTTP GET {url}: {r.status_code}, {r.reason}.\nHeaders: \n{r.headers}\nContent: \n{r.content}')
                 if cached_file_to_return_if_error_or_cache is not None:
                     try:
                         with open(cached_file_to_return_if_error_or_cache, "rb") as f:
