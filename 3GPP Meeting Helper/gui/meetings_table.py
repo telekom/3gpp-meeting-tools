@@ -342,7 +342,7 @@ class MeetingsTable(GenericTable):
             downloaded = False
             if not file_already_exists or self.redownload_tdoc_excel_if_exists_var.get():
                 url_to_open = meeting[0].meeting_tdoc_list_excel_url
-                download_file_to_location(url_to_open, local_path)
+                download_file_to_location(url_to_open, local_path, force_download=True)
                 downloaded = True
             if not downloaded:
                 print('TDoc Excel list from cache')
