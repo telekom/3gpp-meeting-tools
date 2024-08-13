@@ -287,10 +287,7 @@ class TdocsTableFromExcel(GenericTable):
             else:
                 tag = 'even'
 
-            local_file = os.path.join(
-                local_folder,
-                str(tdoc_id),
-                f'{tdoc_id}.zip')
+            local_file = self.meeting.get_tdoc_local_path(str(tdoc_id))
             if utils.local_cache.file_exists(local_file):
                 row_icon = cloud_download_icon
             else:
