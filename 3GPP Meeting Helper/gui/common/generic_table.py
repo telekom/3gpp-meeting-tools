@@ -7,6 +7,13 @@ from gui.common.tkinter_widget import TkWidget
 
 column_separator_str = "     "
 
+cloud_icon = tkinter.PhotoImage(
+            file='cloud.png',
+        )
+cloud_download_icon = tkinter.PhotoImage(
+    file='cloud_download.png',
+)
+
 
 def set_column(
         tree: Treeview,
@@ -66,6 +73,7 @@ class GenericTable(TkWidget):
             row_height=55,
             display_rows=10,
             root_widget: tkinter.Tk | None = None,
+            treeview_show=('headings',)
     ):
         """
         Base class for table GUIs in this application
@@ -104,7 +112,7 @@ class GenericTable(TkWidget):
         self.tree = ttk.Treeview(
             self.main_frame,
             columns=tuple(column_names),
-            show='headings',
+            show=treeview_show,
             selectmode="browse",
             style=self.style_name,
             padding=[-5, -25, -5, -25],
