@@ -237,6 +237,23 @@ class MeetingEntry(NamedTuple):
     def is_li(self):
         return '-LI' in self.meeting_number
 
+    def get_tdoc_local_path(self, tdoc_str:str) -> str|None:
+        """
+        Generates the local path for a given TDoc
+        Args:
+            tdoc_str: The TDoc for which the local path is queried
+
+        Returns: The TDoc local path. None if it could not be generated, e.g. if the local folder cannot be established.
+        """
+        local_folder = self.local_folder_path
+        if local_folder is None:
+            return None
+        local_file = os.path.join(
+            local_folder,
+            str(tdoc_str),
+            f'{tdoc_str}.zip')
+        return local_file
+
 
 class DownloadedWordTdocDocument(NamedTuple):
     title: str | None
@@ -582,8 +599,7 @@ def search_download_and_open_tdoc(
         return None, None
 
     tdoc_url = tdoc_meeting.get_tdoc_url(tdoc_str)
-    local_folder = os.path.join(tdoc_meeting.local_folder_path, tdoc_str)
-    local_target = os.path.join(local_folder, f'{tdoc_str}.zip')
+    local_target = tdoc_meeting.get_tdoc_local_path(tdoc_str)
 
     # Only download file if needed
     if not file_exists(local_target):
