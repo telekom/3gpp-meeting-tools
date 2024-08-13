@@ -245,7 +245,12 @@ class MeetingsTable(GenericTable):
                 tdoc_list_str,
                 tdoc_excel_str
             )
-            self.tree.insert("", "end", tags=(tag,), values=values)
+            self.tree.insert(
+                "",
+                "end",
+                tags=(tag,),
+                values=values
+            )
             previous_row = meeting
 
         treeview_set_row_formatting(self.tree)

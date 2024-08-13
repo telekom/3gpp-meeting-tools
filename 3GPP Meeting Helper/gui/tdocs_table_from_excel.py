@@ -10,11 +10,13 @@ import pyperclip
 from pandas import DataFrame
 
 import server
+import utils.local_cache
 from application.excel import open_excel_document, set_autofilter_values
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs
 from tdoc.utils import are_generic_tdocs
+from gui.common.generic_table import cloud_icon, cloud_download_icon
 
 
 class TdocsTableFromExcel(GenericTable):
@@ -91,9 +93,11 @@ class TdocsTableFromExcel(GenericTable):
                 'Secretary Remarks'],
             row_height=60,
             display_rows=9,
-            root_widget=root_widget
+            root_widget=root_widget,
+            treeview_show=('headings', 'tree')
         )
 
+        self.tree.column('#0', width=80, anchor='w')
         self.set_column('TDoc', "TDoc #", width=110)
         self.set_column('AI', width=50)
         self.set_column('Type', width=120)
@@ -226,6 +230,7 @@ class TdocsTableFromExcel(GenericTable):
                     if metadata is not None:
                         print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
                         pyperclip.copy(metadata[0].url)
+                self.select_rows()
             case 5:
 
                 TdocDetailsFromExcel(
@@ -272,7 +277,9 @@ class TdocsTableFromExcel(GenericTable):
     def insert_rows(self):
         print('Populating TDocs table')
         count = 0
-        for idx, row in self.tdocs_current_df.iterrows():
+
+        local_folder = self.meeting.local_folder_path
+        for tdoc_id, row in self.tdocs_current_df.iterrows():
             count = count + 1
             mod = count % 2
             if mod > 0:
@@ -280,14 +287,29 @@ class TdocsTableFromExcel(GenericTable):
             else:
                 tag = 'even'
 
-            self.tree.insert("", "end", tags=(tag,), values=(
-                idx,
-                row['Agenda item'],
-                row['Type'],
-                textwrap.fill(row['Title'], width=70),
-                textwrap.fill(row['Source'], width=25),
-                'Click',
-                textwrap.fill(row['Secretary Remarks'], width=50)))
+            local_file = os.path.join(
+                local_folder,
+                str(tdoc_id),
+                f'{tdoc_id}.zip')
+            if utils.local_cache.file_exists(local_file):
+                row_icon = cloud_download_icon
+            else:
+                row_icon = cloud_icon
+            self.tree.insert(
+                "",
+                "end",
+                tags=(tag,),
+                values=(
+                    tdoc_id,
+                    row['Agenda item'],
+                    row['Type'],
+                    textwrap.fill(row['Title'], width=70),
+                    textwrap.fill(row['Source'], width=25),
+                    'Click',
+                    textwrap.fill(row['Secretary Remarks'], width=50)
+                ),
+                image=row_icon,
+            )
 
             treeview_set_row_formatting(self.tree)
             self.tdoc_count.set('{0} documents'.format(count))
