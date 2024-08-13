@@ -78,6 +78,19 @@ launch_spec_table.grid(
     column=0
 ))
 
+# Network configuration
+(ttk.Button(
+    main_frame,
+    width=button_width,
+    text='Network config',
+    command=lambda: gui.network_config.NetworkConfigDialog(
+        root,
+        gui.common.utils.favicon))
+ .grid(
+    row=1,
+    column=1,
+))
+
 # 3GPP Wi-fi status
 tkinter_checkbutton_3gpp_wifi_available = ttk.Checkbutton(
     main_frame,
