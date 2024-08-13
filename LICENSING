@@ -1,4 +1,12 @@
 3gpp-meeting-tools: a set of tools to ease the execution of 3GPP meetings
 (c) 2020, Josep Colom Ikuno, Deutsche Telekom AG
 
-All files of this project are licensed under the MIT license
+All files of this project are licensed under the MIT license except the following files:
+
+/3GPP Meeting Helper/cloud.png
+/3GPP Meeting Helper/cloud_download.png
+Google Material Design Icons, retrieved on 2024.08.13 from https://fonts.google.com/icons.
+Repository under https://github.com/google/material-design-icons
+"Cloud" and "Cloud Download", #5f6368 color, size 16, then resized at 50%
+Under the Apache License Version 2.0, January 2004
+License included in the /Licenses folder
