@@ -1,6 +1,7 @@
 import configparser
 import datetime
 import traceback
+from typing import NamedTuple, List
 
 import application.outlook
 import config.cache as local_cache_config
@@ -18,6 +19,15 @@ config_parser.read('config.ini')
 sa2_current_meeting_tdoc_data = None
 sa2_inbox_tdoc_data = None
 sa2_meeting_data: MeetingData | None = None
+
+
+class TdocTag(NamedTuple):
+    tag: str
+    agenda_item: str
+
+
+# Contains a list of tags to mark TDocs
+tdoc_tags: List[TdocTag] = []
 
 # Global store of the current TDocsByAgenda data
 # No type hint to avoid circular references. It should be ": parsing.html.tdocs_by_agenda.tdocs_by_agenda"
@@ -108,6 +118,28 @@ except Exception as e:
     print(f'HTTP User Agent not set. Using "{config.networking.http_user_agent}": {e}')
 finally:
     local_cache_config.CacheConfig.root_folder = application_folder
+
+# Load TDoc tags
+try:
+    tdoc_tags_in_config_file = config_parser['TDOC_TAGS']
+except Exception as e:
+    tdoc_tags_in_config_file = {}
+    print(f'No TDoc tags to load in config section {e}')
+
+for k, v in tdoc_tags_in_config_file.items():
+    print(f'Storing TDoc tags: {tdoc_tags_in_config_file}')
+    try:
+        tag = k
+        tag_ais = v.split(',')
+        tag_ais = [s.strip() for s in tag_ais]
+        for tag_ai in tag_ais:
+            if tag is not None and tag != '':
+                tdoc_tags.append(TdocTag(tag=tag, agenda_item=tag_ai))
+    except Exception as e:
+        print(f'Could not process tag {k}:{v}. {e}')
+if len(tdoc_tags)>0:
+    print(f'TDoc tags: {tdoc_tags}')
+
 
 print('Loaded configuration file')
 
