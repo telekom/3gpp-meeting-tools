@@ -548,7 +548,7 @@ def search_meeting_for_tdoc(
             matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
                                  m.tdoc_start.number <= parsed_tdoc.number and m.tdoc_end.number <= parsed_tdoc.number]
         if len(matching_meetings) > 0:
-            matching_meeting = matching_meetings[0]
+            matching_meeting = matching_meetings[-1]
             print(f'Set meeting for TDoc {tdoc_str} as last meeting with available documents: '
                   f'{matching_meeting.meeting_name}')
         else:
@@ -589,6 +589,10 @@ def search_download_and_open_tdoc(
     """
     if tdoc_str is None or tdoc_str == '':
         return None, None
+
+    # Cleanup
+    tdoc_str = tdoc_str.strip()
+    tdoc_str = tdoc_str.replace('\n', ''). replace('\r', '')
 
     # Load data if needed
     if len(loaded_meeting_entries) == 0:
