@@ -12,6 +12,7 @@ from pandas import DataFrame
 import server
 import utils.local_cache
 from application.excel import open_excel_document, set_autofilter_values
+from application.meeting_helper import tdoc_tags
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs
@@ -46,6 +47,18 @@ class TdocsTableFromExcel(GenericTable):
         self.tdocs_df = self.tdocs_df.fillna(value='')
         self.tdocs_df['Secretary Remarks'] = self.tdocs_df['Secretary Remarks'].str.replace('<br/><br/>', '. ')
         self.meeting = meeting
+        self.tdoc_tags = tdoc_tags
+
+        # Process tags
+        self.tdoc_tag_list_str = ['All']
+        if len(self.tdoc_tags) != 0:
+            all_tags = list(set([s.tag for s in self.tdoc_tags]))
+            all_tags.sort()
+            self.tdoc_tag_list_str.extend(all_tags)
+
+        self.tdocs_df['Tag'] = ''
+        for tag in self.tdoc_tags:
+            self.tdocs_df.loc[self.tdocs_df['Agenda item'] == tag.agenda_item, 'Tag'] = tag.tag
 
         def agenda_sort_item(input_str):
             if input_str is None or input_str == np.nan or input_str == '':
@@ -99,7 +112,7 @@ class TdocsTableFromExcel(GenericTable):
 
         self.tree.column('#0', width=80, anchor='w')
         self.set_column('TDoc', "TDoc #", width=110)
-        self.set_column('AI', width=50)
+        self.set_column('AI', width=52)
         self.set_column('Type', width=120)
         self.set_column('Title', width=TdocsTableFromExcel.title_width, center=False)
         self.set_column('Source', width=TdocsTableFromExcel.source_width, center=False)
@@ -143,6 +156,14 @@ class TdocsTableFromExcel(GenericTable):
         self.combo_type.set('All')
         self.combo_type.bind("<<ComboboxSelected>>", self.select_rows)
 
+        self.combo_tag = ttk.Combobox(
+            self.top_frame,
+            values=self.tdoc_tag_list_str,
+            state="readonly",
+            width=10)
+        self.combo_tag.set('All')
+        self.combo_tag.bind("<<ComboboxSelected>>", self.select_rows)
+
         ttk.Label(self.top_frame, text="  AI: ").pack(side=tkinter.LEFT)
         self.combo_ai.pack(side=tkinter.LEFT)
 
@@ -151,6 +172,9 @@ class TdocsTableFromExcel(GenericTable):
 
         ttk.Label(self.top_frame, text="  Type: ").pack(side=tkinter.LEFT)
         self.combo_type.pack(side=tkinter.LEFT)
+
+        ttk.Label(self.top_frame, text="  Tag: ").pack(side=tkinter.LEFT)
+        self.combo_tag.pack(side=tkinter.LEFT)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -269,6 +293,11 @@ class TdocsTableFromExcel(GenericTable):
         if rel_filter != 'All':
             print(f'Filtering by Release: "{rel_filter}"')
             filtered_df = filtered_df[filtered_df["Release"] == rel_filter]
+
+        tag_filter = self.combo_tag.get()
+        if tag_filter != 'All':
+            print(f'Filtering by Tag: "{tag_filter}"')
+            filtered_df = filtered_df[filtered_df["Tag"] == tag_filter]
 
         self.tdocs_current_df = filtered_df
         self.tree.delete(*self.tree.get_children())
