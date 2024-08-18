@@ -37,6 +37,28 @@ meeting_pages_per_group: dict[str, str] = {
     'R5': 'https://www.3gpp.org/dynareport?code=Meetings-R5.htm',
 }
 
+wg_folders_3gpp_wifi = {
+    'SP': 'http://10.10.10.10/SA/Inbox',
+    'S1': 'http://10.10.10.10/SA1/Inbox',
+    'S2': 'http://10.10.10.10/SA2/Inbox',
+    'S3': 'http://10.10.10.10/SA3/Inbox',
+    'S3LI': 'http://10.10.10.10/SA3LI/Inbox',
+    'S4': 'http://10.10.10.10/SA4/Inbox',
+    'S5': 'http://10.10.10.10/SA5/Inbox',
+    'S6': 'http://10.10.10.10/SA6/Inbox',
+    'CP': 'http://10.10.10.10/CT/Inbox',
+    'C1': 'http://10.10.10.10/CT1/Inbox',
+    'C3': 'http://10.10.10.10/CT3/Inbox',
+    'C4': 'http://10.10.10.10/CT4/Inbox',
+    'C6': 'http://10.10.10.10/CT6/Inbox',
+    'RP': 'http://10.10.10.10/RAN/Inbox',
+    'R1': 'http://10.10.10.10/RAN1/Inbox',
+    'R2': 'http://10.10.10.10/RAN2/Inbox',
+    'R3': 'http://10.10.10.10/RAN3/Inbox',
+    'R4': 'http://10.10.10.10/RAN4/Inbox',
+    'R5': 'http://10.10.10.10/RAN5/Inbox',
+}
+
 initialized = False
 local_cache_folder = ''
 
@@ -237,7 +259,28 @@ class MeetingEntry(NamedTuple):
     def is_li(self):
         return '-LI' in self.meeting_number
 
-    def get_tdoc_local_path(self, tdoc_str:str) -> str|None:
+    @property
+    def meeting_folder_3gpp_wifi_url(self) -> str | None:
+        try:
+            if self.meeting_group == 'S3' and self.is_li:
+                return wg_folders_3gpp_wifi['S3LI']
+            return wg_folders_3gpp_wifi[self.meeting_group]
+        except Exception as e:
+            print(f'Could not generate 10.10.10.10 URL: {e}')
+            return None
+
+    @property
+    def meeting_is_now(self) -> bool:
+        if self.start_date is None or self.end_date is None:
+            return False
+
+        # Add some time delta
+        days_delta = datetime.timedelta(days=3)
+        if self.start_date - days_delta < datetime.datetime.now() < self.end_date + days_delta:
+            return True
+        return False
+
+    def get_tdoc_local_path(self, tdoc_str: str) -> str | None:
         """
         Generates the local path for a given TDoc
         Args:
@@ -592,7 +635,7 @@ def search_download_and_open_tdoc(
 
     # Cleanup
     tdoc_str = tdoc_str.strip()
-    tdoc_str = tdoc_str.replace('\n', ''). replace('\r', '')
+    tdoc_str = tdoc_str.replace('\n', '').replace('\r', '')
 
     # Load data if needed
     if len(loaded_meeting_entries) == 0:
@@ -647,7 +690,7 @@ def batch_search_and_download_tdocs(
         tdoc_list: List[str],
 ):
     """
-    PArrallel download of a list of TDocs, e.g. for caching purposes
+    Parallel download of a list of TDocs, e.g. for caching purposes
     Args:
         tdoc_list: A list of TDoc IDs
     """
