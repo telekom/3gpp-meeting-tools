@@ -7,7 +7,11 @@ from enum import Enum
 from typing import List, Tuple, Any, NamedTuple, Callable
 from zipfile import ZipFile
 
-import win32com.client
+import platform
+
+if platform.system() == 'Windows':
+    print('Windows System detected. Importing win32.client')
+    import win32com.client
 
 # See https://docs.microsoft.com/en-us/office/vba/api/word.wdexportformat
 from application import sensitivity_label
@@ -36,31 +40,39 @@ wdExportOptimizeForPrint = 0
 def get_word(visible=True, display_alerts=False):
     try:
         word = win32com.client.GetActiveObject("Word.Application")
-    except:
+    except Exception as e1:
+        print(f'Could not GetActiveObject "Word.Application": {e1}')
         try:
             word = win32com.client.Dispatch("Word.Application")
-        except:
+        except Exception as e2:
+            print(f'Could not Dispatch "Word.Application": {e2}')
             word = None
     if word is not None:
         try:
             word.Visible = visible
-        except:
-            print('Could not set property "Visible" from Word to "True"')
+        except Exception as e3:
+            print(f'Could not set property "Visible" from Word to "True": {e3}')
         try:
             word.DisplayAlerts = display_alerts
-        except:
-            print('Could not set property "DisplayAlerts" from Word to "False"')
+        except Exception as e4:
+            print(f'Could not set property "DisplayAlerts" from Word to "False": {e4}')
     return word
 
 
 def open_word_document(filename='', set_as_active_document=True, visible=True, ):
+    if filename is None or filename == '':
+        return None
+    if platform.system() != 'Windows':
+        print(f'Opening {filename} using COM wrapper only available on Windows')
+        os.startfile(filename)
+        return None
     try:
         if (filename is None) or (filename == ''):
             doc = get_word(visible=visible).Documents.Add()
         else:
             doc = get_word().Documents.Open(filename)
-    except:
-        print('Could not open Word file {0}'.format(filename))
+    except Exception as e:
+        print(f'Could not open Word file {filename}: {e}')
         traceback.print_exc()
         return None
 
@@ -90,7 +102,7 @@ def open_file(file, go_to_page=1, metadata_function=None) -> None | bool | Tuple
             pass
         if ((extension == 'doc') or (extension == 'docx')) and not_mac_metadata:
             doc = open_word_document(file)
-            if metadata_function is not None:
+            if metadata_function is not None and doc is not None:
                 metadata = metadata_function(doc, file)
             else:
                 metadata = None
@@ -109,8 +121,8 @@ def open_file(file, go_to_page=1, metadata_function=None) -> None | bool | Tuple
             else:
                 print('Executable file {0} not opened for precaution'.format(file))
         return_value = True
-    except:
-        print('Caught exception while opening {0}'.format(file))
+    except Exception as e:
+        print(f'Caught exception while opening {file}: {e}')
         traceback.print_exc()
         return_value = False
     if metadata_function is not None:

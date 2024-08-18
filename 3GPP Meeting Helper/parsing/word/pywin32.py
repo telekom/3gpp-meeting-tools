@@ -2,6 +2,7 @@ import collections
 import os
 import os.path
 import pickle
+import platform
 import re
 import traceback
 from datetime import datetime
@@ -112,6 +113,9 @@ def get_metadata_from_doc(doc, path: str) -> WordTdoc:
 
 def parse_document(filename):
     doc = open_word_document(filename)
+    if doc is None:
+        print('No document retrieved to parse. Maybe non-Windows system?')
+        return None
     return get_metadata_from_doc(doc, path=filename)
 
 
@@ -980,6 +984,10 @@ def compare_documents(
         compare_formatting=True,
         compare_case_changes=True,
         compare_whitespace=True):
+    if platform.system() != 'Windows':
+        print('Document comparison only available on Windows systems')
+        return None
+
     if original_tdoc is None or original_tdoc == '' or revised_tdoc is None or revised_tdoc == '':
         print('Empty or None tdoc_input')
         return
@@ -1001,8 +1009,8 @@ def compare_documents(
             CompareWhitespace=compare_whitespace,
             CompareFields=True)
         return comparison_document
-    except:
-        print('Could not compare documents')
+    except Exception as e:
+        print(f'Could not compare documents: {e}')
         traceback.print_exc()
         return None
 
@@ -1068,12 +1076,16 @@ def extract_cell(table, row: int, column: int):
         return None
 
 
-def parse_cr(filename: str, ai: str = None, tdoc_number: str = None, print_output=True, use_cache=True) -> CrMetadata:
+def parse_cr(filename: str, ai: str = None, tdoc_number: str = None, print_output=True, use_cache=True) -> (
+        CrMetadata | None):
     """
     Parses a CR and extracts the cover page information
     Returns:
         CrMetadata: Information from the cover page of the CR
     """
+    if platform.system() != 'Windows':
+        print('CR parsing only available on Windows systems')
+        return None
 
     [cache_folder, file_parsed] = os.path.split(filename)
     cache_file = file_parsed + '.summary.pickle'
