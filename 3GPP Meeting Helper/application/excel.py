@@ -1,7 +1,11 @@
+import os
 import traceback
 from typing import List
 
-import win32com.client
+import platform
+if platform.system() == 'Windows':
+    print('Windows System detected. Importing win32.client')
+    import win32com.client
 
 # Global Excel instance does not work (removed)
 # excel = None
@@ -9,15 +13,18 @@ from application import sensitivity_label
 
 
 def get_excel():
+    if platform.system() != 'Windows':
+        return
     try:
         excel = win32com.client.Dispatch("Excel.Application")
         try:
             excel.Visible = True
             excel.DisplayAlerts = False
-        except:
-            print('Could not set Excel instance Visible and/or DisplayAlerts property')
+        except Exception as e1:
+            print(f'Could not set Excel instance Visible and/or DisplayAlerts property: {e1}')
         return excel
-    except:
+    except Exception as e2:
+        print(f'{e2}')
         traceback.print_exc()
         return None
 
@@ -29,9 +36,13 @@ def open_excel_document(filename=None, sheet_name=None):
         filename: File to open
         sheet_name: Sheet name in the Workbook
 
-    Returns: A Worbook object. See https://learn.microsoft.com/en-us/office/vba/api/excel.workbook
+    Returns: A Workbook object. See https://learn.microsoft.com/en-us/office/vba/api/excel.workbook
 
     """
+    if platform.system() != 'Windows':
+        if filename is not None and filename != '':
+            os.startfile(filename)
+        return None
     if (filename is None) or (filename == ''):
         wb = get_excel().Workbooks.Add()
     else:
@@ -45,10 +56,14 @@ def open_excel_document(filename=None, sheet_name=None):
 
 
 def select_worksheet(wb, name):
+    if wb is None:
+        return
     wb.Worksheets(name).Activate()
 
 
 def set_first_row_as_filter(wb, ws_name=None, already_activated=False):
+    if wb is None:
+        return
     try:
         if not already_activated:
             wb.Activate()
@@ -76,6 +91,8 @@ def set_autofilter_values(
         already_activated=False,
         column_one_indexed=1
 ):
+    if wb is None:
+        return
     try:
         if not already_activated:
             wb.Activate()
@@ -99,25 +116,27 @@ def set_autofilter_values(
 
 
 def close_wb(wb):
+    if wb is None:
+        return
     wb.Close()
 
 
 def vertically_center_all_text(wb):
+    if wb is None:
+        return
     try:
         wb.Activate()
         ws = wb.ActiveSheet
         # Constants do not work well with win32com, so we just use the value directly
         # https://docs.microsoft.com/en-us/office/vba/api/excel.xlvalign
         ws.Range("A:" + last_column).EntireRow.VerticalAlignment = -4108
-    except:
+    except Exception as e:
+        print(f'{e}')
         traceback.print_exc()
 
 
 def rgb_to_hex(rgb):
-    '''
-    ws.Cells(1, i).Interior.color uses bgr in hex
-
-    '''
+    # s.Cells(1, i).Interior.color uses bgr in hex
     bgr = (rgb[2], rgb[1], rgb[0])
     strValue = '%02x%02x%02x' % bgr
     # print(strValue)
@@ -126,6 +145,8 @@ def rgb_to_hex(rgb):
 
 
 def hide_columns(wb, columns):
+    if wb is None:
+        return
     try:
         wb.Activate()
         ws = wb.ActiveSheet
@@ -133,16 +154,20 @@ def hide_columns(wb, columns):
         for column in columns:
             print('Hiding column {0}'.format(column))
             ws.Columns(column).Hidden = True
-    except:
+    except Exception as e:
+        print(f'{e}')
         traceback.print_exc()
 
 
 def save_wb(wb):
+    if wb is None:
+        return
     try:
         wb.Activate()
         wb.Save()
         print('Workbook saved!')
-    except:
+    except Exception as e:
+        print(f'{e}')
         traceback.print_exc()
 
 
@@ -154,6 +179,8 @@ def set_column_width(column_letter: str, wb, width: int):
         wb: The WorkBook
         width: The width
     """
+    if wb is None:
+        return
     column_letter = column_letter.upper()
     wb.Activate()
     ws = wb.ActiveSheet
@@ -167,6 +194,8 @@ def hide_column(column_letter: str, wb):
         column_letter: The column's letter
         wb: The WorkBook
     """
+    if wb is None:
+        return
     column_letter = column_letter.upper()
     wb.Activate()
     ws = wb.ActiveSheet
@@ -179,6 +208,8 @@ def set_wrap_text(wb):
     Args:
         wb: The WorkBook
     """
+    if wb is None:
+        return
     wb.Activate()
     ws = wb.ActiveSheet
     all_cells = ws.Cells
@@ -191,6 +222,8 @@ def set_row_height(wb):
         Args:
             wb: The WorkBook
         """
+    if wb is None:
+        return
     wb.Activate()
     ws = wb.ActiveSheet
     all_cells = ws.Cells

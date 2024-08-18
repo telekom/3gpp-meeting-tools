@@ -1,4 +1,5 @@
 import os.path
+import platform
 import tkinter
 from tkinter import ttk
 from typing import List
@@ -163,9 +164,12 @@ class MeetingsTable(GenericTable):
             command=self.on_compare_tdoc,
             state=tkinter.DISABLED
         )
-        self.tdoc_entry_2.pack(side=tkinter.LEFT)
-        ttk.Label(self.top_frame, text=" ").pack(side=tkinter.LEFT)
-        self.button_compare_tdoc.pack(side=tkinter.LEFT)
+
+        if platform.system() == 'Windows':
+            # Only works in Windows
+            self.tdoc_entry_2.pack(side=tkinter.LEFT)
+            ttk.Label(self.top_frame, text=" ").pack(side=tkinter.LEFT)
+            self.button_compare_tdoc.pack(side=tkinter.LEFT)
 
         # Main frame
         self.load_data(initial_load=True)
