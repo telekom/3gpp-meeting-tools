@@ -591,6 +591,7 @@ def search_meeting_for_tdoc(
             matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
                                  m.tdoc_start.number <= parsed_tdoc.number and m.tdoc_end.number <= parsed_tdoc.number]
         if len(matching_meetings) > 0:
+            matching_meetings.sort(key=lambda x: x.end_date)
             matching_meeting = matching_meetings[-1]
             print(f'Set meeting for TDoc {tdoc_str} as last meeting with available documents: '
                   f'{matching_meeting.meeting_name}')
