@@ -71,6 +71,22 @@ class MeetingsTable(GenericTable):
         ttk.Label(self.top_frame, text="Group: ").pack(side=tkinter.LEFT)
         self.combo_groups.pack(side=tkinter.LEFT)
 
+        self.filter_by_now = False
+
+        def toggle_now():
+            self.filter_by_now = not self.filter_by_now
+            print(f'Filtering by "now": {self.filter_by_now}')
+            self.apply_filters()
+
+        self.now_button = ttk.Button(
+            self.top_frame,
+            text='Now',
+            command=toggle_now,
+            width=4
+        )
+        ttk.Label(self.top_frame, text=" ").pack(side=tkinter.LEFT)
+        self.now_button.pack(side=tkinter.LEFT)
+
         # Open/search TDoc
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.tkvar_tdoc_id = tkinter.StringVar(self.top_frame)
@@ -83,7 +99,7 @@ class MeetingsTable(GenericTable):
             state=tkinter.DISABLED
         )
         self.tdoc_entry.pack(side=tkinter.LEFT)
-        ttk.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=" ").pack(side=tkinter.LEFT)
         self.button_open_tdoc.pack(side=tkinter.LEFT)
 
         gui.common.utils.bind_key_to_button(
@@ -112,8 +128,9 @@ class MeetingsTable(GenericTable):
                 case _:
                     self.open_tdoc_excel_choice_var.set("Excel")
                     self.open_tdoc_excel_as_table_var.set(False)
+
         self.open_tdoc_excel_choice_var = tkinter.StringVar()
-        toggle_excel_choice_btn() # Init to "Excel"
+        toggle_excel_choice_btn()  # Init to "Excel"
         self.open_tdoc_excel_choice_btn = ttk.Button(
             self.top_frame,
             textvariable=self.open_tdoc_excel_choice_var,
@@ -147,7 +164,7 @@ class MeetingsTable(GenericTable):
             state=tkinter.DISABLED
         )
         self.tdoc_entry_2.pack(side=tkinter.LEFT)
-        ttk.Label(self.top_frame, text="  ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=" ").pack(side=tkinter.LEFT)
         self.button_compare_tdoc.pack(side=tkinter.LEFT)
 
         # Main frame
@@ -159,7 +176,7 @@ class MeetingsTable(GenericTable):
 
         # Bottom frame
         ttk.Label(self.bottom_frame, textvariable=self.meeting_count_tk_str).pack(side=tkinter.LEFT)
-        ttk.Label(self.bottom_frame, text="  ").pack(side=tkinter.LEFT)
+        ttk.Label(self.bottom_frame, text=" ").pack(side=tkinter.LEFT)
         ttk.Label(self.bottom_frame, textvariable=self.compare_text_tk_str).pack(side=tkinter.LEFT)
 
         # Update text in lower frame
@@ -190,6 +207,10 @@ class MeetingsTable(GenericTable):
         else:
             meeting_list_to_consider = [self.chosen_meeting]
 
+        # If filtering by "now"
+        if self.filter_by_now:
+            meeting_list_to_consider = [m for m in meeting_list_to_consider if m.meeting_is_now]
+
         # Filter by selected group
         selected_group = self.combo_groups.get()
         if (selected_group != 'All') and (not tdoc_override):
@@ -199,7 +220,7 @@ class MeetingsTable(GenericTable):
         meeting_list_to_consider.sort(reverse=True, key=lambda m: (m.start_date, m.meeting_group))
 
         count = 0
-        previous_row: None|MeetingEntry = None
+        previous_row: None | MeetingEntry = None
         for idx, meeting in enumerate(meeting_list_to_consider):
             count = count + 1
             mod = count % 2

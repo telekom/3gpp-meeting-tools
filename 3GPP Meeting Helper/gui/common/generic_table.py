@@ -5,7 +5,7 @@ from typing import List
 
 from gui.common.tkinter_widget import TkWidget
 
-column_separator_str = "     "
+column_separator_str = "   "
 
 cloud_icon = tkinter.PhotoImage(
             file='cloud.png',
