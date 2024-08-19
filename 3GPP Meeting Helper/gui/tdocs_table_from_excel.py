@@ -14,6 +14,7 @@ import utils.local_cache
 from application.excel import open_excel_document, set_autofilter_values
 from application.meeting_helper import tdoc_tags
 from application.os import open_url
+from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs
 from tdoc.utils import are_generic_tdocs
@@ -48,6 +49,7 @@ class TdocsTableFromExcel(GenericTable):
         self.tdocs_df['Secretary Remarks'] = self.tdocs_df['Secretary Remarks'].str.replace('<br/><br/>', '. ')
         self.meeting = meeting
         self.tdoc_tags = tdoc_tags
+        self.tkvar_3gpp_wifi_available = tkvar_3gpp_wifi_available
 
         # Process tags
         self.tdoc_tag_list_str = ['All']
@@ -249,8 +251,9 @@ class TdocsTableFromExcel(GenericTable):
                 print(f'Clicked on TDoc {actual_value}. Row: {tdoc_id}')
                 tdocs_to_open = are_generic_tdocs(actual_value)
                 for tdoc_to_open in tdocs_to_open:
-                    print(f'Opening {tdoc_to_open.tdoc}')
-                    opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open.tdoc)
+                    opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(
+                        tdoc_to_open.tdoc,
+                        self.tkvar_3gpp_wifi_available)
                     if metadata is not None:
                         print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
                         pyperclip.copy(metadata[0].url)
@@ -262,7 +265,8 @@ class TdocsTableFromExcel(GenericTable):
                     parent_widget=self.tk_top,
                     root_widget=self.root_widget,
                     tdoc_str=tdoc_id,
-                    tdoc_row=self.tdocs_df.loc[tdoc_id])
+                    tdoc_row=self.tdocs_df.loc[tdoc_id],
+                    meeting=self.meeting)
 
     def select_rows(self, *args):
         filter_str = self.search_text.get()
@@ -348,10 +352,13 @@ class TdocDetailsFromExcel(GenericTable):
             parent_widget: tkinter.Tk,
             tdoc_str: str,
             tdoc_row,
+            meeting: MeetingEntry,
             root_widget: tkinter.Tk | None = None,
     ):
         self.tdoc_id = tdoc_str
         self.tdoc_row = tdoc_row
+        self.tkvar_3gpp_wifi_available = tkvar_3gpp_wifi_available
+        self.meeting = meeting
 
         super().__init__(
             parent_widget=parent_widget,
