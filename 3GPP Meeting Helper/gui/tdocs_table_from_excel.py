@@ -253,7 +253,7 @@ class TdocsTableFromExcel(GenericTable):
                 for tdoc_to_open in tdocs_to_open:
                     opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(
                         tdoc_to_open.tdoc,
-                        self.tkvar_3gpp_wifi_available)
+                        tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available)
                     if metadata is not None:
                         print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
                         pyperclip.copy(metadata[0].url)
@@ -475,7 +475,9 @@ class TdocDetailsFromExcel(GenericTable):
                 tdocs_to_open = are_generic_tdocs(actual_value)
                 for tdoc_to_open in tdocs_to_open:
                     print(f'Opening {tdoc_to_open.tdoc}')
-                    opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open.tdoc)
+                    opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(
+                        tdoc_to_open.tdoc,
+                        tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available)
                     if metadata is not None:
                         print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
                         pyperclip.copy(metadata[0].url)
