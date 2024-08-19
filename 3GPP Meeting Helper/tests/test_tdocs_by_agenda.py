@@ -377,11 +377,25 @@ class TestTdocsByAgenda(unittest.TestCase):
         self.assertEqual(test_row['Result'], '')
 
     def test_159_meeting_number_159_file_v2(self):
-        file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tdocs_by_agenda',
-                                 '2023.10.03 TdocsByAgenda SA2-159_v2.htm')
+        file_name = os.path.join(os.path.dirname(
+            os.path.realpath(__file__)),
+            'tdocs_by_agenda',
+            '2023.10.03 TdocsByAgenda SA2-159_v2.htm')
         meeting = TdocsByAgendaData(file_name)
         self.assertEqual(meeting.meeting_number, '159', 'Expected 159')
         self.assertEqual(len(meeting.tdocs), 1190, 'Expected 1190 TDoc entries')
+
+    def test_164(self):
+        file_name = os.path.join(os.path.dirname(
+            os.path.realpath(__file__)),
+            'tdocs_by_agenda',
+            '2024.08.19 TdocsByAgenda SA2-164.htm')
+        meeting = TdocsByAgendaData(file_name)
+        self.assertEqual(meeting.meeting_number, '164', 'Expected 164')
+
+
+
+
 
 if __name__ == '__main__':
     unittest.main()
