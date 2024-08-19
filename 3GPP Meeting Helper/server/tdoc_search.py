@@ -9,7 +9,8 @@ import parsing.word.pywin32
 import tdoc.utils
 import utils
 from application.zip_files import unzip_files_in_zip_file
-from server.common import download_file_to_location, FileToDownload, batch_download_file_to_location
+from server.common import download_file_to_location, FileToDownload, batch_download_file_to_location, \
+    get_document_or_folder_url, DocumentType, ServerType, TdocType, WorkingGroup
 from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, file_exists
 
 # If more than this number of files are included in a zip file, the folder is opened instead.
@@ -35,28 +36,6 @@ meeting_pages_per_group: dict[str, str] = {
     'R3': 'https://www.3gpp.org/dynareport?code=Meetings-R3.htm',
     'R4': 'https://www.3gpp.org/dynareport?code=Meetings-R4.htm',
     'R5': 'https://www.3gpp.org/dynareport?code=Meetings-R5.htm',
-}
-
-wg_folders_3gpp_wifi = {
-    'SP': 'http://10.10.10.10/SA/Inbox',
-    'S1': 'http://10.10.10.10/SA1/Inbox',
-    'S2': 'http://10.10.10.10/SA2/Inbox',
-    'S3': 'http://10.10.10.10/SA3/Inbox',
-    'S3LI': 'http://10.10.10.10/SA3LI/Inbox',
-    'S4': 'http://10.10.10.10/SA4/Inbox',
-    'S5': 'http://10.10.10.10/SA5/Inbox',
-    'S6': 'http://10.10.10.10/SA6/Inbox',
-    'CP': 'http://10.10.10.10/CT/Inbox',
-    'C1': 'http://10.10.10.10/CT1/Inbox',
-    'C3': 'http://10.10.10.10/CT3/Inbox',
-    'C4': 'http://10.10.10.10/CT4/Inbox',
-    'C6': 'http://10.10.10.10/CT6/Inbox',
-    'RP': 'http://10.10.10.10/RAN/Inbox',
-    'R1': 'http://10.10.10.10/RAN1/Inbox',
-    'R2': 'http://10.10.10.10/RAN2/Inbox',
-    'R3': 'http://10.10.10.10/RAN3/Inbox',
-    'R4': 'http://10.10.10.10/RAN4/Inbox',
-    'R5': 'http://10.10.10.10/RAN5/Inbox',
 }
 
 initialized = False
@@ -260,14 +239,21 @@ class MeetingEntry(NamedTuple):
         return '-LI' in self.meeting_number
 
     @property
-    def meeting_folder_3gpp_wifi_url(self) -> str | None:
-        try:
-            if self.meeting_group == 'S3' and self.is_li:
-                return wg_folders_3gpp_wifi['S3LI']
-            return wg_folders_3gpp_wifi[self.meeting_group]
-        except Exception as e:
-            print(f'Could not generate 10.10.10.10 URL: {e}')
-            return None
+    def meeting_folders_3gpp_wifi_url(self) -> List[str]:
+        wg = WorkingGroup.from_string(self.meeting_group)
+        candidate_folders = get_document_or_folder_url(
+            server_type=ServerType.PRIVATE,
+            document_type=DocumentType.TDOC,
+            meeting_folder_in_server='',
+            tdoc_type=TdocType.NORMAL,
+            working_group=wg
+        )
+        return candidate_folders
+
+    def get_tdoc_3gpp_wifi_url(self, tdoc_id_str: str) -> List[str]:
+        candidate_folders = self.meeting_folders_3gpp_wifi_url
+        candidate_urls = [f'{f}{tdoc_id_str}.zip' for f in candidate_folders]
+        return candidate_urls
 
     @property
     def meeting_is_now(self) -> bool:
@@ -619,12 +605,14 @@ def fully_update_cache(redownload_if_exists=False):
 
 def search_download_and_open_tdoc(
         tdoc_str: str,
-        skip_open=False
+        skip_open=False,
+        tkvar_3gpp_wifi_available=None
 ) -> Tuple[None | int, None | List[DownloadedWordTdocDocument]]:
     """
     Searches for a given TDoc. If the zip file contains many files (e.g. typical for plenary CR packs), it will only
     open the folder.
     Args:
+        tkvar_3gpp_wifi_available: Whether we should use a private server if available
         skip_open: Whether to skip opening the files
         tdoc_str: The TDoc ID
 
@@ -646,15 +634,34 @@ def search_download_and_open_tdoc(
     if tdoc_meeting is None:
         return None, None
 
-    tdoc_url = tdoc_meeting.get_tdoc_url(tdoc_str)
+    in_3gpp_wifi = False
+    if tkvar_3gpp_wifi_available is not None and tkvar_3gpp_wifi_available.get():
+        in_3gpp_wifi = True
+    if (not tdoc_meeting.meeting_is_now or
+            not in_3gpp_wifi):
+        print(f'Opening {tdoc_str} from remote server. '
+              f'Meeting is now: {tdoc_meeting.meeting_is_now}, In 3GPP Wifi: {in_3gpp_wifi}')
+        use_private_server = False
+    else:
+        print(f'Opening {tdoc_str} from local server')
+        use_private_server = True
+
+    if not use_private_server:
+        tdoc_urls = [tdoc_meeting.get_tdoc_url(tdoc_str)]
+    else:
+        tdoc_urls = tdoc_meeting.get_tdoc_3gpp_wifi_url(tdoc_str)
     local_target = tdoc_meeting.get_tdoc_local_path(tdoc_str)
 
     # Only download file if needed
+    downloaded_tdoc_url = ''
     if not file_exists(local_target):
-        print(f'Downloading {tdoc_url} to {local_target}')
-        download_file_to_location(tdoc_url, local_target)
+        for tdoc_url in tdoc_urls:
+            print(f'Downloading {tdoc_url} to {local_target}')
+            if download_file_to_location(tdoc_url, local_target):
+                downloaded_tdoc_url = tdoc_url
+                break
     else:
-        print(f'Using local cache for {tdoc_url} in {local_target}')
+        print(f'Using local cache for {tdoc_urls} in {local_target}')
 
     if not file_exists(local_target):
         print(f'No file to open in {local_target}')
@@ -666,7 +673,7 @@ def search_download_and_open_tdoc(
         metadata_list = [DownloadedWordTdocDocument(
             title=m.title,
             source=m.source,
-            url=tdoc_url,
+            url=downloaded_tdoc_url,
             tdoc_id=tdoc_str,
             path=m.path)
             for m in metadata_list if m is not None]
@@ -689,6 +696,7 @@ def search_download_and_open_tdoc(
 
 def batch_search_and_download_tdocs(
         tdoc_list: List[str],
+        tkvar_3gpp_wifi_available = None
 ):
     """
     Parallel download of a list of TDocs, e.g. for caching purposes
@@ -703,7 +711,8 @@ def batch_search_and_download_tdocs(
         future_to_dl = {executor.submit(
             search_download_and_open_tdoc,
             tdoc_str,
-            True
+            True,
+            tkvar_3gpp_wifi_available
         ): tdoc_str for tdoc_str in tdoc_list}
         for future in concurrent.futures.as_completed(future_to_dl):
             tdoc_to_download = future_to_dl[future]

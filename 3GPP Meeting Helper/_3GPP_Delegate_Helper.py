@@ -132,7 +132,9 @@ open_tdoc_button.grid(
 def search_and_open_tdoc():
     tdoc_str = tkvar_tdoc_id.get()
     print(f'Will search for TDoc {tdoc_str}')
-    retrieved_files, metadata_list = server.tdoc_search.search_download_and_open_tdoc(tdoc_str)
+    retrieved_files, metadata_list = server.tdoc_search.search_download_and_open_tdoc(
+        tdoc_str,
+        tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available)
 
 
 open_tdoc_button.configure(command=search_and_open_tdoc)

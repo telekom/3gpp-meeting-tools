@@ -63,6 +63,52 @@ class WorkingGroup(Enum):
     R4 = 18
     R5 = 19
 
+    @staticmethod
+    def from_string(wg_str_from_tdoc: str):
+        wg_str_from_tdoc = wg_str_from_tdoc.upper()
+        match wg_str_from_tdoc:
+            case 'SP':
+                return WorkingGroup.SP
+            case 'S1':
+                return WorkingGroup.S1
+            case 'S2':
+                return WorkingGroup.S2
+            case 'S3':
+                return WorkingGroup.S3
+            case 'S3LI':
+                return WorkingGroup.S3LI
+            case 'S4':
+                return WorkingGroup.S4
+            case 'S5':
+                return WorkingGroup.S5
+            case 'S6':
+                return WorkingGroup.S6
+            case 'RP':
+                return WorkingGroup.RP
+            case 'R1':
+                return WorkingGroup.R1
+            case 'R2':
+                return WorkingGroup.R2
+            case 'R3':
+                return WorkingGroup.R3
+            case 'R4':
+                return WorkingGroup.R4
+            case 'R5':
+                return WorkingGroup.R5
+            case 'CP':
+                return WorkingGroup.CP
+            case 'C1':
+                return WorkingGroup.C1
+            case 'C3':
+                return WorkingGroup.C3
+            case 'C4':
+                return WorkingGroup.C4
+            case 'C6':
+                return WorkingGroup.C6
+            case _:
+                print(f'Could not parse WG {wg_str_from_tdoc}. Returning SA WG2')
+                return WorkingGroup.S2
+
     def get_wg_folder_name(self, server_type: ServerType) -> str:
         # Groups have different names depending on where you access them!
         match server_type:

@@ -10,6 +10,7 @@ import server
 import utils.local_cache
 from application.excel import open_excel_document
 from application.os import open_url
+from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
@@ -392,7 +393,9 @@ class MeetingsTable(GenericTable):
     def on_open_tdoc(self):
         tdoc_to_open = self.tdoc
         print(f'Opening {tdoc_to_open}')
-        opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(tdoc_to_open)
+        opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(
+            tdoc_to_open,
+            tkvar_3gpp_wifi_available)
         if metadata is not None:
             print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
             pyperclip.copy(metadata[0].url)
