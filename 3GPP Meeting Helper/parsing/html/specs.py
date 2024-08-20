@@ -46,7 +46,7 @@ def extract_spec_series_from_spec_folder(series_specs_page_text, base_url=None, 
 
 # Need to account to TR numbers and old release numbers. Examples:
 # 23700-07-h00.zip, 23003-aa0.zip, 23034-800.zip
-spec_zipfile_regex = re.compile(r'([\d]{5}(-[\d]{2})?)-([\d\w]*).zip')
+spec_zipfile_regex = re.compile(r'([\d]{5}(-[\d]{1,2})?)-([\d\w]*).zip')
 
 
 def extract_spec_files_from_spec_folder(
