@@ -16,6 +16,7 @@ from application.meeting_helper import tdoc_tags
 from application.os import open_url
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
+from server.common import WorkingGroup, get_document_or_folder_url, TdocType, DocumentType, ServerType
 from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs
 from tdoc.utils import are_generic_tdocs
 from gui.common.generic_table import cloud_icon, cloud_download_icon
@@ -211,6 +212,41 @@ class TdocsTableFromExcel(GenericTable):
             width=5
         )
         self.cache_btn.pack(side=tkinter.LEFT)
+
+        # SA2-specific buttons
+        if self.meeting.working_group_enum == WorkingGroup.S2 and self.meeting.meeting_is_now:
+            ttk.Button(
+                self.top_frame,
+                text='Session Updates',
+                command=lambda: os.startfile(
+                    'https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/SA2/Inbox/Drafts/_Session_Plan_Updates'),
+                width=13
+            ).pack(side=tkinter.LEFT)
+
+            def open_sa2_tdocsbyagenda():
+                if tkvar_3gpp_wifi_available.get() and self.meeting.meeting_is_now:
+                    server_type = ServerType.PRIVATE
+                elif self.meeting.meeting_is_now:
+                    server_type = ServerType.SYNC
+                else:
+                    server_type = ServerType.PUBLIC
+
+                candidate_folders = get_document_or_folder_url(
+                    server_type=server_type,
+                    document_type=DocumentType.TDOCS_BY_AGENDA,
+                    meeting_folder_in_server=self.meeting.meeting_folder,
+                    working_group=WorkingGroup.S2
+                )
+                if len(candidate_folders) < 1:
+                    return
+                os.startfile(f'{candidate_folders[0]}TdocsByAgenda.htm')
+
+            ttk.Button(
+                self.top_frame,
+                text='TDocsByAgenda',
+                command=open_sa2_tdocsbyagenda,
+                width=13
+            ).pack(side=tkinter.LEFT)
 
         self.insert_rows()
 
