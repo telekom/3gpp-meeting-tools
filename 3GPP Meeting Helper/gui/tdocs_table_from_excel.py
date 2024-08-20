@@ -12,7 +12,7 @@ from pandas import DataFrame
 import server
 import utils.local_cache
 from application.excel import open_excel_document, set_autofilter_values
-from application.meeting_helper import tdoc_tags
+from application.meeting_helper import tdoc_tags, open_sa2_session_plan_update_url
 from application.os import open_url
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
@@ -219,7 +219,7 @@ class TdocsTableFromExcel(GenericTable):
                 self.top_frame,
                 text='Session Updates',
                 command=lambda: os.startfile(
-                    'https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/SA2/Inbox/Drafts/_Session_Plan_Updates'),
+                    open_sa2_session_plan_update_url),
                 width=13
             ).pack(side=tkinter.LEFT)
 
