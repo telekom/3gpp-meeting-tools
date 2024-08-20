@@ -250,6 +250,10 @@ class MeetingEntry(NamedTuple):
         )
         return candidate_folders
 
+    @property
+    def working_group_enum(self) -> WorkingGroup:
+        return WorkingGroup.from_string(self.meeting_group)
+
     def get_tdoc_3gpp_wifi_url(self, tdoc_id_str: str) -> List[str]:
         candidate_folders = self.meeting_folders_3gpp_wifi_url
         candidate_urls = [f'{f}{tdoc_id_str}.zip' for f in candidate_folders]

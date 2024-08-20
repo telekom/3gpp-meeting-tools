@@ -26,6 +26,7 @@ tdocs_by_agenda_for_checking_meeting_number_in_meeting = 'http://10.10.10.10/ftp
 class ServerType(Enum):
     PUBLIC = 1
     PRIVATE = 2
+    SYNC = 3
 
 
 class DocumentType(Enum):
@@ -116,6 +117,8 @@ class WorkingGroup(Enum):
                 # When we are connected to 10.10.10.10
                 # See https://www.3gpp.org/ftp/Meetings_3GPP_SYNC
                 prefix = 'ftp'
+                if server_type == ServerType.SYNC:
+                    prefix = f'{prefix}/Meetings_3GPP_SYNC'
                 match self:
                     case WorkingGroup.SP:
                         return f'{prefix}/SA'
@@ -133,6 +136,51 @@ class WorkingGroup(Enum):
                         return f'{prefix}/SA/SA5'
                     case WorkingGroup.S6:
                         return f'{prefix}/SA/SA6'
+                    case WorkingGroup.CP:
+                        return f'{prefix}/CT'
+                    case WorkingGroup.C1:
+                        return f'{prefix}/CT/CT1'
+                    case WorkingGroup.C3:
+                        return f'{prefix}/CT/CT3'
+                    case WorkingGroup.C4:
+                        return f'{prefix}/CT/CT4'
+                    case WorkingGroup.C6:
+                        return f'{prefix}/CT/CT6'
+                    case WorkingGroup.RP:
+                        return f'{prefix}/RAN'
+                    case WorkingGroup.R1:
+                        return f'{prefix}/RAN/RAN1'
+                    case WorkingGroup.R2:
+                        return f'{prefix}/RAN/RAN2'
+                    case WorkingGroup.R3:
+                        return f'{prefix}/RAN/RAN3'
+                    case WorkingGroup.R4:
+                        return f'{prefix}/RAN/RAN4'
+                    case WorkingGroup.R5:
+                        return f'{prefix}/RAN/RAN5'
+            case ServerType.SYNC:
+                # When we are connected to the sync server
+                # See https://www.3gpp.org/ftp/Meetings_3GPP_SYNC
+                prefix = 'ftp'
+                if server_type == ServerType.SYNC:
+                    prefix = f'{prefix}/Meetings_3GPP_SYNC'
+                match self:
+                    case WorkingGroup.SP:
+                        return f'{prefix}/SA'
+                    case WorkingGroup.S1:
+                        return f'{prefix}/SA1'
+                    case WorkingGroup.S2:
+                        return f'{prefix}/SA2'
+                    case WorkingGroup.S3:
+                        return f'{prefix}/SA3'
+                    case WorkingGroup.S3LI:
+                        return f'{prefix}/SA3LI'
+                    case WorkingGroup.S4:
+                        return f'{prefix}/SA4'
+                    case WorkingGroup.S5:
+                        return f'{prefix}/SA5'
+                    case WorkingGroup.S6:
+                        return f'{prefix}/SA6'
                     case WorkingGroup.CP:
                         return f'{prefix}/CT'
                     case WorkingGroup.C1:
@@ -245,14 +293,14 @@ def get_document_or_folder_url(
         case DocumentType.CHAIR_NOTES:
             folders = [
                 f'{wg_folder}/INBOX/Chair_Notes'
-            ] if server_type == ServerType.PRIVATE \
+            ] if server_type == ServerType.PRIVATE or server_type == ServerType.SYNC \
                 else [
                 f'{wg_folder}/{meeting_folder_in_server}/INBOX/Chair_Notes'
             ]
         case DocumentType.TDOCS_BY_AGENDA | DocumentType.MEETING_ROOT:
             folders = [
                 f'{wg_folder}/'
-            ] if server_type == ServerType.PRIVATE \
+            ] if server_type == ServerType.PRIVATE or server_type == ServerType.SYNC \
                 else [
                 f'{wg_folder}/{meeting_folder_in_server}/'
             ]
@@ -260,7 +308,7 @@ def get_document_or_folder_url(
             folders = [
                 f'{wg_folder}/Agenda/',
                 f'{wg_folder}/INBOX/DRAFTS/_Session_Plan_Updates/'
-            ] if server_type == ServerType.PRIVATE \
+            ] if server_type == ServerType.PRIVATE or server_type == ServerType.SYNC \
                 else [
                 f'{wg_folder}/{meeting_folder_in_server}/Agenda/',
                 f'{wg_folder}/{meeting_folder_in_server}/INBOX/DRAFTS/_Session_Plan_Updates/'
@@ -273,7 +321,7 @@ def get_document_or_folder_url(
                     folders = [
                         f'{wg_folder}/Docs/',
                         f'{wg_folder}/INBOX/'
-                    ] if server_type == ServerType.PRIVATE \
+                    ] if server_type == ServerType.PRIVATE or server_type == ServerType.SYNC \
                         else [
                         f'{wg_folder}/{meeting_folder_in_server}/Docs/',
                         f'{wg_folder}/{meeting_folder_in_server}/INBOX/'
@@ -282,12 +330,12 @@ def get_document_or_folder_url(
                     # Draft TDoc (sub-folders not included!)
                     folders = [
                         f'{wg_folder}/INBOX/DRAFTS/'
-                    ] if server_type == ServerType.PRIVATE \
+                    ] if server_type == ServerType.PRIVATE or server_type == ServerType.SYNC \
                         else [f'{wg_folder}/{meeting_folder_in_server}/INBOX/DRAFTS/']
                 case _:
                     # Revision
                     # No revisions in F2F meetings (at least during the F2F phase)
-                    folders = [] if server_type == ServerType.PRIVATE \
+                    folders = [] if server_type == ServerType.PRIVATE or server_type == ServerType.SYNC \
                         else [
                         f'{wg_folder}/{meeting_folder_in_server}/INBOX/Revisions/',
                         f'{wg_folder}/{meeting_folder_in_server}/INBOX/e-mail_Approval/Revisions/']
