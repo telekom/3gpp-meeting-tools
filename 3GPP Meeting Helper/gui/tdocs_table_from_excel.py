@@ -311,12 +311,19 @@ class TdocsTableFromExcel(GenericTable):
         if filter_str is not None and filter_str != '':
             print(f'Filtering by "{filter_str}"')
 
+            try:
+                filter_str_float = float(filter_str)
+            except ValueError:
+                filter_str_float = float('nan')
+
             # Search in TDoc ID and title
             filtered_df = filtered_df[
                 filtered_df.index.str.contains(filter_str, case=False) |
                 filtered_df["Title"].str.contains(filter_str, case=False) |
                 filtered_df["Related WIs"].str.contains(filter_str, case=False) |
                 filtered_df["Source"].str.contains(filter_str, case=False) |
+                filtered_df["Spec"].str.contains(filter_str, case=False) |
+                (filtered_df["CR"] == filter_str_float) |
                 filtered_df["Secretary Remarks"].str.contains(filter_str, case=False)]
 
         ai_filter = self.combo_ai.get()
@@ -347,7 +354,6 @@ class TdocsTableFromExcel(GenericTable):
         print('Populating TDocs table')
         count = 0
 
-        local_folder = self.meeting.local_folder_path
         for tdoc_id, row in self.tdocs_current_df.iterrows():
             count = count + 1
             mod = count % 2
@@ -357,10 +363,31 @@ class TdocsTableFromExcel(GenericTable):
                 tag = 'even'
 
             local_file = self.meeting.get_tdoc_local_path(str(tdoc_id))
+
+            # Icon to show if a TDoc was downloaded
             if utils.local_cache.file_exists(local_file):
                 row_icon = cloud_download_icon
             else:
                 row_icon = cloud_icon
+
+            # Text including spec number
+            tdoc_title = row['Title']
+            try:
+                tdoc_spec = row['Spec']
+                try:
+                    cr_number = row['CR']
+                    if cr_number is None or cr_number == '':
+                        cr_number = ''
+                    else:
+                        cr_number = f"CR{cr_number:.0f}"
+                except Exception as e:
+                    print(f'Could not retrieve CR number: {e}')
+                    cr_number = ''
+                if tdoc_spec is not None and tdoc_spec != '':
+                    tdoc_title = f'{tdoc_spec}{cr_number}: {tdoc_title}'
+            except Exception as e:
+                print(f'Could not retrieve TDoc title: {e}')
+
             self.tree.insert(
                 "",
                 "end",
@@ -369,7 +396,7 @@ class TdocsTableFromExcel(GenericTable):
                     tdoc_id,
                     row['Agenda item'],
                     row['Type'],
-                    textwrap.fill(row['Title'], width=70),
+                    textwrap.fill(tdoc_title, width=70),
                     textwrap.fill(row['Source'], width=25),
                     'Click',
                     textwrap.fill(row['Secretary Remarks'], width=50)
