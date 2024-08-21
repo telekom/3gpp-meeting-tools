@@ -16,10 +16,10 @@ from application.meeting_helper import tdoc_tags, open_sa2_session_plan_update_u
 from application.os import open_url
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
-from server.common import WorkingGroup, get_document_or_folder_url, TdocType, DocumentType, ServerType
+from gui.common.generic_table import cloud_icon, cloud_download_icon
+from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType
 from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs
 from tdoc.utils import are_generic_tdocs
-from gui.common.generic_table import cloud_icon, cloud_download_icon
 
 
 class TdocsTableFromExcel(GenericTable):
