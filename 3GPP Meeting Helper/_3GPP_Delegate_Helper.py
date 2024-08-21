@@ -1,3 +1,4 @@
+import platform
 import tkinter
 from tkinter import ttk
 
@@ -8,7 +9,9 @@ import gui.meetings_table
 import gui.network_config
 import gui.specs_table
 import gui.work_items_table
-from application.word import close_word
+if platform.system() == 'Windows':
+    from application.word import close_word, get_active_document
+    import parsing.word.pywin32
 
 from config.networking import NetworkingConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
@@ -68,15 +71,16 @@ launch_spec_table.grid(
     column=2)
 
 # Row 2:
-(ttk.Button(
-    main_frame,
-    width=button_width,
-    text="Close Word",
-    command=close_word)
- .grid(
-    row=1,
-    column=0
-))
+if platform.system() == 'Windows':
+    (ttk.Button(
+        main_frame,
+        width=button_width,
+        text="Close Word",
+        command=close_word)
+     .grid(
+        row=1,
+        column=0
+    ))
 
 # Network configuration
 (ttk.Button(
@@ -127,6 +131,37 @@ open_tdoc_button.grid(
     row=2,
     column=1
 )
+
+if platform.system() == 'Windows':
+    def compare_tdoc_with_active_word():
+        tdoc_str = tkvar_tdoc_id.get()
+        print(f'Will compare active Word Document with TDoc {tdoc_str}')
+        retrieved_files, metadata_list = server.tdoc_search.search_download_and_open_tdoc(
+            tdoc_str,
+            skip_open=True,
+            tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available)
+        print(f'Retrieved files: {metadata_list}')
+        if metadata_list is None or len(metadata_list) < 1:
+            return
+        first_doc = metadata_list[0]
+        dl_file_path = first_doc.path
+        active_document = get_active_document()
+        if active_document is None:
+            return
+        active_document_path = active_document[1]
+        print(f'Comparing {dl_file_path} to {active_document_path}')
+        parsing.word.pywin32.compare_documents(dl_file_path, active_document_path)
+
+    compare_active_document_button = ttk.Button(
+        main_frame,
+        width=20,
+        text='Active Word vs. TDoc',
+        style=ttk_style_tbutton_medium)
+    compare_active_document_button.grid(
+        row=2,
+        column=2
+    )
+    compare_active_document_button.configure(command=compare_tdoc_with_active_word)
 
 
 def search_and_open_tdoc():

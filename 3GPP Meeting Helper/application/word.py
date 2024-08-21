@@ -300,16 +300,7 @@ def close_word(force=True):
         print('Could not close Word documents')
 
 
-def get_reviews_for_active_document(search_author: str = None, replace_author: str = None):
-    """
-    Gets all of the review objects in the active Word document and optionally replaces the name of the Author
-    Args:
-        search_author: If present, a regular expression that will be matched to the author name of revisions
-        replace_author: If search_author is present, an author name that will replace the matching author names in search_author
-
-    Returns:
-
-    """
+def get_active_document():
     active_word_instance = get_word()
     if active_word_instance is None:
         print("Could not retrieve Word instance")
@@ -321,10 +312,30 @@ def get_reviews_for_active_document(search_author: str = None, replace_author: s
         active_document_folder = active_document.Path
         active_document_path = os.path.join(active_document_folder, active_document_name)
         print("Document: {0}. Located in {1}".format(active_document_name, active_document_path))
-    except:
-        print("Could not get reviews from active document")
-        traceback.print_exc()
+        return (active_document, active_document_path, active_document_folder)
+    except Exception as e:
+        print(f"Could not get retrieve active document: {e}")
+        return None
+
+
+def get_reviews_for_active_document(search_author: str = None, replace_author: str = None):
+    """
+    Gets all of the review objects in the active Word document and optionally replaces the name of the Author
+    Args:
+        search_author: If present, a regular expression that will be matched to the author name of revisions
+        replace_author: If search_author is present, an author name that will replace the matching author names in search_author
+
+    Returns:
+
+    """
+
+    active_document_info = get_active_document()
+    if active_document_info is None:
         return
+
+    active_document = active_document_info[0]
+    active_document_path = active_document_info[1]
+    active_document_folder = active_document_info[2]
 
     try:
         print("Retrieving revision marks for {0}".format(active_document.Name))
