@@ -1,4 +1,5 @@
 import os
+import platform
 import re
 import textwrap
 import tkinter
@@ -9,7 +10,8 @@ import pandas as pd
 
 import application
 import application.word
-import parsing.word.pywin32 as word_parser
+if platform.system() == 'Windows':
+    import parsing.word.pywin32 as word_parser
 from application.os import open_url_and_copy_to_clipboard
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from parsing.html.specs import extract_spec_files_from_spec_folder, cleanup_spec_name
@@ -428,10 +430,11 @@ class SpecVersionsTable(GenericTable):
         ttk.Label(self.bottom_frame, textvariable=self.compare_b).pack(side=tkinter.LEFT)
         ttk.Label(self.bottom_frame, text='  ').pack(side=tkinter.LEFT)
 
-        ttk.Button(
-            self.bottom_frame,
-            text='Compare!',
-            command=self.compare_spec_versions).pack(side=tkinter.LEFT)
+        if platform.system() == 'Windows':
+            ttk.Button(
+                self.bottom_frame,
+                text='Compare!',
+                command=self.compare_spec_versions).pack(side=tkinter.LEFT)
 
         ttk.Button(
             self.bottom_frame,
