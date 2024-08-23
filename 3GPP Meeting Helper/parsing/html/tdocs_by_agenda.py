@@ -223,7 +223,7 @@ class TdocsByAgendaData(object):
             html = TdocsByAgendaData.get_tdoc_by_agenda_html(path_or_html, return_raw_html=True)
         print('TDocsByAgenda: HTML file length: {0}'.format(len(html)))
 
-        if assert_if_tdocs_by_agenda_post_sa2_159(html):
+        if True or assert_if_tdocs_by_agenda_post_sa2_159(html):
             print("TDocsByAgenda is newer than SA2#159")
             df_tdocs = parse_tdocs_by_agenda_v3(html)
             # Post-processing
