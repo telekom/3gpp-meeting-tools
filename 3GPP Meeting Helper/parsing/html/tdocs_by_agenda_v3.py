@@ -85,6 +85,7 @@ def parse_tdocs_by_agenda_v3(raw_html: str):
         HtmlSubstitution(r'<a href="[^"]*">', "", re.IGNORECASE, 'TDoc links opening tags', 0),
         HtmlSubstitution(r'</a>', "", re.IGNORECASE, 'TDoc links closing tags', 0),
         HtmlSubstitution(r'</font>', "", re.IGNORECASE, 'TDoc links closing tags', 0),
+        HtmlSubstitution(r'<(th)( [\w]+( )?=[#\d\w]*)*>', "<td>", re.IGNORECASE, 'Header column separator (old)', 0)
     ]
 
     tdoc_table = apply_substitutions(tdoc_table, second_substitutions)
@@ -93,7 +94,7 @@ def parse_tdocs_by_agenda_v3(raw_html: str):
     rows_divided = [row for row in rows_divided if row is not None]
 
     row_substitutions = [
-        HtmlSubstitution(r'</(td|table|tr)>', "", re.IGNORECASE, 'End tags', 0),
+        HtmlSubstitution(r'</(td|table|tr|th)>', "", re.IGNORECASE, 'End tags', 0),
         HtmlSubstitution(r'<span[\r\n]*>', "", re.IGNORECASE, 'Span', 0),
         HtmlSubstitution(r'\r\n', "", re.IGNORECASE, 'New lines', 0),
         HtmlSubstitution(r'<a.*href( )?=\"[^\"]*\">', "", re.IGNORECASE, 'Links', 0),
@@ -115,7 +116,7 @@ def parse_tdocs_by_agenda_v3(raw_html: str):
             rows
             if check_row(row) ]
 
-    #print(f'TDocsByAgenda rows:\n{rows}')
+    # print(f'TDocsByAgenda rows:\n{rows}')
 
     # for row in rows:
     #    print(row)
