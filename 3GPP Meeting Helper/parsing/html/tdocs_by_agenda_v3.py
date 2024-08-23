@@ -115,8 +115,6 @@ def parse_tdocs_by_agenda_v3(raw_html: str):
             rows
             if check_row(row) ]
 
-    print(f'TDocsByAgenda rows:\n{rows}')
-
     #print(f'TDocsByAgenda rows:\n{rows}')
 
     # for row in rows:
