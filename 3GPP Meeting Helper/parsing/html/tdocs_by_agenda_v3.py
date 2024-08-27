@@ -95,6 +95,7 @@ def parse_tdocs_by_agenda_v3(raw_html: str):
 
     row_substitutions = [
         HtmlSubstitution(r'</(td|table|tr|th)>', "", re.IGNORECASE, 'End tags', 0),
+        HtmlSubstitution(r'<br>', " ", re.IGNORECASE, 'End tags', 0),
         HtmlSubstitution(r'<span[\r\n]*>', "", re.IGNORECASE, 'Span', 0),
         HtmlSubstitution(r'\r\n', "", re.IGNORECASE, 'New lines', 0),
         HtmlSubstitution(r'<a.*href( )?=\"[^\"]*\">', "", re.IGNORECASE, 'Links', 0),
