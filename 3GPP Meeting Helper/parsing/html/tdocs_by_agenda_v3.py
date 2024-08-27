@@ -47,7 +47,7 @@ def apply_substitutions(raw_html: str, substitutions: List[HtmlSubstitution], lo
     return raw_html
 
 
-def parse_tdocs_by_agenda_v3(raw_html: str):
+def parse_tdocs_by_agenda_v3(raw_html: str) -> pd.DataFrame:
     """
     Parses a TDocsByAgenda file from SA2#159 onwards
     Args:
