@@ -63,3 +63,30 @@ def bind_key_to_button(
     # Bind the enter key in this frame to a button press (if the button is active)
     frame.bind(key_press, on_key_button_press)
     print(f'Bound {key_press} key to {task_str}')
+
+
+def fixed_map(style, style_name, option):
+    # See https://bugs.python.org/issue36468
+    # Fix for setting text colour for Tkinter 8.6.9
+    # From: https://core.tcl.tk/tk/info/509cafafae
+    #
+    # Returns the style map for 'option' with any styles starting with
+    # ('!disabled', '!selected', ...) filtered out.
+
+    # style.map() returns an empty list for missing options, so this
+    # should be future-safe.
+    return [elm for elm in style.map(style_name, query_opt=option) if
+            elm[:2] != ('!disabled', '!selected')]
+
+
+def get_new_style(style_name: str = None):
+    style = ttk.Style()
+    if style_name is not None:
+        fg = fixed_map(style, style_name, 'foreground')
+        bg = fixed_map(style, style_name, 'background')
+        print(f'Applying styles for style {style_name}: foreground={fg}, background={bg}')
+        style.map(
+            style_name,
+            foreground=fg,
+            background=bg)
+    return style

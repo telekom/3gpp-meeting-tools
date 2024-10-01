@@ -5,6 +5,7 @@ from tkinter.ttk import Treeview
 from typing import List
 
 from gui.common.tkinter_widget import TkWidget
+from gui.common.utils import get_new_style
 
 column_separator_str = "   "
 
@@ -13,8 +14,8 @@ cloud_png_file = os.path.join(current_folder, 'cloud.png')
 cloud_download_png_file = os.path.join(current_folder, 'cloud_download.png')
 print(f'Loading generic table icons: {cloud_png_file}, {cloud_download_png_file}')
 cloud_icon = tkinter.PhotoImage(
-            file=cloud_png_file,
-        )
+    file=cloud_png_file,
+)
 cloud_download_icon = tkinter.PhotoImage(
     file=cloud_download_png_file,
 )
@@ -129,26 +130,9 @@ class GenericTable(TkWidget):
         self.tree.configure(yscrollcommand=self.tree_scroll.set)
         # tree.grid(row=0, column=0)
 
-    # See https://bugs.python.org/issue36468
-    def fixed_map(self, option):
-        # Fix for setting text colour for Tkinter 8.6.9
-        # From: https://core.tcl.tk/tk/info/509cafafae
-        #
-        # Returns the style map for 'option' with any styles starting with
-        # ('!disabled', '!selected', ...) filtered out.
-
-        # style.map() returns an empty list for missing options, so this
-        # should be future-safe.
-        return [elm for elm in self.style.map(self.style_name, query_opt=option) if
-                elm[:2] != ('!disabled', '!selected')]
-
     def init_style(self, row_height):
         if self.style is None:
-            self.style = ttk.Style()
-            self.style.map(
-                self.style_name,
-                foreground=self.fixed_map('foreground'),
-                background=self.fixed_map('background'))
+            self.style = get_new_style(self.style_name)
             self.style.configure(
                 self.style_name,
                 highlightthickness=0,
