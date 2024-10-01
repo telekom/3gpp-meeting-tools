@@ -4,6 +4,7 @@ from tkinter import ttk
 from tkinter.ttk import Treeview
 from typing import List
 
+from application.tkinter_config import table_text_color, table_bg_color_odd, table_bg_color_even
 from gui.common.tkinter_widget import TkWidget
 from gui.common.utils import get_new_style
 
@@ -64,8 +65,17 @@ def treeview_sort_column(tree: Treeview, col, reverse=False):
 
 
 def treeview_set_row_formatting(tree: Treeview):
-    tree.tag_configure('odd', background='#E8E8E8')
-    tree.tag_configure('even', background='#DFDFDF')
+
+    tree.tag_configure(
+        'odd',
+        background=table_bg_color_odd,
+        foreground=table_text_color
+    )
+    tree.tag_configure(
+        'even',
+        background=table_bg_color_even,
+        foreground=table_text_color
+    )
 
 
 class GenericTable(TkWidget):
