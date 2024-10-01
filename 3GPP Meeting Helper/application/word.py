@@ -40,6 +40,9 @@ wdExportOptimizeForPrint = 0
 
 
 def get_word(visible=True, display_alerts=False):
+    if platform.system() != 'Windows':
+        return None
+
     try:
         word = win32com.client.GetActiveObject("Word.Application")
     except Exception as e1:
@@ -194,6 +197,10 @@ def export_document(
     Returns:
         String list containing local paths to the converted PDF files
     """
+    if platform.system() != 'Windows':
+        print('Word export to PDF/HTML only available in Windows')
+        return []
+
     converted_files = []
     if word_files is None or len(word_files) == 0:
         return converted_files
@@ -273,8 +280,8 @@ def export_document(
                 else:
                     print('{0} already exists. No need to convert'.format(out_file))
                 converted_files.append(out_file)
-    except:
-        print('Could not export Word document')
+    except Exception as e:
+        print(f'Could not export Word document: {e}')
         traceback.print_exc()
     return converted_files
 
