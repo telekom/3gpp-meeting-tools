@@ -8,6 +8,7 @@ from typing import NamedTuple, List, Tuple, Dict
 import parsing.word.pywin32
 import tdoc.utils
 import utils
+from application.os import startfile
 from application.zip_files import unzip_files_in_zip_file
 from server.common import download_file_to_location, FileToDownload, batch_download_file_to_location, \
     get_document_or_folder_url, DocumentType, ServerType, TdocType, WorkingGroup
@@ -686,7 +687,7 @@ def search_download_and_open_tdoc(
         if not skip_open:
             print(
                 f'More than {maximum_number_of_files_to_open} contained within {tdoc_str}. Opening folder instead of files')
-            os.startfile(folder_to_open)
+            startfile(folder_to_open)
         opened_files = folder_to_open
         metadata_list = [DownloadedWordTdocDocument(
             title=None,

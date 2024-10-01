@@ -12,7 +12,7 @@ import application
 import application.word
 if platform.system() == 'Windows':
     import parsing.word.pywin32 as word_parser
-from application.os import open_url_and_copy_to_clipboard
+from application.os import open_url_and_copy_to_clipboard, startfile
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from parsing.html.specs import extract_spec_files_from_spec_folder, cleanup_spec_name
 from parsing.spec_types import get_spec_full_name, SpecType
@@ -120,7 +120,7 @@ class SpecsTable(GenericTable):
         ttk.Button(
             self.top_frame,
             text='Local Cache',
-            command=lambda: os.startfile(get_specs_folder())).pack(side=tkinter.LEFT)
+            command=lambda: startfile(get_specs_folder())).pack(side=tkinter.LEFT)
 
         self.tree.pack(fill='both', expand=True, side='left')
         self.tree_scroll.pack(side=tkinter.RIGHT, fill='y')
@@ -439,7 +439,7 @@ class SpecVersionsTable(GenericTable):
         ttk.Button(
             self.bottom_frame,
             text='Open local folder',
-            command=lambda: os.startfile(get_specs_folder(spec_id=self.spec_id))).pack(side=tkinter.LEFT)
+            command=lambda: startfile(get_specs_folder(spec_id=self.spec_id))).pack(side=tkinter.LEFT)
 
         ttk.Button(
             self.bottom_frame,
@@ -568,7 +568,7 @@ class SpecVersionsTable(GenericTable):
                 downloaded_files,
                 export_format=application.word.ExportType.PDF)
             for pdf_file in pdf_files:
-                os.startfile(pdf_file)
+                startfile(pdf_file)
             self.reload_table()
         if column == 5:
             print('Opening HTML {0}, version {1}'.format(spec_id, row_version))
@@ -578,7 +578,7 @@ class SpecVersionsTable(GenericTable):
                 downloaded_files,
                 export_format=application.word.ExportType.HTML)
             for pdf_file in pdf_files:
-                os.startfile(pdf_file)
+                startfile(pdf_file)
             self.reload_table()
         if column == 6:
             print('Added Compare A: {0}, version {1}'.format(spec_id, row_version))

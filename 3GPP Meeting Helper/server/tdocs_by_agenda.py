@@ -1,9 +1,9 @@
-import os
 from typing import NamedTuple
 
 import server.connection
 import server.tdoc
 import utils.local_cache
+from application.os import startfile
 from server.common import get_inbox_root, get_document_or_folder_url, ServerType, DocumentType
 from server.connection import get_remote_file
 from server.tdoc import get_inbox_tdocs_list_cache_local_cache
@@ -73,7 +73,7 @@ def get_sa2_inbox_tdoc_list(
         f'open={open_tdocs_by_agenda_in_browser}, '
         f'use cache={use_cached_file_if_available}')
     if open_tdocs_by_agenda_in_browser:
-        os.startfile(url)
+        startfile(url)
     # Return back cached HTML if there is an error retrieving the remote HTML
     fallback_cache = get_inbox_tdocs_list_cache_local_cache()
     online_html = get_remote_file(
@@ -114,6 +114,6 @@ def get_tdocs_by_agenda_for_a_given_meeting(
         cached_file_to_return_if_error_or_cache=local_file)
     if open_tdocs_by_agenda_in_browser:
         print(f'Opening local TDocsByAgenda file {local_file}')
-        os.startfile(local_file)
+        startfile(local_file)
 
     return tdocs_by_agenda_html

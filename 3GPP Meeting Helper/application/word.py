@@ -9,6 +9,8 @@ from zipfile import ZipFile
 
 import platform
 
+from application.os import startfile
+
 if platform.system() == 'Windows':
     print('Windows System detected. Importing win32.client')
     import win32com.client
@@ -64,7 +66,7 @@ def open_word_document(filename='', set_as_active_document=True, visible=True, )
         return None
     if platform.system() != 'Windows':
         print(f'Opening {filename} using COM wrapper only available on Windows')
-        os.startfile(filename)
+        startfile(filename)
         return None
     try:
         if (filename is None) or (filename == ''):
@@ -117,7 +119,7 @@ def open_file(file, go_to_page=1, metadata_function=None) -> None | bool | Tuple
         else:
             # Basic avoidance of executables, but anyway per se not very safe... :P
             if extension != 'exe' and not_mac_metadata:
-                os.startfile(file, 'open')
+                startfile(file, 'open')
             else:
                 print('Executable file {0} not opened for precaution'.format(file))
         return_value = True
