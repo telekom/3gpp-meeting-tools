@@ -9,7 +9,7 @@ import pyperclip
 import server
 import utils.local_cache
 from application.excel import open_excel_document
-from application.os import open_url
+from application.os import open_url, startfile
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
@@ -331,7 +331,7 @@ class MeetingsTable(GenericTable):
             local_path = os.path.join(download_folder, f'{meeting[0].meeting_name}.ics')
             download_file_to_location(url_to_open, local_path, force_download=True)
             if utils.local_cache.file_exists(local_path):
-                os.startfile(local_path)
+                startfile(local_path)
                 print(f'Opened ICS file {local_path}')
             else:
                 print(f'Could not open ICS file {local_path}')

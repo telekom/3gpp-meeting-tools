@@ -1,5 +1,4 @@
 import numbers
-import os
 import textwrap
 import tkinter
 from tkinter import ttk
@@ -13,7 +12,7 @@ import server
 import utils.local_cache
 from application.excel import open_excel_document, set_autofilter_values
 from application.meeting_helper import tdoc_tags, open_sa2_session_plan_update_url
-from application.os import open_url
+from application.os import open_url, startfile
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from gui.common.generic_table import cloud_icon, cloud_download_icon
@@ -208,7 +207,7 @@ class TdocsTableFromExcel(GenericTable):
         self.cache_btn = ttk.Button(
             self.top_frame,
             text='Cache',
-            command=lambda: os.startfile(meeting.local_folder_path),
+            command=lambda: startfile(meeting.local_folder_path),
             width=5
         )
         self.cache_btn.pack(side=tkinter.LEFT)
@@ -218,7 +217,7 @@ class TdocsTableFromExcel(GenericTable):
             ttk.Button(
                 self.top_frame,
                 text='Session Updates',
-                command=lambda: os.startfile(
+                command=lambda: startfile(
                     open_sa2_session_plan_update_url),
                 width=13
             ).pack(side=tkinter.LEFT)
@@ -239,7 +238,7 @@ class TdocsTableFromExcel(GenericTable):
                 )
                 if len(candidate_folders) < 1:
                     return
-                os.startfile(f'{candidate_folders[0]}TdocsByAgenda.htm')
+                startfile(f'{candidate_folders[0]}TdocsByAgenda.htm')
 
             ttk.Button(
                 self.top_frame,

@@ -32,6 +32,7 @@ import server.tdocs_by_agenda
 import tdoc.utils
 import utils.local_cache
 import utils.threading
+from application.os import startfile
 from application.tkinter_config import root, font_normal, font_medium, font_big, ttk_style_tbutton_medium
 from gui.common.common_elements import tkvar_3gpp_wifi_available, tkvar_meeting
 from config.networking import NetworkingConfig
@@ -131,7 +132,7 @@ def open_local_meeting_folder(*args):
         selected_meeting)
     if meeting_folder is not None:
         local_folder = utils.local_cache.get_meeting_folder(meeting_folder)
-        os.startfile(local_folder)
+        startfile(local_folder)
 
 
 def open_server_meeting_folder(*args):
@@ -140,7 +141,7 @@ def open_server_meeting_folder(*args):
         selected_meeting)
     if meeting_folder is not None:
         remote_folder = server.common.get_remote_meeting_folder(meeting_folder)
-        os.startfile(remote_folder)
+        startfile(remote_folder)
 
 
 def reset_status_labels():
@@ -262,7 +263,7 @@ def search_netovate():
     tdoc_id = tkvar_tdoc_id.get()
     netovate_url = 'http://netovate.com/doc-search/?fname={0}'.format(tdoc_id)
     print('Opening {0}'.format(netovate_url))
-    os.startfile(netovate_url)
+    startfile(netovate_url)
 
 
 # Downloads the TDocs by Agenda file
@@ -649,7 +650,7 @@ def start_main_gui():
     (ttk.Button(
         main_frame,
         text="Local specs folder",
-        command=lambda: os.startfile(get_specs_folder()))
+        command=lambda: startfile(get_specs_folder()))
      .grid(
         row=current_row,
         column=1,

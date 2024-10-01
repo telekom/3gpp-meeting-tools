@@ -1,8 +1,9 @@
-import os
+import platform
 import traceback
 from typing import List
 
-import platform
+from application.os import startfile
+
 if platform.system() == 'Windows':
     print('Windows System detected. Importing win32.client')
     import win32com.client
@@ -41,7 +42,7 @@ def open_excel_document(filename=None, sheet_name=None):
     """
     if platform.system() != 'Windows':
         if filename is not None and filename != '':
-            os.startfile(filename)
+            startfile(filename)
         return None
     if (filename is None) or (filename == ''):
         wb = get_excel().Workbooks.Add()
