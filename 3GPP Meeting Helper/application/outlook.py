@@ -1,15 +1,22 @@
 import traceback
+import platform
 
-import win32com.client
+if platform.system() == 'Windows':
+    print('Windows System detected. Importing win32.client')
+    import win32com.client
 
 # Global Outlook instance does not work (removed)
 # outlook = None
 
 
 def get_outlook():
+    if platform.system() != 'Windows':
+        return None
+
     try:
         return win32com.client.Dispatch("Outlook.Application")
-    except:
+    except Exception as e:
+        print(f'Could not retrieve Outlook instance: {e}')
         traceback.print_exc()
         return None
 
@@ -26,8 +33,8 @@ def get_outlook_inbox():
         inbox = mapi_namespace.getDefaultFolder(olFolderInbox)
 
         return inbox
-    except:
-        print('Could not retrieve Outlook inbox')
+    except Exception as e:
+        print(f'Could not retrieve Outlook inbox: {e}')
         traceback.print_exc()
         return None
 
@@ -40,7 +47,8 @@ def get_subfolder(root_folder, folder_name):
         for folder in folders:
             if folder.Name == folder_name:
                 return folder
-    except:
+    except Exception as e:
+        print(f'Could get Outlook subfolder: {e}')
         return None
 
 
@@ -63,8 +71,8 @@ def get_folder(root_folder, address, create_if_needed=True):
             requested_folder = get_folder(requested_folder, subfolders, create_if_needed)
 
         return requested_folder
-    except:
-        print('Could not create folder')
+    except Exception as e:
+        print(f'Could not create folder: {e}')
         traceback.print_exc()
         return None
 

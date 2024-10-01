@@ -14,7 +14,7 @@ from application import sensitivity_label
 
 def get_excel():
     if platform.system() != 'Windows':
-        return
+        return None
     try:
         excel = win32com.client.Dispatch("Excel.Application")
         try:

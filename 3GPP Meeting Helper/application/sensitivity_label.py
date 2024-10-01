@@ -2,6 +2,7 @@ import traceback
 
 import uuid
 from enum import Enum
+import platform
 
 from config.word import WordConfig
 
@@ -23,6 +24,9 @@ class MsoAssignmentMethod(Enum):
 
 
 def set_sensitivity_label(document):
+    if platform.system() != 'Windows':
+        return None
+
     # Only do something if we are to do something
     if WordConfig.sensitivity_level_label_name is None or WordConfig.sensitivity_level_label_id is None:
         return document
