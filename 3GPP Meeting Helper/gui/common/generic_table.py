@@ -1,3 +1,4 @@
+import os
 import tkinter
 from tkinter import ttk
 from tkinter.ttk import Treeview
@@ -7,11 +8,15 @@ from gui.common.tkinter_widget import TkWidget
 
 column_separator_str = "   "
 
+current_folder = os.path.dirname(os.path.realpath(__file__))
+cloud_png_file = os.path.join(current_folder, 'cloud.png')
+cloud_download_png_file = os.path.join(current_folder, 'cloud_download.png')
+print(f'Loading generic table icons: {cloud_png_file}, {cloud_download_png_file}')
 cloud_icon = tkinter.PhotoImage(
-            file='cloud.png',
+            file=cloud_png_file,
         )
 cloud_download_icon = tkinter.PhotoImage(
-    file='cloud_download.png',
+    file=cloud_download_png_file,
 )
 
 
