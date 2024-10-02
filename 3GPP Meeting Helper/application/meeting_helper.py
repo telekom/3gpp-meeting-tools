@@ -1,5 +1,6 @@
 import configparser
 import datetime
+import os
 import traceback
 from typing import NamedTuple, List
 
@@ -14,7 +15,14 @@ from parsing.html.tdocs_by_agenda import TdocsByAgendaData
 # Read config
 config_parser = configparser.ConfigParser()
 config_parser.sections()
-config_parser.read('config.ini')
+
+
+root_folder = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '..'))
+config_file = os.path.join(root_folder,'config.ini')
+print(f'Reading config file from {config_file}')
+config_parser.read(config_file)
+
+
 
 sa2_current_meeting_tdoc_data = None
 sa2_inbox_tdoc_data = None
