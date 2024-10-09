@@ -451,6 +451,25 @@ def file_version_to_version(file_version: str) -> str:
     return version_number
 
 
+class SpecVersionMetadata(NamedTuple):
+    major_version: str
+    middle_version: str
+    minor_version: str
+
+    @property
+    def release(self) -> str:
+        return self.major_version
+
+
+def file_version_to_version_metadata(file_version: str) -> SpecVersionMetadata:
+    version = file_version_to_version(file_version)
+    version_split = version.split('.')
+    return SpecVersionMetadata(
+        major_version=version_split[0],
+        middle_version=version_split[1],
+        minor_version=version_split[2])
+
+
 def version_to_file_version(version: str) -> str:
     """
     Converts the  version of a 3GPP spec, e.g., 10.0.0 to a file version number, e.g., a00.
