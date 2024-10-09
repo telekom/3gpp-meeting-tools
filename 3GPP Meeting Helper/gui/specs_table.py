@@ -10,6 +10,7 @@ import pandas as pd
 
 import application
 import application.word
+
 if platform.system() == 'Windows':
     import parsing.word.pywin32 as word_parser
 from application.os import open_url_and_copy_to_clipboard, startfile
@@ -19,7 +20,7 @@ from parsing.spec_types import get_spec_full_name, SpecType
 from server import specs
 from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, \
     get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder, get_url_for_crs_page, \
-    get_spec_page
+    get_spec_page, file_version_to_version_metadata
 from utils.local_cache import file_exists
 
 
@@ -360,9 +361,27 @@ def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> s
     return entry_to_load.spec_url
 
 
+def get_3gpp_guru_url_for_version_text(spec_id: str, version_text: str) -> str:
+    """
+        Returns the URL for the matching specification in 3GPP Guru.
+        Args:
+            spec_id: specification name, e.g. 23.501
+            version_text: The version to be retrieved, e.g. 16.0.0
+
+        Returns:
+            The URL of the given specification/version.
+    """
+    file_version = version_to_file_version(version_text)
+    version_metadata = file_version_to_version_metadata(file_version)
+    spec_name_without_dots = spec_id.replace('.', '')
+
+    # e.g. https://3gpp.guru/trts/Rel-19/23502-j00.html
+    url = f"https://3gpp.guru/trts/Rel-{version_metadata.release}/{spec_name_without_dots}-{file_version}.html"
+    return url
+
+
 class SpecVersionsTable(GenericTable):
     spec_entries = None
-    spec_id = None
 
     class SpecLocallyAvailable(NamedTuple):
         zip: bool
@@ -391,18 +410,14 @@ class SpecVersionsTable(GenericTable):
                 'Open Word',
                 'Open PDF',
                 'Open HTML',
-                '+Compare A',
-                '+Compare B']
+                'Open 3GPP Guru']
         )
 
-        self.spec_id = spec_id
+        self.spec_id: str = spec_id
         self.spec_type = spec_type
 
         self.parent_specs_table = parent_specs_table
         self.spec_local_file_exists: dict[str, SpecVersionsTable.SpecLocallyAvailable] = {}
-
-        self.compare_a = tkinter.StringVar()
-        self.compare_b = tkinter.StringVar()
 
         # Before we start inserting rows, we need to load the spec archive for this specification
         # Done here because probably not all specs will be equally accessed. Thus, new versions can be reloaded
@@ -416,8 +431,7 @@ class SpecVersionsTable(GenericTable):
         self.set_column('Open Word', width=122, center=True)
         self.set_column('Open PDF', width=115, center=True)
         self.set_column('Open HTML', width=127, center=True)
-        self.set_column('+Compare A', width=100, center=True)
-        self.set_column('+Compare B', width=100, center=True)
+        self.set_column('Open 3GPP Guru', width=127, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -425,16 +439,6 @@ class SpecVersionsTable(GenericTable):
         self.set_footer_label()
 
         ttk.Label(self.bottom_frame, textvariable=self.footer_label).pack(side=tkinter.LEFT)
-        ttk.Label(self.bottom_frame, textvariable=self.compare_a).pack(side=tkinter.LEFT)
-        ttk.Label(self.bottom_frame, text='  vs.  ').pack(side=tkinter.LEFT)
-        ttk.Label(self.bottom_frame, textvariable=self.compare_b).pack(side=tkinter.LEFT)
-        ttk.Label(self.bottom_frame, text='  ').pack(side=tkinter.LEFT)
-
-        if platform.system() == 'Windows':
-            ttk.Button(
-                self.bottom_frame,
-                text='Compare!',
-                command=self.compare_spec_versions).pack(side=tkinter.LEFT)
 
         ttk.Button(
             self.bottom_frame,
@@ -478,7 +482,7 @@ class SpecVersionsTable(GenericTable):
             return
 
         if isinstance(df, pd.Series):
-            rows = [(self.tdoc_id, df)]
+            rows = [(self.spec_id, df)]
         else:
             rows = df.iterrows()
 
@@ -495,8 +499,9 @@ class SpecVersionsTable(GenericTable):
 
             try:
                 upload_date = self.parent_specs_table.spec_metadata[spec_id].upload_dates[idx]
-            except:
+            except Exception as e:
                 upload_date = '0000-00-00'
+                print(f'Could not parse upload date: {e}')
 
             version_text = file_version_to_version(row['version'])
 
@@ -524,8 +529,7 @@ class SpecVersionsTable(GenericTable):
                 ('Open' if spec_locally_available.pdf or spec_locally_available.pdf_mcc_clean else 'Download') + ' PDF',
                 (
                     'Open' if spec_locally_available.html or spec_locally_available.html_mcc_clean else 'Download') + ' HTML',
-                'Click',
-                'Click'
+                'Link'
             )
             self.tree.insert("", "end", tags=(tag,), values=values)
             # print(f'INSERTED {values}')
@@ -581,74 +585,12 @@ class SpecVersionsTable(GenericTable):
                 startfile(pdf_file)
             self.reload_table()
         if column == 6:
-            print('Added Compare A: {0}, version {1}'.format(spec_id, row_version))
-            self.compare_a.set(row_version)
-        if column == 7:
-            print('Added Compare B: {0}, version {1}'.format(spec_id, row_version))
-            self.compare_b.set(row_version)
+            print('Opening 3GPP Guru site for {0}, version {1}'.format(spec_id, row_version))
+            url_to_open = get_3gpp_guru_url_for_version_text(self.spec_id, row_version)
+            startfile(url_to_open)
 
     # Used to identify specs within unzipped files
     spec_regex = re.compile('[\d]{5}-[\w]{3}\.doc[x]?')
-
-    def compare_spec_versions(self):
-        version_a = self.compare_a.get()
-        version_b = self.compare_b.get()
-        file_version_a = version_to_file_version(version_a)
-        file_version_b = version_to_file_version(version_b)
-        print('Comparing {0} {1} ({3}) vs. {2} ({4})'.format(
-            self.spec_id,
-            version_a,
-            version_b,
-            file_version_a,
-            file_version_b))
-        spec_id = self.spec_id
-
-        comparison_name = '{0}-{1}-to-{2}.docx'.format(spec_id, file_version_a, file_version_b)
-        spec_folder = get_specs_folder(spec_id=spec_id)
-        comparison_file = os.path.join(spec_folder, comparison_name)
-
-        # ToDo: check if file already exists. If yes, open and return document
-        # Check if document exists
-        # Open document
-        # Return document
-
-        spec_a_url = get_url_for_version_text(self.spec_entries, version_a)
-        spec_b_url = get_url_for_version_text(self.spec_entries, version_b)
-
-        downloaded_a_files = download_spec_if_needed(spec_id, spec_a_url)
-        downloaded_b_files = download_spec_if_needed(spec_id, spec_b_url)
-
-        downloaded_a_files = [e for e in downloaded_a_files if self.spec_regex.search(e) is not None]
-        downloaded_b_files = [e for e in downloaded_b_files if self.spec_regex.search(e) is not None]
-
-        if len(downloaded_a_files) == 0 or len(downloaded_b_files) == 0:
-            print('Need two TDocs to compare. One of them does not contain TDocs')
-            return None
-
-        downloaded_a_files = downloaded_a_files[0]
-        downloaded_b_files = downloaded_b_files[0]
-
-        comparison_document = word_parser.compare_documents(
-            downloaded_a_files,
-            downloaded_b_files,
-            compare_formatting=False,
-            compare_case_changes=False,
-            compare_whitespace=False)
-        comparison_document.Activate()
-        comparison_window = comparison_document.ActiveWindow
-
-        wdRevisionsMarkupAll = 2
-        # wdRevisionsMarkupNone = 0
-        # wdRevisionsMarkupSimple = 1
-        comparison_window.View.RevisionsFilter.Markup = wdRevisionsMarkupAll
-        comparison_window.View.ShowFormatChanges = False
-        # wdBalloonRevisions = 0
-        wdInLineRevisions = 1
-        # wdMixedRevisions = 2
-        comparison_window.View.RevisionsMode = wdInLineRevisions
-
-        # ToDo: Save comparison document
-        return comparison_document
 
     def reload_spec_file(self):
         get_spec_page(self.spec_id, cache=True, force_download=True)
