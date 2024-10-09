@@ -259,6 +259,9 @@ class TdocsTableFromExcel(GenericTable):
         if len(tdoc_list) > 0:
             batch_search_and_download_tdocs(tdoc_list)
 
+        # Re-load Tdoc list to allow for icon changes
+        self.insert_rows()
+
     def open_and_filter_excel(self):
         wb = open_excel_document(self.tdoc_excel_path)
         tdoc_list = self.tdocs_current_df.index.tolist()
@@ -289,9 +292,18 @@ class TdocsTableFromExcel(GenericTable):
                     opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(
                         tdoc_to_open.tdoc,
                         tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available)
+
+                    # Re-load Tdoc list to allow for icon changes
+                    self.insert_rows()
+
                     if metadata is not None:
-                        print(f'Opened Tdoc {metadata[0].tdoc_id}, {metadata[0].url}. Copied URL to clipboard')
-                        pyperclip.copy(metadata[0].url)
+                        try:
+                            if isinstance(metadata, list):
+                                metadata = metadata[0]
+                            print(f'Opened Tdoc {metadata.tdoc_id}, {metadata.url}. Copied URL to clipboard')
+                            pyperclip.copy(metadata.url)
+                        except Exception as e:
+                            print(f'Could not copy TDoc URL to clipboard: {e}')
                 self.select_rows()
             case 5:
 
@@ -346,11 +358,11 @@ class TdocsTableFromExcel(GenericTable):
             filtered_df = filtered_df[filtered_df["Tag"] == tag_filter]
 
         self.tdocs_current_df = filtered_df
-        self.tree.delete(*self.tree.get_children())
         self.insert_rows()
 
     def insert_rows(self):
-        print('Populating TDocs table')
+        print('(Re-)Populating TDocs table')
+        self.tree.delete(*self.tree.get_children())
         count = 0
 
         for tdoc_id, row in self.tdocs_current_df.iterrows():
