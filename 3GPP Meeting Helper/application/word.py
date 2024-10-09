@@ -122,7 +122,7 @@ def open_file(file, go_to_page=1, metadata_function=None) -> None | bool | Tuple
         else:
             # Basic avoidance of executables, but anyway per se not very safe... :P
             if extension != 'exe' and not_mac_metadata:
-                startfile(file, 'open')
+                startfile(file)
             else:
                 print('Executable file {0} not opened for precaution'.format(file))
         return_value = True
