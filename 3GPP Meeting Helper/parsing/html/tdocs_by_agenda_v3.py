@@ -73,6 +73,8 @@ def parse_tdocs_by_agenda_v3(raw_html: str) -> pd.DataFrame:
         HtmlSubstitution(r"cellpadding|cellspacing=[\d]+", "", re.IGNORECASE, 'cellpadding tags"', 0),
         HtmlSubstitution(r'<[/]?[pb][ ]*>', "", re.IGNORECASE, 'p, b tags', 0),
         HtmlSubstitution(r'<[/]?span[ ]*>', "", re.IGNORECASE, 'span tags', 0),
+        HtmlSubstitution(r"&#39;", "'", 0, 'Apostrophe', 0),
+        HtmlSubstitution(r"&amp;", "&", 0, 'Ampersand', 0),
     ]
     raw_html = apply_substitutions(raw_html, substitutions)
     tdoc_table = re.split(pattern="<table[ ]*>", string=raw_html, flags=re.IGNORECASE)[-1]
