@@ -500,3 +500,29 @@ def batch_download_file_to_location(files_to_download: List[FileToDownload], cac
                     print(f'Could not download {file_to_download.remote_url}')
             except Exception as exc:
                 print('%r generated an exception: %s' % (file_to_download, exc))
+
+
+# Points to the 3GPP meeting information for each TSG, WG
+meeting_pages_per_group: dict[str, str] = {
+    'SP': 'https://www.3gpp.org/dynareport?code=Meetings-SP.htm',
+    'S1': 'https://www.3gpp.org/dynareport?code=Meetings-S1.htm',
+    'S2': 'https://www.3gpp.org/dynareport?code=Meetings-S2.htm',
+    'S3': 'https://www.3gpp.org/dynareport?code=Meetings-S3.htm',
+    'S4': 'https://www.3gpp.org/dynareport?code=Meetings-S4.htm',
+    'S5': 'https://www.3gpp.org/dynareport?code=Meetings-S5.htm',
+    'S6': 'https://www.3gpp.org/dynareport?code=Meetings-S6.htm',
+    'CP': 'https://www.3gpp.org/dynareport?code=Meetings-CP.htm',
+    'C1': 'https://www.3gpp.org/dynareport?code=Meetings-C1.htm',
+    'C3': 'https://www.3gpp.org/dynareport?code=Meetings-C3.htm',
+    'C4': 'https://www.3gpp.org/dynareport?code=Meetings-C4.htm',
+    'C6': 'https://www.3gpp.org/dynareport?code=Meetings-C6.htm',
+    'RP': 'https://www.3gpp.org/dynareport?code=Meetings-RP.htm',
+    'R1': 'https://www.3gpp.org/dynareport?code=Meetings-R1.htm',
+    'R2': 'https://www.3gpp.org/dynareport?code=Meetings-R2.htm',
+    'R3': 'https://www.3gpp.org/dynareport?code=Meetings-R3.htm',
+    'R4': 'https://www.3gpp.org/dynareport?code=Meetings-R4.htm',
+    'R5': 'https://www.3gpp.org/dynareport?code=Meetings-R5.htm',
+}
+
+# 3GPP Forge API repository
+apis_3gpp_forge_url = 'https://forge.3gpp.org/rep/all/5G_APIs/'
