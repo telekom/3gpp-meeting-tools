@@ -2,6 +2,7 @@ import platform
 import tkinter
 from tkinter import ttk
 
+from application.os import open_url
 from application.tkinter_config import root, main_frame, font_big, ttk_style_tbutton_medium
 import config.networking
 import gui.common.utils
@@ -9,6 +10,8 @@ import gui.meetings_table
 import gui.network_config
 import gui.specs_table
 import gui.work_items_table
+from server.common import apis_3gpp_forge_url
+
 if platform.system() == 'Windows':
     from application.word import close_word, get_active_document
     import parsing.word.pywin32
@@ -37,7 +40,9 @@ waiting_for_proxy_label.grid_forget()
 
 button_width = 25
 
-# Row 1: Table containing all 3GPP specs
+# Row 1
+
+# Table containing all 3GPP specs
 launch_spec_table = ttk.Button(
     main_frame,
     text='Specifications',
@@ -47,7 +52,7 @@ launch_spec_table.grid(
     row=0,
     column=0)
 
-# Row 1: Table containing all 3GPP meetings
+# Table containing all 3GPP meetings
 launch_spec_table = ttk.Button(
     main_frame,
     text='Meetings',
@@ -60,28 +65,6 @@ launch_spec_table.grid(
     row=0,
     column=1)
 
-# Row 1: Table containing all 3GPP WIs
-launch_spec_table = ttk.Button(
-    main_frame,
-    width=button_width,
-    text='3GPP WIs',
-    command=lambda: gui.work_items_table.WorkItemsTable(tk_root, gui.common.utils.favicon, root_widget=None))
-launch_spec_table.grid(
-    row=0,
-    column=2)
-
-# Row 2:
-if platform.system() == 'Windows':
-    (ttk.Button(
-        main_frame,
-        width=button_width,
-        text="Close Word",
-        command=close_word)
-     .grid(
-        row=1,
-        column=0
-    ))
-
 # Network configuration
 (ttk.Button(
     main_frame,
@@ -91,9 +74,44 @@ if platform.system() == 'Windows':
         root,
         gui.common.utils.favicon))
  .grid(
-    row=1,
-    column=1,
+    row=0,
+    column=2,
 ))
+
+# Row 2:
+
+# 3GPP APIs
+launch_3gpp_apis_url = ttk.Button(
+    main_frame,
+    width=button_width,
+    text='3GPP APIs',
+    command=lambda: open_url(apis_3gpp_forge_url))
+launch_3gpp_apis_url.grid(
+    row=1,
+    column=0)
+
+# Table containing all 3GPP WIs
+launch_spec_table = ttk.Button(
+    main_frame,
+    width=button_width,
+    text='3GPP WIs',
+    command=lambda: gui.work_items_table.WorkItemsTable(tk_root, gui.common.utils.favicon, root_widget=None))
+launch_spec_table.grid(
+    row=1,
+    column=1)
+
+if platform.system() == 'Windows':
+    (ttk.Button(
+        main_frame,
+        width=button_width,
+        text="Close Word",
+        command=close_word)
+     .grid(
+        row=1,
+        column=2
+    ))
+
+# Row 3:
 
 # 3GPP Wi-fi status
 tkinter_checkbutton_3gpp_wifi_available = ttk.Checkbutton(
@@ -102,10 +120,12 @@ tkinter_checkbutton_3gpp_wifi_available = ttk.Checkbutton(
     variable=tkvar_3gpp_wifi_available)
 tkinter_checkbutton_3gpp_wifi_available.config(text=config.networking.private_server + ' (3GPP Wifi)')
 tkinter_checkbutton_3gpp_wifi_available.grid(
-    row=1,
+    row=2,
     column=2,
     padx=10
 )
+
+# Row 4
 
 # Open TDoc
 tkvar_tdoc_id = tkinter.StringVar(root)
@@ -123,12 +143,12 @@ tdoc_entry = tkinter.Entry(
     font=font_big)
 
 tdoc_entry.grid(
-    row=2,
+    row=3,
     column=0,
     padx=10,
     pady=10)
 open_tdoc_button.grid(
-    row=2,
+    row=3,
     column=1
 )
 
@@ -158,7 +178,7 @@ if platform.system() == 'Windows':
         text='Active Word vs. TDoc',
         style=ttk_style_tbutton_medium)
     compare_active_document_button.grid(
-        row=2,
+        row=3,
         column=2
     )
     compare_active_document_button.configure(command=compare_tdoc_with_active_word)

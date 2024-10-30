@@ -11,33 +11,12 @@ import utils
 from application.os import startfile
 from application.zip_files import unzip_files_in_zip_file
 from server.common import download_file_to_location, FileToDownload, batch_download_file_to_location, \
-    get_document_or_folder_url, DocumentType, ServerType, TdocType, WorkingGroup
+    get_document_or_folder_url, DocumentType, ServerType, TdocType, WorkingGroup, meeting_pages_per_group
 from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, file_exists
 
 # If more than this number of files are included in a zip file, the folder is opened instead.
 # Some TDocs, especially in plenary, could contain many, many TDocs, e.g. SP-230457 (22 documents)
 maximum_number_of_files_to_open = 5
-
-meeting_pages_per_group: dict[str, str] = {
-    'SP': 'https://www.3gpp.org/dynareport?code=Meetings-SP.htm',
-    'S1': 'https://www.3gpp.org/dynareport?code=Meetings-S1.htm',
-    'S2': 'https://www.3gpp.org/dynareport?code=Meetings-S2.htm',
-    'S3': 'https://www.3gpp.org/dynareport?code=Meetings-S3.htm',
-    'S4': 'https://www.3gpp.org/dynareport?code=Meetings-S4.htm',
-    'S5': 'https://www.3gpp.org/dynareport?code=Meetings-S5.htm',
-    'S6': 'https://www.3gpp.org/dynareport?code=Meetings-S6.htm',
-    'CP': 'https://www.3gpp.org/dynareport?code=Meetings-CP.htm',
-    'C1': 'https://www.3gpp.org/dynareport?code=Meetings-C1.htm',
-    'C3': 'https://www.3gpp.org/dynareport?code=Meetings-C3.htm',
-    'C4': 'https://www.3gpp.org/dynareport?code=Meetings-C4.htm',
-    'C6': 'https://www.3gpp.org/dynareport?code=Meetings-C6.htm',
-    'RP': 'https://www.3gpp.org/dynareport?code=Meetings-RP.htm',
-    'R1': 'https://www.3gpp.org/dynareport?code=Meetings-R1.htm',
-    'R2': 'https://www.3gpp.org/dynareport?code=Meetings-R2.htm',
-    'R3': 'https://www.3gpp.org/dynareport?code=Meetings-R3.htm',
-    'R4': 'https://www.3gpp.org/dynareport?code=Meetings-R4.htm',
-    'R5': 'https://www.3gpp.org/dynareport?code=Meetings-R5.htm',
-}
 
 initialized = False
 local_cache_folder = ''
