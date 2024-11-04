@@ -87,6 +87,10 @@ class TdocsTableFromExcel(GenericTable):
         self.release_list.extend(ai_items)
         self.ai_list = ['All']
         self.ai_list.extend(self.tdocs_df['Agenda item'].unique().tolist())
+
+        self.tdoc_status_list = ['All']
+        self.tdoc_status_list.extend(self.tdocs_df['TDoc Status'].unique().tolist())
+
         self.type_list = ['All']
         type_items = self.tdocs_df['Type'].unique().tolist()
         type_items.sort()
@@ -146,9 +150,17 @@ class TdocsTableFromExcel(GenericTable):
             self.top_frame,
             values=self.ai_list,
             state="readonly",
-            width=10)
+            width=9)
         self.combo_ai.set('All')
         self.combo_ai.bind("<<ComboboxSelected>>", self.select_rows)
+
+        self.combo_status = ttk.Combobox(
+            self.top_frame,
+            values=self.tdoc_status_list,
+            state="readonly",
+            width=10)
+        self.combo_status.set('All')
+        self.combo_status.bind("<<ComboboxSelected>>", self.select_rows)
 
         self.combo_type = ttk.Combobox(
             self.top_frame,
@@ -169,7 +181,10 @@ class TdocsTableFromExcel(GenericTable):
         ttk.Label(self.top_frame, text="  AI: ").pack(side=tkinter.LEFT)
         self.combo_ai.pack(side=tkinter.LEFT)
 
-        ttk.Label(self.top_frame, text="  Release: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="  Status: ").pack(side=tkinter.LEFT)
+        self.combo_status.pack(side=tkinter.LEFT)
+
+        ttk.Label(self.top_frame, text="  Rel.: ").pack(side=tkinter.LEFT)
         self.combo_release.pack(side=tkinter.LEFT)
 
         ttk.Label(self.top_frame, text="  Type: ").pack(side=tkinter.LEFT)
@@ -341,6 +356,11 @@ class TdocsTableFromExcel(GenericTable):
         if ai_filter != 'All':
             print(f'Filtering by AI: "{ai_filter}"')
             filtered_df = filtered_df[filtered_df["Agenda item"] == ai_filter]
+
+        status_filter = self.combo_status.get()
+        if status_filter != 'All':
+            print(f'Filtering by TDoc status: "{status_filter}"')
+            filtered_df = filtered_df[filtered_df["TDoc Status"] == status_filter]
 
         type_filter = self.combo_type.get()
         if type_filter != 'All':
