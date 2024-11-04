@@ -536,7 +536,7 @@ def search_meeting_for_tdoc(
     if parsed_tdoc is None:
         return None
 
-    print(f'Searching for group {parsed_tdoc.group}, tdoc {parsed_tdoc.number}')
+    # Whether a SA3 meeting is LI is encoded in the meeting number
     if group_is_li(parsed_tdoc.group):
         group_to_search = 'S3'
         sa3_li_tdoc = True
@@ -544,14 +544,19 @@ def search_meeting_for_tdoc(
         group_to_search = parsed_tdoc.group
         sa3_li_tdoc = False
 
-    group_meetings = [m for m in loaded_meeting_entries if group_to_search == m.meeting_group]
-    print(f'{len(group_meetings)} Group meetings for group {group_to_search}')
+    print(f'Searching for group {parsed_tdoc.group}, tdoc {parsed_tdoc.number}. LI WG: {sa3_li_tdoc}')
+
+    def group_match(m: MeetingEntry, group_str: str):
+
+        if sa3_li_tdoc:
+            return (group_str == m.meeting_group) and m.is_li
+
+        return (group_str == m.meeting_group) and not m.is_li
+
+    group_meetings = [m for m in loaded_meeting_entries if group_match(m, group_to_search)]
+    print(f'{len(group_meetings)} Group meetings for group {group_to_search}. LI: {sa3_li_tdoc}')
     matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
                          m.tdoc_start.number <= parsed_tdoc.number <= m.tdoc_end.number]
-
-    # Whether a SA3 meeting is LI is encoded in the meeting number
-    if sa3_li_tdoc:
-        matching_meetings = [m for m in matching_meetings if m.is_li]
 
     if len(matching_meetings) > 0:
         matching_meeting = matching_meetings[0]
@@ -680,7 +685,7 @@ def search_download_and_open_tdoc(
 
 def batch_search_and_download_tdocs(
         tdoc_list: List[str],
-        tkvar_3gpp_wifi_available = None
+        tkvar_3gpp_wifi_available=None
 ):
     """
     Parallel download of a list of TDocs, e.g. for caching purposes
