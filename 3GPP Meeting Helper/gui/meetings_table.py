@@ -60,12 +60,17 @@ class MeetingsTable(GenericTable):
 
         # Filter by group (only filter we have in this view)
         all_groups = ['All']
-        all_groups.extend(tdoc_search.get_meeting_groups())
+        meeting_groups_from_3gpp_server = tdoc_search.get_meeting_groups()
+        meeting_groups_from_3gpp_server.append('S3-LI')
+        all_groups.extend(meeting_groups_from_3gpp_server)
+
+        all_groups.sort()
+
         self.combo_groups = ttk.Combobox(
             self.top_frame,
             values=all_groups,
             state="readonly",
-            width=5)
+            width=6)
         self.combo_groups.set('All')
         self.combo_groups.bind("<<ComboboxSelected>>", self.select_groups)
 
@@ -219,7 +224,15 @@ class MeetingsTable(GenericTable):
         # Filter by selected group
         selected_group = self.combo_groups.get()
         if (selected_group != 'All') and (not tdoc_override):
-            meeting_list_to_consider = [m for m in meeting_list_to_consider if m.meeting_group == selected_group]
+            if selected_group == 'S3-LI':
+                meeting_list_to_consider = [m for m in meeting_list_to_consider if
+                                            m.meeting_group == 'S3' and m.is_li]
+            elif selected_group == 'S3':
+                meeting_list_to_consider = [m for m in meeting_list_to_consider if
+                                            m.meeting_group == 'S3' and not m.is_li]
+            else:
+                meeting_list_to_consider = [m for m in meeting_list_to_consider if
+                                            m.meeting_group == selected_group]
 
         # Sort list by date
         meeting_list_to_consider.sort(reverse=True, key=lambda m: (m.start_date, m.meeting_group))
