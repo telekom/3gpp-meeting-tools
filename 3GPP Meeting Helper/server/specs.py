@@ -188,7 +188,7 @@ def get_specs(
         cache=True,
         check_for_new_specs=False,
         override_pickle_cache=False,
-        load_only_spec_list: list[str] = []) -> Tuple[pd.DataFrame, dict[str, SpecVersionMapping]]:
+        load_only_spec_list: list[str] | None = None) -> Tuple[pd.DataFrame, dict[str, SpecVersionMapping]]:
     """
     Retrieves information related to the latest 3GPP specs (per Release) from the 3GPP server or a local cache.
     Args:
@@ -208,6 +208,9 @@ def get_specs(
         Also, metadata containing title and other information for the related specifications
 
     """
+    if load_only_spec_list is None:
+        load_only_spec_list = []
+
     try:
         current_file_directory = os.path.dirname(os.path.abspath(__file__))
         cache_file_target_folder = utils.local_cache.get_specs_cache_folder()

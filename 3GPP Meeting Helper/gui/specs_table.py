@@ -11,8 +11,6 @@ import pandas as pd
 import application
 import application.word
 
-if platform.system() == 'Windows':
-    import parsing.word.pywin32 as word_parser
 from application.os import open_url_and_copy_to_clipboard, startfile
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from parsing.html.specs import extract_spec_files_from_spec_folder, cleanup_spec_name
@@ -25,15 +23,11 @@ from utils.local_cache import file_exists
 
 
 class SpecsTable(GenericTable):
+    # Specs DataFrame has columns based on SpecFile
     current_specs = None
     all_specs = None
     spec_metadata = None
     title_width = 550
-
-    filter_release = None
-    filter_series = None
-    filter_text = None
-    filter_group = None
 
     def __init__(self, root_widget, favicon, parent_widget):
         super().__init__(
@@ -65,7 +59,7 @@ class SpecsTable(GenericTable):
             textvariable=self.search_text,
             width=20,
             font='TkDefaultFont')
-        self.search_text.trace_add(['write', 'unset'], self.select_text)
+        self.search_text.trace_add(['write', 'unset'], self.apply_filters)
 
         ttk.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)
         self.search_entry.pack(side=tkinter.LEFT)
@@ -78,23 +72,23 @@ class SpecsTable(GenericTable):
 
         self.combo_series = ttk.Combobox(self.top_frame, values=all_series, state="readonly", width=6)
         self.combo_series.set('All')
-        self.combo_series.bind("<<ComboboxSelected>>", self.select_series)
+        self.combo_series.bind("<<ComboboxSelected>>", self.apply_filters)
 
         ttk.Label(self.top_frame, text="  Series: ").pack(side=tkinter.LEFT)
         self.combo_series.pack(side=tkinter.LEFT)
 
         # Filter by specification release
-        all_releases = ['All']
-        spec_releases = self.all_specs['release'].unique()
-        spec_releases.sort()
-        all_releases.extend(list(spec_releases))
+        all_types = ['All']
+        spec_types = self.all_specs['type'].unique()
+        spec_types.sort()
+        all_types.extend(list(spec_types))
 
-        self.combo_releases = ttk.Combobox(self.top_frame, values=all_releases, state="readonly", width=6)
-        self.combo_releases.set('All')
-        self.combo_releases.bind("<<ComboboxSelected>>", self.select_releases)
+        self.combo_spec_type = ttk.Combobox(self.top_frame, values=all_types, state="readonly", width=6)
+        self.combo_spec_type.set('All')
+        self.combo_spec_type.bind("<<ComboboxSelected>>", self.apply_filters)
 
-        ttk.Label(self.top_frame, text="  Release: ").pack(side=tkinter.LEFT)
-        self.combo_releases.pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="  Type: ").pack(side=tkinter.LEFT)
+        self.combo_spec_type.pack(side=tkinter.LEFT)
 
         # Filter by group responsibility release
         all_groups = ['All']
@@ -104,7 +98,7 @@ class SpecsTable(GenericTable):
 
         self.combo_groups = ttk.Combobox(self.top_frame, values=all_groups, state="readonly", width=8)
         self.combo_groups.set('All')
-        self.combo_groups.bind("<<ComboboxSelected>>", self.select_groups)
+        self.combo_groups.bind("<<ComboboxSelected>>", self.apply_filters)
 
         ttk.Label(self.top_frame, text="  WG: ").pack(side=tkinter.LEFT)
         self.combo_groups.pack(side=tkinter.LEFT)
@@ -131,8 +125,11 @@ class SpecsTable(GenericTable):
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
 
-    def load_data(self, initial_load=False, check_for_new_specs=False, override_pickle_cache=False,
-                  load_only: list[str] = []):
+    def load_data(self,
+                  initial_load=False,
+                  check_for_new_specs=False,
+                  override_pickle_cache=False,
+                  load_only: list[str] | None = None):
         """
         Loads specifications frm the 3GPP website
 
@@ -143,6 +140,9 @@ class SpecsTable(GenericTable):
             check_for_new_specs: Whether the spec series page should be checked for new specs
             override_pickle_cache: Whether an existing cache should not be used
         """
+        if load_only is None:
+            load_only = []
+
         # Load specs data
         print('Loading revision data for LATEST specs per release for table')
         if initial_load:
@@ -151,11 +151,22 @@ class SpecsTable(GenericTable):
                 check_for_new_specs=check_for_new_specs,
                 override_pickle_cache=override_pickle_cache,
                 load_only_spec_list=load_only)
+
+            # Merge spec data and spec metadata (I do not want to have to refactor the cache...)
+
+            # Construct 23.501 -> TS 23.501
+            def try_get_spec_type(idx):
+                try:
+                    return self.spec_metadata[idx].type
+                except Exception as e:
+                    print(f'Could not retrieve spec. type for {idx}, {e}')
+                    return SpecType.TS
+            self.all_specs['full_name'] = self.all_specs.index.map(lambda idx: get_spec_full_name(idx, try_get_spec_type(idx)))
+
+            # TR/TS
+            self.all_specs['type'] = self.all_specs.index.map(lambda idx: try_get_spec_type(idx).to_string())
+
             self.current_specs = self.all_specs
-            self.filter_text = self.all_specs
-            self.filter_release = self.all_specs
-            self.filter_series = self.all_specs
-            self.filter_group = self.all_specs
         else:
             self.current_specs = self.all_specs
         print('Finished loading specs')
@@ -168,13 +179,13 @@ class SpecsTable(GenericTable):
         # print(df.to_string())
         # df_release_count = df.groupby(by='spec')['release'].nunique()
         df_version_max = df.groupby(by='spec')['version'].max()
+        df_full_name = df.groupby(by='spec')['full_name'].first()
         # df_version_count = df.groupby(by='spec')['version'].nunique()
         df_to_plot = pd.concat(
-            [df_version_max],
+            [df_version_max, df_full_name],
             axis=1,
-            keys=['max_version'])
+            keys=['max_version', 'full_name'])
         df_to_plot.sort_index(inplace=True)
-        # print(df_to_plot.to_string())
 
         count = 0
         for idx, row in df_to_plot.iterrows():
@@ -199,12 +210,9 @@ class SpecsTable(GenericTable):
                 print('Could not read metadata from spec {0}, skipping'.format(idx))
                 continue
 
-            # Construct 23.501 -> TS 23.501
-            spec_name = get_spec_full_name(idx, spec_type)
-
             # 'Spec', 'Title', 'Releases', 'Last'
             self.tree.insert("", "end", tags=(tag,), values=(
-                spec_name,
+                row['full_name'],
                 textwrap.fill(title, width=70),
                 'Click',
                 'Click',
@@ -216,14 +224,10 @@ class SpecsTable(GenericTable):
         self.spec_count.set('{0} specifications'.format(count))
 
     def clear_filters(self, *args):
-        self.combo_series.set('All')
-        self.combo_releases.set('All')
-        self.search_text.set('')
-
         # Reset filters
-        self.filter_text = self.all_specs
-        self.filter_release = self.all_specs
-        self.filter_series = self.all_specs
+        self.combo_series.set('All')
+        self.combo_spec_type.set('All')
+        self.search_text.set('')
 
         # Refill list
         self.apply_filters()
@@ -232,67 +236,34 @@ class SpecsTable(GenericTable):
         self.load_data(initial_load=True, check_for_new_specs=True)
         self.apply_filters()
 
-    def apply_filters(self):
+    def apply_filters(self, *args):
         self.tree.delete(*self.tree.get_children())
-        merged_df = pd.merge(
-            self.filter_release.reset_index(),
-            self.filter_series.reset_index(),
-            how="inner").set_index('spec')
-        merged_df = pd.merge(
-            merged_df.reset_index(),
-            self.filter_text.reset_index(),
-            how="inner").set_index('spec')
-        merged_df = pd.merge(
-            merged_df.reset_index(),
-            self.filter_group.reset_index(),
-            how="inner").set_index('spec')
-        self.current_specs = merged_df
-        self.insert_current_specs()
+        self.current_specs = self.all_specs
 
-    def select_series(self, *args):
-        specs_for_series = self.all_specs
+        # Apply all filters
         selected_series = self.combo_series.get()
-        print('Filtering by Series "{0}"'.format(selected_series))
         if selected_series != 'All':
-            specs_for_series = specs_for_series[specs_for_series['series'] == selected_series]
+            print('Filtering by Series "{0}"'.format(selected_series))
+            self.current_specs = self.current_specs[self.current_specs['series'] == selected_series]
 
-        self.filter_series = specs_for_series
-        self.apply_filters()
+        selected_spec_type = self.combo_spec_type.get()
+        if selected_spec_type != 'All':
+            print('Filtering by Spec. type "{0}"'.format(selected_spec_type))
+            self.current_specs = self.current_specs[self.current_specs['type'] == selected_spec_type]
 
-    def select_releases(self, *args):
-        specs_for_release = self.all_specs
-        selected_release = self.combo_releases.get()
-        print('Filtering by Release "{0}"'.format(selected_release))
-        if selected_release != 'All':
-            specs_for_release = specs_for_release[specs_for_release['release'] == selected_release]
-
-        self.filter_release = specs_for_release
-        self.apply_filters()
-
-    def select_groups(self, *args):
-        specs_for_group = self.all_specs
         selected_group = self.combo_groups.get()
-        print('Filtering by Group "{0}"'.format(selected_group))
         if selected_group != 'All':
-            specs_for_group = specs_for_group[specs_for_group['responsible_group'] == selected_group]
+            print('Filtering by Group "{0}"'.format(selected_group))
+            self.current_specs = self.current_specs[self.current_specs['responsible_group'] == selected_group]
 
-        self.filter_group = specs_for_group
-        self.apply_filters()
-
-    def select_text(self, *args):
-        # Filter based on current TDocs
         text_search = self.search_text.get()
-        if text_search is None or text_search == '':
-            self.filter_text = self.all_specs
-            self.apply_filters()
-            return
+        if text_search is not None and text_search != '':
+            print('Filtering by Text "{0}"'.format(text_search))
+            is_regex = False
+            self.current_specs = self.current_specs[
+                self.current_specs['search_column'].str.contains(text_search, regex=is_regex)]
 
-        is_regex = False
-        print('Filtering by Text "{0}"'.format(text_search))
-
-        self.filter_text = self.all_specs[
-            self.all_specs['search_column'].str.contains(text_search, regex=is_regex)]
-        self.apply_filters()
+        self.insert_current_specs()
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
@@ -300,7 +271,8 @@ class SpecsTable(GenericTable):
         item_values = self.tree.item(item_id)['values']
         try:
             actual_value = item_values[column]
-        except:
+        except Exception as e:
+            print(f'Error on double click: {e}')
             actual_value = None
 
         spec_id = cleanup_spec_name(item_values[0], clean_type=True, clean_dots=False)
