@@ -8,6 +8,15 @@ class SpecType(Enum):
     TS = 2
     TR = 3
 
+    def to_string(self):
+        match self:
+            case SpecType.TR:
+                return 'TR'
+            case SpecType.TS:
+                return 'TS'
+            case _:
+                return ''
+
 
 class SpecReleases(NamedTuple):
     folder: str
@@ -66,9 +75,8 @@ def get_spec_full_name(spec_id: str, spec_type: SpecType) -> str:
 
     """
     spec_name = spec_id
-    if spec_type == SpecType.TS:
-        spec_name = 'TS ' + spec_name
-    elif spec_type == SpecType.TR:
-        spec_name = 'TR ' + spec_name
+    spec_type_str = spec_type.to_string()
+    if spec_type_str != '':
+        spec_name = f'{spec_type_str} {spec_name}'
 
     return spec_name
