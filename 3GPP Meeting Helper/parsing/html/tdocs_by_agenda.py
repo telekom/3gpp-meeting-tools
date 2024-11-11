@@ -1,4 +1,3 @@
-import collections
 import datetime
 import hashlib
 import os
@@ -12,8 +11,8 @@ from lxml import html as lh
 import config.contributor_names
 from parsing.html.common import get_cache_filepath, current_cache_version, comment_span, join_results, max_recursion, \
     sort_and_remove_duplicates_from_list
-from parsing.html.common_tools import tdoc_regex_str, parse_tdoc_comments
-from parsing.html.tdocs_by_agenda_v3 import assert_if_tdocs_by_agenda_post_sa2_159, parse_tdocs_by_agenda_v3
+from parsing.html.common_tools import parse_tdoc_comments
+from parsing.html.tdocs_by_agenda_v3 import parse_tdocs_by_agenda_v3
 from server.common import decode_string
 from tdoc.utils import title_cr_regex
 
@@ -480,7 +479,7 @@ def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder='') -> Td
             print('Retrieving TdocsByAgenda from parsed document cache: {0}'.format(html_hash))
             last_tdocs_by_agenda = tdocs_by_document_cache[html_hash]
         else:
-            print('TdocsByAgenda {0} not in cache'.format(html_hash))
+            print(f'TdocsByAgenda with hash {html_hash} not in cache')
             last_tdocs_by_agenda = TdocsByAgendaData(
                 path_or_html,
                 html_hash=html_hash,

@@ -63,6 +63,7 @@ def parse_tdocs_by_agenda_v3(raw_html: str) -> pd.DataFrame:
         HtmlSubstitution(r"&nbsp;", "", 0, 'White spaces', 0),
         HtmlSubstitution(r'<font( [\w]+=([#\w\d\-\:\"]*)?)*>', "", re.IGNORECASE, 'Comments', 0),
         HtmlSubstitution(r'<td( [\w]+( )?=[#\d\w]*)*>', "<TD>", re.IGNORECASE, 'Comments', 0),
+        HtmlSubstitution(r'<b> Comment </b></FONT></TD>', "<b> Comments </b></FONT></TD>", re.IGNORECASE, 'Comments header', 0),
         HtmlSubstitution(r"<!--.*-->", "", re.DOTALL, 'Comments', 0),
         HtmlSubstitution(r"style='[^>']*'", "", re.IGNORECASE, 'style tags', 0),
         HtmlSubstitution(r"class=[^>]*", "", re.IGNORECASE, 'class tags"', 0),
@@ -122,7 +123,7 @@ def parse_tdocs_by_agenda_v3(raw_html: str) -> pd.DataFrame:
     # print(f'TDocsByAgenda rows:\n{rows}')
 
     # for row in rows:
-    #    print(row)
+    #     print(row)
 
     title_row = rows[0]
     tdoc_rows = rows[1:]
