@@ -556,14 +556,14 @@ class ToolsDialog(TkWidget):
                     print('{0} items in AI {1}, total items: {2}'.format(len(ai_tdocs), ai, len(tdocs.index)))
 
             # Temporarily disable
-            download_from_inbox = gui.main_gui.inbox_is_for_this_meeting()
+            download_from_inbox = gui.main_gui.tkvar_3gpp_wifi_available.get()
             meeting_folder_name = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
                 self.selected_meeting_fn())
 
             do_something_on_thread(
                 task=lambda: server.tdoc.cache_tdocs(
                     tdoc_list=tdocs_to_cache,
-                    download_from_inbox=download_from_inbox,
+                    download_from_private_server=download_from_inbox,
                     meeting_folder_name=meeting_folder_name),
                 before_starting=lambda: self.ai_bulk_open_button.config(state=tkinter.DISABLED),
                 after_task=lambda: self.ai_bulk_open_button.config(state=tkinter.NORMAL),

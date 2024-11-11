@@ -114,7 +114,7 @@ def get_tdoc(
     return unzip_files_in_zip_file(tdoc_local_filename), zip_file_url
 
 
-def cache_tdocs(tdoc_list, download_from_inbox: bool, meeting_folder_name: str):
+def cache_tdocs(tdoc_list, download_from_private_server: bool, meeting_folder_name: str):
     if tdoc_list is None:
         return
 
@@ -124,7 +124,7 @@ def cache_tdocs(tdoc_list, download_from_inbox: bool, meeting_folder_name: str):
             lambda tdoc_to_download_lambda: server.tdoc.get_tdoc(
                 meeting_folder_name=meeting_folder_name,
                 tdoc_id=tdoc_to_download_lambda,
-                server_type=server.common.ServerType.PRIVATE if download_from_inbox else server.common.ServerType.PUBLIC),
+                server_type=server.common.ServerType.PRIVATE if download_from_private_server else server.common.ServerType.PUBLIC),
             tdoc_to_download_lambda): tdoc_to_download_lambda for tdoc_to_download_lambda in tdoc_list}
         for future in concurrent.futures.as_completed(future_to_url):
             file_to_download = future_to_url[future]
