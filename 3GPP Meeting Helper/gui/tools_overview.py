@@ -570,8 +570,8 @@ class ToolsDialog(TkWidget):
                 on_error_log='General error performing bulk AI caching'
             )
 
-        except:
-            print('General error performing bulk AI caching')
+        except Exception as e:
+            print(f'General error performing bulk AI caching: {e}')
             traceback.print_exc()
 
     def replace_document_revisions_author(self):
