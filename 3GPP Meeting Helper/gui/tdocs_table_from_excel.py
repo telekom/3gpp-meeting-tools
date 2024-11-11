@@ -411,11 +411,28 @@ class TdocsTableFromExcel(GenericTable):
                         cr_number = ''
                     else:
                         cr_number = f"CR{cr_number:.0f}"
+
+                    try:
+                        tdoc_release = row['Release']  # Rel-18
+                        cr_category = f"Cat-{row['CR category']}"  # F
+                    except Exception as e:
+                        print(f'Could not retrieve Rel/CR category: {e}')
+                        tdoc_release = ''
+                        cr_category = ''
                 except Exception as e:
                     print(f'Could not retrieve CR number: {e}')
                     cr_number = ''
+                    tdoc_release = ''
+                    cr_category = ''
+
                 if tdoc_spec is not None and tdoc_spec != '':
                     tdoc_title = f'{tdoc_spec}{cr_number}: {tdoc_title}'
+
+                if tdoc_release is not None and tdoc_release != '':
+                    if cr_category is not None and cr_category != '' and cr_number != '':
+                        tdoc_title = f'{tdoc_title} ({tdoc_release}, {cr_category})'
+                    else:
+                        tdoc_title = f'{tdoc_title} ({tdoc_release})'
             except Exception as e:
                 print(f'Could not retrieve TDoc title: {e}')
 
