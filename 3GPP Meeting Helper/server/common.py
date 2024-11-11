@@ -526,3 +526,8 @@ meeting_pages_per_group: dict[str, str] = {
 
 # 3GPP Forge API repository
 apis_3gpp_forge_url = 'https://forge.3gpp.org/rep/all/5G_APIs/'
+
+
+def get_tdoc_details_url(tdoc_id: str):
+    # e.g. https://portal.3gpp.org/ngppapp/CreateTDoc.aspx?mode=view&contributionUid=SP-241424
+    return f'https://portal.3gpp.org/ngppapp/CreateTDoc.aspx?mode=view&contributionUid={tdoc_id}'
