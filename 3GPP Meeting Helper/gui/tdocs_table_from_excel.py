@@ -16,7 +16,7 @@ from application.os import open_url, startfile
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from gui.common.generic_table import cloud_icon, cloud_download_icon
-from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType
+from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url
 from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs
 from tdoc.utils import are_generic_tdocs
 
@@ -492,6 +492,7 @@ class TdocDetailsFromExcel(GenericTable):
             'TDoc',
             'Title',
             'Source',
+            '3GU Link',
             'Contact',
             'Type',
             'For',
@@ -535,6 +536,8 @@ class TdocDetailsFromExcel(GenericTable):
                     row_value = self.tdoc_row[row_name]
                     if isinstance(row_value, numbers.Number):
                         row_value = f'{row_value:0.0f}'
+                case '3GU Link':
+                    row_value = 'Click!'
                 case _:
                     row_value = self.tdoc_row[row_name]
 
@@ -578,4 +581,7 @@ class TdocDetailsFromExcel(GenericTable):
             case "Contact":
                 person_id = self.tdoc_row["Contact ID"]
                 url_to_open = f'https://webapp.etsi.org/teldir/ListPersDetails.asp?PersId={person_id}'
+                open_url(url_to_open)
+            case '3GU Link':
+                url_to_open = get_tdoc_details_url(self.tdoc_id)
                 open_url(url_to_open)
