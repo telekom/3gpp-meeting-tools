@@ -32,8 +32,8 @@ import server.tdocs_by_agenda
 import tdoc.utils
 import utils.local_cache
 import utils.threading
-from application.os import startfile
-from application.tkinter_config import root, font_normal, font_medium, font_big, ttk_style_tbutton_medium
+from application.os import startfile, open_url
+from application.tkinter_config import root, font_medium, font_big, ttk_style_tbutton_medium
 from gui.common.common_elements import tkvar_3gpp_wifi_available, tkvar_meeting
 from config.networking import NetworkingConfig
 from gui.common.utils import favicon
@@ -366,6 +366,11 @@ def download_and_open_tdoc(
         if retrieved_files is None:
             not_found_string = 'Not found (' + tdoc_id + ')'
             tkvar_tdoc_download_result.set(not_found_string)
+
+        # Open 3GU details page for TDoc
+        url_to_open = server.common.get_tdoc_details_url(tdoc_id)
+        open_url(url_to_open)
+
         return retrieved_files
 
     # Search in meeting
