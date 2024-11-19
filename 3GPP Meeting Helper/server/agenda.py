@@ -14,8 +14,8 @@ from application.zip_files import unzip_files_in_zip_file
 from parsing.html import common as html_parser
 from server.common import ServerType, get_document_or_folder_url, DocumentType
 from server.connection import get_remote_file
-from server.tdoc import agenda_docx_regex, agenda_draft_docx_regex, agenda_version_regex, ai_names_cache, \
-    agenda_regex
+from server.tdoc import agenda_docx_regex, agenda_draft_docx_regex, agenda_version_regex, agenda_regex
+from config.ai_names import sa2_ai_names_mapping
 from server.tdocs_by_agenda import get_tdocs_by_agenda_for_a_given_meeting
 from utils.local_cache import get_local_agenda_folder, get_tdocs_by_agenda_filename
 
@@ -122,7 +122,7 @@ def get_last_agenda(meeting_folder):
     except Exception as e:
         print(f'Could not parse AI descriptions from agenda: {e}')
         agenda_item_descriptions = {}
-    ai_names_cache[meeting_folder] = agenda_item_descriptions
+    sa2_ai_names_mapping[meeting_folder] = agenda_item_descriptions
 
     # Convert agenda version
     agenda_version_str = ''
