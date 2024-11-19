@@ -12,6 +12,7 @@ from typing import NamedTuple, List, Tuple, Callable, Any
 from pandas import DataFrame
 
 import application.word
+import config.ai_names
 import config.contributor_names as contributor_names
 import server.tdoc
 from application.word import get_word, open_word_document, WordTdoc
@@ -920,8 +921,8 @@ def insert_doc_data_to_doc_by_wi(
     stats_str, df_stats = get_tdoc_statistics(df)
     insert_range = insert_text_and_format(doc, stats_str, standard_style, standard_style, insert_range=insert_range)
 
-    if meeting_folder in server.tdoc.ai_names_cache:
-        agenda_description = server.tdoc.ai_names_cache[meeting_folder]
+    if meeting_folder in config.ai_names.sa2_ai_names_mapping:
+        agenda_description = config.ai_names.sa2_ai_names_mapping[meeting_folder]
     else:
         agenda_description = {}
 

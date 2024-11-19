@@ -3,13 +3,13 @@ import traceback
 from docx import Document
 
 
-def import_agenda(agenda_file):
+def import_agenda(agenda_file) -> None | dict[str, str]:
     """
     Imports an Agenda file
     Args:
         agenda_file (str): Path of the document to import
 
-    Returns:
+    Returns: AI descriptions
 
     """
     try:
@@ -21,7 +21,18 @@ def import_agenda(agenda_file):
     all_tables = document.tables
 
     # First table is the topic list
-    topics_table = all_tables[0]
+    topics_table = None
+    for table in all_tables:
+        try:
+            if table.rows[0].cells[0].text == 'AI#':
+                topics_table = table
+                break
+        except Exception as e:
+            print(f'Exception parsing topics table: {e}')
+
+    if all_tables is None:
+        print(f'Could not find topics table in {agenda_file}')
+        return None
 
     # Table including "Lunch" string is the agenda
     agenda_table = None
@@ -36,7 +47,8 @@ def import_agenda(agenda_file):
                 # Found the agenda table
                 agenda_table = table
                 break
-        except:
+        except Exception as e:
+            print(f'Could not parse AIs: {e}')
             traceback.print_exc()
             pass
 
@@ -47,25 +59,7 @@ def import_agenda(agenda_file):
     agenda_table_parsed = [(entry[0], entry[1].split('\n')[0]) for entry in agenda_table_parsed]
     ai_descriptions = dict(agenda_table_parsed)
 
-    days = [cell.text.split(' ')[0] for cell in agenda_table.row_cells(0)][1:]
-    hours_column = [cell.text for cell in agenda_table.column_cells(0)][1:]
-
-    # Add room name
-    last_hour = None
-    repetitions = 0
-    room_name = lambda x: 'Main room' if x == 0 else 'Breakout {0}'.format(x)
-    for idx, current_hour in enumerate(hours_column):
-        if last_hour == current_hour:
-            repetitions += 1
-            new_hour = '{0} ({1})'.format(current_hour, room_name(repetitions))
-        else:
-            repetitions = 0
-            if 'Lunch' not in current_hour:
-                new_hour = '{0} ({1})'.format(current_hour, room_name(repetitions))
-            else:
-                new_hour = current_hour
-        last_hour = current_hour
-        hours_column[idx] = new_hour
+    print(f'{len(agenda_table_parsed)} AIs parsed: {agenda_table_parsed}')
 
     return ai_descriptions
 

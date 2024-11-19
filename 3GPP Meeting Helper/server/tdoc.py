@@ -256,9 +256,6 @@ def get_remote_filename_for_tdoc(
     return tdoc_url
 
 
-ai_names_cache = {}
-
-
 def download_docs_file(meeting) -> str | None:
     """
     Downloads the docs list for a given meeting,
