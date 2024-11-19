@@ -25,33 +25,40 @@ class AgendaType(Enum):
     SESSION_PLAN = 2
 
 
-def get_latest_agenda_file(
-        agenda_files,
-        agenda_type: AgendaType = AgendaType.AGENDA) -> str | None:
-    if agenda_files is None:
+def get_latest_agenda_or_session_plan_file(
+        candidate_files,
+        file_type: AgendaType = AgendaType.AGENDA) -> str | None:
+
+    if file_type == AgendaType.AGENDA:
+        search_type = "agenda"
+        search_string = "agenda"
+    else:
+        search_type = "session plan"
+        search_string = "session"
+
+    print(f'Querying last {search_type}. Candidate files: {candidate_files}')
+
+    if candidate_files is None:
+        print(f'No {search_type} candidate files to search for')
         return None
 
     # Remove case when Word temporary documents are stored
-    agenda_files = [file for file in agenda_files if agenda_docx_regex.match(file) and ('~$' not in file)]
+    candidate_files = [file for file in candidate_files if agenda_docx_regex.match(file) and ('~$' not in file)]
 
     # Filter by Agenda or Session plan
-    if agenda_type == AgendaType.AGENDA:
-        agenda_files = [agenda_file for agenda_file in agenda_files if "Agenda" in agenda_file]
-        search_type = "agenda"
-    else:
-        agenda_files = [agenda_file for agenda_file in agenda_files if "Session" in agenda_file]
-        search_type = "session plan"
+    candidate_files = [candidate_file for candidate_file in candidate_files
+                       if search_string in candidate_file.lower()]
 
-    if len(agenda_files) == 0:
+    if len(candidate_files) == 0:
         return None
 
     # Parse file data
-    draft_agenda_files = [file for file in agenda_files if agenda_draft_docx_regex.match(file)]
-    if (len(draft_agenda_files) > 0) and (len(draft_agenda_files) != len(agenda_files)):
+    draft_agenda_files = [file for file in candidate_files if agenda_draft_docx_regex.match(file)]
+    if (len(draft_agenda_files) > 0) and (len(draft_agenda_files) != len(candidate_files)):
         # Non-draft agendas have priority over draft agenda files
-        agenda_files = [agenda_file for agenda_file in agenda_files if agenda_file not in draft_agenda_files]
+        candidate_files = [agenda_file for agenda_file in candidate_files if agenda_file not in draft_agenda_files]
 
-    last_agenda_or_session_plan = max(agenda_files, key=get_agenda_file_version_number)
+    last_agenda_or_session_plan = max(candidate_files, key=get_agenda_file_version_number)
     print(f'Most recent {search_type} file seems to be {last_agenda_or_session_plan}')
     return last_agenda_or_session_plan
 
@@ -98,10 +105,11 @@ def get_last_agenda(meeting_folder):
     agenda_folder = get_local_agenda_folder(meeting_folder)
     agenda_files = [file for file in os.listdir(agenda_folder)]
 
-    last_agenda = get_latest_agenda_file(agenda_files, AgendaType.AGENDA)
-    last_session_plan = get_latest_agenda_file(agenda_files, AgendaType.SESSION_PLAN)
+    last_agenda = get_latest_agenda_or_session_plan_file(agenda_files, AgendaType.AGENDA)
+    last_session_plan = get_latest_agenda_or_session_plan_file(agenda_files, AgendaType.SESSION_PLAN)
 
     if last_agenda is None:
+        print('No last agenda found')
         return AgendaInfo(
             agenda_path=None,
             agenda_version_int=None,
