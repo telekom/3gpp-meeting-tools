@@ -226,7 +226,11 @@ class TdocsTable(GenericTable):
                 return None
             try:
                 return self.download_and_open_tdoc_fn(
-                    tdoc_to_open, copy_to_clipboard=True, skip_opening=skip_opening)
+                    tdoc_to_open,
+                    copy_to_clipboard=True,
+                    skip_opening=skip_opening,
+                    open_tdoc_details_for_global_search=False
+                )
             except Exception as e:
                 print(f'Could not open TDoc {tdoc_to_open} for Tdocs table: {e}')
                 traceback.print_exc()

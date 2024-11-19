@@ -401,8 +401,8 @@ class ToolsDialog(TkWidget):
                     full_comment = '\n'.join(comment_list_txt)
                     try:
                         tdocs_df.at[idx, parsing.excel.session_comments_column] = full_comment
-                    except:
-                        print('Did not find TDoc entry for comment {0}. Skipping'.format(idx))
+                    except Exception as e:
+                        print(f'Did not find TDoc entry for comment {idx}. Skipping: {e}')
                 fg_color, text_color = parsing.excel.get_colors_from_comments(parsed_comments)
 
             # Need Pandas 0.24 for this .See https://stackoverflow.com/questions/42589835/adding-a-pandas-dataframe-to-existing-excel-file
