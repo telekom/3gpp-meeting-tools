@@ -252,7 +252,8 @@ def get_remote_filename_for_tdoc(
     if len(candidate_folders) == 0:
         return None
 
-    return candidate_folders[0] + tdoc_id + '.zip'
+    tdoc_url = candidate_folders[0]
+    return tdoc_url
 
 
 ai_names_cache = {}
