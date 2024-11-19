@@ -18,10 +18,10 @@ from utils.local_cache import get_cache_folder, get_local_revisions_filename, ge
 
 agenda_regex = re.compile(r'.*(?P<type>(Agenda|Session( |%20)Plan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\..*')
 agenda_docx_regex = re.compile(
-    r'.*(?P<type>(Agenda|Session Plan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
-agenda_version_regex = re.compile(r'.*(?P<type>(Agenda|Session Plan)).*[-_]?([ ]|%20)*([vr])(?P<version>\d*).*\..*')
+    r'.*(?P<type>([Aa]genda|[Ss]ession [Pp]lan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
+agenda_version_regex = re.compile(r'.*(?P<type>([Aa]genda|[Ss]ession [Pp]lan)).*[-_]?([ ]|%20)*([vr])(?P<version>\d*).*\..*')
 agenda_draft_docx_regex = re.compile(
-    r'.*(?P<type>(Agenda|Session Plan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
+    r'.*(?P<type>([Aa]genda|[Ss]ession [Pp]lan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
 folder_ftp_names_regex = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][aA][tT][eE].*)')
 
 

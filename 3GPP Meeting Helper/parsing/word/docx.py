@@ -14,8 +14,8 @@ def import_agenda(agenda_file):
     """
     try:
         document = Document(agenda_file)
-    except:
-        print('Could not open file {0}'.format(agenda_file))
+    except Exception as e:
+        print(f'Could not open file {agenda_file}: {e}')
         return None
 
     all_tables = document.tables

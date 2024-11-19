@@ -42,7 +42,7 @@ class Test_test_agenda_files(unittest.TestCase):
             'S2-1911962_SA2-136-Agenda_v2.docx',
             'S2-1911975_SA2-136-Agenda_v3.docx',
             'Some other file.docx']
-        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_or_session_plan_file(agenda_list)
         self.assertIsNotNone(latest_agenda)
         self.assertEqual(latest_agenda, 'S2-1911975_SA2-136-Agenda_v3.docx')
 
@@ -53,7 +53,7 @@ class Test_test_agenda_files(unittest.TestCase):
             'draft_S2-1910847_SA2-136-Agenda-v10.docx',
             'draft_S2-1910847_SA2-136-Agenda-v1.docx',
             'Some other file.docx']
-        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_or_session_plan_file(agenda_list)
         self.assertIsNotNone(latest_agenda)
         self.assertEqual(latest_agenda, 'draft_S2-1910847_SA2-136-Agenda-v10.docx')
 
@@ -63,7 +63,7 @@ class Test_test_agenda_files(unittest.TestCase):
             'Draft_S2-2309205_SA2-158-Agenda - r5.docx',
             'Draft_S2-2309205_SA2-158-Agenda%20-%20r4.docx',
             'Draft_S2-2309205_SA2-158-Agenda%20-%20r8.docx']
-        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_or_session_plan_file(agenda_list)
         self.assertIsNotNone(latest_agenda)
         self.assertEqual(latest_agenda, 'Draft_S2-2309205_SA2-158-Agenda%20-%20r8.docx')
 
@@ -73,24 +73,24 @@ class Test_test_agenda_files(unittest.TestCase):
             'S2-1911962_SA2-136-Agenda_v2.docx',
             'S2-1911975_SA2-136-Agenda_v3.docx',
             'Some other file.docx']
-        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_or_session_plan_file(agenda_list)
         self.assertIsNotNone(latest_agenda)
         self.assertEqual(latest_agenda, 'S2-1911975_SA2-136-Agenda_v3.docx')
 
     def test_agenda_file_list_with_non_agendas(self):
         agenda_list = [ 
             'Some other file.docx']
-        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_or_session_plan_file(agenda_list)
         self.assertIsNone(latest_agenda)
 
     def test_agenda_file_list_with_empty(self):
         agenda_list = []
-        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_or_session_plan_file(agenda_list)
         self.assertIsNone(latest_agenda)
 
     def test_agenda_file_list_with_none(self):
         agenda_list = None
-        latest_agenda = server.agenda.get_latest_agenda_file(agenda_list)
+        latest_agenda = server.agenda.get_latest_agenda_or_session_plan_file(agenda_list)
         self.assertIsNone(latest_agenda)
 
     def test_file_names(self):
