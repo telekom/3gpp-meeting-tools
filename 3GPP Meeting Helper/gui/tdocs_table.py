@@ -21,6 +21,7 @@ import utils.local_cache
 from application import powerpoint
 from application.excel import open_excel_document, set_first_row_as_filter, vertically_center_all_text, save_wb, \
     set_column_width, set_wrap_text, hide_column
+from config.ai_names import ai_to_wi_str
 from gui.common.generic_table import GenericTable, treeview_sort_column, treeview_set_row_formatting
 from parsing.html.revisions import revisions_file_to_dataframe
 from parsing.html.tdocs_by_agenda import TdocsByAgendaData
@@ -520,8 +521,12 @@ class TdocsTable(GenericTable):
 
         text_search = text_search.lower()
         tdocs_for_text = self.current_tdocs.copy()
-        tdocs_for_text['search_column'] = tdocs_for_text.index + tdocs_for_text['Title'] + tdocs_for_text['Source']
+        tdocs_for_text['search_column'] = (tdocs_for_text.index +
+                                           tdocs_for_text['Title'] +
+                                           tdocs_for_text['Source'] +
+                                           tdocs_for_text['AI'].map(ai_to_wi_str))
         tdocs_for_text['search_column'] = tdocs_for_text['search_column'].str.lower()
+
         tdocs_for_text = tdocs_for_text[tdocs_for_text['search_column'].str.contains(text_search, regex=is_regex)]
         self.current_tdocs = tdocs_for_text
 
