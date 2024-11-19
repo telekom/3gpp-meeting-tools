@@ -349,7 +349,9 @@ def download_and_open_tdoc(
         tdoc_id_to_override=None,
         cached_tdocs_list=None,
         copy_to_clipboard=False,
-        skip_opening=False) -> str | List[str] | None:
+        skip_opening=False,
+        open_tdoc_details_for_global_search=True
+) -> str | List[str] | None:
     cleanup_tdoc_id_in_entry_box()
 
     if tdoc_id_to_override is None:
@@ -368,8 +370,9 @@ def download_and_open_tdoc(
             tkvar_tdoc_download_result.set(not_found_string)
 
         # Open 3GU details page for TDoc
-        url_to_open = server.common.get_tdoc_details_url(tdoc_id)
-        open_url(url_to_open)
+        if open_tdoc_details_for_global_search:
+            url_to_open = server.common.get_tdoc_details_url(tdoc_id)
+            open_url(url_to_open)
 
         return retrieved_files
 
