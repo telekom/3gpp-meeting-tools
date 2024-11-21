@@ -16,7 +16,7 @@ from server.connection import get_remote_file
 from utils.local_cache import get_cache_folder, get_local_revisions_filename, get_local_drafts_filename, \
     get_meeting_folder
 
-agenda_regex = re.compile(r'.*(?P<type>(Agenda|Session( |%20)Plan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\..*')
+agenda_regex = re.compile(r'.*(?P<type>([Aa]genda|[Ss]ession( |%20)Plan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\..*')
 agenda_docx_regex = re.compile(
     r'.*(?P<type>([Aa]genda|[Ss]ession [Pp]lan)).*[-_]([ ]|%20)*([vr])?(?P<version>\d*).*\.(docx|doc|zip)')
 agenda_version_regex = re.compile(r'.*(?P<type>([Aa]genda|[Ss]ession [Pp]lan)).*[-_]?([ ]|%20)*([vr])(?P<version>\d*).*\..*')
