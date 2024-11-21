@@ -307,11 +307,13 @@ def get_document_or_folder_url(
         case DocumentType.AGENDA:
             folders = [
                 f'{wg_folder}/Agenda/',
-                f'{wg_folder}/INBOX/DRAFTS/_Session_Plan_Updates/'
+                f'{wg_folder}/INBOX/DRAFTS/_Session_Plan_Updates/',
+                f'{wg_folder}/INBOX/Schedule_Updates/'
             ] if server_type == ServerType.PRIVATE or server_type == ServerType.SYNC \
                 else [
                 f'{wg_folder}/{meeting_folder_in_server}/Agenda/',
-                f'{wg_folder}/{meeting_folder_in_server}/INBOX/DRAFTS/_Session_Plan_Updates/'
+                f'{wg_folder}/{meeting_folder_in_server}/INBOX/DRAFTS/_Session_Plan_Updates/',
+                f'{wg_folder}/{meeting_folder_in_server}/INBOX/Schedule_Updates/'
             ]
         case _:
             # A TDoc
