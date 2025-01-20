@@ -8,7 +8,7 @@ from tdoc.utils import tdoc_regex
 # Can be called with fewer dependencies
 
 email_approval_regex = re.compile(r'e[-]?mail approval')
-emeeting_regex = re.compile(r'.*\[SA2[ ]*#([\d]+(A)?(H)?(-)?[Ee])[ ,]+AI[#]?([\d\.]+)[ ,]+(S2-(S2-)?[\d]+)\][ ]*(.*)')
+emeeting_regex = re.compile(r'.*\[SA2[ ]*#([\d]+(A)?(H)?(-)?[Ee]?)[ ,]+AI[#]?([\d\.]+)[ ,]+(S2-(S2-)?[\d]+)\][ ]*(.*)')
 
 
 def get_email_approval_emails(folder, target_folder, tdoc_data, use_tdoc_data=True, email_subject_regex=None,
