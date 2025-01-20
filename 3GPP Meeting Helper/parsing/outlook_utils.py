@@ -46,7 +46,11 @@ def get_email_approval_emails(folder, target_folder, tdoc_data, use_tdoc_data=Tr
 
                 if tdoc_is_from_this_meeting and use_tdoc_data:
                     ai = tdoc_data.tdocs.at[tdoc_number, 'AI']
-                    work_item = tdoc_data.tdocs.at[tdoc_number, 'Work Item']
+                    try:
+                        work_item = tdoc_data.tdocs.at[tdoc_number, 'Work Item']
+                    except KeyError as e:
+                        print(f'Work Item not a key in TDocs DataFrame for {tdoc_number}, using AI {ai}')
+                        work_item = None
                     if (work_item == '') or (work_item is None):
                         folder_name = ai
                     else:
