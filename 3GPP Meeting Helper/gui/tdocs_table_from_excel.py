@@ -17,7 +17,7 @@ from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from gui.common.generic_table import cloud_icon, cloud_download_icon
 from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url
-from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs
+from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs, search_meeting_for_tdoc
 from tdoc.utils import are_generic_tdocs
 
 
@@ -536,7 +536,8 @@ class TdocDetailsFromExcel(GenericTable):
             'To',
             'Cc',
             'Original LS',
-            'Reply in'
+            'Reply in',
+            'URL'
         ]:
 
             count = count + 1
@@ -553,6 +554,13 @@ class TdocDetailsFromExcel(GenericTable):
                     row_value = self.tdoc_row[row_name]
                     if isinstance(row_value, numbers.Number):
                         row_value = f'{row_value:0.0f}'
+                case 'URL':
+                    try:
+                        tdoc_meeting = search_meeting_for_tdoc(self.tdoc_id, return_last_meeting_if_tdoc_is_new=True)
+                        row_value = tdoc_meeting.get_tdoc_url(self.tdoc_id)
+                    except Exception as e:
+                        row_value = ''
+                        print(f'Could not generate TDoc URL for {self.tdoc_id}: {e}')
                 case '3GU Link':
                     row_value = 'Click!'
                 case _:
@@ -602,3 +610,7 @@ class TdocDetailsFromExcel(GenericTable):
             case '3GU Link':
                 url_to_open = get_tdoc_details_url(self.tdoc_id)
                 open_url(url_to_open)
+            case 'URL':
+                url_value = actual_value
+                pyperclip.copy(url_value)
+                print(f'Copied URL for {self.tdoc_id} to clipboard: {url_value}')
