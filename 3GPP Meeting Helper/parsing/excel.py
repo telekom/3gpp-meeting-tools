@@ -319,10 +319,14 @@ def export_email_approval_list(local_filename, found_attachments, tdocs_without_
     if tdocs_without_emails is not None and tdoc_data is not None:
         ws = wb.create_sheet()
         ws.title = "TDocs without emails"
-        ws.append(['TD#', 'AI', 'Type', 'Doc For', 'Title', 'Source', 'Rel', 'Work Item', 'Comments'])
+        ws.append(['TD#', 'AI', 'Type', 'Doc For', 'Title', 'Source', 'Rel', 'Comments'])
 
+        # Available columns: ['AI' 'Type' 'Doc For' 'Title' 'Source' 'Rel' 'Comments'
+        #  'e-mail_Discussion' 'Result' 'Revision of' 'Revised to' 'Merge of'
+        #  'Merged to' 'TS' 'CR' 'Original TDocs' 'Final TDocs' 'Source (summary)'
+        #  'Contributed by [...]
         tdocs_info = tdoc_data.tdocs.loc[
-            list(tdocs_without_emails), ['AI', 'Type', 'Doc For', 'Title', 'Source', 'Rel', 'Work Item', 'Comments']]
+            list(tdocs_without_emails), ['AI', 'Type', 'Doc For', 'Title', 'Source', 'Rel', 'Comments']]
         print('{0} TDocs without matching emails'.format(len(tdocs_info.index)))
         for row_index, row in tdocs_info.iterrows():
             ws.append([
@@ -333,7 +337,6 @@ def export_email_approval_list(local_filename, found_attachments, tdocs_without_
                 str(row['Title']),
                 str(row['Source']),
                 str(row['Rel']),
-                str(row['Work Item']),
                 str(row['Comments'])])
 
     print('Saving Excel table structure')

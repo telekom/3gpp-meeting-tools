@@ -35,14 +35,15 @@ def get_attachment_data(text):
         if match is None:
             return None
         return AttachmentFile(match.group(1), match.group(3))
-    except:
+    except Exception as e:
+        print(f'No attachment in email: {e}')
         return None
 
 
 def organize_email_approval_attachments(meeting_name, ai_folders):
     tmp_folder = utils.local_cache.get_tmp_folder()
     local_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting_name)
-    download_from_inbox = gui.main_gui.inbox_is_for_this_meeting()
+    download_from_inbox = server.common.we_are_in_meeting_network()
     found_emails_with_chairmans_notes = []
     email_list = []
     checked_tdocs = set()
@@ -66,7 +67,7 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                 email_hour = email_date.hour
                 email_minute = email_date.minute
                 email_second = email_date.second
-            except:
+            except Exception as e:
                 email_year = 0
                 email_month = 0
                 email_day = 0
@@ -75,7 +76,7 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                 email_second = 0
                 # Error retrieving email date (known Outlook bug)
                 # See https://stackoverflow.com/questions/62169709/python-valueerror-microsecond-must-be-in-0-999999-while-using-win32com
-                print('E')
+                print(f'Could not parse email date: {e}')
                 # traceback.print_exc()
 
             date_str = '{0:04d}.{1:02d}.{2:02d} {3:02d}{4:02d}{5:02d}'.format(email_year, email_month, email_day,
@@ -96,7 +97,8 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                 server.tdoc.get_tdoc(
                     local_meeting_folder,
                     tdoc_id,
-                    server_type=server.common.ServerType.PRIVATE if download_from_inbox else server.common.ServerType.PUBLIC)
+                    server_type=server.common.ServerType.PRIVATE if
+                    download_from_inbox else server.common.ServerType.PUBLIC)
                 checked_tdocs.add(tdoc_id)
             else:
                 # Avoid repeated calls to get_tdoc()
