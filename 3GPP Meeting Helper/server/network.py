@@ -55,11 +55,11 @@ def detect_3gpp_network_state(
                         meeting_text = meeting_data.get_meeting_text_for_given_meeting_number(meeting_number)
                         print(f'Current meeting (10.10.10.10) is {meeting_number}: {meeting_text}')
 
-                print(f'Selecting meeting {meeting_text} and disabling meeting drop-down list')
+                print(f'Selecting meeting {meeting_text}')
                 if gui.common.common_elements.tkvar_meeting.get() != meeting_text:
                     # Trigger change only if necessary
                     gui.common.common_elements.tkvar_meeting.set(meeting_text)
-                gui.common.common_elements.tk_combobox_meetings['state'] = tkinter.DISABLED
+                # gui.common.common_elements.tk_combobox_meetings['state'] = tkinter.DISABLED
             else:
                 # Jumping from 3GPP Wi-fi to normal network
                 print(f'(Re-)enabling meeting drop-down list')
