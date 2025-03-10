@@ -306,7 +306,9 @@ class TdocsTableFromExcel(GenericTable):
                 for tdoc_to_open in tdocs_to_open:
                     opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(
                         tdoc_to_open.tdoc,
-                        tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available)
+                        tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available,
+                        tdoc_meeting=self.meeting
+                    )
 
                     # Re-load Tdoc list to allow for icon changes
                     self.insert_rows()
