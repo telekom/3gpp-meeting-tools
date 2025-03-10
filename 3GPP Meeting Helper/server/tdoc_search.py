@@ -573,7 +573,7 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
                 matching_meeting = [m for m in group_meetings_ftp if m[0] == meeting_number][0]
                 print(f"Match in FT server for {meeting_name}: {matching_meeting}")
                 meeting_folder_url = matching_meeting[2]
-                meeting_url_docs = server_url_replace(f"{meeting_folder_url}{'/Docs'}")
+                meeting_url_docs = server_url_replace(f"{meeting_folder_url}{'/Docs/'}")
             except Exception as e:
                 pass
 
@@ -704,12 +704,14 @@ def fully_update_cache(redownload_if_exists=False):
 def search_download_and_open_tdoc(
         tdoc_str: str,
         skip_open=False,
-        tkvar_3gpp_wifi_available=None
+        tkvar_3gpp_wifi_available=None,
+        tdoc_meeting: MeetingEntry=None,
 ) -> Tuple[None | int, None | List[DownloadedWordTdocDocument]]:
     """
     Searches for a given TDoc. If the zip file contains many files (e.g. typical for plenary CR packs), it will only
     open the folder.
     Args:
+        tdoc_meeting: The meeting for this TDoc if known (so we do not have to search for it)
         tkvar_3gpp_wifi_available: Whether we should use a private server if available
         skip_open: Whether to skip opening the files
         tdoc_str: The TDoc ID
@@ -720,6 +722,11 @@ def search_download_and_open_tdoc(
     if tdoc_str is None or tdoc_str == '':
         return None, None
 
+    if tdoc_meeting is None:
+        print(f'Searching for TDoc {tdoc_str}. Unknown meeting (will search for meeting)')
+    else:
+        print(f'Searching for TDoc {tdoc_str}. Meeting {tdoc_meeting.meeting_name}')
+
     # Cleanup
     tdoc_str = tdoc_str.strip()
     tdoc_str = tdoc_str.replace('\n', '').replace('\r', '')
@@ -728,7 +735,8 @@ def search_download_and_open_tdoc(
     if len(loaded_meeting_entries) == 0:
         fully_update_cache()
 
-    tdoc_meeting = search_meeting_for_tdoc(tdoc_str, return_last_meeting_if_tdoc_is_new=True)
+    if tdoc_meeting is None:
+        tdoc_meeting = search_meeting_for_tdoc(tdoc_str, return_last_meeting_if_tdoc_is_new=True)
     if tdoc_meeting is None:
         return None, None
 
