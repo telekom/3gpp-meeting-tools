@@ -526,6 +526,28 @@ meeting_pages_per_group: dict[str, str] = {
     'R5': 'https://www.3gpp.org/dynareport?code=Meetings-R5.htm',
 }
 
+meeting_ftp_pages_per_group: dict[str, str] = {
+    'SP': 'https://www.3gpp.org/ftp/tsg_sa/TSG_SA',
+    'S1': 'https://www.3gpp.org/ftp/tsg_sa/WG1_Serv',
+    'S2': 'https://www.3gpp.org/ftp/tsg_sa/WG2_Arch',
+    'S3': 'https://www.3gpp.org/ftp/tsg_sa/WG3_Security',
+    'S4': 'https://www.3gpp.org/ftp/tsg_sa/WG4_CODEC',
+    'S5': 'https://www.3gpp.org/ftp/tsg_sa/WG5_TM',
+    'S6': 'https://www.3gpp.org/ftp/tsg_sa/WG6_MissionCritical',
+    'CP': 'https://www.3gpp.org/ftp/tsg_ct/TSG_CT',
+    'C1': 'https://www.3gpp.org/ftp/tsg_ct/WG1_mm-cc-sm_ex-CN1',
+    'C3': 'https://www.3gpp.org/ftp/tsg_ct/WG2_capability_ex-T2',
+    'C4': 'https://www.3gpp.org/ftp/tsg_ct/WG3_interworking_ex-CN3',
+    'C6': 'https://www.3gpp.org/ftp/tsg_ct/	WG4_protocollars_ex-CN4',
+    'RP': 'https://www.3gpp.org/ftp/tsg_ran/TSG_RAN',
+    'R1': 'https://www.3gpp.org/ftp/tsg_ran/WG1_RL1',
+    'R2': 'https://www.3gpp.org/ftp/tsg_ran/WG2_RL2',
+    'R3': 'https://www.3gpp.org/ftp/tsg_ran/WG3_Iu',
+    'R4': 'https://www.3gpp.org/ftp/tsg_ran/WG4_Radio',
+    'R5': 'https://www.3gpp.org/ftp/tsg_ran/	WG5_Test_ex-T1',
+}
+
+
 # 3GPP Forge API repository
 apis_3gpp_forge_url = 'https://forge.3gpp.org/rep/all/5G_APIs/'
 

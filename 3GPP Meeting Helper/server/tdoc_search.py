@@ -10,8 +10,10 @@ import tdoc.utils
 import utils
 from application.os import startfile
 from application.zip_files import unzip_files_in_zip_file
-from server.common import download_file_to_location, FileToDownload, batch_download_file_to_location, \
-    get_document_or_folder_url, DocumentType, ServerType, TdocType, WorkingGroup, meeting_pages_per_group
+from server.common import (download_file_to_location, FileToDownload, batch_download_file_to_location, \
+                           get_document_or_folder_url, DocumentType, ServerType, TdocType, WorkingGroup,
+                           meeting_pages_per_group,
+                           meeting_ftp_pages_per_group)
 from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, file_exists
 
 # If more than this number of files are included in a zip file, the folder is opened instead.
@@ -23,17 +25,28 @@ local_cache_folder = ''
 
 # Group name as key
 html_cache_files: Dict[str, str] = {}
+html_cache_files_ftp: Dict[str, str] = {}
 markup_cache_files: Dict[str, str] = {}
+markup_cache_files_ftp: Dict[str, str] = {}
 
 
 def initialize():
     print(f'Starting meeting list one-time initialization')
-    global initialized, local_cache_folder, html_cache_files, markup_cache_files
+    global initialized, local_cache_folder, html_cache_files, markup_cache_files, \
+        html_cache_files_ftp, markup_cache_files_ftp
     local_cache_folder = get_meeting_list_folder()
+
+    # 3GPP meeting pages
     html_cache_files = {k: os.path.join(local_cache_folder, k + '.htm') for k, v in
                         meeting_pages_per_group.items()}
     markup_cache_files = {k: os.path.join(local_cache_folder, k + '.md') for k, v in
                           meeting_pages_per_group.items()}
+
+    # 3GPP FTP server pages
+    html_cache_files_ftp = {k: os.path.join(local_cache_folder, k + '_ftp.htm') for k, v in
+                            meeting_pages_per_group.items()}
+    markup_cache_files_ftp = {k: os.path.join(local_cache_folder, k + '_ftp.md') for k, v in
+                              meeting_pages_per_group.items()}
     print(f'Finished meeting list one-time initialization')
     initialized = True
 
@@ -301,7 +314,9 @@ def update_local_html_cache(redownload_if_exists=False) -> List[str]:
     print('Updating local cache')
     files_to_download: List[FileToDownload] = []
     downloaded_group_meetings: List[str] = []
+
     for k, v in meeting_pages_per_group.items():
+        # Download meeting page
         local_file = html_cache_files[k]
         if redownload_if_exists or not os.path.exists(local_file):
             files_to_download.append(FileToDownload(
@@ -311,7 +326,21 @@ def update_local_html_cache(redownload_if_exists=False) -> List[str]:
             ))
             downloaded_group_meetings.append(k)
         else:
-            print(f'Skipping download of {k} group to {local_file}')
+            print(f'Skipping download of {k} group meeting page to {local_file}')
+
+    for k, v in meeting_ftp_pages_per_group.items():
+        # Download FTP server page
+        local_file = html_cache_files_ftp[k]
+        if redownload_if_exists or not os.path.exists(local_file):
+            files_to_download.append(FileToDownload(
+                remote_url=v,
+                local_filepath=local_file,
+                force_download=True
+            ))
+            downloaded_group_meetings.append(k)
+        else:
+            print(f'Skipping download of {k} group FTP page to {local_file}')
+
     batch_download_file_to_location(files_to_download, cache=True)
     return downloaded_group_meetings
 
@@ -344,6 +373,28 @@ def filter_markdown_text(markdown_text: str) -> str:
     return full_text
 
 
+markdown_url_regex = r'\[(.*?)\]\((.*?)\)'
+
+
+def filter_markdown_urls(markdown_text: str) -> str:
+    # Regex pattern to match Markdown links: [text](url)
+    links = re.finditer(markdown_url_regex, markdown_text)
+    links_tuple = [(e.group(1), e.group(2)) for e in links]
+
+    def remove_duplicates(tuples_list):
+        return list({item[0]: item for item in tuples_list}.values())
+
+    links_tuple = remove_duplicates(links_tuple)
+
+    to_ignore = ["ETSI logo", "www.3gpp.org", "ftp", "upload", "sort by name", "desc", "sort by date", "sort by size",
+                 "icon", "Draft_Specs", "Latest_Templates"]
+    links_tuple = [e for e in links_tuple if e[0] not in to_ignore]
+
+    out_list = [f"[{e[0]}]({e[1]})" for e in links_tuple]
+    out_str = '\n'.join(out_list)
+    return out_str
+
+
 def convert_local_cache_to_markdown(downloaded_groups: List[str], force_conversion=False):
     """
         Convert local cache to markdown
@@ -351,7 +402,8 @@ def convert_local_cache_to_markdown(downloaded_groups: List[str], force_conversi
     if not initialized:
         initialize()
     start = time.time()
-    print(f'Converting local cache to markdown')
+
+    print(f'Converting local cache to markdown (meeting pages)')
     for k, v in html_cache_files.items():
         if os.path.exists(v):
             if force_conversion or (not os.path.exists(markup_cache_files[k]) or k in downloaded_groups):
@@ -361,6 +413,20 @@ def convert_local_cache_to_markdown(downloaded_groups: List[str], force_conversi
                     output_path=markup_cache_files[k],
                     ignore_links=False,
                     filter_text_function=filter_markdown_text
+                )
+            else:
+                print(f'Skipped Markup conversion for {k} group')
+
+    print(f'Converting local cache to markdown (FTP server pages)')
+    for k, v in html_cache_files_ftp.items():
+        if os.path.exists(v):
+            if force_conversion or (not os.path.exists(markup_cache_files_ftp[k]) or k in downloaded_groups):
+                print(f'Markup conversion for {k} group')
+                convert_html_file_to_markup(
+                    v,
+                    output_path=markup_cache_files_ftp[k],
+                    ignore_links=False,
+                    filter_text_function=lambda x: filter_markdown_urls(filter_markdown_text(x))
                 )
             else:
                 print(f'Skipped Markup conversion for {k} group')
@@ -382,15 +448,42 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
     global loaded_meeting_entries
     loaded_meeting_entries = []
 
-    items_to_load = markup_cache_files.items()
+    groups_to_load = markup_cache_files.items()
     if groups is None or len(groups) == 0:
         # Load all
         pass
     else:
-        items_to_load = [kvp for kvp in items_to_load if kvp[0] in groups]
+        groups_to_load = [kvp for kvp in groups_to_load if kvp[0] in groups]
 
-    groups_to_load_str = ', '.join([k for k, v in items_to_load])
+    groups_to_load_str = ', '.join([k for k, v in groups_to_load])
     end = time.time()
+
+    # Enrich information from meeting site with information from the FTP page
+    meeting_info_ftp_parsed = dict()
+    for group_to_check, v in groups_to_load:
+        print(f'Loading FTP info for meetings for group {group_to_check}')
+        file_ftp_markdown = markup_cache_files_ftp[group_to_check]
+
+        if not os.path.exists(file_ftp_markdown):
+            # Not al groups may exist
+            continue
+
+        with open(file_ftp_markdown, 'r', encoding='utf-8') as file:
+            markup_file_content = file.read()
+        links = re.finditer(markdown_url_regex, markup_file_content)
+
+        def cleanup_match(match_in: re.Match) -> str | None:
+            if match_in is None:
+                return None
+            return match_in.group(1)
+
+        links_tuple = [(
+            cleanup_match(re.search(r"_(\d+[-eEbisBISaAhH]*)", e.group(1))),
+            e.group(1),
+            e.group(2)) for e in links]
+
+        meeting_info_ftp_parsed[group_to_check] = links_tuple
+
     print(f'Loading meeting entries from meeting list: {groups_to_load_str} ({end - start:.2f})')
 
     def server_url_replace(a_url: str | None) -> str | None:
@@ -419,7 +512,8 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
         meeting_without_invitation_regex,
         meeting_sa6_adhocs]
 
-    def parse_match_to_meeting_entry(a_match: re.Match) -> MeetingEntry:
+    def parse_match_to_meeting_entry(a_match: re.Match,
+                                     group_meetings_ftp: List[Tuple[str | None, str, str]]) -> MeetingEntry:
         m_matches: Dict[str, str] = a_match.groupdict()
         meeting_group = None
         meeting_number = None
@@ -473,6 +567,16 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
                 case 'files_url':
                     meeting_folder_url = server_url_replace(v)
 
+        if meeting_folder_url is None and group_meetings_ftp is not None:
+            # Try to add information parsed from FTP server
+            try:
+                matching_meeting = [m for m in group_meetings_ftp if m[0] == meeting_number][0]
+                print(f"Match in FT server for {meeting_name}: {matching_meeting}")
+                meeting_folder_url = matching_meeting[2]
+                meeting_url_docs = server_url_replace(f"{meeting_folder_url}{'/Docs'}")
+            except Exception as e:
+                pass
+
         return MeetingEntry(
             meeting_group=meeting_group,
             meeting_number=meeting_number,
@@ -490,11 +594,16 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
             meeting_folder_url=meeting_folder_url
         )
 
-    for k, v in items_to_load:
+    for k, v in groups_to_load:
         if os.path.exists(v):
             print(f'Loading meetings for group {k}')
             with open(v, 'r', encoding='utf-8') as file:
                 markup_file_content = file.read()
+
+            try:
+                group_meetings_ftp = meeting_info_ftp_parsed[k]
+            except KeyError:
+                group_meetings_ftp = []
 
             # Check different regex patterns
             parsed_meetings_for_k: List[MeetingEntry] = []
@@ -504,7 +613,7 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
                 matches_to_process = [m for m in meeting_matches
                                       if m is not None and m.group('meeting_number') not in already_parsed_meetings]
 
-                meetings_to_add = [parse_match_to_meeting_entry(m) for m in matches_to_process]
+                meetings_to_add = [parse_match_to_meeting_entry(m, group_meetings_ftp) for m in matches_to_process]
                 loaded_meeting_entries.extend(meetings_to_add)
         else:
             print(f'Not found: {v}')

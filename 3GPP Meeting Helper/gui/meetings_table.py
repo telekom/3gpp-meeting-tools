@@ -326,6 +326,10 @@ class MeetingsTable(GenericTable):
         meeting_name = item_values[0]
         meeting = [m for m in self.loaded_meeting_entries if m.meeting_name == meeting_name]
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
+        try:
+            print(f"Selected meeting: {meeting[0].meeting_number} ({meeting[0].meeting_name}), URL: {meeting[0].meeting_folder_url}")
+        except Exception as e:
+            print(f"Could not retrieve meeting for {meeting_name}, {e}")
 
         if actual_value is None or actual_value == '':
             print("Empty value")
