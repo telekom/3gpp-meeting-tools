@@ -6,6 +6,7 @@ from typing import NamedTuple, List
 
 import application.outlook
 import config.cache as local_cache_config
+from config.markdown import MarkdownConfig
 from config.word import WordConfig
 
 import config.networking
@@ -16,13 +17,10 @@ from parsing.html.tdocs_by_agenda import TdocsByAgendaData
 config_parser = configparser.ConfigParser()
 config_parser.sections()
 
-
-root_folder = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '..'))
-config_file = os.path.join(root_folder,'config.ini')
+root_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+config_file = os.path.join(root_folder, 'config.ini')
 print(f'Reading config file from {config_file}')
 config_parser.read(config_file)
-
-
 
 sa2_current_meeting_tdoc_data = None
 sa2_inbox_tdoc_data = None
@@ -153,9 +151,16 @@ for k, v in tdoc_tags_in_config_file.items():
                 tdoc_tags.append(TdocTag(tag=tag, agenda_item=tag_ai))
     except Exception as e:
         print(f'Could not process tag {k}:{v}. {e}')
-if len(tdoc_tags)>0:
+if len(tdoc_tags) > 0:
     print(f'TDoc tags: {tdoc_tags}')
 
+# Load markdown configuration
+try:
+    tdoc_tags_in_config_file = config_parser['MARKDOWN']['Columns']
+    MarkdownConfig.columns_for_3gu_tdoc_export = [e.strip() for e in tdoc_tags_in_config_file.split(',')]
+    print(f'Imported configuration for Markdown export of TDocs: {MarkdownConfig.columns_for_3gu_tdoc_export}')
+except Exception as e:
+    print(f'No Markdown configuration to load {e}')
 
 print('Loaded configuration file')
 
