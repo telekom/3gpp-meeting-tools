@@ -1,6 +1,8 @@
 import platform
 import traceback
 from typing import List
+import pandas as pd
+import pyperclip
 
 from application.os import startfile
 
@@ -219,16 +221,57 @@ def set_wrap_text(wb):
 
 def set_row_height(wb):
     """
-        Sets Wrap Text for all cells in the active WorkBook
-        Args:
-            wb: The WorkBook
-        """
+    Sets Wrap Text for all cells in the active WorkBook
+    Args:
+        wb: The WorkBook
+    """
     if wb is None:
         return
     wb.Activate()
     ws = wb.ActiveSheet
     all_cells = ws.Cells
     all_cells.EntireRow.AutoFit()
+
+
+def export_columns_to_markdown(wb, columns: List[str], columns_to_scan='A:AE'):
+    """
+    Exports specific columns to Markdown and puts the content in the clipboard
+    Args:
+        wb: The WorkBook
+        columns: The columns to export, based on the first row's name
+        columns_to_scan: The number of columns to scan
+    """
+    # XlCellType enumeration
+    # https://learn.microsoft.com/en-us/office/vba/api/excel.xlcelltype
+    xlCellTypeVisible = 12
+    titles = []
+    row_list = []
+
+    def to_markdown_text(a_cell):
+        if len(a_cell.Hyperlinks) > 0:
+            return f'[{a_cell.Value}]({a_cell.Hyperlinks[0].Address})'
+        return a_cell.Value
+
+    try:
+        ws = wb.ActiveSheet
+        visible_cells_range = ws.Range(columns_to_scan).SpecialCells(xlCellTypeVisible)
+        for row in visible_cells_range.Rows:
+            row_content = tuple(to_markdown_text(cell) for cell in row.Cells)
+            if len(row_content) == 0 or row_content[0] is None:
+                break
+            if not titles:
+                titles = row_content
+            else:
+                row_list.append(row_content)
+
+        df = pd.DataFrame(row_list, columns=titles)
+        df_to_output = df.loc[:, columns]
+        markdown_table = df_to_output.to_markdown(index=False)
+        pyperclip.copy(markdown_table)
+        print(f'Copied table of length {len(markdown_table)} to clipboard')
+    except Exception as e:
+        print(f'Could not parse Excel rows: {e}')
+        traceback.print_exc()
 
 
 last_column = 'U'

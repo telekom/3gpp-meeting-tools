@@ -10,9 +10,10 @@ from pandas import DataFrame
 
 import server
 import utils.local_cache
-from application.excel import open_excel_document, set_autofilter_values
+from application.excel import open_excel_document, set_autofilter_values, export_columns_to_markdown
 from application.meeting_helper import tdoc_tags, open_sa2_session_plan_update_url
 from application.os import open_url, startfile
+from config.markdown import MarkdownConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from gui.common.generic_table import cloud_icon, cloud_download_icon
@@ -211,6 +212,14 @@ class TdocsTableFromExcel(GenericTable):
         )
         self.open_excel_btn.pack(side=tkinter.LEFT)
 
+        self.excel_to_markdown_btn = ttk.Button(
+            self.top_frame,
+            text='Excel2Markdown',
+            command=self.current_excel_rows_to_clipboard,
+            width=13
+        )
+        self.excel_to_markdown_btn.pack(side=tkinter.LEFT)
+
         self.download_btn = ttk.Button(
             self.top_frame,
             text='Download',
@@ -283,6 +292,10 @@ class TdocsTableFromExcel(GenericTable):
         if len(tdoc_list) > 0:
             print(f'Filtering TDoc list for {len(tdoc_list)} TDocs shown')
             set_autofilter_values(wb=wb, value_list=tdoc_list)
+
+    def current_excel_rows_to_clipboard(self):
+        wb = open_excel_document(self.tdoc_excel_path)
+        export_columns_to_markdown(wb, MarkdownConfig.columns_for_3gu_tdoc_export)
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
