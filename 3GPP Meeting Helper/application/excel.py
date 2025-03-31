@@ -118,6 +118,28 @@ def set_autofilter_values(
         traceback.print_exc()
 
 
+def clear_autofilter(
+        wb,
+        ws_name=None,
+        already_activated=False
+):
+    if wb is None:
+        return
+    try:
+        if not already_activated:
+            wb.Activate()
+        if ws_name is None:
+            ws = wb.ActiveSheet
+        else:
+            ws = wb.Sheets(ws_name)
+            ws.Activate()
+
+        ws.Range("1:1").AutoFilter()
+    except Exception as e:
+        print(f'Could not clear autofilter: {e}')
+        traceback.print_exc()
+
+
 def close_wb(wb):
     if wb is None:
         return
@@ -233,13 +255,15 @@ def set_row_height(wb):
     all_cells.EntireRow.AutoFit()
 
 
-def export_columns_to_markdown(wb, columns: List[str], columns_to_scan='A:AE'):
+def export_columns_to_markdown(wb, columns: List[str], columns_to_scan='A:AE',
+                               copy_output_to_clipboard=True) -> str | None:
     """
     Exports specific columns to Markdown and puts the content in the clipboard
     Args:
+        copy_output_to_clipboard: Whether the output table should be also copied to the clipboard
         wb: The WorkBook
         columns: The columns to export, based on the first row's name
-        columns_to_scan: The number of columns to scan
+        columns_to_scan: The number of columns to scan/consider for the processing
     """
     # XlCellType enumeration
     # https://learn.microsoft.com/en-us/office/vba/api/excel.xlcelltype
@@ -267,11 +291,14 @@ def export_columns_to_markdown(wb, columns: List[str], columns_to_scan='A:AE'):
         df = pd.DataFrame(row_list, columns=titles)
         df_to_output = df.loc[:, columns]
         markdown_table = df_to_output.to_markdown(index=False)
-        pyperclip.copy(markdown_table)
-        print(f'Copied table of length {len(markdown_table)} to clipboard')
+        if copy_output_to_clipboard:
+            pyperclip.copy(markdown_table)
+            print(f'Copied table of length {len(markdown_table)} to clipboard')
+        return markdown_table
     except Exception as e:
         print(f'Could not parse Excel rows: {e}')
         traceback.print_exc()
+        return None
 
 
 last_column = 'U'
