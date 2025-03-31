@@ -298,6 +298,7 @@ class TdocsTableFromExcel(GenericTable):
     def open_and_filter_excel(self):
         wb = open_excel_document(self.tdoc_excel_path)
         tdoc_list = self.tdocs_current_df.index.tolist()
+        clear_autofilter(wb=wb)
         if len(tdoc_list) > 0:
             print(f'Filtering TDoc list for {len(tdoc_list)} TDocs shown')
             set_autofilter_values(wb=wb, value_list=tdoc_list)
@@ -318,8 +319,9 @@ class TdocsTableFromExcel(GenericTable):
         is_ls_in = self.tdocs_df['Type'] == 'LS in'
         is_ls_out = self.tdocs_df['Type'] == 'LS out'
 
-        is_approved_or_agreed = (self.tdocs_df['TDoc Status'] == 'agreed') | (
-                self.tdocs_df['TDoc Status'] == 'approved')
+        is_approved_or_agreed = ((self.tdocs_df['TDoc Status'] == 'agreed') |
+                                 (self.tdocs_df['TDoc Status'] == 'approved') |
+                                 (self.tdocs_df['TDoc Status'] == 'endorsed'))
 
         pcrs_to_show = self.tdocs_df[(is_pcr & is_approved_or_agreed)]
         crs_to_show = self.tdocs_df[(is_cr & is_approved_or_agreed)]
@@ -337,7 +339,10 @@ class TdocsTableFromExcel(GenericTable):
 
             if len(index_list) > 0:
                 print(f'{ai_name}: {len(index_list)} LS IN/OUT to export')
-                set_autofilter_values(wb=wb, value_list=index_list)
+                set_autofilter_values(
+                    wb=wb,
+                    value_list=index_list,
+                    sort_by_sort_order_within_agenda_item=True)
                 markdown_output = export_columns_to_markdown(
                     wb,
                     MarkdownConfig.columns_for_3gu_tdoc_export_ls,
@@ -352,7 +357,10 @@ class TdocsTableFromExcel(GenericTable):
 
             if len(index_list) > 0:
                 print(f'{ai_name}: {len(index_list)} pCRs to export')
-                set_autofilter_values(wb=wb, value_list=index_list)
+                set_autofilter_values(
+                    wb=wb,
+                    value_list=index_list,
+                    sort_by_sort_order_within_agenda_item=True)
                 markdown_output = export_columns_to_markdown(
                     wb,
                     MarkdownConfig.columns_for_3gu_tdoc_export_pcr,
@@ -373,7 +381,10 @@ class TdocsTableFromExcel(GenericTable):
 
             if len(index_list) > 0:
                 print(f'{ai_name}: {len(index_list)} CRs to export')
-                set_autofilter_values(wb=wb, value_list=index_list)
+                set_autofilter_values(
+                    wb=wb,
+                    value_list=index_list,
+                    sort_by_sort_order_within_agenda_item=True)
                 markdown_output = export_columns_to_markdown(
                     wb,
                     MarkdownConfig.columns_for_3gu_tdoc_export_cr,
@@ -389,9 +400,11 @@ class TdocsTableFromExcel(GenericTable):
                 print(f'{ai_name}: {len(index_list)} CRs')
 
         for ai_name, summary_text in ai_summary.items():
-            summary_text = f'[{self.meeting.meeting_name}]({self.meeting.meeting_folder_url})\n\n{summary_text}'
+            summary_text = f'<!--- [{self.meeting.meeting_name}]({self.meeting.meeting_folder_url}) --->\n\n{summary_text}'
             with open(os.path.join(local_folder, f'{ai_name}.md'), 'w') as f:
                 f.write(summary_text)
+
+        print(f'Completed Markdown export for {self.meeting.meeting_name}')
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
