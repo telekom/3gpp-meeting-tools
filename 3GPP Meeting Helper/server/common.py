@@ -538,13 +538,13 @@ meeting_ftp_pages_per_group: dict[str, str] = {
     'C1': 'https://www.3gpp.org/ftp/tsg_ct/WG1_mm-cc-sm_ex-CN1',
     'C3': 'https://www.3gpp.org/ftp/tsg_ct/WG2_capability_ex-T2',
     'C4': 'https://www.3gpp.org/ftp/tsg_ct/WG3_interworking_ex-CN3',
-    'C6': 'https://www.3gpp.org/ftp/tsg_ct/	WG4_protocollars_ex-CN4',
+    'C6': 'https://www.3gpp.org/ftp/tsg_ct/WG4_protocollars_ex-CN4',
     'RP': 'https://www.3gpp.org/ftp/tsg_ran/TSG_RAN',
     'R1': 'https://www.3gpp.org/ftp/tsg_ran/WG1_RL1',
     'R2': 'https://www.3gpp.org/ftp/tsg_ran/WG2_RL2',
     'R3': 'https://www.3gpp.org/ftp/tsg_ran/WG3_Iu',
     'R4': 'https://www.3gpp.org/ftp/tsg_ran/WG4_Radio',
-    'R5': 'https://www.3gpp.org/ftp/tsg_ran/	WG5_Test_ex-T1',
+    'R5': 'https://www.3gpp.org/ftp/tsg_ran/WG5_Test_ex-T1',
 }
 
 
