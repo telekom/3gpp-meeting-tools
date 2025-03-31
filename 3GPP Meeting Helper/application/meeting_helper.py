@@ -158,9 +158,30 @@ if len(tdoc_tags) > 0:
 try:
     tdoc_tags_in_config_file = config_parser['MARKDOWN']['Columns']
     MarkdownConfig.columns_for_3gu_tdoc_export = [e.strip() for e in tdoc_tags_in_config_file.split(',')]
-    print(f'Imported configuration for Markdown export of TDocs: {MarkdownConfig.columns_for_3gu_tdoc_export}')
+    print(f"Imported configuration for Markdown export of current Excel's TDocs: {MarkdownConfig.columns_for_3gu_tdoc_export}")
 except Exception as e:
     print(f'No Markdown configuration to load {e}')
+
+try:
+    tdoc_tags_in_config_file = config_parser['MARKDOWN']['ExportColumnsLs']
+    MarkdownConfig.columns_for_3gu_tdoc_export_ls = [e.strip() for e in tdoc_tags_in_config_file.split(',')]
+    print(f"Imported configuration for Markdown export of current meeting's LS: {MarkdownConfig.columns_for_3gu_tdoc_export_ls}")
+except Exception as e:
+    print(f'No LS Markdown configuration to load {e}')
+
+try:
+    tdoc_tags_in_config_file = config_parser['MARKDOWN']['ExportColumnsPcr']
+    MarkdownConfig.columns_for_3gu_tdoc_export_pcr = [e.strip() for e in tdoc_tags_in_config_file.split(',')]
+    print(f"Imported configuration for Markdown export of current meeting's pCRs: {MarkdownConfig.columns_for_3gu_tdoc_export_pcr}")
+except Exception as e:
+    print(f'No pCR Markdown configuration to load {e}')
+
+try:
+    tdoc_tags_in_config_file = config_parser['MARKDOWN']['ExportColumnsCr']
+    MarkdownConfig.columns_for_3gu_tdoc_export_cr = [e.strip() for e in tdoc_tags_in_config_file.split(',')]
+    print(f"Imported configuration for Markdown export of current meeting's CRs: {MarkdownConfig.columns_for_3gu_tdoc_export_cr}")
+except Exception as e:
+    print(f'No CR Markdown configuration to load {e}')
 
 print('Loaded configuration file')
 
