@@ -319,9 +319,10 @@ class TdocsTableFromExcel(GenericTable):
         is_ls_out = self.tdocs_df['Type'] == 'LS out'
 
         is_approved_or_agreed = (self.tdocs_df['TDoc Status'] == 'agreed') | (
-                    self.tdocs_df['TDoc Status'] == 'approved')
+                self.tdocs_df['TDoc Status'] == 'approved')
 
-        pcrs_crs_to_show = self.tdocs_df[((is_cr | is_pcr) & is_approved_or_agreed)]
+        pcrs_to_show = self.tdocs_df[(is_pcr & is_approved_or_agreed)]
+        crs_to_show = self.tdocs_df[(is_cr & is_approved_or_agreed)]
         ls_to_show = self.tdocs_df[(is_ls_out & is_approved_or_agreed) | is_ls_in]
 
         local_folder = self.meeting.local_export_folder_path
@@ -330,6 +331,7 @@ class TdocsTableFromExcel(GenericTable):
 
         ai_summary = dict()
 
+        # Export LSs
         for ai_name, group in ls_to_show.groupby('Agenda item'):
             index_list = list(group.index)
 
@@ -338,31 +340,53 @@ class TdocsTableFromExcel(GenericTable):
                 set_autofilter_values(wb=wb, value_list=index_list)
                 markdown_output = export_columns_to_markdown(
                     wb,
-                    MarkdownConfig.columns_for_3gu_tdoc_export,
+                    MarkdownConfig.columns_for_3gu_tdoc_export_ls,
                     copy_output_to_clipboard=False)
                 ai_summary[ai_name] = f'Following LS were received and/or answered:\n\n{markdown_output}'
             else:
                 print(f'{ai_name}: {len(index_list)} LS IN/OUT')
 
-        for ai_name, group in pcrs_crs_to_show.groupby('Agenda item'):
+        # Export pCRs
+        for ai_name, group in pcrs_to_show.groupby('Agenda item'):
             index_list = list(group.index)
 
             if len(index_list) > 0:
-                print(f'{ai_name}: {len(index_list)} CRs/pCRs to export')
+                print(f'{ai_name}: {len(index_list)} pCRs to export')
                 set_autofilter_values(wb=wb, value_list=index_list)
                 markdown_output = export_columns_to_markdown(
                     wb,
-                    MarkdownConfig.columns_for_3gu_tdoc_export,
+                    MarkdownConfig.columns_for_3gu_tdoc_export_pcr,
                     copy_output_to_clipboard=False)
 
-                summary_text = f'Following (p)CRs were agreed:\n\n{markdown_output}'
+                summary_text = f'Following pCRs were agreed:\n\n{markdown_output}'
                 if ai_name in ai_summary:
                     ai_summary[ai_name] = f'{ai_summary[ai_name]}\n\n{summary_text}'
                 else:
                     ai_summary[ai_name] = f'{summary_text}'
 
             else:
-                print(f'{ai_name}: {len(index_list)} CRs/pCRs')
+                print(f'{ai_name}: {len(index_list)} pCRs')
+
+        # Export CRs
+        for ai_name, group in crs_to_show.groupby('Agenda item'):
+            index_list = list(group.index)
+
+            if len(index_list) > 0:
+                print(f'{ai_name}: {len(index_list)} CRs to export')
+                set_autofilter_values(wb=wb, value_list=index_list)
+                markdown_output = export_columns_to_markdown(
+                    wb,
+                    MarkdownConfig.columns_for_3gu_tdoc_export_cr,
+                    copy_output_to_clipboard=False)
+
+                summary_text = f'Following CRs were agreed:\n\n{markdown_output}'
+                if ai_name in ai_summary:
+                    ai_summary[ai_name] = f'{ai_summary[ai_name]}\n\n{summary_text}'
+                else:
+                    ai_summary[ai_name] = f'{summary_text}'
+
+            else:
+                print(f'{ai_name}: {len(index_list)} CRs')
 
         for ai_name, summary_text in ai_summary.items():
             summary_text = f'[{self.meeting.meeting_name}]({self.meeting.meeting_folder_url})\n\n{summary_text}'
