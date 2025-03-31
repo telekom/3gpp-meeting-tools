@@ -1,4 +1,5 @@
 import numbers
+import os.path
 import textwrap
 import tkinter
 from tkinter import ttk
@@ -10,7 +11,7 @@ from pandas import DataFrame
 
 import server
 import utils.local_cache
-from application.excel import open_excel_document, set_autofilter_values, export_columns_to_markdown
+from application.excel import open_excel_document, set_autofilter_values, export_columns_to_markdown, clear_autofilter
 from application.meeting_helper import tdoc_tags, open_sa2_session_plan_update_url
 from application.os import open_url, startfile
 from config.markdown import MarkdownConfig
@@ -230,11 +231,19 @@ class TdocsTableFromExcel(GenericTable):
 
         self.cache_btn = ttk.Button(
             self.top_frame,
-            text='Cache',
+            text='Local',
             command=lambda: startfile(meeting.local_folder_path),
             width=5
         )
         self.cache_btn.pack(side=tkinter.LEFT)
+
+        self.markdown_export_per_ai_btn = ttk.Button(
+            self.top_frame,
+            text='Markdown/AI',
+            command=self.export_ais_to_markdown,
+            width=11
+        )
+        self.markdown_export_per_ai_btn.pack(side=tkinter.LEFT)
 
         # SA2-specific buttons
         if self.meeting.working_group_enum == WorkingGroup.S2 and self.meeting.meeting_is_now:
@@ -296,6 +305,69 @@ class TdocsTableFromExcel(GenericTable):
     def current_excel_rows_to_clipboard(self):
         wb = open_excel_document(self.tdoc_excel_path)
         export_columns_to_markdown(wb, MarkdownConfig.columns_for_3gu_tdoc_export)
+
+    def export_ais_to_markdown(self):
+        # We want to take only the following:
+        #   - LS IN regardless of status
+        #   - LS OUT: only approved or agreed
+        #   - CR: only approved or agreed
+        #   - pCR: only approved or agreed
+
+        is_cr = self.tdocs_df['Type'] == 'CR'
+        is_pcr = self.tdocs_df['Type'] == 'pCR'
+        is_ls_in = self.tdocs_df['Type'] == 'LS in'
+        is_ls_out = self.tdocs_df['Type'] == 'LS out'
+
+        is_approved_or_agreed = (self.tdocs_df['TDoc Status'] == 'agreed') | (
+                    self.tdocs_df['TDoc Status'] == 'approved')
+
+        pcrs_crs_to_show = self.tdocs_df[((is_cr | is_pcr) & is_approved_or_agreed)]
+        ls_to_show = self.tdocs_df[(is_ls_out & is_approved_or_agreed) | is_ls_in]
+
+        local_folder = self.meeting.local_export_folder_path
+        wb = open_excel_document(self.tdoc_excel_path)
+        clear_autofilter(wb=wb)
+
+        ai_summary = dict()
+
+        for ai_name, group in ls_to_show.groupby('Agenda item'):
+            index_list = list(group.index)
+
+            if len(index_list) > 0:
+                print(f'{ai_name}: {len(index_list)} LS IN/OUT to export')
+                set_autofilter_values(wb=wb, value_list=index_list)
+                markdown_output = export_columns_to_markdown(
+                    wb,
+                    MarkdownConfig.columns_for_3gu_tdoc_export,
+                    copy_output_to_clipboard=False)
+                ai_summary[ai_name] = f'Following LS were received and/or answered:\n\n{markdown_output}'
+            else:
+                print(f'{ai_name}: {len(index_list)} LS IN/OUT')
+
+        for ai_name, group in pcrs_crs_to_show.groupby('Agenda item'):
+            index_list = list(group.index)
+
+            if len(index_list) > 0:
+                print(f'{ai_name}: {len(index_list)} CRs/pCRs to export')
+                set_autofilter_values(wb=wb, value_list=index_list)
+                markdown_output = export_columns_to_markdown(
+                    wb,
+                    MarkdownConfig.columns_for_3gu_tdoc_export,
+                    copy_output_to_clipboard=False)
+
+                summary_text = f'Following (p)CRs were agreed:\n\n{markdown_output}'
+                if ai_name in ai_summary:
+                    ai_summary[ai_name] = f'{ai_summary[ai_name]}\n\n{summary_text}'
+                else:
+                    ai_summary[ai_name] = f'{summary_text}'
+
+            else:
+                print(f'{ai_name}: {len(index_list)} CRs/pCRs')
+
+        for ai_name, summary_text in ai_summary.items():
+            summary_text = f'[{self.meeting.meeting_name}]({self.meeting.meeting_folder_url})\n\n{summary_text}'
+            with open(os.path.join(local_folder, f'{ai_name}.md'), 'w') as f:
+                f.write(summary_text)
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)

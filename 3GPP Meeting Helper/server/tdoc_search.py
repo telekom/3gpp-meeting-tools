@@ -224,6 +224,18 @@ class MeetingEntry(NamedTuple):
         return full_path
 
     @property
+    def local_export_folder_path(self) -> str:
+        """
+        For a given meeting, returns the cache folder located at meeting_folder/Export and creates
+        it if it does not exist
+        Returns:
+
+        """
+        full_path = os.path.join(self.local_folder_path, 'Export')
+        utils.local_cache.create_folder_if_needed(full_path, create_dir=True)
+        return full_path
+
+    @property
     def local_tdoc_list_excel_path(self):
         return os.path.join(self.local_agenda_folder_path, 'TDoc_List.xlsx')
 
