@@ -92,7 +92,8 @@ def set_autofilter_values(
         value_list: List[str],
         ws_name=None,
         already_activated=False,
-        column_one_indexed=1
+        column_one_indexed=1,
+        sort_by_sort_order_within_agenda_item=False
 ):
     if wb is None:
         return
@@ -113,6 +114,32 @@ def set_autofilter_values(
             Field=column_one_indexed,
             Operator=7
         )
+
+        # XlSortOrder https://learn.microsoft.com/en-us/office/vba/api/excel.xlsortorder
+        # XlYesNoGuess https://learn.microsoft.com/en-us/office/vba/api/excel.xlyesnoguess
+        if sort_by_sort_order_within_agenda_item:
+            # https://learn.microsoft.com/en-us/office/vba/api/excel.xlsorton
+            xlSortOnValues = 0
+            # https://learn.microsoft.com/en-us/office/vba/api/excel.xlsortorder
+            xlAscending = 1
+            xlDescending = 2
+            # https://learn.microsoft.com/en-us/office/vba/api/excel.xlsortdataoption
+            xlSortNormal = 0
+            # https://learn.microsoft.com/en-us/office/vba/api/excel.xlyesnoguess
+            xlYes = 1
+            # https://learn.microsoft.com/en-us/office/vba/api/excel.xlsortorientation
+
+
+            # https://stackoverflow.com/questions/54040541/sorting-a-row-in-an-excel-file-by-win32com
+            ws.AutoFilter.Sort.SortFields.Clear()
+            ws.AutoFilter.Sort.SortFields.Add(
+                Key=ws.Range("M1"),
+                SortOn=xlSortOnValues,
+                Order=xlAscending,
+                DataOption=xlSortNormal)
+            ws.AutoFilter.Sort.Header = xlYes
+            ws.AutoFilter.Sort.MatchCase = False
+            ws.AutoFilter.Sort.Apply()
     except Exception as e:
         print(f'Could not set autofilter: {e}')
         traceback.print_exc()
