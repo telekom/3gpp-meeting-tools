@@ -376,7 +376,8 @@ def filter_markdown_text(markdown_text: str) -> str:
 [ full""", ')[ full').replace("""| 
 [Sophia""", '| [Sophia').replace(""")
  [ full document list]""", ')[ full document list]').replace("""\\Report/) | 
-[""", """\\Report/) | [""")
+[""", """\\Report/) | [""").replace("""| 
+[Stor-Göteborg]""", "| [Göteborg]")
 
     # Catches when the report is not yet ready
     full_text = re.sub(r"(\d\d\d\d-\d\d-\d\d) \| [\r\n]{1,}\[", r"\1 | [", full_text, flags=re.M)
@@ -583,7 +584,7 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
             # Try to add information parsed from FTP server
             try:
                 matching_meeting = [m for m in group_meetings_ftp if m[0] == meeting_number][0]
-                print(f"Match in FT server for {meeting_name}: {matching_meeting}")
+                print(f"Match in FTP server for {meeting_name}: {matching_meeting}")
                 meeting_folder_url = matching_meeting[2]
                 meeting_url_docs = server_url_replace(f"{meeting_folder_url}{'/Docs/'}")
             except Exception as e:
