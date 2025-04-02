@@ -18,8 +18,9 @@ from config.markdown import MarkdownConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from gui.common.generic_table import cloud_icon, cloud_download_icon
-from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url
-from server.tdoc_search import MeetingEntry, batch_search_and_download_tdocs, search_meeting_for_tdoc
+from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url, \
+    MeetingEntry
+from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
 from tdoc.utils import are_generic_tdocs
 
 
@@ -75,11 +76,17 @@ class TdocsTableFromExcel(GenericTable):
                 out_value = out_value + input_split[2]
             return out_value
 
-        self.tdocs_df['Sort Order'] = self.tdocs_df['Agenda item'].map(agenda_sort_item)
+        try:
+            self.tdocs_df['Sort Order'] = self.tdocs_df['Agenda item'].map(agenda_sort_item)
+        except AttributeError as e:
+            print(f"Could not order by Agenda Item: {e}")
+        try:
+            self.tdocs_df = self.tdocs_df.sort_values(by=[
+                'Sort Order',
+                self.tdocs_df.index.name])
+        except KeyError as e:
+            print(f"Could not order by Sort Order {e}")
 
-        self.tdocs_df = self.tdocs_df.sort_values(by=[
-            'Sort Order',
-            self.tdocs_df.index.name])
         self.tdocs_current_df = self.tdocs_df
 
         # Fill in drop-down filters

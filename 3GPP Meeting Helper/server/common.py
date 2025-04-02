@@ -1,10 +1,14 @@
 import concurrent.futures
+import datetime
 import os.path
 import re
 import socket
 import traceback
 from enum import Enum
 from typing import NamedTuple, List
+
+import tdoc.utils
+import utils
 
 from config.networking import private_server, public_server, wg_folder_public_server, wg_folder_private_server
 from server.connection import get_remote_file
@@ -555,3 +559,203 @@ apis_3gpp_forge_url = 'https://forge.3gpp.org/rep/all/5G_APIs/'
 def get_tdoc_details_url(tdoc_id: str):
     # e.g. https://portal.3gpp.org/ngppapp/CreateTDoc.aspx?mode=view&contributionUid=SP-241424
     return f'https://portal.3gpp.org/ngppapp/CreateTDoc.aspx?mode=view&contributionUid={tdoc_id}'
+
+
+class MeetingEntry(NamedTuple):
+    meeting_group: str
+    meeting_number: str
+    meeting_url_3gu: str
+    meeting_name: str
+    meeting_location: str
+    meeting_url_invitation: str
+    start_date: datetime.datetime
+    meeting_url_agenda: str
+    end_date: datetime.datetime
+    meeting_url_report: str
+    tdoc_start: tdoc.utils.GenericTdoc | None
+    tdoc_end: tdoc.utils.GenericTdoc | None
+    meeting_url_docs: str
+    meeting_folder_url: str
+
+    @property
+    def meeting_folder(self) -> str | None:
+        """
+        The remote meeting folder name in the 3GPP server's group directory based on the meeting_folder URL
+        Returns: The remote folder of the meeting in the 3GPP server. If the folder URL is not set, it may return None
+
+        """
+        folder_url = self.meeting_folder_url
+        if folder_url is None or folder_url == '':
+            return folder_url
+        split_folder_url = [f for f in folder_url.split('/') if f != '']
+        return split_folder_url[-1]
+
+    @property
+    def meeting_id(self) -> str | None:
+        """
+        Parses the meeting ID from the Meeting's URL. This ID is used in 3GU to identify the meeting, e.g.
+        https://portal.3gpp.org/Home.aspx#/meeting?MtgId=60623 -> 60623
+        Returns: The ID of the meeting. None if the ID could not be parsed
+
+        """
+        if self.meeting_url_3gu is None:
+            return None
+
+        id_match = meeting_id_regex.match(self.meeting_url_3gu)
+
+        if id_match is None:
+            return None
+
+        return id_match.group('meeting_id')
+
+    @property
+    def meeting_calendar_ics_url(self) -> str | None:
+        """
+        Generates a URL for the 3GPP server containing the calendar entry in ICS format
+        Returns: The URL of the ICS file
+
+        """
+        the_meeting_id = self.meeting_id
+        if the_meeting_id is None:
+            return None
+        return f"https://portal.3gpp.org/webservices/Rest/Meetings.svc/GetiCal/{the_meeting_id}.ics"
+
+    @property
+    def meeting_tdoc_list_url(self) -> str | None:
+        """
+        Returns, based on the meeting ID, the TDoc list URL from the 3GPP portal
+        Returns: The URL, None if the meeting ID is not available/parseable
+        """
+        meeting_id = self.meeting_id
+        if meeting_id is None:
+            return None
+
+        # e.g. https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=60394
+        return 'https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=' + meeting_id
+
+    @property
+    def meeting_tdoc_list_excel_url(self) -> str | None:
+        """
+        Returns, based on the meeting ID, the TDoc list URL for the Excel file from the 3GPP portal
+        Returns: The URL, None if the meeting ID is not available/parseable
+        """
+        meeting_id = self.meeting_id
+        if meeting_id is None:
+            return None
+
+        # e.g. https://portal.3gpp.org/ngppapp/GenerateDocumentList.aspx?meetingId=60394
+        return 'https://portal.3gpp.org/ngppapp/GenerateDocumentList.aspx?meetingId=' + meeting_id
+
+    def get_tdoc_url(self, tdoc_to_get: tdoc.utils.GenericTdoc | str):
+        """
+        For a string containing a potential TDoc, returns a URL concatenating the Docs folder and the input TDoc and
+        adds a .'zip' extension.
+        Args:
+            tdoc_to_get: A TDoc ID. Either an object (GenericTdoc) or string. Note that the input is NOT checked!
+
+        Returns: A URL
+
+        """
+        if isinstance(tdoc_to_get, tdoc.utils.GenericTdoc):
+            tdoc_file = tdoc_to_get.__str__() + '.zip'
+        else:
+            tdoc_file = tdoc_to_get + '.zip'
+        return self.meeting_url_docs + tdoc_file
+
+    @property
+    def local_folder_path(self) -> str | None:
+        """
+        For a given meeting, returns the cache folder and creates it if it does not exist
+        Returns:
+
+        """
+        folder_name = self.meeting_folder
+        if folder_name is None:
+            return None
+        full_path = os.path.join(utils.local_cache.get_cache_folder(), folder_name)
+        return full_path
+
+    @property
+    def local_agenda_folder_path(self) -> str:
+        """
+        For a given meeting, returns the cache folder located at meeting_folder/Agenda and creates
+        it if it does not exist
+        Returns:
+
+        """
+        full_path = os.path.join(self.local_folder_path, 'Agenda')
+        utils.local_cache.create_folder_if_needed(full_path, create_dir=True)
+        return full_path
+
+    @property
+    def local_export_folder_path(self) -> str:
+        """
+        For a given meeting, returns the cache folder located at meeting_folder/Export and creates
+        it if it does not exist
+        Returns:
+
+        """
+        full_path = os.path.join(self.local_folder_path, 'Export')
+        utils.local_cache.create_folder_if_needed(full_path, create_dir=True)
+        return full_path
+
+    @property
+    def local_tdoc_list_excel_path(self):
+        return os.path.join(self.local_agenda_folder_path, 'TDoc_List.xlsx')
+
+    @property
+    def is_li(self):
+        return '-LI' in self.meeting_number
+
+    @property
+    def meeting_folders_3gpp_wifi_url(self) -> List[str]:
+        wg = WorkingGroup.from_string(self.meeting_group)
+        candidate_folders = get_document_or_folder_url(
+            server_type=ServerType.PRIVATE,
+            document_type=DocumentType.TDOC,
+            meeting_folder_in_server='',
+            tdoc_type=TdocType.NORMAL,
+            working_group=wg
+        )
+        return candidate_folders
+
+    @property
+    def working_group_enum(self) -> WorkingGroup:
+        return WorkingGroup.from_string(self.meeting_group)
+
+    def get_tdoc_3gpp_wifi_url(self, tdoc_id_str: str) -> List[str]:
+        candidate_folders = self.meeting_folders_3gpp_wifi_url
+        candidate_urls = [f'{f}{tdoc_id_str}.zip' for f in candidate_folders]
+        return candidate_urls
+
+    @property
+    def meeting_is_now(self) -> bool:
+        if self.start_date is None or self.end_date is None:
+            return False
+
+        # Add some time delta
+        days_delta = datetime.timedelta(days=3)
+        if self.start_date - days_delta < datetime.datetime.now() < self.end_date + days_delta:
+            return True
+        return False
+
+    def get_tdoc_local_path(self, tdoc_str: str) -> str | None:
+        """
+        Generates the local path for a given TDoc
+        Args:
+            tdoc_str: The TDoc for which the local path is queried
+
+        Returns: The TDoc local path. None if it could not be generated, e.g. if the local folder cannot be established.
+        """
+        local_folder = self.local_folder_path
+        if local_folder is None:
+            return None
+        local_file = os.path.join(
+            local_folder,
+            str(tdoc_str),
+            f'{tdoc_str}.zip')
+        return local_file
+
+
+# Used to parse the meeting ID
+meeting_id_regex = re.compile(r'.*meeting\?MtgId=(?P<meeting_id>[\d]+)')

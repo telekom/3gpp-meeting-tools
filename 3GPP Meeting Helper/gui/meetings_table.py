@@ -14,8 +14,8 @@ from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
-from server.common import download_file_to_location
-from server.tdoc_search import MeetingEntry, search_meeting_for_tdoc, compare_two_tdocs
+from server.common import download_file_to_location, MeetingEntry
+from server.tdoc_search import search_meeting_for_tdoc, compare_two_tdocs
 from tdoc.utils import is_generic_tdoc
 from utils.local_cache import file_exists
 import gui.common.utils
