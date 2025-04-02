@@ -468,7 +468,7 @@ def get_tdocs_by_agenda_with_cache(path_or_html, meeting_server_folder='') -> Td
     if len(path_or_html) > 1000:
         print('TDocsByAgenda retrieval based on HTML content')
 
-        # Changed to hashlib as it is reinitialized beween sessions.
+        # Changed to hashlib as it is reinitialized between sessions.
         # See https://stackoverflow.com/questions/27522626/hash-function-in-python-3-3-returns-different-results-between-sessions
         m = hashlib.md5()
         m.update(path_or_html)
