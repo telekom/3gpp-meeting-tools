@@ -41,7 +41,7 @@ class FolderList(NamedTuple):
     location: str
     folders: List[str]
     files: List[str]
-    folders_with_dates: Tuple[str, datetime.datetime]
+    folders_with_dates: List[Tuple[str, datetime.datetime]]
 
 
 ftp_list_regex = re.compile(r'(\d?\d\/\d?\d\/\d\d\d\d) *(\d?\d:\d\d) (AM|PM) *(<dir>|\d+) *')
@@ -129,7 +129,10 @@ def parse_3gpp_http_ftp_v2(html):
         entry_time = row[1]
         if row_is_dir:
             folders.append(entry_name)
-            folders_with_dates.append((entry_name, datetime.datetime.strptime(entry_time, '%Y/%m/%d %H:%M')))
+            try:
+                folders_with_dates.append((entry_name, datetime.datetime.strptime(entry_time, '%Y/%m/%d %H:%M')))
+            except ValueError as e:
+                print(f'Could not parse time of row {entry_name}: {e}')
         else:
             files.append(entry_name)
 
