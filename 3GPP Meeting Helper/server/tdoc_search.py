@@ -32,6 +32,7 @@ markup_cache_files_ftp: Dict[str, str] = {}
 
 def initialize():
     print(f'Starting meeting list one-time initialization')
+    start = time.time()
     global initialized, local_cache_folder, html_cache_files, markup_cache_files, \
         html_cache_files_ftp, markup_cache_files_ftp
     local_cache_folder = get_meeting_list_folder()
@@ -47,7 +48,8 @@ def initialize():
                             meeting_pages_per_group.items()}
     markup_cache_files_ftp = {k: os.path.join(local_cache_folder, k + '_ftp.md') for k, v in
                               meeting_pages_per_group.items()}
-    print(f'Finished meeting list one-time initialization')
+    end = time.time()
+    print(f'Finished meeting list one-time initialization ({end-start:0.2f}s)')
     initialized = True
 
 
