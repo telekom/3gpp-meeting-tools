@@ -8,6 +8,7 @@ from re import Pattern
 from typing import NamedTuple, List, Tuple
 
 from lxml import html as lh
+from lxml.etree import tostring
 
 import utils.local_cache
 
@@ -114,28 +115,43 @@ def parse_3gpp_http_ftp_v2(html):
     parsed = lh.fromstring(html)
 
     location = parsed.xpath('head/title')[0].text_content().replace('Directory Listing', '').strip()
-    rows = [(e.xpath('td/a')[0].attrib['href'],  # URL
-             e.xpath('td')[2].text_content().replace('\n', '').replace('\t', '').strip(),  # Date
-             e.xpath('td/img')[0].attrib['src']  # Icon
-             ) for e in parsed.xpath('body/form/table/tbody/tr')]
+
+    # Examples:
+    #   - ['TSGS2_07', '2008/11/04', '20:21']
+    #   - ['Ad-hoc_meetings', '2011/05/05', '5:35']
+    row_list = [(
+        list(filter(
+            None,
+            e.text_content().replace('\r', '').replace('\n', '').replace('\t', '').strip().split(' '))),
+        '/ftp/geticon.axd?file=' in tostring(e, encoding=str)
+    )
+        for e in parsed.xpath('body/form/table/tbody/tr')]
 
     folders = []
     files = []
     folders_with_dates = []
-    for row in rows:
-        split_url = row[0].split('/')
-        row_is_dir = (row[2] == '/ftp/geticon.axd?file=')
-        entry_name = split_url[-1]
-        entry_time = row[1]
+
+    parsed_folder_count = 0
+    for row in row_list:
+        row_content = row[0]
+        row_is_dir = row[1]
+
+        entry_name = row_content[0]
+        entry_date = row_content[1]
+        entry_time = row_content[2]
+
+        entry_datetime = f'{entry_date} {entry_time}'
         if row_is_dir:
             folders.append(entry_name)
             try:
-                folders_with_dates.append((entry_name, datetime.datetime.strptime(entry_time, '%Y/%m/%d %H:%M')))
+                folders_with_dates.append((entry_name, datetime.datetime.strptime(entry_datetime, '%Y/%m/%d %H:%M')))
+                parsed_folder_count = parsed_folder_count + 1
             except ValueError as e:
-                print(f'Could not parse time of row {entry_name}: {e}')
+                print(f'Could not parse time of row {row}: {e}')
         else:
             files.append(entry_name)
 
+    print(f'Parsed {parsed_folder_count} folders from HTML file')
     return FolderList(location, folders, files, folders_with_dates)
 
 
@@ -252,7 +268,6 @@ def get_cache_filepath(meeting_folder_name, html_hash):
     return full_path
 
 
-
 class MeetingData:
     """Allows easy access to the overall meeting data from a list of meetings and provides convenient mapping
     functions"""
@@ -303,5 +318,3 @@ class MeetingData:
     def get_meetings_for_given_year(self, year):
         filtered_meeting_data = [meeting for meeting in self._meeting_data if meeting.date.year == year]
         return MeetingData(filtered_meeting_data)
-
-
