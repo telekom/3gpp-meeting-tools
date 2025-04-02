@@ -1,3 +1,4 @@
+import hashlib
 import os
 import traceback
 from typing import Callable
@@ -197,7 +198,8 @@ def get_specs_cache_folder(create_dir=True):
 
 
 def get_work_items_cache_folder(create_dir=True):
-    folder_name = os.path.expanduser(os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'work_items', 'server_cache'))
+    folder_name = os.path.expanduser(
+        os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'work_items', 'server_cache'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
@@ -211,3 +213,9 @@ def get_private_server_tdocs_by_agenda_local_cache(create_dir=True):
     cache_folder = get_cache_folder(create_dir)
     cache_file = os.path.join(cache_folder, '3gpp_server_TdocsByAgenda.html')
     return cache_file
+
+
+def hash_file(file_path: str) -> str:
+    with open(file_path, 'rb') as f:
+        digest = hashlib.file_digest(f, "md5")
+    return digest.hexdigest()
