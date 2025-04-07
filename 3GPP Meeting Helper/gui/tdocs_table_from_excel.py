@@ -334,6 +334,8 @@ class TdocsTableFromExcel(GenericTable):
         crs_to_show = self.tdocs_df[(is_cr & is_approved_or_agreed)]
         ls_to_show = self.tdocs_df[(is_ls_out & is_approved_or_agreed) | is_ls_in]
 
+        ls_out_to_show = self.tdocs_df[(is_ls_out & is_approved_or_agreed)]
+
         local_folder = self.meeting.local_export_folder_path
         wb = open_excel_document(self.tdoc_excel_path)
         clear_autofilter(wb=wb)
@@ -357,6 +359,23 @@ class TdocsTableFromExcel(GenericTable):
                 ai_summary[ai_name] = f'Following LS were received and/or answered:\n\n{markdown_output}'
             else:
                 print(f'{ai_name}: {len(index_list)} LS IN/OUT')
+
+        # Export LS OUT
+        index_list = list(ls_out_to_show.index)
+        ai_name = 'LS OUT'
+        if len(index_list) > 0:
+            print(f'{ai_name}: {len(index_list)} LS IN/OUT to export')
+            set_autofilter_values(
+                wb=wb,
+                value_list=index_list,
+                sort_by_sort_order_within_agenda_item=True)
+            markdown_output = export_columns_to_markdown(
+                wb,
+                MarkdownConfig.columns_for_3gu_tdoc_export_ls,
+                copy_output_to_clipboard=False)
+            ai_summary[ai_name] = f'Following LS OUT were sent:\n\n{markdown_output}'
+        else:
+            print(f'{ai_name}: {len(index_list)} LS IN/OUT')
 
         # Export pCRs
         for ai_name, group in pcrs_to_show.groupby('Agenda item'):
