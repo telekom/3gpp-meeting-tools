@@ -544,8 +544,7 @@ def search_download_and_open_tdoc(
         print(f'Searching for TDoc {tdoc_str}. Meeting {tdoc_meeting.meeting_name}')
 
     # Cleanup
-    tdoc_str = tdoc_str.strip()
-    tdoc_str = tdoc_str.replace('\n', '').replace('\r', '')
+    tdoc_str = tdoc.utils.cleanup_tdoc(tdoc_str)
 
     # Load data if needed
     if len(loaded_meeting_entries) == 0:

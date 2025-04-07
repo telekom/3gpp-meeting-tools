@@ -341,7 +341,7 @@ def current_tdocs_by_agenda_exists():
 
 
 def cleanup_tdoc_id_in_entry_box():
-    tkvar_tdoc_id.set(tkvar_tdoc_id.get().replace(' ', '').replace('\r', '').replace('\n', '').strip())
+    tkvar_tdoc_id.set(tdoc.utils.cleanup_tdoc(tkvar_tdoc_id.get()))
 
 
 # Button to open TDoc
