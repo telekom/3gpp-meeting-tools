@@ -233,7 +233,7 @@ class ToolsDialog(TkWidget):
             df_tdocs,
             doc,
             server_folder,
-            source=application.meeting_helper.word_own_reporter_name,
+            source=application.meeting_helper.company_report_name,
             ais_to_output=ais_to_output,
             save_to_folder=meeting_folder)
         print('Finished exporting Word report')
