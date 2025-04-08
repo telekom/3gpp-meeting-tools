@@ -334,6 +334,9 @@ class TdocsTableFromExcel(GenericTable):
         crs_to_show = self.tdocs_df[(is_cr & is_approved_or_agreed)]
         ls_to_show = self.tdocs_df[(is_ls_out & is_approved_or_agreed) | is_ls_in]
 
+        company_contributions_filter = self.tdocs_df['Source'].str.contains(MarkdownConfig.company_name_regex_for_report)
+        company_contributions = self.tdocs_df[company_contributions_filter]
+
         ls_out_to_show = self.tdocs_df[(is_ls_out & is_approved_or_agreed)]
 
         local_folder = self.meeting.local_export_folder_path
@@ -376,6 +379,23 @@ class TdocsTableFromExcel(GenericTable):
             ai_summary[ai_name] = f'Following LS OUT were sent:\n\n{markdown_output}'
         else:
             print(f'{ai_name}: {len(index_list)} LS IN/OUT')
+
+        # Export Company Contributions
+        index_list = list(company_contributions.index)
+        ai_name = 'Company'
+        if len(index_list) > 0:
+            print(f'{len(index_list)} Company contributions matching {MarkdownConfig.company_name_regex_for_report} to export')
+            set_autofilter_values(
+                wb=wb,
+                value_list=index_list,
+                sort_by_sort_order_within_agenda_item=True)
+            markdown_output = export_columns_to_markdown(
+                wb,
+                MarkdownConfig.columns_for_3gu_tdoc_export_ls,
+                copy_output_to_clipboard=False)
+            ai_summary[ai_name] = f'Following Company Contributions:\n\n{markdown_output}'
+        else:
+            print(f'{len(index_list)} Company contributions matching {MarkdownConfig.company_name_regex_for_report}')
 
         # Export pCRs
         for ai_name, group in pcrs_to_show.groupby('Agenda item'):

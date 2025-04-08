@@ -39,7 +39,7 @@ tdoc_tags: List[TdocTag] = []
 # No type hint to avoid circular references. It should be ": parsing.html.tdocs_by_agenda.tdocs_by_agenda"
 current_tdocs_by_agenda: TdocsByAgendaData | None = None
 
-word_own_reporter_name = None
+company_report_name = None
 home_directory = None
 
 # Default Proxy
@@ -71,10 +71,11 @@ if len(sa2_email_approval_folder_name) > 0 and sa2_email_approval_folder_name[0]
 
 # Write other configuration
 try:
-    word_own_reporter_name = config_parser['REPORTING']['ContributorName']
-    print(f'Using Contributor Name for Word report {word_own_reporter_name}')
+    company_report_name = config_parser['REPORTING']['ContributorName']
+    MarkdownConfig.company_name_regex_for_report = company_report_name
+    print(f'Using Contributor Name for company report {company_report_name}')
 except Exception as e:
-    print(f'Not using Contributor Name for Word report: {e}')
+    print(f'Not using Contributor Name for company report: {e}')
 
 home_directory = '~'
 try:

@@ -108,6 +108,10 @@ def is_generic_tdoc(tdoc: str) -> GenericTdoc | None:
         print(f'Tdoc {tdoc} is not a valid TDoc: {e}')
         return None
 
+def cleanup_tdoc(tdoc_str:str) -> str:
+    tdoc_clean = tdoc_str.replace(' ', '').replace('\r', '').replace('\n', '').replace('‑', '-').strip()
+    return tdoc_clean
+
 
 def is_ts(tdoc):
     if (tdoc is None) or (tdoc == ''):
