@@ -446,7 +446,8 @@ class TdocsTableFromExcel(GenericTable):
                 print(f'{ai_name}: {len(index_list)} CRs')
 
         for ai_name, summary_text in ai_summary.items():
-            summary_text = f'<!--- [{self.meeting.meeting_name}]({self.meeting.meeting_folder_url}) --->\n\n{summary_text}'
+            meeting_name_for_export = self.meeting.meeting_name.replace('3GPP','')
+            summary_text = f'<!--- [{meeting_name_for_export}]({self.meeting.meeting_folder_url}) --->\n\n{summary_text}'
             with open(os.path.join(local_folder, f'{ai_name}.md'), 'w') as f:
                 f.write(summary_text)
 
