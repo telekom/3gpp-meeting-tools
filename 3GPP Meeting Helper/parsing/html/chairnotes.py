@@ -1,29 +1,49 @@
-from typing import List, Any
-
-import html2text
-import pandas as pd
 import re
-import traceback
-from datetime import datetime as datetime
+from collections import defaultdict
+from typing import List, NamedTuple
 
-def extract_chairnotes_from_html(html_content: str):
-    """
-    Reads the Chair_Notes HTML page and extracts the parsed names of the Chairman's Notes
-    Args:
-        html_content: The HTML content
-    Returns:
+from parsing.html.common import parse_3gpp_http_ftp_v2
 
-    """
-    h = html2text.HTML2Text()
-    # Ignore converting links from HTML
-    h.ignore_links = True
-    chairnotes_list_text = h.handle(html_content)
-    chairnotes_list = re.finditer(r'ChairNotes_(?P<chair>.*)_(?P<month>[\d]+)-(?P<day>[\d]+)-(?P<time_hour>[\d]{2})(?P<time_minute>[\d]{2}).doc', chairnotes_list_text)
-    chairnotes_list: List[re.Match] = list(set(chairnotes_list))
 
-    year: str = re.search(r'([\d]{4})/([\d]{2})/([\d]{2}) ([\d]{2}):([\d]{2})', chairnotes_list_text).group(1)
+class ChairNotesFile(NamedTuple):
+    file: str
+    authors: List[str]
+    is_combined: bool
 
-    return chairnotes_list, year
+
+def get_latest_chairnotes_files(file_list: List[str]) -> List[ChairNotesFile]:
+    pattern = re.compile(r"ChairNotes_(.*?)_(\d{2}-\d{2}-\d{4})")
+    combined_pattern = re.compile(r"Combined_ChairNotes_(\d{2}-\d{2}-\d{4})")
+
+    file_dict = defaultdict(list)
+    combined_latest = ("", "")
+
+    for file in file_list:
+        if match := combined_pattern.search(file):
+            timestamp = match.group(1).replace('-', '')
+            combined_latest = max(combined_latest, (timestamp, file))
+        elif match := pattern.search(file):
+            author, timestamp = match.groups()
+            timestamp = timestamp.replace('-', '')
+            file_dict[author] = max(file_dict.get(author, ("", [])), (timestamp, [file]))
+
+    result_dict = defaultdict(set)
+    combined_timestamp = combined_latest[0]
+    combined_file = combined_latest[1]
+
+    for author, (timestamp, files) in file_dict.items():
+        if combined_file and combined_timestamp > timestamp:
+            result_dict[combined_file].add(author)
+        else:
+            result_dict[files[0]].add(author)
+
+    if combined_file and combined_file not in result_dict:
+        result_dict[combined_file].add("All")
+
+    result = [ChairNotesFile(file=file, authors=list(authors), is_combined=file == combined_file) for file, authors in
+              result_dict.items()]
+
+    return result
 
 
 def chairnotes_file_to_dataframe(chairnotes_file: str):
@@ -40,17 +60,9 @@ def chairnotes_file_to_dataframe(chairnotes_file: str):
         with open(chairnotes_file, 'r') as file:
             chairnotes_html = file.read()
 
-        chairnotes_list, year = extract_chairnotes_from_html(chairnotes_html)
-
-        files = [(e.groupdict(), e.group(0)) for e in chairnotes_list if e[0] is not None]
-        files = [{'chair': e[0]['chair'],
-                  'datetime': datetime(year=int(year), month=int(e[0]['month']), day=int(e[0]['day']),
-                                       hour=int(e[0]['time_hour']), minute=int(e[0]['time_minute'])), 'file': e[1]} for
-                 e in files]
-        files_df = pd.DataFrame.from_dict(files)
-        most_current_notes_per_chair = files_df.sort_values('datetime').groupby('chair').tail(1)
-        return most_current_notes_per_chair
-    except:
-        print("Could not parse Chairman's Notes from {0}".format(chairnotes_file))
-        traceback.print_exc()
+        folder_list = parse_3gpp_http_ftp_v2(chairnotes_html)
+        latest_chairnotes = get_latest_chairnotes_files(folder_list.files)
+        return latest_chairnotes
+    except Exception as e:
+        print(f"Could not parse Chairman's Notes from {chairnotes_file}: {e}")
         return None
