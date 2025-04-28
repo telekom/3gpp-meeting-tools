@@ -184,6 +184,20 @@ try:
 except Exception as e:
     print(f'No CR Markdown configuration to load {e}')
 
+try:
+    tdoc_tags_in_config_file = config_parser['MARKDOWN']['ExportColumnsLsOut']
+    MarkdownConfig.columns_for_3gu_tdoc_export_ls_out = [e.strip() for e in tdoc_tags_in_config_file.split(',')]
+    print(f"Imported configuration for Markdown export of LS OUTs: {MarkdownConfig.columns_for_3gu_tdoc_export_cr}")
+except Exception as e:
+    print(f'No CR Markdown configuration to load {e}')
+
+try:
+    tdoc_tags_in_config_file = config_parser['MARKDOWN']['ExportColumnsContributor']
+    MarkdownConfig.columns_for_3gu_tdoc_export_contributor = [e.strip() for e in tdoc_tags_in_config_file.split(',')]
+    print(f"Imported configuration for Markdown export of contributions for {MarkdownConfig.company_name_regex_for_report}: {MarkdownConfig.columns_for_3gu_tdoc_export_cr}")
+except Exception as e:
+    print(f'No CR Markdown configuration to load {e}')
+
 print('Loaded configuration file')
 
 last_known_3gpp_network_status = False

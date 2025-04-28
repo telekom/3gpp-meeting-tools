@@ -47,7 +47,11 @@ class TdocsTableFromExcel(GenericTable):
         self.tdoc_excel_path = tdoc_excel_path
 
         # Load and cleanup DataFrame
-        self.tdocs_df: DataFrame = pd.read_excel(io=self.tdoc_excel_path, index_col=0)
+        self.tdocs_df: DataFrame = pd.read_excel(
+            io=self.tdoc_excel_path,
+            index_col=0)
+        print(f'Imported meeting Tdocs for {meeting.meeting_name}: {self.tdocs_df.columns.values}')
+
         self.tdocs_df = self.tdocs_df.fillna(value='')
         self.tdocs_df['Secretary Remarks'] = self.tdocs_df['Secretary Remarks'].str.replace('<br/><br/>', '. ')
         self.meeting = meeting
@@ -339,11 +343,53 @@ class TdocsTableFromExcel(GenericTable):
 
         ls_out_to_show = self.tdocs_df[(is_ls_out & is_approved_or_agreed)]
 
+        print(f'Will export:')
+        print(f'  - {len(pcrs_to_show)} pCRs')
+        print(f'  - {len(crs_to_show)} CRs')
+        print(f'  - {len(ls_to_show)} LS IN/OUT')
+        print(f'  - {len(ls_out_to_show)} LS OUT')
+        print(f'  - {len(company_contributions)} Company contributions matching {MarkdownConfig.company_name_regex_for_report}')
+
         local_folder = self.meeting.local_export_folder_path
         wb = open_excel_document(self.tdoc_excel_path)
         clear_autofilter(wb=wb)
 
         ai_summary = dict()
+
+        # Export LS OUT
+        index_list = list(ls_out_to_show.index)
+        ai_name = 'LS OUT'
+        if len(index_list) > 0:
+            print(f'{ai_name}: {len(index_list)} LS IN/OUT to export')
+            set_autofilter_values(
+                wb=wb,
+                value_list=index_list,
+                sort_by_sort_order_within_agenda_item=True)
+            markdown_output = export_columns_to_markdown(
+                wb,
+                MarkdownConfig.columns_for_3gu_tdoc_export_ls_out,
+                copy_output_to_clipboard=False)
+            ai_summary[ai_name] = f'Following LS OUT were sent:\n\n{markdown_output}'
+        else:
+            print(f'{ai_name}: {len(index_list)} LS IN/OUT')
+
+        # Export Company Contributions
+        index_list = list(company_contributions.index)
+        ai_name = 'Company'
+        if len(index_list) > 0:
+            print(
+                f'{len(index_list)} Company contributions matching {MarkdownConfig.company_name_regex_for_report} to export')
+            set_autofilter_values(
+                wb=wb,
+                value_list=index_list,
+                sort_by_sort_order_within_agenda_item=True)
+            markdown_output = export_columns_to_markdown(
+                wb,
+                MarkdownConfig.columns_for_3gu_tdoc_export_contributor,
+                copy_output_to_clipboard=False)
+            ai_summary[ai_name] = f'Following Company Contributions:\n\n{markdown_output}'
+        else:
+            print(f'{len(index_list)} Company contributions matching {MarkdownConfig.company_name_regex_for_report}')
 
         # Export LSs
         for ai_name, group in ls_to_show.groupby('Agenda item'):
@@ -362,40 +408,6 @@ class TdocsTableFromExcel(GenericTable):
                 ai_summary[ai_name] = f'Following LS were received and/or answered:\n\n{markdown_output}'
             else:
                 print(f'{ai_name}: {len(index_list)} LS IN/OUT')
-
-        # Export LS OUT
-        index_list = list(ls_out_to_show.index)
-        ai_name = 'LS OUT'
-        if len(index_list) > 0:
-            print(f'{ai_name}: {len(index_list)} LS IN/OUT to export')
-            set_autofilter_values(
-                wb=wb,
-                value_list=index_list,
-                sort_by_sort_order_within_agenda_item=True)
-            markdown_output = export_columns_to_markdown(
-                wb,
-                MarkdownConfig.columns_for_3gu_tdoc_export_ls,
-                copy_output_to_clipboard=False)
-            ai_summary[ai_name] = f'Following LS OUT were sent:\n\n{markdown_output}'
-        else:
-            print(f'{ai_name}: {len(index_list)} LS IN/OUT')
-
-        # Export Company Contributions
-        index_list = list(company_contributions.index)
-        ai_name = 'Company'
-        if len(index_list) > 0:
-            print(f'{len(index_list)} Company contributions matching {MarkdownConfig.company_name_regex_for_report} to export')
-            set_autofilter_values(
-                wb=wb,
-                value_list=index_list,
-                sort_by_sort_order_within_agenda_item=True)
-            markdown_output = export_columns_to_markdown(
-                wb,
-                MarkdownConfig.columns_for_3gu_tdoc_export_ls,
-                copy_output_to_clipboard=False)
-            ai_summary[ai_name] = f'Following Company Contributions:\n\n{markdown_output}'
-        else:
-            print(f'{len(index_list)} Company contributions matching {MarkdownConfig.company_name_regex_for_report}')
 
         # Export pCRs
         for ai_name, group in pcrs_to_show.groupby('Agenda item'):
