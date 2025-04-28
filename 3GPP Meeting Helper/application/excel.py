@@ -282,7 +282,7 @@ def set_row_height(wb):
     all_cells.EntireRow.AutoFit()
 
 
-def export_columns_to_markdown(wb, columns: List[str], columns_to_scan='A:AE',
+def export_columns_to_markdown(wb, columns: List[str], columns_to_scan='A:AJ',
                                copy_output_to_clipboard=True) -> str | None:
     """
     Exports specific columns to Markdown and puts the content in the clipboard
@@ -316,7 +316,11 @@ def export_columns_to_markdown(wb, columns: List[str], columns_to_scan='A:AE',
                 row_list.append(row_content)
 
         df = pd.DataFrame(row_list, columns=titles)
-        df_to_output = df.loc[:, columns]
+        try:
+            df_to_output = df.loc[:, columns]
+        except KeyError as e:
+            print(e)
+            print(f'Columns in DataFrame: {df.columns.values}')
         markdown_table = df_to_output.to_markdown(index=False)
         if copy_output_to_clipboard:
             pyperclip.copy(markdown_table)
