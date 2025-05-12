@@ -3,7 +3,7 @@ import datetime
 import os.path
 import re
 import time
-from typing import NamedTuple, List, Tuple, Dict
+from typing import NamedTuple, List, Tuple, Dict, Any
 
 import parsing.word.pywin32
 import tdoc.utils
@@ -609,7 +609,7 @@ def search_download_and_open_tdoc(
             title=None,
             source=None,
             url=None,
-            tdoc_id=None,
+            tdoc_id=tdoc_str,
             path=m)
             for m in files_in_zip if m is not None if (m is not None) and (('.doc' in m) or '.docx' in m)]
     return opened_files, metadata_list
@@ -617,32 +617,44 @@ def search_download_and_open_tdoc(
 
 def batch_search_and_download_tdocs(
         tdoc_list: List[str],
-        tkvar_3gpp_wifi_available=None
-):
+        tkvar_3gpp_wifi_available=None,
+        tdoc_meeting=None
+) -> List[Any]:
     """
     Parallel download of a list of TDocs, e.g. for caching purposes
     Args:
+        tdoc_meeting: If available, the 3GPP meeting for the requested files
+        tkvar_3gpp_wifi_available: Whether to use the 10.10.10.10 server
         tdoc_list: A list of TDoc IDs
     """
     if tdoc_list is None or not isinstance(tdoc_list, list) or len(tdoc_list) < 1:
         return
 
     # See https://docs.python.org/3/library/concurrent.futures.html
+    all_downloads = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        future_to_dl = {executor.submit(
-            search_download_and_open_tdoc,
-            tdoc_str,
-            True,
-            tkvar_3gpp_wifi_available
-        ): tdoc_str for tdoc_str in tdoc_list}
+        future_to_dl = {
+            executor.submit(
+                search_download_and_open_tdoc,
+                tdoc_str,
+                True,
+                tkvar_3gpp_wifi_available,
+                tdoc_meeting
+            ): tdoc_str for tdoc_str in tdoc_list
+        }
         for future in concurrent.futures.as_completed(future_to_dl):
             tdoc_to_download = future_to_dl[future]
             try:
-                file_downloaded = future.result()
-                if not file_downloaded:
+                downloaded_files = future.result()
+                if not downloaded_files:
                     print(f'Could not download {tdoc_to_download}')
+                else:
+                    all_downloads.append(downloaded_files)
             except Exception as exc:
                 print('%r generated an exception: %s' % (tdoc_to_download, exc))
+
+    # Return all downloaded files
+    return all_downloads
 
 
 def compare_two_tdocs(tdoc1_to_open: str, tdoc2_to_open: str):
