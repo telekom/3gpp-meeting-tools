@@ -754,6 +754,7 @@ class MeetingEntry(NamedTuple):
             local_folder,
             str(tdoc_str),
             f'{tdoc_str}.zip')
+        local_file.replace(f'{os.path.pathsep}{os.path.pathsep}', f'{os.path.pathsep}')
         return local_file
 
 

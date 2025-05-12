@@ -1,8 +1,11 @@
+import datetime
 import numbers
 import os.path
+import shutil
 import textwrap
 import tkinter
 from tkinter import ttk
+from typing import List, Any
 
 import numpy as np
 import pandas as pd
@@ -16,12 +19,13 @@ from application.meeting_helper import tdoc_tags, open_sa2_session_plan_update_u
 from application.os import open_url, startfile
 from config.markdown import MarkdownConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
-from gui.common.generic_table import GenericTable, treeview_set_row_formatting
+from gui.common.generic_table import GenericTable, treeview_set_row_formatting, folder_icon, share_icon
 from gui.common.generic_table import cloud_icon, cloud_download_icon
 from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url, \
     MeetingEntry
-from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
+from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc, DownloadedWordTdocDocument
 from tdoc.utils import are_generic_tdocs
+from utils.local_cache import create_folder_if_needed
 
 
 class TdocsTableFromExcel(GenericTable):
@@ -210,9 +214,9 @@ class TdocsTableFromExcel(GenericTable):
 
         self.open_excel_btn = ttk.Button(
             self.top_frame,
-            text='Open Excel',
+            text='Excel',
             command=lambda: open_excel_document(self.tdoc_excel_path),
-            width=9
+            width=5
         )
         self.open_excel_btn.pack(side=tkinter.LEFT)
 
@@ -226,15 +230,15 @@ class TdocsTableFromExcel(GenericTable):
 
         self.excel_to_markdown_btn = ttk.Button(
             self.top_frame,
-            text='Excel2Markdown',
+            text='Excel2MD',
             command=self.current_excel_rows_to_clipboard,
-            width=13
+            width=9
         )
         self.excel_to_markdown_btn.pack(side=tkinter.LEFT)
 
         self.download_btn = ttk.Button(
             self.top_frame,
-            text='Download',
+            image=cloud_download_icon,
             command=self.download_tdocs,
             width=8
         )
@@ -242,7 +246,7 @@ class TdocsTableFromExcel(GenericTable):
 
         self.cache_btn = ttk.Button(
             self.top_frame,
-            text='Local',
+            image=folder_icon,
             command=lambda: startfile(meeting.local_folder_path),
             width=5
         )
@@ -250,11 +254,18 @@ class TdocsTableFromExcel(GenericTable):
 
         self.markdown_export_per_ai_btn = ttk.Button(
             self.top_frame,
-            text='Markdown/AI',
+            text='MD/AI',
             command=self.export_ais_to_markdown,
-            width=11
+            width=6
         )
         self.markdown_export_per_ai_btn.pack(side=tkinter.LEFT)
+
+        self.share_btn = ttk.Button(
+            self.top_frame,
+            image=share_icon,
+            command=self.export_tdocs_to_folder,
+        )
+        self.share_btn.pack(side=tkinter.LEFT)
 
         # SA2-specific buttons
         if self.meeting.working_group_enum == WorkingGroup.S2 and self.meeting.meeting_is_now:
@@ -298,13 +309,17 @@ class TdocsTableFromExcel(GenericTable):
 
         ttk.Label(self.bottom_frame, textvariable=self.tdoc_count).pack(side=tkinter.LEFT)
 
-    def download_tdocs(self):
+    def download_tdocs(self) -> List[Any]:
         tdoc_list = self.tdocs_current_df.index.tolist()
+        downloaded_files = []
         if len(tdoc_list) > 0:
-            batch_search_and_download_tdocs(tdoc_list)
+            downloaded_files = batch_search_and_download_tdocs(
+                tdoc_list,
+                tdoc_meeting=self.meeting)
 
         # Re-load Tdoc list to allow for icon changes
         self.insert_rows()
+        return downloaded_files
 
     def open_and_filter_excel(self):
         wb = open_excel_document(self.tdoc_excel_path)
@@ -313,6 +328,32 @@ class TdocsTableFromExcel(GenericTable):
         if len(tdoc_list) > 0:
             print(f'Filtering TDoc list for {len(tdoc_list)} TDocs shown')
             set_autofilter_values(wb=wb, value_list=tdoc_list)
+
+    def export_tdocs_to_folder(self):
+        tdoc_list = self.tdocs_current_df.index.tolist()
+        if len(tdoc_list) < 1:
+            return
+        time_now = datetime.datetime.now()
+        export_root_folder = utils.local_cache.get_export_folder()
+        export_folder = os.path.join(export_root_folder, f'{time_now.year:04d}.{time_now.month:02d}.{time_now.day:02d} {time_now.hour:02d}{time_now.minute:02d}{time_now.second:02d}')
+
+        print(f'Exporting files to {export_folder}')
+        create_folder_if_needed(folder_name=export_folder, create_dir=True)
+
+        # First we need to download the TDocs
+        downloaded_files = self.download_tdocs()
+        files_to_export = [e[1] for e in downloaded_files if e is not None and isinstance(e, tuple) and e[1] is not None]
+        files_to_export = [item for sublist in files_to_export for item in sublist]
+        files_to_export = [(e.tdoc_id, e.path) for e in files_to_export if isinstance(e, DownloadedWordTdocDocument)]
+
+        print(f'Exporting files to {export_folder}')
+        for (tdoc, file_to_export) in files_to_export:
+            print(f'  {tdoc} in {file_to_export}')
+            output_file = f'{tdoc}_{os.path.basename(file_to_export)}'
+            output_path = os.path.join(export_folder, output_file)
+            shutil.copy(file_to_export, output_path)
+
+        os.startfile(export_folder)
 
     def current_excel_rows_to_clipboard(self):
         wb = open_excel_document(self.tdoc_excel_path)

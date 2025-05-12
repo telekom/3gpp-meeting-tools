@@ -78,6 +78,11 @@ def get_tmp_folder(create_dir=True):
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
+def get_export_folder(create_dir=True):
+    folder_name = os.path.expanduser(os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'export'))
+    create_folder_if_needed(folder_name, create_dir)
+    return folder_name
+
 
 def get_webcache_file():
     folder_name = get_tmp_folder()
