@@ -747,7 +747,11 @@ class TdocDetailsFromExcel(GenericTable):
                 case '3GU Link':
                     row_value = 'Click!'
                 case _:
-                    row_value = self.tdoc_row[row_name]
+                    try:
+                        row_value = self.tdoc_row[row_name]
+                    except KeyError:
+                        row_value = ''
+                        print(f'Could not read column {row_name}')
 
             self.tree.insert("", "end", tags=(tag,), values=(
                 row_name,
