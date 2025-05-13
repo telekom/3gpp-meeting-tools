@@ -14,16 +14,19 @@ from pandas import DataFrame
 
 import server
 import utils.local_cache
+from application.common import ActionAfter, ExportType
 from application.excel import open_excel_document, set_autofilter_values, export_columns_to_markdown, clear_autofilter
 from application.meeting_helper import tdoc_tags, open_sa2_session_plan_update_url
 from application.os import open_url, startfile
+from application.word import export_document
 from config.markdown import MarkdownConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
-from gui.common.generic_table import GenericTable, treeview_set_row_formatting, folder_icon, share_icon
+from gui.common.generic_table import GenericTable, treeview_set_row_formatting, folder_icon, share_icon, \
+    column_separator_str
 from gui.common.generic_table import cloud_icon, cloud_download_icon
 from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url, \
-    MeetingEntry
-from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc, DownloadedWordTdocDocument
+    MeetingEntry, DownloadedTdocDocument
+from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
 from tdoc.utils import are_generic_tdocs
 from utils.local_cache import create_folder_if_needed
 
@@ -260,12 +263,22 @@ class TdocsTableFromExcel(GenericTable):
         )
         self.markdown_export_per_ai_btn.pack(side=tkinter.LEFT)
 
+        # Export TDocs in table to export folder
         self.share_btn = ttk.Button(
             self.top_frame,
             image=share_icon,
             command=self.export_tdocs_to_folder,
         )
         self.share_btn.pack(side=tkinter.LEFT)
+
+        # Export as PDF
+        self.export_as_pdf_var = tkinter.IntVar()
+        self.export_as_pdf_checkbox = ttk.Checkbutton(
+            self.top_frame,
+            state='enabled',
+            variable=self.export_as_pdf_var)
+        self.export_as_pdf_checkbox.pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="PDF").pack(side=tkinter.LEFT)
 
         # SA2-specific buttons
         if self.meeting.working_group_enum == WorkingGroup.S2 and self.meeting.meeting_is_now:
@@ -344,14 +357,24 @@ class TdocsTableFromExcel(GenericTable):
         downloaded_files = self.download_tdocs()
         files_to_export = [e[1] for e in downloaded_files if e is not None and isinstance(e, tuple) and e[1] is not None]
         files_to_export = [item for sublist in files_to_export for item in sublist]
-        files_to_export = [(e.tdoc_id, e.path) for e in files_to_export if isinstance(e, DownloadedWordTdocDocument)]
+        files_to_export = [(e.tdoc_id, e.path) for e in files_to_export if isinstance(e, DownloadedTdocDocument)]
 
         print(f'Exporting files to {export_folder}')
+        exported_files = []
         for (tdoc, file_to_export) in files_to_export:
             print(f'  {tdoc} in {file_to_export}')
             output_file = f'{tdoc}_{os.path.basename(file_to_export)}'
             output_path = os.path.join(export_folder, output_file)
             shutil.copy(file_to_export, output_path)
+            exported_files.append(output_path)
+
+        if self.export_as_pdf_var.get():
+            print('Exporting files to PDF')
+            exported_pdfs = export_document(
+                exported_files,
+                export_format=ExportType.PDF,
+                do_after=ActionAfter.CLOSE_AND_DELETE_FILE)
+
 
         os.startfile(export_folder)
 
@@ -526,7 +549,7 @@ class TdocsTableFromExcel(GenericTable):
                 print(f'Clicked on TDoc {actual_value}. Row: {tdoc_id}')
                 tdocs_to_open = are_generic_tdocs(actual_value)
                 for tdoc_to_open in tdocs_to_open:
-                    opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(
+                    opened_docs_folder, metadata = server.tdoc_search.search_download_and_open_tdoc(
                         tdoc_to_open.tdoc,
                         tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available,
                         tdoc_meeting=self.meeting
@@ -825,7 +848,7 @@ class TdocDetailsFromExcel(GenericTable):
                 tdocs_to_open = are_generic_tdocs(actual_value)
                 for tdoc_to_open in tdocs_to_open:
                     print(f'Opening {tdoc_to_open.tdoc}')
-                    opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(
+                    opened_docs_folder, metadata = server.tdoc_search.search_download_and_open_tdoc(
                         tdoc_to_open.tdoc,
                         tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available)
                     if metadata is not None:

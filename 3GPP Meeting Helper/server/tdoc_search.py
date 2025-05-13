@@ -3,7 +3,7 @@ import datetime
 import os.path
 import re
 import time
-from typing import NamedTuple, List, Tuple, Dict, Any
+from typing import List, Tuple, Dict
 
 import parsing.word.pywin32
 import tdoc.utils
@@ -12,7 +12,7 @@ from application.zip_files import unzip_files_in_zip_file
 from config.meetings import MeetingConfig
 from server.common import (download_file_to_location, FileToDownload, batch_download_file_to_location, \
                            meeting_pages_per_group,
-                           meeting_ftp_pages_per_group, MeetingEntry)
+                           meeting_ftp_pages_per_group, MeetingEntry, DownloadedTdocDocument, DownloadedData)
 from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, file_exists
 
 # If more than this number of files are included in a zip file, the folder is opened instead.
@@ -93,15 +93,6 @@ meeting_sa6_adhocs = re.compile(
 
 # Used to split the generated Markup text
 meeting_split_regex = re.compile(r'(\[[a-zA-Z][\d\w]+\-[\d\-\w ]+\]\([^ ]+\))')
-
-
-class DownloadedWordTdocDocument(NamedTuple):
-    title: str | None
-    source: str | None
-    url: str | None
-    tdoc_id: str | None
-    path: str | None
-
 
 # Loaded meeting entries
 loaded_meeting_entries: List[MeetingEntry] = []
@@ -522,7 +513,7 @@ def search_download_and_open_tdoc(
         skip_open=False,
         tkvar_3gpp_wifi_available=None,
         tdoc_meeting: MeetingEntry =None,
-) -> Tuple[None | int, None | List[DownloadedWordTdocDocument]]:
+) -> DownloadedData:
     """
     Searches for a given TDoc. If the zip file contains many files (e.g. typical for plenary CR packs), it will only
     open the folder.
@@ -536,7 +527,7 @@ def search_download_and_open_tdoc(
 
     """
     if tdoc_str is None or tdoc_str == '':
-        return None, None
+        return DownloadedData(None, None)
 
     if tdoc_meeting is None:
         print(f'Searching for TDoc {tdoc_str}. Unknown meeting (will search for meeting)')
@@ -553,7 +544,7 @@ def search_download_and_open_tdoc(
     if tdoc_meeting is None:
         tdoc_meeting = search_meeting_for_tdoc(tdoc_str, return_last_meeting_if_tdoc_is_new=True)
     if tdoc_meeting is None:
-        return None, None
+        return DownloadedData(None, None)
 
     in_3gpp_wifi = False
     if tkvar_3gpp_wifi_available is not None and tkvar_3gpp_wifi_available.get():
@@ -586,12 +577,13 @@ def search_download_and_open_tdoc(
 
     if not file_exists(local_target):
         print(f'No file to open in {local_target}')
-        return None, None
+        return DownloadedData(None, None)
 
     files_in_zip = unzip_files_in_zip_file(local_target)
     if (len(files_in_zip) <= maximum_number_of_files_to_open) and (not skip_open):
+        folder_to_open, first_file = os.path.split(files_in_zip[0])
         opened_files, metadata_list = parsing.word.pywin32.open_files(files_in_zip, return_metadata=True)
-        metadata_list = [DownloadedWordTdocDocument(
+        metadata_list = [DownloadedTdocDocument(
             title=m.title,
             source=m.source,
             url=downloaded_tdoc_url,
@@ -604,22 +596,21 @@ def search_download_and_open_tdoc(
             print(
                 f'More than {maximum_number_of_files_to_open} contained within {tdoc_str}. Opening folder instead of files')
             startfile(folder_to_open)
-        opened_files = folder_to_open
-        metadata_list = [DownloadedWordTdocDocument(
+        metadata_list = [DownloadedTdocDocument(
             title=None,
             source=None,
             url=None,
             tdoc_id=tdoc_str,
             path=m)
-            for m in files_in_zip if m is not None if (m is not None) and (('.doc' in m) or '.docx' in m)]
-    return opened_files, metadata_list
+            for m in files_in_zip if m is not None if (m is not None)]
+    return DownloadedData(folder_to_open, metadata_list)
 
 
 def batch_search_and_download_tdocs(
         tdoc_list: List[str],
         tkvar_3gpp_wifi_available=None,
         tdoc_meeting=None
-) -> List[Any]:
+) -> List[DownloadedData]:
     """
     Parallel download of a list of TDocs, e.g. for caching purposes
     Args:
@@ -659,8 +650,8 @@ def batch_search_and_download_tdocs(
 
 def compare_two_tdocs(tdoc1_to_open: str, tdoc2_to_open: str):
     print(f'Comparing {tdoc2_to_open}  (original) vs. {tdoc1_to_open}')
-    opened_docs1, metadata1 = search_download_and_open_tdoc(tdoc1_to_open, skip_open=True)
-    opened_docs2, metadata2 = search_download_and_open_tdoc(tdoc2_to_open, skip_open=True)
+    opened_docs1_folder, metadata1 = search_download_and_open_tdoc(tdoc1_to_open, skip_open=True)
+    opened_docs2_folder, metadata2 = search_download_and_open_tdoc(tdoc2_to_open, skip_open=True)
     doc_1 = metadata1[0].path
     doc_2 = metadata2[0].path
     print(f'Comparing {doc_2} vs. {doc_1}')

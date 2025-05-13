@@ -27,6 +27,7 @@ from parsing.html.revisions import revisions_file_to_dataframe
 from parsing.html.tdocs_by_agenda import TdocsByAgendaData
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 from parsing.word.pywin32 import parse_list_of_crs
+from server.common import DownloadedData
 
 
 class TdocsTable(GenericTable):
@@ -47,7 +48,7 @@ class TdocsTable(GenericTable):
             update_tdocs_by_agenda_fn: Callable[[], TdocsByAgendaData | None],
             get_current_meeting_name_fn: Callable[[], str],
             download_and_open_tdoc_fn=None,
-            download_and_open_generic_tdoc_fn: Callable[[str], Tuple[Any, Any]] | None = None
+            download_and_open_generic_tdoc_fn: Callable[[str], DownloadedData] | None = None
 
     ):
         """

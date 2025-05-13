@@ -410,7 +410,7 @@ class MeetingsTable(GenericTable):
     def on_open_tdoc(self):
         tdoc_to_open = self.tdoc
         print(f'Opening {tdoc_to_open}')
-        opened_docs, metadata = server.tdoc_search.search_download_and_open_tdoc(
+        opened_docs_folder, metadata = server.tdoc_search.search_download_and_open_tdoc(
             tdoc_to_open,
             tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available)
         if metadata is not None:

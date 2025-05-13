@@ -262,7 +262,7 @@ class WorkItemsTable(GenericTable):
                     return
                 tdoc_id = tdoc_match.group(1)
                 print(f'Last WID version is {tdoc_id}')
-                opened_files, metadata_list = search_download_and_open_tdoc(tdoc_id)
+                opened_files_folder, metadata_list = search_download_and_open_tdoc(tdoc_id)
                 if metadata_list is not None and len(metadata_list) > 0:
                     wid_url = metadata_list[0].url
                     print(f'Copied URL of latest WID to clipboard: {wid_url}')
