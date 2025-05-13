@@ -3,6 +3,7 @@ import traceback
 import uuid
 from enum import Enum
 import platform
+from typing import Any
 
 from config.word import WordConfig
 
@@ -23,7 +24,7 @@ class MsoAssignmentMethod(Enum):
             return None
 
 
-def set_sensitivity_label(document):
+def set_sensitivity_label(document: Any):
     if platform.system() != 'Windows':
         return None
 

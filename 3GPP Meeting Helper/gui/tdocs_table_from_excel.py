@@ -6,7 +6,7 @@ import textwrap
 import tkinter
 from pathlib import Path
 from tkinter import ttk
-from typing import List, Any
+from typing import List, Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -374,6 +374,12 @@ class TdocsTableFromExcel(GenericTable):
 
         os.startfile(export_folder)
 
+        class PdfBookmark(NamedTuple):
+            page_begin: int
+            page_end: int
+            tdoc_id: str
+
+        pdf_bookmarks: List[PdfBookmark] = []
         if self.export_as_pdf_var.get():
             print('Exporting files to PDF')
             exported_pdfs = export_document(
@@ -384,8 +390,12 @@ class TdocsTableFromExcel(GenericTable):
             all_pdfs :List[Path] = list([f.resolve() for f in folder_path.glob("*.pdf")])
             merger = PdfWriter()
             current_page = 0
+            last_bookmark_page = 0
             last_bookmark = None
+            tdoc_id = None
+            old_tdoc_id = None
             for pdf in all_pdfs:
+                old_tdoc_id = tdoc_id
                 tdoc_id = pdf.name.split('_')[0]
                 merger.append(pdf.absolute())
                 last_page = merger.pages[-1].page_number  # Access the last appended file's page count
@@ -396,13 +406,39 @@ class TdocsTableFromExcel(GenericTable):
                         bold=True,
                         fit=PAGE_FIT
                     )
+
+                    if last_bookmark is not None:
+                        # Page number one-indexed
+                        pdf_bookmarks.append(PdfBookmark(
+                            page_begin = last_bookmark_page +1,
+                            page_end = current_page,
+                            tdoc_id=old_tdoc_id
+                        ))
                     last_bookmark = tdoc_id
+                    last_bookmark_page = current_page
+
                 print(f'Merged {pdf.name} as {tdoc_id}, bookmark on page {current_page}')
                 current_page = last_page + 1
+
+            # The last bookmark is otherwise lost
+            if last_bookmark is not None:
+                # Page number one-indexed
+                pdf_bookmarks.append(PdfBookmark(
+                    page_begin=last_bookmark_page + 1,
+                    page_end=current_page,
+                    tdoc_id=tdoc_id
+                ))
+
             merge_file = os.path.join(export_folder, f"{export_id}.pdf")
             merger.write(merge_file)
             merger.close()
             os.startfile(merge_file)
+
+            with open(os.path.join(export_folder, f"{export_id}_bookmarks.txt"), 'w') as f:
+                f.write('The attached PDF contains a collection of documents\n')
+                lines_to_write = [f'  - {e.tdoc_id} spans pages {e.page_begin} to {e.page_end}\n' for e in
+                                  pdf_bookmarks]
+                f.writelines(lines_to_write)
 
     def current_excel_rows_to_clipboard(self):
         wb = open_excel_document(self.tdoc_excel_path)
