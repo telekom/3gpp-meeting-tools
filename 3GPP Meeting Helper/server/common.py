@@ -760,3 +760,51 @@ class MeetingEntry(NamedTuple):
 
 # Used to parse the meeting ID
 meeting_id_regex = re.compile(r'.*meeting\?MtgId=(?P<meeting_id>[\d]+)')
+
+class DocumentFileType(Enum):
+    UNKNOWN = 0
+    DOCX = 1
+    DOC = 2
+    PPTX = 3
+    PDF = 4
+    HTML = 5
+    YAML = 6
+
+
+class DownloadedTdocDocument(NamedTuple):
+    title: str | None
+    source: str | None
+    url: str | None
+    tdoc_id: str | None
+    path: str | None
+
+    @property
+    def document_type(self) -> DocumentFileType:
+        if self.path is None:
+            return DocumentFileType.UNKNOWN
+        try:
+            extension = os.path.splitext(self.path)[1].replace('.','').lower()
+        except Exception as e:
+            print(f'Could not get file type for TDoc {self.tdoc_id}, {self.path}: {e}')
+            return DocumentFileType.UNKNOWN
+
+        match extension:
+            case 'pdf':
+                return DocumentFileType.PDF
+            case 'html':
+                return DocumentFileType.HTML
+            case 'doc':
+                return DocumentFileType.DOC
+            case 'docx':
+                return DocumentFileType.DOCX
+            case 'pptx':
+                return DocumentFileType.PPTX
+            case 'yaml':
+                return DocumentFileType.YAML
+            case _:
+                return DocumentFileType.UNKNOWN
+
+
+class DownloadedData(NamedTuple):
+    folder_path: str | None # Folder where the downloaded data is placed
+    downloaded_word_documents: List[DownloadedTdocDocument] | None  # Downloaded Word Documents

@@ -3,12 +3,12 @@ import re
 import shutil
 import traceback
 import zipfile
-from enum import Enum
-from typing import List, Tuple, Any, NamedTuple, Callable
+from typing import List, Tuple, Any, Callable
 from zipfile import ZipFile
 
 import platform
 
+from application.common import ExportType, ActionAfter, DocumentMetadata
 from application.os import startfile
 
 if platform.system() == 'Windows':
@@ -91,7 +91,7 @@ def open_word_document(filename='', set_as_active_document=True, visible=True, )
     return doc
 
 
-def open_file(file, go_to_page=1, metadata_function=None) -> None | bool | Tuple[bool, Any]:
+def open_file(file, go_to_page=1, metadata_function: Callable[[Any, Any], Any]|None=None) -> None | bool | Tuple[bool, Any]:
     if (file is None) or (file == ''):
         return None
     metadata = None
@@ -120,6 +120,11 @@ def open_file(file, go_to_page=1, metadata_function=None) -> None | bool | Tuple
                 #    print('Moved to last page')
                 # doc.GoTo(constants.wdGoToPage,constants.wdGoToRelative, go_to_page)
         else:
+            metadata = DocumentMetadata(
+                title=None,
+                source=None,
+                path=file)
+
             # Basic avoidance of executables, but anyway per se not very safe... :P
             if extension != 'exe' and not_mac_metadata:
                 startfile(file)
@@ -136,24 +141,18 @@ def open_file(file, go_to_page=1, metadata_function=None) -> None | bool | Tuple
         return return_value
 
 
-class WordTdoc(NamedTuple):
-    title: str | None
-    source: str | None
-    path: str | None
-
-
-def open_files(files, metadata_function: Callable[[Any, str], WordTdoc] | None = None, go_to_page=1) \
-        -> int | Tuple[int, List[WordTdoc]]:
+def open_files(files, metadata_function: Callable[[Any, str], DocumentMetadata] | None = None, go_to_page=1) \
+        -> int | Tuple[int, List[DocumentMetadata]]:
     if files is None:
         return 0
     opened_files_count = 0
     metadata_list = []
     for file in files:
-        print('Opening {0}'.format(file))
+        print(f'Opening {file}')
         try:
             if metadata_function is not None:
                 file_opened, metadata = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
-                metadata = WordTdoc(
+                metadata = DocumentMetadata(
                     title=metadata.title if metadata is not None else None,
                     source=metadata.source if metadata is not None else None,
                     path=file)
@@ -161,7 +160,7 @@ def open_files(files, metadata_function: Callable[[Any, str], WordTdoc] | None =
                 file_opened = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
                 metadata = []
         except:
-            print('Could not open {0}'.format(file))
+            print(f'Could not open {file}')
             traceback.print_exc()
 
             file_opened = None
@@ -170,16 +169,11 @@ def open_files(files, metadata_function: Callable[[Any, str], WordTdoc] | None =
             opened_files_count += 1
             if metadata_function is not None:
                 metadata_list.append(metadata)
+
     if metadata_function is not None:
         return opened_files_count, metadata_list
     else:
         return opened_files_count
-
-
-class ExportType(Enum):
-    PDF = 1
-    HTML = 2
-    DOCX = 3
 
 
 def export_document(
@@ -187,10 +181,15 @@ def export_document(
         export_format: ExportType = ExportType.PDF,
         exclude_if_includes='_rm.doc',
         remove_all_fields=False,
-        accept_all_changes=False) -> List[str]:
+        accept_all_changes=False,
+        do_after=ActionAfter.NOTHING
+) -> List[str]:
     """
     Converts a given set of Word files to PDF/HTML
     Args:
+        do_after: What to do after the conversion
+        remove_all_fields: Whether to remove all fields
+        accept_all_changes: Whether to accept all changes
         export_format: The format to which the document should be exported to
         word_files: String list containing local paths to the Word files to convert
         exclude_if_includes: a string suffix to ignore certain files (e.g. files with change marks)
@@ -277,6 +276,19 @@ def export_document(
                         )
 
                     print('Converted {0} to {1}'.format(word_file, out_file))
+
+                    if do_after == ActionAfter.CLOSE_FILE or do_after == ActionAfter.CLOSE_AND_DELETE_FILE:
+                        try:
+                            doc.Close()
+                            print(f'Closed {word_file}')
+                        except Exception as e:
+                            print(f'Could not close file {word_file}: {e}')
+                    if do_after == ActionAfter.CLOSE_AND_DELETE_FILE:
+                        try:
+                            os.remove(word_file)
+                            print(f'Deleted {word_file}')
+                        except Exception as e:
+                            print(f'Could not delete file {word_file}: {e}')
                 else:
                     print('{0} already exists. No need to convert'.format(out_file))
                 converted_files.append(out_file)

@@ -364,8 +364,8 @@ def download_and_open_tdoc(
     # If we are performing a global TDoc search
     if tkvar_global_tdoc_search.get():
         print(f'Will search for TDoc {tdoc_id}')
-        retrieved_files, metadata_list = server.tdoc_search.search_download_and_open_tdoc(tdoc_id)
-        if retrieved_files is None:
+        retrieved_files_folder, metadata_list = server.tdoc_search.search_download_and_open_tdoc(tdoc_id)
+        if retrieved_files_folder is None:
             not_found_string = 'Not found (' + tdoc_id + ')'
             tkvar_tdoc_download_result.set(not_found_string)
 
@@ -374,7 +374,7 @@ def download_and_open_tdoc(
             url_to_open = server.common.get_tdoc_details_url(tdoc_id)
             open_url(url_to_open)
 
-        return retrieved_files
+        return retrieved_files_folder
 
     # Search in meeting
     meeting_name = tkvar_meeting.get()
@@ -383,19 +383,19 @@ def download_and_open_tdoc(
 
     using_private_server = tkvar_3gpp_wifi_available.get()
 
-    retrieved_files, tdoc_url = server.tdoc.get_tdoc(
+    retrieved_files_folder, tdoc_url = server.tdoc.get_tdoc(
         meeting_folder_name=meeting_folder_name,
         tdoc_id=tdoc_id,
         server_type=server.common.ServerType.PRIVATE if using_private_server else server.common.ServerType.PUBLIC
     )
 
     if cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
-        if retrieved_files is not None:
-            print("Added files to cached TDocs list: {0}".format(retrieved_files))
-            cached_tdocs_list.extend(retrieved_files)
+        if retrieved_files_folder is not None:
+            print("Added files to cached TDocs list: {0}".format(retrieved_files_folder))
+            cached_tdocs_list.extend(retrieved_files_folder)
 
     if skip_opening:
-        return retrieved_files
+        return retrieved_files_folder
     if copy_to_clipboard:
         if tdoc_url is None:
             clipboard_text = tdoc_id
@@ -415,10 +415,10 @@ def download_and_open_tdoc(
         print(f'Could not find Tdoc {tdoc_id} in TdocsByAgenda: {e}, {type(e)}')
         tdoc_status = '<unknown>'
     tkvar_last_tdoc_status.set(tdoc_status)
-    if (retrieved_files is None) or (len(retrieved_files) == 0):
+    if (retrieved_files_folder is None) or (len(retrieved_files_folder) == 0):
         pass
     else:
-        opened_files, metadata_list = parsing.word.pywin32.open_files(retrieved_files, return_metadata=True)
+        opened_files, metadata_list = parsing.word.pywin32.open_files(retrieved_files_folder, return_metadata=True)
         found_string = 'Opened {0} file(s)'.format(opened_files)
 
         tkvar_last_doc_tdoc.set(tkvar_tdoc_id.get())
@@ -431,7 +431,7 @@ def download_and_open_tdoc(
                 if last_metadata.source is not None:
                     tkvar_last_doc_source.set(last_metadata.source)
 
-    return retrieved_files
+    return retrieved_files_folder
 
 
 def start_main_gui():

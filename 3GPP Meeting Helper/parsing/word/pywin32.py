@@ -15,7 +15,8 @@ import application.word
 import config.ai_names
 import config.contributor_names as contributor_names
 import server.tdoc
-from application.word import get_word, open_word_document, WordTdoc
+from application.word import get_word, open_word_document
+from application.common import DocumentMetadata
 from tdoc.utils import tdoc_regex
 
 title_regex = re.compile(r'Title:[\s\n]*(?P<title>.*)[\s\n]*\n', re.MULTILINE)
@@ -57,9 +58,9 @@ def rgb_to_hex(rgb):
     return iValue
 
 
-def get_metadata_from_doc(doc, path: str) -> WordTdoc:
+def get_metadata_from_doc(doc, path: str) -> DocumentMetadata | None:
     if doc is None:
-        return WordTdoc(title=None, source=None, path=None)
+        return DocumentMetadata(title=None, source=None, path=None)
     try:
         starting_text = ''
         tdoc_is_cr = False
@@ -93,7 +94,7 @@ def get_metadata_from_doc(doc, path: str) -> WordTdoc:
 
     # https://stackoverflow.com/questions/32134396/python-regular-expression-caret-not-working-in-multiline-modes
     if starting_text == '':
-        return WordTdoc(title=None, source=None, path=None)
+        return DocumentMetadata(title=None, source=None, path=None)
 
     if not tdoc_is_cr:
         title_match = title_regex.search(starting_text)
@@ -109,7 +110,7 @@ def get_metadata_from_doc(doc, path: str) -> WordTdoc:
             title = cr_match.groupdict()['title'].strip()
             source = cr_match.groupdict()['source'].strip()
 
-    return WordTdoc(title=title, source=source, path=path)
+    return DocumentMetadata(title=title, source=source, path=path)
 
 
 def parse_document(filename):
@@ -1025,14 +1026,16 @@ def open_file(file, return_metadata=False, go_to_page=1):
     return application.word.open_file(file, go_to_page=go_to_page, metadata_function=get_metadata_from_doc)
 
 
-def open_files(files, return_metadata=False, go_to_page=1) -> int | Tuple[int, List[WordTdoc]]:
+def open_files(files, return_metadata=False, go_to_page=1) -> int | Tuple[int, List[DocumentMetadata]]:
     # No metadata
     if not return_metadata:
         return application.word.open_files(files, go_to_page=go_to_page)
 
     # Case returning metadata
-    opened_files, parsed_metadata_list = application.word.open_files(files, go_to_page=go_to_page,
-                                                                     metadata_function=get_metadata_from_doc)
+    opened_files, parsed_metadata_list = application.word.open_files(
+        files,
+        go_to_page=go_to_page,
+        metadata_function=get_metadata_from_doc)
     return opened_files, parsed_metadata_list
 
 

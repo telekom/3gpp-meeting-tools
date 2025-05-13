@@ -9,6 +9,7 @@ from typing import NamedTuple
 import pandas as pd
 
 import application
+import application.common
 import application.word
 
 from application.os import open_url_and_copy_to_clipboard, startfile
@@ -542,7 +543,7 @@ class SpecVersionsTable(GenericTable):
             downloaded_files = download_spec_if_needed(spec_id, spec_url)
             pdf_files = application.word.export_document(
                 downloaded_files,
-                export_format=application.word.ExportType.PDF)
+                export_format=application.common.ExportType.PDF)
             for pdf_file in pdf_files:
                 startfile(pdf_file)
             self.reload_table()
@@ -552,7 +553,7 @@ class SpecVersionsTable(GenericTable):
             downloaded_files = download_spec_if_needed(spec_id, spec_url)
             pdf_files = application.word.export_document(
                 downloaded_files,
-                export_format=application.word.ExportType.HTML)
+                export_format=application.common.ExportType.HTML)
             for pdf_file in pdf_files:
                 startfile(pdf_file)
             self.reload_table()

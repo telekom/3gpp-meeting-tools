@@ -156,7 +156,7 @@ if platform.system() == 'Windows':
     def compare_tdoc_with_active_word():
         tdoc_str = tkvar_tdoc_id.get()
         print(f'Will compare active Word Document with TDoc {tdoc_str}')
-        retrieved_files, metadata_list = server.tdoc_search.search_download_and_open_tdoc(
+        retrieved_files_folder, metadata_list = server.tdoc_search.search_download_and_open_tdoc(
             tdoc_str,
             skip_open=True,
             tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available)
@@ -187,7 +187,7 @@ if platform.system() == 'Windows':
 def search_and_open_tdoc():
     tdoc_str = tkvar_tdoc_id.get()
     print(f'Will search for TDoc {tdoc_str}')
-    retrieved_files, metadata_list = server.tdoc_search.search_download_and_open_tdoc(
+    retrieved_files_folder, metadata_list = server.tdoc_search.search_download_and_open_tdoc(
         tdoc_str,
         tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available)
 
