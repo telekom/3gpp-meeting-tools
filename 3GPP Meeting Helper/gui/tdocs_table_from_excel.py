@@ -434,10 +434,17 @@ class TdocsTableFromExcel(GenericTable):
             merger.close()
             os.startfile(merge_file)
 
+            def get_text_for_prompt(e:PdfBookmark) -> str:
+                el_tdoc_id = e.tdoc_id
+                el_title = self.tdocs_current_df.loc[e.tdoc_id, 'Title']
+                el_sources = self.tdocs_current_df.loc[e.tdoc_id, 'Source']
+
+                el_str = f'  - {el_tdoc_id}, titled {el_title}, is sourced by {el_sources} and spans pages {e.page_begin} to {e.page_end}\n'
+                return el_str
+
             with open(os.path.join(export_folder, f"{export_id}_bookmarks.txt"), 'w') as f:
                 f.write('The attached PDF contains a collection of documents\n')
-                lines_to_write = [f'  - {e.tdoc_id} spans pages {e.page_begin} to {e.page_end}\n' for e in
-                                  pdf_bookmarks]
+                lines_to_write = [get_text_for_prompt(e) for e in pdf_bookmarks]
                 f.writelines(lines_to_write)
 
     def current_excel_rows_to_clipboard(self):
