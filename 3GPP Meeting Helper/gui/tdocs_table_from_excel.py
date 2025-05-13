@@ -4,6 +4,7 @@ import os.path
 import shutil
 import textwrap
 import tkinter
+from pathlib import Path
 from tkinter import ttk
 from typing import List, Any
 
@@ -11,6 +12,8 @@ import numpy as np
 import pandas as pd
 import pyperclip
 from pandas import DataFrame
+from pypdf import PdfWriter
+from pypdf.generic import PAGE_FIT
 
 import server
 import utils.local_cache
@@ -348,7 +351,8 @@ class TdocsTableFromExcel(GenericTable):
             return
         time_now = datetime.datetime.now()
         export_root_folder = utils.local_cache.get_export_folder()
-        export_folder = os.path.join(export_root_folder, f'{time_now.year:04d}.{time_now.month:02d}.{time_now.day:02d} {time_now.hour:02d}{time_now.minute:02d}{time_now.second:02d}')
+        export_id = f'{time_now.year:04d}.{time_now.month:02d}.{time_now.day:02d} {time_now.hour:02d}{time_now.minute:02d}{time_now.second:02d}'
+        export_folder = os.path.join(export_root_folder, export_id)
 
         print(f'Exporting files to {export_folder}')
         create_folder_if_needed(folder_name=export_folder, create_dir=True)
@@ -368,15 +372,37 @@ class TdocsTableFromExcel(GenericTable):
             shutil.copy(file_to_export, output_path)
             exported_files.append(output_path)
 
+        os.startfile(export_folder)
+
         if self.export_as_pdf_var.get():
             print('Exporting files to PDF')
             exported_pdfs = export_document(
                 exported_files,
                 export_format=ExportType.PDF,
                 do_after=ActionAfter.CLOSE_AND_DELETE_FILE)
-
-
-        os.startfile(export_folder)
+            folder_path = Path(export_folder)
+            all_pdfs :List[Path] = list([f.resolve() for f in folder_path.glob("*.pdf")])
+            merger = PdfWriter()
+            current_page = 0
+            last_bookmark = None
+            for pdf in all_pdfs:
+                tdoc_id = pdf.name.split('_')[0]
+                merger.append(pdf.absolute())
+                last_page = merger.pages[-1].page_number  # Access the last appended file's page count
+                if last_bookmark is not None or last_bookmark != tdoc_id:
+                    merger.add_outline_item(
+                        title=tdoc_id,
+                        page_number=current_page,
+                        bold=True,
+                        fit=PAGE_FIT
+                    )
+                    last_bookmark = tdoc_id
+                print(f'Merged {pdf.name} as {tdoc_id}, bookmark on page {current_page}')
+                current_page = last_page + 1
+            merge_file = os.path.join(export_folder, f"{export_id}.pdf")
+            merger.write(merge_file)
+            merger.close()
+            os.startfile(merge_file)
 
     def current_excel_rows_to_clipboard(self):
         wb = open_excel_document(self.tdoc_excel_path)
