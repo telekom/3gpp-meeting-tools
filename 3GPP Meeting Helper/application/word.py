@@ -64,7 +64,7 @@ def get_word(visible=True, display_alerts=False):
     return word
 
 
-def open_word_document(filename='', set_as_active_document=True, visible=True, ):
+def open_word_document(filename='', set_as_active_document=True, visible=True, ) -> Any|None:
     if filename is None or filename == '':
         return None
     if platform.system() != 'Windows':
@@ -230,7 +230,7 @@ def export_document(
                     if word is None:
                         word = get_word()
                     print('Converting {0} to {1}'.format(word_file, out_file))
-                    doc = word.Documents.Open(word_file)
+                    doc = open_word_document(word_file, visible=False)
 
                     if remove_all_fields:
                         print('Removing all Fields')
