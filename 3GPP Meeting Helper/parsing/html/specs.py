@@ -4,6 +4,7 @@ import re
 from typing import List
 
 from parsing.spec_types import SpecType, SpecReleases, SpecSeries, SpecFile, SpecVersionMapping
+from server.common import WiEntry
 
 
 def extract_releases_from_latest_folder(latest_specs_page_text: str, base_url: str) -> List[SpecReleases]:
@@ -47,7 +48,7 @@ def extract_spec_series_from_spec_folder(series_specs_page_text, base_url=None, 
 # Need to account to TR numbers and old release numbers. Examples:
 # 23700-07-h00.zip, 23003-aa0.zip, 23034-800.zip
 spec_zipfile_regex = re.compile(r'([\d]{5}(-[\d]{1,2})?)-([\d\w]*).zip')
-
+spec_related_wis_regex = re.compile(r'(?P<uid>\d+) *\| *(?P<acronym>[\w, -_]+) *\| *(?P<name>[\w, -()-]+) *\| *(?P<groups>[\w, ]+) *\|')
 
 def extract_spec_files_from_spec_folder(
         specs_page_markup: str,
@@ -167,6 +168,22 @@ def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping
                      if (m_file := spec_zipfile_regex.match(m.group(2))) is not None}
     spec_versions_inv = {v: k for k, v in spec_versions.items()}
 
+    try:
+        related_wis_relevant_markup = [e for e in spec_page_markup.split('{1}') if e is not None and 'Related Work Items' in e]
+        related_wis_relevant_markup = '\n'.join(related_wis_relevant_markup)
+    except Exception as e:
+        print(f'Could not extract related WIs for {spec_number}: {e}')
+        related_wis_relevant_markup = ''
+
+    related_wis = [WiEntry(
+        uid = m.group('uid').strip(),
+        code = m.group('acronym').strip(),
+        title = m.group('name').strip(),
+        lead_body = m.group('groups').strip(),
+        release = ''
+    ) for m in spec_related_wis_regex.finditer(related_wis_relevant_markup)]
+    print(f'Related WIs: {related_wis}')
+
     spec_mapping = SpecVersionMapping(
         spec_number,
         spec_title,
@@ -175,7 +192,8 @@ def extract_spec_versions_from_spec_file(spec_page_markup) -> SpecVersionMapping
         responsible_group,
         spec_type_enum,
         spec_initial_release,
-        upload_dates
+        upload_dates,
+        related_wis=related_wis
     )
     # if spec_number=='23501' or spec_number=='23.501':
     #     print(spec_mapping)

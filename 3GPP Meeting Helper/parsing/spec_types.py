@@ -2,6 +2,8 @@ from enum import Enum
 from typing import NamedTuple
 from typing import List
 
+from server.common import WiEntry
+
 
 class SpecType(Enum):
     Unknown = 1
@@ -61,6 +63,7 @@ class SpecVersionMapping(NamedTuple):
     type: SpecType
     spec_initial_release: str
     upload_dates: List[str]
+    related_wis: List[WiEntry] = None
 
 
 def get_spec_full_name(spec_id: str, spec_type: SpecType) -> str:
