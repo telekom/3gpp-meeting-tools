@@ -1,5 +1,4 @@
 import os
-import platform
 import re
 import textwrap
 import tkinter
@@ -11,12 +10,12 @@ import pandas as pd
 import application
 import application.common
 import application.word
-
 from application.os import open_url_and_copy_to_clipboard, startfile
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from parsing.html.specs import extract_spec_files_from_spec_folder, cleanup_spec_name
 from parsing.spec_types import get_spec_full_name, SpecType
 from server import specs
+from server.common import WiEntry
 from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, \
     get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder, get_url_for_crs_page, \
     get_spec_page, file_version_to_version_metadata
@@ -35,7 +34,7 @@ class SpecsTable(GenericTable):
             parent_widget,
             "Specs Table. Double-Click on Spec # or Release # to open",
             favicon,
-            ['Spec', 'Title', 'Versions', 'Local Cache', 'Group', 'CRs']
+            ['Spec', 'Title', 'Versions', 'Local Cache', 'Group', 'CRs', 'WIs']
         )
         self.root_widget = root_widget
         self.spec_count = tkinter.StringVar()
@@ -46,6 +45,7 @@ class SpecsTable(GenericTable):
         self.set_column('Local Cache', width=80)
         self.set_column('Group', width=70)
         self.set_column('CRs', width=70)
+        self.set_column('WIs', width=70)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -218,6 +218,7 @@ class SpecsTable(GenericTable):
                 'Click',
                 'Click',
                 responsible_group,
+                'Click',
                 'Click'
             ))
 
@@ -314,7 +315,15 @@ class SpecsTable(GenericTable):
             print('Clicked CRs link for spec ID {0}'.format(spec_id))
             url_to_open = get_url_for_crs_page(spec_id)
             open_url_and_copy_to_clipboard(url_to_open)
-
+        if column == 6:
+            print('Clicked WIs link for spec ID {0}'.format(spec_id))
+            current_spec_metadata = self.spec_metadata[spec_id]
+            if current_spec_metadata.related_wis is None:
+                return
+            print(f'Related WIs to open: {current_spec_metadata.related_wis}')
+            for related_wi in current_spec_metadata.related_wis:
+                url_to_open = related_wi.wid_page_url
+                open_url_and_copy_to_clipboard(url_to_open)
 
 def get_url_for_version_text(spec_entries: pd.DataFrame, version_text: str) -> str:
     """

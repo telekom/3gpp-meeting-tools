@@ -11,7 +11,8 @@ from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from server import wi_search
 from server.connection import get_remote_file
 from server.tdoc_search import search_download_and_open_tdoc
-from server.wi_search import WiEntry, wgs_list, download_wi_list
+from server.wi_search import wgs_list, download_wi_list
+from server.common import WiEntry
 from tdoc.utils import tdoc_generic_regex
 
 # To avoid matches for things like "utf-8"

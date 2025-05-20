@@ -232,7 +232,7 @@ def get_specs(
         check_for_new_specs,
         override_pickle_cache,
         load_only_spec_list))
-    specs_df_cache_file = os.path.join(get_specs_cache_folder(), '_specs.pickle')
+    specs_df_cache_file = os.path.join(get_specs_cache_folder(), '_specs_v2.pickle')
 
     # Load specs data from cache file
     if not override_pickle_cache:
@@ -414,12 +414,18 @@ def apply_spec_metadata_to_dataframe(specs_df: pd.DataFrame, spec_metadata: Dict
     specs_df['title'] = ''
     specs_df['responsible_group'] = ''
     specs_df['type'] = ''
+    specs_df['related_wis'] = ''
 
     specs_list = specs_df.index.unique()
     for idx in specs_list:
         if idx in spec_metadata:
             specs_df.at[idx, 'title'] = spec_metadata[idx].title
             specs_df.at[idx, 'responsible_group'] = spec_metadata[idx].responsible_group
+            try:
+                if spec_metadata[idx] is not None:
+                    specs_df.at[idx, 'related_wis'] = ','.join([e.uid for e in spec_metadata[idx].related_wis ])
+            except Exception as e:
+                print(f'Could not parse related WIs for {idx}: {e}')
             if spec_metadata[idx].type == SpecType.TS:
                 specs_df.at[idx, 'type'] = 'TS'
             elif spec_metadata[idx].type == SpecType.TR:
