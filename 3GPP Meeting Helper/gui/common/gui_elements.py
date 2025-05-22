@@ -39,25 +39,3 @@ class TTKHoverHelpButton(ttk.Button):
     def _on_leave(self, event):
         self._hide_tooltip()
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    root.title("TTK Hover Help Button Example")
-
-    def on_button_click():
-        print("TTK Button clicked!")
-
-    style = ttk.Style()
-    style.configure("My.TTKHoverHelpButton", padding=10)
-
-    help_button = TTKHoverHelpButton(root, text="Click Me (TTK)",
-                                     help_text="This TTK button also has helpful information on hover.",
-                                     command=on_button_click,
-                                     style="My.TTKHoverHelpButton")
-    help_button.pack(pady=20)
-
-    another_button = TTKHoverHelpButton(root, text="Another TTK Button",
-                                        help_text="More help for this other TTK button.",
-                                        hover_delay=750)
-    another_button.pack(pady=10)
-
-    root.mainloop()
