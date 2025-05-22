@@ -9,6 +9,7 @@ share_png_file = os.path.join(current_folder, 'share.png')
 website_png_file = os.path.join(current_folder, 'website.png')
 excel_png_file = os.path.join(current_folder, 'excel.png')
 filter_png_file = os.path.join(current_folder, 'filter.png')
+table_png_file = os.path.join(current_folder, 'table.png')
 
 print(f'Loading generic table icons: {cloud_png_file}, {cloud_download_png_file}')
 cloud_icon = tkinter.PhotoImage(
@@ -31,4 +32,7 @@ website_icon = tkinter.PhotoImage(
 )
 filter_icon = tkinter.PhotoImage(
     file=filter_png_file,
+)
+table_icon = tkinter.PhotoImage(
+    file=table_png_file,
 )

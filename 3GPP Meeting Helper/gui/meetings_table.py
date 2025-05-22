@@ -12,6 +12,8 @@ from application.excel import open_excel_document
 from application.os import open_url, startfile
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
+from gui.common.gui_elements import TTKHoverHelpButton
+from gui.common.icons import excel_icon, table_icon
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
 from server.common import download_file_to_location, MeetingEntry
@@ -131,18 +133,30 @@ class MeetingsTable(GenericTable):
             match self.open_tdoc_excel_choice_var.get():
                 case "Excel":
                     self.open_tdoc_excel_choice_var.set("Table")
+                    try:
+                        self.open_tdoc_excel_choice_btn.configure({'image': table_icon})
+                    except AttributeError:
+                        # The first time it will always fail
+                        pass
                     self.open_tdoc_excel_as_table_var.set(True)
                 case _:
                     self.open_tdoc_excel_choice_var.set("Excel")
+                    try:
+                        self.open_tdoc_excel_choice_btn.configure({'image': excel_icon})
+                    except AttributeError:
+                        # The first time it will always fail
+                        pass
                     self.open_tdoc_excel_as_table_var.set(False)
 
         self.open_tdoc_excel_choice_var = tkinter.StringVar()
         toggle_excel_choice_btn()  # Init to "Excel"
-        self.open_tdoc_excel_choice_btn = ttk.Button(
+        self.open_tdoc_excel_choice_btn = TTKHoverHelpButton(
             self.top_frame,
             textvariable=self.open_tdoc_excel_choice_var,
+            image=excel_icon,
             command=toggle_excel_choice_btn,
-            width=5
+            width=5,
+            help_text='Click to change format in which to open TDoc list'
         )
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         ttk.Label(self.top_frame, text="Open TDocs as ").pack(side=tkinter.LEFT)
