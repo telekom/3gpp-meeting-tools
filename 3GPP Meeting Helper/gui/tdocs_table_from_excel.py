@@ -25,7 +25,9 @@ from application.word import export_document
 from config.markdown import MarkdownConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
-from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon
+from gui.common.gui_elements import TTKHoverHelpButton
+from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon, \
+    filter_icon
 from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url, \
     MeetingEntry, DownloadedTdocDocument
 from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
@@ -217,67 +219,75 @@ class TdocsTableFromExcel(GenericTable):
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        self.open_meeting_btn = ttk.Button(
+        self.open_meeting_btn = TTKHoverHelpButton(
             self.top_frame,
             image=website_icon,
             command=lambda: open_url(self.meeting.meeting_url_3gu),
-            width=5
+            width=5,
+            help_text='Open meeting in 3GU'
         )
         self.open_meeting_btn.pack(side=tkinter.LEFT)
 
-        self.open_excel_btn = ttk.Button(
+        self.open_excel_btn = TTKHoverHelpButton(
             self.top_frame,
             image=excel_icon,
             command=lambda: open_excel_document(self.tdoc_excel_path),
-            width=5
+            width=5,
+            help_text="Open 3GU's TDoc Excel"
         )
         self.open_excel_btn.pack(side=tkinter.LEFT)
 
-        self.open_excel_btn = ttk.Button(
+        self.open_excel_btn = TTKHoverHelpButton(
             self.top_frame,
-            text='Filter Excel',
+            image=filter_icon,
             command=self.open_and_filter_excel,
-            width=8
+            width=8,
+            help_text="Filter 3GU Excel"
         )
         self.open_excel_btn.pack(side=tkinter.LEFT)
 
-        self.excel_to_markdown_btn = ttk.Button(
+        self.excel_to_markdown_btn = TTKHoverHelpButton(
             self.top_frame,
             text='Excel2MD',
             command=self.current_excel_rows_to_clipboard,
-            width=9
+            width=9,
+            help_text="Convert currently visible rows in Excel to Markdown"
         )
         self.excel_to_markdown_btn.pack(side=tkinter.LEFT)
 
-        self.download_btn = ttk.Button(
+        self.download_btn = TTKHoverHelpButton(
             self.top_frame,
             image=cloud_download_icon,
             command=self.download_tdocs,
-            width=8
+            width=8,
+            help_text="Batch download currently shown TDocs in the table"
         )
         self.download_btn.pack(side=tkinter.LEFT)
 
-        self.cache_btn = ttk.Button(
+        self.cache_btn = TTKHoverHelpButton(
             self.top_frame,
             image=folder_icon,
             command=lambda: startfile(meeting.local_folder_path),
-            width=5
+            width=5,
+            help_text="Open local folder for meeting"
         )
         self.cache_btn.pack(side=tkinter.LEFT)
 
-        self.markdown_export_per_ai_btn = ttk.Button(
+        self.markdown_export_per_ai_btn = TTKHoverHelpButton(
             self.top_frame,
             text='MD/AI',
             command=self.export_ais_to_markdown,
-            width=6
+            width=6,
+            help_text="Export this meeting's TDocs for report"
         )
         self.markdown_export_per_ai_btn.pack(side=tkinter.LEFT)
 
         # Export TDocs in table to export folder
-        self.share_btn = ttk.Button(
+        self.share_btn = TTKHoverHelpButton(
             self.top_frame,
             image=share_icon,
             command=self.export_tdocs_to_folder,
+            help_text="Export currently visible TDocs to export folder"
         )
         self.share_btn.pack(side=tkinter.LEFT)
 
