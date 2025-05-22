@@ -27,7 +27,7 @@ from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon, \
-    filter_icon
+    filter_icon, note_icon
 from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url, \
     MeetingEntry, DownloadedTdocDocument
 from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
@@ -302,9 +302,10 @@ class TdocsTableFromExcel(GenericTable):
 
         # SA2-specific buttons
         if self.meeting.working_group_enum == WorkingGroup.S2 and self.meeting.meeting_is_now:
-            ttk.Button(
+            TTKHoverHelpButton(
                 self.top_frame,
-                text='Drafts',
+                help_text='Open Drafts folder for this meeting',
+                image=note_icon,
                 command=lambda: startfile(
                     open_sa2_drafts_url),
                 width=10
