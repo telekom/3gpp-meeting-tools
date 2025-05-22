@@ -13,7 +13,7 @@ from application.os import open_url, startfile
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.common.gui_elements import TTKHoverHelpButton
-from gui.common.icons import excel_icon, table_icon
+from gui.common.icons import excel_icon, table_icon, cloud_download_icon, refresh_icon, search_icon
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
 from server.common import download_file_to_location, MeetingEntry
@@ -101,11 +101,12 @@ class MeetingsTable(GenericTable):
         self.tkvar_tdoc_id = tkinter.StringVar(self.top_frame)
         self.tkvar_tdoc_id.trace_add('write', self.on_tdoc_search_change)
         self.tdoc_entry = tkinter.Entry(self.top_frame, textvariable=self.tkvar_tdoc_id, width=15, font='TkDefaultFont')
-        self.button_open_tdoc = ttk.Button(
+        self.button_open_tdoc = TTKHoverHelpButton(
             self.top_frame,
-            text='Open TDoc',
+            help_text='Search for TDoc on all meetings',
             command=self.on_open_tdoc,
-            state=tkinter.DISABLED
+            state=tkinter.DISABLED,
+            image=search_icon
         )
         self.tdoc_entry.pack(side=tkinter.LEFT)
         ttk.Label(self.top_frame, text=" ").pack(side=tkinter.LEFT)
@@ -122,9 +123,6 @@ class MeetingsTable(GenericTable):
             self.top_frame,
             state='enabled',
             variable=self.redownload_tdoc_excel_if_exists_var)
-        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        ttk.Label(self.top_frame, text="Re-DL TDoc list: ").pack(side=tkinter.LEFT)
-        self.redownload_tdoc_excel_if_exists.pack(side=tkinter.LEFT)
 
         # Open TDoc Excel as table
         self.open_tdoc_excel_as_table_var = tkinter.IntVar()
@@ -159,15 +157,21 @@ class MeetingsTable(GenericTable):
             help_text='Click to change format in which to open TDoc list'
         )
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        ttk.Label(self.top_frame, text="Open TDocs as ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="TDoc list as ").pack(side=tkinter.LEFT)
         self.open_tdoc_excel_choice_btn.pack(side=tkinter.LEFT)
 
         # Load meeting data
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        ttk.Button(
+        TTKHoverHelpButton(
             self.top_frame,
-            text='Load meetings',
-            command=self.load_meetings).pack(side=tkinter.LEFT)
+            help_text='(Re-)load meeting data',
+            command=self.load_meetings,
+            image=refresh_icon
+        ).pack(side=tkinter.LEFT)
+
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Re-DL TDoc list: ").pack(side=tkinter.LEFT)
+        self.redownload_tdoc_excel_if_exists.pack(side=tkinter.LEFT)
 
         # Compare TDoc
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
