@@ -427,14 +427,16 @@ class SpecVersionsTable(GenericTable):
 
         ttk.Label(self.bottom_frame, textvariable=self.footer_label).pack(side=tkinter.LEFT)
 
-        ttk.Button(
+        TTKHoverHelpButton(
             self.bottom_frame,
-            text='Open local folder',
+            help_text=f'Open local folder for {self.spec_id}',
+            image=folder_icon,
             command=lambda: startfile(get_specs_folder(spec_id=self.spec_id))).pack(side=tkinter.LEFT)
 
-        ttk.Button(
+        TTKHoverHelpButton(
             self.bottom_frame,
-            text='Re-load spec file',
+            help_text='(Re-)download and load specification data from 3GPP server',
+            image=refresh_icon,
             command=self.reload_spec_file).pack(side=tkinter.LEFT)
 
         # Main frame
