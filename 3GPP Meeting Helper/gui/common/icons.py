@@ -13,6 +13,7 @@ table_png_file = os.path.join(current_folder, 'table.png')
 link_png_file = os.path.join(current_folder, 'link.png')
 refresh_png_file = os.path.join(current_folder, 'refresh.png')
 search_png_file = os.path.join(current_folder, 'search.png')
+note_png_file = os.path.join(current_folder, 'note.png')
 
 print(f'Loading generic table icons: {cloud_png_file}, {cloud_download_png_file}')
 cloud_icon = tkinter.PhotoImage(
@@ -47,4 +48,7 @@ refresh_icon = tkinter.PhotoImage(
 )
 search_icon = tkinter.PhotoImage(
     file=search_png_file,
+)
+note_icon = tkinter.PhotoImage(
+    file=note_png_file,
 )
