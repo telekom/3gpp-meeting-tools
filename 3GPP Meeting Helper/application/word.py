@@ -196,6 +196,10 @@ def export_document(
     Returns:
         String list containing local paths to the converted PDF files
     """
+    if export_format == ExportType.NONE:
+        # Nothing to do
+        return []
+
     if platform.system() != 'Windows':
         print('Word export to PDF/HTML only available in Windows')
         return []

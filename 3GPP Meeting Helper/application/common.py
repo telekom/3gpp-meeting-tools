@@ -3,6 +3,7 @@ from typing import NamedTuple
 
 
 class ExportType(Enum):
+    NONE = 0
     PDF = 1
     HTML = 2
     DOCX = 3
