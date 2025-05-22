@@ -24,7 +24,7 @@ from application.os import open_url, startfile
 from application.word import export_document
 from config.markdown import MarkdownConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
-from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
+from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon, \
     filter_icon
@@ -291,14 +291,14 @@ class TdocsTableFromExcel(GenericTable):
         )
         self.share_btn.pack(side=tkinter.LEFT)
 
-        # Export as PDF
-        self.export_as_pdf_var = tkinter.IntVar()
-        self.export_as_pdf_checkbox = ttk.Checkbutton(
+        # Export format
+        self.combo_export_format = ttk.Combobox(
             self.top_frame,
-            state='enabled',
-            variable=self.export_as_pdf_var)
-        self.export_as_pdf_checkbox.pack(side=tkinter.LEFT)
-        ttk.Label(self.top_frame, text="PDF").pack(side=tkinter.LEFT)
+            values=['Original', 'PDF', 'HTML'],
+            state="readonly",
+            width=7)
+        self.combo_export_format.set('Original')
+        self.combo_export_format.pack(side=tkinter.LEFT)
 
         # SA2-specific buttons
         if self.meeting.working_group_enum == WorkingGroup.S2 and self.meeting.meeting_is_now:
@@ -397,24 +397,37 @@ class TdocsTableFromExcel(GenericTable):
             tdoc_id: str
 
         pdf_bookmarks: List[PdfBookmark] = []
-        if self.export_as_pdf_var.get():
-            print('Exporting files to PDF')
+        export_type = ExportType.NONE
+        match self.combo_export_format.get():
+            case 'HTML':
+                export_type = ExportType.HTML
+            case 'PDF':
+                export_type = ExportType.PDF
+
+
+        if export_type != ExportType.NONE:
+            print('Exporting files to specified format')
             exported_pdfs = export_document(
                 exported_files,
-                export_format=ExportType.PDF,
+                export_format=export_type,
                 do_after=ActionAfter.CLOSE_AND_DELETE_FILE)
             folder_path = Path(export_folder)
-            all_pdfs :List[Path] = list([f.resolve() for f in folder_path.glob("*.pdf")])
+
+            if export_type != ExportType.PDF:
+                # TDoc merge and prompt generation only for PDF format
+                return
+
+            all_exported_files :List[Path] = list([f.resolve() for f in folder_path.glob("*.pdf")])
             merger = PdfWriter()
             current_page = 0
             last_bookmark_page = 0
             last_bookmark = None
             tdoc_id = None
             old_tdoc_id = None
-            for pdf in all_pdfs:
+            for exported_file in all_exported_files:
                 old_tdoc_id = tdoc_id
-                tdoc_id = pdf.name.split('_')[0]
-                merger.append(pdf.absolute())
+                tdoc_id = exported_file.name.split('_')[0]
+                merger.append(exported_file.absolute())
                 last_page = merger.pages[-1].page_number  # Access the last appended file's page count
                 if last_bookmark is not None or last_bookmark != tdoc_id:
                     merger.add_outline_item(
@@ -434,7 +447,7 @@ class TdocsTableFromExcel(GenericTable):
                     last_bookmark = tdoc_id
                     last_bookmark_page = current_page
 
-                print(f'Merged {pdf.name} as {tdoc_id}, bookmark on page {current_page}')
+                print(f'Merged {exported_file.name} as {tdoc_id}, bookmark on page {current_page}')
                 current_page = last_page + 1
 
             # The last bookmark is otherwise lost
