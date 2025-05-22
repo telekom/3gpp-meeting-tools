@@ -1,4 +1,3 @@
-import os
 import tkinter
 from tkinter import ttk
 from tkinter.ttk import Treeview
@@ -9,26 +8,6 @@ from gui.common.tkinter_widget import TkWidget
 from gui.common.utils import get_new_style
 
 column_separator_str = "   "
-
-current_folder = os.path.dirname(os.path.realpath(__file__))
-cloud_png_file = os.path.join(current_folder, 'cloud.png')
-cloud_download_png_file = os.path.join(current_folder, 'cloud_download.png')
-folder_png_file = os.path.join(current_folder, 'folder.png')
-share_png_file = os.path.join(current_folder, 'share.png')
-print(f'Loading generic table icons: {cloud_png_file}, {cloud_download_png_file}')
-cloud_icon = tkinter.PhotoImage(
-    file=cloud_png_file,
-)
-cloud_download_icon = tkinter.PhotoImage(
-    file=cloud_download_png_file,
-)
-folder_icon = tkinter.PhotoImage(
-    file=folder_png_file,
-)
-share_icon = tkinter.PhotoImage(
-    file=share_png_file,
-)
-
 
 def set_column(
         tree: Treeview,

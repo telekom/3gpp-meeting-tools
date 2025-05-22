@@ -96,12 +96,11 @@ finally:
     local_cache_config.CacheConfig.root_folder = application_folder
 
 try:
-    open_sa2_session_plan_update_url = config_parser['GUI']['SA2_Session_Updates_URL']
-    print(f'Using SA2 Session Plan Update URL {open_sa2_session_plan_update_url}')
+    open_sa2_drafts_url = config_parser['GUI']['SA2_Drafts_URL']
+    print(f'Using SA2 Drafts URL {open_sa2_drafts_url}')
 except Exception as e:
-    open_sa2_session_plan_update_url = ('https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/SA2/Inbox/Drafts'
-                                        '/_Session_Plan_Updates')
-    print(f'SA2 Session Plan Update URL not set. Using "{open_sa2_session_plan_update_url}": {e}')
+    open_sa2_drafts_url = 'https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/SA2/Inbox/Drafts'
+    print(f'SA2 Drafts URL not set. Using "{open_sa2_drafts_url}": {e}')
 
 WordConfig.sensitivity_level_label_id = None
 WordConfig.sensitivity_level_label_name = None
