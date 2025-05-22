@@ -11,6 +11,8 @@ excel_png_file = os.path.join(current_folder, 'excel.png')
 filter_png_file = os.path.join(current_folder, 'filter.png')
 table_png_file = os.path.join(current_folder, 'table.png')
 link_png_file = os.path.join(current_folder, 'link.png')
+refresh_png_file = os.path.join(current_folder, 'refresh.png')
+search_png_file = os.path.join(current_folder, 'search.png')
 
 print(f'Loading generic table icons: {cloud_png_file}, {cloud_download_png_file}')
 cloud_icon = tkinter.PhotoImage(
@@ -39,4 +41,10 @@ table_icon = tkinter.PhotoImage(
 )
 link_icon = tkinter.PhotoImage(
     file=link_png_file,
+)
+refresh_icon = tkinter.PhotoImage(
+    file=refresh_png_file,
+)
+search_icon = tkinter.PhotoImage(
+    file=search_png_file,
 )
