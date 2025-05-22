@@ -19,14 +19,13 @@ import server
 import utils.local_cache
 from application.common import ActionAfter, ExportType
 from application.excel import open_excel_document, set_autofilter_values, export_columns_to_markdown, clear_autofilter
-from application.meeting_helper import tdoc_tags, open_sa2_session_plan_update_url
+from application.meeting_helper import tdoc_tags, open_sa2_drafts_url
 from application.os import open_url, startfile
 from application.word import export_document
 from config.markdown import MarkdownConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
-from gui.common.generic_table import GenericTable, treeview_set_row_formatting, folder_icon, share_icon, \
-    column_separator_str
-from gui.common.generic_table import cloud_icon, cloud_download_icon
+from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
+from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon
 from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url, \
     MeetingEntry, DownloadedTdocDocument
 from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
@@ -218,9 +217,17 @@ class TdocsTableFromExcel(GenericTable):
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
+        self.open_meeting_btn = ttk.Button(
+            self.top_frame,
+            image=website_icon,
+            command=lambda: open_url(self.meeting.meeting_url_3gu),
+            width=5
+        )
+        self.open_meeting_btn.pack(side=tkinter.LEFT)
+
         self.open_excel_btn = ttk.Button(
             self.top_frame,
-            text='Excel',
+            image=excel_icon,
             command=lambda: open_excel_document(self.tdoc_excel_path),
             width=5
         )
@@ -287,10 +294,10 @@ class TdocsTableFromExcel(GenericTable):
         if self.meeting.working_group_enum == WorkingGroup.S2 and self.meeting.meeting_is_now:
             ttk.Button(
                 self.top_frame,
-                text='Session Updates',
+                text='Drafts',
                 command=lambda: startfile(
-                    open_sa2_session_plan_update_url),
-                width=13
+                    open_sa2_drafts_url),
+                width=10
             ).pack(side=tkinter.LEFT)
 
             def open_sa2_tdocsbyagenda():

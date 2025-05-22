@@ -1,0 +1,30 @@
+import os
+import tkinter
+
+current_folder = os.path.dirname(os.path.realpath(__file__))
+cloud_png_file = os.path.join(current_folder, 'cloud.png')
+cloud_download_png_file = os.path.join(current_folder, 'cloud_download.png')
+folder_png_file = os.path.join(current_folder, 'folder.png')
+share_png_file = os.path.join(current_folder, 'share.png')
+website_png_file = os.path.join(current_folder, 'website.png')
+excel_png_file = os.path.join(current_folder, 'excel.png')
+
+print(f'Loading generic table icons: {cloud_png_file}, {cloud_download_png_file}')
+cloud_icon = tkinter.PhotoImage(
+    file=cloud_png_file,
+)
+cloud_download_icon = tkinter.PhotoImage(
+    file=cloud_download_png_file,
+)
+folder_icon = tkinter.PhotoImage(
+    file=folder_png_file,
+)
+share_icon = tkinter.PhotoImage(
+    file=share_png_file,
+)
+excel_icon = tkinter.PhotoImage(
+    file=excel_png_file,
+)
+website_icon = tkinter.PhotoImage(
+    file=website_png_file,
+)
