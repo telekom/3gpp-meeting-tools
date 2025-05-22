@@ -12,6 +12,8 @@ import application.common
 import application.word
 from application.os import open_url_and_copy_to_clipboard, startfile
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
+from gui.common.gui_elements import TTKHoverHelpButton
+from gui.common.icons import refresh_icon, folder_icon
 from parsing.html.specs import extract_spec_files_from_spec_folder, cleanup_spec_name
 from parsing.spec_types import get_spec_full_name, SpecType
 from server import specs
@@ -109,13 +111,16 @@ class SpecsTable(GenericTable):
             self.top_frame,
             text='Clear filters',
             command=self.clear_filters).pack(side=tkinter.LEFT)
-        ttk.Button(
+        TTKHoverHelpButton(
             self.top_frame,
-            text='Load ALL 2k+ specs',
-            command=self.load_all_specs_from_server).pack(side=tkinter.LEFT)
-        ttk.Button(
+            help_text='Load specification data for all (2k+) specs, download if not available',
+            command=self.load_all_specs_from_server,
+            image=refresh_icon,
+        ).pack(side=tkinter.LEFT)
+        TTKHoverHelpButton(
             self.top_frame,
-            text='Local Cache',
+            help_text='Open local cache folder for specifications',
+            image=folder_icon,
             command=lambda: startfile(get_specs_folder())).pack(side=tkinter.LEFT)
 
         self.tree.pack(fill='both', expand=True, side='left')
