@@ -27,7 +27,7 @@ from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon, \
-    filter_icon, note_icon
+    filter_icon, note_icon, ftp_icon
 from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url, \
     MeetingEntry, DownloadedTdocDocument
 from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
@@ -219,15 +219,6 @@ class TdocsTableFromExcel(GenericTable):
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
-        self.open_meeting_btn = TTKHoverHelpButton(
-            self.top_frame,
-            image=website_icon,
-            command=lambda: open_url(self.meeting.meeting_url_3gu),
-            width=5,
-            help_text='Open meeting in 3GU'
-        )
-        self.open_meeting_btn.pack(side=tkinter.LEFT)
-
         self.open_excel_btn = TTKHoverHelpButton(
             self.top_frame,
             image=excel_icon,
@@ -299,6 +290,24 @@ class TdocsTableFromExcel(GenericTable):
             width=7)
         self.combo_export_format.set('Original')
         self.combo_export_format.pack(side=tkinter.LEFT)
+
+        self.open_meeting_btn = TTKHoverHelpButton(
+            self.top_frame,
+            image=website_icon,
+            command=lambda: open_url(self.meeting.meeting_url_3gu),
+            width=5,
+            help_text='Open meeting in 3GU'
+        )
+        self.open_meeting_btn.pack(side=tkinter.LEFT)
+
+        self.open_meeting_ftp_btn = TTKHoverHelpButton(
+            self.top_frame,
+            image=ftp_icon,
+            command=lambda: open_url(self.meeting.meeting_folder_url),
+            width=5,
+            help_text='Open meeting folder in 3GPP FTP'
+        )
+        self.open_meeting_ftp_btn.pack(side=tkinter.LEFT)
 
         # SA2-specific buttons
         if self.meeting.working_group_enum == WorkingGroup.S2 and self.meeting.meeting_is_now:
