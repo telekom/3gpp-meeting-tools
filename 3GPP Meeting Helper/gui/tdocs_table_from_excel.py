@@ -300,10 +300,19 @@ class TdocsTableFromExcel(GenericTable):
         )
         self.open_meeting_btn.pack(side=tkinter.LEFT)
 
+        def open_meeting_url():
+            if self.meeting.meeting_is_now and tkvar_3gpp_wifi_available.get():
+                ftp_folder_to_open = self.meeting.local_server_url
+            elif self.meeting.meeting_is_now:
+                ftp_folder_to_open = self.meeting.sync_server_url
+            else:
+                ftp_folder_to_open = self.meeting.meeting_folder_url
+            open_url(ftp_folder_to_open)
+
         self.open_meeting_ftp_btn = TTKHoverHelpButton(
             self.top_frame,
             image=ftp_icon,
-            command=lambda: open_url(self.meeting.meeting_folder_url),
+            command=open_meeting_url,
             width=5,
             help_text='Open meeting folder in 3GPP FTP'
         )

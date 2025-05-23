@@ -739,6 +739,14 @@ class MeetingEntry(NamedTuple):
             return True
         return False
 
+    @property
+    def local_server_url(self):
+        return f'{host_private_server}/{self.working_group_enum.get_wg_folder_name(ServerType.PRIVATE)}'
+
+    @property
+    def sync_server_url(self):
+        return f'{host_private_server}/{self.working_group_enum.get_wg_folder_name(ServerType.SYNC)}'
+
     def get_tdoc_local_path(self, tdoc_str: str) -> str | None:
         """
         Generates the local path for a given TDoc
