@@ -439,7 +439,11 @@ class MeetingsTable(GenericTable):
         tdoc1_to_open = self.tdoc
         tdoc2_to_open = self.original_tdoc
 
-        compare_two_tdocs(tdoc1_to_open, tdoc2_to_open)
+        compare_two_tdocs(
+            tdoc1_to_open,
+            tdoc2_to_open,
+            tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available
+        )
 
     @property
     def tdoc(self) -> str | None:
