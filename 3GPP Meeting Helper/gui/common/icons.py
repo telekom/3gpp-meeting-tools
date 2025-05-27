@@ -6,6 +6,7 @@ cloud_png_file = os.path.join(current_folder, 'cloud.png')
 cloud_download_png_file = os.path.join(current_folder, 'cloud_download.png')
 folder_png_file = os.path.join(current_folder, 'folder.png')
 share_png_file = os.path.join(current_folder, 'share.png')
+share_markdown_png_file = os.path.join(current_folder, 'share_markdown.png')
 website_png_file = os.path.join(current_folder, 'website.png')
 excel_png_file = os.path.join(current_folder, 'excel.png')
 filter_png_file = os.path.join(current_folder, 'filter.png')
@@ -15,6 +16,7 @@ refresh_png_file = os.path.join(current_folder, 'refresh.png')
 search_png_file = os.path.join(current_folder, 'search.png')
 note_png_file = os.path.join(current_folder, 'note.png')
 ftp_png_file = os.path.join(current_folder, 'ftp.png')
+markdown_png_file = os.path.join(current_folder, 'markdown.png')
 
 print(f'Loading generic table icons: {cloud_png_file}, {cloud_download_png_file}')
 cloud_icon = tkinter.PhotoImage(
@@ -28,6 +30,9 @@ folder_icon = tkinter.PhotoImage(
 )
 share_icon = tkinter.PhotoImage(
     file=share_png_file,
+)
+share_markdown_icon = tkinter.PhotoImage(
+    file=share_markdown_png_file,
 )
 excel_icon = tkinter.PhotoImage(
     file=excel_png_file,
@@ -55,4 +60,7 @@ note_icon = tkinter.PhotoImage(
 )
 ftp_icon = tkinter.PhotoImage(
     file=ftp_png_file,
+)
+markdown_icon = tkinter.PhotoImage(
+    file=markdown_png_file,
 )
