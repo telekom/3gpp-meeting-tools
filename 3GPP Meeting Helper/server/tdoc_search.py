@@ -653,12 +653,12 @@ def compare_two_tdocs(tdoc1_to_open: str, tdoc2_to_open: str, tkvar_3gpp_wifi_av
     print(f'Comparing {tdoc2_to_open}  (original) vs. {tdoc1_to_open}')
     opened_docs1_folder, metadata1 = search_download_and_open_tdoc(
         tdoc1_to_open,
-        skip_open=True,
+        skip_open=False,
         tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available
     )
     opened_docs2_folder, metadata2 = search_download_and_open_tdoc(
         tdoc2_to_open,
-        skip_open=True,
+        skip_open=False,
         tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available
     )
     doc_1 = metadata1[0].path
