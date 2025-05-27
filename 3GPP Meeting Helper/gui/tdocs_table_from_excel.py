@@ -18,7 +18,8 @@ from pypdf.generic import PAGE_FIT
 import server
 import utils.local_cache
 from application.common import ActionAfter, ExportType
-from application.excel import open_excel_document, set_autofilter_values, export_columns_to_markdown, clear_autofilter
+from application.excel import open_excel_document, set_autofilter_values, export_columns_to_markdown, clear_autofilter, \
+    export_columns_to_markdown_dataframe
 from application.meeting_helper import tdoc_tags, open_sa2_drafts_url
 from application.os import open_url, startfile
 from application.word import export_document
@@ -233,7 +234,7 @@ class TdocsTableFromExcel(GenericTable):
             image=filter_icon,
             command=self.open_and_filter_excel,
             width=8,
-            help_text="Filter 3GU Excel"
+            help_text="Filter 3GU's Excel with the same filters as the GUI"
         )
         self.open_excel_btn.pack(side=tkinter.LEFT)
 
@@ -278,7 +279,7 @@ class TdocsTableFromExcel(GenericTable):
             self.top_frame,
             image=share_icon,
             command=self.export_tdocs_to_folder,
-            help_text="Export currently visible TDocs to export folder in specified format"
+            help_text="Export TDocs currently visible in the Excel to export folder in specified format"
         )
         self.share_btn.pack(side=tkinter.LEFT)
 
@@ -361,8 +362,9 @@ class TdocsTableFromExcel(GenericTable):
 
         ttk.Label(self.bottom_frame, textvariable=self.tdoc_count).pack(side=tkinter.LEFT)
 
-    def download_tdocs(self) -> List[Any]:
-        tdoc_list = self.tdocs_current_df.index.tolist()
+    def download_tdocs(self, tdoc_list: List[str] | None = None) -> List[Any]:
+        if tdoc_list is None:
+            tdoc_list = self.tdocs_current_df.index.tolist()
         downloaded_files = []
         if len(tdoc_list) > 0:
             downloaded_files = batch_search_and_download_tdocs(
@@ -382,9 +384,15 @@ class TdocsTableFromExcel(GenericTable):
             set_autofilter_values(wb=wb, value_list=tdoc_list)
 
     def export_tdocs_to_folder(self):
-        tdoc_list = self.tdocs_current_df.index.tolist()
+        print(f'Retrieving TDocs visible in Excel')
+        wb = open_excel_document(self.tdoc_excel_path)
+        tdoc_list = export_columns_to_markdown_dataframe(wb)
+        # tdoc_list = self.tdocs_current_df.index.tolist()
+        print(f'Exporting {len(tdoc_list)} TDocs: {tdoc_list}')
+
         if len(tdoc_list) < 1:
             return
+
         time_now = datetime.datetime.now()
         export_root_folder = utils.local_cache.get_export_folder()
         export_id = f'{time_now.year:04d}.{time_now.month:02d}.{time_now.day:02d} {time_now.hour:02d}{time_now.minute:02d}{time_now.second:02d}'
@@ -394,7 +402,7 @@ class TdocsTableFromExcel(GenericTable):
         create_folder_if_needed(folder_name=export_folder, create_dir=True)
 
         # First we need to download the TDocs
-        downloaded_files = self.download_tdocs()
+        downloaded_files = self.download_tdocs(tdoc_list=tdoc_list)
         files_to_export = [e[1] for e in downloaded_files if e is not None and isinstance(e, tuple) and e[1] is not None]
         files_to_export = [item for sublist in files_to_export for item in sublist]
         files_to_export = [(e.tdoc_id, e.path) for e in files_to_export if isinstance(e, DownloadedTdocDocument)]

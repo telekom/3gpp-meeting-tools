@@ -3,6 +3,7 @@ import traceback
 from typing import List
 import pandas as pd
 import pyperclip
+from pandas import DataFrame
 
 from application.os import startfile
 
@@ -281,9 +282,44 @@ def set_row_height(wb):
     all_cells = ws.Cells
     all_cells.EntireRow.AutoFit()
 
+# XlCellType enumeration
+# https://learn.microsoft.com/en-us/office/vba/api/excel.xlcelltype
+xlCellTypeVisible = 12
 
-def export_columns_to_markdown(wb, columns: List[str], columns_to_scan='A:AJ',
-                               copy_output_to_clipboard=True) -> str | None:
+def export_columns_to_markdown_dataframe(wb) -> DataFrame | None:
+    """
+    Exports specific columns to Markdown and puts the content in the clipboard
+    Args:
+        wb: The WorkBook
+    """
+
+    titles = []
+    row_list = []
+
+    try:
+        ws = wb.ActiveSheet
+        visible_cells_range = ws.Range('A:A').SpecialCells(xlCellTypeVisible)
+        for row in visible_cells_range.Rows:
+            row_content = tuple(cell.Value for cell in row.Cells)
+            if len(row_content) == 0 or row_content[0] is None:
+                break
+            if not titles:
+                titles = row_content
+            else:
+                row_list.append(row_content)
+
+        df = pd.DataFrame(row_list, columns=titles)
+        return list(df['TDoc'])
+    except Exception as e:
+        print(f'Could not parse Excel rows: {e}')
+        traceback.print_exc()
+        return None
+
+def export_columns_to_markdown(
+        wb,
+        columns: List[str],
+        columns_to_scan='A:AJ',
+        copy_output_to_clipboard=True) -> str | None:
     """
     Exports specific columns to Markdown and puts the content in the clipboard
     Args:
@@ -292,9 +328,6 @@ def export_columns_to_markdown(wb, columns: List[str], columns_to_scan='A:AJ',
         columns: The columns to export, based on the first row's name
         columns_to_scan: The number of columns to scan/consider for the processing
     """
-    # XlCellType enumeration
-    # https://learn.microsoft.com/en-us/office/vba/api/excel.xlcelltype
-    xlCellTypeVisible = 12
     titles = []
     row_list = []
 
@@ -321,6 +354,8 @@ def export_columns_to_markdown(wb, columns: List[str], columns_to_scan='A:AJ',
         except KeyError as e:
             print(e)
             print(f'Columns in DataFrame: {df.columns.values}')
+            return None
+
         markdown_table = df_to_output.to_markdown(index=False)
         if copy_output_to_clipboard:
             pyperclip.copy(markdown_table)
