@@ -27,7 +27,7 @@ from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon, \
-    filter_icon, note_icon, ftp_icon
+    filter_icon, note_icon, ftp_icon, markdown_icon, share_markdown_icon
 from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url, \
     MeetingEntry, DownloadedTdocDocument
 from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
@@ -239,10 +239,10 @@ class TdocsTableFromExcel(GenericTable):
 
         self.excel_to_markdown_btn = TTKHoverHelpButton(
             self.top_frame,
-            text='Excel2MD',
+            image=markdown_icon,
             command=self.current_excel_rows_to_clipboard,
             width=9,
-            help_text="Convert currently visible rows in Excel to Markdown"
+            help_text="Convert currently visible rows in Excel to Markdown and copy result to clipboard"
         )
         self.excel_to_markdown_btn.pack(side=tkinter.LEFT)
 
@@ -266,10 +266,10 @@ class TdocsTableFromExcel(GenericTable):
 
         self.markdown_export_per_ai_btn = TTKHoverHelpButton(
             self.top_frame,
-            text='MD/AI',
+            image=share_markdown_icon,
             command=self.export_ais_to_markdown,
             width=6,
-            help_text="Export this meeting's TDocs for report"
+            help_text="Export this meeting's results per AI to Markdown for meeting report"
         )
         self.markdown_export_per_ai_btn.pack(side=tkinter.LEFT)
 
@@ -278,7 +278,7 @@ class TdocsTableFromExcel(GenericTable):
             self.top_frame,
             image=share_icon,
             command=self.export_tdocs_to_folder,
-            help_text="Export currently visible TDocs to export folder"
+            help_text="Export currently visible TDocs to export folder in specified format"
         )
         self.share_btn.pack(side=tkinter.LEFT)
 
@@ -511,6 +511,7 @@ class TdocsTableFromExcel(GenericTable):
         is_pcr = self.tdocs_df['Type'] == 'pCR'
         is_ls_in = self.tdocs_df['Type'] == 'LS in'
         is_ls_out = self.tdocs_df['Type'] == 'LS out'
+        is_sid_new = self.tdocs_df['Type'] == 'SID new'
 
         is_approved_or_agreed = ((self.tdocs_df['TDoc Status'] == 'agreed') |
                                  (self.tdocs_df['TDoc Status'] == 'approved') |
@@ -525,18 +526,38 @@ class TdocsTableFromExcel(GenericTable):
 
         ls_out_to_show = self.tdocs_df[(is_ls_out & is_approved_or_agreed)]
 
+        ls_sid_new_to_show = self.tdocs_df[(is_sid_new & is_approved_or_agreed)]
+
         print(f'Will export:')
         print(f'  - {len(pcrs_to_show)} pCRs')
         print(f'  - {len(crs_to_show)} CRs')
         print(f'  - {len(ls_to_show)} LS IN/OUT')
         print(f'  - {len(ls_out_to_show)} LS OUT')
         print(f'  - {len(company_contributions)} Company contributions matching {MarkdownConfig.company_name_regex_for_report}')
+        print(f'  - {len(ls_sid_new_to_show)} SID new')
 
         local_folder = self.meeting.local_export_folder_path
         wb = open_excel_document(self.tdoc_excel_path)
         clear_autofilter(wb=wb)
 
         ai_summary = dict()
+
+        # Export SID new
+        index_list = list(ls_sid_new_to_show.index)
+        ai_name = 'SID new'
+        if len(index_list) > 0:
+            print(f'{ai_name}: {len(index_list)} SID new to export')
+            set_autofilter_values(
+                wb=wb,
+                value_list=index_list,
+                sort_by_sort_order_within_agenda_item=True)
+            markdown_output = export_columns_to_markdown(
+                wb,
+                MarkdownConfig.columns_for_3gu_tdoc_export,
+                copy_output_to_clipboard=False)
+            ai_summary[ai_name] = f'Following new SIDs were agreed:\n\n{markdown_output}'
+        else:
+            print(f'{ai_name}: {len(index_list)} SID new')
 
         # Export LS OUT
         index_list = list(ls_out_to_show.index)
