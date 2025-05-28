@@ -88,12 +88,23 @@ def set_first_row_as_filter(wb, ws_name=None, already_activated=False):
         traceback.print_exc()
 
 
+# Column indexes for 3GU's TDoc Excel
+AUTOFILTER_COLUMN_TDOC = 1
+AUTOFILTER_COLUMN_TITLE = 2
+AUTOFILTER_COLUMN_SOURCE = 3
+AUTOFILTER_COLUMN_TYPE = 6
+AUTOFILTER_COLUMN_FOR = 7
+AUTOFILTER_COLUMN_ABSTRACT = 8
+AUTOFILTER_COLUMN_SECRETARY_REMARKS = 9
+AUTOFILTER_COLUMN_AGENDA_ITEM = 11
+AUTOFILTER_COLUMN_TDOC_STATUS = 14
+
 def set_autofilter_values(
         wb,
         value_list: List[str],
         ws_name=None,
         already_activated=False,
-        column_one_indexed=1,
+        column_one_indexed=AUTOFILTER_COLUMN_TDOC,
         sort_by_sort_order_within_agenda_item=False
 ):
     if wb is None:
