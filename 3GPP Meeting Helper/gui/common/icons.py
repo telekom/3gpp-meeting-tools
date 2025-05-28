@@ -17,6 +17,7 @@ search_png_file = os.path.join(current_folder, 'search.png')
 note_png_file = os.path.join(current_folder, 'note.png')
 ftp_png_file = os.path.join(current_folder, 'ftp.png')
 markdown_png_file = os.path.join(current_folder, 'markdown.png')
+compare_png_file = os.path.join(current_folder, 'compare.png')
 
 print(f'Loading generic table icons: {cloud_png_file}, {cloud_download_png_file}')
 cloud_icon = tkinter.PhotoImage(
@@ -63,4 +64,7 @@ ftp_icon = tkinter.PhotoImage(
 )
 markdown_icon = tkinter.PhotoImage(
     file=markdown_png_file,
+)
+compare_icon = tkinter.PhotoImage(
+    file=compare_png_file,
 )

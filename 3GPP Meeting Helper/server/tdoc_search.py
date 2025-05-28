@@ -649,15 +649,18 @@ def batch_search_and_download_tdocs(
     return all_downloads
 
 
-def compare_two_tdocs(tdoc1_to_open: str, tdoc2_to_open: str, tkvar_3gpp_wifi_available: BooleanVar|None=None):
-    print(f'Comparing {tdoc2_to_open}  (original) vs. {tdoc1_to_open}')
+def compare_two_tdocs(
+        original_tdoc: str,
+        new_tdoc: str,
+        tkvar_3gpp_wifi_available: BooleanVar|None=None):
+    print(f'Comparing {new_tdoc}  (original) vs. {original_tdoc}')
     opened_docs1_folder, metadata1 = search_download_and_open_tdoc(
-        tdoc1_to_open,
+        original_tdoc,
         skip_open=False,
         tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available
     )
     opened_docs2_folder, metadata2 = search_download_and_open_tdoc(
-        tdoc2_to_open,
+        new_tdoc,
         skip_open=False,
         tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available
     )
