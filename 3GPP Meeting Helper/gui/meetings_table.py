@@ -13,7 +13,7 @@ from application.os import open_url, startfile
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.common.gui_elements import TTKHoverHelpButton
-from gui.common.icons import excel_icon, table_icon, cloud_download_icon, refresh_icon, search_icon
+from gui.common.icons import excel_icon, table_icon, cloud_download_icon, refresh_icon, search_icon, compare_icon
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
 from server.common import download_file_to_location, MeetingEntry
@@ -34,8 +34,7 @@ class MeetingsTable(GenericTable):
             parent_widget=parent_widget,
             widget_title="Meetings Table. Double-click: location for ICS, start date for invitation, end date for report",
             favicon=favicon,
-            column_names=['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents',
-                          'Cache', 'TDocs (3GPP)', 'TDocs (Local)'],
+            column_names=['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'TDocs Excel', 'TDocs Table'],
             row_height=35,
             display_rows=14,
             root_widget=root_widget
@@ -53,10 +52,8 @@ class MeetingsTable(GenericTable):
         self.set_column('End', width=120, center=True)
         self.set_column('TDoc Start', width=100, center=True)
         self.set_column('TDoc End', width=100, center=True)
-        self.set_column('Documents', width=100, center=True)
-        self.set_column('Cache', width=50, center=True)
-        self.set_column('TDocs (3GPP)', width=100, center=True)
-        self.set_column('TDocs (Local)', width=100, center=True)
+        self.set_column('TDocs Excel', width=100, center=True)
+        self.set_column('TDocs Table', width=100, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -103,7 +100,7 @@ class MeetingsTable(GenericTable):
         self.tdoc_entry = tkinter.Entry(self.top_frame, textvariable=self.tkvar_tdoc_id, width=15, font='TkDefaultFont')
         self.button_open_tdoc = TTKHoverHelpButton(
             self.top_frame,
-            help_text='Search for TDoc on all meetings',
+            help_text='Search for TDoc',
             command=self.on_open_tdoc,
             state=tkinter.DISABLED,
             image=search_icon
@@ -124,41 +121,28 @@ class MeetingsTable(GenericTable):
             state='enabled',
             variable=self.redownload_tdoc_excel_if_exists_var)
 
-        # Open TDoc Excel as table
-        self.open_tdoc_excel_as_table_var = tkinter.IntVar()
-
-        def toggle_excel_choice_btn(*args):
-            match self.open_tdoc_excel_choice_var.get():
-                case "Excel":
-                    self.open_tdoc_excel_choice_var.set("Table")
-                    try:
-                        self.open_tdoc_excel_choice_btn.configure({'image': table_icon})
-                    except AttributeError:
-                        # The first time it will always fail
-                        pass
-                    self.open_tdoc_excel_as_table_var.set(True)
-                case _:
-                    self.open_tdoc_excel_choice_var.set("Excel")
-                    try:
-                        self.open_tdoc_excel_choice_btn.configure({'image': excel_icon})
-                    except AttributeError:
-                        # The first time it will always fail
-                        pass
-                    self.open_tdoc_excel_as_table_var.set(False)
-
-        self.open_tdoc_excel_choice_var = tkinter.StringVar()
-        toggle_excel_choice_btn()  # Init to "Excel"
-        self.open_tdoc_excel_choice_btn = TTKHoverHelpButton(
-            self.top_frame,
-            textvariable=self.open_tdoc_excel_choice_var,
-            image=excel_icon,
-            command=toggle_excel_choice_btn,
-            width=5,
-            help_text='Click to change format in which to open TDoc list'
-        )
+        # Compare TDoc
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        ttk.Label(self.top_frame, text="TDoc list as ").pack(side=tkinter.LEFT)
-        self.open_tdoc_excel_choice_btn.pack(side=tkinter.LEFT)
+        self.tkvar_tdoc_id_2 = tkinter.StringVar(self.top_frame)
+        self.tkvar_tdoc_id_2.trace_add('write', self.on_tdoc_compare_change)
+        self.tdoc_entry_2 = tkinter.Entry(
+            self.top_frame,
+            textvariable=self.tkvar_tdoc_id_2,
+            width=15,
+            font='TkDefaultFont')
+        self.button_compare_tdoc = TTKHoverHelpButton(
+            self.top_frame,
+            help_text='Show changes from right TDoc to left TDoc',
+            image=compare_icon,
+            command=self.on_compare_tdoc,
+            state=tkinter.DISABLED
+        )
+
+        if platform.system() == 'Windows':
+            # Only works in Windows
+            self.button_compare_tdoc.pack(side=tkinter.LEFT)
+            ttk.Label(self.top_frame, text=" ").pack(side=tkinter.LEFT)
+            self.tdoc_entry_2.pack(side=tkinter.LEFT)
 
         # Load meeting data
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
@@ -170,30 +154,8 @@ class MeetingsTable(GenericTable):
         ).pack(side=tkinter.LEFT)
 
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        ttk.Label(self.top_frame, text="Re-DL TDoc list: ").pack(side=tkinter.LEFT)
         self.redownload_tdoc_excel_if_exists.pack(side=tkinter.LEFT)
-
-        # Compare TDoc
-        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
-        self.tkvar_tdoc_id_2 = tkinter.StringVar(self.top_frame)
-        self.tkvar_tdoc_id_2.trace_add('write', self.on_tdoc_compare_change)
-        self.tdoc_entry_2 = tkinter.Entry(
-            self.top_frame,
-            textvariable=self.tkvar_tdoc_id_2,
-            width=15,
-            font='TkDefaultFont')
-        self.button_compare_tdoc = ttk.Button(
-            self.top_frame,
-            text='Compare TDocs',
-            command=self.on_compare_tdoc,
-            state=tkinter.DISABLED
-        )
-
-        if platform.system() == 'Windows':
-            # Only works in Windows
-            self.tdoc_entry_2.pack(side=tkinter.LEFT)
-            ttk.Label(self.top_frame, text=" ").pack(side=tkinter.LEFT)
-            self.button_compare_tdoc.pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text="Re-DL TDoc list").pack(side=tkinter.LEFT)
 
         # Main frame
         self.load_data(initial_load=True)
@@ -266,15 +228,11 @@ class MeetingsTable(GenericTable):
                 tag = 'even'
 
             if meeting.meeting_url_docs is None or meeting.meeting_url_docs == '':
-                documents_str = '-'
-                cache_str = '-'
-                tdoc_list_str = 'Link'
                 tdoc_excel_str = '-'
+                tdoc_table_str = '-'
             else:
-                documents_str = 'Link'
-                cache_str = 'Open'
-                tdoc_list_str = 'Link'
                 tdoc_excel_str = 'Open'
+                tdoc_table_str = 'Open'
 
             # Overwrite for case of co-located meetings
             if ((previous_row is not None) and
@@ -297,10 +255,8 @@ class MeetingsTable(GenericTable):
                 end_date_str,
                 meeting.tdoc_start,
                 meeting.tdoc_end,
-                documents_str,
-                cache_str,
-                tdoc_list_str,
-                tdoc_excel_str
+                tdoc_excel_str,
+                tdoc_table_str
             )
             self.tree.insert(
                 "",
@@ -353,12 +309,12 @@ class MeetingsTable(GenericTable):
             print("Empty value")
             return
 
-        if column == 0:
+        if column == 0: # Meeting
             print(f'Clicked on meeting {meeting_name}')
             url_to_open = meeting[0].meeting_url_3gu
             open_url(url_to_open)
 
-        if column == 1:
+        if column == 1: # Location
             print(f'Clicked on meeting {meeting_name} location')
             url_to_open = meeting[0].meeting_calendar_ics_url
             # Using generic folder because meeting folder may not yet exist
@@ -371,33 +327,17 @@ class MeetingsTable(GenericTable):
             else:
                 print(f'Could not open ICS file {local_path}')
 
-        if column == 2:
+        if column == 2: # Start
             print(f'Clicked on start date for meeting {meeting_name}')
             url_to_open = meeting[0].meeting_url_invitation
             open_url(url_to_open)
 
-        if column == 3:
+        if column == 3: # End
             print(f'Clicked on end date for meeting {meeting_name}')
             url_to_open = meeting[0].meeting_url_report
             open_url(url_to_open)
 
-        if column == 6 and actual_value != '-':
-            print(f'Clicked Documents link for meeting {meeting_name}')
-            url_to_open = meeting[0].meeting_url_docs
-            open_url(url_to_open)
-
-        if column == 7 and actual_value != '-':
-            print(f'Clicked Cache link for meeting {meeting_name}')
-            path_to_open = meeting[0].local_folder_path
-            utils.local_cache.create_folder_if_needed(path_to_open, create_dir=True)
-            open_url(path_to_open)
-
-        if column == 8 and actual_value != '-':
-            print(f'Clicked TDoc List link for meeting {meeting_name}')
-            url_to_open = meeting[0].meeting_tdoc_list_url
-            open_url(url_to_open)
-
-        if column == 9 and actual_value != '-':
+        if (column == 6 or column == 7) and actual_value != '-': # TDocs Excel
             print(f'Clicked TDoc Excel link for meeting {meeting_name}')
             download_folder = meeting[0].local_agenda_folder_path
             if download_folder is None:
@@ -412,7 +352,9 @@ class MeetingsTable(GenericTable):
                 downloaded = True
             if not downloaded:
                 print('TDoc Excel list from cache')
-            if not self.open_tdoc_excel_as_table_var.get():
+
+            if column == 6:
+                # Open TDoc Excel
                 print(f'Opening Excel {local_path}')
                 open_excel_document(local_path)
             else:

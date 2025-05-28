@@ -36,7 +36,7 @@ def set_waiting_for_proxy_message(main_frame):
 def bind_key_to_button(
         frame: tkinter.Tk | tkinter.Toplevel,
         key_press: str,
-        tk_button: tkinter.Button,
+        tk_button: tkinter.Button | ttk.Button,
         check_state=True,
         task_str='TDoc search'
 ):
