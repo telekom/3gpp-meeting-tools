@@ -121,6 +121,18 @@ class TdocsTableFromExcel(GenericTable):
         type_items.sort()
         self.type_list.extend(type_items)
 
+        self.wi_list = ['All']
+        wis_items: List[str] = self.tdocs_df['Related WIs'].unique().tolist()
+        wis_items_clean: List[str] = []
+        for wi_item in wis_items:
+            if wi_item is None or wi_item=='':
+                continue
+            wi_item = [e.strip() for e in wi_item.split(',')]
+            wis_items_clean.extend(wi_item)
+        wis_items_clean = list(set(wis_items_clean))
+        wis_items_clean.sort()
+        self.wi_list.extend(wis_items_clean)
+
         # Document counter
         self.tdoc_count = tkinter.StringVar()
 
@@ -195,6 +207,14 @@ class TdocsTableFromExcel(GenericTable):
         self.combo_type.set('All')
         self.combo_type.bind("<<ComboboxSelected>>", self.select_rows)
 
+        self.combo_wis = ttk.Combobox(
+            self.top_frame,
+            values=self.wi_list,
+            state="readonly",
+            width=10)
+        self.combo_wis.set('All')
+        self.combo_wis.bind("<<ComboboxSelected>>", self.select_rows)
+
         self.combo_tag = ttk.Combobox(
             self.top_frame,
             values=self.tdoc_tag_list_str,
@@ -214,6 +234,9 @@ class TdocsTableFromExcel(GenericTable):
 
         ttk.Label(self.top_frame, text="  Type: ").pack(side=tkinter.LEFT)
         self.combo_type.pack(side=tkinter.LEFT)
+
+        ttk.Label(self.top_frame, text="  WI: ").pack(side=tkinter.LEFT)
+        self.combo_wis.pack(side=tkinter.LEFT)
 
         ttk.Label(self.top_frame, text="  Tag: ").pack(side=tkinter.LEFT)
         self.combo_tag.pack(side=tkinter.LEFT)
@@ -765,6 +788,16 @@ class TdocsTableFromExcel(GenericTable):
         if rel_filter != 'All':
             print(f'Filtering by Release: "{rel_filter}"')
             filtered_df = filtered_df[filtered_df["Release"] == rel_filter]
+
+        wi_filter = self.combo_wis.get()
+        if wi_filter != 'All':
+            print(f'Filtering by WI: "{wi_filter}"')
+            filtered_df = filtered_df[
+                (filtered_df["Related WIs"] == wi_filter) |
+                filtered_df["Related WIs"].str.startswith(f'{wi_filter}, ') |
+                filtered_df["Related WIs"].str.contains(f', {wi_filter} ') |
+                filtered_df["Related WIs"].str.endswith(f', {wi_filter}')
+            ]
 
         tag_filter = self.combo_tag.get()
         if tag_filter != 'All':
