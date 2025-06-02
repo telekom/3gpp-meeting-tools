@@ -560,10 +560,12 @@ def search_download_and_open_tdoc(
         use_private_server = True
 
     if not use_private_server:
-        tdoc_urls = [tdoc_meeting.get_tdoc_url(tdoc_str)]
+        tdoc_urls = [tdoc_meeting.get_tdoc_url(tdoc_str), tdoc_meeting.get_tdoc_inbox_url(tdoc_str)]
     else:
         tdoc_urls = tdoc_meeting.get_tdoc_3gpp_wifi_url(tdoc_str)
     local_target = tdoc_meeting.get_tdoc_local_path(tdoc_str)
+
+    print(f'Will download: {tdoc_urls}')
 
     # Only download file if needed
     downloaded_tdoc_url = ''
@@ -571,6 +573,7 @@ def search_download_and_open_tdoc(
         for tdoc_url in tdoc_urls:
             print(f'Downloading {tdoc_url} to {local_target}')
             if download_file_to_location(tdoc_url, local_target):
+                print('File successfully downloaded')
                 downloaded_tdoc_url = tdoc_url
                 break
     else:

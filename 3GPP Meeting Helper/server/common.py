@@ -662,6 +662,24 @@ class MeetingEntry(NamedTuple):
             tdoc_file = tdoc_to_get + '.zip'
         return self.meeting_url_docs + tdoc_file
 
+    def get_tdoc_inbox_url(self, tdoc_to_get: tdoc.utils.GenericTdoc | str):
+        """
+        For a string containing a potential TDoc, returns a URL concatenating the Inbox folder and the input TDoc and
+        adds a .'zip' extension.
+        Args:
+            tdoc_to_get: A TDoc ID. Either an object (GenericTdoc) or string. Note that the input is NOT checked!
+
+        Returns: A URL
+
+        """
+        docs_url = self.get_tdoc_url(tdoc_to_get)
+        try:
+            inbox_url = re.sub('Docs', 'Inbox', string=docs_url, flags=re.IGNORECASE)
+            return inbox_url
+        except Exception as e:
+            print(f'Could not generate inbox URL, returning Docs URL: {e}')
+            return docs_url
+
     @property
     def local_folder_path(self) -> str | None:
         """
