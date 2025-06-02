@@ -44,6 +44,23 @@ def df_boolean_index_for_wi(in_df: DataFrame, wi_str:str):
     return filter_idx
 
 
+def get_markdown_for_tdocs(
+        filtered_df: DataFrame,
+        column_list,
+        the_meeting:MeetingEntry,
+        sort_by_agenda_sort_order=True):
+    if len(filtered_df.index) == 0:
+        return ''
+
+    filtered_df = filtered_df.copy()
+    filtered_df['TDoc'] = filtered_df.index
+    filtered_df['TDoc'] = filtered_df['TDoc'].apply(lambda x: f'[{x}]({the_meeting.get_tdoc_url(x)})')
+    if sort_by_agenda_sort_order:
+        filtered_df = filtered_df.sort_values(by=['TDoc sort order within agenda item'])
+    filtered_df = filtered_df[column_list]
+    return filtered_df.to_markdown(index=False)
+
+
 class TdocsTableFromExcel(GenericTable):
     source_width = 200
     title_width = 550
@@ -568,7 +585,7 @@ class TdocsTableFromExcel(GenericTable):
 
         ls_out_to_show = self.tdocs_df[(is_ls_out & is_approved_or_agreed)]
 
-        ls_sid_new_to_show = self.tdocs_df[(is_sid_new & is_approved_or_agreed)]
+        sid_new_to_show = self.tdocs_df[(is_sid_new & is_approved_or_agreed)]
 
         print(f'Will export:')
         print(f'  - {len(pcrs_to_show)} pCRs')
@@ -576,27 +593,23 @@ class TdocsTableFromExcel(GenericTable):
         print(f'  - {len(ls_to_show)} LS IN/OUT')
         print(f'  - {len(ls_out_to_show)} LS OUT')
         print(f'  - {len(company_contributions)} Company contributions matching {MarkdownConfig.company_name_regex_for_report}')
-        print(f'  - {len(ls_sid_new_to_show)} SID new')
+        print(f'  - {len(sid_new_to_show)} SID new')
 
         local_folder = self.meeting.local_export_folder_path
-        wb = open_excel_document(self.tdoc_excel_path)
-        clear_autofilter(wb=wb)
 
         ai_summary = dict()
 
         # Export SID new
-        index_list = list(ls_sid_new_to_show.index)
+        index_list = list(sid_new_to_show.index)
         ai_name = 'SID new'
         if len(index_list) > 0:
             print(f'{ai_name}: {len(index_list)} SID new to export')
-            set_autofilter_values(
-                wb=wb,
-                value_list=index_list,
-                sort_by_sort_order_within_agenda_item=True)
-            markdown_output = export_columns_to_markdown(
-                wb,
+            markdown_output = get_markdown_for_tdocs(
+                sid_new_to_show,
                 MarkdownConfig.columns_for_3gu_tdoc_export,
-                copy_output_to_clipboard=False)
+                self.meeting
+            )
+
             ai_summary[ai_name] = f'Following new SIDs were agreed:\n\n{markdown_output}'
         else:
             print(f'{ai_name}: {len(index_list)} SID new')
@@ -606,14 +619,12 @@ class TdocsTableFromExcel(GenericTable):
         ai_name = 'LS OUT'
         if len(index_list) > 0:
             print(f'{ai_name}: {len(index_list)} LS IN/OUT to export')
-            set_autofilter_values(
-                wb=wb,
-                value_list=index_list,
-                sort_by_sort_order_within_agenda_item=True)
-            markdown_output = export_columns_to_markdown(
-                wb,
+            markdown_output = get_markdown_for_tdocs(
+                ls_out_to_show,
                 MarkdownConfig.columns_for_3gu_tdoc_export_ls_out,
-                copy_output_to_clipboard=False)
+                self.meeting
+            )
+
             ai_summary[ai_name] = f'Following LS OUT were sent:\n\n{markdown_output}'
         else:
             print(f'{ai_name}: {len(index_list)} LS IN/OUT')
@@ -622,16 +633,14 @@ class TdocsTableFromExcel(GenericTable):
         index_list = list(company_contributions.index)
         ai_name = 'Company'
         if len(index_list) > 0:
-            print(
-                f'{len(index_list)} Company contributions matching {MarkdownConfig.company_name_regex_for_report} to export')
-            set_autofilter_values(
-                wb=wb,
-                value_list=index_list,
-                sort_by_sort_order_within_agenda_item=True)
-            markdown_output = export_columns_to_markdown(
-                wb,
+            print(f'{len(index_list)} Company contributions matching '
+                  f'{MarkdownConfig.company_name_regex_for_report} to export')
+            markdown_output = get_markdown_for_tdocs(
+                company_contributions,
                 MarkdownConfig.columns_for_3gu_tdoc_export_contributor,
-                copy_output_to_clipboard=False)
+                self.meeting
+            )
+
             ai_summary[ai_name] = f'Following Company Contributions:\n\n{markdown_output}'
         else:
             print(f'{len(index_list)} Company contributions matching {MarkdownConfig.company_name_regex_for_report}')
@@ -642,14 +651,12 @@ class TdocsTableFromExcel(GenericTable):
 
             if len(index_list) > 0:
                 print(f'{ai_name}: {len(index_list)} LS IN/OUT to export')
-                set_autofilter_values(
-                    wb=wb,
-                    value_list=index_list,
-                    sort_by_sort_order_within_agenda_item=True)
-                markdown_output = export_columns_to_markdown(
-                    wb,
+                markdown_output = get_markdown_for_tdocs(
+                    group,
                     MarkdownConfig.columns_for_3gu_tdoc_export_ls,
-                    copy_output_to_clipboard=False)
+                    self.meeting
+                )
+
                 ai_summary[ai_name] = f'Following LS were received and/or answered:\n\n{markdown_output}'
             else:
                 print(f'{ai_name}: {len(index_list)} LS IN/OUT')
@@ -660,14 +667,11 @@ class TdocsTableFromExcel(GenericTable):
 
             if len(index_list) > 0:
                 print(f'{ai_name}: {len(index_list)} pCRs to export')
-                set_autofilter_values(
-                    wb=wb,
-                    value_list=index_list,
-                    sort_by_sort_order_within_agenda_item=True)
-                markdown_output = export_columns_to_markdown(
-                    wb,
+                markdown_output = get_markdown_for_tdocs(
+                    group,
                     MarkdownConfig.columns_for_3gu_tdoc_export_pcr,
-                    copy_output_to_clipboard=False)
+                    self.meeting
+                )
 
                 summary_text = f'Following pCRs were agreed:\n\n{markdown_output}'
                 if ai_name in ai_summary:
@@ -684,14 +688,11 @@ class TdocsTableFromExcel(GenericTable):
 
             if len(index_list) > 0:
                 print(f'{ai_name}: {len(index_list)} CRs to export')
-                set_autofilter_values(
-                    wb=wb,
-                    value_list=index_list,
-                    sort_by_sort_order_within_agenda_item=True)
-                markdown_output = export_columns_to_markdown(
-                    wb,
+                markdown_output = get_markdown_for_tdocs(
+                    group,
                     MarkdownConfig.columns_for_3gu_tdoc_export_cr,
-                    copy_output_to_clipboard=False)
+                    self.meeting
+                )
 
                 summary_text = f'Following CRs were agreed:\n\n{markdown_output}'
                 if ai_name in ai_summary:
@@ -709,6 +710,46 @@ class TdocsTableFromExcel(GenericTable):
                 f.write(summary_text)
 
         print(f'Completed Markdown export for {self.meeting.meeting_name}')
+
+        print(f'Starting export per WI')
+        for wi in self.get_wis_in_meeting():
+            print(f'Exporting contributions for WI {wi}')
+            wi_filter = df_boolean_index_for_wi(self.tdocs_df, wi)
+
+            full_text = ''
+
+            markdown_ls = get_markdown_for_tdocs(
+                self.tdocs_df[wi_filter & ((is_ls_out & is_approved_or_agreed) | is_ls_in)],
+                MarkdownConfig.columns_for_3gu_tdoc_export_ls,
+                self.meeting
+            )
+
+            if markdown_ls != '':
+                full_text = f'{full_text}\n\nFollowing LS were received and/or answered:\n\n{markdown_ls}'
+
+            markdown_pcr = get_markdown_for_tdocs(
+                self.tdocs_df[wi_filter & (is_pcr & is_approved_or_agreed)],
+                MarkdownConfig.columns_for_3gu_tdoc_export_pcr,
+                self.meeting
+            )
+
+            if markdown_pcr != '':
+                full_text = f'{full_text}\n\nFollowing pCRs were agreed:\n\n{markdown_pcr}'
+
+            markdown_cr = get_markdown_for_tdocs(
+                self.tdocs_df[wi_filter & (is_cr & is_approved_or_agreed)],
+                MarkdownConfig.columns_for_3gu_tdoc_export_cr,
+                self.meeting
+            )
+
+            if markdown_cr != '':
+                full_text = f'{full_text}\n\nFollowing CRs were agreed:\n\n{markdown_cr}'
+
+            if full_text != '':
+                full_text = f'<!--- [{meeting_name_for_export}]({self.meeting.meeting_folder_url}) --->{full_text}'
+                with open(os.path.join(local_folder, f'{wi}.md'), 'w') as f:
+                    f.write(full_text)
+
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
