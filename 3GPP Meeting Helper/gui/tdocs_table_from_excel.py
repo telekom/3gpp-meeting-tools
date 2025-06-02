@@ -36,6 +36,14 @@ from tdoc.utils import are_generic_tdocs
 from utils.local_cache import create_folder_if_needed
 
 
+def df_boolean_index_for_wi(in_df: DataFrame, wi_str:str):
+    filter_idx = ((in_df["Related WIs"] == wi_str) |
+                  in_df["Related WIs"].str.startswith(f'{wi_str}, ') |
+                  in_df["Related WIs"].str.contains(f', {wi_str} ') |
+                  in_df["Related WIs"].str.endswith(f', {wi_str}'))
+    return filter_idx
+
+
 class TdocsTableFromExcel(GenericTable):
     source_width = 200
     title_width = 550
@@ -122,15 +130,7 @@ class TdocsTableFromExcel(GenericTable):
         self.type_list.extend(type_items)
 
         self.wi_list = ['All']
-        wis_items: List[str] = self.tdocs_df['Related WIs'].unique().tolist()
-        wis_items_clean: List[str] = []
-        for wi_item in wis_items:
-            if wi_item is None or wi_item=='':
-                continue
-            wi_item = [e.strip() for e in wi_item.split(',')]
-            wis_items_clean.extend(wi_item)
-        wis_items_clean = list(set(wis_items_clean))
-        wis_items_clean.sort()
+        wis_items_clean = self.get_wis_in_meeting()
         self.wi_list.extend(wis_items_clean)
 
         # Document counter
@@ -293,7 +293,7 @@ class TdocsTableFromExcel(GenericTable):
             image=share_markdown_icon,
             command=self.export_ais_to_markdown,
             width=6,
-            help_text="Export this meeting's results per AI to Markdown for meeting report"
+            help_text="Export this meeting's results per topic to Markdown for meeting report"
         )
         self.markdown_export_per_ai_btn.pack(side=tkinter.LEFT)
 
@@ -530,6 +530,17 @@ class TdocsTableFromExcel(GenericTable):
     def current_excel_rows_to_clipboard(self):
         wb = open_excel_document(self.tdoc_excel_path)
         export_columns_to_markdown(wb, MarkdownConfig.columns_for_3gu_tdoc_export)
+
+    def get_wis_in_meeting(self) -> List[str]:
+        wis_items: List[str] = self.tdocs_df['Related WIs'].unique().tolist()
+        wis_items_clean: List[str] = []
+        for wi_item in wis_items:
+            if wi_item is None or wi_item == '':
+                continue
+            wi_item = [e.strip() for e in wi_item.split(',')]
+            wis_items_clean.extend(wi_item)
+        wis_items_clean = list(set(wis_items_clean))
+        return sorted(wis_items_clean, key=str.lower)
 
     def export_ais_to_markdown(self):
         # We want to take only the following:
@@ -792,12 +803,7 @@ class TdocsTableFromExcel(GenericTable):
         wi_filter = self.combo_wis.get()
         if wi_filter != 'All':
             print(f'Filtering by WI: "{wi_filter}"')
-            filtered_df = filtered_df[
-                (filtered_df["Related WIs"] == wi_filter) |
-                filtered_df["Related WIs"].str.startswith(f'{wi_filter}, ') |
-                filtered_df["Related WIs"].str.contains(f', {wi_filter} ') |
-                filtered_df["Related WIs"].str.endswith(f', {wi_filter}')
-            ]
+            filtered_df = filtered_df[df_boolean_index_for_wi(filtered_df, wi_filter)            ]
 
         tag_filter = self.combo_tag.get()
         if tag_filter != 'All':
