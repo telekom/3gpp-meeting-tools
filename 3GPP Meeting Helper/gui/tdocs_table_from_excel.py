@@ -1,4 +1,5 @@
 import datetime
+import json
 import numbers
 import os.path
 import shutil
@@ -34,6 +35,7 @@ from server.common import WorkingGroup, get_document_or_folder_url, DocumentType
 from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
 from tdoc.utils import are_generic_tdocs
 from utils.local_cache import create_folder_if_needed
+from utils.utils import invert_dict_defaultdict
 
 
 def df_boolean_index_for_wi(in_df: DataFrame, wi_str:str):
@@ -548,8 +550,11 @@ class TdocsTableFromExcel(GenericTable):
         wb = open_excel_document(self.tdoc_excel_path)
         export_columns_to_markdown(wb, MarkdownConfig.columns_for_3gu_tdoc_export)
 
-    def get_wis_in_meeting(self) -> List[str]:
-        wis_items: List[str] = self.tdocs_df['Related WIs'].unique().tolist()
+    def get_wis_in_meeting(self, tdocs_input:DataFrame=None) -> List[str]:
+        if tdocs_input is None:
+            tdocs_input = self.tdocs_df
+
+        wis_items: List[str] = tdocs_input['Related WIs'].unique().tolist()
         wis_items_clean: List[str] = []
         for wi_item in wis_items:
             if wi_item is None or wi_item == '':
@@ -587,17 +592,92 @@ class TdocsTableFromExcel(GenericTable):
 
         sid_new_to_show = self.tdocs_df[(is_sid_new & is_approved_or_agreed)]
 
-        print(f'Will export:')
+        local_folder = self.meeting.local_export_folder_path
+        meeting_name_for_export = self.meeting.meeting_name.replace('3GPP', '')
+
+        wis_in_ai = {}
+        for ai_name, group in self.tdocs_df.groupby('Agenda item'):
+            wis_in_ai[ai_name] = self.get_wis_in_meeting(tdocs_input=group)
+        ais_in_wi = invert_dict_defaultdict(wis_in_ai)
+
+        print(f'Following WIs in the AIs:')
+        for k, v in wis_in_ai.items():
+            print(f'  - {k}: {v}')
+
+        print(f'Following AIs in the WIs:')
+        for k, v in ais_in_wi.items():
+            print(f'  - {k}: {v}')
+
+        with open(os.path.join(local_folder, f'WI-to-AI.json'), 'w') as f:
+            f.write(json.dumps(wis_in_ai, indent=4))
+
+        with open(os.path.join(local_folder, f'AI-to-WI.json'), 'w') as f:
+            f.write(json.dumps(ais_in_wi, indent=4))
+
+        print(f'Starting export per WI')
+
+        class WiTdocs(NamedTuple):
+            ls_df: DataFrame
+            pcr_df: DataFrame
+            cr_df: DataFrame
+
+        wi_data: dict[str, WiTdocs] = dict()
+        for wi in self.get_wis_in_meeting():
+            print(f'Exporting contributions for WI {wi}')
+            wi_filter = df_boolean_index_for_wi(self.tdocs_df, wi)
+
+            full_text = ''
+
+            wi_ls_df = self.tdocs_df[wi_filter & ((is_ls_out & is_approved_or_agreed) | is_ls_in)]
+            markdown_ls = get_markdown_for_tdocs(
+                wi_ls_df,
+                MarkdownConfig.columns_for_3gu_tdoc_export_ls,
+                self.meeting
+            )
+
+            if markdown_ls != '':
+                full_text = f'{full_text}\n\nFollowing LS were received and/or answered:\n\n{markdown_ls}'
+
+            wi_pcr_df = self.tdocs_df[wi_filter & (is_pcr & is_approved_or_agreed)]
+            markdown_pcr = get_markdown_for_tdocs(
+                wi_pcr_df,
+                MarkdownConfig.columns_for_3gu_tdoc_export_pcr,
+                self.meeting
+            )
+
+            if markdown_pcr != '':
+                full_text = f'{full_text}\n\nFollowing pCRs were agreed:\n\n{markdown_pcr}'
+
+            wi_cr_df = self.tdocs_df[wi_filter & (is_cr & is_approved_or_agreed)]
+            markdown_cr = get_markdown_for_tdocs(
+                wi_cr_df,
+                MarkdownConfig.columns_for_3gu_tdoc_export_cr,
+                self.meeting
+            )
+
+            wi_data[wi] = WiTdocs(
+                ls_df=wi_ls_df,
+                pcr_df=wi_pcr_df,
+                cr_df=wi_cr_df
+            )
+
+            if markdown_cr != '':
+                full_text = f'{full_text}\n\nFollowing CRs were agreed:\n\n{markdown_cr}'
+
+            if full_text != '':
+                full_text = f'<!--- [{meeting_name_for_export}]({self.meeting.meeting_folder_url}) --->{full_text}'
+                with open(os.path.join(local_folder, f'{wi}.md'), 'w') as f:
+                    f.write(full_text)
+
+        ai_summary: dict[str,str] = dict()
+
+        print(f'Will export per AI:')
         print(f'  - {len(pcrs_to_show)} pCRs')
         print(f'  - {len(crs_to_show)} CRs')
         print(f'  - {len(ls_to_show)} LS IN/OUT')
         print(f'  - {len(ls_out_to_show)} LS OUT')
         print(f'  - {len(company_contributions)} Company contributions matching {MarkdownConfig.company_name_regex_for_report}')
         print(f'  - {len(sid_new_to_show)} SID new')
-
-        local_folder = self.meeting.local_export_folder_path
-
-        ai_summary = dict()
 
         # Export SID new
         index_list = list(sid_new_to_show.index)
@@ -645,7 +725,7 @@ class TdocsTableFromExcel(GenericTable):
         else:
             print(f'{len(index_list)} Company contributions matching {MarkdownConfig.company_name_regex_for_report}')
 
-        # Export LSs
+        # Export LSs per Agenda Item
         for ai_name, group in ls_to_show.groupby('Agenda item'):
             index_list = list(group.index)
 
@@ -661,7 +741,7 @@ class TdocsTableFromExcel(GenericTable):
             else:
                 print(f'{ai_name}: {len(index_list)} LS IN/OUT')
 
-        # Export pCRs
+        # Export pCRs per Agenda Item
         for ai_name, group in pcrs_to_show.groupby('Agenda item'):
             index_list = list(group.index)
 
@@ -682,7 +762,7 @@ class TdocsTableFromExcel(GenericTable):
             else:
                 print(f'{ai_name}: {len(index_list)} pCRs')
 
-        # Export CRs
+        # Export CRs per Agenda Item
         for ai_name, group in crs_to_show.groupby('Agenda item'):
             index_list = list(group.index)
 
@@ -704,51 +784,11 @@ class TdocsTableFromExcel(GenericTable):
                 print(f'{ai_name}: {len(index_list)} CRs')
 
         for ai_name, summary_text in ai_summary.items():
-            meeting_name_for_export = self.meeting.meeting_name.replace('3GPP','')
             summary_text = f'<!--- [{meeting_name_for_export}]({self.meeting.meeting_folder_url}) --->\n\n{summary_text}'
             with open(os.path.join(local_folder, f'{ai_name}.md'), 'w') as f:
                 f.write(summary_text)
 
         print(f'Completed Markdown export for {self.meeting.meeting_name}')
-
-        print(f'Starting export per WI')
-        for wi in self.get_wis_in_meeting():
-            print(f'Exporting contributions for WI {wi}')
-            wi_filter = df_boolean_index_for_wi(self.tdocs_df, wi)
-
-            full_text = ''
-
-            markdown_ls = get_markdown_for_tdocs(
-                self.tdocs_df[wi_filter & ((is_ls_out & is_approved_or_agreed) | is_ls_in)],
-                MarkdownConfig.columns_for_3gu_tdoc_export_ls,
-                self.meeting
-            )
-
-            if markdown_ls != '':
-                full_text = f'{full_text}\n\nFollowing LS were received and/or answered:\n\n{markdown_ls}'
-
-            markdown_pcr = get_markdown_for_tdocs(
-                self.tdocs_df[wi_filter & (is_pcr & is_approved_or_agreed)],
-                MarkdownConfig.columns_for_3gu_tdoc_export_pcr,
-                self.meeting
-            )
-
-            if markdown_pcr != '':
-                full_text = f'{full_text}\n\nFollowing pCRs were agreed:\n\n{markdown_pcr}'
-
-            markdown_cr = get_markdown_for_tdocs(
-                self.tdocs_df[wi_filter & (is_cr & is_approved_or_agreed)],
-                MarkdownConfig.columns_for_3gu_tdoc_export_cr,
-                self.meeting
-            )
-
-            if markdown_cr != '':
-                full_text = f'{full_text}\n\nFollowing CRs were agreed:\n\n{markdown_cr}'
-
-            if full_text != '':
-                full_text = f'<!--- [{meeting_name_for_export}]({self.meeting.meeting_folder_url}) --->{full_text}'
-                with open(os.path.join(local_folder, f'{wi}.md'), 'w') as f:
-                    f.write(full_text)
 
 
     def on_double_click(self, event):
