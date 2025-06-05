@@ -92,8 +92,8 @@ class TdocsTableFromExcel(GenericTable):
             index_col=0)
         print(f'Imported meeting Tdocs for {meeting.meeting_name}: {self.tdocs_df.columns.values}')
 
-        # self.wi_hyperlinks = parse_tdoc_3gu_list_for_wis(self.tdoc_excel_path)
-        # print(f'Found following WIs:\n{self.wi_hyperlinks}')
+        self.wi_hyperlinks = parse_tdoc_3gu_list_for_wis(self.tdoc_excel_path)
+        print(f'Found following WIs:\n{self.wi_hyperlinks}')
 
         self.tdocs_df = self.tdocs_df.fillna(value='')
         self.tdocs_df['Secretary Remarks'] = self.tdocs_df['Secretary Remarks'].str.replace('<br/><br/>', '. ')
@@ -841,7 +841,9 @@ class TdocsTableFromExcel(GenericTable):
                     root_widget=self.root_widget,
                     tdoc_str=tdoc_id,
                     tdoc_row=self.tdocs_df.loc[tdoc_id],
-                    meeting=self.meeting)
+                    meeting=self.meeting,
+                    wi_hyperlinks=self.wi_hyperlinks
+                )
 
     def select_rows(self, *args):
         filter_str = self.search_text.get()
@@ -982,12 +984,14 @@ class TdocDetailsFromExcel(GenericTable):
             tdoc_str: str,
             tdoc_row,
             meeting: MeetingEntry,
+            wi_hyperlinks: dict[str, str],
             root_widget: tkinter.Tk | None = None,
     ):
         self.tdoc_id = tdoc_str
         self.tdoc_row = tdoc_row
         self.tkvar_3gpp_wifi_available = tkvar_3gpp_wifi_available
         self.meeting = meeting
+        self.wi_hyperlinks = wi_hyperlinks
 
         super().__init__(
             parent_widget=parent_widget,
@@ -1136,3 +1140,14 @@ class TdocDetailsFromExcel(GenericTable):
                 url_value = actual_value
                 pyperclip.copy(url_value)
                 print(f'Copied URL for {self.tdoc_id} to clipboard: {url_value}')
+            case 'Related WIs':
+                related_wis = [wi.strip() for wi in actual_value.split(',') if wi is not None and wi!='']
+                for related_wi in related_wis:
+                    try:
+                        the_url = self.wi_hyperlinks[related_wi]
+                        open_url(the_url)
+                        print(f'Opened URL WI {related_wi}: {the_url}')
+                    except KeyError:
+                        pass
+
+
