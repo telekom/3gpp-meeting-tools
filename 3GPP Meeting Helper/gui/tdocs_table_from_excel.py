@@ -21,12 +21,13 @@ import utils.local_cache
 from application.common import ActionAfter, ExportType
 from application.excel import open_excel_document, set_autofilter_values, export_columns_to_markdown, clear_autofilter, \
     export_columns_to_markdown_dataframe
+from application.excel_openpyxl import parse_tdoc_3gu_list_for_wis
 from application.meeting_helper import tdoc_tags, open_sa2_drafts_url
 from application.os import open_url, startfile
 from application.word import export_document
 from config.markdown import MarkdownConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
-from gui.common.generic_table import GenericTable, treeview_set_row_formatting
+from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon, \
     filter_icon, note_icon, ftp_icon, markdown_icon, share_markdown_icon
@@ -41,7 +42,7 @@ from utils.utils import invert_dict_defaultdict
 def df_boolean_index_for_wi(in_df: DataFrame, wi_str:str):
     filter_idx = ((in_df["Related WIs"] == wi_str) |
                   in_df["Related WIs"].str.startswith(f'{wi_str}, ') |
-                  in_df["Related WIs"].str.contains(f', {wi_str} ') |
+                  in_df["Related WIs"].str.contains(f', {wi_str},') |
                   in_df["Related WIs"].str.endswith(f', {wi_str}'))
     return filter_idx
 
@@ -91,6 +92,9 @@ class TdocsTableFromExcel(GenericTable):
             index_col=0)
         print(f'Imported meeting Tdocs for {meeting.meeting_name}: {self.tdocs_df.columns.values}')
 
+        # self.wi_hyperlinks = parse_tdoc_3gu_list_for_wis(self.tdoc_excel_path)
+        # print(f'Found following WIs:\n{self.wi_hyperlinks}')
+
         self.tdocs_df = self.tdocs_df.fillna(value='')
         self.tdocs_df['Secretary Remarks'] = self.tdocs_df['Secretary Remarks'].str.replace('<br/><br/>', '. ')
         self.meeting = meeting
@@ -98,7 +102,7 @@ class TdocsTableFromExcel(GenericTable):
         self.tkvar_3gpp_wifi_available = tkvar_3gpp_wifi_available
 
         # Process tags
-        self.tdoc_tag_list_str = ['All']
+        self.tdoc_tag_list_str = ['All Tags']
         if len(self.tdoc_tags) != 0:
             all_tags = list(set([s.tag for s in self.tdoc_tags]))
             all_tags.sort()
@@ -133,22 +137,22 @@ class TdocsTableFromExcel(GenericTable):
         self.tdocs_current_df = self.tdocs_df
 
         # Fill in drop-down filters
-        self.release_list = ['All']
+        self.release_list = ['All Releases']
         ai_items = self.tdocs_df['Release'].unique().tolist()
         ai_items.sort()
         self.release_list.extend(ai_items)
-        self.ai_list = ['All']
+        self.ai_list = ['All AIs']
         self.ai_list.extend(self.tdocs_df['Agenda item'].unique().tolist())
 
-        self.tdoc_status_list = ['All']
+        self.tdoc_status_list = ['All Status']
         self.tdoc_status_list.extend(self.tdocs_df['TDoc Status'].unique().tolist())
 
-        self.type_list = ['All']
+        self.type_list = ['All Types']
         type_items = self.tdocs_df['Type'].unique().tolist()
         type_items.sort()
         self.type_list.extend(type_items)
 
-        self.wi_list = ['All']
+        self.wi_list = ['All WIs']
         wis_items_clean = self.get_wis_in_meeting()
         self.wi_list.extend(wis_items_clean)
 
@@ -199,7 +203,7 @@ class TdocsTableFromExcel(GenericTable):
             values=self.release_list,
             state="readonly",
             width=10)
-        self.combo_release.set('All')
+        self.combo_release.set('All Releases')
         self.combo_release.bind("<<ComboboxSelected>>", self.select_rows)
 
         self.combo_ai = ttk.Combobox(
@@ -207,7 +211,7 @@ class TdocsTableFromExcel(GenericTable):
             values=self.ai_list,
             state="readonly",
             width=9)
-        self.combo_ai.set('All')
+        self.combo_ai.set('All AIs')
         self.combo_ai.bind("<<ComboboxSelected>>", self.select_rows)
 
         self.combo_status = ttk.Combobox(
@@ -215,7 +219,7 @@ class TdocsTableFromExcel(GenericTable):
             values=self.tdoc_status_list,
             state="readonly",
             width=10)
-        self.combo_status.set('All')
+        self.combo_status.set('All Status')
         self.combo_status.bind("<<ComboboxSelected>>", self.select_rows)
 
         self.combo_type = ttk.Combobox(
@@ -223,7 +227,7 @@ class TdocsTableFromExcel(GenericTable):
             values=self.type_list,
             state="readonly",
             width=10)
-        self.combo_type.set('All')
+        self.combo_type.set('All Types')
         self.combo_type.bind("<<ComboboxSelected>>", self.select_rows)
 
         self.combo_wis = ttk.Combobox(
@@ -231,7 +235,7 @@ class TdocsTableFromExcel(GenericTable):
             values=self.wi_list,
             state="readonly",
             width=10)
-        self.combo_wis.set('All')
+        self.combo_wis.set('All WIs')
         self.combo_wis.bind("<<ComboboxSelected>>", self.select_rows)
 
         self.combo_tag = ttk.Combobox(
@@ -239,25 +243,25 @@ class TdocsTableFromExcel(GenericTable):
             values=self.tdoc_tag_list_str,
             state="readonly",
             width=10)
-        self.combo_tag.set('All')
+        self.combo_tag.set('All Tags')
         self.combo_tag.bind("<<ComboboxSelected>>", self.select_rows)
 
-        ttk.Label(self.top_frame, text="  AI: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.combo_ai.pack(side=tkinter.LEFT)
 
-        ttk.Label(self.top_frame, text="  Status: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.combo_status.pack(side=tkinter.LEFT)
 
-        ttk.Label(self.top_frame, text="  Rel.: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.combo_release.pack(side=tkinter.LEFT)
 
-        ttk.Label(self.top_frame, text="  Type: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.combo_type.pack(side=tkinter.LEFT)
 
-        ttk.Label(self.top_frame, text="  WI: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.combo_wis.pack(side=tkinter.LEFT)
 
-        ttk.Label(self.top_frame, text="  Tag: ").pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.combo_tag.pack(side=tkinter.LEFT)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
@@ -862,32 +866,32 @@ class TdocsTableFromExcel(GenericTable):
                 filtered_df["Secretary Remarks"].str.contains(filter_str, case=False)]
 
         ai_filter = self.combo_ai.get()
-        if ai_filter != 'All':
+        if not ai_filter.startswith('All'):
             print(f'Filtering by AI: "{ai_filter}"')
             filtered_df = filtered_df[filtered_df["Agenda item"] == ai_filter]
 
         status_filter = self.combo_status.get()
-        if status_filter != 'All':
+        if not status_filter.startswith('All'):
             print(f'Filtering by TDoc status: "{status_filter}"')
             filtered_df = filtered_df[filtered_df["TDoc Status"] == status_filter]
 
         type_filter = self.combo_type.get()
-        if type_filter != 'All':
+        if not type_filter.startswith('All'):
             print(f'Filtering by Type: "{type_filter}"')
             filtered_df = filtered_df[filtered_df["Type"] == type_filter]
 
         rel_filter = self.combo_release.get()
-        if rel_filter != 'All':
+        if not rel_filter.startswith('All'):
             print(f'Filtering by Release: "{rel_filter}"')
             filtered_df = filtered_df[filtered_df["Release"] == rel_filter]
 
         wi_filter = self.combo_wis.get()
-        if wi_filter != 'All':
+        if not wi_filter.startswith('All'):
             print(f'Filtering by WI: "{wi_filter}"')
             filtered_df = filtered_df[df_boolean_index_for_wi(filtered_df, wi_filter)            ]
 
         tag_filter = self.combo_tag.get()
-        if tag_filter != 'All':
+        if not tag_filter.startswith('All'):
             print(f'Filtering by Tag: "{tag_filter}"')
             filtered_df = filtered_df[filtered_df["Tag"] == tag_filter]
 
