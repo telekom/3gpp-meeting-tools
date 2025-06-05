@@ -106,6 +106,17 @@ def get_meeting_groups() -> List[str]:
     """
     return [k for k, v in meeting_pages_per_group.items()]
 
+def get_meeting_years() -> List[int]:
+    """
+        The years of the start date of the loaded meetings
+        Returns: A list of years
+        """
+    start_years = list(set(
+        [m.start_date.year for m in loaded_meeting_entries
+         if m is not None and m.start_date is not None]))
+    start_years.sort(reverse=True)
+    return start_years
+
 
 def update_local_html_cache(redownload_if_exists=False) -> List[str]:
     """
