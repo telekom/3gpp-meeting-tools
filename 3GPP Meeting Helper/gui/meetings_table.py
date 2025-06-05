@@ -6,6 +6,7 @@ from typing import List
 
 import pyperclip
 
+import gui.common.utils
 import server
 import utils.local_cache
 from application.excel import open_excel_document
@@ -13,14 +14,13 @@ from application.os import open_url, startfile
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.common.gui_elements import TTKHoverHelpButton
-from gui.common.icons import excel_icon, table_icon, cloud_download_icon, refresh_icon, search_icon, compare_icon
+from gui.common.icons import refresh_icon, search_icon, compare_icon
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
 from server.common import download_file_to_location, MeetingEntry
 from server.tdoc_search import search_meeting_for_tdoc, compare_two_tdocs
 from tdoc.utils import is_generic_tdoc
 from utils.local_cache import file_exists
-import gui.common.utils
 
 
 class MeetingsTable(GenericTable):
@@ -43,6 +43,9 @@ class MeetingsTable(GenericTable):
         self.chosen_meeting: MeetingEntry | None = None
         self.root_widget = root_widget
 
+        # Start by loading data
+        self.load_data(initial_load=True)
+
         self.meeting_count_tk_str = tkinter.StringVar()
         self.compare_text_tk_str = tkinter.StringVar()
 
@@ -58,24 +61,35 @@ class MeetingsTable(GenericTable):
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
         # Filter by group (only filter we have in this view)
-        all_groups = ['All']
+        all_groups = ['All Groups']
         meeting_groups_from_3gpp_server = tdoc_search.get_meeting_groups()
         meeting_groups_from_3gpp_server.append('S3-LI')
         all_groups.extend(meeting_groups_from_3gpp_server)
-
         all_groups.sort()
 
         self.combo_groups = ttk.Combobox(
             self.top_frame,
             values=all_groups,
             state="readonly",
-            width=6)
-        self.combo_groups.set('All')
-        self.combo_groups.bind("<<ComboboxSelected>>", self.select_groups)
-
-        # Filter by 3GPP Group/WG
-        ttk.Label(self.top_frame, text="Group: ").pack(side=tkinter.LEFT)
+            width=10)
+        self.combo_groups.set('All Groups')
+        self.combo_groups.bind("<<ComboboxSelected>>", self.select_rows)
         self.combo_groups.pack(side=tkinter.LEFT)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+
+        # Filter by year (starting date)
+        all_years = ['All Years']
+        meeting_years = tdoc_search.get_meeting_years()
+        all_years.extend(meeting_years)
+
+        self.combo_years = ttk.Combobox(
+            self.top_frame,
+            values=all_years,
+            state="readonly",
+            width=10)
+        self.combo_years.set('All Years')
+        self.combo_years.bind("<<ComboboxSelected>>", self.select_rows)
+        self.combo_years.pack(side=tkinter.LEFT)
 
         self.filter_by_now = False
 
@@ -158,7 +172,6 @@ class MeetingsTable(GenericTable):
         ttk.Label(self.top_frame, text="Re-DL TDoc list").pack(side=tkinter.LEFT)
 
         # Main frame
-        self.load_data(initial_load=True)
         self.insert_rows()
 
         self.tree.pack(fill='both', expand=True, side='left')
@@ -203,7 +216,7 @@ class MeetingsTable(GenericTable):
 
         # Filter by selected group
         selected_group = self.combo_groups.get()
-        if (selected_group != 'All') and (not tdoc_override):
+        if (not selected_group.startswith('All')) and (not tdoc_override):
             if selected_group == 'S3-LI':
                 meeting_list_to_consider = [m for m in meeting_list_to_consider if
                                             m.meeting_group == 'S3' and m.is_li]
@@ -213,6 +226,12 @@ class MeetingsTable(GenericTable):
             else:
                 meeting_list_to_consider = [m for m in meeting_list_to_consider if
                                             m.meeting_group == selected_group]
+
+        # Filter by selected group
+        selected_year = self.combo_years.get()
+        if (not selected_year.startswith('All')) and (not tdoc_override):
+            meeting_list_to_consider = [m for m in meeting_list_to_consider if
+                                            m.start_date.year == int(selected_year)]
 
         # Sort list by date
         meeting_list_to_consider.sort(reverse=True, key=lambda m: (m.start_date, m.meeting_group))
@@ -270,7 +289,8 @@ class MeetingsTable(GenericTable):
         self.meeting_count_tk_str.set('{0} meetings'.format(count))
 
     def clear_filters(self, *args):
-        self.combo_groups.set('All')
+        self.combo_groups.set('All Groups')
+        self.combo_years.set('All Years')
 
         # Refill list
         self.apply_filters()
@@ -284,7 +304,7 @@ class MeetingsTable(GenericTable):
         self.tree.delete(*self.tree.get_children())
         self.insert_rows(tdoc_override=tdoc_override)
 
-    def select_groups(self, *args):
+    def select_rows(self, *args):
         self.apply_filters()
 
     def on_double_click(self, event):
