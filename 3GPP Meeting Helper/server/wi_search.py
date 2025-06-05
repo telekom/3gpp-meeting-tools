@@ -24,7 +24,7 @@ def initialize():
 
 
 wi_parse_regex = re.compile(
-    r'(?P<uid>\d{4,}) *\| *(?P<acronym>[\w, -_]+) *\| *(?P<name>[\w, -()-]+) *\| *(?P<groups>[\w, ]+) *\| *!\[See details]')
+    r'(?P<uid>\d{4,}) *\| *(?P<code>[\w, -_]+) *\| *(?P<name>[\d\w, -()-‑–™”]+) *\| *(?P<release>[\w\d, -‑]+) *\| *(?P<groups>[\w, ]+)')
 
 loaded_wi_entries: List[WiEntry] = []
 
@@ -70,9 +70,9 @@ def load_wi_entries(re_download_if_exists=False):
         WiEntry(
             uid=m.group('uid').strip(),
             code=m.group('code').strip(),
-            title=m.group('title').strip(),
+            title=m.group('name').strip(),
             release=m.group('release').strip(),
-            lead_body=m.group('lead_body').strip()
+            lead_body=m.group('groups').strip()
         )
         for m in wi_matches if m is not None
     ]
