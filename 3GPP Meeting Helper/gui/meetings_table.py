@@ -18,7 +18,7 @@ from gui.common.icons import refresh_icon, search_icon, compare_icon
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
 from server.common import download_file_to_location, MeetingEntry
-from server.tdoc_search import search_meeting_for_tdoc, compare_two_tdocs
+from server.tdoc_search import search_meeting_for_tdoc, compare_two_tdocs, get_meetings_for_year
 from tdoc.utils import is_generic_tdoc
 from utils.local_cache import file_exists
 
@@ -230,8 +230,7 @@ class MeetingsTable(GenericTable):
         # Filter by selected group
         selected_year = self.combo_years.get()
         if (not selected_year.startswith('All')) and (not tdoc_override):
-            meeting_list_to_consider = [m for m in meeting_list_to_consider if
-                                            m.start_date.year == int(selected_year)]
+            meeting_list_to_consider = get_meetings_for_year(year=int(selected_year), meeting_list=meeting_list_to_consider)
 
         # Sort list by date
         meeting_list_to_consider.sort(reverse=True, key=lambda m: (m.start_date, m.meeting_group))
@@ -329,6 +328,8 @@ class MeetingsTable(GenericTable):
             print("Empty value")
             return
 
+        local_path = meeting[0].tdoc_excel_local_path
+
         if column == 0: # Meeting
             print(f'Clicked on meeting {meeting_name}')
             url_to_open = meeting[0].meeting_url_3gu
@@ -359,12 +360,11 @@ class MeetingsTable(GenericTable):
 
         if (column == 6 or column == 7) and actual_value != '-': # TDocs Excel
             print(f'Clicked TDoc Excel link for meeting {meeting_name}')
-            download_folder = meeting[0].local_agenda_folder_path
-            if download_folder is None:
+            file_already_exists = meeting[0].tdoc_excel_exists_in_local_folder
+            if file_already_exists is None:
                 print(f'Meeting folder name not yet known. Cannot save local file')
                 return
-            local_path = os.path.join(download_folder, f'{meeting[0].meeting_name}_TDoc_List.xlsx')
-            file_already_exists = file_exists(local_path)
+
             downloaded = False
             if not file_already_exists or self.redownload_tdoc_excel_if_exists_var.get():
                 url_to_open = meeting[0].meeting_tdoc_list_excel_url

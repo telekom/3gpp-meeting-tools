@@ -2,6 +2,7 @@ import os.path
 import re
 from typing import List
 
+from server import tdoc_search
 from server.common import download_file_to_location, WiEntry
 from utils.local_cache import file_exists, convert_html_file_to_markup, \
     get_work_items_cache_folder
@@ -28,6 +29,8 @@ wi_parse_regex = re.compile(
 
 loaded_wi_entries: List[WiEntry] = []
 
+# Update the meeting list such that we can use tdoc_search.loaded_meeting_entries
+tdoc_search.fully_update_cache(redownload_if_exists=False)
 
 def download_wi_list(re_download_if_exists=False):
     if not initialized:
