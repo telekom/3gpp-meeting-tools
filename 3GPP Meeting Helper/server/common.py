@@ -4,7 +4,9 @@ import os.path
 import re
 import socket
 import traceback
+from dataclasses import dataclass
 from enum import Enum
+from functools import cached_property
 from typing import NamedTuple, List
 
 import tdoc.utils
@@ -12,7 +14,7 @@ import utils
 
 from config.networking import private_server, public_server, wg_folder_public_server, wg_folder_private_server
 from server.connection import get_remote_file
-from utils.local_cache import get_sa2_root_folder_local_cache, create_folder_if_needed
+from utils.local_cache import get_sa2_root_folder_local_cache, create_folder_if_needed, file_exists
 
 """Retrieves data from the 3GPP web server"""
 
@@ -561,7 +563,8 @@ def get_tdoc_details_url(tdoc_id: str):
     return f'https://portal.3gpp.org/ngppapp/CreateTDoc.aspx?mode=view&contributionUid={tdoc_id}'
 
 
-class MeetingEntry(NamedTuple):
+@dataclass(frozen=True)
+class MeetingEntry:
     meeting_group: str
     meeting_number: str
     meeting_url_3gu: str
@@ -590,7 +593,7 @@ class MeetingEntry(NamedTuple):
         split_folder_url = [f for f in folder_url.split('/') if f != '']
         return split_folder_url[-1]
 
-    @property
+    @cached_property
     def meeting_id(self) -> str | None:
         """
         Parses the meeting ID from the Meeting's URL. This ID is used in 3GU to identify the meeting, e.g.
@@ -608,7 +611,7 @@ class MeetingEntry(NamedTuple):
 
         return id_match.group('meeting_id')
 
-    @property
+    @cached_property
     def meeting_calendar_ics_url(self) -> str | None:
         """
         Generates a URL for the 3GPP server containing the calendar entry in ICS format
@@ -620,7 +623,7 @@ class MeetingEntry(NamedTuple):
             return None
         return f"https://portal.3gpp.org/webservices/Rest/Meetings.svc/GetiCal/{the_meeting_id}.ics"
 
-    @property
+    @cached_property
     def meeting_tdoc_list_url(self) -> str | None:
         """
         Returns, based on the meeting ID, the TDoc list URL from the 3GPP portal
@@ -633,7 +636,7 @@ class MeetingEntry(NamedTuple):
         # e.g. https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=60394
         return 'https://portal.3gpp.org/ngppapp/TdocList.aspx?meetingId=' + meeting_id
 
-    @property
+    @cached_property
     def meeting_tdoc_list_excel_url(self) -> str | None:
         """
         Returns, based on the meeting ID, the TDoc list URL for the Excel file from the 3GPP portal
@@ -680,7 +683,7 @@ class MeetingEntry(NamedTuple):
             print(f'Could not generate inbox URL, returning Docs URL: {e}')
             return docs_url
 
-    @property
+    @cached_property
     def local_folder_path(self) -> str | None:
         """
         For a given meeting, returns the cache folder and creates it if it does not exist
@@ -717,15 +720,15 @@ class MeetingEntry(NamedTuple):
         utils.local_cache.create_folder_if_needed(full_path, create_dir=True)
         return full_path
 
-    @property
+    @cached_property
     def local_tdoc_list_excel_path(self):
         return os.path.join(self.local_agenda_folder_path, 'TDoc_List.xlsx')
 
-    @property
+    @cached_property
     def is_li(self):
         return '-LI' in self.meeting_number
 
-    @property
+    @cached_property
     def meeting_folders_3gpp_wifi_url(self) -> List[str]:
         wg = WorkingGroup.from_string(self.meeting_group)
         candidate_folders = get_document_or_folder_url(
@@ -737,7 +740,7 @@ class MeetingEntry(NamedTuple):
         )
         return candidate_folders
 
-    @property
+    @cached_property
     def working_group_enum(self) -> WorkingGroup:
         return WorkingGroup.from_string(self.meeting_group)
 
@@ -757,11 +760,11 @@ class MeetingEntry(NamedTuple):
             return True
         return False
 
-    @property
+    @cached_property
     def local_server_url(self):
         return f'{host_private_server}/{self.working_group_enum.get_wg_folder_name(ServerType.PRIVATE)}'
 
-    @property
+    @cached_property
     def sync_server_url(self):
         return f'{host_private_server}/{self.working_group_enum.get_wg_folder_name(ServerType.SYNC)}'
 
@@ -782,6 +785,20 @@ class MeetingEntry(NamedTuple):
             f'{tdoc_str}.zip')
         local_file.replace(f'{os.path.pathsep}{os.path.pathsep}', f'{os.path.pathsep}')
         return local_file
+
+    @cached_property
+    def tdoc_excel_local_path(self)->str|None:
+        download_folder = self.local_agenda_folder_path
+        if download_folder is None:
+            return None
+        return os.path.join(download_folder, f'{self.meeting_name}_TDoc_List.xlsx')
+
+    @property
+    def tdoc_excel_exists_in_local_folder(self)->bool | None:
+        local_path = self.tdoc_excel_local_path
+        if local_path is None:
+            return None
+        return file_exists(local_path)
 
 
 # Used to parse the meeting ID

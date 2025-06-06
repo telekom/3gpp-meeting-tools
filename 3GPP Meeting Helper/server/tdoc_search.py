@@ -634,7 +634,7 @@ def batch_search_and_download_tdocs(
         tdoc_list: A list of TDoc IDs
     """
     if tdoc_list is None or not isinstance(tdoc_list, list) or len(tdoc_list) < 1:
-        return
+        return []
 
     # See https://docs.python.org/3/library/concurrent.futures.html
     all_downloads = []
@@ -682,3 +682,12 @@ def compare_two_tdocs(
     doc_2 = metadata2[0].path
     print(f'Comparing {doc_2} vs. {doc_1}')
     parsing.word.pywin32.compare_documents(doc_2, doc_1)
+
+def get_meetings_for_year(year:int, meeting_list: List[MeetingEntry]=None)-> List[MeetingEntry]:
+    if meeting_list is None:
+        meeting_list = loaded_meeting_entries
+    if meeting_list is None:
+        return []
+
+    meetings_for_year = [m for m in meeting_list if m.start_date.year == year]
+    return meetings_for_year
