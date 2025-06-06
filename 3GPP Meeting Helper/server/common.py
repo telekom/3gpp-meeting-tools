@@ -800,6 +800,11 @@ class MeetingEntry:
             return None
         return file_exists(local_path)
 
+    def starts_in_given_year(self, year:int) -> bool:
+        if self.start_date is None:
+            return False
+        return self.start_date.year == year
+
 
 # Used to parse the meeting ID
 meeting_id_regex = re.compile(r'.*meeting\?MtgId=(?P<meeting_id>[\d]+)')

@@ -210,27 +210,31 @@ class MeetingsTable(GenericTable):
         else:
             meeting_list_to_consider = [self.chosen_meeting]
 
-        # If filtering by "now"
-        if self.filter_by_now:
-            meeting_list_to_consider = [m for m in meeting_list_to_consider if m.meeting_is_now]
+        def meeting_matches_filter(m:MeetingEntry)->bool:
+            filter_match = True
 
-        # Filter by selected group
-        selected_group = self.combo_groups.get()
-        if (not selected_group.startswith('All')) and (not tdoc_override):
-            if selected_group == 'S3-LI':
-                meeting_list_to_consider = [m for m in meeting_list_to_consider if
-                                            m.meeting_group == 'S3' and m.is_li]
-            elif selected_group == 'S3':
-                meeting_list_to_consider = [m for m in meeting_list_to_consider if
-                                            m.meeting_group == 'S3' and not m.is_li]
-            else:
-                meeting_list_to_consider = [m for m in meeting_list_to_consider if
-                                            m.meeting_group == selected_group]
+            # If filtering by "now"
+            if self.filter_by_now:
+                filter_match = filter_match and m.meeting_is_now
 
-        # Filter by selected group
-        selected_year = self.combo_years.get()
-        if (not selected_year.startswith('All')) and (not tdoc_override):
-            meeting_list_to_consider = get_meetings_for_year(year=int(selected_year), meeting_list=meeting_list_to_consider)
+            # Filter by selected year
+            selected_year = self.combo_years.get()
+            if (not selected_year.startswith('All')) and (not tdoc_override):
+                filter_match = filter_match and m.starts_in_given_year(int(selected_year))
+
+            # Filter by selected group
+            selected_group = self.combo_groups.get()
+            if (not selected_group.startswith('All')) and (not tdoc_override):
+                if selected_group == 'S3-LI':
+                    filter_match = filter_match and (m.meeting_group == 'S3' and m.is_li)
+                elif selected_group == 'S3':
+                    filter_match = filter_match and (m.meeting_group == 'S3' and not m.is_li)
+                else:
+                    filter_match = filter_match and (m.meeting_group == selected_group)
+
+            return filter_match
+
+        meeting_list_to_consider = [m for m in meeting_list_to_consider if meeting_matches_filter(m)]
 
         # Sort list by date
         meeting_list_to_consider.sort(reverse=True, key=lambda m: (m.start_date, m.meeting_group))

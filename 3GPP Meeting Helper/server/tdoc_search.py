@@ -689,5 +689,5 @@ def get_meetings_for_year(year:int, meeting_list: List[MeetingEntry]=None)-> Lis
     if meeting_list is None:
         return []
 
-    meetings_for_year = [m for m in meeting_list if m.start_date.year == year]
+    meetings_for_year = [m for m in meeting_list if m.starts_in_given_year(year) ]
     return meetings_for_year
