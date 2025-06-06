@@ -18,9 +18,8 @@ from gui.common.icons import refresh_icon, search_icon, compare_icon
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
 from server.common import download_file_to_location, MeetingEntry
-from server.tdoc_search import search_meeting_for_tdoc, compare_two_tdocs, get_meetings_for_year
+from server.tdoc_search import search_meeting_for_tdoc, compare_two_tdocs
 from tdoc.utils import is_generic_tdoc
-from utils.local_cache import file_exists
 
 
 class MeetingsTable(GenericTable):

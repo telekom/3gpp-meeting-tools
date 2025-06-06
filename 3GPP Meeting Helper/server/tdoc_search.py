@@ -683,11 +683,4 @@ def compare_two_tdocs(
     print(f'Comparing {doc_2} vs. {doc_1}')
     parsing.word.pywin32.compare_documents(doc_2, doc_1)
 
-def get_meetings_for_year(year:int, meeting_list: List[MeetingEntry]=None)-> List[MeetingEntry]:
-    if meeting_list is None:
-        meeting_list = loaded_meeting_entries
-    if meeting_list is None:
-        return []
 
-    meetings_for_year = [m for m in meeting_list if m.starts_in_given_year(year) ]
-    return meetings_for_year
