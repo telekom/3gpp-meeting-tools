@@ -86,14 +86,37 @@ class TdocsTableFromExcel(GenericTable):
         """
         self.tdoc_excel_path = tdoc_excel_path
 
-        # Load and cleanup DataFrame
-        self.tdocs_df: DataFrame = pd.read_excel(
-            io=self.tdoc_excel_path,
-            index_col=0)
-        print(f'Imported meeting Tdocs for {meeting.meeting_name}: {self.tdocs_df.columns.values}')
 
-        self.wi_hyperlinks = parse_tdoc_3gu_list_for_wis(self.tdoc_excel_path)
-        print(f'Found following WIs:\n{self.wi_hyperlinks}')
+        excel_hash = utils.local_cache.hash_file(tdoc_excel_path)
+        cached_data:utils.local_cache.CachedMeetingTdocData = utils.local_cache.retrieve_pickle_cache_for_file(
+            file_path=tdoc_excel_path,
+            file_prefix='TDocs_3GU',
+            file_hash=excel_hash
+        )
+
+        if cached_data is not None:
+            print(f'Loaded TDocs from cache with hash {excel_hash}')
+            self.tdocs_df: DataFrame = cached_data.tdocs_df
+            self.wi_hyperlinks:dict[str,str] = cached_data.wy_hyperlinks
+        else:
+            print(f'Parsing TDoc Excel and caching file data with hash {excel_hash}')
+            # Load and cleanup DataFrame
+            self.tdocs_df: DataFrame = pd.read_excel(
+                io=self.tdoc_excel_path,
+                index_col=0)
+
+            self.wi_hyperlinks = parse_tdoc_3gu_list_for_wis(self.tdoc_excel_path)
+            print(f'Found following WIs:\n{self.wi_hyperlinks}')
+
+            utils.local_cache.store_pickle_cache_for_file(
+                file_path=tdoc_excel_path,
+                file_prefix='TDocs_3GU',
+                file_hash=excel_hash,
+                data=utils.local_cache.CachedMeetingTdocData(
+                    tdocs_df=self.tdocs_df,
+                    wy_hyperlinks=self.wi_hyperlinks)
+            )
+        print(f'Imported meeting Tdocs for {meeting.meeting_name}: {self.tdocs_df.columns.values}')
 
         self.tdocs_df = self.tdocs_df.fillna(value='')
         self.tdocs_df['Secretary Remarks'] = self.tdocs_df['Secretary Remarks'].str.replace('<br/><br/>', '. ')
