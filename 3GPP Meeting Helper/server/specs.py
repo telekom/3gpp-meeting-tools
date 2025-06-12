@@ -40,6 +40,8 @@ drafts_page = 'https://www.3gpp.org/ftp/Specs/latest-drafts'
 # Higher timeout value for specs
 timeout_values = HttpRequestTimeout(3.05, 25)
 
+SPECS_CACHE_VERSION = '3'
+
 
 def get_html_page_and_save_cache(
         url: str,
@@ -232,7 +234,7 @@ def get_specs(
         check_for_new_specs,
         override_pickle_cache,
         load_only_spec_list))
-    specs_df_cache_file = os.path.join(get_specs_cache_folder(), '_specs_v2.pickle')
+    specs_df_cache_file = os.path.join(get_specs_cache_folder(), f'_specs_v{SPECS_CACHE_VERSION}.pickle')
 
     # Load specs data from cache file
     if not override_pickle_cache:
