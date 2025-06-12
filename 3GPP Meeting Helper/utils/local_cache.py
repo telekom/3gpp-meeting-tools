@@ -227,6 +227,25 @@ def get_private_server_tdocs_by_agenda_local_cache(create_dir=True):
 class CachedMeetingTdocData(NamedTuple):
     tdocs_df: DataFrame
     wy_hyperlinks: dict[str, str]
+    hash: str
+
+
+    @staticmethod
+    def get_cache(tdoc_excel_path:str, excel_hash:str=None):
+        cached_data: CachedMeetingTdocData|None = retrieve_pickle_cache_for_file(
+            file_path=tdoc_excel_path,
+            file_prefix='TDocs_3GU',
+            file_hash=excel_hash
+        )
+        return cached_data
+
+    def store_cache(self, tdoc_excel_path:str):
+        store_pickle_cache_for_file(
+            file_path=tdoc_excel_path,
+            file_prefix='TDocs_3GU',
+            file_hash=self.hash,
+            data=self
+        )
 
 def hash_file(file_path: str, chunk_size=4096) -> str|None:
     """

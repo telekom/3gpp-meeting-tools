@@ -88,10 +88,9 @@ class TdocsTableFromExcel(GenericTable):
 
 
         excel_hash = utils.local_cache.hash_file(tdoc_excel_path)
-        cached_data:utils.local_cache.CachedMeetingTdocData = utils.local_cache.retrieve_pickle_cache_for_file(
-            file_path=tdoc_excel_path,
-            file_prefix='TDocs_3GU',
-            file_hash=excel_hash
+        cached_data:utils.local_cache.CachedMeetingTdocData = utils.local_cache.CachedMeetingTdocData.get_cache(
+            tdoc_excel_path,
+            excel_hash=excel_hash
         )
 
         if cached_data is not None:
@@ -108,14 +107,13 @@ class TdocsTableFromExcel(GenericTable):
             self.wi_hyperlinks = parse_tdoc_3gu_list_for_wis(self.tdoc_excel_path)
             print(f'Found following WIs:\n{self.wi_hyperlinks}')
 
-            utils.local_cache.store_pickle_cache_for_file(
-                file_path=tdoc_excel_path,
-                file_prefix='TDocs_3GU',
-                file_hash=excel_hash,
-                data=utils.local_cache.CachedMeetingTdocData(
-                    tdocs_df=self.tdocs_df,
-                    wy_hyperlinks=self.wi_hyperlinks)
+            cache_data = utils.local_cache.CachedMeetingTdocData(
+                tdocs_df=self.tdocs_df,
+                wy_hyperlinks=self.wi_hyperlinks,
+                hash=excel_hash
             )
+
+            cache_data.store_cache(tdoc_excel_path)
         print(f'Imported meeting Tdocs for {meeting.meeting_name}: {self.tdocs_df.columns.values}')
 
         self.tdocs_df = self.tdocs_df.fillna(value='')
