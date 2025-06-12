@@ -87,19 +87,10 @@ class TdocsTableFromExcel(GenericTable):
         self.tdoc_excel_path = tdoc_excel_path
 
 
-        excel_hash = utils.caching.common.hash_file(tdoc_excel_path)
-        cached_data: utils.caching.cached_data.CachedMeetingTdocData = utils.caching.cached_data.CachedMeetingTdocData.get_cache(
+        cached_data: utils.caching.cached_data.CachedMeetingTdocData = utils.caching.cached_data.CachedMeetingTdocData.from_excel(
             tdoc_excel_path,
-            excel_hash=excel_hash
+            meeting=meeting
         )
-
-        # Create cache if it does not exist
-        if cached_data is None:
-            cached_data = utils.caching.cached_data.CachedMeetingTdocData.from_excel(
-                tdoc_excel_path=tdoc_excel_path,
-                meeting=meeting
-            )
-            cached_data.store_cache(tdoc_excel_path)
 
         self.tdocs_df = cached_data.tdocs_df
         self.wi_hyperlinks = cached_data.wi_hyperlinks
