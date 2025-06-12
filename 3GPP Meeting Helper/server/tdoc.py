@@ -5,13 +5,13 @@ import re
 import traceback
 from typing import List, Tuple
 
-import server.common
+import server.common.server_utils
 import tdoc.utils
 import tdoc.utils
 import utils.local_cache
 from application.zip_files import unzip_files_in_zip_file
-from server.common import get_remote_meeting_folder, get_inbox_root, ServerType, TdocType, DocumentType, \
-    get_document_or_folder_url
+from server.common.server_utils import get_remote_meeting_folder, get_inbox_root, get_document_or_folder_url
+from server.common.server_utils import ServerType, DocumentType, TdocType
 from server.connection import get_remote_file
 from utils.local_cache import get_cache_folder, get_local_revisions_filename, get_local_drafts_filename, \
     get_meeting_folder
@@ -56,7 +56,7 @@ def get_sa2_drafts_tdoc_list(meeting_folder):
 def get_tdoc(
         meeting_folder_name,
         tdoc_id,
-        server_type: server.common.ServerType = server.common.ServerType.PUBLIC
+        server_type: server.common.server_enums.ServerType = server.common.server_enums.ServerType.PUBLIC
 ):
     """
     Retrieves a TDoc
@@ -68,7 +68,7 @@ def get_tdoc(
     Returns:
 
     """
-    if server_type == server.common.ServerType.PRIVATE:
+    if server_type == server.common.server_enums.ServerType.PRIVATE:
         use_private_server = True
     else:
         use_private_server = False
@@ -124,7 +124,7 @@ def cache_tdocs(tdoc_list, download_from_private_server: bool, meeting_folder_na
             lambda tdoc_to_download_lambda: server.tdoc.get_tdoc(
                 meeting_folder_name=meeting_folder_name,
                 tdoc_id=tdoc_to_download_lambda,
-                server_type=server.common.ServerType.PRIVATE if download_from_private_server else server.common.ServerType.PUBLIC),
+                server_type=server.common.server_enums.ServerType.PRIVATE if download_from_private_server else server.common.server_enums.ServerType.PUBLIC),
             tdoc_to_download_lambda): tdoc_to_download_lambda for tdoc_to_download_lambda in tdoc_list}
         for future in concurrent.futures.as_completed(future_to_url):
             file_to_download = future_to_url[future]

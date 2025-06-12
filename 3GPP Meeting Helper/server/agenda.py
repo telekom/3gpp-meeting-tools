@@ -8,12 +8,13 @@ from urllib.parse import urljoin
 import application.meeting_helper
 import config.ai_names
 import parsing.word.docx
-import server.common
+import server.common.server_utils
 import tdoc.utils
 import utils.local_cache
 from application.zip_files import unzip_files_in_zip_file
 from parsing.html import common as html_parser
-from server.common import ServerType, get_document_or_folder_url, DocumentType
+from server.common.server_utils import get_document_or_folder_url
+from server.common.server_utils import ServerType, DocumentType
 from server.connection import get_remote_file
 from server.tdoc import agenda_docx_regex, agenda_draft_docx_regex, agenda_version_regex, agenda_regex
 from server.tdocs_by_agenda import get_tdocs_by_agenda_for_a_given_meeting
@@ -216,7 +217,7 @@ def get_agenda_files(
 
     for agenda_file in agenda_files:
         local_file = agenda_file[1]
-        server.common.download_file_to_location(
+        server.common.server_utils.download_file_to_location(
             url=agenda_file[0],
             local_location=local_file,
             cache=True)

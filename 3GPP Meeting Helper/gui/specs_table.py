@@ -17,7 +17,6 @@ from gui.common.icons import refresh_icon, folder_icon
 from parsing.html.specs import extract_spec_files_from_spec_folder, cleanup_spec_name
 from parsing.spec_types import get_spec_full_name, SpecType
 from server import specs
-from server.common import WiEntry
 from server.specs import file_version_to_version, version_to_file_version, download_spec_if_needed, \
     get_url_for_spec_page, get_spec_archive_remote_folder, get_specs_folder, get_url_for_crs_page, \
     get_spec_page, file_version_to_version_metadata

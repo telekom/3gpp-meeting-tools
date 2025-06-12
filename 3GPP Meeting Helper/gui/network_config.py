@@ -2,7 +2,7 @@ import tkinter
 from tkinter import ttk
 
 import config.networking
-import server.common
+import server.common.server_utils
 from urllib.parse import urlparse, quote_plus
 import traceback
 import gui.common.utils

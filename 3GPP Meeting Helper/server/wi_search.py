@@ -3,7 +3,7 @@ import re
 from typing import List
 
 from server import tdoc_search
-from server.common import download_file_to_location, WiEntry
+from server.common.server_utils import download_file_to_location, WiEntry
 from utils.local_cache import file_exists, convert_html_file_to_markup, \
     get_work_items_cache_folder
 

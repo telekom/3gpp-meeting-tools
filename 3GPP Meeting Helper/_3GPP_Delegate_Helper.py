@@ -10,7 +10,7 @@ import gui.meetings_table
 import gui.network_config
 import gui.specs_table
 import gui.work_items_table
-from server.common import apis_3gpp_forge_url
+from server.common.server_utils import apis_3gpp_forge_url
 
 if platform.system() == 'Windows':
     from application.word import close_word, get_active_document

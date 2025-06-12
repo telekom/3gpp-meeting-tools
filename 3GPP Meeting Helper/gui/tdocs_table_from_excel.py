@@ -16,7 +16,6 @@ from pypdf import PdfWriter
 from pypdf.generic import PAGE_FIT
 
 import server
-import utils.caching.cached_data
 import utils.caching.common
 import utils.local_cache
 from application.common import ActionAfter, ExportType
@@ -31,8 +30,10 @@ from gui.common.generic_table import GenericTable, treeview_set_row_formatting, 
 from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon, \
     filter_icon, note_icon, ftp_icon, markdown_icon, share_markdown_icon
-from server.common import WorkingGroup, get_document_or_folder_url, DocumentType, ServerType, get_tdoc_details_url, \
-    MeetingEntry, DownloadedTdocDocument
+from server.common.MeetingEntry import MeetingEntry
+from server.common.server_utils import get_document_or_folder_url, get_tdoc_details_url, \
+    DownloadedTdocDocument
+from server.common.server_utils import ServerType, DocumentType, WorkingGroup
 from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
 from tdoc.utils import are_generic_tdocs
 from utils.local_cache import create_folder_if_needed
@@ -87,11 +88,7 @@ class TdocsTableFromExcel(GenericTable):
         self.tdoc_excel_path = tdoc_excel_path
 
 
-        cached_data: utils.caching.cached_data.CachedMeetingTdocData = utils.caching.cached_data.CachedMeetingTdocData.from_excel(
-            tdoc_excel_path,
-            meeting=meeting
-        )
-
+        cached_data = meeting.tdoc_data_from_excel
         self.tdocs_df = cached_data.tdocs_df
         self.wi_hyperlinks = cached_data.wi_hyperlinks
 

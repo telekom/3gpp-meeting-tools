@@ -11,9 +11,10 @@ import tdoc.utils
 from application.os import startfile
 from application.zip_files import unzip_files_in_zip_file
 from config.meetings import MeetingConfig
-from server.common import (download_file_to_location, FileToDownload, batch_download_file_to_location, \
-                           meeting_pages_per_group,
-                           meeting_ftp_pages_per_group, MeetingEntry, DownloadedTdocDocument, DownloadedData)
+from server.common.MeetingEntry import MeetingEntry
+from server.common.server_utils import (download_file_to_location, FileToDownload, batch_download_file_to_location, \
+                                        meeting_pages_per_group,
+                                        meeting_ftp_pages_per_group, DownloadedTdocDocument, DownloadedData)
 from utils.local_cache import get_meeting_list_folder, convert_html_file_to_markup, file_exists
 
 # If more than this number of files are included in a zip file, the folder is opened instead.
