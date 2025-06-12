@@ -10,18 +10,18 @@ from tkinter import ttk
 from typing import List, Any, NamedTuple
 
 import numpy as np
-import pandas as pd
 import pyperclip
 from pandas import DataFrame
 from pypdf import PdfWriter
 from pypdf.generic import PAGE_FIT
 
 import server
+import utils.caching.cached_data
+import utils.caching.common
 import utils.local_cache
 from application.common import ActionAfter, ExportType
 from application.excel import open_excel_document, set_autofilter_values, export_columns_to_markdown, clear_autofilter, \
     export_columns_to_markdown_dataframe
-from application.excel_openpyxl import parse_tdoc_3gu_list_for_wis
 from application.meeting_helper import tdoc_tags, open_sa2_drafts_url
 from application.os import open_url, startfile
 from application.word import export_document
@@ -87,33 +87,23 @@ class TdocsTableFromExcel(GenericTable):
         self.tdoc_excel_path = tdoc_excel_path
 
 
-        excel_hash = utils.local_cache.hash_file(tdoc_excel_path)
-        cached_data:utils.local_cache.CachedMeetingTdocData = utils.local_cache.CachedMeetingTdocData.get_cache(
+        excel_hash = utils.caching.common.hash_file(tdoc_excel_path)
+        cached_data: utils.caching.cached_data.CachedMeetingTdocData = utils.caching.cached_data.CachedMeetingTdocData.get_cache(
             tdoc_excel_path,
             excel_hash=excel_hash
         )
 
-        if cached_data is not None:
-            print(f'Loaded TDocs from cache with hash {excel_hash}')
-            self.tdocs_df: DataFrame = cached_data.tdocs_df
-            self.wi_hyperlinks:dict[str,str] = cached_data.wy_hyperlinks
-        else:
-            print(f'Parsing TDoc Excel and caching file data with hash {excel_hash}')
-            # Load and cleanup DataFrame
-            self.tdocs_df: DataFrame = pd.read_excel(
-                io=self.tdoc_excel_path,
-                index_col=0)
-
-            self.wi_hyperlinks = parse_tdoc_3gu_list_for_wis(self.tdoc_excel_path)
-            print(f'Found following WIs:\n{self.wi_hyperlinks}')
-
-            cache_data = utils.local_cache.CachedMeetingTdocData(
-                tdocs_df=self.tdocs_df,
-                wy_hyperlinks=self.wi_hyperlinks,
-                hash=excel_hash
+        # Create cache if it does not exist
+        if cached_data is None:
+            cached_data = utils.caching.cached_data.CachedMeetingTdocData.from_excel(
+                tdoc_excel_path=tdoc_excel_path,
+                meeting=meeting
             )
+            cached_data.store_cache(tdoc_excel_path)
 
-            cache_data.store_cache(tdoc_excel_path)
+        self.tdocs_df = cached_data.tdocs_df
+        self.wi_hyperlinks = cached_data.wi_hyperlinks
+
         print(f'Imported meeting Tdocs for {meeting.meeting_name}: {self.tdocs_df.columns.values}')
 
         self.tdocs_df = self.tdocs_df.fillna(value='')
