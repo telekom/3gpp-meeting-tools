@@ -5,7 +5,7 @@ import tkinter
 import traceback
 import webbrowser
 from tkinter import ttk
-from typing import Callable, Tuple, Any
+from typing import Callable
 
 import pandas as pd
 import pyperclip
@@ -27,7 +27,7 @@ from parsing.html.revisions import revisions_file_to_dataframe
 from parsing.html.tdocs_by_agenda import TdocsByAgendaData
 from parsing.outlook_utils import search_subject_in_all_outlook_items
 from parsing.word.pywin32 import parse_list_of_crs
-from server.common import DownloadedData
+from server.common.server_utils import DownloadedData
 
 
 class TdocsTable(GenericTable):

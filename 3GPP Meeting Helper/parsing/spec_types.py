@@ -2,7 +2,7 @@ from enum import Enum
 from typing import NamedTuple
 from typing import List
 
-from server.common import WiEntry
+from server.common.server_utils import WiEntry
 
 
 class SpecType(Enum):

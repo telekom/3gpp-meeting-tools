@@ -1,5 +1,5 @@
 import unittest
-import server.common as server
+import server.common.server_utils as server
 
 
 class Test_test_addresses(unittest.TestCase):

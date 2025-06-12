@@ -24,7 +24,7 @@ import parsing.html.common as html_parser
 import parsing.html.tdocs_by_agenda
 import parsing.word.pywin32
 import server.agenda
-import server.common
+import server.common.server_utils
 import server.network
 import server.tdoc
 import server.tdoc_search
@@ -140,7 +140,7 @@ def open_server_meeting_folder(*args):
     meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(
         selected_meeting)
     if meeting_folder is not None:
-        remote_folder = server.common.get_remote_meeting_folder(meeting_folder)
+        remote_folder = server.common.server_utils.get_remote_meeting_folder(meeting_folder)
         startfile(remote_folder)
 
 
@@ -195,7 +195,7 @@ def load_application_data(reload_inbox_tdocs_by_agenda=False):
         inbox_tdoc_list_html)
 
     # Load SA2 meeting data
-    sa2_meeting_list_from_server_html = server.common.get_sa2_folder(force_redownload=reload_inbox_tdocs_by_agenda)
+    sa2_meeting_list_from_server_html = server.common.server_utils.get_sa2_folder(force_redownload=reload_inbox_tdocs_by_agenda)
     application.meeting_helper.sa2_meeting_data = html_parser.parse_3gpp_meeting_list_object(
         sa2_meeting_list_from_server_html,
         ordered=True,
@@ -371,7 +371,7 @@ def download_and_open_tdoc(
 
         # Open 3GU details page for TDoc
         if open_tdoc_details_for_global_search:
-            url_to_open = server.common.get_tdoc_details_url(tdoc_id)
+            url_to_open = server.common.server_utils.get_tdoc_details_url(tdoc_id)
             open_url(url_to_open)
 
         return retrieved_files_folder
@@ -386,7 +386,7 @@ def download_and_open_tdoc(
     retrieved_files_folder, tdoc_url = server.tdoc.get_tdoc(
         meeting_folder_name=meeting_folder_name,
         tdoc_id=tdoc_id,
-        server_type=server.common.ServerType.PRIVATE if using_private_server else server.common.ServerType.PUBLIC
+        server_type=server.common.server_enums.ServerType.PRIVATE if using_private_server else server.common.server_enums.ServerType.PUBLIC
     )
 
     if cached_tdocs_list is not None and isinstance(cached_tdocs_list, list):
@@ -834,7 +834,7 @@ def start_main_gui():
             private_server = tkvar_3gpp_wifi_available.get()
             server.agenda.get_agenda_files(
                 meeting_folder,
-                server_type=server.common.ServerType.PRIVATE if private_server else server.common.ServerType.PUBLIC)
+                server_type=server.common.server_enums.ServerType.PRIVATE if private_server else server.common.server_enums.ServerType.PUBLIC)
             last_agenda_info = server.agenda.get_last_agenda(meeting_folder)
             if last_agenda_info is not None:
                 # Starting with SA2#161, there is also a Session Plan (separated from the agenda)

@@ -9,7 +9,8 @@ import pandas as pd
 
 import gui.main_gui
 import parsing.excel as excel_parser
-import server.common
+import server.common.server_utils
+import server.common.server_utils.enums
 import server.tdoc
 import tdoc.utils
 import utils.local_cache
@@ -43,7 +44,7 @@ def get_attachment_data(text):
 def organize_email_approval_attachments(meeting_name, ai_folders):
     tmp_folder = utils.local_cache.get_tmp_folder()
     local_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting_name)
-    download_from_inbox = server.common.we_are_in_meeting_network()
+    download_from_inbox = server.common.server_utils.we_are_in_meeting_network()
     found_emails_with_chairmans_notes = []
     email_list = []
     checked_tdocs = set()
@@ -97,8 +98,8 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                 server.tdoc.get_tdoc(
                     local_meeting_folder,
                     tdoc_id,
-                    server_type=server.common.ServerType.PRIVATE if
-                    download_from_inbox else server.common.ServerType.PUBLIC)
+                    server_type=server.common.server_enums.ServerType.PRIVATE if
+                    download_from_inbox else server.common.server_enums.ServerType.PUBLIC)
                 checked_tdocs.add(tdoc_id)
             else:
                 # Avoid repeated calls to get_tdoc()
@@ -222,7 +223,7 @@ def organize_email_approval_attachments(meeting_name, ai_folders):
                             attachment_local_filename = os.path.join(local_folder_for_tdoc, filename_for_file)
                             print('  TDOC {0}, {1}'.format(tdoc_id, filename_for_file))
                             if not os.path.isfile(attachment_local_filename):
-                                server.common.download_file_to_location(attachment_data.url, attachment_local_filename)
+                                server.common.server_utils.download_file_to_location(attachment_data.url, attachment_local_filename)
                             found_emails_with_chairmans_notes.append(
                                 RevisionDoc(date_str_excel, tdoc_id, attachment_data.filename,
                                             attachment_local_filename, sender_name, sender_address,
@@ -440,7 +441,7 @@ def process_email_attachments():
                 attachment_local_filename = os.path.join(tmp_folder, filename_for_file)
                 print('  {0}'.format(filename_for_file))
                 if not os.path.isfile(attachment_local_filename):
-                    server.common.download_file_to_location(attachment_data.url, attachment_local_filename)
+                    server.common.server_utils.download_file_to_location(attachment_data.url, attachment_local_filename)
                 email_attachment_files_to_add.append(attachment_local_filename)
 
             # Mark this attachment for deletion

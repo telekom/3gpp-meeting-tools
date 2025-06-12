@@ -3,7 +3,7 @@ import tkinter
 import application.meeting_helper
 import application.tkinter_config
 import parsing.html
-import server.common
+import server.common.server_utils
 import utils.local_cache
 import gui.common.common_elements
 
@@ -24,7 +24,7 @@ def detect_3gpp_network_state(
     # some labels accordingly
 
     previous_state = gui.common.common_elements.tkvar_3gpp_wifi_available.get()
-    new_state = server.common.we_are_in_meeting_network()
+    new_state = server.common.server_utils.we_are_in_meeting_network()
     if new_state:
         gui.common.common_elements.tkvar_3gpp_wifi_available.set(True)
     else:
@@ -38,14 +38,14 @@ def detect_3gpp_network_state(
         if (application.tkinter_config.main_frame is not None and
                 (gui.common.common_elements.tk_combobox_meetings is not None)):
             cache_tdocsbyagenda_path = utils.local_cache.get_private_server_tdocs_by_agenda_local_cache()
-            tdocsbyagenda_url = server.common.tdocs_by_agenda_for_checking_meeting_number_in_meeting
+            tdocsbyagenda_url = server.common.server_utils.tdocs_by_agenda_for_checking_meeting_number_in_meeting
             if new_state:
                 # Jumping from normal network to 3GPP Wi-fi
                 # Download from 10.10.10.10 TdocsByAgenda and check meeting number
                 # Then freeze the meeting choice to the one found
 
                 meeting_text = None
-                if server.common.download_file_to_location(tdocsbyagenda_url, cache_tdocsbyagenda_path):
+                if server.common.server_utils.download_file_to_location(tdocsbyagenda_url, cache_tdocsbyagenda_path):
                     if utils.local_cache.file_exists(cache_tdocsbyagenda_path):
                         with open(cache_tdocsbyagenda_path, "r") as f:
                             cache_tdocsbyagenda_html_str = f.read()

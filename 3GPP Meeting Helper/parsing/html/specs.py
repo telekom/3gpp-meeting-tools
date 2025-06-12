@@ -4,7 +4,7 @@ import re
 from typing import List
 
 from parsing.spec_types import SpecType, SpecReleases, SpecSeries, SpecFile, SpecVersionMapping
-from server.common import WiEntry
+from server.common.server_utils import WiEntry
 
 
 def extract_releases_from_latest_folder(latest_specs_page_text: str, base_url: str) -> List[SpecReleases]:

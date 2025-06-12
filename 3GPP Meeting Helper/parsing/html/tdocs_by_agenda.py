@@ -13,7 +13,7 @@ from parsing.html.common import get_cache_filepath, current_cache_version, comme
     sort_and_remove_duplicates_from_list
 from parsing.html.common_tools import parse_tdoc_comments
 from parsing.html.tdocs_by_agenda_v3 import parse_tdocs_by_agenda_v3
-from server.common import decode_string
+from server.common.server_utils import decode_string
 from tdoc.utils import title_cr_regex
 
 

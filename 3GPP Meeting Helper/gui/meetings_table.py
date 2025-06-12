@@ -17,7 +17,8 @@ from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import refresh_icon, search_icon, compare_icon
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
-from server.common import download_file_to_location, MeetingEntry
+from server.common.MeetingEntry import MeetingEntry
+from server.common.server_utils import download_file_to_location
 from server.tdoc_search import search_meeting_for_tdoc, compare_two_tdocs
 from tdoc.utils import is_generic_tdoc
 
@@ -320,30 +321,32 @@ class MeetingsTable(GenericTable):
             actual_value = None
 
         meeting_name = item_values[0]
-        meeting = [m for m in self.loaded_meeting_entries if m.meeting_name == meeting_name]
+        meeting_list = [m for m in self.loaded_meeting_entries if m.meeting_name == meeting_name]
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
         try:
-            print(f"Selected meeting: {meeting[0].meeting_number} ({meeting[0].meeting_name}), URL: {meeting[0].meeting_folder_url}")
+            meeting:MeetingEntry = meeting_list[0]
+            print(f"Selected meeting: {meeting.meeting_number} ({meeting.meeting_name}), URL: {meeting.meeting_folder_url}")
         except Exception as e:
             print(f"Could not retrieve meeting for {meeting_name}, {e}")
+            return
 
         if actual_value is None or actual_value == '':
             print("Empty value")
             return
 
-        local_path = meeting[0].tdoc_excel_local_path
+        local_path = meeting.tdoc_excel_local_path
 
         if column == 0: # Meeting
             print(f'Clicked on meeting {meeting_name}')
-            url_to_open = meeting[0].meeting_url_3gu
+            url_to_open = meeting.meeting_url_3gu
             open_url(url_to_open)
 
         if column == 1: # Location
             print(f'Clicked on meeting {meeting_name} location')
-            url_to_open = meeting[0].meeting_calendar_ics_url
+            url_to_open = meeting.meeting_calendar_ics_url
             # Using generic folder because meeting folder may not yet exist
             download_folder = utils.local_cache.get_meeting_list_folder()
-            local_path = os.path.join(download_folder, f'{meeting[0].meeting_name}.ics')
+            local_path = os.path.join(download_folder, f'{meeting.meeting_name}.ics')
             download_file_to_location(url_to_open, local_path, force_download=True)
             if utils.local_cache.file_exists(local_path):
                 startfile(local_path)
@@ -353,24 +356,24 @@ class MeetingsTable(GenericTable):
 
         if column == 2: # Start
             print(f'Clicked on start date for meeting {meeting_name}')
-            url_to_open = meeting[0].meeting_url_invitation
+            url_to_open = meeting.meeting_url_invitation
             open_url(url_to_open)
 
         if column == 3: # End
             print(f'Clicked on end date for meeting {meeting_name}')
-            url_to_open = meeting[0].meeting_url_report
+            url_to_open = meeting.meeting_url_report
             open_url(url_to_open)
 
         if (column == 6 or column == 7) and actual_value != '-': # TDocs Excel
             print(f'Clicked TDoc Excel link for meeting {meeting_name}')
-            file_already_exists = meeting[0].tdoc_excel_exists_in_local_folder
+            file_already_exists = meeting.tdoc_excel_exists_in_local_folder
             if file_already_exists is None:
                 print(f'Meeting folder name not yet known. Cannot save local file')
                 return
 
             downloaded = False
             if not file_already_exists or self.redownload_tdoc_excel_if_exists_var.get():
-                url_to_open = meeting[0].meeting_tdoc_list_excel_url
+                url_to_open = meeting.meeting_tdoc_list_excel_url
                 download_file_to_location(url_to_open, local_path, force_download=True)
                 downloaded = True
             if not downloaded:
@@ -386,7 +389,7 @@ class MeetingsTable(GenericTable):
                 TdocsTableFromExcel(
                     favicon=self.favicon,
                     parent_widget=self.tk_top,
-                    meeting=meeting[0],
+                    meeting=meeting,
                     root_widget=self.root_widget,
                     tdoc_excel_path=local_path)
 

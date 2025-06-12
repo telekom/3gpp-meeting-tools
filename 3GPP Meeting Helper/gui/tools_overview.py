@@ -27,7 +27,7 @@ import parsing.word.pywin32
 import parsing.word.pywin32 as word_parser
 import server.agenda
 import server.chairnotes
-import server.common
+import server.common.server_utils
 import server.tdoc
 import utils.local_cache
 from gui.common.tkinter_widget import TkWidget

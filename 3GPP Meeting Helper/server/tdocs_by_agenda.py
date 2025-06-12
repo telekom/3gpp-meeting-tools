@@ -4,7 +4,8 @@ import server.connection
 import server.tdoc
 import utils.local_cache
 from application.os import startfile
-from server.common import get_inbox_root, get_document_or_folder_url, ServerType, DocumentType
+from server.common.server_utils import get_inbox_root, get_document_or_folder_url
+from server.common.server_utils import ServerType, DocumentType
 from server.connection import get_remote_file
 from server.tdoc import get_inbox_tdocs_list_cache_local_cache
 

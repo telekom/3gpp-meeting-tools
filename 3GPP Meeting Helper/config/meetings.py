@@ -1,5 +1,6 @@
 from datetime import datetime
-from server.common import MeetingEntry
+
+from server.common.MeetingEntry import MeetingEntry
 from tdoc.utils import GenericTdoc
 
 
