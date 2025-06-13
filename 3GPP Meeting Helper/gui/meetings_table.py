@@ -162,7 +162,7 @@ class MeetingsTable(GenericTable):
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         TTKHoverHelpButton(
             self.top_frame,
-            help_text='(Re-)load meeting data',
+            help_text='(Re-)load meeting list from 3GPP server',
             command=self.load_meetings,
             image=refresh_icon
         ).pack(side=tkinter.LEFT)
