@@ -10,7 +10,7 @@ from pandas import DataFrame
 
 import tdoc.utils
 from application.excel_openpyxl import parse_tdoc_3gu_list_for_wis
-from server.common.server_utils import ServerType, DocumentType, TdocType, WorkingGroup
+from server.common.server_utils import ServerType, DocumentType, TdocType, WorkingGroup, host_public_server
 from server.common.server_utils import meeting_id_regex, get_document_or_folder_url, host_private_server
 from utils.caching.common import hash_file, retrieve_pickle_cache_for_file, store_pickle_cache_for_file
 from utils.local_cache import file_exists
@@ -220,7 +220,7 @@ class MeetingEntry:
 
     @cached_property
     def sync_server_url(self):
-        return f'{host_private_server}/{self.working_group_enum.get_wg_folder_name(ServerType.SYNC)}'
+        return f'{host_public_server}/{self.working_group_enum.get_wg_folder_name(ServerType.SYNC)}'
 
     def get_tdoc_local_path(self, tdoc_str: str) -> str | None:
         """

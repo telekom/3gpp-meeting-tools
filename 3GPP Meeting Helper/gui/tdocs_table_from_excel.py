@@ -349,10 +349,13 @@ class TdocsTableFromExcel(GenericTable):
         def open_meeting_url():
             if self.meeting.meeting_is_now and tkvar_3gpp_wifi_available.get():
                 ftp_folder_to_open = self.meeting.local_server_url
+                print(f'Opening local WiFi FTP server page: {ftp_folder_to_open}')
             elif self.meeting.meeting_is_now:
                 ftp_folder_to_open = self.meeting.sync_server_url
+                print(f'Opening FTP SYNC server page: {ftp_folder_to_open}')
             else:
                 ftp_folder_to_open = self.meeting.meeting_folder_url
+                print(f'Opening FTP server page: {ftp_folder_to_open}')
             open_url(ftp_folder_to_open)
 
         self.open_meeting_ftp_btn = TTKHoverHelpButton(
