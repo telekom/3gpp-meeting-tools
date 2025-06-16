@@ -9,7 +9,7 @@ import gui.common.utils
 import gui.meetings_table
 import gui.network_config
 import gui.specs_table
-import gui.work_items_table
+import gui.work_items_table_v2
 from server.common.server_utils import apis_3gpp_forge_url
 
 if platform.system() == 'Windows':
@@ -95,7 +95,10 @@ launch_spec_table = ttk.Button(
     main_frame,
     width=button_width,
     text='3GPP WIs',
-    command=lambda: gui.work_items_table.WorkItemsTable(tk_root, gui.common.utils.favicon, root_widget=None))
+    command=lambda: gui.work_items_table_v2.WorkItemsTable(
+        parent_widget=tk_root,
+        favicon=gui.common.utils.favicon,
+        root_widget=None))
 launch_spec_table.grid(
     row=1,
     column=1)
