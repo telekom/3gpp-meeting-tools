@@ -7,6 +7,7 @@ from typing import NamedTuple, List
 import application.outlook
 import config.cache as local_cache_config
 from config.markdown import MarkdownConfig
+from config.meetings import MeetingConfig
 from config.word import WordConfig
 
 import config.networking
@@ -196,6 +197,13 @@ try:
     print(f"Imported configuration for Markdown export of contributions for {MarkdownConfig.company_name_regex_for_report}: {MarkdownConfig.columns_for_3gu_tdoc_export_cr}")
 except Exception as e:
     print(f'No CR Markdown configuration to load {e}')
+
+try:
+    meeting_list_group_filter = config_parser['MEETINGS']['MeetingGroupFilter']
+    MeetingConfig.meeting_list_group_filter = meeting_list_group_filter
+    print(f"Imported configuration for initial filter of meeting list: {MeetingConfig.meeting_list_group_filter}")
+except Exception as e:
+    print(f'No meeting config filter configuration found: {e}')
 
 print('Loaded configuration file')
 
