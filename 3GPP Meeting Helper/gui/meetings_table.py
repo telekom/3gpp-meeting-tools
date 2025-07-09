@@ -1,8 +1,9 @@
+import datetime
 import os.path
 import platform
 import tkinter
 from tkinter import ttk
-from typing import List
+from typing import List, Final
 
 import pyperclip
 
@@ -78,7 +79,8 @@ class MeetingsTable(GenericTable):
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
 
         # Filter by year (starting date)
-        all_years = ['All Years']
+        all_years_str: Final[str] = 'All Years'
+        all_years = [all_years_str]
         meeting_years = tdoc_search.get_meeting_years()
         all_years.extend(meeting_years)
 
@@ -87,7 +89,13 @@ class MeetingsTable(GenericTable):
             values=all_years,
             state="readonly",
             width=10)
-        self.combo_years.set('All Years')
+        current_year = datetime.datetime.now().year
+        if current_year in all_years:
+            print(f'Set year filter to current year "{current_year}"')
+            self.combo_years.set(current_year)
+        else:
+            print(f'Year "{current_year}" not in {all_years}. Using "{all_years_str}"')
+            self.combo_years.set(all_years_str)
         self.combo_years.bind("<<ComboboxSelected>>", self.select_rows)
         self.combo_years.pack(side=tkinter.LEFT)
 
