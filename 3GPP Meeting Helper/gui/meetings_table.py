@@ -12,6 +12,7 @@ import server
 import utils.local_cache
 from application.excel import open_excel_document
 from application.os import open_url, startfile
+from config.meetings import MeetingConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.common.gui_elements import TTKHoverHelpButton
@@ -62,7 +63,8 @@ class MeetingsTable(GenericTable):
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
         # Filter by group (only filter we have in this view)
-        all_groups = ['All Groups']
+        all_groups_str:Final[str] = 'All Groups'
+        all_groups = [all_groups_str]
         meeting_groups_from_3gpp_server = tdoc_search.get_meeting_groups()
         meeting_groups_from_3gpp_server.append('S3-LI')
         all_groups.extend(meeting_groups_from_3gpp_server)
@@ -73,7 +75,12 @@ class MeetingsTable(GenericTable):
             values=all_groups,
             state="readonly",
             width=10)
-        self.combo_groups.set('All Groups')
+        if MeetingConfig.meeting_list_group_filter is not None and MeetingConfig.meeting_list_group_filter in all_groups:
+            print(f'Setting group filter to "{MeetingConfig.meeting_list_group_filter}"')
+            self.combo_groups.set(MeetingConfig.meeting_list_group_filter)
+        else:
+            print(f'Setting group filter to "{all_groups_str}"')
+            self.combo_groups.set(all_groups_str)
         self.combo_groups.bind("<<ComboboxSelected>>", self.select_rows)
         self.combo_groups.pack(side=tkinter.LEFT)
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)

@@ -3,8 +3,10 @@ from datetime import datetime
 from server.common.MeetingEntry import MeetingEntry
 from tdoc.utils import GenericTdoc
 
-
 class MeetingConfig:
+    # Whether you want to pre-filter a specific group in the meetings GUI
+    meeting_list_group_filter: str | None = None
+
     # Meetings not pertaining to a specific WG
     additional_meetings = [
         MeetingEntry(
