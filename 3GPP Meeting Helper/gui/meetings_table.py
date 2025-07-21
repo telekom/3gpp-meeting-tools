@@ -6,9 +6,11 @@ from tkinter import ttk
 from typing import List, Final
 
 import pandas
+import pandas as pd
 import pyperclip
 from pandas.core.interchange.dataframe_protocol import DataFrame
 
+import application.excel
 import gui.common.utils
 import server
 import utils.local_cache
@@ -348,14 +350,20 @@ class MeetingsTable(GenericTable):
         groups_set_str = ', '.join(groups_set)
         print(f'Merging TDoc list from {len(self.current_meeting_list)} meetings from groups: {groups_set_str}')
 
-        def apply_meeting_data_to_df(group_name: str, meeting_name: str, df_in: DataFrame)->DataFrame:
+        def apply_meeting_data_to_df(group_name: str, meeting_name: str, start_date:datetime, df_in: DataFrame)->DataFrame:
             df_out = df_in.copy()
             df_out['WG'] = group_name
             df_out['Meeting'] = meeting_name
+            df_out['Start date'] = start_date
+            df_out['Start date'] = pd.to_datetime(df_out['Start date']).dt.date
             return df_out
 
         merged_df = pandas.concat(
-            [apply_meeting_data_to_df(e.meeting_group, e.meeting_name, e.tdoc_data_from_excel.tdocs_df) for e in
+            [apply_meeting_data_to_df(
+                e.meeting_group,
+                e.meeting_name,
+                e.start_date,
+                e.tdoc_data_from_excel.tdocs_df) for e in
                        self.current_meeting_list if e.tdoc_data_from_excel is not None],
             axis=0, join='outer',
             ignore_index=False, keys=None, levels=None, names=None, verify_integrity=False, copy=True)
@@ -368,8 +376,31 @@ class MeetingsTable(GenericTable):
         merged_df.to_excel(
             excel_export,
             freeze_panes=(1, 1))
+        wb = application.excel.open_excel_document(excel_export)
+        application.excel.set_first_row_as_filter(wb)
+        application.excel.set_column_width('A', wb, 10) # TDoc
+        application.excel.set_column_width('B', wb, 36)  # Title
+        application.excel.hide_column('D', wb)  # Contact
+        application.excel.hide_column('E', wb) # Contact ID
+        application.excel.hide_column('G', wb) # For
+        application.excel.hide_column('J', wb)  # Agenda item sort order
+        application.excel.set_column_width('H', wb, 30)  # Abstract
+        application.excel.set_column_width('I', wb, 17)  # Secreatry Remarks
+        application.excel.set_column_width('L', wb, 24)  # Agenda item description
+        application.excel.hide_column('M', wb) # TDoc sort order within agenda item
+        application.excel.set_column_width('N', wb, 20)  # TDoc Status
+        application.excel.hide_column('O', wb)  # Reservation date
+        application.excel.hide_column('P', wb)  # Uploaded
+        application.excel.set_column_width('Q', wb, 13.5)  # Is revision of
+        application.excel.set_column_width('V', wb, 16)  # Related WIs
+        application.excel.set_column_width('R', wb, 13.5)  # Revised to
+        application.excel.set_column_width('AL', wb, 12.5)  # Meeting
+        application.excel.set_column_width('AM', wb, 10)  # Meeting
+        application.excel.set_wrap_text(wb)
+        application.excel.vertically_center_all_text(wb)
+        application.excel.apply_tdoc_status_conditional_formatting_formula('N', wb)
         print(f'Exported TDocs to {excel_export}')
-        os.startfile(excel_export)
+        # os.startfile(excel_export)
 
     def apply_filters(self, tdoc_override=False):
         self.tree.delete(*self.tree.get_children())
