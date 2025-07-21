@@ -350,12 +350,25 @@ class MeetingsTable(GenericTable):
         groups_set_str = ', '.join(groups_set)
         print(f'Merging TDoc list from {len(self.current_meeting_list)} meetings from groups: {groups_set_str}')
 
-        def apply_meeting_data_to_df(group_name: str, meeting_name: str, start_date:datetime, df_in: DataFrame)->DataFrame:
+        def apply_meeting_data_to_df(
+                group_name: str,
+                meeting_name: str,
+                start_date:datetime,
+                docs_folder:str,
+                df_in: DataFrame)->DataFrame:
             df_out = df_in.copy()
             df_out['WG'] = group_name
             df_out['Meeting'] = meeting_name
             df_out['Start date'] = start_date
             df_out['Start date'] = pd.to_datetime(df_out['Start date']).dt.date
+
+            def generate_cell_hyperlink(cell_value, cell_tdoc_idx):
+                return f'=HYPERLINK("{cell_value}{cell_tdoc_idx}.zip","{cell_tdoc_idx}")'
+
+            df_out['Hyperlink'] = docs_folder
+            df_out['Hyperlink'] = df_out.apply(lambda row: generate_cell_hyperlink(row['Hyperlink'], row.name), axis=1)
+            df_out = df_out.set_index(['Hyperlink'])
+            df_out.index.names = ['TDoc']
             return df_out
 
         merged_df = pandas.concat(
@@ -363,6 +376,7 @@ class MeetingsTable(GenericTable):
                 e.meeting_group,
                 e.meeting_name,
                 e.start_date,
+                e.meeting_url_docs,
                 e.tdoc_data_from_excel.tdocs_df) for e in
                        self.current_meeting_list if e.tdoc_data_from_excel is not None],
             axis=0, join='outer',
