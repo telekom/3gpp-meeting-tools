@@ -1,6 +1,6 @@
 import platform
 import traceback
-from typing import List
+from typing import List, NamedTuple
 import pandas as pd
 import pyperclip
 from pandas import DataFrame
@@ -235,8 +235,11 @@ def save_wb(wb):
         print(f'{e}')
         traceback.print_exc()
 
+def get_range_from_column_letter(ws, column_letter):
+    return ws.Range(column_letter + ":" + column_letter)
 
-def set_column_width(column_letter: str, wb, width: int):
+
+def set_column_width(column_letter: str, wb, width: int|float):
     """
     Sets the width of a column in the active WorkSheet
     Args:
@@ -249,8 +252,59 @@ def set_column_width(column_letter: str, wb, width: int):
     column_letter = column_letter.upper()
     wb.Activate()
     ws = wb.ActiveSheet
-    ws.Range(column_letter + ":" + column_letter).ColumnWidth = width
+    get_range_from_column_letter(ws, column_letter).ColumnWidth = width
 
+class FormatColor(NamedTuple):
+    font_color:int
+    background_color:int
+
+noted_color = FormatColor(font_color=0x000000, background_color=0xDBA98E)
+approved_color = FormatColor(font_color=0xFFFFFF, background_color=0x50B000)
+agreed_color = FormatColor(font_color=0x000000, background_color=0x50D092)
+withdrawn_color = FormatColor(font_color=0x06009C, background_color=0xCEC7FF)
+rejected_color = FormatColor(font_color=0xFFFFFF, background_color=0x0000FF)
+
+tdoc_status_formats = {
+    'approved': approved_color,
+    'agreed': agreed_color,
+    'postponed': noted_color,
+    'reissued': noted_color,
+    'technically endorsed': noted_color,
+    'partially approved': noted_color,
+    'treated': noted_color,
+    'noted': noted_color,
+    'merged': noted_color,
+    'revised': noted_color,
+    'withdrawn': withdrawn_color,
+    'rejected': rejected_color,
+}
+
+def apply_tdoc_status_conditional_formatting_formula(column_letter: str, wb):
+    """
+    Highlights rows where the value in column B is "Completed" with a light green fill.
+    """
+    if wb is None:
+        return
+    column_letter = column_letter.upper()
+    wb.Activate()
+    ws = wb.ActiveSheet
+    rng = get_range_from_column_letter(ws, column_letter)
+
+    # Clear existing conditional formatting
+    # rng.FormatConditions.Clear()
+
+    for k, v in tdoc_status_formats.items():
+        # Add a new conditional formatting rule based on a formula
+        # See https://learn.microsoft.com/en-us/dotnet/api/microsoft.office.interop.excel.formatcondition
+        cf = rng.FormatConditions.Add(
+            Type=1,
+            # xlCellValue, https://learn.microsoft.com/en-us/dotnet/api/microsoft.office.interop.excel.xlformatconditiontype
+            Operator=3,
+            # xlEqual, https://learn.microsoft.com/en-us/dotnet/api/microsoft.office.interop.excel.xlformatconditionoperator
+            Formula1=k
+        )
+        cf.Font.Color = v[0]
+        cf.Interior.Color = v[1]
 
 def hide_column(column_letter: str, wb):
     """
