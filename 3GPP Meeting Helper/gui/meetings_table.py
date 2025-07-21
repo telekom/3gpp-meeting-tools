@@ -5,7 +5,9 @@ import tkinter
 from tkinter import ttk
 from typing import List, Final
 
+import pandas
 import pyperclip
+from pandas.core.interchange.dataframe_protocol import DataFrame
 
 import gui.common.utils
 import server
@@ -16,7 +18,7 @@ from config.meetings import MeetingConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.common.gui_elements import TTKHoverHelpButton
-from gui.common.icons import refresh_icon, search_icon, compare_icon
+from gui.common.icons import refresh_icon, search_icon, compare_icon, table_icon
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
 from server.common.MeetingEntry import MeetingEntry
@@ -36,13 +38,15 @@ class MeetingsTable(GenericTable):
             parent_widget=parent_widget,
             widget_title="Meetings Table. Double-click: location for ICS, start date for invitation, end date for report",
             favicon=favicon,
-            column_names=['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'TDocs Excel', 'TDocs Table'],
+            column_names=['Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'TDocs Excel',
+                          'TDocs Table'],
             row_height=35,
             display_rows=14,
             root_widget=root_widget
         )
         self.loaded_meeting_entries: List[MeetingEntry] | None = None
         self.chosen_meeting: MeetingEntry | None = None
+        self.current_meeting_list: List[MeetingEntry] = []
         self.root_widget = root_widget
 
         # Start by loading data
@@ -63,7 +67,7 @@ class MeetingsTable(GenericTable):
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
         # Filter by group (only filter we have in this view)
-        all_groups_str:Final[str] = 'All Groups'
+        all_groups_str: Final[str] = 'All Groups'
         all_groups = [all_groups_str]
         meeting_groups_from_3gpp_server = tdoc_search.get_meeting_groups()
         meeting_groups_from_3gpp_server.append('S3-LI')
@@ -186,6 +190,15 @@ class MeetingsTable(GenericTable):
         self.redownload_tdoc_excel_if_exists.pack(side=tkinter.LEFT)
         ttk.Label(self.top_frame, text="Re-DL TDoc list").pack(side=tkinter.LEFT)
 
+        # Merge TDoc lists
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+        TTKHoverHelpButton(
+            self.top_frame,
+            help_text='Show list of all TDocs in shown meetings',
+            command=self.load_data_for_several_meetings,
+            image=table_icon
+        ).pack(side=tkinter.LEFT)
+
         # Main frame
         self.insert_rows()
 
@@ -217,15 +230,20 @@ class MeetingsTable(GenericTable):
             self.loaded_meeting_entries = tdoc_search.loaded_meeting_entries
         print('Finished loading meetings')
 
-    def insert_rows(self, tdoc_override=False):
-        print('Populating meetings table')
+    def meeting_list_to_consider(self, tdoc_override=False) -> List[MeetingEntry]:
+        try:
+            if self.chosen_meeting is None:
+                if self.loaded_meeting_entries is None:
+                    meeting_list_to_consider = []
+                else:
+                    meeting_list_to_consider = self.loaded_meeting_entries
+            else:
+                meeting_list_to_consider = [self.chosen_meeting]
+        except Exception as e:
+            print(f'Could not retrieve current meeting list: {e}')
+            meeting_list_to_consider = []
 
-        if self.chosen_meeting is None:
-            meeting_list_to_consider = self.loaded_meeting_entries
-        else:
-            meeting_list_to_consider = [self.chosen_meeting]
-
-        def meeting_matches_filter(m:MeetingEntry)->bool:
+        def meeting_matches_filter(m: MeetingEntry) -> bool:
             filter_match = True
 
             # If filtering by "now"
@@ -253,10 +271,15 @@ class MeetingsTable(GenericTable):
 
         # Sort list by date
         meeting_list_to_consider.sort(reverse=True, key=lambda m: (m.start_date, m.meeting_group))
+        return meeting_list_to_consider
+
+    def insert_rows(self, tdoc_override=False):
+        print('Populating meetings table')
 
         count = 0
         previous_row: None | MeetingEntry = None
-        for idx, meeting in enumerate(meeting_list_to_consider):
+        meetings_to_list = self.meeting_list_to_consider(tdoc_override)
+        for idx, meeting in enumerate(meetings_to_list):
             count = count + 1
             mod = count % 2
             if mod > 0:
@@ -305,6 +328,7 @@ class MeetingsTable(GenericTable):
 
         treeview_set_row_formatting(self.tree)
         self.meeting_count_tk_str.set('{0} meetings'.format(count))
+        self.current_meeting_list = meetings_to_list
 
     def clear_filters(self, *args):
         self.combo_groups.set('All Groups')
@@ -317,6 +341,35 @@ class MeetingsTable(GenericTable):
         tdoc_search.fully_update_cache(redownload_if_exists=True)
         self.load_data(initial_load=True)
         self.apply_filters()
+
+    def load_data_for_several_meetings(self, *args):
+        groups_set = list(set([e.meeting_group for e in self.current_meeting_list]))
+        groups_set.sort()
+        groups_set_str = ', '.join(groups_set)
+        print(f'Merging TDoc list from {len(self.current_meeting_list)} meetings from groups: {groups_set_str}')
+
+        def apply_meeting_data_to_df(group_name: str, meeting_name: str, df_in: DataFrame)->DataFrame:
+            df_out = df_in.copy()
+            df_out['WG'] = group_name
+            df_out['Meeting'] = meeting_name
+            return df_out
+
+        merged_df = pandas.concat(
+            [apply_meeting_data_to_df(e.meeting_group, e.meeting_name, e.tdoc_data_from_excel.tdocs_df) for e in
+                       self.current_meeting_list if e.tdoc_data_from_excel is not None],
+            axis=0, join='outer',
+            ignore_index=False, keys=None, levels=None, names=None, verify_integrity=False, copy=True)
+        print(f'Total of {len(merged_df)} TDocs')
+        export_path = os.path.join(utils.local_cache.get_cache_folder(), 'Export')
+        utils.local_cache.create_folder_if_needed(folder_name=export_path, create_dir=True)
+        now = datetime.datetime.now()
+        file_name = f'{now.year}.{now.month}.{now.day} {now.hour}{now.minute}{now.second} TDoc export.xlsx'
+        excel_export = os.path.join(export_path, file_name)
+        merged_df.to_excel(
+            excel_export,
+            freeze_panes=(1, 1))
+        print(f'Exported TDocs to {excel_export}')
+        os.startfile(excel_export)
 
     def apply_filters(self, tdoc_override=False):
         self.tree.delete(*self.tree.get_children())
@@ -339,8 +392,9 @@ class MeetingsTable(GenericTable):
         meeting_list = [m for m in self.loaded_meeting_entries if m.meeting_name == meeting_name]
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
         try:
-            meeting:MeetingEntry = meeting_list[0]
-            print(f"Selected meeting: {meeting.meeting_number} ({meeting.meeting_name}), URL: {meeting.meeting_folder_url}")
+            meeting: MeetingEntry = meeting_list[0]
+            print(
+                f"Selected meeting: {meeting.meeting_number} ({meeting.meeting_name}), URL: {meeting.meeting_folder_url}")
         except Exception as e:
             print(f"Could not retrieve meeting for {meeting_name}, {e}")
             return
@@ -351,12 +405,12 @@ class MeetingsTable(GenericTable):
 
         local_path = meeting.tdoc_excel_local_path
 
-        if column == 0: # Meeting
+        if column == 0:  # Meeting
             print(f'Clicked on meeting {meeting_name}')
             url_to_open = meeting.meeting_url_3gu
             open_url(url_to_open)
 
-        if column == 1: # Location
+        if column == 1:  # Location
             print(f'Clicked on meeting {meeting_name} location')
             url_to_open = meeting.meeting_calendar_ics_url
             # Using generic folder because meeting folder may not yet exist
@@ -369,17 +423,17 @@ class MeetingsTable(GenericTable):
             else:
                 print(f'Could not open ICS file {local_path}')
 
-        if column == 2: # Start
+        if column == 2:  # Start
             print(f'Clicked on start date for meeting {meeting_name}')
             url_to_open = meeting.meeting_url_invitation
             open_url(url_to_open)
 
-        if column == 3: # End
+        if column == 3:  # End
             print(f'Clicked on end date for meeting {meeting_name}')
             url_to_open = meeting.meeting_url_report
             open_url(url_to_open)
 
-        if (column == 6 or column == 7) and actual_value != '-': # TDocs Excel
+        if (column == 6 or column == 7) and actual_value != '-':  # TDocs Excel
             print(f'Clicked TDoc Excel link for meeting {meeting_name}')
             file_already_exists = meeting.tdoc_excel_exists_in_local_folder
             if file_already_exists is None:
