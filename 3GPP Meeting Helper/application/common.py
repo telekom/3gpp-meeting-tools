@@ -39,6 +39,7 @@ class RgbColor(NamedTuple):
     def hex(self)->int:
         return rgb_to_hex(self)
 
+# Own color scheme
 color_magenta = RgbColor(234, 10, 142)
 color_black = RgbColor(0, 0, 0)
 color_white = RgbColor(255, 255, 255)
@@ -51,5 +52,28 @@ color_light_grey = RgbColor(217, 217, 217)
 color_dark_yellow = RgbColor(156, 87, 0)
 color_light_yellow = RgbColor(255, 235, 156)
 
+# 3GU colors
+class FormatColor(NamedTuple):
+    font_color:int
+    background_color:int
 
 
+noted_color = FormatColor(font_color=color_black.hex, background_color=0xDBA98E)
+approved_color = FormatColor(font_color=color_white.hex, background_color=0x50B000)
+agreed_color = FormatColor(font_color=color_black.hex, background_color=0x50D092)
+withdrawn_color = FormatColor(font_color=0x06009C, background_color=0xCEC7FF)
+rejected_color = FormatColor(font_color=color_white.hex, background_color=0x0000FF)
+tdoc_status_formats = {
+    'approved': approved_color,
+    'agreed': agreed_color,
+    'postponed': noted_color,
+    'reissued': noted_color,
+    'technically endorsed': noted_color,
+    'partially approved': noted_color,
+    'treated': noted_color,
+    'noted': noted_color,
+    'merged': noted_color,
+    'revised': noted_color,
+    'withdrawn': withdrawn_color,
+    'rejected': rejected_color,
+}
