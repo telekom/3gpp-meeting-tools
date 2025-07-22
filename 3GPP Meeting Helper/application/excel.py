@@ -1,13 +1,13 @@
 import platform
 import traceback
-from typing import List, NamedTuple
+from typing import List
 
 import pandas as pd
 import pyperclip
 from pandas import DataFrame
 
 from application.common import color_black, color_green, color_light_green, color_dark_red, color_light_red, \
-    color_dark_grey, color_light_grey, color_dark_yellow, color_light_yellow
+    color_dark_grey, color_light_grey, color_dark_yellow, color_light_yellow, tdoc_status_formats
 from application.os import startfile
 
 if platform.system() == 'Windows':
@@ -248,30 +248,6 @@ def set_column_width(column_letter: str, wb, width: int|float):
     ws = wb.ActiveSheet
     get_range_from_column_letter(ws, column_letter).ColumnWidth = width
 
-class FormatColor(NamedTuple):
-    font_color:int
-    background_color:int
-
-noted_color = FormatColor(font_color=0x000000, background_color=0xDBA98E)
-approved_color = FormatColor(font_color=0xFFFFFF, background_color=0x50B000)
-agreed_color = FormatColor(font_color=0x000000, background_color=0x50D092)
-withdrawn_color = FormatColor(font_color=0x06009C, background_color=0xCEC7FF)
-rejected_color = FormatColor(font_color=0xFFFFFF, background_color=0x0000FF)
-
-tdoc_status_formats = {
-    'approved': approved_color,
-    'agreed': agreed_color,
-    'postponed': noted_color,
-    'reissued': noted_color,
-    'technically endorsed': noted_color,
-    'partially approved': noted_color,
-    'treated': noted_color,
-    'noted': noted_color,
-    'merged': noted_color,
-    'revised': noted_color,
-    'withdrawn': withdrawn_color,
-    'rejected': rejected_color,
-}
 
 def apply_tdoc_status_conditional_formatting_formula(column_letter: str, wb):
     """
