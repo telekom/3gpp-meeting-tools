@@ -10,7 +10,7 @@ import pandas as pd
 import gui.main_gui
 import parsing.excel as excel_parser
 import server.common.server_utils
-import server.common.server_utils.enums
+import server.common.server_enums
 import server.tdoc
 import tdoc.utils
 import utils.local_cache
