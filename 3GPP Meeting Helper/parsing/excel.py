@@ -6,28 +6,11 @@ import traceback
 
 import openpyxl
 import pandas as pd
-import win32com.client
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
 from openpyxl.styles import PatternFill
 
-from application.excel import open_excel_document, set_first_row_as_filter, rgb_to_hex, last_column
-
-win32c = win32com.client.constants
-
-color_magenta = (234, 10, 142)
-color_black = (0, 0, 0)
-color_white = (255, 255, 255)
-
-# Also used for conditional formatting
-color_green = (0, 97, 0)
-color_light_green = (198, 239, 206)
-color_dark_red = (156, 0, 6)
-color_light_red = (255, 199, 206)
-color_dark_grey = (128, 128, 128)
-color_light_grey = (217, 217, 217)
-color_dark_yellow = (156, 87, 0)
-color_light_yellow = (255, 235, 156)
+from application.excel import open_excel_document, set_first_row_as_filter, last_column
 
 comments_regex = re.compile(r'Comment[s]? [\(]?([\w]+)[\)]?|(.*Session) [cC]omments')
 comments_filename_regex = re.compile(r'.*[Cc]omments.*\.xlsx')
@@ -211,48 +194,6 @@ def generate_pivot_chart_from_tdocs_by_agenda(wb):
         traceback.print_exc()
 
 
-# https://stackoverflow.com/questions/11444207/setting-a-cells-fill-rgb-color-with-pywin32-in-excel
-
-
-def set_tdoc_colors(wb, links, no_index_links=True):
-    tdoc_cell_mapping = {}
-    try:
-        wb.Activate()
-        ws = wb.ActiveSheet
-
-        #  Get last row
-        last_row = ws.Rows.Count
-
-        # Borders
-        ws.Range("A1:" + last_column + str(
-            last_row)).Borders.LineStyle = 1  # xlContinuous -> https://docs.microsoft.com/en-us/office/vba/api/excel.xllinestyle
-        ws.Range("A1:" + last_column + str(last_row)).Borders.Color = rgb_to_hex(color_black)
-        ws.Range("A1:" + last_column + str(
-            last_row)).Borders.Weight = 2  # xlThin -> https://docs.microsoft.com/en-us/office/vba/api/excel.xlborderweight
-
-        # Results conditional formatting
-        # https://docs.microsoft.com/en-us/office/vba/api/excel.xlformatconditiontype
-        # xlCellValue 1
-        # xlEqual 3
-        results_cells = "J2:J" + str(last_row)
-
-        def apply_conditional_formatting(the_range, criteria, text_color, background_color):
-            the_cells = ws.Range(the_range).FormatConditions.Add(1, 3, criteria)
-            the_cells.Font.Color = rgb_to_hex(text_color)
-            the_cells.Interior.Color = rgb_to_hex(background_color)
-            return the_cells
-
-        # Results formatting
-        apply_conditional_formatting(results_cells, 'Agreed', color_green, color_light_green)
-        apply_conditional_formatting(results_cells, 'Approved', color_green, color_light_green)
-        apply_conditional_formatting(results_cells, 'Noted', color_dark_red, color_light_red)
-        apply_conditional_formatting(results_cells, 'Revised', color_dark_grey, color_light_grey)
-        apply_conditional_formatting(results_cells, 'Merged', color_dark_grey, color_light_grey)
-        apply_conditional_formatting(results_cells, 'Postponed', color_dark_yellow, color_light_yellow)
-    except:
-        traceback.print_exc()
-
-
 def get_company_name_based_on_email(sender_address):
     company_name = ''
     try:
@@ -265,7 +206,8 @@ def get_company_name_based_on_email(sender_address):
         # Some capitalization of short company names
         if len(company_name) < 5:
             company_name = company_name.upper()
-    except:
+    except Exception as e:
+        print(f'Could not parse company: {e}')
         company_name = 'Could not parse'
 
     return company_name

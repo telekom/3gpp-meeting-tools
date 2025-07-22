@@ -425,7 +425,7 @@ class ToolsDialog(TkWidget):
 
             application.excel.set_first_row_as_filter(wb)
             excel_parser.adjust_tdocs_by_agenda_column_width(wb)
-            excel_parser.set_tdoc_colors(wb, server_urls)
+            application.excel.set_tdoc_colors(wb, server_urls)
             application.excel.hide_columns(wb, ['H', 'K:S'])
             application.excel.vertically_center_all_text(wb)
             if add_pivot_summary:

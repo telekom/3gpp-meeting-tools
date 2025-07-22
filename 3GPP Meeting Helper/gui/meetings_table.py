@@ -399,7 +399,7 @@ class MeetingsTable(GenericTable):
         application.excel.hide_column('G', wb) # For
         application.excel.hide_column('J', wb)  # Agenda item sort order
         application.excel.set_column_width('H', wb, 30)  # Abstract
-        application.excel.set_column_width('I', wb, 17)  # Secreatry Remarks
+        application.excel.set_column_width('I', wb, 17)  # Secretary Remarks
         application.excel.set_column_width('L', wb, 24)  # Agenda item description
         application.excel.hide_column('M', wb) # TDoc sort order within agenda item
         application.excel.set_column_width('N', wb, 20)  # TDoc Status

@@ -1,10 +1,13 @@
 import platform
 import traceback
 from typing import List, NamedTuple
+
 import pandas as pd
 import pyperclip
 from pandas import DataFrame
 
+from application.common import color_black, color_green, color_light_green, color_dark_red, color_light_red, \
+    color_dark_grey, color_light_grey, color_dark_yellow, color_light_yellow
 from application.os import startfile
 
 if platform.system() == 'Windows':
@@ -200,15 +203,6 @@ def vertically_center_all_text(wb):
         traceback.print_exc()
 
 
-def rgb_to_hex(rgb):
-    # s.Cells(1, i).Interior.color uses bgr in hex
-    bgr = (rgb[2], rgb[1], rgb[0])
-    strValue = '%02x%02x%02x' % bgr
-    # print(strValue)
-    iValue = int(strValue, 16)
-    return iValue
-
-
 def hide_columns(wb, columns):
     if wb is None:
         return
@@ -281,7 +275,7 @@ tdoc_status_formats = {
 
 def apply_tdoc_status_conditional_formatting_formula(column_letter: str, wb):
     """
-    Highlights rows where the value in column B is "Completed" with a light green fill.
+    Applies the same conditional formatting as in the 3GU's TDoc Excel list
     """
     if wb is None:
         return
@@ -434,3 +428,44 @@ def export_columns_to_markdown(
 
 
 last_column = 'U'
+
+
+def set_tdoc_colors(wb, links, no_index_links=True):
+    tdoc_cell_mapping = {}
+    # https://stackoverflow.com/questions/11444207/setting-a-cells-fill-rgb-color-with-pywin32-in-excel
+    try:
+        wb.Activate()
+        ws = wb.ActiveSheet
+
+        #  Get last row
+        last_row = ws.Rows.Count
+
+        # Borders
+        ws.Range("A1:" + last_column + str(
+            last_row)).Borders.LineStyle = 1  # xlContinuous -> https://docs.microsoft.com/en-us/office/vba/api/excel.xllinestyle
+        ws.Range("A1:" + last_column + str(last_row)).Borders.Color = color_black.hex
+        ws.Range("A1:" + last_column + str(
+            last_row)).Borders.Weight = 2  # xlThin -> https://docs.microsoft.com/en-us/office/vba/api/excel.xlborderweight
+
+        # Results conditional formatting
+        # https://docs.microsoft.com/en-us/office/vba/api/excel.xlformatconditiontype
+        # xlCellValue 1
+        # xlEqual 3
+        results_cells = "J2:J" + str(last_row)
+
+        def apply_conditional_formatting(the_range, criteria, text_color, background_color):
+            the_cells = ws.Range(the_range).FormatConditions.Add(1, 3, criteria)
+            the_cells.Font.Color = text_color.hex
+            the_cells.Interior.Color = background_color.hex
+            return the_cells
+
+        # Results formatting
+        apply_conditional_formatting(results_cells, 'Agreed', color_green, color_light_green)
+        apply_conditional_formatting(results_cells, 'Approved', color_green, color_light_green)
+        apply_conditional_formatting(results_cells, 'Noted', color_dark_red, color_light_red)
+        apply_conditional_formatting(results_cells, 'Revised', color_dark_grey, color_light_grey)
+        apply_conditional_formatting(results_cells, 'Merged', color_dark_grey, color_light_grey)
+        apply_conditional_formatting(results_cells, 'Postponed', color_dark_yellow, color_light_yellow)
+    except Exception as e:
+        print(f'Could not apply conditional formatting: {e}')
+        traceback.print_exc()
