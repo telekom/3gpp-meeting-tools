@@ -1,3 +1,4 @@
+import os
 import tkinter
 from functools import reduce
 from tkinter import ttk
@@ -11,6 +12,9 @@ from gui.common.icons import refresh_icon
 from server import tdoc_search
 from server.common.MeetingEntry import MeetingEntry
 from server.common.server_enums import WorkingGroup
+from server.common.server_utils import download_file_to_location
+from server.meeting import download_meeting_tdocs_excel
+from utils import local_cache
 
 
 class WorkItemsTable(GenericTable):
@@ -33,6 +37,7 @@ class WorkItemsTable(GenericTable):
         self.chosen_meeting: MeetingEntry | None = None
         self.root_widget = root_widget
         self.wi_dict = {}
+        self.finished_loading = False
 
         # Start by loading data
         self.load_data(initial_load=True)
@@ -113,6 +118,8 @@ class WorkItemsTable(GenericTable):
         # Add text wrapping
         # https: // stackoverflow.com / questions / 51131812 / wrap - text - inside - row - in -tkinter - treeview
 
+        self.finished_loading = True
+
     def load_data(self, initial_load=False):
         """
         Loads meetings from the 3GPP website
@@ -128,18 +135,22 @@ class WorkItemsTable(GenericTable):
         print('Finished loading meetings')
 
     def insert_rows(self, tdoc_override=False):
-        print('Populating WI table')
+        if not self.finished_loading:
+            print(f'Initial load: not populating table')
+            return
+
+        selected_year = self.combo_years.get()
+        selected_group = self.combo_groups.get()
+        print(f'Populating WI table: WG {selected_group} for year {selected_year}')
 
         def meeting_matches_filter(m:MeetingEntry)->bool:
             filter_match = True
 
             # Filter by selected year
-            selected_year = self.combo_years.get()
             if (not selected_year.startswith('All')) and (not tdoc_override):
                 filter_match = filter_match and m.starts_in_given_year(int(selected_year))
 
             # Filter by selected group
-            selected_group = self.combo_groups.get()
             if (not selected_group.startswith('All')) and (not tdoc_override):
                 if selected_group == 'S3-LI':
                     filter_match = filter_match and (m.meeting_group == 'S3' and m.is_li)
@@ -151,10 +162,13 @@ class WorkItemsTable(GenericTable):
             return filter_match
 
         selected_meetings = [m for m in self.loaded_meeting_entries if
-                             m.starts_in_given_year(2025) and
-                             m.working_group_enum == WorkingGroup.S2 and
                              meeting_matches_filter(m) ]
-        selected_meetings = selected_meetings[0:2]
+        print(f'{len(selected_meetings)} meetings selected')
+
+        # Download meetings if necessary
+        for meeting in selected_meetings:
+            download_meeting_tdocs_excel(meeting)
+
         list_of_dicts = [m.tdoc_data_from_excel.wi_hyperlinks for m in selected_meetings]
         wi_dict:dict[str,str] = reduce(lambda acc, current_dict: {**acc, **current_dict}, list_of_dicts, {})
         wi_list = wi_dict.items()
