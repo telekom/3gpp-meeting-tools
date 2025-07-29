@@ -25,6 +25,7 @@ from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
 from server.common.MeetingEntry import MeetingEntry
 from server.common.server_utils import download_file_to_location
+from server.meeting import batch_download_meeting_tdocs_excel
 from server.tdoc_search import search_meeting_for_tdoc, compare_two_tdocs
 from tdoc.utils import is_generic_tdoc
 
@@ -349,6 +350,9 @@ class MeetingsTable(GenericTable):
         groups_set.sort()
         groups_set_str = ', '.join(groups_set)
         print(f'Merging TDoc list from {len(self.current_meeting_list)} meetings from groups: {groups_set_str}')
+
+        # Download TDoc Excel files if necessary
+        batch_download_meeting_tdocs_excel(self.current_meeting_list)
 
         def apply_meeting_data_to_df(
                 group_name: str,
