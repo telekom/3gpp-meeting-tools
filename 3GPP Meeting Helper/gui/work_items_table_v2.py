@@ -13,7 +13,7 @@ from server import tdoc_search
 from server.common.MeetingEntry import MeetingEntry
 from server.common.server_enums import WorkingGroup
 from server.common.server_utils import download_file_to_location
-from server.meeting import download_meeting_tdocs_excel
+from server.meeting import download_meeting_tdocs_excel, batch_download_meeting_tdocs_excel
 from utils import local_cache
 
 
@@ -166,8 +166,7 @@ class WorkItemsTable(GenericTable):
         print(f'{len(selected_meetings)} meetings selected')
 
         # Download meetings if necessary
-        for meeting in selected_meetings:
-            download_meeting_tdocs_excel(meeting)
+        batch_download_meeting_tdocs_excel(selected_meetings)
 
         list_of_dicts = [m.tdoc_data_from_excel.wi_hyperlinks for m in selected_meetings]
         wi_dict:dict[str,str] = reduce(lambda acc, current_dict: {**acc, **current_dict}, list_of_dicts, {})
