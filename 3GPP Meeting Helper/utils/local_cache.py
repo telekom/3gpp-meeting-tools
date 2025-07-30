@@ -206,7 +206,7 @@ def get_specs_cache_folder(create_dir=True):
 
 def get_work_items_cache_folder(create_dir=True):
     folder_name = os.path.expanduser(
-        os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'work_items', 'server_cache'))
+        os.path.join(CacheConfig.user_folder, CacheConfig.root_folder, 'work_items'))
     create_folder_if_needed(folder_name, create_dir)
     return folder_name
 
