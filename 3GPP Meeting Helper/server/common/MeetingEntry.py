@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from functools import cached_property
 from typing import List, NamedTuple
+from urllib.parse import urlparse, parse_qs
 
 import pandas as pd
 from pandas import DataFrame
@@ -269,12 +270,28 @@ class MeetingEntry:
         )
         return tdoc_data
 
+class WorkItem(NamedTuple):
+    acronym:str
+    url:str
+
+    @property
+    def work_item_id(self):
+        # e.g. "https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId=1060084"
+        return parse_qs(urlparse(self.url).query).get('workitemId', [None])[0]
 
 class CachedMeetingTdocData(NamedTuple):
     tdocs_df: DataFrame
     wi_hyperlinks: dict[str, str]
     meeting:MeetingEntry
     hash: str
+
+    @property
+    def work_items(self)->List[WorkItem]:
+        return list([WorkItem(k, v) for k, v in self.wi_hyperlinks.items()])
+
+    @property
+    def version(self):
+        return 2
 
     @staticmethod
     def from_excel(
@@ -309,12 +326,17 @@ class CachedMeetingTdocData(NamedTuple):
 
     @staticmethod
     def get_cache(tdoc_excel_path:str, excel_hash:str=None):
-        cached_data: CachedMeetingTdocData|None = retrieve_pickle_cache_for_file(
-            file_path=tdoc_excel_path,
-            file_prefix=TDOCS_3GU_PREFIX,
-            file_hash=excel_hash
-        )
-        return cached_data
+        try:
+            cached_data: CachedMeetingTdocData|None = retrieve_pickle_cache_for_file(
+                file_path=tdoc_excel_path,
+                file_prefix=TDOCS_3GU_PREFIX,
+                file_hash=excel_hash
+            )
+            print(f'Cache version: {cached_data.version}, {len(cached_data.work_items)} WIs')
+            return cached_data
+        except Exception as e:
+            print(f'Could not load {tdoc_excel_path}: {e}')
+            return None
 
     def store_cache(self, tdoc_excel_path:str):
         store_pickle_cache_for_file(

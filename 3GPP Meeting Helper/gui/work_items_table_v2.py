@@ -1,4 +1,3 @@
-import os
 import tkinter
 from functools import reduce
 from tkinter import ttk
@@ -11,10 +10,7 @@ from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import refresh_icon
 from server import tdoc_search
 from server.common.MeetingEntry import MeetingEntry
-from server.common.server_enums import WorkingGroup
-from server.common.server_utils import download_file_to_location
-from server.meeting import download_meeting_tdocs_excel, batch_download_meeting_tdocs_excel
-from utils import local_cache
+from server.meeting import batch_download_meeting_tdocs_excel
 
 
 class WorkItemsTable(GenericTable):
@@ -36,8 +32,9 @@ class WorkItemsTable(GenericTable):
         self.loaded_meeting_entries: List[MeetingEntry] | None = None
         self.chosen_meeting: MeetingEntry | None = None
         self.root_widget = root_widget
-        self.wi_dict = {}
+        self.wi_list = []
         self.finished_loading = False
+        self.redownload_meeting_list_var = tkinter.IntVar()
 
         # Start by loading data
         self.load_data(initial_load=True)
@@ -85,7 +82,6 @@ class WorkItemsTable(GenericTable):
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
 
         # Re-download TDoc Excel if it already exists
-        self.redownload_meeting_list_var = tkinter.IntVar()
         self.redownload_meeting_list = ttk.Checkbutton(
             self.top_frame,
             state='enabled',
@@ -95,8 +91,8 @@ class WorkItemsTable(GenericTable):
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         TTKHoverHelpButton(
             self.top_frame,
-            help_text='(Re-)load work item list from selected meetings',
-            command=self.load_meetings,
+            help_text='(Re-)load work item list for selected meeting filter',
+            command=self.apply_filters,
             image=refresh_icon
         ).pack(side=tkinter.LEFT)
 
@@ -129,8 +125,8 @@ class WorkItemsTable(GenericTable):
         """
         # Load specs data
         print('Loading revision data for LATEST specs per release for table')
-        if initial_load:
-            tdoc_search.fully_update_cache(redownload_if_exists=False)
+        if initial_load or self.redownload_meeting_list_var.get():
+            tdoc_search.fully_update_cache(redownload_if_exists=self.redownload_meeting_list_var.get())
             self.loaded_meeting_entries = tdoc_search.loaded_meeting_entries
         print('Finished loading meetings')
 
@@ -168,13 +164,14 @@ class WorkItemsTable(GenericTable):
         # Download meetings if necessary
         batch_download_meeting_tdocs_excel(selected_meetings)
 
-        list_of_dicts = [m.tdoc_data_from_excel.wi_hyperlinks for m in selected_meetings]
-        wi_dict:dict[str,str] = reduce(lambda acc, current_dict: {**acc, **current_dict}, list_of_dicts, {})
-        wi_list = wi_dict.items()
-        self.wi_dict = wi_dict
+        list_of_lists = [m.tdoc_data_from_excel.work_items for m in selected_meetings]
+        wi_list = [item for sublist in list_of_lists for item in sublist]
+        wi_list = list(set(wi_list))
+        wi_list = sorted(wi_list, key=lambda x:x.acronym)
+        self.wi_list = wi_list
 
         count = 0
-        for idx, wi_data in enumerate(wi_list):
+        for wi_data in wi_list:
             count = count + 1
             mod = count % 2
             if mod > 0:
@@ -182,11 +179,8 @@ class WorkItemsTable(GenericTable):
             else:
                 tag = 'even'
 
-            wi_code = wi_data[0]
-            wi_url = wi_data[1]
-
-            # e.g. "https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId=1060084"
-            work_item_id = parse_qs(urlparse(wi_url).query).get('workitemId', [None])[0]
+            wi_code = wi_data.acronym
+            work_item_id = wi_data.work_item_id
 
             # 'Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents'
             values = (
@@ -208,7 +202,7 @@ class WorkItemsTable(GenericTable):
         self.combo_years.set('All Years')
 
         # Refill list
-        self.apply_filters()
+        # self.apply_filters()
 
     def load_meetings(self, *args):
         tdoc_search.fully_update_cache(redownload_if_exists=True)
@@ -220,7 +214,8 @@ class WorkItemsTable(GenericTable):
         self.insert_rows(tdoc_override=tdoc_override)
 
     def select_rows(self, *args):
-        self.apply_filters()
+        # self.apply_filters()
+        pass
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
@@ -233,7 +228,7 @@ class WorkItemsTable(GenericTable):
             actual_value = None
 
         wi_acronym = item_values[0]
-        wi_url = self.wi_dict[wi_acronym]
+        wi_url = self.wi_list[wi_acronym]
 
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
 
