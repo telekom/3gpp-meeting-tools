@@ -38,17 +38,18 @@ def store_pickle_cache_for_file(
         file_path: str,
         file_prefix:str,
         data:Any,
-        file_hash:str=None):
+        file_hash:str=None,
+        overwrite_cache=False):
 
     file_folder =  os.path.dirname(file_path)
     if file_hash is None:
         file_hash = hash_file(file_path)
     target_file = os.path.join(file_folder, f'{file_prefix}_{file_hash}.pickle')
-    if not os.path.exists(target_file):
+    if not os.path.exists(target_file) or overwrite_cache:
         try:
             with open(target_file, 'wb') as file:
                 pickle.dump(data, file)
-            print(f"Object '{data}' successfully saved to '{file}'")
+            print(f"Object successfully saved to '{target_file}'")
         except Exception as e:
             print(f"Error saving object: {e}")
 

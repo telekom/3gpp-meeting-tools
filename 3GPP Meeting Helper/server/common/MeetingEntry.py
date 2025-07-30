@@ -1,6 +1,7 @@
 import datetime
 import os
 import re
+import traceback
 from dataclasses import dataclass
 from functools import cached_property
 from typing import List, NamedTuple
@@ -14,7 +15,7 @@ from application.excel_openpyxl import parse_tdoc_3gu_list_for_wis
 from server.common.server_utils import ServerType, DocumentType, TdocType, WorkingGroup, host_public_server
 from server.common.server_utils import meeting_id_regex, get_document_or_folder_url, host_private_server
 from utils.caching.common import hash_file, retrieve_pickle_cache_for_file, store_pickle_cache_for_file
-from utils.local_cache import file_exists
+from utils.local_cache import file_exists, get_work_items_cache_folder
 from utils.local_cache import get_cache_folder, create_folder_if_needed
 
 
@@ -242,20 +243,20 @@ class MeetingEntry:
         return local_file
 
     @cached_property
-    def tdoc_excel_local_path(self)->str|None:
+    def tdoc_excel_local_path(self) -> str | None:
         download_folder = self.local_agenda_folder_path
         if download_folder is None:
             return None
         return os.path.join(download_folder, f'{self.meeting_name}_TDoc_List.xlsx')
 
     @property
-    def tdoc_excel_exists_in_local_folder(self)->bool | None:
+    def tdoc_excel_exists_in_local_folder(self) -> bool | None:
         local_path = self.tdoc_excel_local_path
         if local_path is None:
             return None
         return file_exists(local_path)
 
-    def starts_in_given_year(self, year:int) -> bool:
+    def starts_in_given_year(self, year: int) -> bool:
         if self.start_date is None:
             return False
         return self.start_date.year == year
@@ -270,35 +271,57 @@ class MeetingEntry:
         )
         return tdoc_data
 
-class WorkItem(NamedTuple):
-    acronym:str
-    url:str
-
     @property
+    def tdoc_data_from_excel_with_cache_overwrite(self):
+        if self.tdoc_excel_local_path is None:
+            return None
+        tdoc_data = CachedMeetingTdocData.from_excel(
+            self.tdoc_excel_local_path,
+            meeting=self,
+            overwrite_cache=True
+        )
+        return tdoc_data
+
+
+@dataclass(frozen=True)
+class WorkItem:
+    acronym: str
+    url: str
+
+    @cached_property
     def work_item_id(self):
         # e.g. "https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId=1060084"
         return parse_qs(urlparse(self.url).query).get('workitemId', [None])[0]
 
-class CachedMeetingTdocData(NamedTuple):
+    @cached_property
+    def local_path(self):
+        folder = get_work_items_cache_folder()
+        file_name = f'{self.work_item_id}.html'
+        return os.path.join(folder, file_name)
+
+
+@dataclass(frozen=True)
+class CachedMeetingTdocData:
     tdocs_df: DataFrame
     wi_hyperlinks: dict[str, str]
-    meeting:MeetingEntry
+    meeting: MeetingEntry
     hash: str
 
-    @property
-    def work_items(self)->List[WorkItem]:
+    @cached_property
+    def work_items(self) -> List[WorkItem]:
         return list([WorkItem(k, v) for k, v in self.wi_hyperlinks.items()])
 
-    @property
+    @cached_property
     def version(self):
         return 2
 
     @staticmethod
     def from_excel(
-            tdoc_excel_path:str,
-            meeting:MeetingEntry,
+            tdoc_excel_path: str,
+            meeting: MeetingEntry,
             from_cache_if_available=True,
-            create_cache_if_not_exists=True
+            create_cache_if_not_exists=True,
+            overwrite_cache=False
     ):
         excel_hash = hash_file(tdoc_excel_path)
         if from_cache_if_available:
@@ -319,15 +342,14 @@ class CachedMeetingTdocData(NamedTuple):
         )
 
         if create_cache_if_not_exists:
-            tdoc_data.store_cache(tdoc_excel_path)
+            tdoc_data.store_cache(tdoc_excel_path, overwrite_cache=overwrite_cache)
 
         return tdoc_data
 
-
     @staticmethod
-    def get_cache(tdoc_excel_path:str, excel_hash:str=None):
+    def get_cache(tdoc_excel_path: str, excel_hash: str = None):
         try:
-            cached_data: CachedMeetingTdocData|None = retrieve_pickle_cache_for_file(
+            cached_data: CachedMeetingTdocData | None = retrieve_pickle_cache_for_file(
                 file_path=tdoc_excel_path,
                 file_prefix=TDOCS_3GU_PREFIX,
                 file_hash=excel_hash
@@ -335,15 +357,17 @@ class CachedMeetingTdocData(NamedTuple):
             print(f'Cache version: {cached_data.version}, {len(cached_data.work_items)} WIs')
             return cached_data
         except Exception as e:
-            print(f'Could not load {tdoc_excel_path}: {e}')
+            print(f'Could not load CachedMeetingTdocData {tdoc_excel_path}: {e}')
+            traceback.print_exc()
             return None
 
-    def store_cache(self, tdoc_excel_path:str):
+    def store_cache(self, tdoc_excel_path: str, overwrite_cache=False):
         store_pickle_cache_for_file(
             file_path=tdoc_excel_path,
             file_prefix=TDOCS_3GU_PREFIX,
             file_hash=self.hash,
-            data=self
+            data=self,
+            overwrite_cache=overwrite_cache
         )
 
 

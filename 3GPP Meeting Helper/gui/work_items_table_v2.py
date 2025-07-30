@@ -164,7 +164,7 @@ class WorkItemsTable(GenericTable):
         # Download meetings if necessary
         batch_download_meeting_tdocs_excel(selected_meetings)
 
-        list_of_lists = [m.tdoc_data_from_excel.work_items for m in selected_meetings]
+        list_of_lists = [m.tdoc_data_from_excel_with_cache_overwrite.work_items for m in selected_meetings]
         wi_list = [item for sublist in list_of_lists for item in sublist]
         wi_list = list(set(wi_list))
         wi_list = sorted(wi_list, key=lambda x:x.acronym)
