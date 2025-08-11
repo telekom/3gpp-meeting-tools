@@ -480,9 +480,9 @@ def search_meeting_for_tdoc(
         if sa3_li_tdoc:
             return (group_str == m.meeting_group) and m.is_li
 
-        return (group_str == m.meeting_group) and not m.is_li
+        return (group_str == m.tdoc_start.group) and not m.is_li
 
-    group_meetings = [m for m in loaded_meeting_entries if group_match(m, group_to_search)]
+    group_meetings = [m for m in loaded_meeting_entries if m.tdoc_start is not None and group_match(m, group_to_search)]
     print(f'{len(group_meetings)} Group meetings for group {group_to_search}. LI: {sa3_li_tdoc}')
     matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
                          m.tdoc_start.number <= parsed_tdoc.number <= m.tdoc_end.number]
