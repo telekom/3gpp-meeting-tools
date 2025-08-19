@@ -541,11 +541,14 @@ class TdocsTableFromExcel(GenericTable):
 
             def get_text_for_prompt(e:PdfBookmark) -> str:
                 el_tdoc_id = e.tdoc_id
-                el_title = self.tdocs_current_df.loc[e.tdoc_id, 'Title']
-                el_sources = self.tdocs_current_df.loc[e.tdoc_id, 'Source']
+                try:
+                    el_title = self.tdocs_current_df.loc[e.tdoc_id, 'Title']
+                    el_sources = self.tdocs_current_df.loc[e.tdoc_id, 'Source']
 
-                el_str = f'  - {el_tdoc_id}, titled {el_title}, is sourced by {el_sources} and spans pages {e.page_begin} to {e.page_end}\n'
-                return el_str
+                    el_str = f'  - {el_tdoc_id}, titled {el_title}, is sourced by {el_sources} and spans pages {e.page_begin} to {e.page_end}\n'
+                    return el_str
+                except KeyError as e:
+                    print(f'Could not generate prompt line for TDoc {el_tdoc_id}')
 
             with open(os.path.join(export_folder, f"{export_id}_bookmarks.txt"), 'w') as f:
                 f.write('The attached PDF contains a collection of documents\n')
