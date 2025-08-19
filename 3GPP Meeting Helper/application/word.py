@@ -222,83 +222,83 @@ def export_document(
         extension = '.pdf'
         print('Converting to PDF: {0}'.format(word_files))
 
-    try:
         word = None
         for word_file in word_files:
-            file, ext = os.path.splitext(word_file)
-            if ext == '.doc' or ext == '.docx':
-                # See https://stackoverflow.com/questions/6011115/doc-to-pdf-using-python
-                out_file = file + extension
-                print('Export file path: {0}'.format(out_file))
-                if not file_exists(out_file):
-                    if word is None:
-                        word = get_word()
-                    print('Converting {0} to {1}'.format(word_file, out_file))
-                    doc = open_word_document(word_file, visible=False)
+            try:
+                file, ext = os.path.splitext(word_file)
+                if ext == '.doc' or ext == '.docx':
+                    # See https://stackoverflow.com/questions/6011115/doc-to-pdf-using-python
+                    out_file = file + extension
+                    print('Export file path: {0}'.format(out_file))
+                    if not file_exists(out_file):
+                        if word is None:
+                            word = get_word()
+                        print('Converting {0} to {1}'.format(word_file, out_file))
+                        doc = open_word_document(word_file, visible=False)
 
-                    if remove_all_fields:
-                        print('Removing all Fields')
-                        doc.Fields.Unlink()
+                        if remove_all_fields:
+                            print('Removing all Fields')
+                            doc.Fields.Unlink()
 
-                    if accept_all_changes:
-                        print('Accepting all changes')
-                        doc.Revisions.AcceptAll()
+                        if accept_all_changes:
+                            print('Accepting all changes')
+                            doc.Revisions.AcceptAll()
 
-                    if export_format == ExportType.PDF:
-                        # .doc files often give problems when exporting to PDF. First convert to .docx
-                        if ext == '.doc':
-                            print('A POPUP MAY APPEAR ASKING YOU TO SET A SENSITIVITY LABEL (.doc file extension)')
-                            print('Unfortunately, VBA cannot automate this step. Please set the label manually')
-                            converted_docx_list = export_document(
-                                [word_file],
-                                ExportType.DOCX)
-                            docx_version = converted_docx_list[0]
-                            doc = word.Documents.Open(docx_version)
+                        if export_format == ExportType.PDF:
+                            # .doc files often give problems when exporting to PDF. First convert to .docx
+                            if ext == '.doc':
+                                print('A POPUP MAY APPEAR ASKING YOU TO SET A SENSITIVITY LABEL (.doc file extension)')
+                                print('Unfortunately, VBA cannot automate this step. Please set the label manually')
+                                converted_docx_list = export_document(
+                                    [word_file],
+                                    ExportType.DOCX)
+                                docx_version = converted_docx_list[0]
+                                doc = word.Documents.Open(docx_version)
 
-                        # See https://docs.microsoft.com/en-us/office/vba/api/word.document.exportasfixedformat
-                        print(f'PDF Conversion started: OutputFileName={out_file}')
-                        doc.ExportAsFixedFormat(
-                            OutputFileName=out_file,
-                            ExportFormat=wdExportFormatPDF,
-                            OpenAfterExport=False,
-                            OptimizeFor=wdExportOptimizeForPrint,
-                            IncludeDocProps=True,
-                            CreateBookmarks=wdExportCreateHeadingBookmarks
-                        )
-                    elif export_format == ExportType.DOCX:
-                        print('DOCX Conversion started')
-                        doc.SaveAs2(
-                            FileName=out_file,
-                            FileFormat=wdFormatDocumentDefault
-                        )
+                            # See https://docs.microsoft.com/en-us/office/vba/api/word.document.exportasfixedformat
+                            print(f'PDF Conversion started: OutputFileName={out_file}')
+                            doc.ExportAsFixedFormat(
+                                OutputFileName=out_file,
+                                ExportFormat=wdExportFormatPDF,
+                                OpenAfterExport=False,
+                                OptimizeFor=wdExportOptimizeForPrint,
+                                IncludeDocProps=True,
+                                CreateBookmarks=wdExportCreateHeadingBookmarks
+                            )
+                        elif export_format == ExportType.DOCX:
+                            print('DOCX Conversion started')
+                            doc.SaveAs2(
+                                FileName=out_file,
+                                FileFormat=wdFormatDocumentDefault
+                            )
+                        else:
+                            print('HTML Conversion started')
+                            doc.WebOptions.AllowPNG = True
+                            doc.SaveAs2(
+                                FileName=out_file,
+                                FileFormat=wdFormatFilteredHTML
+                            )
+
+                        print('Converted {0} to {1}'.format(word_file, out_file))
+
+                        if do_after == ActionAfter.CLOSE_FILE or do_after == ActionAfter.CLOSE_AND_DELETE_FILE:
+                            try:
+                                doc.Close()
+                                print(f'Closed {word_file}')
+                            except Exception as e:
+                                print(f'Could not close file {word_file}: {e}')
+                        if do_after == ActionAfter.CLOSE_AND_DELETE_FILE:
+                            try:
+                                os.remove(word_file)
+                                print(f'Deleted {word_file}')
+                            except Exception as e:
+                                print(f'Could not delete file {word_file}: {e}')
                     else:
-                        print('HTML Conversion started')
-                        doc.WebOptions.AllowPNG = True
-                        doc.SaveAs2(
-                            FileName=out_file,
-                            FileFormat=wdFormatFilteredHTML
-                        )
-
-                    print('Converted {0} to {1}'.format(word_file, out_file))
-
-                    if do_after == ActionAfter.CLOSE_FILE or do_after == ActionAfter.CLOSE_AND_DELETE_FILE:
-                        try:
-                            doc.Close()
-                            print(f'Closed {word_file}')
-                        except Exception as e:
-                            print(f'Could not close file {word_file}: {e}')
-                    if do_after == ActionAfter.CLOSE_AND_DELETE_FILE:
-                        try:
-                            os.remove(word_file)
-                            print(f'Deleted {word_file}')
-                        except Exception as e:
-                            print(f'Could not delete file {word_file}: {e}')
-                else:
-                    print('{0} already exists. No need to convert'.format(out_file))
-                converted_files.append(out_file)
-    except Exception as e:
-        print(f'Could not export Word document: {e}')
-        traceback.print_exc()
+                        print('{0} already exists. No need to convert'.format(out_file))
+                    converted_files.append(out_file)
+            except Exception as e:
+                print(f'Could not export Word document {word_file}: {e}')
+                traceback.print_exc()
     return converted_files
 
 
