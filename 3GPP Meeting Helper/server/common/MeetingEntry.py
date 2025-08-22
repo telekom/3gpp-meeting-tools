@@ -4,7 +4,7 @@ import re
 import traceback
 from dataclasses import dataclass
 from functools import cached_property
-from typing import List, NamedTuple
+from typing import List
 from urllib.parse import urlparse, parse_qs
 
 import pandas as pd
@@ -14,6 +14,7 @@ import tdoc.utils
 from application.excel_openpyxl import parse_tdoc_3gu_list_for_wis
 from server.common.server_utils import ServerType, DocumentType, TdocType, WorkingGroup, host_public_server
 from server.common.server_utils import meeting_id_regex, get_document_or_folder_url, host_private_server
+from tdoc.utils import GenericTdoc
 from utils.caching.common import hash_file, retrieve_pickle_cache_for_file, store_pickle_cache_for_file
 from utils.local_cache import file_exists, get_work_items_cache_folder
 from utils.local_cache import get_cache_folder, create_folder_if_needed
@@ -105,7 +106,7 @@ class MeetingEntry:
         # e.g. https://portal.3gpp.org/ngppapp/GenerateDocumentList.aspx?meetingId=60394
         return 'https://portal.3gpp.org/ngppapp/GenerateDocumentList.aspx?meetingId=' + meeting_id
 
-    def get_tdoc_url(self, tdoc_to_get: tdoc.utils.GenericTdoc | str):
+    def get_tdoc_url(self, tdoc_to_get: tdoc.utils.GenericTdoc | str) -> str:
         """
         For a string containing a potential TDoc, returns a URL concatenating the Docs folder and the input TDoc and
         adds a .'zip' extension.
@@ -224,7 +225,7 @@ class MeetingEntry:
     def sync_server_url(self):
         return f'{host_public_server}/{self.working_group_enum.get_wg_folder_name(ServerType.SYNC)}'
 
-    def get_tdoc_local_path(self, tdoc_str: str) -> str | None:
+    def get_tdoc_local_path(self, tdoc_str: str | GenericTdoc) -> str | None:
         """
         Generates the local path for a given TDoc
         Args:
@@ -235,6 +236,10 @@ class MeetingEntry:
         local_folder = self.local_folder_path
         if local_folder is None:
             return None
+
+        if isinstance(tdoc_str, tdoc.utils.GenericTdoc):
+            tdoc_str = tdoc_str.__str__()
+
         local_file = os.path.join(
             local_folder,
             str(tdoc_str),
