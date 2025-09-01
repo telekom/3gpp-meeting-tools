@@ -549,6 +549,7 @@ class TdocsTableFromExcel(GenericTable):
                     return el_str
                 except KeyError as e:
                     print(f'Could not generate prompt line for TDoc {el_tdoc_id}')
+                    return ''
 
             with open(os.path.join(export_folder, f"{export_id}_bookmarks.txt"), 'w') as f:
                 f.write('The attached PDF contains a collection of documents\n')
