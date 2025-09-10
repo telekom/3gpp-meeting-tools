@@ -9,7 +9,7 @@ from gui.common.generic_table import GenericTable, treeview_set_row_formatting, 
 from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import refresh_icon
 from server import tdoc_search
-from server.common.MeetingEntry import MeetingEntry
+from server.common.MeetingEntry import MeetingEntry, WorkItem
 from server.meeting import batch_download_meeting_tdocs_excel
 
 
@@ -32,7 +32,7 @@ class WorkItemsTable(GenericTable):
         self.loaded_meeting_entries: List[MeetingEntry] | None = None
         self.chosen_meeting: MeetingEntry | None = None
         self.root_widget = root_widget
-        self.wi_list = []
+        self.wi_list: list[WorkItem] = []
         self.finished_loading = False
         self.redownload_meeting_list_var = tkinter.IntVar()
 
@@ -228,13 +228,17 @@ class WorkItemsTable(GenericTable):
             actual_value = None
 
         wi_acronym = item_values[0]
-        wi_url = self.wi_list[wi_acronym]
+        wis = [e for e in self.wi_list if e is not None and e.acronym==wi_acronym]
+        if wis is not None and len(wis)>0:
+            wi = wis[0]
+        else:
+            wi = None
 
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
 
         if column == 0 or column == 1: # WI
-            print(f'Clicked on WI {wi_acronym}')
-            url_to_open = wi_url
+            print(f'Clicked on WI {wi_acronym}: {wi.url}')
+            url_to_open = wi.url
             open_url(url_to_open)
 
 
