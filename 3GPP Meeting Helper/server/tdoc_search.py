@@ -489,7 +489,7 @@ def search_meeting_for_tdoc(
 
     if len(matching_meetings) > 0:
         matching_meeting = matching_meetings[0]
-        print(f'Matching meeting found for TDoc {tdoc_str}: {matching_meeting.meeting_name}')
+        print(f'Matching meeting found for TDoc {tdoc_str}: {matching_meeting.meeting_name}, {matching_meeting.start_date.year}.{matching_meeting.start_date.month}.{matching_meeting.start_date.day}, {matching_meeting.meeting_location}')
     else:
         if return_last_meeting_if_tdoc_is_new:
             matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
@@ -498,7 +498,7 @@ def search_meeting_for_tdoc(
             matching_meetings.sort(key=lambda x: x.end_date)
             matching_meeting = matching_meetings[-1]
             print(f'Set meeting for TDoc {tdoc_str} as last meeting with available documents: '
-                  f'{matching_meeting.meeting_name}')
+                  f'{matching_meeting.meeting_name}, {matching_meeting.start_date.year}.{matching_meeting.start_date.month}.{matching_meeting.start_date.day}, {matching_meeting.meeting_location}')
         else:
             matching_meeting = None
             print(f'Matching meeting NOT found for TDoc {tdoc_str}')
