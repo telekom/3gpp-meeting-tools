@@ -1,8 +1,7 @@
+import datetime
 import tkinter
-from functools import reduce
 from tkinter import ttk
 from typing import List
-from urllib.parse import parse_qs, urlparse
 
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
@@ -24,7 +23,7 @@ class WorkItemsTable(GenericTable):
             parent_widget=parent_widget,
             widget_title="3GPP Work Items from meeting TDoc list. Double-click: WI code or name for 3GPP page",
             favicon=favicon,
-            column_names=['WI Code', 'Acronym'],
+            column_names=['WI Code', 'Acronym', 'CRs', 'Specs'],
             row_height=35,
             display_rows=14,
             root_widget=root_widget
@@ -44,6 +43,8 @@ class WorkItemsTable(GenericTable):
 
         self.set_column('WI Code', width=200, center=True)
         self.set_column('Acronym', width=200, center=True)
+        self.set_column('CRs', width=100, center=True)
+        self.set_column('Specs', width=100, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -54,12 +55,26 @@ class WorkItemsTable(GenericTable):
         all_groups.extend(meeting_groups_from_3gpp_server)
         all_groups.sort()
 
+        self.search_text = tkinter.StringVar()
+        self.search_entry = tkinter.Entry(
+            self.top_frame,
+            textvariable=self.search_text,
+            width=15,
+            font='TkDefaultFont')
+        self.search_text.trace_add(mode=['write', 'unset'], callback=self.select_rows)
+        ttk.Label(self.top_frame, text="Search: ").pack(side=tkinter.LEFT)
+        self.search_entry.pack(
+            side=tkinter.LEFT,
+            pady=10)
+        ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
+
         self.combo_groups = ttk.Combobox(
             self.top_frame,
             values=all_groups,
             state="readonly",
             width=10)
-        self.combo_groups.set('All Groups')
+        # self.combo_groups.set('All Groups')
+        self.combo_groups.set('S2')
         self.combo_groups.bind("<<ComboboxSelected>>", self.select_rows)
         self.combo_groups.pack(side=tkinter.LEFT)
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
@@ -74,7 +89,8 @@ class WorkItemsTable(GenericTable):
             values=all_years,
             state="readonly",
             width=10)
-        self.combo_years.set('All Years')
+        # self.combo_years.set('All Years')
+        self.combo_years.set(str(datetime.datetime.now().year))
         self.combo_years.bind("<<ComboboxSelected>>", self.select_rows)
         self.combo_years.pack(side=tkinter.LEFT)
 
@@ -130,45 +146,53 @@ class WorkItemsTable(GenericTable):
             self.loaded_meeting_entries = tdoc_search.loaded_meeting_entries
         print('Finished loading meetings')
 
-    def insert_rows(self, tdoc_override=False):
+    def insert_rows(self, text_filter_only=False):
         if not self.finished_loading:
             print(f'Initial load: not populating table')
             return
 
-        selected_year = self.combo_years.get()
-        selected_group = self.combo_groups.get()
-        print(f'Populating WI table: WG {selected_group} for year {selected_year}')
+        search_text = self.search_text.get()
+        if text_filter_only and self.wi_list is not None and len(self.wi_list)>0 and search_text is not None and search_text!='':
+            wi_list = self.wi_list
+        else:
+            selected_year = self.combo_years.get()
+            selected_group = self.combo_groups.get()
+            print(f'Populating WI table: WG {selected_group} for year {selected_year}')
 
-        def meeting_matches_filter(m:MeetingEntry)->bool:
-            filter_match = True
+            def meeting_matches_filter(m:MeetingEntry)->bool:
+                filter_match = True
 
-            # Filter by selected year
-            if (not selected_year.startswith('All')) and (not tdoc_override):
-                filter_match = filter_match and m.starts_in_given_year(int(selected_year))
+                # Filter by selected year
+                if not selected_year.startswith('All'):
+                    filter_match = filter_match and m.starts_in_given_year(int(selected_year))
 
-            # Filter by selected group
-            if (not selected_group.startswith('All')) and (not tdoc_override):
-                if selected_group == 'S3-LI':
-                    filter_match = filter_match and (m.meeting_group == 'S3' and m.is_li)
-                elif selected_group == 'S3':
-                    filter_match = filter_match and (m.meeting_group == 'S3' and not m.is_li)
-                else:
-                    filter_match = filter_match and (m.meeting_group == selected_group)
+                # Filter by selected group
+                if not selected_group.startswith('All'):
+                    if selected_group == 'S3-LI':
+                        filter_match = filter_match and (m.meeting_group == 'S3' and m.is_li)
+                    elif selected_group == 'S3':
+                        filter_match = filter_match and (m.meeting_group == 'S3' and not m.is_li)
+                    else:
+                        filter_match = filter_match and (m.meeting_group == selected_group)
 
-            return filter_match
+                return filter_match
 
-        selected_meetings = [m for m in self.loaded_meeting_entries if
-                             meeting_matches_filter(m) ]
-        print(f'{len(selected_meetings)} meetings selected')
+            selected_meetings = [m for m in self.loaded_meeting_entries if
+                                 meeting_matches_filter(m) ]
+            print(f'{len(selected_meetings)} meetings selected')
 
-        # Download meetings if necessary
-        batch_download_meeting_tdocs_excel(selected_meetings)
+            # Download meetings if necessary
+            batch_download_meeting_tdocs_excel(selected_meetings)
 
-        list_of_lists = [m.tdoc_data_from_excel_with_cache_overwrite.work_items for m in selected_meetings]
-        wi_list = [item for sublist in list_of_lists for item in sublist]
-        wi_list = list(set(wi_list))
-        wi_list = sorted(wi_list, key=lambda x:x.acronym)
-        self.wi_list = wi_list
+            list_of_lists = [m.tdoc_data_from_excel_with_cache_overwrite.work_items for m in selected_meetings]
+            wi_list = [item for sublist in list_of_lists for item in sublist]
+            wi_list = list(set(wi_list))
+            wi_list = sorted(wi_list, key=lambda x:x.acronym)
+            self.wi_list = wi_list
+
+        if search_text is not None and search_text != '':
+            wi_list = [wi for wi in wi_list if wi is not None and search_text in wi.acronym]
+            self.wi_list = wi_list
 
         count = 0
         for wi_data in wi_list:
@@ -186,6 +210,8 @@ class WorkItemsTable(GenericTable):
             values = (
                 wi_code,
                 work_item_id,
+                'Link',
+                'Link'
             )
             self.tree.insert(
                 "",
@@ -209,12 +235,13 @@ class WorkItemsTable(GenericTable):
         self.load_data(initial_load=True)
         self.apply_filters()
 
-    def apply_filters(self, tdoc_override=False):
+    def apply_filters(self, text_filter_only=False):
         self.tree.delete(*self.tree.get_children())
-        self.insert_rows(tdoc_override=tdoc_override)
+        self.insert_rows(text_filter_only)
 
     def select_rows(self, *args):
-        # self.apply_filters()
+        print(f'Search filter: {args[0]}, {args[1]}, {args[2]}')
+        self.apply_filters(text_filter_only=True)
         pass
 
     def on_double_click(self, event):
@@ -236,9 +263,18 @@ class WorkItemsTable(GenericTable):
 
         print("you clicked on {0}/{1}: {2}".format(event.x, event.y, actual_value))
 
-        if column == 0 or column == 1: # WI
-            print(f'Clicked on WI {wi_acronym}: {wi.url}')
-            url_to_open = wi.url
-            open_url(url_to_open)
+        match column:
+            case 0 | 1:
+                print(f'Clicked on WI {wi_acronym}: {wi.url}')
+                url_to_open = wi.url
+                open_url(url_to_open)
+            case 2:
+                print(f'Clicked on CRs for WI {wi_acronym} ({wi.work_item_id})')
+                url_to_open = wi.crs_url
+                open_url(url_to_open)
+            case 3:
+                print(f'Clicked on Specs for WI {wi_acronym} ({wi.work_item_id})')
+                url_to_open = wi.specs_url
+                open_url(url_to_open)
 
 
