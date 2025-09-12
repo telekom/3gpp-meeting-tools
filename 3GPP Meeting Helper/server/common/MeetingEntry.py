@@ -299,6 +299,14 @@ class WorkItem:
         return parse_qs(urlparse(self.url).query).get('workitemId', [None])[0]
 
     @cached_property
+    def crs_url(self):
+        return f'https://portal.3gpp.org/ChangeRequests.aspx?q=1&workitem={self.work_item_id}'
+
+    @cached_property
+    def specs_url(self):
+        return f'https://portal.3gpp.org/Specifications.aspx?q=1&WiUid={self.work_item_id}'
+
+    @cached_property
     def local_path(self):
         folder = get_work_items_cache_folder()
         file_name = f'{self.work_item_id}.html'
