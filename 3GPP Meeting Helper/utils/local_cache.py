@@ -16,7 +16,7 @@ def get_cache_folder(create_dir=False):
     return folder_name
 
 
-def create_folder_if_needed(folder_name, create_dir):
+def create_folder_if_needed(folder_name, create_dir=True):
     if create_dir and (not os.path.exists(folder_name)):
         os.makedirs(folder_name, exist_ok=True)
 

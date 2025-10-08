@@ -8,8 +8,11 @@ from zipfile import ZipFile
 
 import platform
 
-from application.common import ExportType, ActionAfter, DocumentMetadata
+from application.common import ExportType, ActionAfter, DocumentMetadata, get_extension_type
 from application.os import startfile
+from server.common.Tdoc import Tdoc
+from server.common.server_utils import DownloadedTdocDocument
+from utils import local_cache
 
 if platform.system() == 'Windows':
     print('Windows System detected. Importing win32.client')
@@ -182,7 +185,8 @@ def export_document(
         exclude_if_includes='_rm.doc',
         remove_all_fields=False,
         accept_all_changes=False,
-        do_after=ActionAfter.NOTHING
+        do_after=ActionAfter.NOTHING,
+        export_folder=None
 ) -> List[str]:
     """
     Converts a given set of Word files to PDF/HTML
@@ -193,6 +197,7 @@ def export_document(
         export_format: The format to which the document should be exported to
         word_files: String list containing local paths to the Word files to convert
         exclude_if_includes: a string suffix to ignore certain files (e.g. files with change marks)
+        export_folder: IF specified, a folder where to place the exported file
     Returns:
         String list containing local paths to the converted PDF files
     """
@@ -212,23 +217,26 @@ def export_document(
     if exclude_if_includes != '' and exclude_if_includes is not None:
         word_files = [e for e in word_files if exclude_if_includes not in e]
 
-    if export_format == ExportType.HTML:
-        extension = '.html'
-        print('Converting to PDF: {0}'.format(word_files))
-    elif export_format == ExportType.DOCX:
-        extension = '.docx'
-        print('Converting to DOCX: {0}'.format(word_files))
-    else:
-        extension = '.pdf'
-        print('Converting to PDF: {0}'.format(word_files))
+    extension = get_extension_type(export_format)
+    print(f'Converting to {export_format.name} ({extension})')
 
+    if export_format != ExportType.NONE:
         word = None
         for word_file in word_files:
             try:
-                file, ext = os.path.splitext(word_file)
+                if export_folder is None:
+                    file, ext = os.path.splitext(word_file)
+                else:
+                    # Split into directory and file
+                    folder, filename = os.path.split(word_file)
+                    # Split filename into name and extension
+                    file, ext = os.path.splitext(filename)
+                    file = os.path.join(export_folder, file)
+
+                out_file = file + extension
+
                 if ext == '.doc' or ext == '.docx':
                     # See https://stackoverflow.com/questions/6011115/doc-to-pdf-using-python
-                    out_file = file + extension
                     print('Export file path: {0}'.format(out_file))
                     if not file_exists(out_file):
                         if word is None:
@@ -244,40 +252,41 @@ def export_document(
                             print('Accepting all changes')
                             doc.Revisions.AcceptAll()
 
-                        if export_format == ExportType.PDF:
-                            # .doc files often give problems when exporting to PDF. First convert to .docx
-                            if ext == '.doc':
-                                print('A POPUP MAY APPEAR ASKING YOU TO SET A SENSITIVITY LABEL (.doc file extension)')
-                                print('Unfortunately, VBA cannot automate this step. Please set the label manually')
-                                converted_docx_list = export_document(
-                                    [word_file],
-                                    ExportType.DOCX)
-                                docx_version = converted_docx_list[0]
-                                doc = word.Documents.Open(docx_version)
+                        match export_format:
+                            case ExportType.PDF:
+                                # .doc files often give problems when exporting to PDF. First convert to .docx
+                                if ext == '.doc':
+                                    print('A POPUP MAY APPEAR ASKING YOU TO SET A SENSITIVITY LABEL (.doc file extension)')
+                                    print('Unfortunately, VBA cannot automate this step. Please set the label manually')
+                                    converted_docx_list = export_document(
+                                        [word_file],
+                                        ExportType.DOCX)
+                                    docx_version = converted_docx_list[0]
+                                    doc = word.Documents.Open(docx_version)
 
-                            # See https://docs.microsoft.com/en-us/office/vba/api/word.document.exportasfixedformat
-                            print(f'PDF Conversion started: OutputFileName={out_file}')
-                            doc.ExportAsFixedFormat(
-                                OutputFileName=out_file,
-                                ExportFormat=wdExportFormatPDF,
-                                OpenAfterExport=False,
-                                OptimizeFor=wdExportOptimizeForPrint,
-                                IncludeDocProps=True,
-                                CreateBookmarks=wdExportCreateHeadingBookmarks
-                            )
-                        elif export_format == ExportType.DOCX:
-                            print('DOCX Conversion started')
-                            doc.SaveAs2(
-                                FileName=out_file,
-                                FileFormat=wdFormatDocumentDefault
-                            )
-                        else:
-                            print('HTML Conversion started')
-                            doc.WebOptions.AllowPNG = True
-                            doc.SaveAs2(
-                                FileName=out_file,
-                                FileFormat=wdFormatFilteredHTML
-                            )
+                                # See https://docs.microsoft.com/en-us/office/vba/api/word.document.exportasfixedformat
+                                print(f'PDF Conversion started: OutputFileName={out_file}')
+                                doc.ExportAsFixedFormat(
+                                    OutputFileName=out_file,
+                                    ExportFormat=wdExportFormatPDF,
+                                    OpenAfterExport=False,
+                                    OptimizeFor=wdExportOptimizeForPrint,
+                                    IncludeDocProps=True,
+                                    CreateBookmarks=wdExportCreateHeadingBookmarks
+                                )
+                            case ExportType.DOCX:
+                                print('DOCX Conversion started')
+                                doc.SaveAs2(
+                                    FileName=out_file,
+                                    FileFormat=wdFormatDocumentDefault
+                                )
+                            case _:
+                                print('HTML Conversion started')
+                                doc.WebOptions.AllowPNG = True
+                                doc.SaveAs2(
+                                    FileName=out_file,
+                                    FileFormat=wdFormatFilteredHTML
+                                )
 
                         print('Converted {0} to {1}'.format(word_file, out_file))
 
@@ -436,3 +445,23 @@ def get_reviews_for_active_document(search_author: str = None, replace_author: s
         print("Could not get reviews from active document")
         traceback.print_exc()
         return
+
+def convert_tdoc_files_to_format(
+        tdoc_documents:list[DownloadedTdocDocument],
+        tdoc:Tdoc,
+        export_format: ExportType = ExportType.PDF):
+    export_folder = tdoc.get_local_export_path
+    local_cache.create_folder_if_needed(export_folder)
+    total_exported_files = []
+    print(f'Exporting {tdoc.tdoc.tdoc} files to {export_format.name}')
+    for tdoc_document in tdoc_documents:
+        total_exported_files.extend(
+            export_document(
+                [tdoc_document.path],
+                export_format=export_format,
+                do_after=ActionAfter.CLOSE_FILE,
+                export_folder=export_folder
+                ))
+
+    return total_exported_files
+

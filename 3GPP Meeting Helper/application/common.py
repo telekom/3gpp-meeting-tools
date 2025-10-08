@@ -8,6 +8,19 @@ class ExportType(Enum):
     HTML = 2
     DOCX = 3
 
+def get_extension_type(export_type:ExportType)-> str|None:
+    match export_type:
+        case ExportType.NONE:
+            return None
+        case ExportType.HTML:
+            return '.html'
+        case ExportType.DOCX:
+            return '.docx'
+        case ExportType.PDF:
+            return '.pdf'
+        case _:
+            return None
+
 
 class ActionAfter(Enum):
     NOTHING = 0
