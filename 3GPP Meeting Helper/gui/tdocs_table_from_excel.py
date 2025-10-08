@@ -23,7 +23,7 @@ from application.excel import open_excel_document, set_autofilter_values, export
     export_columns_to_markdown_dataframe
 from application.meeting_helper import tdoc_tags, open_sa2_drafts_url
 from application.os import open_url, startfile
-from application.word import export_document
+from application.word import export_document, convert_tdoc_files_to_format
 from config.markdown import MarkdownConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
@@ -31,11 +31,12 @@ from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon, \
     filter_icon, note_icon, ftp_icon, markdown_icon, share_markdown_icon
 from server.common.MeetingEntry import MeetingEntry
+from server.common.Tdoc import Tdoc
 from server.common.server_utils import get_document_or_folder_url, get_tdoc_details_url, \
-    DownloadedTdocDocument
+    DownloadedTdocDocument, DownloadedData
 from server.common.server_utils import ServerType, DocumentType, WorkingGroup
 from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
-from tdoc.utils import are_generic_tdocs
+from tdoc.utils import are_generic_tdocs, GenericTdoc
 from utils.local_cache import create_folder_if_needed
 from utils.utils import invert_dict_defaultdict
 
@@ -410,7 +411,7 @@ class TdocsTableFromExcel(GenericTable):
 
         ttk.Label(self.bottom_frame, textvariable=self.tdoc_count).pack(side=tkinter.LEFT)
 
-    def download_tdocs(self, tdoc_list: List[str] | None = None) -> List[Any]:
+    def download_tdocs(self, tdoc_list: List[str] | None = None) -> List[DownloadedData]:
         if tdoc_list is None:
             tdoc_list = self.tdocs_current_df.index.tolist()
         downloaded_files = []
@@ -446,23 +447,51 @@ class TdocsTableFromExcel(GenericTable):
         export_id = f'{time_now.year:04d}.{time_now.month:02d}.{time_now.day:02d} {time_now.hour:02d}{time_now.minute:02d}{time_now.second:02d}'
         export_folder = os.path.join(export_root_folder, export_id)
 
+        export_type = ExportType.NONE
+        match self.combo_export_format.get():
+            case 'HTML':
+                export_type = ExportType.HTML
+            case 'PDF':
+                export_type = ExportType.PDF
+
         print(f'Exporting files to {export_folder}')
         create_folder_if_needed(folder_name=export_folder, create_dir=True)
 
         # First we need to download the TDocs
         downloaded_files = self.download_tdocs(tdoc_list=tdoc_list)
-        files_to_export = [e[1] for e in downloaded_files if e is not None and isinstance(e, tuple) and e[1] is not None]
-        files_to_export = [item for sublist in files_to_export for item in sublist]
-        files_to_export = [(e.tdoc_id, e.path) for e in files_to_export if isinstance(e, DownloadedTdocDocument)]
+        downloaded_files = [e for e in downloaded_files if e is not None and e.downloaded_word_documents is not None]
+        files_to_export = [e.downloaded_word_documents for e in downloaded_files]
 
-        print(f'Exporting files to {export_folder}')
-        exported_files = []
-        for (tdoc, file_to_export) in files_to_export:
-            print(f'  {tdoc} in {file_to_export}')
-            output_file = f'{tdoc}_{os.path.basename(file_to_export)}'
+        files_to_export_flat = [item for sublist in files_to_export for item in sublist]
+        tdocs_in_list = {tdoc.tdoc: (Tdoc(tdoc=tdoc, meeting=self.meeting), [d for d in files_to_export_flat if d.tdoc_id==tdoc.tdoc]) for tdoc in
+                         list(set([GenericTdoc(e.tdoc_id) for e in files_to_export_flat]))}
+        files_to_convert = [(v[0], v[1]) for v in tdocs_in_list.values()]
+
+        print(f'Will export the following files to {export_type.name}:')
+        for f in files_to_convert:
+            print(f'  {f[0].tdoc.tdoc}:')
+            for t in f[1]:
+                print(f'    {t.path}')
+
+        converted_files = []
+        if export_type != ExportType.NONE:
+            for f in files_to_convert:
+                tdoc = f[0]
+                tdoc_files = f[1]
+                converted_files.extend([(tdoc, e) for e in convert_tdoc_files_to_format(tdoc_files, tdoc, export_format=export_type)])
+        else:
+            for f in files_to_convert:
+                tdoc = f[0]
+                tdoc_files = f[1]
+                tdoc_files_path = [t.path for t in tdoc_files]
+                converted_files.extend([(tdoc, e) for e in tdoc_files_path])
+
+        print(f'Copying files to {export_folder}')
+        for (tdoc, file_to_export) in converted_files:
+            output_file = f'{tdoc.tdoc.tdoc}_{os.path.basename(file_to_export)}'
             output_path = os.path.join(export_folder, output_file)
+            print(f'  {tdoc.tdoc.tdoc} in {file_to_export} -> {output_path}')
             shutil.copy(file_to_export, output_path)
-            exported_files.append(output_path)
 
         os.startfile(export_folder)
 
@@ -472,22 +501,9 @@ class TdocsTableFromExcel(GenericTable):
             tdoc_id: str
 
         pdf_bookmarks: List[PdfBookmark] = []
-        export_type = ExportType.NONE
-        match self.combo_export_format.get():
-            case 'HTML':
-                export_type = ExportType.HTML
-            case 'PDF':
-                export_type = ExportType.PDF
-
 
         if export_type != ExportType.NONE:
-            print('Exporting files to specified format')
-            exported_pdfs = export_document(
-                exported_files,
-                export_format=export_type,
-                do_after=ActionAfter.CLOSE_AND_DELETE_FILE)
             folder_path = Path(export_folder)
-
             if export_type != ExportType.PDF:
                 # TDoc merge and prompt generation only for PDF format
                 return
@@ -498,7 +514,6 @@ class TdocsTableFromExcel(GenericTable):
             last_bookmark_page = 0
             last_bookmark = None
             tdoc_id = None
-            old_tdoc_id = None
             for exported_file in all_exported_files:
                 old_tdoc_id = tdoc_id
                 tdoc_id = exported_file.name.split('_')[0]
@@ -555,6 +570,8 @@ class TdocsTableFromExcel(GenericTable):
                 f.write('The attached PDF contains a collection of documents\n')
                 lines_to_write = [get_text_for_prompt(e) for e in pdf_bookmarks]
                 f.writelines(lines_to_write)
+                f.write('\n')
+                f.write('Please do not consider company names in brackets or with a question mark as company position or as a co-signer\n')
 
     def current_excel_rows_to_clipboard(self):
         wb = open_excel_document(self.tdoc_excel_path)
