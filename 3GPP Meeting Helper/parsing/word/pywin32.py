@@ -16,7 +16,7 @@ import config.ai_names
 import config.contributor_names as contributor_names
 import server.tdoc
 from application.word import get_word, open_word_document
-from application.common import DocumentMetadata
+from application.common import DocumentMetadata, ExportType
 from tdoc.utils import tdoc_regex
 
 title_regex = re.compile(r'Title:[\s\n]*(?P<title>.*)[\s\n]*\n', re.MULTILINE)
@@ -1026,7 +1026,12 @@ def open_file(file, return_metadata=False, go_to_page=1):
     return application.word.open_file(file, go_to_page=go_to_page, metadata_function=get_metadata_from_doc)
 
 
-def open_files(files, return_metadata=False, go_to_page=1) -> int | Tuple[int, List[DocumentMetadata]]:
+def open_files(
+        files,
+        return_metadata=False,
+        go_to_page=1,
+        convert_to_before_opening: ExportType = ExportType.NONE
+) -> int | Tuple[int, List[DocumentMetadata]]:
     # No metadata
     if not return_metadata:
         return application.word.open_files(files, go_to_page=go_to_page)
@@ -1035,7 +1040,8 @@ def open_files(files, return_metadata=False, go_to_page=1) -> int | Tuple[int, L
     opened_files, parsed_metadata_list = application.word.open_files(
         files,
         go_to_page=go_to_page,
-        metadata_function=get_metadata_from_doc)
+        metadata_function=get_metadata_from_doc,
+        convert_to_before_opening=convert_to_before_opening)
     return opened_files, parsed_metadata_list
 
 

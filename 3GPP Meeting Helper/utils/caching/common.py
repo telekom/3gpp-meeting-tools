@@ -3,6 +3,7 @@ import os
 import pickle
 from typing import Any
 
+export_subfolder = 'export'
 
 def hash_file(file_path: str, chunk_size=4096) -> str|None:
     """

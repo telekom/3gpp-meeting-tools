@@ -4,6 +4,8 @@ from functools import cached_property
 
 from server.common.MeetingEntry import MeetingEntry
 from tdoc.utils import GenericTdoc
+from utils.caching.common import export_subfolder
+
 
 @dataclass(frozen=True)
 class Tdoc:
@@ -24,4 +26,4 @@ class Tdoc:
 
     @cached_property
     def get_local_export_path(self) -> str | None:
-        return os.path.join(self.get_local_folder, 'export')
+        return os.path.join(self.get_local_folder, export_subfolder)

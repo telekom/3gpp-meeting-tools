@@ -13,6 +13,7 @@ from application.os import startfile
 from server.common.Tdoc import Tdoc
 from server.common.server_utils import DownloadedTdocDocument
 from utils import local_cache
+from utils.caching.common import export_subfolder
 
 if platform.system() == 'Windows':
     print('Windows System detected. Importing win32.client')
@@ -20,7 +21,7 @@ if platform.system() == 'Windows':
 
 # See https://docs.microsoft.com/en-us/office/vba/api/word.wdexportformat
 from application import sensitivity_label
-from utils.local_cache import file_exists
+from utils.local_cache import file_exists, get_export_target_path_for_file, create_folder_if_needed
 
 # Global Word instance does not work (removed)
 # word = None
@@ -94,7 +95,12 @@ def open_word_document(filename='', set_as_active_document=True, visible=True, )
     return doc
 
 
-def open_file(file, go_to_page=1, metadata_function: Callable[[Any, Any], Any]|None=None) -> None | bool | Tuple[bool, Any]:
+def open_file(
+        file,
+        go_to_page=1,
+        metadata_function: Callable[[Any, Any], Any]|None=None,
+        convert_to_before_opening=ExportType.NONE
+) -> None | bool | Tuple[bool, Any]:
     if (file is None) or (file == ''):
         return None
     metadata = None
@@ -106,14 +112,33 @@ def open_file(file, go_to_page=1, metadata_function: Callable[[Any, Any], Any]|N
             filename_start = tail[0:2]
             if filename_start == '._':
                 not_mac_metadata = False
-        except:
+        except Exception as e:
+            print(f'Could not split filepath: {e}')
             pass
+
         if ((extension == 'doc') or (extension == 'docx')) and not_mac_metadata:
-            doc = open_word_document(file)
-            if metadata_function is not None and doc is not None:
-                metadata = metadata_function(doc, file)
-            else:
+            if convert_to_before_opening == ExportType.NONE:
+                doc = open_word_document(file)
+                if metadata_function is not None and doc is not None:
+                    metadata = metadata_function(doc, file)
+                else:
+                    metadata = None
+            elif convert_to_before_opening==ExportType.PDF or convert_to_before_opening==ExportType.HTML:
+                [head,_] = os.path.split(file)
+                export_folder = os.path.join(head, export_subfolder)
+                create_folder_if_needed(export_folder)
+                exported_files = export_document(word_files=[file],
+                                export_format=convert_to_before_opening,
+                                export_folder=export_folder)
                 metadata = None
+                for file in exported_files:
+                    metadata = DocumentMetadata(
+                        title=None,
+                        source=None,
+                        path=file)
+                    startfile(metadata.path)
+            else:
+                print('Conversion not PDF or HTML. Not implemented')
             if go_to_page != 1:
                 pass
                 # Not working :(
@@ -144,7 +169,11 @@ def open_file(file, go_to_page=1, metadata_function: Callable[[Any, Any], Any]|N
         return return_value
 
 
-def open_files(files, metadata_function: Callable[[Any, str], DocumentMetadata] | None = None, go_to_page=1) \
+def open_files(
+        files,
+        metadata_function: Callable[[Any, str], DocumentMetadata] | None = None,
+        go_to_page=1,
+        convert_to_before_opening: ExportType = ExportType.NONE) \
         -> int | Tuple[int, List[DocumentMetadata]]:
     if files is None:
         return 0
@@ -154,16 +183,26 @@ def open_files(files, metadata_function: Callable[[Any, str], DocumentMetadata] 
         print(f'Opening {file}')
         try:
             if metadata_function is not None:
-                file_opened, metadata = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
+                file_opened, metadata = open_file(
+                    file,
+                    metadata_function=metadata_function,
+                    go_to_page=go_to_page,
+                    convert_to_before_opening=convert_to_before_opening
+                )
                 metadata = DocumentMetadata(
                     title=metadata.title if metadata is not None else None,
                     source=metadata.source if metadata is not None else None,
                     path=file)
             else:
-                file_opened = open_file(file, metadata_function=metadata_function, go_to_page=go_to_page)
+                file_opened = open_file(
+                    file,
+                    metadata_function=metadata_function,
+                    go_to_page=go_to_page,
+                    convert_to_before_opening=convert_to_before_opening
+                )
                 metadata = []
-        except:
-            print(f'Could not open {file}')
+        except Exception as e:
+            print(f'Could not open {file}: {e}')
             traceback.print_exc()
 
             file_opened = None
@@ -197,7 +236,7 @@ def export_document(
         export_format: The format to which the document should be exported to
         word_files: String list containing local paths to the Word files to convert
         exclude_if_includes: a string suffix to ignore certain files (e.g. files with change marks)
-        export_folder: IF specified, a folder where to place the exported file
+        export_folder: If specified, a folder where to place the exported file
     Returns:
         String list containing local paths to the converted PDF files
     """
