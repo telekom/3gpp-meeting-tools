@@ -4,7 +4,9 @@ from typing import Callable
 
 import html2text
 
+from application.common import get_extension_type, ExportType
 from config.cache import CacheConfig
+from utils.caching.common import export_subfolder
 
 
 def get_cache_folder(create_dir=False):
@@ -220,4 +222,15 @@ def get_private_server_tdocs_by_agenda_local_cache(create_dir=True):
     cache_folder = get_cache_folder(create_dir)
     cache_file = os.path.join(cache_folder, '3gpp_server_TdocsByAgenda.html')
     return cache_file
+
+def get_export_target_path_for_file(filepath:str, export_format:ExportType, subfolder=None)->str:
+    new_extension = get_extension_type(export_format)
+    [original_folder, file] = os.path.split(filepath)
+    [file_cut, _] = os.path.splitext(file)
+    new_file = f'{file_cut}{new_extension}'
+    new_folder = os.path.join(original_folder, export_subfolder)
+    new_filepath = os.path.join(new_folder, new_file)
+    return new_filepath
+
+
 

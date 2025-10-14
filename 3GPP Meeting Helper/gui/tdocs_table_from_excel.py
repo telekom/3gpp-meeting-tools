@@ -837,11 +837,19 @@ class TdocsTableFromExcel(GenericTable):
             case 0 | 6:
                 print(f'Clicked on TDoc {actual_value}. Row: {tdoc_id}')
                 tdocs_to_open = are_generic_tdocs(actual_value)
+                match self.combo_export_format.get():
+                    case 'HTML':
+                        convert_to_before_opening = ExportType.HTML
+                    case 'PDF':
+                        convert_to_before_opening = ExportType.PDF
+                    case _:
+                        convert_to_before_opening = ExportType.NONE
                 for tdoc_to_open in tdocs_to_open:
                     opened_docs_folder, metadata = server.tdoc_search.search_download_and_open_tdoc(
                         tdoc_to_open.tdoc,
                         tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available,
-                        tdoc_meeting=self.meeting
+                        tdoc_meeting=self.meeting,
+                        convert_to_before_opening=convert_to_before_opening
                     )
 
                     # Re-load Tdoc list to allow for icon changes

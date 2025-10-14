@@ -8,6 +8,7 @@ from typing import List, Tuple, Dict
 
 import parsing.word.pywin32
 import tdoc.utils
+from application.common import ExportType
 from application.os import startfile
 from application.zip_files import unzip_files_in_zip_file
 from config.meetings import MeetingConfig
@@ -526,11 +527,13 @@ def search_download_and_open_tdoc(
         skip_open=False,
         tkvar_3gpp_wifi_available: BooleanVar|None=None,
         tdoc_meeting: MeetingEntry =None,
+        convert_to_before_opening: ExportType = ExportType.NONE
 ) -> DownloadedData:
     """
     Searches for a given TDoc. If the zip file contains many files (e.g. typical for plenary CR packs), it will only
     open the folder.
     Args:
+        convert_to_before_opening: Whether to convert the file to PDF before opening
         tdoc_meeting: The meeting for this TDoc if known (so we do not have to search for it)
         tkvar_3gpp_wifi_available: Whether we should use a private server if available
         skip_open: Whether to skip opening the files
@@ -598,7 +601,11 @@ def search_download_and_open_tdoc(
     files_in_zip = unzip_files_in_zip_file(local_target)
     if (len(files_in_zip) <= maximum_number_of_files_to_open) and (not skip_open):
         folder_to_open, first_file = os.path.split(files_in_zip[0])
-        opened_files, metadata_list = parsing.word.pywin32.open_files(files_in_zip, return_metadata=True)
+        opened_files, metadata_list = parsing.word.pywin32.open_files(
+            files_in_zip,
+            return_metadata=True,
+            convert_to_before_opening = convert_to_before_opening
+        )
         metadata_list = [DownloadedTdocDocument(
             title=m.title,
             source=m.source,
