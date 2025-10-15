@@ -1,15 +1,19 @@
 import datetime
+import textwrap
 import tkinter
+from os import startfile
 from tkinter import ttk
 from typing import List
 
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.common.gui_elements import TTKHoverHelpButton
-from gui.common.icons import refresh_icon
+from gui.common.icons import refresh_icon, folder_icon
 from server import tdoc_search
 from server.common.MeetingEntry import MeetingEntry, WorkItem
+from server.common.server_utils import FileToDownload, batch_download_file_to_location
 from server.meeting import batch_download_meeting_tdocs_excel
+from utils.local_cache import get_work_items_cache_folder
 
 
 class WorkItemsTable(GenericTable):
@@ -23,8 +27,8 @@ class WorkItemsTable(GenericTable):
             parent_widget=parent_widget,
             widget_title="3GPP Work Items from meeting TDoc list. Double-click: WI code or name for 3GPP page",
             favicon=favicon,
-            column_names=['WI Code', 'Acronym', 'CRs', 'Specs'],
-            row_height=35,
+            column_names=['WI Code', 'Acronym', 'Name','WID', 'CRs', 'Specs'],
+            row_height=40,
             display_rows=14,
             root_widget=root_widget
         )
@@ -42,9 +46,11 @@ class WorkItemsTable(GenericTable):
         self.compare_text_tk_str = tkinter.StringVar()
 
         self.set_column('WI Code', width=200, center=True)
-        self.set_column('Acronym', width=200, center=True)
-        self.set_column('CRs', width=100, center=True)
-        self.set_column('Specs', width=100, center=True)
+        self.set_column('Acronym', width=100, center=True)
+        self.set_column('Name', width=550, center=True)
+        self.set_column('WID', width=150, center=True)
+        self.set_column('CRs', width=75, center=True)
+        self.set_column('Specs', width=75, center=True)
 
         self.tree.bind("<Double-Button-1>", self.on_double_click)
 
@@ -111,6 +117,16 @@ class WorkItemsTable(GenericTable):
             command=self.apply_filters,
             image=refresh_icon
         ).pack(side=tkinter.LEFT)
+
+        # Open cache folder
+        self.cache_btn = TTKHoverHelpButton(
+            self.top_frame,
+            image=folder_icon,
+            command=lambda: startfile(get_work_items_cache_folder()),
+            width=5,
+            help_text="Open local folder for meeting"
+        )
+        self.cache_btn.pack(side=tkinter.LEFT)
 
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.redownload_meeting_list.pack(side=tkinter.LEFT)
@@ -182,7 +198,9 @@ class WorkItemsTable(GenericTable):
             print(f'{len(selected_meetings)} meetings selected')
 
             # Download meetings if necessary
-            batch_download_meeting_tdocs_excel(selected_meetings)
+            batch_download_meeting_tdocs_excel(
+                selected_meetings,
+                redownload_if_exists=self.redownload_meeting_list_var.get())
 
             list_of_lists = [m.tdoc_data_from_excel_with_cache_overwrite.work_items for m in selected_meetings]
             wi_list = [item for sublist in list_of_lists for item in sublist]
@@ -203,13 +221,12 @@ class WorkItemsTable(GenericTable):
             else:
                 tag = 'even'
 
-            wi_code = wi_data.acronym
-            work_item_id = wi_data.work_item_id
-
             # 'Meeting', 'Location', 'Start', 'End', 'TDoc Start', 'TDoc End', 'Documents'
             values = (
-                wi_code,
-                work_item_id,
+                wi_data.acronym,
+                wi_data.work_item_id,
+                textwrap.fill(wi_data.name, width=70),
+                wi_data.latest_wid_version,
                 'Link',
                 'Link'
             )
@@ -238,6 +255,17 @@ class WorkItemsTable(GenericTable):
     def apply_filters(self, text_filter_only=False):
         self.tree.delete(*self.tree.get_children())
         self.insert_rows(text_filter_only)
+
+        # Create cache folde if needed
+        get_work_items_cache_folder()
+
+        # Download WI files to cache folder
+        file_dl_list = [FileToDownload(
+            remote_url = e.url,
+            local_filepath = e.local_path,
+            force_download = False
+        ) for e in self.wi_list]
+        batch_download_file_to_location(file_dl_list, convert_html_to_txt=True)
 
     def select_rows(self, *args):
         print(f'Search filter: {args[0]}, {args[1]}, {args[2]}')
@@ -268,11 +296,14 @@ class WorkItemsTable(GenericTable):
                 print(f'Clicked on WI {wi_acronym}: {wi.url}')
                 url_to_open = wi.url
                 open_url(url_to_open)
-            case 2:
+            case 3:
+                print(f'Clicked on WID for {wi_acronym}: {wi.latest_wid_version}')
+                tdoc_search.search_download_and_open_tdoc(wi.latest_wid_version)
+            case 4:
                 print(f'Clicked on CRs for WI {wi_acronym} ({wi.work_item_id})')
                 url_to_open = wi.crs_url
                 open_url(url_to_open)
-            case 3:
+            case 5:
                 print(f'Clicked on Specs for WI {wi_acronym} ({wi.work_item_id})')
                 url_to_open = wi.specs_url
                 open_url(url_to_open)

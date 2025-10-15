@@ -7,7 +7,7 @@ import textwrap
 import tkinter
 from pathlib import Path
 from tkinter import ttk
-from typing import List, Any, NamedTuple
+from typing import List, NamedTuple
 
 import numpy as np
 import pyperclip
@@ -18,12 +18,12 @@ from pypdf.generic import PAGE_FIT
 import server
 import utils.caching.common
 import utils.local_cache
-from application.common import ActionAfter, ExportType
+from application.common import ExportType
 from application.excel import open_excel_document, set_autofilter_values, export_columns_to_markdown, clear_autofilter, \
     export_columns_to_markdown_dataframe
 from application.meeting_helper import tdoc_tags, open_sa2_drafts_url
 from application.os import open_url, startfile
-from application.word import export_document, convert_tdoc_files_to_format
+from application.word import convert_tdoc_files_to_format
 from config.markdown import MarkdownConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
@@ -32,9 +32,9 @@ from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share
     filter_icon, note_icon, ftp_icon, markdown_icon, share_markdown_icon
 from server.common.MeetingEntry import MeetingEntry
 from server.common.Tdoc import Tdoc
-from server.common.server_utils import get_document_or_folder_url, get_tdoc_details_url, \
-    DownloadedTdocDocument, DownloadedData
 from server.common.server_utils import ServerType, DocumentType, WorkingGroup
+from server.common.server_utils import get_document_or_folder_url, get_tdoc_details_url, \
+    DownloadedData
 from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
 from tdoc.utils import are_generic_tdocs, GenericTdoc
 from utils.local_cache import create_folder_if_needed
