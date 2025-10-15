@@ -191,7 +191,7 @@ class WorkItemsTable(GenericTable):
             self.wi_list = wi_list
 
         if search_text is not None and search_text != '':
-            wi_list = [wi for wi in wi_list if wi is not None and search_text in wi.acronym]
+            wi_list = [wi for wi in wi_list if wi is not None and str.lower(search_text) in str.lower(wi.acronym)]
             self.wi_list = wi_list
 
         count = 0
