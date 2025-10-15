@@ -5,6 +5,8 @@ import socket
 import traceback
 from typing import NamedTuple, List
 
+import html2text
+
 from config.networking import private_server, public_server, wg_folder_public_server, wg_folder_private_server
 from server.common.server_enums import ServerType, DocumentType, TdocType, WorkingGroup, DocumentFileType
 from server.connection import get_remote_file
@@ -201,11 +203,13 @@ def download_file_to_location(
         url: str,
         local_location: str,
         cache=False,
-        force_download=False
+        force_download=False,
+        convert_html_to_txt=False
 ) -> bool:
     """
     Downloads a given file to a local location
     Args:
+        convert_html_to_txt: Whether to finally convert the downloaded HTML file to TXT
         cache: Whether to use HTTP caching
         url: The URL to download
         local_location: Where to download the file to
@@ -233,7 +237,23 @@ def download_file_to_location(
         with open(local_location, 'wb') as output:
             print('Saved {0}'.format(local_location))
             output.write(file)
-            return True
+
+        [root, ext] = os.path.splitext(local_location)
+        if convert_html_to_txt and (ext=='.htm' or ext=='.html'):
+            txt_location = f'{root}.txt'
+            h = html2text.HTML2Text()
+            h.ignore_links = False
+            h.body_width = 0
+
+            with open(local_location, 'r', encoding="utf-8") as f:
+                html = f.read()
+            text = h.handle(html)
+            with open(txt_location, 'w', encoding="utf-8") as out:
+                print('Saved {0}'.format(txt_location))
+                out.write(text)
+
+        return True
+
     except Exception as e:
         print(f'Could not download file {url} to {local_location}: {e}')
         return False
@@ -245,10 +265,14 @@ class FileToDownload(NamedTuple):
     force_download: bool
 
 
-def batch_download_file_to_location(files_to_download: List[FileToDownload], cache=False):
+def batch_download_file_to_location(
+        files_to_download: List[FileToDownload],
+        cache=False,
+        convert_html_to_txt=False):
     """
     Downloads a list of URLs using a ThreadPoolExecutor
     Args:
+        convert_html_to_txt: Whether to finally convert downloaded HTML files to TXT
         cache: Whether the session's cache should be used
         files_to_download: List of URLs to download and target local files to download to
     """
@@ -259,7 +283,8 @@ def batch_download_file_to_location(files_to_download: List[FileToDownload], cac
             file_to_download.remote_url,
             file_to_download.local_filepath,
             cache,
-            file_to_download.force_download
+            file_to_download.force_download,
+            convert_html_to_txt
         ): file_to_download for file_to_download in files_to_download}
         for future in concurrent.futures.as_completed(future_to_url):
             file_to_download = future_to_url[future]

@@ -287,6 +287,21 @@ class MeetingEntry:
         )
         return tdoc_data
 
+@dataclass(frozen=True)
+class ParsedWorkItemCache:
+    acronym: str
+    release: str
+    start_date: str
+    end_date: str
+    latest_wid_version: str
+    name: str
+
+wi_acronym_regex = re.compile(r'Acronym: \| {2}(?P<acronym>[\w\d_-]+) {2}')
+wi_release_regex = re.compile(r'Release: \| {2}(?P<release>Rel-[\d]+) {2}')
+wi_start_date_regex = re.compile(r'Start date: \| {2}([\w_]+)')
+wi_end_date_regex = re.compile(r'End date: \| {2}([\w_]+)')
+wi_latest_wid_version_regex = re.compile(r'Latest WID version: \| {2}\[([\w]+-\d+)]')
+wi_name_regex = re.compile(r'Name: \| {2}([\w_ \-/]+)')
 
 @dataclass(frozen=True)
 class WorkItem:
@@ -311,6 +326,65 @@ class WorkItem:
         folder = get_work_items_cache_folder()
         file_name = f'{self.work_item_id}.html'
         return os.path.join(folder, file_name)
+
+    @cached_property
+    def local_cache_path(self):
+        folder = get_work_items_cache_folder()
+        file_name = f'{self.work_item_id}.txt'
+        return os.path.join(folder, file_name)
+
+    @cached_property
+    def cached_data(self)->ParsedWorkItemCache|None:
+        with open(self.local_cache_path, 'r', encoding='utf-8') as f:
+            txt_wi_data = f.read()
+            return ParsedWorkItemCache(
+                acronym=wi_acronym_regex.search(txt_wi_data).group('acronym').strip(),
+                release=wi_release_regex.search(txt_wi_data).group('release').strip(),
+                start_date=wi_start_date_regex.search(txt_wi_data).group(1).strip(),
+                end_date=wi_end_date_regex.search(txt_wi_data).group(1).strip(),
+                latest_wid_version=wi_latest_wid_version_regex.search(txt_wi_data).group(1).strip(),
+                name=wi_name_regex.search(txt_wi_data).group(1).strip())
+
+
+    @property
+    def release(self) -> str:
+        try:
+            return self.cached_data.release
+        except Exception as e:
+            print(f'Could not get release for {self.work_item_id}: {e}')
+            return ''
+
+    @property
+    def start_date(self) -> str:
+        try:
+            return self.cached_data.start_date
+        except Exception as e:
+            print(f'Could not get start date for {self.work_item_id}: {e}')
+            return ''
+
+    @property
+    def end_date(self) -> str:
+        try:
+            return self.cached_data.end_date
+        except Exception as e:
+            print(f'Could not get end date for {self.work_item_id}: {e}')
+            return ''
+
+    @property
+    def latest_wid_version(self) -> str:
+        try:
+            return self.cached_data.latest_wid_version
+        except Exception as e:
+            print(f'Could not get latest wid version for {self.work_item_id}: {e}')
+            return ''
+
+    @property
+    def name(self) -> str:
+        try:
+            return self.cached_data.name
+        except Exception as e:
+            print(f'Could not get name for {self.work_item_id}: {e}')
+            return ''
 
 
 @dataclass(frozen=True)
