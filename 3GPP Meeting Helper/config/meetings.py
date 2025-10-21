@@ -102,7 +102,7 @@ class MeetingConfig:
         MeetingEntry(
             meeting_group="SP",
             meeting_number="3",
-            meeting_url_3gu="https://portal.3gpp.org/Home.aspx#/meeting?MtgId=82635",
+            meeting_url_3gu="https://portal.3gpp.org/Home.aspx#/meeting?MtgId=82835",
             meeting_name="Spec Modernization #3",
             meeting_location="Online",
             meeting_url_invitation="https://ftp.3gpp.org/workshop/FS_6GSpecs/6GSM_Meeting_03/Invitation/",
