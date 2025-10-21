@@ -197,10 +197,13 @@ class WorkItemsTable(GenericTable):
                                  meeting_matches_filter(m) ]
             print(f'{len(selected_meetings)} meetings selected')
 
-            # Download meetings if necessary
-            batch_download_meeting_tdocs_excel(
-                selected_meetings,
-                redownload_if_exists=self.redownload_meeting_list_var.get())
+            # Download meetings if necessary (not for text search)
+            if not text_filter_only:
+                redownload = bool(self.redownload_meeting_list_var.get())
+                print(f'Downloading WI files. Redownload: {redownload}')
+                batch_download_meeting_tdocs_excel(
+                    selected_meetings,
+                    redownload_if_exists=redownload)
 
             list_of_lists = [m.tdoc_data_from_excel_with_cache_overwrite.work_items for m in selected_meetings]
             wi_list = [item for sublist in list_of_lists for item in sublist]
