@@ -20,11 +20,11 @@ from config.meetings import MeetingConfig
 from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.common.gui_elements import TTKHoverHelpButton
-from gui.common.icons import refresh_icon, search_icon, compare_icon, table_icon
+from gui.common.icons import refresh_icon, search_icon, compare_icon, table_icon, website_icon
 from gui.tdocs_table_from_excel import TdocsTableFromExcel
 from server import tdoc_search
 from server.common.MeetingEntry import MeetingEntry
-from server.common.server_utils import download_file_to_location
+from server.common.server_utils import download_file_to_location, meeting_list_3gu_portal
 from server.meeting import batch_download_meeting_tdocs_excel
 from server.tdoc_search import search_meeting_for_tdoc, compare_two_tdocs
 from tdoc.utils import is_generic_tdoc
@@ -188,6 +188,16 @@ class MeetingsTable(GenericTable):
             command=self.load_meetings,
             image=refresh_icon
         ).pack(side=tkinter.LEFT)
+
+        # Open meetings page on 3GU
+        self.open_meetings_page_btn = TTKHoverHelpButton(
+            self.top_frame,
+            image=website_icon,
+            command=lambda: open_url(meeting_list_3gu_portal),
+            width=5,
+            help_text='Open meetings page in 3GU'
+        )
+        self.open_meetings_page_btn.pack(side=tkinter.LEFT)
 
         ttk.Label(self.top_frame, text=column_separator_str).pack(side=tkinter.LEFT)
         self.redownload_tdoc_excel_if_exists.pack(side=tkinter.LEFT)

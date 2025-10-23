@@ -23,6 +23,7 @@ sa2_url_sync = host_public_server + '/' + sync_folder
 sa2_url_private_server = host_private_server + '/' + wg_folder_private_server
 
 tdocs_by_agenda_for_checking_meeting_number_in_meeting = 'http://10.10.10.10/ftp/SA/SA2/TdocsByAgenda.htm'
+meeting_list_3gu_portal = 'https://portal.3gpp.org/'
 
 
 def get_document_or_folder_url(
