@@ -559,19 +559,29 @@ class TdocsTableFromExcel(GenericTable):
                 try:
                     el_title = self.tdocs_current_df.loc[e.tdoc_id, 'Title']
                     el_sources = self.tdocs_current_df.loc[e.tdoc_id, 'Source']
+                    el_type = self.tdocs_current_df.loc[e.tdoc_id, 'Type']
+                    el_ai = self.tdocs_current_df.loc[e.tdoc_id, 'Agenda item']
 
-                    el_str = f'  - {el_tdoc_id}, titled {el_title}, is sourced by {el_sources} and spans pages {e.page_begin} to {e.page_end}\n'
+                    el_str = f'  - {el_tdoc_id}, titled {el_title}, is a {el_type} sourced by {el_sources} for agenda item {el_ai} and spans pages {e.page_begin} to {e.page_end}\n'
                     return el_str
                 except KeyError as e:
                     print(f'Could not generate prompt line for TDoc {el_tdoc_id}')
                     return ''
 
+            final_lines = """Please do not consider company names in brackets or with a question mark as company position or as a co-signer
+For pCRs, the discussion/motivation section describes the reasoning behing the contribution.
+For CRs, the first page includes a cover page where a "Reason for change" is present, which summaries the reasoning behing the contribution. Additionally, "Summary of change" provides summary of changes are included.
+For CRs, you only need to evaluate the first page, while for other types of document, e.g. pCRs, the whole document is relevant
+Please provide a summary of the documents included in the PDF per agenda item.
+"""
+
             with open(os.path.join(export_folder, f"{export_id}_bookmarks.txt"), 'w') as f:
-                f.write('The attached PDF contains a collection of documents\n')
+                f.write('The attached PDF contains a collection of 3GPP documents\n')
                 lines_to_write = [get_text_for_prompt(e) for e in pdf_bookmarks]
                 f.writelines(lines_to_write)
                 f.write('\n')
-                f.write('Please do not consider company names in brackets or with a question mark as company position or as a co-signer\n')
+                f.write(final_lines)
+
 
     def current_excel_rows_to_clipboard(self):
         wb = open_excel_document(self.tdoc_excel_path)
