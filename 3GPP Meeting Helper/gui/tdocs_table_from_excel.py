@@ -970,31 +970,37 @@ Please provide a summary of the documents included in the PDF per agenda item.
         if not ai_filter.startswith('All'):
             print(f'Filtering by AI: "{ai_filter}"')
             filtered_df = filtered_df[filtered_df["Agenda item"] == ai_filter]
+            self.selected_tdocs_not_in_excel = []
 
         status_filter = self.combo_status.get()
         if not status_filter.startswith('All'):
             print(f'Filtering by TDoc status: "{status_filter}"')
             filtered_df = filtered_df[filtered_df["TDoc Status"] == status_filter]
+            self.selected_tdocs_not_in_excel = []
 
         type_filter = self.combo_type.get()
         if not type_filter.startswith('All'):
             print(f'Filtering by Type: "{type_filter}"')
             filtered_df = filtered_df[filtered_df["Type"] == type_filter]
+            self.selected_tdocs_not_in_excel = []
 
         rel_filter = self.combo_release.get()
         if not rel_filter.startswith('All'):
             print(f'Filtering by Release: "{rel_filter}"')
             filtered_df = filtered_df[filtered_df["Release"] == rel_filter]
+            self.selected_tdocs_not_in_excel = []
 
         wi_filter = self.combo_wis.get()
         if not wi_filter.startswith('All'):
             print(f'Filtering by WI: "{wi_filter}"')
-            filtered_df = filtered_df[df_boolean_index_for_wi(filtered_df, wi_filter)            ]
+            filtered_df = filtered_df[df_boolean_index_for_wi(filtered_df, wi_filter)]
+            self.selected_tdocs_not_in_excel = []
 
         tag_filter = self.combo_tag.get()
         if not tag_filter.startswith('All'):
             print(f'Filtering by Tag: "{tag_filter}"')
             filtered_df = filtered_df[filtered_df["Tag"] == tag_filter]
+            self.selected_tdocs_not_in_excel = []
 
         self.tdocs_current_df = filtered_df
         self.insert_rows()
