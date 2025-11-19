@@ -9,7 +9,7 @@ import pyperclip
 from application.os import open_url
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting
 from server import wi_search
-from server.connection import get_remote_file
+from server.common.connection import get_remote_file
 from server.tdoc_search import search_download_and_open_tdoc
 from server.wi_search import wgs_list, download_wi_list
 from server.common.server_utils import WiEntry

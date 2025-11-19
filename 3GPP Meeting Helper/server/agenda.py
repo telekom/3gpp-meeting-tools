@@ -15,7 +15,7 @@ from application.zip_files import unzip_files_in_zip_file
 from parsing.html import common as html_parser
 from server.common.server_utils import get_document_or_folder_url
 from server.common.server_utils import ServerType, DocumentType
-from server.connection import get_remote_file
+from server.common.connection import get_remote_file
 from server.tdoc import agenda_docx_regex, agenda_draft_docx_regex, agenda_version_regex, agenda_regex
 from server.tdocs_by_agenda import get_tdocs_by_agenda_for_a_given_meeting
 from utils.local_cache import get_local_agenda_folder, get_tdocs_by_agenda_filename

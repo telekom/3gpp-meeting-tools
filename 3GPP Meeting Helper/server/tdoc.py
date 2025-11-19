@@ -12,7 +12,7 @@ import utils.local_cache
 from application.zip_files import unzip_files_in_zip_file
 from server.common.server_utils import get_remote_meeting_folder, get_inbox_root, get_document_or_folder_url
 from server.common.server_utils import ServerType, DocumentType, TdocType
-from server.connection import get_remote_file
+from server.common.connection import get_remote_file
 from utils.local_cache import get_cache_folder, get_local_revisions_filename, get_local_drafts_filename, \
     get_meeting_folder
 

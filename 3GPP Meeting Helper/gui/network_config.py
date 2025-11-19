@@ -7,7 +7,7 @@ from urllib.parse import urlparse, quote_plus
 import traceback
 import gui.common.utils
 
-import server.connection
+import server.common.connection
 
 
 # Wait for proxy settings
@@ -78,7 +78,7 @@ class NetworkConfigDialog:
                 'http': '{0}://{2}{1}'.format(o.scheme, o.netloc, user_password),
                 'https': '{0}://{2}{1}'.format(o.scheme, o.netloc, user_password)
             }
-            server.connection.non_cached_http_session.proxies = proxies
+            server.common.connection.non_cached_http_session.proxies = proxies
         except:
             print('Could not setup HTTP proxy with Basic Authentication')
             traceback.print_exc()
@@ -87,6 +87,6 @@ class NetworkConfigDialog:
 
     def ko(self):
         # No need to set up a proxy
-        server.connection.non_cached_http_session.proxies = None
+        server.common.connection.non_cached_http_session.proxies = None
         self.top.destroy()
 

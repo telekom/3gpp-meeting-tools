@@ -29,14 +29,15 @@ from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon, \
-    filter_icon, note_icon, ftp_icon, markdown_icon, share_markdown_icon
+    filter_icon, note_icon, ftp_icon, markdown_icon, share_markdown_icon, search_icon
 from server.common.MeetingEntry import MeetingEntry
 from server.common.Tdoc import Tdoc
+from server.common.connection import get_remote_file
 from server.common.server_utils import ServerType, DocumentType, WorkingGroup
 from server.common.server_utils import get_document_or_folder_url, get_tdoc_details_url, \
     DownloadedData
 from server.tdoc_search import batch_search_and_download_tdocs, search_meeting_for_tdoc
-from tdoc.utils import are_generic_tdocs, GenericTdoc
+from tdoc.utils import are_generic_tdocs, GenericTdoc, tdoc_generic_regex
 from utils.local_cache import create_folder_if_needed
 from utils.utils import invert_dict_defaultdict
 
@@ -100,6 +101,8 @@ class TdocsTableFromExcel(GenericTable):
         self.meeting = meeting
         self.tdoc_tags = tdoc_tags
         self.tkvar_3gpp_wifi_available = tkvar_3gpp_wifi_available
+        self.tdocs_not_in_excel = []
+        self.selected_tdocs_not_in_excel = []
 
         # Process tags
         self.tdoc_tag_list_str = ['All Tags']
@@ -402,6 +405,59 @@ class TdocsTableFromExcel(GenericTable):
                 text='TDocsByAgenda',
                 command=open_sa2_tdocsbyagenda,
                 width=13
+            ).pack(side=tkinter.LEFT)
+
+            def add_inbox_documents():
+                if tkvar_3gpp_wifi_available.get():
+                    server_type = ServerType.PRIVATE
+                else:
+                    server_type = ServerType.SYNC
+
+                document_folder = get_document_or_folder_url(
+                    server_type=server_type,
+                    document_type=DocumentType.DOCUMENTS_FOLDER,
+                    meeting_folder_in_server=self.meeting.meeting_folder,
+                    working_group=self.meeting.working_group_enum
+                )[0]
+                inbox_folder = get_document_or_folder_url(
+                    server_type=server_type,
+                    document_type=DocumentType.INBOX_FOLDER,
+                    meeting_folder_in_server=self.meeting.meeting_folder,
+                    working_group=self.meeting.working_group_enum
+                )[0]
+                print(f'Downloading TDoc data from {document_folder} and {inbox_folder}')
+                documents_data = get_remote_file(
+                    document_folder,
+                    cache=False).decode('utf-8')
+                inbox_data = get_remote_file(
+                    inbox_folder,
+                    cache=False).decode('utf-8')
+
+                documents_tdocs = [m.group(0) for m in tdoc_generic_regex.finditer(documents_data)]
+                inbox_tdocs = [m.group(0) for m in tdoc_generic_regex.finditer(inbox_data)]
+                tdocs_set = set(self.tdocs_df.index)
+
+                tdocs_in_df = len(self.tdocs_df.index)
+                doc_overlap_count = len(tdocs_set & set(documents_tdocs))
+                inbox_overlap_count = len(tdocs_set & set(inbox_tdocs))
+                overlap_ratio = float(doc_overlap_count) / float(tdocs_in_df)
+
+                print(f'Found {len(documents_tdocs)} in Docs folder ({doc_overlap_count} overlap, {int(overlap_ratio*100)}%) and {len(inbox_tdocs)} TDocs in Inbox folder ({inbox_overlap_count} overlap)')
+                if overlap_ratio < 0.5:
+                    print(f"Overlap too small, won't merge TDocs")
+                    return
+
+                documents_tdocs.extend(inbox_tdocs)
+                self.tdocs_not_in_excel = list(set(documents_tdocs).symmetric_difference(tdocs_set))
+                self.selected_tdocs_not_in_excel = self.tdocs_not_in_excel
+                print(f'Tdocs not in Excel list: {self.tdocs_not_in_excel}')
+
+            TTKHoverHelpButton(
+                self.top_frame,
+                help_text='Add INBOX documents to table if meeting matches',
+                image=search_icon,
+                command=lambda: add_inbox_documents(),
+                width=10
             ).pack(side=tkinter.LEFT)
 
         self.insert_rows()
@@ -908,6 +964,8 @@ Please provide a summary of the documents included in the PDF per agenda item.
                 (filtered_df["CR"] == filter_str_float) |
                 filtered_df["Secretary Remarks"].str.contains(filter_str, case=False)]
 
+            self.selected_tdocs_not_in_excel = [e for e in self.tdocs_not_in_excel if filter_str in e]
+
         ai_filter = self.combo_ai.get()
         if not ai_filter.startswith('All'):
             print(f'Filtering by AI: "{ai_filter}"')
@@ -1009,6 +1067,38 @@ Please provide a summary of the documents included in the PDF per agenda item.
                     textwrap.fill(row['Source'], width=25),
                     'Click',
                     textwrap.fill(row['Secretary Remarks'], width=50)
+                ),
+                image=row_icon,
+            )
+
+        for tdoc_id in self.selected_tdocs_not_in_excel:
+            count = count + 1
+            mod = count % 2
+            if mod > 0:
+                tag = 'odd'
+            else:
+                tag = 'even'
+
+            local_file = self.meeting.get_tdoc_local_path(str(tdoc_id))
+
+            # Icon to show if a TDoc was downloaded
+            if utils.local_cache.file_exists(local_file):
+                row_icon = cloud_download_icon
+            else:
+                row_icon = cloud_icon
+
+            self.tree.insert(
+                "",
+                "end",
+                tags=(tag,),
+                values=(
+                    tdoc_id,
+                    '',
+                    '',
+                    '',
+                    '',
+                    'Click',
+                    ''
                 ),
                 image=row_icon,
             )

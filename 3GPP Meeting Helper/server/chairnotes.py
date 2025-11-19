@@ -3,7 +3,7 @@ import traceback
 
 import utils.local_cache
 from server.common.server_utils import get_remote_meeting_folder, get_inbox_root
-from server.connection import get_remote_file
+from server.common.connection import get_remote_file
 from utils.local_cache import get_meeting_folder
 
 
