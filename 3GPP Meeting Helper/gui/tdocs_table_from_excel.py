@@ -29,7 +29,7 @@ from gui.common.common_elements import tkvar_3gpp_wifi_available
 from gui.common.generic_table import GenericTable, treeview_set_row_formatting, column_separator_str
 from gui.common.gui_elements import TTKHoverHelpButton
 from gui.common.icons import cloud_icon, cloud_download_icon, folder_icon, share_icon, excel_icon, website_icon, \
-    filter_icon, note_icon, ftp_icon, markdown_icon, share_markdown_icon, search_icon
+    filter_icon, ftp_icon, markdown_icon, share_markdown_icon, merge_icon, list_icon, draft_icon
 from server.common.MeetingEntry import MeetingEntry
 from server.common.Tdoc import Tdoc
 from server.common.connection import get_remote_file
@@ -376,7 +376,7 @@ class TdocsTableFromExcel(GenericTable):
             TTKHoverHelpButton(
                 self.top_frame,
                 help_text='Open Drafts folder for this meeting',
-                image=note_icon,
+                image=draft_icon,
                 command=lambda: startfile(
                     open_sa2_drafts_url),
                 width=10
@@ -400,11 +400,12 @@ class TdocsTableFromExcel(GenericTable):
                     return
                 startfile(f'{candidate_folders[0]}TdocsByAgenda.htm')
 
-            ttk.Button(
+            TTKHoverHelpButton(
                 self.top_frame,
-                text='TDocsByAgenda',
+                help_text='TDocsByAgenda',
+                image=list_icon,
                 command=open_sa2_tdocsbyagenda,
-                width=13
+                width=10
             ).pack(side=tkinter.LEFT)
 
             def add_inbox_documents():
@@ -454,8 +455,8 @@ class TdocsTableFromExcel(GenericTable):
 
             TTKHoverHelpButton(
                 self.top_frame,
-                help_text='Add INBOX documents to table if meeting matches',
-                image=search_icon,
+                help_text='Add INBOX documents',
+                image=merge_icon,
                 command=lambda: add_inbox_documents(),
                 width=10
             ).pack(side=tkinter.LEFT)
