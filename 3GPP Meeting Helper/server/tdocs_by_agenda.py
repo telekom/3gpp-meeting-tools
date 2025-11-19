@@ -1,12 +1,12 @@
 from typing import NamedTuple
 
-import server.connection
+import server.common.connection
 import server.tdoc
 import utils.local_cache
 from application.os import startfile
 from server.common.server_utils import get_inbox_root, get_document_or_folder_url
 from server.common.server_utils import ServerType, DocumentType
-from server.connection import get_remote_file
+from server.common.connection import get_remote_file
 from server.tdoc import get_inbox_tdocs_list_cache_local_cache
 
 
@@ -109,7 +109,7 @@ def get_tdocs_by_agenda_for_a_given_meeting(
         return
     target_url = tdocs_by_agenda_server_folder[0] + 'TdocsByAgenda.htm'
     local_file = utils.local_cache.get_tdocs_by_agenda_filename(meeting_folder_name=meeting_folder)
-    tdocs_by_agenda_html = server.connection.get_remote_file(
+    tdocs_by_agenda_html = server.common.connection.get_remote_file(
         target_url,
         cache=True,
         cached_file_to_return_if_error_or_cache=local_file)

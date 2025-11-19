@@ -9,7 +9,7 @@ import html2text
 
 from config.networking import private_server, public_server, wg_folder_public_server, wg_folder_private_server
 from server.common.server_enums import ServerType, DocumentType, TdocType, WorkingGroup, DocumentFileType
-from server.connection import get_remote_file
+from server.common.connection import get_remote_file
 from utils.local_cache import get_sa2_root_folder_local_cache, create_folder_if_needed
 
 """Retrieves data from the 3GPP web server"""
@@ -84,6 +84,20 @@ def get_document_or_folder_url(
                 f'{wg_folder}/{meeting_folder_in_server}/Agenda/',
                 f'{wg_folder}/{meeting_folder_in_server}/INBOX/DRAFTS/_Session_Plan_Updates/',
                 f'{wg_folder}/{meeting_folder_in_server}/INBOX/Schedule_Updates/'
+            ]
+        case DocumentType.INBOX_FOLDER:
+            folders = [
+                f'{wg_folder}/INBOX/',
+            ] if server_type == ServerType.PRIVATE or server_type == ServerType.SYNC \
+                else [
+                f'{wg_folder}/{meeting_folder_in_server}/INBOX/',
+            ]
+        case DocumentType.DOCUMENTS_FOLDER:
+            folders = [
+                f'{wg_folder}/Docs/',
+            ] if server_type == ServerType.PRIVATE or server_type == ServerType.SYNC \
+                else [
+                f'{wg_folder}/{meeting_folder_in_server}/Docs/',
             ]
         case _:
             # A TDoc

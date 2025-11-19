@@ -15,7 +15,7 @@ from parsing.html.specs import extract_releases_from_latest_folder, extract_spec
 from parsing.spec_types import SpecType, SpecVersionMapping, SpecSeries, SpecFile
 from server.common.server_utils import decode_string, download_file_to_location
 from application.zip_files import unzip_files_in_zip_file
-from server.connection import get_remote_file, HttpRequestTimeout
+from server.common.connection import get_remote_file, HttpRequestTimeout
 from utils.local_cache import create_folder_if_needed, file_exists, get_specs_cache_folder
 from config.cache import CacheConfig
 import pandas as pd

@@ -23,6 +23,8 @@ class DocumentType(Enum):
     TDOC = 3
     MEETING_ROOT = 4
     CHAIR_NOTES = 5
+    DOCUMENTS_FOLDER = 6
+    INBOX_FOLDER = 7
 
 
 class TdocType(Enum):
