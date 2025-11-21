@@ -452,6 +452,7 @@ class TdocsTableFromExcel(GenericTable):
                 self.tdocs_not_in_excel = list(set(documents_tdocs).symmetric_difference(tdocs_set))
                 self.selected_tdocs_not_in_excel = self.tdocs_not_in_excel
                 print(f'Tdocs not in Excel list: {self.tdocs_not_in_excel}')
+                self.select_rows()
 
             TTKHoverHelpButton(
                 self.top_frame,
