@@ -462,6 +462,13 @@ class TdocsTableFromExcel(GenericTable):
                 width=10
             ).pack(side=tkinter.LEFT)
 
+        # Configure <RETURN> key shortcut to open a Tdoc
+        def search_tdoc_in_search_box(*args):
+            self.open_tdoc(self.search_text.get())
+
+        self.search_entry.bind('<Return>', search_tdoc_in_search_box)
+
+        # Populate table
         self.insert_rows()
 
         self.tree.pack(fill='both', expand=True, side='left')
@@ -885,6 +892,34 @@ Please provide a summary of the documents included in the PDF per agenda item.
 
         print(f'Completed Markdown export for {self.meeting.meeting_name}')
 
+    def open_tdoc(
+            self,
+            tdoc_id:str,
+            convert_to_before_opening:ExportType=ExportType.NONE):
+        try:
+            GenericTdoc(tdoc_id)
+        except ValueError:
+            print(f'{tdoc_id} string not a TDoc')
+            return
+
+        opened_docs_folder, metadata = server.tdoc_search.search_download_and_open_tdoc(
+            tdoc_id,
+            tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available,
+            tdoc_meeting=self.meeting,
+            convert_to_before_opening=convert_to_before_opening
+        )
+
+        # Re-load Tdoc list to allow for icon changes
+        self.insert_rows()
+
+        if metadata is not None:
+            try:
+                if isinstance(metadata, list):
+                    metadata = metadata[0]
+                print(f'Opened Tdoc {metadata.tdoc_id}, {metadata.url}. Copied URL to clipboard')
+                pyperclip.copy(metadata.url)
+            except Exception as e:
+                print(f'Could not copy TDoc URL to clipboard: {e}')
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
@@ -913,27 +948,9 @@ Please provide a summary of the documents included in the PDF per agenda item.
                     case _:
                         convert_to_before_opening = ExportType.NONE
                 for tdoc_to_open in tdocs_to_open:
-                    opened_docs_folder, metadata = server.tdoc_search.search_download_and_open_tdoc(
-                        tdoc_to_open.tdoc,
-                        tkvar_3gpp_wifi_available=tkvar_3gpp_wifi_available,
-                        tdoc_meeting=self.meeting,
-                        convert_to_before_opening=convert_to_before_opening
-                    )
-
-                    # Re-load Tdoc list to allow for icon changes
-                    self.insert_rows()
-
-                    if metadata is not None:
-                        try:
-                            if isinstance(metadata, list):
-                                metadata = metadata[0]
-                            print(f'Opened Tdoc {metadata.tdoc_id}, {metadata.url}. Copied URL to clipboard')
-                            pyperclip.copy(metadata.url)
-                        except Exception as e:
-                            print(f'Could not copy TDoc URL to clipboard: {e}')
+                    self.open_tdoc(tdoc_to_open.tdoc, convert_to_before_opening)
                 self.select_rows()
             case 5:
-
                 TdocDetailsFromExcel(
                     favicon=self.favicon,
                     parent_widget=self.tk_top,
