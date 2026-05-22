@@ -477,13 +477,19 @@ def search_meeting_for_tdoc(
     print(f'Searching for group {parsed_tdoc.group}, tdoc {parsed_tdoc.number}. LI WG: {sa3_li_tdoc}')
 
     def group_match(m: MeetingEntry, group_str: str):
+        if m is None:
+            return False
+
+        if m.meeting_group is None:
+            return False
 
         if sa3_li_tdoc:
             return (group_str == m.meeting_group) and m.is_li
 
-        return (group_str == m.tdoc_start.group) and not m.is_li
+        return (group_str == m.meeting_group) and not m.is_li
 
-    group_meetings = [m for m in loaded_meeting_entries if m.tdoc_start is not None and group_match(m, group_to_search)]
+    all_group_meetings = [m for m in loaded_meeting_entries if m is not None and group_match(m, group_to_search)]
+    group_meetings = [m for m in all_group_meetings if m.tdoc_start is not None]
     print(f'{len(group_meetings)} Group meetings for group {group_to_search}. LI: {sa3_li_tdoc}')
     matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
                          m.tdoc_start.number <= parsed_tdoc.number <= m.tdoc_end.number]
@@ -492,12 +498,32 @@ def search_meeting_for_tdoc(
         matching_meeting = matching_meetings[0]
         print(f'Matching meeting found for TDoc {tdoc_str}: {matching_meeting.meeting_name}, {matching_meeting.start_date.year}.{matching_meeting.start_date.month}.{matching_meeting.start_date.day}, {matching_meeting.meeting_location}')
     else:
+        def meeting_is_now(meeting: MeetingEntry):
+            now = datetime.datetime.now()
+            if not (meeting.start_date.year <= now.year <= meeting.end_date.year):
+                return False
+            if not (meeting.start_date.month <= now.month <= meeting.end_date.month):
+                return False
+            if not (meeting.start_date.day <= now.day <= meeting.end_date.day):
+                return False
+            return True
+
+        current_meeting = [m for m in all_group_meetings if meeting_is_now(m)]
+        if len(current_meeting) == 0:
+            print('No current meeting found')
+            current_meeting = None
+        else:
+            current_meeting = current_meeting[0]
+            print(f'Current meeting: {current_meeting.meeting_name}')
         if return_last_meeting_if_tdoc_is_new:
             matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
                                  m.tdoc_start.number <= parsed_tdoc.number and m.tdoc_end.number <= parsed_tdoc.number]
         if len(matching_meetings) > 0:
             matching_meetings.sort(key=lambda x: x.end_date)
             matching_meeting = matching_meetings[-1]
+            if current_meeting is not None and matching_meeting.start_date < current_meeting.start_date:
+                print(f'Matching meeting overridden with current meeting ({current_meeting.meeting_name})')
+                matching_meeting = current_meeting
             print(f'Set meeting for TDoc {tdoc_str} as last meeting with available documents: '
                   f'{matching_meeting.meeting_name}, {matching_meeting.start_date.year}.{matching_meeting.start_date.month}.{matching_meeting.start_date.day}, {matching_meeting.meeting_location}')
         else:
