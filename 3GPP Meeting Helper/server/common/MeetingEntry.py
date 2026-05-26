@@ -441,7 +441,15 @@ class CachedMeetingTdocData:
                 file_prefix=TDOCS_3GU_PREFIX,
                 file_hash=excel_hash
             )
-            print(f'Cache version: {cached_data.version}, {len(cached_data.work_items)} WIs')
+            try:
+                cache_version = cached_data.version
+            except AttributeError:
+                cache_version = "Could not read attribute cache_version"
+            try:
+                work_items = cached_data.work_items
+            except AttributeError:
+                work_items = "Could not read attribute work_items"
+            print(f'Cache version: {cache_version}, {len(work_items)} WIs')
             return cached_data
         except Exception as e:
             print(f'Could not load CachedMeetingTdocData {tdoc_excel_path}: {e}')
