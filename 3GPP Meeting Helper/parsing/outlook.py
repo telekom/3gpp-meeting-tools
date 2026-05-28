@@ -9,6 +9,7 @@ import pandas as pd
 
 import gui.main_gui
 import parsing.excel as excel_parser
+import server.common.network_utils
 import server.common.server_utils
 import server.common.server_enums
 import server.tdoc
@@ -44,7 +45,7 @@ def get_attachment_data(text):
 def organize_email_approval_attachments(meeting_name, ai_folders):
     tmp_folder = utils.local_cache.get_tmp_folder()
     local_meeting_folder = application.meeting_helper.sa2_meeting_data.get_server_folder_for_meeting_choice(meeting_name)
-    download_from_inbox = server.common.server_utils.we_are_in_meeting_network()
+    download_from_inbox = server.common.network_utils.we_are_in_meeting_network()
     found_emails_with_chairmans_notes = []
     email_list = []
     checked_tdocs = set()

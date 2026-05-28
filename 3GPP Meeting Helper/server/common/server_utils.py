@@ -1,15 +1,16 @@
 import concurrent.futures
 import os.path
 import re
-import socket
 import traceback
-from typing import NamedTuple, List
+from typing import List
+from typing import NamedTuple
 
 import html2text
 
 from config.networking import private_server, public_server, wg_folder_public_server, wg_folder_private_server
-from server.common.server_enums import ServerType, DocumentType, TdocType, WorkingGroup, DocumentFileType
 from server.common.connection import get_remote_file
+from server.common.network_utils import we_are_in_meeting_network
+from server.common.server_enums import ServerType, DocumentType, TdocType, WorkingGroup, DocumentFileType
 from utils.local_cache import get_sa2_root_folder_local_cache, create_folder_if_needed
 
 """Retrieves data from the 3GPP web server"""
@@ -193,16 +194,6 @@ def get_inbox_root(searching_for_a_file=False):
     else:
         folder = sa2_url_private_server
     return folder
-
-
-def we_are_in_meeting_network():
-    # Before, 10.10.10.10 used only FTP, so we had to differentiate between files and folders. Now,
-    # we can always just use HTTP (albeit no HTTPs in 10.10.10.10)
-    ip_addresses = [i[4][0] for i in socket.getaddrinfo(socket.gethostname(), None)]
-    matches = [re.match(r'10.10.(\d)+.(\d)+', ip_address) for ip_address in ip_addresses]
-    matches = [match for match in matches if match is not None]
-    ip_is_meeting_ip = (len(matches) != 0)
-    return ip_is_meeting_ip
 
 
 def get_sa2_folder(force_redownload=False):

@@ -126,14 +126,6 @@ except Exception as e:
     print(f'Saving after setting sensitivity level not set. Using "'
           f'{WordConfig.save_document_after_setting_sensitivity_label}": {e}')
 
-try:
-    config.networking.http_user_agent = config_parser['HTTP']['UserAgent']
-    print(f'Using HTTP User Agent "{config.networking.http_user_agent}"')
-except Exception as e:
-    print(f'HTTP User Agent not set. Using "{config.networking.http_user_agent}": {e}')
-finally:
-    local_cache_config.CacheConfig.root_folder = application_folder
-
 # Load TDoc tags
 try:
     tdoc_tags_in_config_file = config_parser['TDOC_TAGS']

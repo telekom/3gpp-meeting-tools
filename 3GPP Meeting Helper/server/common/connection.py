@@ -5,13 +5,27 @@ from typing import NamedTuple, Any
 from urllib.parse import urlparse
 
 import requests
+import urllib3
 from cachecontrol import CacheControl
 from cachecontrol.caches import FileCache
 
 import config.networking
 from utils.local_cache import get_webcache_file, file_exists
 
+# Trick to not get a 403 forbidden response
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# Create a dictionary of headers to trick the server
+# We are hardcoding a standard, modern Windows Chrome User-Agent here
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+}
+
 non_cached_http_session = requests.Session()
+non_cached_http_session.verify = False
+non_cached_http_session.headers.update(headers) # Apply our fake browser headers
+
 print(f'Created Non-Cached HTTP Session')
 
 initialized_http_session = False
@@ -24,10 +38,6 @@ def initialize_http_session():
     # Set cache
     file_cache_path = get_webcache_file()
     http_session = CacheControl(non_cached_http_session, cache=FileCache(file_cache_path))
-
-    # Set User-Agent
-    http_session.headers.update({'User-Agent': config.networking.http_user_agent})
-    non_cached_http_session.headers.update({'User-Agent': config.networking.http_user_agent})
 
     initialized_http_session = True
     print(f'Created Cached HTTP Session. File cache path: {file_cache_path}')
@@ -203,6 +213,7 @@ def get_remote_file(
                     file_content = file.read()
                 print('Could not load from {1}. Read cached content from {0}'.format(
                     cached_file_to_return_if_error_or_cache, url))
+                print(e)
                 return file_content
             except Exception as e:
                 print(f'Could not read cache file from {cached_file_to_return_if_error_or_cache}: {e}')
