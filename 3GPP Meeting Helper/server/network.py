@@ -3,6 +3,7 @@ import tkinter
 import application.meeting_helper
 import application.tkinter_config
 import parsing.html
+import server.common.network_utils
 import server.common.server_utils
 import utils.local_cache
 import gui.common.common_elements
@@ -24,11 +25,22 @@ def detect_3gpp_network_state(
     # some labels accordingly
 
     previous_state = gui.common.common_elements.tkvar_3gpp_wifi_available.get()
-    new_state = server.common.server_utils.we_are_in_meeting_network()
+    new_state = server.common.network_utils.we_are_in_meeting_network()
+
+    previous_state_vpn = gui.common.common_elements.tkvar_3gpp_vpn_detected.get()
+    new_state_vpn_tuple = server.common.network_utils.is_vpn_active()
+    new_state_vpn = new_state_vpn_tuple[0]
+    active_vpns = new_state_vpn_tuple[1]
+
     if new_state:
         gui.common.common_elements.tkvar_3gpp_wifi_available.set(True)
     else:
         gui.common.common_elements.tkvar_3gpp_wifi_available.set(False)
+
+    if new_state_vpn:
+        gui.common.common_elements.tkvar_3gpp_vpn_detected.set(new_state_vpn)
+    else:
+        gui.common.common_elements.tkvar_3gpp_vpn_detected.set(False)
 
     if new_state != previous_state:
         print(f'Changed 3GPP network state from {previous_state} to {new_state}')
@@ -64,6 +76,12 @@ def detect_3gpp_network_state(
                 # Jumping from 3GPP Wi-fi to normal network
                 print(f'(Re-)enabling meeting drop-down list')
                 gui.common.common_elements.tk_combobox_meetings['state'] = tkinter.NORMAL
+
+    if new_state_vpn != previous_state_vpn:
+        if not new_state_vpn:
+            print(f'Changed VPN state from {previous_state_vpn} to {new_state_vpn}')
+        else:
+            print(f'Changed VPN state from {previous_state_vpn} to {new_state_vpn}. Active VPNs: {active_vpns}')
 
     if loop:
         root.after(ms=interval_ms, func=lambda: detect_3gpp_network_state(root))
