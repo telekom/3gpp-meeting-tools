@@ -5,6 +5,7 @@ import application.tkinter_config
 import parsing.html
 import server.common.network_utils
 import server.common.server_utils
+import server.common.connection
 import utils.local_cache
 import gui.common.common_elements
 
@@ -82,6 +83,7 @@ def detect_3gpp_network_state(
             print(f'Changed VPN state from {previous_state_vpn} to {new_state_vpn}')
         else:
             print(f'Changed VPN state from {previous_state_vpn} to {new_state_vpn}. Active VPNs: {active_vpns}')
+        server.common.connection.set_http_proxy(new_state_vpn)
 
     if loop:
         root.after(ms=interval_ms, func=lambda: detect_3gpp_network_state(root))
