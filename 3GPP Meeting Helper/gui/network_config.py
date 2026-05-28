@@ -39,9 +39,18 @@ class NetworkConfigDialog:
         self.proxy_password = tkinter.Entry(top, show='*')
         self.proxy_password.grid(row=2, column=1, columnspan=2, sticky="EW")
 
+        ttk.Label(top, text="Apply on VPN only").grid(row=3, column=0)
+        self.proxy_only_on_vpn = tkinter.BooleanVar(value=False)
+        self.proxy_only_on_vpn_checkbox = ttk.Checkbutton(
+            top,
+            state='enabled',
+            variable=self.proxy_only_on_vpn
+        )
+        self.proxy_only_on_vpn_checkbox.grid(row=3, column=1, columnspan=2, sticky="EW")
+
         ok_button = ttk.Button(top, text="Press enter to use HTTP proxy and close window", command=self.ok)
-        ok_button.grid(row=3, column=1, sticky="EW")
-        ttk.Button(top, text="No proxy and close window", command=self.ko).grid(row=3, column=2, sticky="EW")
+        ok_button.grid(row=4, column=1, sticky="EW")
+        ttk.Button(top, text="No proxy and close window", command=self.ko).grid(row=4, column=2, sticky="EW")
 
         gui.common.utils.bind_key_to_button(
             frame=top,
@@ -51,11 +60,11 @@ class NetworkConfigDialog:
             task_str='Set HTTP(s) proxy'
         )
 
-        ttk.Label(top, text="Meeting HTTP server").grid(row=4, column=0)
+        ttk.Label(top, text="Meeting HTTP server").grid(row=5, column=0)
         self.meeting_server = ttk.Label(
             top,
             text=config.networking.private_server)
-        self.meeting_server.grid(row=4, column=1, columnspan=2, sticky="EW")
+        self.meeting_server.grid(row=5, column=1, columnspan=2, sticky="EW")
 
         # Configure column row widths
         top.grid_columnconfigure(0, weight=1)
@@ -66,27 +75,20 @@ class NetworkConfigDialog:
         # Setup a proxy
         print('Setting up proxy with basic authentication')
         try:
-            user_password = ''
-            user = self.proxy_user.get().strip()
-            if len(user) > 0:
-                the_password = self.proxy_password.get()
-                the_password = quote_plus(the_password)
-                user_password = '{0}:{1}@'.format(user, the_password)
-            o = urlparse(self.proxy_server.get())
-            print('Using proxy {0}://{1}'.format(o.scheme, o.netloc))
-            proxies = {
-                'http': '{0}://{2}{1}'.format(o.scheme, o.netloc, user_password),
-                'https': '{0}://{2}{1}'.format(o.scheme, o.netloc, user_password)
-            }
-            server.common.connection.non_cached_http_session.proxies = proxies
-        except:
-            print('Could not setup HTTP proxy with Basic Authentication')
+            server.common.connection.store_proxy(
+                server=self.proxy_server.get(),
+                user=self.proxy_user.get(),
+                password=self.proxy_password.get())
+            server.common.connection.set_http_proxy()
+            server.common.connection.use_proxy_only_of_vpn = self.proxy_only_on_vpn.get()
+        except Exception as e:
+            print(f'Could not setup HTTP proxy with Basic Authentication: {e}')
             traceback.print_exc()
 
         self.top.destroy()
 
     def ko(self):
         # No need to set up a proxy
-        server.common.connection.non_cached_http_session.proxies = None
+        server.common.connection.clear_http_proxies()
         self.top.destroy()
 

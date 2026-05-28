@@ -1,8 +1,8 @@
 import re
 import traceback
 from ftplib import FTP
-from typing import NamedTuple, Any
-from urllib.parse import urlparse
+from typing import NamedTuple, Any, Dict
+from urllib.parse import urlparse, quote_plus
 
 import requests
 import urllib3
@@ -25,6 +25,9 @@ headers = {
 non_cached_http_session = requests.Session()
 non_cached_http_session.verify = False
 non_cached_http_session.headers.update(headers) # Apply our fake browser headers
+
+use_proxy_only_of_vpn = False
+http_proxies: None | Dict = None
 
 print(f'Created Non-Cached HTTP Session')
 
@@ -225,3 +228,44 @@ def get_remote_file(
 
 
 folder_ftp_names_regex = re.compile(r'[\d-]+[ ]+.*[ ]+<DIR>[ ]+(.*[uU][pP][dD][aA][tT][eE].*)')
+
+def set_http_proxy(in_vpn:bool=False):
+    if http_proxies is None:
+        clear_http_proxies()
+        print('Cleared HTTP proxies (none set')
+
+    if not use_proxy_only_of_vpn:
+        non_cached_http_session.proxies = http_proxies
+        print('Set HTTP proxies for all connections')
+    else:
+        if in_vpn:
+            # Use proxy as we are in VPN
+            non_cached_http_session.proxies = http_proxies
+            print('Set HTTP proxies (VPN-only)')
+        else:
+            # Remove VPN-only-proxy if we are not in VPN
+            clear_http_proxies()
+            print('Cleared HTTP proxies (VPN-only)')
+
+def clear_http_proxies():
+    non_cached_http_session.proxies = None
+
+def store_proxy(server:str, user:str, password:str):
+    global http_proxies
+    try:
+        user_password = ''
+        user = user.strip()
+        if len(user) > 0:
+            the_password = password
+            the_password = quote_plus(the_password)
+            user_password = '{0}:{1}@'.format(user, the_password)
+        o = urlparse(server)
+        print('Using proxy {0}://{1}'.format(o.scheme, o.netloc))
+        proxies = {
+            'http': '{0}://{2}{1}'.format(o.scheme, o.netloc, user_password),
+            'https': '{0}://{2}{1}'.format(o.scheme, o.netloc, user_password)
+        }
+        http_proxies = proxies
+    except Exception as e:
+        print(f'Could not setup HTTP proxy with Basic Authentication: {e}')
+        traceback.print_exc()
