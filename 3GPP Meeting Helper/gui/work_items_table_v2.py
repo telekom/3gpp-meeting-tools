@@ -1,4 +1,5 @@
 import datetime
+import itertools
 import textwrap
 import tkinter
 from os import startfile
@@ -209,8 +210,9 @@ class WorkItemsTable(GenericTable):
                     redownload_if_exists=redownload)
 
             list_of_lists = [m.tdoc_data_from_excel_with_cache_overwrite.work_items for m in selected_meetings]
-            wi_list = [item for sublist in list_of_lists for item in sublist]
-            wi_list = list(set(wi_list))
+            # Flattens the list cleanly
+            wi_list = list(itertools.chain.from_iterable(list_of_lists))
+            wi_list = list(set(wi_list))  # deduplicate
             wi_list = sorted(wi_list, key=lambda x:x.acronym)
             self.wi_list = wi_list
 
