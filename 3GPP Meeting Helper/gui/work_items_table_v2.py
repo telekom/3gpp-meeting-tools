@@ -39,6 +39,9 @@ class WorkItemsTable(GenericTable):
         self.finished_loading = False
         self.redownload_meeting_list_var = tkinter.IntVar()
 
+        # Add a timer variable for search debouncing
+        self._search_timer = None
+
         # Start by loading data
         self.load_data(initial_load=True)
 
@@ -259,21 +262,31 @@ class WorkItemsTable(GenericTable):
         self.tree.delete(*self.tree.get_children())
         self.insert_rows(text_filter_only)
 
-        # Create cache folde if needed
-        get_work_items_cache_folder()
+        # ONLY download files if we are changing groups/years, not when typing text
+        if not text_filter_only:
+            # Create cache folder if needed
+            get_work_items_cache_folder()
 
-        # Download WI files to cache folder
-        file_dl_list = [FileToDownload(
-            remote_url = e.url,
-            local_filepath = e.local_path,
-            force_download = False
-        ) for e in self.wi_list]
-        batch_download_file_to_location(file_dl_list, convert_html_to_txt=True)
+            # Download WI files to cache folder
+            file_dl_list = [FileToDownload(
+                remote_url=e.url,
+                local_filepath=e.local_path,
+                force_download=False
+            ) for e in self.wi_list]
+            batch_download_file_to_location(file_dl_list, convert_html_to_txt=True)
 
     def select_rows(self, *args):
-        print(f'Search filter: {args[0]}, {args[1]}, {args[2]}')
-        self.apply_filters(text_filter_only=True)
-        pass
+        # If args contains strings, it came from the text trace
+        if len(args) == 3 and isinstance(args[0], str):
+            # Cancel the old timer if the user is still typing
+            if self._search_timer is not None:
+                self.top_frame.after_cancel(self._search_timer)
+
+            # Start a new 300ms timer
+            self._search_timer = self.top_frame.after(300, lambda: self.apply_filters(text_filter_only=True))
+        else:
+            # If it's an Event object (from combobox selection), run immediately
+            self.apply_filters(text_filter_only=False)
 
     def on_double_click(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
