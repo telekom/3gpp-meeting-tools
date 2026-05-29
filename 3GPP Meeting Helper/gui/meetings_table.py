@@ -5,7 +5,6 @@ import tkinter
 from tkinter import ttk
 from typing import List, Final
 
-import pandas
 import pandas as pd
 import pyperclip
 from pandas.core.interchange.dataframe_protocol import DataFrame
@@ -385,7 +384,7 @@ class MeetingsTable(GenericTable):
             df_out.index.names = ['TDoc']
             return df_out
 
-        merged_df = pandas.concat(
+        merged_df = pd.concat(
             [apply_meeting_data_to_df(
                 e.meeting_group,
                 e.meeting_name,
