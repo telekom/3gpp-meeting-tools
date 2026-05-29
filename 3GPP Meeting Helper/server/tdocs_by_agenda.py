@@ -109,10 +109,15 @@ def get_tdocs_by_agenda_for_a_given_meeting(
         return
     target_url = tdocs_by_agenda_server_folder[0] + 'TdocsByAgenda.htm'
     local_file = utils.local_cache.get_tdocs_by_agenda_filename(meeting_folder_name=meeting_folder)
+
+    # Force a fresh download if we are looking at the live SYNC folder
+    should_use_cache = "SYNC" not in meeting_folder
+
     tdocs_by_agenda_html = server.common.connection.get_remote_file(
         target_url,
-        cache=True,
+        cache=should_use_cache,
         cached_file_to_return_if_error_or_cache=local_file)
+
     if open_tdocs_by_agenda_in_browser:
         print(f'Opening local TDocsByAgenda file {local_file}')
         startfile(local_file)
