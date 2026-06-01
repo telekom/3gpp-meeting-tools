@@ -5,7 +5,7 @@ import traceback
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
-from typing import List
+from typing import List, Optional
 from urllib.parse import urlparse, parse_qs
 
 import pandas as pd
@@ -308,6 +308,21 @@ class MeetingEntry:
             return False
         return self.tdoc_start.number <= tdoc_candidate.number <= self.tdoc_end.number
 
+    def __str__(self) -> str:
+        """Controls what is printed when you do: print(meeting)"""
+        # Format dates nicely (e.g., 2023-05-22), handling None values
+        start = self.start_date.strftime('%Y-%m-%d') if getattr(self, 'start_date', None) else '?'
+        end = self.end_date.strftime('%Y-%m-%d') if getattr(self, 'end_date', None) else '?'
+        location = getattr(self, 'meeting_location', 'Unknown') or 'Unknown'
+
+        # Example output: "S2-173 (2023-05-22 to 2023-05-26) - Athens"
+        return f"{self.meeting_group}-{self.meeting_number} ({start} to {end}) - {location}"
+
+    def __repr__(self) -> str:
+        """Controls what is printed when the object is inside a list: print([meeting1, meeting2])"""
+        # It's usually best to keep lists compact
+        return f"<{self.meeting_group}-{self.meeting_number}>"
+
 @dataclass(frozen=True)
 class ParsedWorkItemCache:
     acronym: str
@@ -488,3 +503,38 @@ class CachedMeetingTdocData:
 
 
 TDOCS_3GU_PREFIX = 'TDocs_3GU'
+
+# Assuming MeetingEntry and MeetingPastPresent are imported
+# from your_module import MeetingEntry, MeetingPastPresent
+
+def get_most_recent_meeting(meetings: List[MeetingEntry]) -> Optional[MeetingEntry]:
+    """
+    Given a list of MeetingEntry objects, returns the most recent
+    past or currently ongoing meeting. Robust against None inputs and missing attributes.
+    """
+    # 1. Check if the input list itself is None or empty
+    if not meetings:
+        return None
+
+    try:
+        # 2. Safely filter the list using getattr to avoid missing attribute crashes
+        past_or_present_meetings = [
+            m for m in meetings
+            if m is not None  # Protect against None elements in the list
+               and getattr(m, 'start_date', None) is not None  # Explicitly ensure start_date exists
+               and getattr(m, 'meeting_timing', None) in (MeetingPastPresent.PAST, MeetingPastPresent.NOW)
+        ]
+
+        # 3. Return None if the filtered list ends up empty
+        if not past_or_present_meetings:
+            return None
+
+        # 4. Safely find the max since we guaranteed start_date is not None
+        most_recent = max(past_or_present_meetings, key=lambda m: m.start_date)
+
+        return most_recent
+
+    except Exception as e:
+        # 5. Catch-all to prevent any unpredictable crashes from bubbling up
+        print(f"An unexpected error occurred while finding the most recent meeting: {e}")
+        return None

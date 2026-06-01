@@ -12,7 +12,7 @@ from application.common import ExportType
 from application.os import startfile
 from application.zip_files import unzip_files_in_zip_file
 from config.meetings import MeetingConfig
-from server.common.MeetingEntry import MeetingEntry, MeetingPastPresent
+from server.common.MeetingEntry import MeetingEntry, MeetingPastPresent, get_most_recent_meeting
 from server.common.server_utils import (download_file_to_location, FileToDownload, batch_download_file_to_location, \
                                         meeting_pages_per_group,
                                         meeting_ftp_pages_per_group, DownloadedTdocDocument, DownloadedData)
@@ -510,13 +510,9 @@ def search_meeting_for_tdoc(
             matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
                                  m.tdoc_start.number <= parsed_tdoc.number and m.tdoc_end.number <= parsed_tdoc.number]
         if len(matching_meetings) > 0:
-            matching_meetings.sort(key=lambda x: x.end_date)
-            matching_meeting = matching_meetings[-1]
-            if current_meeting is not None and matching_meeting.start_date < current_meeting.start_date:
-                print(f'Matching meeting overridden with current meeting ({current_meeting.meeting_name})')
-                matching_meeting = current_meeting
-            print(f'Set meeting for TDoc {tdoc_str} as last meeting with available documents: '
-                  f'{matching_meeting.meeting_name}, {matching_meeting.start_date.year}.{matching_meeting.start_date.month}.{matching_meeting.start_date.day}, {matching_meeting.meeting_location}')
+            most_recent_meeting = get_most_recent_meeting(group_meetings)
+            print(f'Matching meeting overridden with most current past or current meeting: {most_recent_meeting}')
+            matching_meeting = most_recent_meeting
         else:
             matching_meeting = None
             print(f'Matching meeting NOT found for TDoc {tdoc_str}')
