@@ -3,6 +3,7 @@ import os
 import re
 import traceback
 from dataclasses import dataclass
+from enum import Enum
 from functools import cached_property
 from typing import List
 from urllib.parse import urlparse, parse_qs
@@ -19,6 +20,11 @@ from utils.caching.common import hash_file, retrieve_pickle_cache_for_file, stor
 from utils.local_cache import file_exists, get_work_items_cache_folder
 from utils.local_cache import get_cache_folder, create_folder_if_needed
 
+class MeetingPastPresent(Enum):
+    PAST = 1
+    NOW = 2
+    FUTURE = 3
+    UNKNOWN = 4
 
 @dataclass(frozen=True)
 class MeetingEntry:
@@ -211,11 +217,21 @@ class MeetingEntry:
         if self.start_date is None or self.end_date is None:
             return False
 
-        # Add some time delta
-        days_delta = datetime.timedelta(days=3)
-        if self.start_date - days_delta < datetime.datetime.now() < self.end_date + days_delta:
+        if self.start_date <= datetime.datetime.now() <= self.end_date:
             return True
         return False
+
+    @cached_property
+    def meeting_timing(self) -> MeetingPastPresent:
+        if self.start_date is None:
+            return MeetingPastPresent.UNKNOWN
+        if self.meeting_is_now:
+            return MeetingPastPresent.NOW
+        now = datetime.datetime.now()
+        if self.start_date > now:
+            return MeetingPastPresent.FUTURE
+        else:
+            return MeetingPastPresent.PAST
 
     @cached_property
     def local_server_url(self):
@@ -286,6 +302,11 @@ class MeetingEntry:
             overwrite_cache=True
         )
         return tdoc_data
+
+    def tdoc_is_in_range(self, tdoc_candidate: GenericTdoc) -> bool:
+        if self.tdoc_start is None or self.tdoc_end is None:
+            return False
+        return self.tdoc_start.number <= tdoc_candidate.number <= self.tdoc_end.number
 
 @dataclass(frozen=True)
 class ParsedWorkItemCache:
