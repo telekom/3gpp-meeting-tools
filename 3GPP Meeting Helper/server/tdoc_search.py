@@ -12,7 +12,7 @@ from application.common import ExportType
 from application.os import startfile
 from application.zip_files import unzip_files_in_zip_file
 from config.meetings import MeetingConfig
-from server.common.MeetingEntry import MeetingEntry
+from server.common.MeetingEntry import MeetingEntry, MeetingPastPresent
 from server.common.server_utils import (download_file_to_location, FileToDownload, batch_download_file_to_location, \
                                         meeting_pages_per_group,
                                         meeting_ftp_pages_per_group, DownloadedTdocDocument, DownloadedData)
@@ -488,27 +488,18 @@ def search_meeting_for_tdoc(
 
         return (group_str == m.meeting_group) and not m.is_li
 
-    all_group_meetings = [m for m in loaded_meeting_entries if m is not None and group_match(m, group_to_search)]
-    group_meetings = [m for m in all_group_meetings if m.tdoc_start is not None]
+    group_meetings = [m for m in loaded_meeting_entries if m is not None and group_match(m, group_to_search)]
     print(f'{len(group_meetings)} Group meetings for group {group_to_search}. LI: {sa3_li_tdoc}')
-    matching_meetings = [m for m in group_meetings if m.tdoc_start is not None and m.tdoc_end is not None and
-                         m.tdoc_start.number <= parsed_tdoc.number <= m.tdoc_end.number]
+    group_meetings = [m for m in group_meetings if m.meeting_timing == MeetingPastPresent.PAST or m.meeting_timing == MeetingPastPresent.NOW]
+    print(f'{len(group_meetings)} past/present group meetings for group {group_to_search}. LI: {sa3_li_tdoc}')
+    matching_meetings = [m for m in group_meetings if m.tdoc_is_in_range(parsed_tdoc)]
+    print(f'Matching meetings found for {parsed_tdoc}: {matching_meetings}')
 
     if len(matching_meetings) > 0:
         matching_meeting = matching_meetings[0]
         print(f'Matching meeting found for TDoc {tdoc_str}: {matching_meeting.meeting_name}, {matching_meeting.start_date.year}.{matching_meeting.start_date.month}.{matching_meeting.start_date.day}, {matching_meeting.meeting_location}')
     else:
-        def meeting_is_now(meeting: MeetingEntry):
-            now = datetime.datetime.now()
-            if not (meeting.start_date.year <= now.year <= meeting.end_date.year):
-                return False
-            if not (meeting.start_date.month <= now.month <= meeting.end_date.month):
-                return False
-            if not (meeting.start_date.day <= now.day <= meeting.end_date.day):
-                return False
-            return True
-
-        current_meeting = [m for m in all_group_meetings if meeting_is_now(m)]
+        current_meeting = [m for m in group_meetings if m.meeting_is_now]
         if len(current_meeting) == 0:
             print('No current meeting found')
             current_meeting = None
