@@ -334,7 +334,7 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
         meeting_sa6_adhocs]
 
     def parse_match_to_meeting_entry(a_match: re.Match,
-                                     group_meetings_ftp: List[Tuple[str | None, str, str]]) -> MeetingEntry:
+                                     group_meetings_ftp: Dict[str, Tuple[str | None, str, str]]) -> MeetingEntry:
         m_matches: Dict[str, str] = a_match.groupdict()
         meeting_group = None
         meeting_number = None
@@ -391,11 +391,13 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
         if meeting_folder_url is None and group_meetings_ftp is not None:
             # Try to add information parsed from FTP server
             try:
-                matching_meeting = [m for m in group_meetings_ftp if m[0] == meeting_number][0]
+                # Instant lookup using the meeting_number as the dictionary key
+                matching_meeting = group_meetings_ftp[meeting_number]
                 print(f"Match in FTP server for {meeting_name}: {matching_meeting}")
                 meeting_folder_url = matching_meeting[2]
                 meeting_url_docs = server_url_replace(f"{meeting_folder_url}{'/Docs/'}")
-            except Exception as e:
+            except (KeyError, Exception):
+                # KeyError is raised naturally if the meeting_number isn't in the dict
                 pass
 
         return MeetingEntry(
@@ -422,19 +424,25 @@ def load_markdown_cache_to_memory(groups: List[str] = None):
                 markup_file_content = file.read()
 
             try:
-                group_meetings_ftp = meeting_info_ftp_parsed[k]
+                # Grab the original list of tuples
+                group_meetings_ftp_list = meeting_info_ftp_parsed[k]
+                # Convert to a dictionary keyed by m[0] (which is the meeting_number)
+                # We filter out any entries where m[0] is None to avoid invalid keys
+                group_meetings_ftp_dict = {m[0]: m for m in group_meetings_ftp_list if m[0] is not None}
             except KeyError:
-                group_meetings_ftp = []
+                group_meetings_ftp_dict = {}
 
-            # Check different regex patterns
+                # Check different regex patterns
             parsed_meetings_for_k: List[MeetingEntry] = []
             for regex_to_check in regex_list:
                 meeting_matches = regex_to_check.finditer(markup_file_content)
-                already_parsed_meetings = [m.meeting_number for m in parsed_meetings_for_k]
+                already_parsed_meetings = {m.meeting_number for m in
+                                           parsed_meetings_for_k}  # Converted to set here as well for O(1) lookup!
                 matches_to_process = [m for m in meeting_matches
                                       if m is not None and m.group('meeting_number') not in already_parsed_meetings]
 
-                meetings_to_add = [parse_match_to_meeting_entry(m, group_meetings_ftp) for m in matches_to_process]
+                # Pass the newly created dictionary instead of the list
+                meetings_to_add = [parse_match_to_meeting_entry(m, group_meetings_ftp_dict) for m in matches_to_process]
                 loaded_meeting_entries.extend(meetings_to_add)
         else:
             print(f'Not found: {v}')
@@ -488,9 +496,13 @@ def search_meeting_for_tdoc(
 
         return (group_str == m.meeting_group) and not m.is_li
 
-    group_meetings = [m for m in loaded_meeting_entries if m is not None and group_match(m, group_to_search)]
-    print(f'{len(group_meetings)} Group meetings for group {group_to_search}. LI: {sa3_li_tdoc}')
-    group_meetings = [m for m in group_meetings if m.meeting_timing == MeetingPastPresent.PAST or m.meeting_timing == MeetingPastPresent.NOW]
+    # Combine all three checks into a single list comprehension
+    group_meetings = [
+        m for m in loaded_meeting_entries
+        if m is not None
+           and group_match(m, group_to_search)
+           and m.meeting_timing in (MeetingPastPresent.PAST, MeetingPastPresent.NOW)
+    ]
     print(f'{len(group_meetings)} past/present group meetings for group {group_to_search}. LI: {sa3_li_tdoc}')
     matching_meetings = [m for m in group_meetings if m.tdoc_is_in_range(parsed_tdoc)]
     print(f'Matching meetings found for {parsed_tdoc}: {matching_meetings}')
