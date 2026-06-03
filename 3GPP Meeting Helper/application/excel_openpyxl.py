@@ -1,8 +1,12 @@
+import zipfile
 from typing import NamedTuple, Dict
 
 import openpyxl
 import openpyxl.utils
+from openpyxl.utils import column_index_from_string
 from openpyxl.utils.cell import coordinate_from_string
+import pandas as pd
+import xml.etree.ElementTree as ET
 
 
 def parse_excel_hyperlinks_by_column_name(file_path, column_name, sheet_name=None):
@@ -90,6 +94,93 @@ def parse_excel_hyperlinks_by_column_name(file_path, column_name, sheet_name=Non
     unique_hyperlinks.sort(key=lambda x: str(x[0]) if x[0] is not None else "")
 
     return unique_hyperlinks
+
+
+def extract_hyperlinks_zip_merge(excel_path: str, df: pd.DataFrame, column_name: str,
+                                 sheet_filename="sheet1.xml") -> list:
+    """
+    Instantly extracts hyperlinks by unzipping the Excel file and mapping
+    the XML relationships directly to the already-loaded Pandas Dataframe.
+    """
+    if column_name not in df.columns:
+        print(f"Error: Column '{column_name}' not found in dataframe.")
+        return []
+
+    # 1. Map the Excel column layout mathematically.
+    # Since you use `index_col=0` in pd.read_excel:
+    # Excel Col A -> df.index
+    # Excel Col B -> df.columns[0]
+    # Therefore, Excel Column Index = df index + 2
+    df_col_idx = df.columns.get_loc(column_name)
+    excel_target_col_num = df_col_idx + 2
+
+    hyperlinks_info = set()
+
+    # XML Namespaces used by Excel
+    ns = {
+        'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+        'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+        'rels': 'http://schemas.openxmlformats.org/package/2006/relationships'
+    }
+
+    try:
+        # 2. Extract raw XML from the Zip archive directly into memory
+        with zipfile.ZipFile(excel_path, 'r') as z:
+
+            # Step A: Get the hyperlink targets from the .rels file
+            try:
+                rels_xml = z.read(f"xl/worksheets/_rels/{sheet_filename}.rels")
+            except KeyError:
+                return []  # File contains no hyperlinks
+
+            rels_tree: ET.Element = ET.fromstring(rels_xml)
+            rel_map = {
+                rel.attrib['Id']: rel.attrib['Target']
+                for rel in rels_tree.findall('rels:Relationship', ns)
+                if "hyperlink" in rel.attrib.get('Type', '')
+            }
+
+            # Step B: Get the cell coordinates from the main sheet file
+            sheet_xml = z.read(f"xl/worksheets/{sheet_filename}")
+            sheet_tree = ET.fromstring(sheet_xml)
+
+            # 3. Filter and Merge
+            for hl in sheet_tree.findall('.//main:hyperlink', ns):
+                ref = hl.attrib.get('ref')
+                r_id = hl.attrib.get(f"{{{ns['r']}}}id")
+
+                if ref and r_id in rel_map:
+                    # Get the top-left cell if it's a merged range
+                    top_left_coord = ref.split(':')[0]
+                    col_str, row_str = coordinate_from_string(top_left_coord)
+                    col_num = column_index_from_string(col_str)
+                    row_num = int(row_str)
+
+                    # strictly filter by our target column and skip header row
+                    if col_num == excel_target_col_num and row_num > 1:
+                        target_url = rel_map[r_id]
+
+                        # Map the Excel row to the Pandas iloc index
+                        # Excel Row 2 corresponds to df.iloc[0]
+                        try:
+                            cell_value = df.iloc[row_num - 2, df_col_idx]
+
+                            # Handle Pandas NaNs for empty cells
+                            if pd.isna(cell_value):
+                                cell_value = None
+
+                            hyperlinks_info.add((cell_value, target_url))
+                        except IndexError:
+                            pass  # Handles edge cases where XML refs outlast dataframe bounds
+
+    except Exception as e:
+        print(f"Zip extraction failed: {e}")
+        return []
+
+    unique_links = list(hyperlinks_info)
+    unique_links.sort(key=lambda x: str(x[0]) if x[0] is not None else "")
+
+    return unique_links
 
 class WiData(NamedTuple):
     wi_name:str
