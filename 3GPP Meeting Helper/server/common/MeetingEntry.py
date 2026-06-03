@@ -7,6 +7,7 @@ from enum import Enum
 from functools import cached_property
 from typing import List, Optional
 from urllib.parse import urlparse, parse_qs
+import concurrent.futures
 
 import pandas as pd
 from pandas import DataFrame
@@ -452,10 +453,25 @@ class CachedMeetingTdocData:
             if found_cache is not None:
                 return found_cache
 
-        tdocs_df: DataFrame = pd.read_excel(
-            io=tdoc_excel_path,
-            index_col=0)
-        wi_hyperlinks = parse_tdoc_3gu_list_for_wis(tdoc_excel_path)
+        # OPTIMIZATION: Run Calamine and OpenPyXL in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            # Task 1: Extremely fast tabular data read using Calamine
+            future_df = executor.submit(
+                pd.read_excel,
+                tdoc_excel_path,
+                index_col=0,
+                engine="calamine"  # <-- Tells Pandas to bypass openpyxl
+            )
+
+            # Task 2: Standard hyperlink extraction using your existing logic
+            future_links = executor.submit(
+                parse_tdoc_3gu_list_for_wis,
+                tdoc_excel_path
+            )
+
+            # Wait for both threads to finish and collect the results
+            tdocs_df: DataFrame = future_df.result()
+            wi_hyperlinks = future_links.result()
 
         tdoc_data = CachedMeetingTdocData(
             tdocs_df=tdocs_df,
