@@ -13,7 +13,7 @@ import pandas as pd
 from pandas import DataFrame
 
 import tdoc.utils
-from application.excel_openpyxl import parse_tdoc_3gu_list_for_wis
+from application.excel_openpyxl import parse_tdoc_3gu_list_for_wis, extract_hyperlinks_zip_merge
 from server.common.server_utils import ServerType, DocumentType, TdocType, WorkingGroup, host_public_server
 from server.common.server_utils import meeting_id_regex, get_document_or_folder_url, host_private_server
 from tdoc.utils import GenericTdoc
@@ -453,29 +453,23 @@ class CachedMeetingTdocData:
             if found_cache is not None:
                 return found_cache
 
-        # OPTIMIZATION: Run Calamine and OpenPyXL in parallel
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            # Task 1: Extremely fast tabular data read using Calamine
-            future_df = executor.submit(
-                pd.read_excel,
-                tdoc_excel_path,
-                index_col=0,
-                engine="calamine"  # <-- Tells Pandas to bypass openpyxl
-            )
+        # Task 1: Extremely fast tabular data read using Calamine
+        tdocs_df = pd.read_excel(
+            tdoc_excel_path,
+            index_col=0,
+            engine="calamine"
+        )
 
-            # Task 2: Standard hyperlink extraction using your existing logic
-            future_links = executor.submit(
-                parse_tdoc_3gu_list_for_wis,
-                tdoc_excel_path
-            )
-
-            # Wait for both threads to finish and collect the results
-            tdocs_df: DataFrame = future_df.result()
-            wi_hyperlinks = future_links.result()
+        # Task 2: Instant Zip-XML merge using the dataframe we just built
+        wi_hyperlinks = extract_hyperlinks_zip_merge(
+            excel_path=tdoc_excel_path,
+            df=tdocs_df,
+            column_name="Related WIs"
+        )
 
         tdoc_data = CachedMeetingTdocData(
             tdocs_df=tdocs_df,
-            wi_hyperlinks=wi_hyperlinks,
+            wi_hyperlinks=dict(wi_hyperlinks),
             meeting=meeting,
             hash=excel_hash
         )
