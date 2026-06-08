@@ -380,6 +380,76 @@ class ConverterThread(QThread):
             if visio: visio.Quit()
             raise RuntimeError(f"Visio COM Error: {e}")
 
+
+class VisioReaderThread(QThread):
+    """Background thread to extract embedded PlantUML code from a Visio file."""
+    text_extracted = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, vsdx_path):
+        super().__init__()
+        self.vsdx_path = vsdx_path
+
+    def run(self):
+        pythoncom.CoInitialize()
+        visio = None
+        try:
+            visio = win32com.client.DispatchEx("Visio.Application")
+            visio.Visible = False
+            visio.AlertResponse = 7
+
+            # OpenEx with flag '2' = Read-Only. Prevents file lock crashes if Visio is already open.
+            doc = visio.Documents.OpenEx(str(Path(self.vsdx_path).resolve()), 2)
+
+            source_code = ""
+            # Hunt for the embedded source page
+            for i in range(1, doc.Pages.Count + 1):
+                page = doc.Pages(i)
+                if page.Name == "PlantUML Source":
+                    if page.Shapes.Count > 0:
+                        # Grab the raw text from the bounding box
+                        source_code = page.Shapes(1).Characters.Text
+                    break
+
+            doc.Close()
+            visio.Quit()
+
+            if source_code:
+                self.text_extracted.emit(source_code)
+            else:
+                self.error_occurred.emit("Could not find 'PlantUML Source' page in this Visio file.")
+
+        except Exception as e:
+            if visio: visio.Quit()
+            self.error_occurred.emit(f"Error reading Visio file: {str(e)}")
+        finally:
+            pythoncom.CoUninitialize()
+
+
+class CodeDropTextEdit(QTextEdit):
+    """Custom TextEdit that intercepts Visio file drops while allowing normal text."""
+    file_dropped = pyqtSignal(str)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if any(url.toLocalFile().lower().endswith('.vsdx') for url in urls):
+                event.acceptProposedAction()
+                return
+        # Fall back to standard text drag-and-drop
+        super().dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                file_path = url.toLocalFile()
+                if file_path.lower().endswith('.vsdx'):
+                    self.file_dropped.emit(file_path)
+                    event.acceptProposedAction()
+                    return  # Only read the first Visio file dropped
+        # Fall back to standard text drop
+        super().dropEvent(event)
+
 class DragDropUI(QMainWindow):
     """Main PyQt5 GUI Window with Tabs for File Drops and Code Pasting."""
 
@@ -411,9 +481,10 @@ class DragDropUI(QMainWindow):
         # ==========================================
         self.tab_text = QWidget()
         tab_text_layout = QVBoxLayout()
-        self.text_input = QTextEdit()
+        self.text_input = CodeDropTextEdit()
         self.text_input.setPlaceholderText(
-            "Paste your PlantUML code here (ensure it starts with @startuml)...\n\nA file named 'YYYY.MM.DD hh-mm-ss diagram.vsdx' will be created in this tool's folder.")
+            "Paste PlantUML code OR drop a generated .vsdx file here to extract its source...")
+        self.text_input.file_dropped.connect(self.extract_code_from_visio)
         self.text_input.setStyleSheet(
             "font-family: Consolas, Courier New, monospace; font-size: 13px; border: 1px solid #ccc;")
 
@@ -586,6 +657,28 @@ class DragDropUI(QMainWindow):
         if hasattr(self, 'last_visio_path') and self.last_visio_path:
             QApplication.clipboard().setText(self.last_visio_path)
             self.log_message(f"📋 Copied to clipboard: {self.last_visio_path}")
+
+    def extract_code_from_visio(self, file_path):
+        self.text_input.clear()
+        self.text_input.setPlaceholderText(f"⏳ Extracting source from {Path(file_path).name}...\nPlease wait...")
+        self.text_input.setEnabled(False)
+        self.log_message(f"📂 Reading embedded source from: {Path(file_path).name}")
+
+        self.reader_thread = VisioReaderThread(file_path)
+        self.reader_thread.text_extracted.connect(self.on_visio_code_read)
+        self.reader_thread.error_occurred.connect(self.on_visio_code_error)
+        self.reader_thread.start()
+
+    def on_visio_code_read(self, source_code):
+        self.text_input.setEnabled(True)
+        self.text_input.setPlainText(source_code)
+        self.log_message("✅ Successfully extracted PlantUML source from Visio file.")
+
+    def on_visio_code_error(self, error_msg):
+        self.text_input.setEnabled(True)
+        self.text_input.setPlaceholderText(
+            "Paste PlantUML code OR drop a generated .vsdx file here to extract its source...")
+        self.log_message(f"❌ {error_msg}")
 
     def convert_pasted_text(self):
         raw_text = self.text_input.toPlainText().strip()
