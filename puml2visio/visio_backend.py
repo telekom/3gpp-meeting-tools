@@ -396,7 +396,7 @@ class ConverterThread(QThread):
             text_box.CellsU("Para.HorzAlign").FormulaU = "0"
             text_box.CellsU("VerticalAlign").FormulaU = "0"
 
-            text_box.Characters.Text = source_code
+            text_box.Characters.Text = f'Generated with puml2visio: https://github.com/telekom/3gpp-meeting-tools/tree/master/puml2visio\n\n{source_code}'
 
             visio.ActiveWindow.Page = page
             doc.SaveAs(str(vsdx_path.resolve()))
