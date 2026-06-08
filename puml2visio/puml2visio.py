@@ -236,21 +236,71 @@ class ConverterThread(QThread):
         if not svg_path.exists():
             raise FileNotFoundError("PlantUML finished, but SVG was not created.")
 
-        # --- THE PROPER VISIO SPACE FIX ---
+        # --- SVG PRE-PROCESSING: THE ULTIMATE TEXT MERGER ---
         try:
             with open(svg_path, 'r', encoding='utf-8') as f:
                 svg_content = f.read()
 
-            # 1. Visio breaks sentences into words if it sees these exact attributes
+            # 1. Strip PlantUML's length attributes that confuse Visio
             svg_content = re.sub(r'\s*textLength="[^"]*"', '', svg_content)
             svg_content = re.sub(r'\s*lengthAdjust="[^"]*"', '', svg_content)
 
-            # 2. Use the official XML standard to protect spaces from Visio's parser!
-            # This explicitly tells Visio NOT to collapse, ignore, or split on whitespace.
-            svg_content = svg_content.replace('<text ', '<text xml:space="preserve" ')
+            # 2. Merge adjacent <text> tags that share the exact same 'y' coordinate
+            pattern = re.compile(r'(<text\b[^>]*?\by="([0-9.]+)"[^>]*>)(.*?)(</text>)', re.IGNORECASE | re.DOTALL)
+            matches = list(pattern.finditer(svg_content))
+
+            if matches:
+                result = []
+                last_end = 0
+                current_y = None
+                current_start_tag = ""
+                current_text = ""
+
+                for m in matches:
+                    start = m.start()
+                    end = m.end()
+
+                    full_open_tag = m.group(1)
+                    y_val = m.group(2)
+                    inner_text = m.group(3)
+
+                    # Check what XML exists between the last text tag and this one
+                    between = svg_content[last_end:start]
+
+                    # If they are on the same Y line AND there are no structural XML tags between them
+                    if current_y == y_val and not between.strip():
+                        current_text += inner_text
+                    else:
+                        # Flush the previous group to the result
+                        if current_y is not None:
+                            result.append(current_start_tag)
+                            result.append(current_text)
+                            result.append("</text>")
+
+                        result.append(between)
+
+                        # Start a new group
+                        current_y = y_val
+                        current_start_tag = full_open_tag
+                        current_text = inner_text
+
+                    last_end = end
+
+                # Flush the final group
+                if current_y is not None:
+                    result.append(current_start_tag)
+                    result.append(current_text)
+                    result.append("</text>")
+
+                result.append(svg_content[last_end:])
+                svg_content = "".join(result)
+
+            # 3. Replace &#160; and \xa0 with standard spaces so Visio renders them with proper widths
+            svg_content = svg_content.replace('&#160;', ' ').replace('\xa0', ' ')
 
             with open(svg_path, 'w', encoding='utf-8') as f:
                 f.write(svg_content)
+
         except Exception as e:
             self._emit_log(f"⚠️ Warning: Could not clean SVG text attributes: {e}", level=logging.WARNING)
 
@@ -564,7 +614,7 @@ class DragDropUI(QMainWindow):
 
         # Add Tabs (Paste Code is first, so it opens by default)
         self.tabs.addTab(self.tab_text, "📝 Paste Code")
-        self.tabs.addTab(self.tab_file, "📂 Drag\& Drop Files")
+        self.tabs.addTab(self.tab_file, "📂 Drag && Drop Files")
         self.tabs.setEnabled(False)
 
         main_layout.addWidget(self.tabs, stretch=1)
