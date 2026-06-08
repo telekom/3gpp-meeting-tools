@@ -266,15 +266,27 @@ class ConverterThread(QThread):
                 orig_h = page.Shapes(1).CellsU("Height").ResultIU
 
                 # 2. Deep Ungroup: Smash the SVG wrappers until individual shapes emerge
-                max_ungroup_attempts = 3
-                for _ in range(max_ungroup_attempts):
-                    if page.Shapes.Count == 1:
+                if page.Shapes.Count > 0:
+                    # Recursive function to break every group in the drawing
+                    def deep_ungroup(shape):
                         try:
-                            page.Shapes(1).Ungroup()
-                        except Exception:
-                            break
-                    else:
-                        break
+                            # Check if the shape is a group
+                            if shape.OneD == 0:
+                                # Check if the group is protected from ungrouping
+                                if shape.CellsU("LockDelete").ResultIU == 0:
+                                    shape.Ungroup()
+                                    return True
+                        except:
+                            pass
+                        return False
+
+                    # Drill down into the shapes until no groups are left
+                    ungrouped_something = True
+                    while ungrouped_something:
+                        ungrouped_something = False
+                        for i in range(page.Shapes.Count, 0, -1):
+                            if deep_ungroup(page.Shapes(i)):
+                                ungrouped_something = True
 
                 # 3. Canvas Hunting: Destroy the invisible PlantUML background rectangle
                 if page.Shapes.Count > 1:
@@ -464,7 +476,7 @@ class DragDropUI(QMainWindow):
 
         # Add Tabs (Paste Code is first, so it opens by default)
         self.tabs.addTab(self.tab_text, "📝 Paste Code")
-        self.tabs.addTab(self.tab_file, "📂 Drag & Drop Files")
+        self.tabs.addTab(self.tab_file, "📂 Drag\& Drop Files")
         self.tabs.setEnabled(False)
 
         main_layout.addWidget(self.tabs, stretch=1)
