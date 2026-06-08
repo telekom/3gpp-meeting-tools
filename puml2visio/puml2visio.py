@@ -492,6 +492,19 @@ class DragDropUI(QMainWindow):
             self.copy_btn.setEnabled(True)
             self.copy_btn.setStyleSheet("background-color: #395396; color: white; border: none;")
 
+            # --- NEW: Auto-open SVG files ---
+            if out_path.lower().endswith('.svg'):
+                try:
+                    import os
+                    os.startfile(out_path)
+                    self.log_message("👁️ Opened SVG in default system viewer.")
+                except AttributeError:
+                    # Fallback for non-Windows environments just in case
+                    import subprocess
+                    subprocess.call(('open' if sys.platform == 'darwin' else 'xdg-open', out_path))
+                except Exception as e:
+                    self.log_message(f"⚠️ Could not automatically open SVG: {e}")
+
     def log_message(self, message: str):
         self.console.append(message)
         QApplication.processEvents()
