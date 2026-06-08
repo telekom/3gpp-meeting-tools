@@ -10,16 +10,10 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout,
                              QFormLayout, QHBoxLayout, QTabWidget, QCheckBox)
 from PyQt5.QtCore import Qt, pyqtSignal
 
-# --- IMPORT THE LOGIC FROM OUR BACKEND FILE ---
-from visio_backend import (
-    InitializationThread,
-    VisioReaderThread,
-    WordExtractorThread,
-    ConverterThread,
-    SvgConverterThread,
-    encode_plantuml,
-    JAR_NAME
-)
+# --- IMPORT FROM OUR MODULAR BACKEND ---
+from utils import JAR_NAME, encode_plantuml, InitializationThread
+from word_extractor import WordExtractorThread
+from visio_converter import VisioReaderThread, ConverterThread, SvgConverterThread
 
 # ==========================================
 # --- LOGGING SETUP ---
@@ -173,7 +167,6 @@ class CodeDropTextEdit(QTextEdit):
 
     def __init__(self):
         super().__init__()
-        # Matches the modern border-radius and styling of the drop zones
         self.setStyleSheet("""
             QTextEdit {
                 font-family: Consolas, Courier New, monospace; 
@@ -336,7 +329,7 @@ class DragDropUI(QMainWindow):
 
         main_layout.addWidget(self.tabs, stretch=3)
 
-        # Console (VS Code Dark Theme Inspired)
+        # Console
         self.console = QTextEdit()
         self.console.setReadOnly(True)
         self.console.setStyleSheet("""
@@ -497,7 +490,6 @@ class DragDropUI(QMainWindow):
         if out_path:
             self.last_out_path = out_path
             self.copy_btn.setEnabled(True)
-            # Give the copy button the primary style when it becomes active
             self.copy_btn.setStyleSheet("background-color: #395396; color: white; border: none;")
 
     def log_message(self, message: str):
