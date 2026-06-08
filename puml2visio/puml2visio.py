@@ -14,6 +14,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from utils import JAR_NAME, encode_plantuml, InitializationThread
 from word_extractor import WordExtractorThread
 from visio_converter import VisioReaderThread, ConverterThread, SvgConverterThread
+from powerpoint_converter import PptxConverterThread
 
 # ==========================================
 # --- LOGGING SETUP ---
@@ -89,6 +90,14 @@ GLOBAL_STYLE = """
     }
     QPushButton#secondaryBtn:hover {
         background-color: #4A566E;
+    }
+    QPushButton#pptBtn {
+        background-color: #D83B01; 
+        color: white; 
+        border: none;
+    }
+    QPushButton#pptBtn:hover {
+        background-color: #A82E00;
     }
 """
 
@@ -240,7 +249,7 @@ class DragDropUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PlantUML to Visio Converter (3GPP)")
-        self.resize(850, 680)
+        self.resize(900, 680)  # Made slightly wider to fit 5 buttons
         self.setAcceptDrops(True)
 
         self.jar_path = Path(__file__).parent.resolve() / JAR_NAME
@@ -283,19 +292,24 @@ class DragDropUI(QMainWindow):
         self.copy_btn.setEnabled(False)
         self.copy_btn.clicked.connect(self.copy_out_path)
 
-        self.convert_svg_btn = QPushButton("Export to SVG")
+        self.convert_svg_btn = QPushButton("Export SVG")
         self.convert_svg_btn.setObjectName("secondaryBtn")
-        self.convert_svg_btn.clicked.connect(self.convert_pasted_text_to_svg)
+        self.convert_svg_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("svg"))
 
-        self.convert_vsdx_btn = QPushButton("Export to Visio")
+        self.convert_pptx_btn = QPushButton("Export PPTX")
+        self.convert_pptx_btn.setObjectName("pptBtn")
+        self.convert_pptx_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("pptx"))
+
+        self.convert_vsdx_btn = QPushButton("Export Visio")
         self.convert_vsdx_btn.setObjectName("primaryBtn")
-        self.convert_vsdx_btn.clicked.connect(self.convert_pasted_text_to_visio)
+        self.convert_vsdx_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("vsdx"))
 
         btn_layout.addWidget(self.clear_btn)
         btn_layout.addWidget(self.planttext_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.copy_btn)
         btn_layout.addWidget(self.convert_svg_btn)
+        btn_layout.addWidget(self.convert_pptx_btn)
         btn_layout.addWidget(self.convert_vsdx_btn)
 
         tab_text_layout.addWidget(self.text_input)
@@ -364,7 +378,7 @@ class DragDropUI(QMainWindow):
         self.drop_label.setStyleSheet(
             "border: 3px dashed #395396; border-radius: 10px; background-color: #F4F8FD; color: #395396; font-size: 15px; font-weight: bold;")
         self.convert_vsdx_btn.setEnabled(True)
-        self.convert_vsdx_btn.setText("Export to Visio")
+        self.convert_vsdx_btn.setText("Export Visio")
 
     def _set_drop_zone_busy(self):
         self.drop_label.setText("⚙️ Processing Queue...\n\nPlease wait until finished.")
@@ -438,12 +452,6 @@ class DragDropUI(QMainWindow):
         if puml_added > 0 and not self.is_processing:
             self.process_next_in_queue()
 
-    def convert_pasted_text_to_visio(self):
-        self._save_and_queue_pasted_text("vsdx")
-
-    def convert_pasted_text_to_svg(self):
-        self._save_and_queue_pasted_text("svg")
-
     def _save_and_queue_pasted_text(self, target_format):
         raw_text = self.text_input.toPlainText().strip()
         if not raw_text: return
@@ -454,7 +462,7 @@ class DragDropUI(QMainWindow):
         puml_path = base_dir / f"{base_name}.puml"
 
         counter = 1
-        while puml_path.exists() or puml_path.with_suffix(".vsdx").exists() or puml_path.with_suffix(".svg").exists():
+        while puml_path.exists() or puml_path.with_suffix(f".{target_format}").exists():
             puml_path = base_dir / f"{base_name}_{counter}.puml"
             counter += 1
 
@@ -478,6 +486,8 @@ class DragDropUI(QMainWindow):
 
         if target_format == "svg":
             self.conv_thread = SvgConverterThread(next_file, self.jar_path)
+        elif target_format == "pptx":
+            self.conv_thread = PptxConverterThread(next_file, self.jar_path)
         else:
             self.conv_thread = ConverterThread(next_file, self.jar_path)
 
@@ -492,18 +502,15 @@ class DragDropUI(QMainWindow):
             self.copy_btn.setEnabled(True)
             self.copy_btn.setStyleSheet("background-color: #395396; color: white; border: none;")
 
-            # --- NEW: Auto-open SVG files ---
-            if out_path.lower().endswith('.svg'):
+            # Auto-open SVG and PPTX files
+            if out_path.lower().endswith(('.svg', '.pptx')):
                 try:
                     import os
                     os.startfile(out_path)
-                    self.log_message("👁️ Opened SVG in default system viewer.")
-                except AttributeError:
-                    # Fallback for non-Windows environments just in case
-                    import subprocess
-                    subprocess.call(('open' if sys.platform == 'darwin' else 'xdg-open', out_path))
+                    ext = Path(out_path).suffix[1:].upper()
+                    self.log_message(f"👁️ Opened {ext} in default system viewer.")
                 except Exception as e:
-                    self.log_message(f"⚠️ Could not automatically open SVG: {e}")
+                    self.log_message(f"⚠️ Could not automatically open file: {e}")
 
     def log_message(self, message: str):
         self.console.append(message)
