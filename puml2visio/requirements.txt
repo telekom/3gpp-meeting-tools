@@ -1,0 +1,5 @@
+# PyQt5 provides the native drag-and-drop Windows GUI
+PyQt5>=5.15.0
+
+# pywin32 provides the COM automation interface to control Microsoft Visio
+pywin32>=306
