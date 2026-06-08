@@ -1,90 +1,11 @@
 import subprocess
-import urllib.request
-import winreg
 import re
 import logging
-import zlib
-import base64
-import zipfile
-import io
 from pathlib import Path
 
 import pythoncom
 import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
-
-# ==========================================
-# --- CONFIGURATION & UTILS ---
-# ==========================================
-JAR_NAME = "plantuml.jar"
-URL_LATEST = "https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar"
-URL_JAVA_8 = "https://github.com/plantuml/plantuml/releases/download/v1.2023.13/plantuml-1.2023.13.jar"
-
-
-def encode_plantuml(text: str) -> str:
-    """Encodes raw PlantUML text into the Deflate + Base64 format expected by PlantText."""
-    compressor = zlib.compressobj(level=9, wbits=-15)
-    compressed = compressor.compress(text.encode('utf-8')) + compressor.flush()
-    b64 = base64.b64encode(compressed).decode('ascii')
-
-    std_b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    puml_b64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_"
-    trans = str.maketrans(std_b64, puml_b64)
-    return b64.translate(trans).replace('=', '')
-
-
-# ==========================================
-# --- BACKGROUND THREADS (THE LOGIC) ---
-# ==========================================
-
-class InitializationThread(QThread):
-    ui_log_msg = pyqtSignal(str)
-    init_complete = pyqtSignal(bool)
-
-    def __init__(self, jar_path: Path):
-        super().__init__()
-        self.jar_path = jar_path
-
-    def run(self):
-        try:
-            self._emit_log("🔍 Initializing system checks...", logging.INFO)
-            try:
-                winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r"Visio.Application")
-            except FileNotFoundError:
-                self._emit_log("❌ ERROR: Microsoft Visio is not installed or registered.", logging.ERROR)
-                self.init_complete.emit(False)
-                return
-
-            java_major = None
-            try:
-                result = subprocess.run(["java", "-version"], capture_output=True, text=True, check=True)
-                match = re.search(r'(?:java|openjdk) version "([^"]+)"', result.stderr, re.IGNORECASE)
-                if match:
-                    parts = match.group(1).split('.')
-                    java_major = int(parts[1]) if parts[0] == '1' else int(parts[0])
-            except:
-                pass
-
-            if not java_major:
-                self._emit_log("❌ ERROR: Java is not installed or not in system PATH.", logging.ERROR)
-                self.init_complete.emit(False)
-                return
-
-            if not self.jar_path.exists():
-                self._emit_log(f"⚠️ {JAR_NAME} missing. Attempting download...", logging.WARNING)
-                url = URL_LATEST if java_major >= 11 else URL_JAVA_8
-                urllib.request.urlretrieve(url, self.jar_path)
-                self._emit_log("✅ PlantUML downloaded successfully.", logging.INFO)
-
-            self.init_complete.emit(True)
-
-        except Exception as e:
-            self._emit_log(f"❌ System Check Failed: {e}", logging.CRITICAL)
-            self.init_complete.emit(False)
-
-    def _emit_log(self, message: str, level: int):
-        logging.log(level, message)
-        self.ui_log_msg.emit(message)
 
 
 class VisioReaderThread(QThread):
@@ -124,60 +45,6 @@ class VisioReaderThread(QThread):
             self.error_occurred.emit(f"Error reading Visio file: {str(e)}")
         finally:
             pythoncom.CoUninitialize()
-
-
-class WordExtractorThread(QThread):
-    ui_log_msg = pyqtSignal(str)
-
-    def __init__(self, docx_path: str):
-        super().__init__()
-        self.docx_path = Path(docx_path)
-
-    def run(self):
-        self.ui_log_msg.emit(f"\n📄 Analyzing Word Document: {self.docx_path.name}...")
-        output_dir = self.docx_path.parent
-        extracted_files = []
-
-        try:
-            with zipfile.ZipFile(self.docx_path, 'r') as z:
-                direct_vsdx = [f for f in z.namelist() if f.endswith('.vsdx')]
-                for f in direct_vsdx:
-                    data = z.read(f)
-                    out_name = output_dir / f"{self.docx_path.stem}_{Path(f).name}"
-                    with open(out_name, 'wb') as out:
-                        out.write(data)
-                    extracted_files.append(out_name)
-                    self.ui_log_msg.emit(f"✅ Extracted native Visio object: {out_name.name}")
-
-                bins = [f for f in z.namelist() if f.startswith('word/embeddings/') and f.endswith('.bin')]
-                for i, emb in enumerate(bins):
-                    data = z.read(emb)
-                    start_idx = data.find(b'PK\x03\x04')
-                    if start_idx != -1:
-                        vsdx_data = data[start_idx:]
-                        try:
-                            with zipfile.ZipFile(io.BytesIO(vsdx_data)) as test_z:
-                                if 'visio/document.xml' in test_z.namelist() or '[Content_Types].xml' in test_z.namelist():
-                                    out_name = output_dir / f"{self.docx_path.stem}_embedded_{i + 1}.vsdx"
-                                    counter = 1
-                                    while out_name.exists():
-                                        out_name = output_dir / f"{self.docx_path.stem}_embedded_{i + 1}_{counter}.vsdx"
-                                        counter += 1
-                                    with open(out_name, 'wb') as out:
-                                        out.write(vsdx_data)
-                                    extracted_files.append(out_name)
-                                    self.ui_log_msg.emit(f"✅ Extracted OLE Visio object: {out_name.name}")
-                        except zipfile.BadZipFile:
-                            pass
-
-        except Exception as e:
-            self.ui_log_msg.emit(f"❌ Error reading Word file: {e}")
-
-        if not extracted_files:
-            self.ui_log_msg.emit("⚠️ No embedded Visio files found in this document.")
-        else:
-            self.ui_log_msg.emit(
-                f"🎉 Successfully extracted {len(extracted_files)} Visio file(s) to the document's folder!")
 
 
 class ConverterThread(QThread):
@@ -381,24 +248,24 @@ class ConverterThread(QThread):
                 except:
                     pass
 
-            # Embed source
             src_page = doc.Pages.Add()
             src_page.PageSheet.CellsU("PageWidth").FormulaU = "8.27 in"
             src_page.PageSheet.CellsU("PageHeight").FormulaU = "11.69 in"
             src_page.Name = "PlantUML Source"
 
-            # Draw rectangle with perfect 0.5-inch margins on all sides (Centered on A4)
             text_box = src_page.DrawRectangle(0.5, 0.5, 7.77, 11.19)
             text_box.CellsU("LinePattern").FormulaU = "0"
             text_box.CellsU("FillPattern").FormulaU = "0"
-
-            # RESTORED: Force Top-Left alignment so the code reads correctly
             text_box.CellsU("Para.HorzAlign").FormulaU = "0"
             text_box.CellsU("VerticalAlign").FormulaU = "0"
+            text_box.Characters.Text = source_code
 
-            text_box.Characters.Text = f'Generated with puml2visio: https://github.com/telekom/3gpp-meeting-tools/tree/master/puml2visio\n\n{source_code}'
+            try:
+                if visio.ActiveWindow:
+                    visio.ActiveWindow.Page = page
+            except:
+                pass
 
-            visio.ActiveWindow.Page = page
             doc.SaveAs(str(vsdx_path.resolve()))
             doc.Close()
             visio.Quit()
@@ -409,8 +276,8 @@ class ConverterThread(QThread):
             if visio: visio.Quit()
             raise RuntimeError(f"Visio COM Error: {e}")
 
+
 class SvgConverterThread(QThread):
-    """Background thread to strictly generate an SVG without launching Visio."""
     ui_log_msg = pyqtSignal(str)
     finished_path = pyqtSignal(str)
 
