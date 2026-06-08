@@ -30,7 +30,15 @@ class VisioReaderThread(QThread):
                 page = doc.Pages(i)
                 if page.Name == "PlantUML Source":
                     if page.Shapes.Count > 0:
-                        source_code = page.Shapes(1).Characters.Text
+                        raw_text = page.Shapes(1).Characters.Text
+
+                        # --- NEW: Strip the watermark during extraction ---
+                        # This prevents duplication if a user re-exports a generated Visio file
+                        lines = raw_text.splitlines()
+                        while lines and ("Generated with puml2visio" in lines[0] or lines[0].strip() == ""):
+                            lines.pop(0)
+
+                        source_code = "\n".join(lines)
                     break
 
             doc.Close()
@@ -258,7 +266,9 @@ class ConverterThread(QThread):
             text_box.CellsU("FillPattern").FormulaU = "0"
             text_box.CellsU("Para.HorzAlign").FormulaU = "0"
             text_box.CellsU("VerticalAlign").FormulaU = "0"
-            text_box.Characters.Text = source_code
+
+            watermark = "' Generated with puml2visio, https://github.com/telekom/3gpp-meeting-tools/tree/master/puml2visio\n\n"
+            text_box.Characters.Text = watermark + source_code
 
             try:
                 if visio.ActiveWindow:
