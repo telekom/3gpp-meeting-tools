@@ -241,92 +241,72 @@ class ConverterThread(QThread):
 
     def _convert_to_vsdx(self, svg_path: Path):
         vsdx_path = svg_path.with_suffix(".vsdx")
-        
         if vsdx_path.exists():
             try:
                 vsdx_path.unlink()
             except PermissionError:
-                raise PermissionError(f"Cannot overwrite '{vsdx_path.name}'. Close it in Visio first.")
-        
-        # 1. Parse the pure mathematical dimensions from the PlantUML SVG file
-        svg_w_px, svg_h_px = None, None
-        try:
-            with open(svg_path, 'r', encoding='utf-8') as f:
-                svg_content = f.read()
-                # Find the viewBox (e.g., viewBox="0 0 540 820")
-                match = re.search(r'viewBox=["\']0 0 ([\d\.]+) ([\d\.]+)["\']', svg_content)
-                if match:
-                    svg_w_px = float(match.group(1))
-                    svg_h_px = float(match.group(2))
-        except Exception as e:
-            self._emit_log(f"⚠️ Warning: Could not parse SVG dimensions: {e}", level=logging.WARNING)
+                raise PermissionError("Close file in Visio first.")
 
-        # 2. Extract original source code for embedding
         with open(self.puml_path, "r", encoding="utf-8") as f:
             source_code = f.read()
-            
+
         visio = None
         try:
             visio = win32com.client.DispatchEx("Visio.Application")
             visio.Visible = False
-            visio.AlertResponse = 7 
-            
+            visio.AlertResponse = 7
+
             doc = visio.Documents.Add("")
-            
-            # --- Page 1: Diagram Image ---
-            page1 = doc.Pages(1)
-            page1.Name = "Sequence Diagram"
-            
-            # Remove all invisible margins
-            page_sheet = page1.PageSheet
-            page_sheet.CellsU("PageLeftMargin").FormulaU = "0 in"
-            page_sheet.CellsU("PageRightMargin").FormulaU = "0 in"
-            page_sheet.CellsU("PageTopMargin").FormulaU = "0 in"
-            page_sheet.CellsU("PageBottomMargin").FormulaU = "0 in"
-            
-            # Import the SVG
-            page1.Import(str(svg_path.resolve()))
-            
-            # NEW LOGIC: Perfect Crop
-            if page1.Shapes.Count > 0:
-                imported_shape = page1.Shapes(1)
-                
-                if svg_w_px and svg_h_px:
-                    # Force the Visio page to match PlantUML's exact dimensions
-                    # This prevents Visio's text bounding box engine from blowing up the canvas
-                    page_sheet.CellsU("PageWidth").FormulaU = f"{svg_w_px} px"
-                    page_sheet.CellsU("PageHeight").FormulaU = f"{svg_h_px} px"
-                    
-                    # Snap the diagram shape perfectly to the center of our new page
-                    imported_shape.CellsU("PinX").FormulaU = "ThePage!PageWidth * 0.5"
-                    imported_shape.CellsU("PinY").FormulaU = "ThePage!PageHeight * 0.5"
-                else:
-                    # Fallback if the regex fails to find the viewBox
-                    page1.ResizeToFitContents()
-            
-            # --- Page 2: Source Code Embedding ---
-            page2 = doc.Pages.Add()
-            page2.Name = "PlantUML Source"
-            
-            text_box = page2.DrawRectangle(0.5, 0.5, 8.0, 10.5)
+            page = doc.Pages(1)
+            page.Name = "Sequence Diagram"
+            page.Import(str(svg_path.resolve()))
+
+            # --- UNIVERSAL CENTERING LOGIC ---
+            if page.Shapes.Count > 0:
+                shape = page.Shapes(1)
+                page_sheet = page.PageSheet
+
+                # Get dimensions using safer ResultIU (Internal Units - Inches)
+                page_w = page_sheet.CellsU("PageWidth").ResultIU
+                page_h = page_sheet.CellsU("PageHeight").ResultIU
+
+                # PinX/PinY refer to the center of the shape
+                shape.CellsU("PinX").FormulaU = f"{page_w / 2}"
+                shape.CellsU("PinY").FormulaU = f"{page_h / 2}"
+
+                # Try to fit contents safely
+                try:
+                    page.ResizeToFitContents()
+                except:
+                    pass
+
+            # Embed source
+            src_page = doc.Pages.Add()
+            src_page.PageSheet.CellsU("PageWidth").FormulaU = "8.27 in"
+            src_page.PageSheet.CellsU("PageHeight").FormulaU = "11.69 in"
+            src_page.Name = "PlantUML Source"
+
+            text_box = src_page.DrawRectangle(0.5, 0.5, 8.0, 10.5)
             text_box.CellsU("LinePattern").FormulaU = "0"
             text_box.CellsU("FillPattern").FormulaU = "0"
             text_box.CellsU("Para.HorzAlign").FormulaU = "0"
             text_box.CellsU("VerticalAlign").FormulaU = "0"
-            
+
             text_box.Characters.Text = source_code
-            
+
             # Restore active view to Page 1 for flawless OLE previews in Word
-            visio.ActiveWindow.Page = page1
+            visio.ActiveWindow.Page = page
+
             doc.SaveAs(str(vsdx_path.resolve()))
             doc.Close()
-            
-        except Exception as e:
-            raise RuntimeError(f"Visio COM Error: {e}")
-        finally:
-            if visio:
-                visio.Quit()
+            visio.Quit()
 
+            if svg_path.exists(): svg_path.unlink()
+            self.ui_log_msg.emit(f"✅ Saved: {vsdx_path.name}")
+
+        except Exception as e:
+            if visio: visio.Quit()
+            raise RuntimeError(f"Visio COM Error: {e}")
 
 class DragDropUI(QMainWindow):
     """Main PyQt5 GUI Window with Tabs for File Drops and Code Pasting."""
