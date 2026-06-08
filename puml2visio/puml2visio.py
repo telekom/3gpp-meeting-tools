@@ -1,32 +1,29 @@
 import sys
-import subprocess
-import urllib.request
-import winreg
-import re
 import logging
 import datetime
-import zlib
-import base64
+import urllib.request
 import webbrowser
-import zipfile
-import io
 from pathlib import Path
 
-# Third-party imports
-import pythoncom
-import win32com.client
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout,
                              QWidget, QTextEdit, QDialog, QLineEdit, QPushButton,
                              QFormLayout, QHBoxLayout, QTabWidget, QCheckBox)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
+
+# --- IMPORT THE LOGIC FROM OUR NEW BACKEND FILE ---
+from visio_backend import (
+    InitializationThread,
+    VisioReaderThread,
+    WordExtractorThread,
+    ConverterThread,
+    SvgConverterThread,  # NEW
+    encode_plantuml,
+    JAR_NAME
+)
 
 # ==========================================
-# --- CONFIGURATION ---
+# --- LOGGING SETUP ---
 # ==========================================
-JAR_NAME = "plantuml.jar"
-URL_LATEST = "https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar"
-URL_JAVA_8 = "https://github.com/plantuml/plantuml/releases/download/v1.2023.13/plantuml-1.2023.13.jar"
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -37,18 +34,9 @@ logging.basicConfig(
 )
 
 
-def encode_plantuml(text: str) -> str:
-    """Encodes raw PlantUML text into the Deflate + Base64 format expected by PlantText/PlantUML servers."""
-    compressor = zlib.compressobj(level=9, wbits=-15)
-    compressed = compressor.compress(text.encode('utf-8')) + compressor.flush()
-    b64 = base64.b64encode(compressed).decode('ascii')
-
-    std_b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    puml_b64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_"
-    trans = str.maketrans(std_b64, puml_b64)
-    return b64.translate(trans).replace('=', '')
-
-
+# ==========================================
+# --- GUI COMPONENTS ---
+# ==========================================
 class ProxyDialog(QDialog):
     def __init__(self):
         super().__init__()
@@ -112,386 +100,6 @@ class ProxyDialog(QDialog):
         return self.http_input.text().strip(), self.https_input.text().strip()
 
 
-class InitializationThread(QThread):
-    ui_log_msg = pyqtSignal(str)
-    init_complete = pyqtSignal(bool)
-
-    def __init__(self, jar_path: Path):
-        super().__init__()
-        self.jar_path = jar_path
-
-    def run(self):
-        try:
-            self._emit_log("🔍 Initializing system checks...", logging.INFO)
-
-            try:
-                winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r"Visio.Application")
-            except FileNotFoundError:
-                self._emit_log("❌ ERROR: Microsoft Visio is not installed or registered.", logging.ERROR)
-                self.init_complete.emit(False)
-                return
-
-            java_major = None
-            try:
-                result = subprocess.run(["java", "-version"], capture_output=True, text=True, check=True)
-                match = re.search(r'(?:java|openjdk) version "([^"]+)"', result.stderr, re.IGNORECASE)
-                if match:
-                    parts = match.group(1).split('.')
-                    java_major = int(parts[1]) if parts[0] == '1' else int(parts[0])
-            except:
-                pass
-
-            if not java_major:
-                self._emit_log("❌ ERROR: Java is not installed or not in system PATH.", logging.ERROR)
-                self.init_complete.emit(False)
-                return
-
-            if not self.jar_path.exists():
-                self._emit_log(f"⚠️ {JAR_NAME} missing. Attempting download...", logging.WARNING)
-                url = URL_LATEST if java_major >= 11 else URL_JAVA_8
-                urllib.request.urlretrieve(url, self.jar_path)
-                self._emit_log("✅ PlantUML downloaded successfully.", logging.INFO)
-
-            self.init_complete.emit(True)
-
-        except Exception as e:
-            self._emit_log(f"❌ System Check Failed: {e}", logging.CRITICAL)
-            self.init_complete.emit(False)
-
-    def _emit_log(self, message: str, level: int):
-        logging.log(level, message)
-        self.ui_log_msg.emit(message)
-
-
-class VisioReaderThread(QThread):
-    text_extracted = pyqtSignal(str)
-    error_occurred = pyqtSignal(str)
-
-    def __init__(self, vsdx_path):
-        super().__init__()
-        self.vsdx_path = vsdx_path
-
-    def run(self):
-        pythoncom.CoInitialize()
-        visio = None
-        try:
-            visio = win32com.client.DispatchEx("Visio.Application")
-            visio.Visible = False
-            visio.AlertResponse = 7
-
-            doc = visio.Documents.OpenEx(str(Path(self.vsdx_path).resolve()), 2)
-            source_code = ""
-            for i in range(1, doc.Pages.Count + 1):
-                page = doc.Pages(i)
-                if page.Name == "PlantUML Source":
-                    if page.Shapes.Count > 0:
-                        source_code = page.Shapes(1).Characters.Text
-                    break
-
-            doc.Close()
-            visio.Quit()
-
-            if source_code:
-                self.text_extracted.emit(source_code)
-            else:
-                self.error_occurred.emit("Could not find 'PlantUML Source' page in this Visio file.")
-        except Exception as e:
-            if visio: visio.Quit()
-            self.error_occurred.emit(f"Error reading Visio file: {str(e)}")
-        finally:
-            pythoncom.CoUninitialize()
-
-
-class WordExtractorThread(QThread):
-    """Parses a .docx file strictly in Python to extract raw Visio embeddings silently."""
-    ui_log_msg = pyqtSignal(str)
-
-    def __init__(self, docx_path: str):
-        super().__init__()
-        self.docx_path = Path(docx_path)
-
-    def run(self):
-        self.ui_log_msg.emit(f"\n📄 Analyzing Word Document: {self.docx_path.name}...")
-        output_dir = self.docx_path.parent
-        extracted_files = []
-
-        try:
-            with zipfile.ZipFile(self.docx_path, 'r') as z:
-                # 1. Look for natively embedded modern vsdx files
-                direct_vsdx = [f for f in z.namelist() if f.endswith('.vsdx')]
-                for f in direct_vsdx:
-                    data = z.read(f)
-                    out_name = output_dir / f"{self.docx_path.stem}_{Path(f).name}"
-                    with open(out_name, 'wb') as out:
-                        out.write(data)
-                    extracted_files.append(out_name)
-                    self.ui_log_msg.emit(f"✅ Extracted native Visio object: {out_name.name}")
-
-                # 2. Look for OLE embedded objects (the standard way Word embeds Visio)
-                bins = [f for f in z.namelist() if f.startswith('word/embeddings/') and f.endswith('.bin')]
-                for i, emb in enumerate(bins):
-                    data = z.read(emb)
-
-                    # A vsdx is an OpenXML ZIP archive, so it starts with the PK signature.
-                    # Find the start of the embedded ZIP archive inside the OLE binary structure.
-                    start_idx = data.find(b'PK\x03\x04')
-                    if start_idx != -1:
-                        vsdx_data = data[start_idx:]
-
-                        # Use Python's zipfile module to verify it's a valid Visio package
-                        try:
-                            with zipfile.ZipFile(io.BytesIO(vsdx_data)) as test_z:
-                                if 'visio/document.xml' in test_z.namelist() or '[Content_Types].xml' in test_z.namelist():
-                                    # Write out the clean .vsdx file
-                                    out_name = output_dir / f"{self.docx_path.stem}_embedded_{i + 1}.vsdx"
-
-                                    # Prevent overwrites
-                                    counter = 1
-                                    while out_name.exists():
-                                        out_name = output_dir / f"{self.docx_path.stem}_embedded_{i + 1}_{counter}.vsdx"
-                                        counter += 1
-
-                                    with open(out_name, 'wb') as out:
-                                        out.write(vsdx_data)
-                                    extracted_files.append(out_name)
-                                    self.ui_log_msg.emit(f"✅ Extracted OLE Visio object: {out_name.name}")
-                        except zipfile.BadZipFile:
-                            pass  # Not a ZIP archive (could be an embedded Excel file, etc.)
-
-        except Exception as e:
-            self.ui_log_msg.emit(f"❌ Error reading Word file: {e}")
-
-        if not extracted_files:
-            self.ui_log_msg.emit("⚠️ No embedded Visio files found in this document.")
-        else:
-            self.ui_log_msg.emit(
-                f"🎉 Successfully extracted {len(extracted_files)} Visio file(s) to the document's folder!")
-
-
-class ConverterThread(QThread):
-    ui_log_msg = pyqtSignal(str)
-    finished_path = pyqtSignal(str)
-
-    def __init__(self, puml_path: Path, jar_path: Path):
-        super().__init__()
-        self.puml_path = puml_path
-        self.jar_path = jar_path
-
-    def run(self):
-        pythoncom.CoInitialize()
-        try:
-            self._emit_log(f"\n⚙️ Processing: {self.puml_path.name}", logging.INFO)
-            svg_path = self._generate_svg()
-            self._convert_to_vsdx(svg_path)
-
-            vsdx_path = self.puml_path.with_suffix(".vsdx")
-            self.finished_path.emit(str(vsdx_path.resolve()))
-
-            if svg_path.exists():
-                svg_path.unlink()
-
-        except Exception as e:
-            self._emit_log(f"❌ Error: {str(e)}\n{'-' * 45}", logging.ERROR)
-            self.finished_path.emit("")
-        finally:
-            pythoncom.CoUninitialize()
-
-    def _emit_log(self, message: str, level: int):
-        logging.log(level, message)
-        self.ui_log_msg.emit(message)
-
-    def _generate_svg(self) -> Path:
-        command = ["java", "-jar", str(self.jar_path), "-tsvg", str(self.puml_path)]
-        try:
-            subprocess.run(command, check=True, capture_output=True, text=True, cwd=self.puml_path.parent)
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"PlantUML Syntax Error:\n{e.stderr}")
-
-        svg_path = self.puml_path.with_suffix(".svg")
-        if not svg_path.exists():
-            raise FileNotFoundError("PlantUML finished, but SVG was not created.")
-
-        # --- SVG PRE-PROCESSING: THE ULTIMATE TEXT MERGER ---
-        try:
-            with open(svg_path, 'r', encoding='utf-8') as f:
-                svg_content = f.read()
-
-            svg_content = re.sub(r'\s*textLength="[^"]*"', '', svg_content)
-            svg_content = re.sub(r'\s*lengthAdjust="[^"]*"', '', svg_content)
-
-            # Merge adjacent <text> tags that share the exact same 'y' coordinate
-            pattern = re.compile(r'(<text\b[^>]*?\by="([0-9.]+)"[^>]*>)(.*?)(</text>)', re.IGNORECASE | re.DOTALL)
-            matches = list(pattern.finditer(svg_content))
-
-            if matches:
-                result = []
-                last_end = 0
-                current_y = None
-                current_start_tag = ""
-                current_text = ""
-
-                for m in matches:
-                    start = m.start()
-                    end = m.end()
-                    full_open_tag = m.group(1)
-                    y_val = m.group(2)
-                    inner_text = m.group(3)
-                    between = svg_content[last_end:start]
-
-                    if current_y == y_val and not between.strip():
-                        current_text += inner_text
-                    else:
-                        if current_y is not None:
-                            result.append(current_start_tag)
-                            result.append(current_text)
-                            result.append("</text>")
-                        result.append(between)
-                        current_y = y_val
-                        current_start_tag = full_open_tag
-                        current_text = inner_text
-                    last_end = end
-
-                if current_y is not None:
-                    result.append(current_start_tag)
-                    result.append(current_text)
-                    result.append("</text>")
-
-                result.append(svg_content[last_end:])
-                svg_content = "".join(result)
-
-            svg_content = svg_content.replace('&#160;', ' ').replace('\xa0', ' ')
-
-            with open(svg_path, 'w', encoding='utf-8') as f:
-                f.write(svg_content)
-        except Exception as e:
-            self._emit_log(f"⚠️ Warning: Could not clean SVG text attributes: {e}", logging.WARNING)
-
-        return svg_path
-
-    def _convert_to_vsdx(self, svg_path: Path):
-        vsdx_path = svg_path.with_suffix(".vsdx")
-        if vsdx_path.exists():
-            try:
-                vsdx_path.unlink()
-            except PermissionError:
-                raise PermissionError("Close file in Visio first.")
-
-        with open(self.puml_path, "r", encoding="utf-8") as f:
-            source_code = f.read()
-
-        visio = None
-        try:
-            visio = win32com.client.DispatchEx("Visio.Application")
-            visio.Visible = False
-            visio.AlertResponse = 7
-
-            doc = visio.Documents.Add("")
-            page = doc.Pages(1)
-            page.Name = "Sequence Diagram"
-            page.Import(str(svg_path.resolve()))
-
-            if page.Shapes.Count > 0:
-                orig_w = page.Shapes(1).CellsU("Width").ResultIU
-                orig_h = page.Shapes(1).CellsU("Height").ResultIU
-
-                peeling = True
-                while peeling:
-                    peeling = False
-                    for i in range(page.Shapes.Count, 0, -1):
-                        s = page.Shapes(i)
-                        try:
-                            w = s.CellsU("Width").ResultIU
-                            h = s.CellsU("Height").ResultIU
-                            if abs(w - orig_w) < 0.1 and abs(h - orig_h) < 0.1:
-                                if s.Type == 2:
-                                    s.Ungroup()
-                                    peeling = True
-                        except:
-                            pass
-
-                for i in range(page.Shapes.Count, 0, -1):
-                    s = page.Shapes(i)
-                    try:
-                        w = s.CellsU("Width").ResultIU
-                        h = s.CellsU("Height").ResultIU
-                        if abs(w - orig_w) < 0.1 and abs(h - orig_h) < 0.1:
-                            if len(s.Characters.Text.strip()) == 0:
-                                s.Delete()
-                    except:
-                        pass
-
-                def clean_and_shrink_text(shapes):
-                    for i in range(1, shapes.Count + 1):
-                        s = shapes(i)
-                        try:
-                            if len(s.Characters.Text.strip()) > 0:
-                                s.CellsU("TopMargin").FormulaU = "0 pt"
-                                s.CellsU("BottomMargin").FormulaU = "0 pt"
-                                s.CellsU("LeftMargin").FormulaU = "0 pt"
-                                s.CellsU("RightMargin").FormulaU = "0 pt"
-
-                                line_pattern = s.CellsU("LinePattern").ResultIU
-                                fill_pattern = s.CellsU("FillPattern").ResultIU
-
-                                if line_pattern == 0 and fill_pattern == 0:
-                                    pin_x = s.CellsU("PinX").ResultIU
-                                    pin_y = s.CellsU("PinY").ResultIU
-                                    loc_pin_x = s.CellsU("LocPinX").ResultIU
-                                    loc_pin_y = s.CellsU("LocPinY").ResultIU
-                                    h = s.CellsU("Height").ResultIU
-
-                                    left = pin_x - loc_pin_x
-                                    top = pin_y + (h - loc_pin_y)
-
-                                    s.CellsU("LocPinX").FormulaU = "0 in"
-                                    s.CellsU("LocPinY").FormulaU = "Height"
-                                    s.CellsU("PinX").FormulaU = f"{left} in"
-                                    s.CellsU("PinY").FormulaU = f"{top} in"
-
-                                    s.CellsU("Width").FormulaU = "TEXTWIDTH(TheText)"
-                                    s.CellsU("Height").FormulaU = "TEXTHEIGHT(TheText, Width)"
-                        except:
-                            pass
-
-                        try:
-                            if s.Type == 2:
-                                clean_and_shrink_text(s.Shapes)
-                        except:
-                            pass
-
-                clean_and_shrink_text(page.Shapes)
-
-                page_sheet = page.PageSheet
-                page_sheet.CellsU("PageLeftMargin").FormulaU = "0.05 in"
-                page_sheet.CellsU("PageRightMargin").FormulaU = "0.05 in"
-                page_sheet.CellsU("PageTopMargin").FormulaU = "0.05 in"
-                page_sheet.CellsU("PageBottomMargin").FormulaU = "0.05 in"
-                try:
-                    page.ResizeToFitContents()
-                except:
-                    pass
-
-            src_page = doc.Pages.Add()
-            src_page.PageSheet.CellsU("PageWidth").FormulaU = "8.27 in"
-            src_page.PageSheet.CellsU("PageHeight").FormulaU = "11.69 in"
-            src_page.Name = "PlantUML Source"
-            text_box = src_page.DrawRectangle(0.5, 0.5, 8.0, 10.5)
-            text_box.CellsU("LinePattern").FormulaU = "0"
-            text_box.CellsU("FillPattern").FormulaU = "0"
-            text_box.Characters.Text = source_code
-
-            visio.ActiveWindow.Page = page
-            doc.SaveAs(str(vsdx_path.resolve()))
-            doc.Close()
-            visio.Quit()
-
-            self.ui_log_msg.emit(f"✅ Saved: {vsdx_path.name}")
-
-        except Exception as e:
-            if visio: visio.Quit()
-            raise RuntimeError(f"Visio COM Error: {e}")
-
-
 class CodeDropTextEdit(QTextEdit):
     file_dropped = pyqtSignal(str)
 
@@ -515,7 +123,6 @@ class CodeDropTextEdit(QTextEdit):
 
 
 class WordDropLabel(QLabel):
-    """A dedicated drop zone specifically for Word document extraction."""
     file_dropped = pyqtSignal(str)
 
     def __init__(self):
@@ -554,13 +161,13 @@ class DragDropUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PlantUML to Visio Converter (3GPP)")
-        self.resize(800, 650)
+        self.resize(850, 650)
         self.setAcceptDrops(True)
 
         self.jar_path = Path(__file__).parent.resolve() / JAR_NAME
-        self.file_queue = []
+        self.file_queue = []  # Stores tuples: (Path, 'vsdx' or 'svg')
         self.is_processing = False
-        self.last_visio_path = ""
+        self.last_out_path = ""
 
         self._setup_ui()
 
@@ -588,17 +195,24 @@ class DragDropUI(QMainWindow):
         self.clear_btn.clicked.connect(self.text_input.clear)
         self.planttext_btn = QPushButton("🌐 Show in planttext.com")
         self.planttext_btn.clicked.connect(self.show_in_planttext)
-        self.copy_btn = QPushButton("📋 Copy Visio Path")
+        self.copy_btn = QPushButton("📋 Copy File Path")
         self.copy_btn.setEnabled(False)
-        self.copy_btn.clicked.connect(self.copy_visio_path)
-        self.convert_btn = QPushButton("Convert to Visio")
-        self.convert_btn.setStyleSheet("background-color: #4af626; color: #000; font-weight: bold;")
-        self.convert_btn.clicked.connect(self.convert_pasted_text)
+        self.copy_btn.clicked.connect(self.copy_out_path)
+
+        # Format Export Buttons
+        self.convert_svg_btn = QPushButton("Export to SVG")
+        self.convert_svg_btn.setStyleSheet("background-color: #ffaa00; color: #000; font-weight: bold;")
+        self.convert_svg_btn.clicked.connect(self.convert_pasted_text_to_svg)
+
+        self.convert_vsdx_btn = QPushButton("Export to Visio")
+        self.convert_vsdx_btn.setStyleSheet("background-color: #4af626; color: #000; font-weight: bold;")
+        self.convert_vsdx_btn.clicked.connect(self.convert_pasted_text_to_visio)
 
         btn_layout.addWidget(self.clear_btn)
         btn_layout.addWidget(self.planttext_btn)
         btn_layout.addWidget(self.copy_btn)
-        btn_layout.addWidget(self.convert_btn)
+        btn_layout.addWidget(self.convert_svg_btn)
+        btn_layout.addWidget(self.convert_vsdx_btn)
 
         tab_text_layout.addWidget(self.text_input)
         tab_text_layout.addLayout(btn_layout)
@@ -649,18 +263,18 @@ class DragDropUI(QMainWindow):
             self.drop_label.setText("❌ Initialization Failed.")
 
     def _set_drop_zone_ready(self):
-        self.drop_label.setText("📥 Drag && Drop your .puml or .txt file(s) here\n\n(Batch processing supported)")
+        self.drop_label.setText("📥 Drag && Drop your .puml or .txt file(s) here\n\n(Batch exports as Visio files)")
         self.drop_label.setStyleSheet(
             "border: 3px dashed #4af626; background-color: #f4f4f4; font-size: 15px; font-weight: bold;")
-        self.convert_btn.setEnabled(True)
-        self.convert_btn.setText("Convert to Visio")
+        self.convert_vsdx_btn.setEnabled(True)
+        self.convert_vsdx_btn.setText("Export to Visio")
 
     def _set_drop_zone_busy(self):
         self.drop_label.setText("⚙️ Processing Queue...\n\nPlease wait until finished.")
         self.drop_label.setStyleSheet(
             "border: 3px dashed #f6a826; background-color: #fff4e5; font-size: 15px; font-weight: bold; color: #d37e00;")
-        self.convert_btn.setEnabled(False)
-        self.convert_btn.setText("Processing...")
+        self.convert_vsdx_btn.setEnabled(False)
+        self.convert_vsdx_btn.setText("Processing...")
 
     def extract_code_from_visio(self, file_path):
         self.text_input.clear()
@@ -697,12 +311,11 @@ class DragDropUI(QMainWindow):
         except Exception as e:
             self.log_message(f"❌ Failed to open: {e}")
 
-    def copy_visio_path(self):
-        if self.last_visio_path:
-            QApplication.clipboard().setText(self.last_visio_path)
-            self.log_message(f"📋 Copied to clipboard: {self.last_visio_path}")
+    def copy_out_path(self):
+        if self.last_out_path:
+            QApplication.clipboard().setText(self.last_out_path)
+            self.log_message(f"📋 Copied to clipboard: {self.last_out_path}")
 
-    # Main window global drop support
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.accept()
@@ -718,10 +331,10 @@ class DragDropUI(QMainWindow):
             suffix = file_path.suffix.lower()
 
             if suffix in [".puml", ".txt"]:
-                self.file_queue.append(file_path)
+                # Drag and drop defaults to VSDX
+                self.file_queue.append((file_path, "vsdx"))
                 puml_added += 1
             elif suffix == ".docx":
-                # Seamlessly supports dropping Word files anywhere on the app!
                 self.start_word_extraction(str(file_path))
             else:
                 self.log_message(f"⚠️ Skipped unsupported file: {file_path.name}")
@@ -729,7 +342,13 @@ class DragDropUI(QMainWindow):
         if puml_added > 0 and not self.is_processing:
             self.process_next_in_queue()
 
-    def convert_pasted_text(self):
+    def convert_pasted_text_to_visio(self):
+        self._save_and_queue_pasted_text("vsdx")
+
+    def convert_pasted_text_to_svg(self):
+        self._save_and_queue_pasted_text("svg")
+
+    def _save_and_queue_pasted_text(self, target_format):
         raw_text = self.text_input.toPlainText().strip()
         if not raw_text: return
 
@@ -739,14 +358,14 @@ class DragDropUI(QMainWindow):
         puml_path = base_dir / f"{base_name}.puml"
 
         counter = 1
-        while puml_path.exists() or puml_path.with_suffix(".vsdx").exists():
+        while puml_path.exists() or puml_path.with_suffix(".vsdx").exists() or puml_path.with_suffix(".svg").exists():
             puml_path = base_dir / f"{base_name}_{counter}.puml"
             counter += 1
 
         with open(puml_path, "w", encoding="utf-8") as f:
             f.write(raw_text)
 
-        self.file_queue.append(puml_path)
+        self.file_queue.append((puml_path, target_format))
         if not self.is_processing:
             self.process_next_in_queue()
 
@@ -758,17 +377,23 @@ class DragDropUI(QMainWindow):
 
         self.is_processing = True
         self._set_drop_zone_busy()
-        next_file = self.file_queue.pop(0)
 
-        self.conv_thread = ConverterThread(next_file, self.jar_path)
+        next_file, target_format = self.file_queue.pop(0)
+
+        # Launch appropriate thread based on requested format
+        if target_format == "svg":
+            self.conv_thread = SvgConverterThread(next_file, self.jar_path)
+        else:
+            self.conv_thread = ConverterThread(next_file, self.jar_path)
+
         self.conv_thread.ui_log_msg.connect(self.log_message)
         self.conv_thread.finished_path.connect(self.on_conversion_success)
         self.conv_thread.finished.connect(self.process_next_in_queue)
         self.conv_thread.start()
 
-    def on_conversion_success(self, vsdx_path: str):
-        if vsdx_path:
-            self.last_visio_path = vsdx_path
+    def on_conversion_success(self, out_path: str):
+        if out_path:
+            self.last_out_path = out_path
             self.copy_btn.setEnabled(True)
             self.copy_btn.setStyleSheet("background-color: #0078d7; color: white; font-weight: bold;")
 
