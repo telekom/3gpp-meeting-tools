@@ -62,7 +62,6 @@ class ConverterThread(QThread):
         try:
             self._emit_log(f"\n⚙️ Processing: {self.puml_path.name}", logging.INFO)
 
-            # Use centralized SVG generation
             svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self._emit_log)
             self._convert_to_vsdx(svg_path)
 
@@ -90,7 +89,6 @@ class ConverterThread(QThread):
             except PermissionError:
                 raise PermissionError("Close file in Visio first.")
 
-        # Read, clean, and re-watermark to prevent duplication
         with open(self.puml_path, "r", encoding="utf-8") as f:
             raw_code = f.read()
         final_source_code = WATERMARK + "\n\n" + strip_watermark(raw_code)
@@ -110,6 +108,7 @@ class ConverterThread(QThread):
                 orig_w = page.Shapes(1).CellsU("Width").ResultIU
                 orig_h = page.Shapes(1).CellsU("Height").ResultIU
 
+                # --- CANVAS FIX: Use 90% proportional rules instead of absolute limits ---
                 peeling = True
                 while peeling:
                     peeling = False
@@ -118,7 +117,8 @@ class ConverterThread(QThread):
                         try:
                             w = s.CellsU("Width").ResultIU
                             h = s.CellsU("Height").ResultIU
-                            if abs(w - orig_w) < 0.1 and abs(h - orig_h) < 0.1:
+                            # Catch any group covering >=90% of the canvas
+                            if w >= orig_w * 0.90 and h >= orig_h * 0.90:
                                 if s.Type == 2:
                                     s.Ungroup()
                                     peeling = True
@@ -130,7 +130,8 @@ class ConverterThread(QThread):
                     try:
                         w = s.CellsU("Width").ResultIU
                         h = s.CellsU("Height").ResultIU
-                        if abs(w - orig_w) < 0.1 and abs(h - orig_h) < 0.1:
+                        # Delete any textless shape covering >=90% of the canvas
+                        if w >= orig_w * 0.90 and h >= orig_h * 0.90:
                             if len(s.Characters.Text.strip()) == 0:
                                 s.Delete()
                     except:
@@ -229,7 +230,6 @@ class SvgConverterThread(QThread):
         try:
             self.ui_log_msg.emit(f"\n⚙️ Generating SVG for: {self.puml_path.name}")
 
-            # Use centralized SVG generation
             svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self.ui_log_msg.emit)
 
             if svg_path.exists():
