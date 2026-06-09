@@ -137,11 +137,18 @@ class DragDropUI(QMainWindow):
         terminal_lbl = QLabel("Terminal Output")
         terminal_lbl.setStyleSheet("font-weight: bold; color: #555;")
 
+        # System Toolbar Buttons
         self.proxy_btn = QPushButton("📡 Proxy")
         self.proxy_btn.setFixedSize(70, 24)
         self.proxy_btn.setStyleSheet("padding: 2px; font-size: 11px;")
         self.proxy_btn.setToolTip("Update network proxy settings and retry system initialization.")
         self.proxy_btn.clicked.connect(self.open_proxy_settings)
+
+        self.update_btn = QPushButton("🔄 Update JAR")
+        self.update_btn.setFixedSize(85, 24)
+        self.update_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.update_btn.setToolTip("Check online if a newer version of PlantUML is available.")
+        self.update_btn.clicked.connect(self.check_for_jar_updates)
 
         clear_log_btn = QPushButton("Clear")
         clear_log_btn.setFixedSize(60, 24)
@@ -151,6 +158,7 @@ class DragDropUI(QMainWindow):
         console_header.addWidget(terminal_lbl)
         console_header.addStretch()
         console_header.addWidget(self.proxy_btn)
+        console_header.addWidget(self.update_btn)
         console_header.addWidget(clear_log_btn)
 
         self.console = QTextEdit()
@@ -235,6 +243,18 @@ class DragDropUI(QMainWindow):
             self.init_thread.ui_log_msg.connect(self.log_message)
             self.init_thread.init_complete.connect(self.on_init_complete)
             self.init_thread.start()
+
+    def check_for_jar_updates(self):
+        """Manually triggers the background thread to check GitHub for newer versions."""
+        self.log_message("\n🔄 Initiating manual update check...", logging.INFO)
+        self.drop_label.set_state("ready", "⏳ Checking online for updates...")
+        self.status_bar.showMessage("⏳ Checking for updates...")
+        self.tabs.setEnabled(False)
+
+        self.init_thread = InitializationThread(self.jar_path, check_updates=True)
+        self.init_thread.ui_log_msg.connect(self.log_message)
+        self.init_thread.init_complete.connect(self.on_init_complete)
+        self.init_thread.start()
 
     def _get_display_name(self, file_path):
         import re
