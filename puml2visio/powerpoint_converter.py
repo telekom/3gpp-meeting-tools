@@ -1,6 +1,7 @@
 import subprocess
 import re
 import logging
+import time
 from pathlib import Path
 
 import pythoncom
@@ -37,26 +38,36 @@ class PptxConverterThread(QThread):
 
             ppt = win32com.client.DispatchEx("PowerPoint.Application")
 
-            # PowerPoint requires a visible window to securely perform Ungroup operations
+            # PowerPoint MUST be fully visible for Ribbon/CommandBar executions to work securely
             ppt.Visible = 1
-            try:
-                ppt.WindowState = 2  # ppWindowMinimized (keeps it out of your way)
-            except:
-                pass
-
-            # ppAlertsNone = 1: Suppress the "Convert to drawing object?" dialog and auto-accept
-            ppt.DisplayAlerts = 1
+            ppt.DisplayAlerts = 1  # Suppress UI popups
 
             pres = ppt.Presentations.Add()
             slide = pres.Slides.Add(1, 12)  # 12 = ppLayoutBlank
 
-            # Insert the SVG
+            # Insert the SVG as a standard picture
             shape = slide.Shapes.AddPicture(str(svg_path.resolve()), 0, -1, 0, 0, -1, -1)
 
             self._emit_log("⏳ Converting SVG to native PowerPoint shapes...", logging.INFO)
             try:
-                shape_range = shape.Ungroup()
-                shape = shape_range.Group()
+                # 1. Bring the slide into focus and select the SVG picture
+                ppt.ActiveWindow.View.GotoSlide(slide.SlideIndex)
+                shape.Select()
+
+                # 2. Execute the native Ribbon command to convert the SVG to Office shapes
+                ppt.CommandBars.ExecuteMso("PictureConvertToShape")
+
+                # 3. Ribbon commands are asynchronous. We must pause the thread briefly
+                # until the shape Type changes from 13 (Picture) to 6 (Grouped Office Shapes)
+                attempts = 0
+                while slide.Shapes.Count > 0 and slide.Shapes(1).Type == 13 and attempts < 30:
+                    time.sleep(0.1)
+                    attempts += 1
+
+                # Update our shape reference to the newly generated native Group shape
+                if slide.Shapes.Count > 0:
+                    shape = slide.Shapes(1)
+
                 self._emit_log("✅ Successfully converted to native shapes.", logging.INFO)
             except Exception as e:
                 self._emit_log(f"⚠️ Could not convert to native shapes: {e}. Leaving as embedded SVG.", logging.WARNING)
