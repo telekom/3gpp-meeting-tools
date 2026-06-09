@@ -29,7 +29,6 @@ def get_best_java(log_callback=None):
 
     def add_candidate(path_str):
         if not path_str: return
-        # Expand things like %USERPROFILE% which often exist in raw registry paths
         clean_p = os.path.expandvars(path_str.strip(' "'))
         if clean_p:
             exe = os.path.join(clean_p, 'java.exe')
@@ -45,7 +44,7 @@ def get_best_java(log_callback=None):
     for p in os.environ.get('PATH', '').split(os.pathsep):
         add_candidate(p)
 
-    # 3. Registry User PATH (Bypasses stale terminals/IDEs)
+    # 3. Registry User PATH
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
             val, _ = winreg.QueryValueEx(key, "Path")
@@ -54,7 +53,7 @@ def get_best_java(log_callback=None):
     except Exception:
         pass
 
-    # 4. Registry System PATH (Bypasses stale terminals/IDEs)
+    # 4. Registry System PATH
     try:
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
                             r"System\CurrentControlSet\Control\Session Manager\Environment") as key:
@@ -73,19 +72,15 @@ def get_best_java(log_callback=None):
     def check_version(cmd):
         try:
             kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
-            # Increased timeout to 5s in case a slow HDD needs to spin up
             result = subprocess.run([cmd, "-version"], capture_output=True, text=True, timeout=5, **kwargs)
 
             output = result.stderr + "\n" + result.stdout
-
-            # Match formats like: "25.0.3", "1.8.0_345", "25-ea"
             match = re.search(r'"(\d[^"]*)"', output)
             if not match:
                 match = re.search(r'version\s+([^\s]+)', output, re.IGNORECASE)
 
             if match:
                 ver_str = match.group(1)
-                # Extract ONLY the raw digits to prevent crashes on '+9' or '-ea'
                 nums = re.findall(r'\d+', ver_str)
                 if nums:
                     v = int(nums[1]) if (nums[0] == '1' and len(nums) > 1) else int(nums[0])
@@ -101,14 +96,12 @@ def get_best_java(log_callback=None):
                 log_callback(f"  ❌ Failed to test {cmd}: {e}", logging.ERROR)
         return 0
 
-    # Test all physically found executables
     for exe in candidates:
         v = check_version(exe)
         if v > best_ver:
             best_ver = v
             best_exe = exe
 
-    # Final fallback: Test the raw OS default command just in case our path scanning missed an alias
     bare_v = check_version("java")
     if bare_v > best_ver:
         best_ver = bare_v
@@ -120,7 +113,6 @@ def get_best_java(log_callback=None):
 
 # --- CORE UTILITIES ---
 def strip_watermark(raw_text: str) -> str:
-    """Removes existing puml2visio watermarks and leading empty lines to prevent duplication."""
     lines = raw_text.splitlines()
     while lines and ("Generated with puml2visio" in lines[0] or lines[0].strip() == ""):
         lines.pop(0)
@@ -128,12 +120,8 @@ def strip_watermark(raw_text: str) -> str:
 
 
 def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> Path:
-    """Centralized function to generate an SVG using the highest available Java version."""
     java_exe, _ = get_best_java()
-
     command = [java_exe, "-jar", str(jar_path), "-tsvg", str(puml_path)]
-
-    # Prevent CMD window flashing when PlantUML runs
     kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
 
     try:
@@ -149,11 +137,9 @@ def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> 
         with open(svg_path, 'r', encoding='utf-8') as f:
             svg_content = f.read()
 
-        # Strip problematic tags for Office COM importing
         svg_content = re.sub(r'\s*textLength="[^"]*"', '', svg_content)
         svg_content = re.sub(r'\s*lengthAdjust="[^"]*"', '', svg_content)
 
-        # Merge shattered SVG text blocks
         pattern = re.compile(r'(<text\b[^>]*?\by="([0-9.]+)"[^>]*>)(.*?)(</text>)', re.IGNORECASE | re.DOTALL)
         matches = list(pattern.finditer(svg_content))
 
@@ -205,7 +191,6 @@ def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> 
 
 
 def encode_plantuml(text: str) -> str:
-    """Encodes raw PlantUML text into the Deflate + Base64 format expected by PlantText."""
     compressor = zlib.compressobj(level=9, wbits=-15)
     compressed = compressor.compress(text.encode('utf-8')) + compressor.flush()
     b64 = base64.b64encode(compressed).decode('ascii')
@@ -220,9 +205,36 @@ class InitializationThread(QThread):
     ui_log_msg = pyqtSignal(str)
     init_complete = pyqtSignal(bool)
 
-    def __init__(self, jar_path: Path):
+    def __init__(self, jar_path: Path, check_updates: bool = False):
         super().__init__()
         self.jar_path = jar_path
+        self.check_updates = check_updates
+
+    def _get_local_version(self, java_exe):
+        """Executes the local JAR to read its internal version number."""
+        try:
+            kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
+            res = subprocess.run([java_exe, "-jar", str(self.jar_path), "-version"], capture_output=True, text=True,
+                                 timeout=5, **kwargs)
+            match = re.search(r'version\s+(\d+\.\d+\.\d+)', res.stdout + res.stderr, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        except:
+            pass
+        return None
+
+    def _get_remote_version(self):
+        """Uses a fast HEAD request to GitHub to find the latest release tag without downloading the file."""
+        try:
+            req = urllib.request.Request("https://github.com/plantuml/plantuml/releases/latest", method="HEAD")
+            req.add_header("User-Agent", "Mozilla/5.0")
+            with urllib.request.urlopen(req, timeout=5) as response:
+                match = re.search(r'/tag/v?(\d+\.\d+\.\d+)', response.url)
+                if match:
+                    return match.group(1)
+        except:
+            pass
+        return None
 
     def run(self):
         try:
@@ -234,17 +246,16 @@ class InitializationThread(QThread):
                 self.init_complete.emit(False)
                 return
 
-            # --- Auto-detect Best Java ---
-            java_exe, java_major = get_best_java(self._emit_log)
+            java_exe, java_major = get_best_java(self._emit_log if not self.check_updates else None)
 
             if java_major == 0:
                 self._emit_log("❌ ERROR: Java is not installed or could not be found.", logging.ERROR)
                 self.init_complete.emit(False)
                 return
-            else:
+            elif not self.check_updates:
                 self._emit_log(f"✅ Active Engine: Java {java_major} ({java_exe})", logging.INFO)
 
-            # --- SMART JAR SYNC ---
+            # --- SMART JAR SYNC & UPDATE LOGIC ---
             required_type = "modern" if java_major >= 11 else "legacy"
             version_file = self.jar_path.with_suffix('.version')
 
@@ -255,17 +266,44 @@ class InitializationThread(QThread):
                 except:
                     pass
 
-            if not self.jar_path.exists() or current_type != required_type:
-                reason = "missing" if not self.jar_path.exists() else f"Java mismatch (Required: {required_type}, Found: {current_type})"
-                self._emit_log(f"⚠️ {JAR_NAME} is {reason}. Attempting download...", logging.WARNING)
+            download_reason = None
 
+            # 1. Check if missing or broken architecture
+            if not self.jar_path.exists():
+                download_reason = "File is missing"
+            elif current_type != required_type:
+                download_reason = f"Java mismatch (Required: {required_type}, Found: {current_type})"
+
+            # 2. Check online for newer versions if explicitly requested
+            elif self.check_updates:
+                if required_type == "legacy":
+                    self._emit_log("ℹ️ Legacy Java 8 version is pinned. No automated updates available.", logging.INFO)
+                else:
+                    self._emit_log("🌐 Checking GitHub for the latest PlantUML release...", logging.INFO)
+                    local_v = self._get_local_version(java_exe)
+                    remote_v = self._get_remote_version()
+
+                    if local_v and remote_v:
+                        # Convert version strings to tuples for safe math comparison (e.g., 1.2024.4 > 1.2023.13)
+                        def v_tuple(v_str):
+                            return tuple(int(x) for x in re.findall(r'\d+', v_str))
+
+                        if v_tuple(remote_v) > v_tuple(local_v):
+                            download_reason = f"Update available ({local_v} → {remote_v})"
+                        else:
+                            self._emit_log(f"✅ PlantUML is up-to-date (Version {local_v}).", logging.INFO)
+                    else:
+                        self._emit_log("⚠️ Network blocked or parsing failed. Cannot verify latest version.",
+                                       logging.WARNING)
+
+            # --- EXECUTE DOWNLOAD IF NEEDED ---
+            if download_reason:
+                url_to_download = URL_LATEST if required_type == "modern" else URL_JAVA_8
+                self._emit_log(f"⚠️ Downloading PlantUML. Reason: {download_reason}...", logging.WARNING)
                 try:
-                    url = URL_LATEST if required_type == "modern" else URL_JAVA_8
-                    urllib.request.urlretrieve(url, self.jar_path)
-
+                    urllib.request.urlretrieve(url_to_download, self.jar_path)
                     version_file.write_text(required_type, encoding="utf-8")
-
-                    self._emit_log("✅ PlantUML downloaded successfully.", logging.INFO)
+                    self._emit_log("✅ PlantUML downloaded and installed successfully.", logging.INFO)
                 except Exception as e:
                     self._emit_log(f"❌ Download failed. Please check your network or proxy settings: {e}",
                                    logging.ERROR)
