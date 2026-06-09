@@ -141,7 +141,7 @@ class ProxyDialog(QDialog):
         super().__init__()
         self.setWindowTitle("Network Configuration")
         self.setModal(True)
-        self.resize(500, 220)
+        self.resize(520, 250)
 
         layout = QVBoxLayout()
         title = QLabel("📡 Proxy Configuration")
@@ -166,21 +166,62 @@ class ProxyDialog(QDialog):
         form.addRow("HTTPS Proxy:", self.https_input)
         layout.addLayout(form)
 
+        # --- NEW: Live Testing Status Label ---
+        self.status_lbl = QLabel("")
+        self.status_lbl.setWordWrap(True)
+        self.status_lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.status_lbl)
+
         btn_layout = QHBoxLayout()
-        self.skip_btn = QPushButton("Continue Without Proxy")
+        self.skip_btn = QPushButton("Skip")
         self.skip_btn.clicked.connect(self.skip)
 
-        self.save_btn = QPushButton("Set Proxy && Continue")
+        # --- NEW: Test Connection Button ---
+        self.test_btn = QPushButton("🔄 Test Connection")
+        self.test_btn.setToolTip("Ping GitHub to verify if your proxy settings are working.")
+        self.test_btn.clicked.connect(self.test_connection)
+
+        self.save_btn = QPushButton("Save && Continue")
         self.save_btn.setObjectName("primaryBtn")
         self.save_btn.clicked.connect(self.accept)
 
         btn_layout.addWidget(self.skip_btn)
         btn_layout.addStretch()
+        btn_layout.addWidget(self.test_btn)
         btn_layout.addWidget(self.save_btn)
 
         layout.addSpacing(10)
         layout.addLayout(btn_layout)
         self.setLayout(layout)
+
+    def test_connection(self):
+        """Attempts to ping GitHub using the provided settings."""
+        self.status_lbl.setText("⏳ Testing connection to GitHub... Please wait.")
+        self.status_lbl.setStyleSheet("color: #D83B01; font-weight: bold;")
+        QApplication.processEvents()  # Force UI update while blocking
+
+        http_val, https_val = self.get_proxies()
+        proxies = {}
+        if http_val: proxies['http'] = http_val
+        if https_val: proxies['https'] = https_val
+
+        try:
+            if proxies:
+                proxy_handler = urllib.request.ProxyHandler(proxies)
+                opener = urllib.request.build_opener(proxy_handler)
+            else:
+                # Test direct connection without proxy
+                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+            # Use method="HEAD" to ping the server without downloading the whole page
+            req = urllib.request.Request("https://github.com", method="HEAD")
+            opener.open(req, timeout=5)
+
+            self.status_lbl.setText("✅ Connection Successful! You can now save.")
+            self.status_lbl.setStyleSheet("color: #6A9955; font-weight: bold;")
+        except Exception as e:
+            self.status_lbl.setText(f"❌ Connection Failed: {str(e)}")
+            self.status_lbl.setStyleSheet("color: #D32F2F; font-weight: bold;")
 
     def on_sync_changed(self, state):
         if state == Qt.Checked:
@@ -418,6 +459,14 @@ class DragDropUI(QMainWindow):
         console_header = QHBoxLayout()
         terminal_lbl = QLabel("Terminal Output")
         terminal_lbl.setStyleSheet("font-weight: bold; color: #555;")
+
+        # Proxy Update Button
+        self.proxy_btn = QPushButton("📡 Proxy")
+        self.proxy_btn.setFixedSize(70, 24)
+        self.proxy_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.proxy_btn.setToolTip("Update network proxy settings and retry system initialization.")
+        self.proxy_btn.clicked.connect(self.open_proxy_settings)
+
         clear_log_btn = QPushButton("Clear")
         clear_log_btn.setFixedSize(60, 24)
         clear_log_btn.setStyleSheet("padding: 2px; font-size: 11px;")
@@ -425,6 +474,7 @@ class DragDropUI(QMainWindow):
 
         console_header.addWidget(terminal_lbl)
         console_header.addStretch()
+        console_header.addWidget(self.proxy_btn)
         console_header.addWidget(clear_log_btn)
 
         self.console = QTextEdit()
@@ -464,14 +514,14 @@ class DragDropUI(QMainWindow):
 
         self.queue_list = QListWidget()
         self.queue_list.setObjectName("queueList")
-        self.queue_list.setSelectionMode(QListWidget.ExtendedSelection)  # Allow multiple selections
+        self.queue_list.setSelectionMode(QListWidget.ExtendedSelection)
 
         queue_layout.addLayout(queue_header)
         queue_layout.addWidget(self.queue_list)
         queue_container.setLayout(queue_layout)
 
         self.bottom_splitter.addWidget(queue_container)
-        self.bottom_splitter.setSizes([650, 250])  # 70% Terminal / 30% Queue
+        self.bottom_splitter.setSizes([650, 250])
 
         self.splitter.addWidget(self.bottom_splitter)
         self.splitter.setSizes([450, 250])
@@ -485,43 +535,62 @@ class DragDropUI(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("⏳ Initializing...")
 
-    # --- QUEUE MANAGEMENT LOGIC ---
+    # --- APPLICATION LOGIC ---
+    def open_proxy_settings(self):
+        """Opens the proxy dialog and retries initialization if settings are updated."""
+        proxy_dialog = ProxyDialog()
+        if proxy_dialog.exec_() == QDialog.Accepted:
+            http_val, https_val = proxy_dialog.get_proxies()
+            proxies = {}
+            if http_val: proxies['http'] = http_val
+            if https_val: proxies['https'] = https_val
+
+            # Apply the new proxy settings globally to the application
+            proxy_handler = urllib.request.ProxyHandler(proxies)
+            opener = urllib.request.build_opener(proxy_handler)
+            urllib.request.install_opener(opener)
+
+            status = "updated" if proxies else "cleared (direct connection)"
+            self.log_message(f"✅ Proxy settings {status}. Retrying system checks...", logging.INFO)
+
+            # Reset UI state
+            self.drop_label.set_state("ready", "⏳ Re-initializing system checks...")
+            self.status_bar.showMessage("⏳ Re-initializing...")
+            self.tabs.setEnabled(False)
+
+            # Relaunch the background initialization thread
+            self.init_thread = InitializationThread(self.jar_path)
+            self.init_thread.ui_log_msg.connect(self.log_message)
+            self.init_thread.init_complete.connect(self.on_init_complete)
+            self.init_thread.start()
+
     def _get_display_name(self, file_path):
-        """Strips the auto-generated timestamp from the UI display name if present."""
         import re
         name = file_path.name
-        # Match the "YYYY.MM.DD HH-MM-SS " pattern (19 chars + 1 space)
         if re.match(r"^\d{4}\.\d{2}\.\d{2} \d{2}-\d{2}-\d{2} ", name):
-            return name[20:]  # Hide the timestamp
+            return name[20:]
         return name
 
     def _refresh_queue_list(self):
-        """Updates the visual queue list widget to mirror the internal file_queue."""
         self.queue_list.clear()
         for index, (file_path, target_format) in enumerate(self.file_queue, start=1):
             display_name = self._get_display_name(file_path)
             self.queue_list.addItem(f"{index}. {display_name} → .{target_format.upper()}")
 
     def remove_selected_from_queue(self):
-        """Removes user-selected items from the queue."""
         selected_items = self.queue_list.selectedItems()
         if not selected_items: return
-
-        # Get indices and reverse sort them so deleting doesn't shift remaining indices
         rows = sorted([self.queue_list.row(item) for item in selected_items], reverse=True)
         for row in rows:
             del self.file_queue[row]
-
         self._refresh_queue_list()
         self._update_queue_ui_text()
 
     def clear_queue(self):
-        """Empties the entire queue."""
         self.file_queue.clear()
         self._refresh_queue_list()
         self._update_queue_ui_text()
 
-    # --- MAIN APPLICATION LOGIC ---
     def on_init_complete(self, success: bool):
         if success:
             self.tabs.setEnabled(True)
@@ -543,7 +612,6 @@ class DragDropUI(QMainWindow):
     def handle_batch_drop(self, file_paths):
         for file_path in file_paths:
             self.file_queue.append((Path(file_path), "vsdx"))
-
         self._refresh_queue_list()
         if not self.is_processing:
             self.process_next_in_queue()
@@ -555,7 +623,6 @@ class DragDropUI(QMainWindow):
         self.text_input.setPlaceholderText(f"⏳ Extracting source from {Path(file_path).name}...\nPlease wait...")
         self.text_input.setEnabled(False)
         self.log_message(f"📂 Reading embedded source from: {Path(file_path).name}")
-
         self.reader_thread = VisioReaderThread(file_path)
         self.reader_thread.text_extracted.connect(self.on_visio_code_read)
         self.reader_thread.error_occurred.connect(self.on_visio_code_error)
@@ -620,11 +687,9 @@ class DragDropUI(QMainWindow):
     def _update_queue_ui_text(self, current_file_name=""):
         remaining = len(self.file_queue)
         rem_text = f" | {remaining} items waiting in queue." if remaining > 0 else ""
-
         if current_file_name:
             self.status_bar.showMessage(f"⚙️ Processing: {current_file_name}{rem_text}")
         else:
-            # Fallback if we are just updating the queue count mid-process
             curr_text = self.status_bar.currentMessage().split("|")[0].strip()
             if "Idle" in curr_text and remaining == 0:
                 self.status_bar.showMessage("🟢 System Idle.")
@@ -641,11 +706,8 @@ class DragDropUI(QMainWindow):
         self._set_drop_zone_busy()
 
         next_file, target_format = self.file_queue.pop(0)
-
-        # Get the clean name without the timestamp
         display_name = self._get_display_name(next_file)
 
-        # Immediately update the UI list to show the item has left the "waiting" area
         self._refresh_queue_list()
         self._update_queue_ui_text(f"{display_name} (to .{target_format.upper()})")
 
@@ -669,7 +731,6 @@ class DragDropUI(QMainWindow):
             self.copy_btn.setEnabled(True)
             self.copy_btn.setStyleSheet("background-color: #395396; color: white; border: none;")
 
-            # Auto-open SVG files
             if out_path.lower().endswith('.svg'):
                 try:
                     import os
@@ -680,15 +741,13 @@ class DragDropUI(QMainWindow):
                     self.log_message(f"⚠️ Could not automatically open file: {e}")
 
     def log_message(self, message: str, level=logging.INFO):
-        """Prints to the GUI console with rich text color-coding."""
-        color = "#D4D4D4"  # Default VS Code Light Grey
-
+        color = "#D4D4D4"
         if "❌" in message or "Error" in message:
-            color = "#F44747"  # Red
+            color = "#F44747"
         elif "⚠️" in message or "Warning" in message:
-            color = "#D7BA7D"  # Yellow/Orange
+            color = "#D7BA7D"
         elif "✅" in message or "Success" in message or "Ready" in message:
-            color = "#6A9955"  # Green
+            color = "#6A9955"
 
         html_msg = f'<span style="color: {color};">{message.replace(chr(10), "<br>")}</span>'
         self.console.append(html_msg)
@@ -707,7 +766,6 @@ if __name__ == '__main__':
     version_file = jar_path.with_suffix('.version')
 
     # --- SMART PROXY CHECK ---
-    # Determine if a download is imminent (either missing JAR or mismatched architecture)
     needs_download = False
     if not jar_path.exists():
         needs_download = True
@@ -724,7 +782,6 @@ if __name__ == '__main__':
             if current_type != required_type:
                 needs_download = True
 
-    # Only show the proxy dialog if we actually need to hit the network
     if needs_download:
         proxy_dialog = ProxyDialog()
         if proxy_dialog.exec_() == QDialog.Accepted:
