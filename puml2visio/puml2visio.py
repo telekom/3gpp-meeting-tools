@@ -32,6 +32,13 @@ logging.basicConfig(
 # --- GLOBAL STYLESHEET (ALL-BLUE THEME) ---
 # ==========================================
 GLOBAL_STYLE = """
+    QToolTip {
+        color: #333333;
+        background-color: #F8F8F8;
+        border: 1px solid #D0D0D0;
+        border-radius: 4px;
+        padding: 4px;
+    }
     QWidget {
         font-family: "Segoe UI", Arial, sans-serif;
         font-size: 13px;
@@ -96,14 +103,14 @@ GLOBAL_STYLE = """
         background-color: #1E3F75;
     }
 
-    /* SVG Button - Muted Grey-Blue */
-    QPushButton#secondaryBtn {
-        background-color: #5C6B89; 
+    /* SVG Button - Vibrant Windows Blue */
+    QPushButton#svgBtn {
+        background-color: #0078D4; 
         color: white; 
         border: none;
     }
-    QPushButton#secondaryBtn:hover {
-        background-color: #4A566E;
+    QPushButton#svgBtn:hover {
+        background-color: #005A9E;
     }
 """
 
@@ -255,7 +262,7 @@ class DragDropUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PlantUML to Visio Converter (3GPP)")
-        self.resize(900, 680)
+        self.resize(900, 720)
         self.setAcceptDrops(True)
 
         self.jar_path = Path(__file__).parent.resolve() / JAR_NAME
@@ -286,29 +293,41 @@ class DragDropUI(QMainWindow):
         self.text_input.setPlaceholderText(
             "Paste PlantUML code OR drop a generated .vsdx file here to extract its source...")
         self.text_input.file_dropped.connect(self.extract_code_from_visio)
+        self.text_input.setToolTip(
+            "Type or paste PlantUML code here. You can also drag & drop a generated .vsdx file onto this box to seamlessly retrieve its original source code.")
 
         btn_layout = QHBoxLayout()
+
         self.clear_btn = QPushButton("🗑️ Clear")
         self.clear_btn.clicked.connect(self.text_input.clear)
+        self.clear_btn.setToolTip("Clear the text editor.")
 
         self.planttext_btn = QPushButton("🌐 Show in planttext.com")
         self.planttext_btn.clicked.connect(self.show_in_planttext)
+        self.planttext_btn.setToolTip(
+            "Open your PlantUML code in PlantText.com for a quick, interactive online preview.")
 
         self.copy_btn = QPushButton("📋 Copy File Path")
         self.copy_btn.setEnabled(False)
         self.copy_btn.clicked.connect(self.copy_out_path)
+        self.copy_btn.setToolTip("Copy the exact system file path of the last generated diagram to your clipboard.")
 
         self.convert_svg_btn = QPushButton("Export SVG")
-        self.convert_svg_btn.setObjectName("secondaryBtn")
+        self.convert_svg_btn.setObjectName("primaryBtn")
         self.convert_svg_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("svg"))
+        self.convert_svg_btn.setToolTip("Generate a standard, scalable vector graphic (.svg) and open it immediately.")
 
         self.convert_pptx_btn = QPushButton("Export PPTX")
-        self.convert_pptx_btn.setObjectName("pptBtn")
+        self.convert_pptx_btn.setObjectName("primaryBtn")
         self.convert_pptx_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("pptx"))
+        self.convert_pptx_btn.setToolTip(
+            "Pipe the diagram through the EMF translator to create a PowerPoint slide containing natively editable, ungroupable Office shapes.")
 
         self.convert_vsdx_btn = QPushButton("Export Visio")
         self.convert_vsdx_btn.setObjectName("primaryBtn")
         self.convert_vsdx_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("vsdx"))
+        self.convert_vsdx_btn.setToolTip(
+            "Use Microsoft COM automation to construct a perfectly aligned, natively editable Visio diagram (.vsdx).")
 
         btn_layout.addWidget(self.clear_btn)
         btn_layout.addWidget(self.planttext_btn)
@@ -349,6 +368,11 @@ class DragDropUI(QMainWindow):
 
         main_layout.addWidget(self.tabs, stretch=3)
 
+        # NEW: Compact Queue Viewer
+        self.queue_label = QLabel("⏳ Initializing system checks...")
+        self.queue_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #555;")
+        main_layout.addWidget(self.queue_label)
+
         # Console
         self.console = QTextEdit()
         self.console.setReadOnly(True)
@@ -378,20 +402,20 @@ class DragDropUI(QMainWindow):
             self.drop_label.setStyleSheet(
                 "border: 3px dashed #D32F2F; border-radius: 10px; background-color: #FDEDED; color: #D32F2F; font-size: 15px; font-weight: bold;")
             self.drop_label.setText("❌ Initialization Failed.")
+            self.queue_label.setText("❌ Initialization Failed. Check log for details.")
 
     def _set_drop_zone_ready(self):
         self.drop_label.setText("📥 Drag && Drop your .puml or .txt file(s) here\n\n(Batch exports as Visio files)")
         self.drop_label.setStyleSheet(
             "border: 3px dashed #395396; border-radius: 10px; background-color: #F4F8FD; color: #395396; font-size: 15px; font-weight: bold;")
-        self.convert_vsdx_btn.setEnabled(True)
-        self.convert_vsdx_btn.setText("Export Visio")
+        self.queue_label.setText("🟢 System Idle. Queue empty.")
+        self.queue_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #2B579A;")
 
     def _set_drop_zone_busy(self):
         self.drop_label.setText("⚙️ Processing Queue...\n\nPlease wait until finished.")
         self.drop_label.setStyleSheet(
             "border: 3px dashed #D83B01; border-radius: 10px; background-color: #FDF4F0; color: #D83B01; font-size: 15px; font-weight: bold;")
-        self.convert_vsdx_btn.setEnabled(False)
-        self.convert_vsdx_btn.setText("Processing...")
+        # Note: Button is intentionally left enabled so users can continue queueing files!
 
     def extract_code_from_visio(self, file_path):
         self.text_input.clear()
@@ -467,7 +491,6 @@ class DragDropUI(QMainWindow):
         base_name = f"{timestamp} diagram"
         puml_path = base_dir / f"{base_name}.puml"
 
-        # We don't verify `.pptx` anymore since we aren't saving it
         counter = 1
         while puml_path.exists() or puml_path.with_suffix(".vsdx").exists() or puml_path.with_suffix(".svg").exists():
             puml_path = base_dir / f"{base_name}_{counter}.puml"
@@ -477,8 +500,24 @@ class DragDropUI(QMainWindow):
             f.write(raw_text)
 
         self.file_queue.append((puml_path, target_format))
-        if not self.is_processing:
+
+        # If the system is currently processing, we just update the queue counter.
+        if self.is_processing:
+            self._update_queue_ui_text()
+        else:
             self.process_next_in_queue()
+
+    def _update_queue_ui_text(self, current_file_name=""):
+        remaining = len(self.file_queue)
+        rem_text = f" | {remaining} items waiting in queue..." if remaining > 0 else ""
+        if current_file_name:
+            self.queue_label.setText(f"⚙️ Processing: {current_file_name}{rem_text}")
+        else:
+            # Fallback if we just added to queue while another thread is busy
+            curr_text = self.queue_label.text().split("|")[0].strip()
+            self.queue_label.setText(f"{curr_text}{rem_text}")
+
+        self.queue_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #D83B01;")
 
     def process_next_in_queue(self):
         if not self.file_queue:
@@ -490,6 +529,7 @@ class DragDropUI(QMainWindow):
         self._set_drop_zone_busy()
 
         next_file, target_format = self.file_queue.pop(0)
+        self._update_queue_ui_text(f"{next_file.name} (to .{target_format})")
 
         if target_format == "svg":
             self.conv_thread = SvgConverterThread(next_file, self.jar_path)
@@ -504,7 +544,6 @@ class DragDropUI(QMainWindow):
         self.conv_thread.start()
 
     def on_conversion_success(self, out_path: str):
-        # Handle the flag passed by the PPT thread
         if out_path == "OPENED_IN_PPT":
             self.log_message("👁️ PowerPoint is open with your new slide. You can copy it directly.")
         elif out_path:
