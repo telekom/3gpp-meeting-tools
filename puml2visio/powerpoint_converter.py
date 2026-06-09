@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pythoncom
 import win32com.client
+import win32gui
+import win32con
 from PyQt5.QtCore import QThread, pyqtSignal
 
 
@@ -31,11 +33,23 @@ class PptxConverterThread(QThread):
 
             ppt = win32com.client.DispatchEx("PowerPoint.Application")
 
-            # --- CRITICAL FIX ---
-            # PowerPoint must be visible and normal-sized for Ribbon commands to execute
+            # PowerPoint must be visible and normal-sized for Ribbon commands
             ppt.Visible = 1
-            if ppt.WindowState == 2:  # If minimized, restore it
-                ppt.WindowState = 1
+            try:
+                if ppt.WindowState == 2:  # If minimized, restore it
+                    ppt.WindowState = 1
+            except:
+                pass
+
+            # --- CRITICAL FIX: Force PowerPoint to the absolute foreground ---
+            # Ribbon commands fail if the application doesn't have OS focus
+            try:
+                hwnd = ppt.HWND
+                if hwnd:
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                    win32gui.SetForegroundWindow(hwnd)
+            except Exception as e:
+                pass
 
             ppt.DisplayAlerts = 1  # Suppress UI popups
 
@@ -46,36 +60,51 @@ class PptxConverterThread(QThread):
             shape = slide.Shapes.AddPicture(str(svg_path.resolve()), 0, -1, 0, 0, -1, -1)
 
             self._emit_log("⏳ Converting SVG to native PowerPoint shapes...", logging.INFO)
-            try:
-                # Force window focus and select the shape
-                ppt.ActiveWindow.Activate()
-                ppt.ActiveWindow.View.GotoSlide(slide.SlideIndex)
-                shape.Select()
 
-                # Execute the native Ribbon command
-                ppt.CommandBars.ExecuteMso("PictureConvertToShape")
+            converted = False
 
-                # Ribbon commands run asynchronously. Wait until the shape type
-                # changes from Picture (13) to Grouped Office Shapes (6)
-                attempts = 0
-                converted = False
-                while attempts < 20:
-                    time.sleep(0.2)
+            # Method 1: Robust Ribbon Command Execution
+            for attempt in range(15):
+                try:
+                    # Ensure window focus and shape selection
+                    ppt.ActiveWindow.Activate()
+                    shape.Select()
+
+                    # ONLY execute if PowerPoint confirms the button is currently clickable!
+                    # This completely prevents the DISP_E_EXCEPTION crash.
+                    if ppt.CommandBars.GetEnabledMso("PictureConvertToShape"):
+                        ppt.CommandBars.ExecuteMso("PictureConvertToShape")
+
+                        # Wait for the shape to convert into a native Group (Type 6)
+                        for _ in range(15):
+                            time.sleep(0.1)
+                            if slide.Shapes.Count > 0 and slide.Shapes(1).Type in [6, 5]:
+                                shape = slide.Shapes(1)
+                                converted = True
+                                break
+                    if converted:
+                        break
+                except Exception as e:
+                    pass  # Ignore temporary COM lockups and retry
+                time.sleep(0.2)
+
+            # Method 2: Fallback to old Ungroup method if Ribbon wasn't available
+            if not converted:
+                for attempt in range(3):
                     try:
-                        if slide.Shapes.Count > 0 and slide.Shapes(1).Type in [6, 5]:
-                            shape = slide.Shapes(1)
-                            converted = True
-                            break
+                        ppt.DisplayAlerts = 1
+                        shape_range = shape.Ungroup()
+                        shape = shape_range.Group()
+                        converted = True
+                        break
                     except:
                         pass
-                    attempts += 1
+                    time.sleep(0.5)
 
-                if converted:
-                    self._emit_log("✅ Successfully converted to native shapes.", logging.INFO)
-                else:
-                    self._emit_log("⚠️ Ribbon conversion timed out. Leaving as embedded SVG.", logging.WARNING)
-            except Exception as e:
-                self._emit_log(f"⚠️ Could not convert to native shapes: {e}. Leaving as embedded SVG.", logging.WARNING)
+            if converted:
+                self._emit_log("✅ Successfully converted to native shapes.", logging.INFO)
+            else:
+                self._emit_log("⚠️ Ribbon conversion timed out. Leaving as embedded SVG.", logging.WARNING)
 
             # Center and scale the figure
             slide_w = pres.PageSetup.SlideWidth
@@ -104,16 +133,13 @@ class PptxConverterThread(QThread):
             except Exception as e:
                 self._emit_log(f"⚠️ Warning: Could not write to Speaker Notes: {e}", logging.WARNING)
 
-            # --- DO NOT SAVE OR CLOSE ---
-            # Detach the COM object and leave PowerPoint completely open
+            # DO NOT SAVE OR CLOSE - Detach COM object
             ppt = None
 
             if svg_path.exists():
                 svg_path.unlink()
 
             self._emit_log(f"✅ Slide generated! PowerPoint left open for copying.", logging.INFO)
-
-            # Send a special flag back to the UI
             self.finished_path.emit("OPENED_IN_PPT")
 
         except Exception as e:
