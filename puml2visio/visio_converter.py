@@ -1,11 +1,11 @@
-import subprocess
-import re
 import logging
 from pathlib import Path
 
 import pythoncom
 import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
+
+from utils import WATERMARK, strip_watermark, generate_cleaned_svg
 
 
 class VisioReaderThread(QThread):
@@ -31,14 +31,7 @@ class VisioReaderThread(QThread):
                 if page.Name == "PlantUML Source":
                     if page.Shapes.Count > 0:
                         raw_text = page.Shapes(1).Characters.Text
-
-                        # --- NEW: Strip the watermark during extraction ---
-                        # This prevents duplication if a user re-exports a generated Visio file
-                        lines = raw_text.splitlines()
-                        while lines and ("Generated with puml2visio" in lines[0] or lines[0].strip() == ""):
-                            lines.pop(0)
-
-                        source_code = "\n".join(lines)
+                        source_code = strip_watermark(raw_text)
                     break
 
             doc.Close()
@@ -68,7 +61,9 @@ class ConverterThread(QThread):
         pythoncom.CoInitialize()
         try:
             self._emit_log(f"\n⚙️ Processing: {self.puml_path.name}", logging.INFO)
-            svg_path = self._generate_svg()
+
+            # Use centralized SVG generation
+            svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self._emit_log)
             self._convert_to_vsdx(svg_path)
 
             vsdx_path = self.puml_path.with_suffix(".vsdx")
@@ -87,72 +82,6 @@ class ConverterThread(QThread):
         logging.log(level, message)
         self.ui_log_msg.emit(message)
 
-    def _generate_svg(self) -> Path:
-        command = ["java", "-jar", str(self.jar_path), "-tsvg", str(self.puml_path)]
-        try:
-            subprocess.run(command, check=True, capture_output=True, text=True, cwd=self.puml_path.parent)
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"PlantUML Syntax Error:\n{e.stderr}")
-
-        svg_path = self.puml_path.with_suffix(".svg")
-        if not svg_path.exists():
-            raise FileNotFoundError("PlantUML finished, but SVG was not created.")
-
-        try:
-            with open(svg_path, 'r', encoding='utf-8') as f:
-                svg_content = f.read()
-
-            svg_content = re.sub(r'\s*textLength="[^"]*"', '', svg_content)
-            svg_content = re.sub(r'\s*lengthAdjust="[^"]*"', '', svg_content)
-
-            pattern = re.compile(r'(<text\b[^>]*?\by="([0-9.]+)"[^>]*>)(.*?)(</text>)', re.IGNORECASE | re.DOTALL)
-            matches = list(pattern.finditer(svg_content))
-
-            if matches:
-                result = []
-                last_end = 0
-                current_y = None
-                current_start_tag = ""
-                current_text = ""
-
-                for m in matches:
-                    start = m.start()
-                    end = m.end()
-                    full_open_tag = m.group(1)
-                    y_val = m.group(2)
-                    inner_text = m.group(3)
-                    between = svg_content[last_end:start]
-
-                    if current_y == y_val and not between.strip():
-                        current_text += inner_text
-                    else:
-                        if current_y is not None:
-                            result.append(current_start_tag)
-                            result.append(current_text)
-                            result.append("</text>")
-                        result.append(between)
-                        current_y = y_val
-                        current_start_tag = full_open_tag
-                        current_text = inner_text
-                    last_end = end
-
-                if current_y is not None:
-                    result.append(current_start_tag)
-                    result.append(current_text)
-                    result.append("</text>")
-
-                result.append(svg_content[last_end:])
-                svg_content = "".join(result)
-
-            svg_content = svg_content.replace('&#160;', ' ').replace('\xa0', ' ')
-
-            with open(svg_path, 'w', encoding='utf-8') as f:
-                f.write(svg_content)
-        except Exception as e:
-            self._emit_log(f"⚠️ Warning: Could not clean SVG text attributes: {e}", logging.WARNING)
-
-        return svg_path
-
     def _convert_to_vsdx(self, svg_path: Path):
         vsdx_path = svg_path.with_suffix(".vsdx")
         if vsdx_path.exists():
@@ -161,8 +90,10 @@ class ConverterThread(QThread):
             except PermissionError:
                 raise PermissionError("Close file in Visio first.")
 
+        # Read, clean, and re-watermark to prevent duplication
         with open(self.puml_path, "r", encoding="utf-8") as f:
-            source_code = f.read()
+            raw_code = f.read()
+        final_source_code = WATERMARK + "\n\n" + strip_watermark(raw_code)
 
         visio = None
         try:
@@ -237,7 +168,6 @@ class ConverterThread(QThread):
                                     s.CellsU("Height").FormulaU = "TEXTHEIGHT(TheText, Width)"
                         except:
                             pass
-
                         try:
                             if s.Type == 2:
                                 clean_and_shrink_text(s.Shapes)
@@ -267,8 +197,7 @@ class ConverterThread(QThread):
             text_box.CellsU("Para.HorzAlign").FormulaU = "0"
             text_box.CellsU("VerticalAlign").FormulaU = "0"
 
-            watermark = "' Generated with puml2visio, https://github.com/telekom/3gpp-meeting-tools/tree/master/puml2visio\n\n"
-            text_box.Characters.Text = watermark + source_code
+            text_box.Characters.Text = final_source_code
 
             try:
                 if visio.ActiveWindow:
@@ -299,19 +228,16 @@ class SvgConverterThread(QThread):
     def run(self):
         try:
             self.ui_log_msg.emit(f"\n⚙️ Generating SVG for: {self.puml_path.name}")
-            command = ["java", "-jar", str(self.jar_path), "-tsvg", str(self.puml_path)]
-            subprocess.run(command, check=True, capture_output=True, text=True, cwd=self.puml_path.parent)
 
-            svg_path = self.puml_path.with_suffix(".svg")
+            # Use centralized SVG generation
+            svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self.ui_log_msg.emit)
+
             if svg_path.exists():
                 self.ui_log_msg.emit(f"✅ Success! SVG saved: {svg_path.name}\n{'-' * 45}")
                 self.finished_path.emit(str(svg_path.resolve()))
             else:
                 self.ui_log_msg.emit("❌ Error: PlantUML finished but SVG was not created.")
                 self.finished_path.emit("")
-        except subprocess.CalledProcessError as e:
-            self.ui_log_msg.emit(f"❌ PlantUML Syntax Error:\n{e.stderr}\n{'-' * 45}")
-            self.finished_path.emit("")
         except Exception as e:
             self.ui_log_msg.emit(f"❌ Error: {str(e)}\n{'-' * 45}")
             self.finished_path.emit("")

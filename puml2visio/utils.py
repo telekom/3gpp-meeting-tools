@@ -12,6 +12,87 @@ JAR_NAME = "plantuml.jar"
 URL_LATEST = "https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar"
 URL_JAVA_8 = "https://github.com/plantuml/plantuml/releases/download/v1.2023.13/plantuml-1.2023.13.jar"
 
+WATERMARK = "' Generated with puml2visio, https://github.com/telekom/3gpp-meeting-tools/tree/master/puml2visio"
+
+
+def strip_watermark(raw_text: str) -> str:
+    """Removes existing puml2visio watermarks and leading empty lines to prevent duplication."""
+    lines = raw_text.splitlines()
+    while lines and ("Generated with puml2visio" in lines[0] or lines[0].strip() == ""):
+        lines.pop(0)
+    return "\n".join(lines)
+
+
+def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> Path:
+    """Centralized function to generate an SVG via PlantUML and clean text attributes."""
+    command = ["java", "-jar", str(jar_path), "-tsvg", str(puml_path)]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True, cwd=puml_path.parent)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"PlantUML Syntax Error:\n{e.stderr}")
+
+    svg_path = puml_path.with_suffix(".svg")
+    if not svg_path.exists():
+        raise FileNotFoundError("PlantUML finished, but SVG was not created.")
+
+    try:
+        with open(svg_path, 'r', encoding='utf-8') as f:
+            svg_content = f.read()
+
+        # Strip problematic tags for Office COM importing
+        svg_content = re.sub(r'\s*textLength="[^"]*"', '', svg_content)
+        svg_content = re.sub(r'\s*lengthAdjust="[^"]*"', '', svg_content)
+
+        # Merge shattered SVG text blocks
+        pattern = re.compile(r'(<text\b[^>]*?\by="([0-9.]+)"[^>]*>)(.*?)(</text>)', re.IGNORECASE | re.DOTALL)
+        matches = list(pattern.finditer(svg_content))
+
+        if matches:
+            result = []
+            last_end = 0
+            current_y = None
+            current_start_tag = ""
+            current_text = ""
+
+            for m in matches:
+                start = m.start()
+                end = m.end()
+                full_open_tag = m.group(1)
+                y_val = m.group(2)
+                inner_text = m.group(3)
+                between = svg_content[last_end:start]
+
+                if current_y == y_val and not between.strip():
+                    current_text += inner_text
+                else:
+                    if current_y is not None:
+                        result.append(current_start_tag)
+                        result.append(current_text)
+                        result.append("</text>")
+                    result.append(between)
+                    current_y = y_val
+                    current_start_tag = full_open_tag
+                    current_text = inner_text
+                last_end = end
+
+            if current_y is not None:
+                result.append(current_start_tag)
+                result.append(current_text)
+                result.append("</text>")
+
+            result.append(svg_content[last_end:])
+            svg_content = "".join(result)
+
+        svg_content = svg_content.replace('&#160;', ' ').replace('\xa0', ' ')
+
+        with open(svg_path, 'w', encoding='utf-8') as f:
+            f.write(svg_content)
+    except Exception as e:
+        if log_callback:
+            log_callback(f"⚠️ Warning: Could not clean SVG text attributes: {e}", logging.WARNING)
+
+    return svg_path
+
 
 def encode_plantuml(text: str) -> str:
     """Encodes raw PlantUML text into the Deflate + Base64 format expected by PlantText."""
