@@ -19,7 +19,7 @@ WATERMARK = "' Generated with puml2visio, https://github.com/telekom/3gpp-meetin
 _BEST_JAVA_CACHE = None
 
 
-def get_best_java():
+def get_best_java(log_callback=None):
     """Scans the environment for all Java executables and returns the path to the newest one."""
     global _BEST_JAVA_CACHE
     if _BEST_JAVA_CACHE is not None:
@@ -27,50 +27,88 @@ def get_best_java():
 
     candidates = set()
 
-    # 1. Check JAVA_HOME
-    java_home = os.environ.get('JAVA_HOME')
-    if java_home:
-        exe = os.path.join(java_home, 'bin', 'java.exe')
-        if os.path.exists(exe):
-            candidates.add(os.path.normpath(exe))
-
-    # 2. Check the entirety of the PATH variable (System AND User paths combined)
-    path_env = os.environ.get('PATH', '')
-    for p in path_env.split(os.pathsep):
-        if p.strip():
-            exe = os.path.join(p.strip(), 'java.exe')
+    def add_candidate(path_str):
+        if not path_str: return
+        # Expand things like %USERPROFILE% which often exist in raw registry paths
+        clean_p = os.path.expandvars(path_str.strip(' "'))
+        if clean_p:
+            exe = os.path.join(clean_p, 'java.exe')
             if os.path.exists(exe):
                 candidates.add(os.path.normpath(exe))
+
+    # 1. JAVA_HOME
+    java_home = os.environ.get('JAVA_HOME')
+    if java_home:
+        add_candidate(os.path.join(java_home, 'bin'))
+
+    # 2. Live Environment PATH
+    for p in os.environ.get('PATH', '').split(os.pathsep):
+        add_candidate(p)
+
+    # 3. Registry User PATH (Bypasses stale terminals/IDEs)
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
+            val, _ = winreg.QueryValueEx(key, "Path")
+            for p in val.split(os.pathsep):
+                add_candidate(p)
+    except Exception:
+        pass
+
+    # 4. Registry System PATH (Bypasses stale terminals/IDEs)
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"System\CurrentControlSet\Control\Session Manager\Environment") as key:
+            val, _ = winreg.QueryValueEx(key, "Path")
+            for p in val.split(os.pathsep):
+                add_candidate(p)
+    except Exception:
+        pass
 
     best_exe = "java"
     best_ver = 0
 
+    if log_callback and candidates:
+        log_callback(f"🔎 Scanning {len(candidates)} Java locations from System/User paths...", logging.INFO)
+
     def check_version(cmd):
         try:
-            # CREATE_NO_WINDOW prevents the console from flashing during background checks
             kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
-            result = subprocess.run([cmd, "-version"], capture_output=True, text=True, timeout=2, **kwargs)
+            # Increased timeout to 5s in case a slow HDD needs to spin up
+            result = subprocess.run([cmd, "-version"], capture_output=True, text=True, timeout=5, **kwargs)
 
-            match = re.search(r'(?:java|openjdk) version "([^"]+)"', result.stderr, re.IGNORECASE)
+            output = result.stderr + "\n" + result.stdout
+
+            # Match formats like: "25.0.3", "1.8.0_345", "25-ea"
+            match = re.search(r'"(\d[^"]*)"', output)
+            if not match:
+                match = re.search(r'version\s+([^\s]+)', output, re.IGNORECASE)
+
             if match:
-                parts = match.group(1).split('.')
-                # Handle old formatting (1.8.0) vs new formatting (25.0)
-                if parts[0] == '1':
-                    return int(parts[1])
-                else:
-                    return int(parts[0])
-        except Exception:
-            pass
+                ver_str = match.group(1)
+                # Extract ONLY the raw digits to prevent crashes on '+9' or '-ea'
+                nums = re.findall(r'\d+', ver_str)
+                if nums:
+                    v = int(nums[1]) if (nums[0] == '1' and len(nums) > 1) else int(nums[0])
+                    if log_callback:
+                        log_callback(f"  ✓ Found Java {v} at: {cmd}", logging.INFO)
+                    return v
+
+            if log_callback:
+                clean_out = output.replace('\n', ' ').strip()[:50]
+                log_callback(f"  ⚠️ Unrecognized version format for {cmd} (Output: {clean_out}...)", logging.WARNING)
+        except Exception as e:
+            if log_callback:
+                log_callback(f"  ❌ Failed to test {cmd}: {e}", logging.ERROR)
         return 0
 
-    # Test all found executables
+    # Test all physically found executables
     for exe in candidates:
         v = check_version(exe)
         if v > best_ver:
             best_ver = v
             best_exe = exe
 
-    # Final fallback test against the raw OS default
+    # Final fallback: Test the raw OS default command just in case our path scanning missed an alias
     bare_v = check_version("java")
     if bare_v > best_ver:
         best_ver = bare_v
@@ -197,7 +235,7 @@ class InitializationThread(QThread):
                 return
 
             # --- Auto-detect Best Java ---
-            java_exe, java_major = get_best_java()
+            java_exe, java_major = get_best_java(self._emit_log)
 
             if java_major == 0:
                 self._emit_log("❌ ERROR: Java is not installed or could not be found.", logging.ERROR)
@@ -207,11 +245,9 @@ class InitializationThread(QThread):
                 self._emit_log(f"✅ Active Engine: Java {java_major} ({java_exe})", logging.INFO)
 
             # --- SMART JAR SYNC ---
-            # Determine which JAR architecture is required based on the active Java version
             required_type = "modern" if java_major >= 11 else "legacy"
             version_file = self.jar_path.with_suffix('.version')
 
-            # Read the sidecar file to see which version is currently downloaded (if any)
             current_type = None
             if version_file.exists():
                 try:
@@ -219,7 +255,6 @@ class InitializationThread(QThread):
                 except:
                     pass
 
-            # If the JAR doesn't exist, OR if the Java environment changed, trigger a download
             if not self.jar_path.exists() or current_type != required_type:
                 reason = "missing" if not self.jar_path.exists() else f"Java mismatch (Required: {required_type}, Found: {current_type})"
                 self._emit_log(f"⚠️ {JAR_NAME} is {reason}. Attempting download...", logging.WARNING)
@@ -228,7 +263,6 @@ class InitializationThread(QThread):
                     url = URL_LATEST if required_type == "modern" else URL_JAVA_8
                     urllib.request.urlretrieve(url, self.jar_path)
 
-                    # Save the sidecar metadata file
                     version_file.write_text(required_type, encoding="utf-8")
 
                     self._emit_log("✅ PlantUML downloaded successfully.", logging.INFO)
