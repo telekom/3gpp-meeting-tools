@@ -486,11 +486,21 @@ class DragDropUI(QMainWindow):
         self.status_bar.showMessage("⏳ Initializing...")
 
     # --- QUEUE MANAGEMENT LOGIC ---
+    def _get_display_name(self, file_path):
+        """Strips the auto-generated timestamp from the UI display name if present."""
+        import re
+        name = file_path.name
+        # Match the "YYYY.MM.DD HH-MM-SS " pattern (19 chars + 1 space)
+        if re.match(r"^\d{4}\.\d{2}\.\d{2} \d{2}-\d{2}-\d{2} ", name):
+            return name[20:]  # Hide the timestamp
+        return name
+
     def _refresh_queue_list(self):
         """Updates the visual queue list widget to mirror the internal file_queue."""
         self.queue_list.clear()
-        for file_path, target_format in self.file_queue:
-            self.queue_list.addItem(f"{file_path.name} → .{target_format.upper()}")
+        for index, (file_path, target_format) in enumerate(self.file_queue, start=1):
+            display_name = self._get_display_name(file_path)
+            self.queue_list.addItem(f"{index}. {display_name} → .{target_format.upper()}")
 
     def remove_selected_from_queue(self):
         """Removes user-selected items from the queue."""
@@ -632,9 +642,12 @@ class DragDropUI(QMainWindow):
 
         next_file, target_format = self.file_queue.pop(0)
 
+        # Get the clean name without the timestamp
+        display_name = self._get_display_name(next_file)
+
         # Immediately update the UI list to show the item has left the "waiting" area
         self._refresh_queue_list()
-        self._update_queue_ui_text(f"{next_file.name} (to .{target_format.upper()})")
+        self._update_queue_ui_text(f"{display_name} (to .{target_format.upper()})")
 
         if target_format == "svg":
             self.conv_thread = SvgConverterThread(next_file, self.jar_path)
