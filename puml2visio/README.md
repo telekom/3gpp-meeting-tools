@@ -22,9 +22,10 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ## <a id="features"></a>✨ Features
 
 * **Visio Integration:** Generates native `.vsdx` files from PlantUML text. Intelligently strips structural SVG wrappers so shapes are easily editable.
-* **Native PowerPoint Export:** Bypasses standard image embedding by coercing PowerPoint into converting SVG paths into **native, grouped Office Drawing objects**. 
+* **Native PowerPoint Export (The EMF Pipeline):** Bypasses PowerPoint's buggy SVG engine by silently piping the diagram through Visio to generate a Microsoft **Enhanced Metafile (.emf)**. This guarantees a flawless, natively ungroupable Office Drawing object without relying on fragile UI macros.
 * **Flawless Round-Tripping:** Embeds your original PlantUML source code directly into the Visio Page or PowerPoint Speaker Notes. Drop a generated file back into the app to retrieve your source code!
 * **Word Document Extractor:** Extracts hidden, embedded Visio (`.vsdx`) files natively trapped inside Word Document (`.docx`) OLE wrappers.
+* **Smart Queue Viewer:** A professional, IDE-style queue manager lets you batch hundreds of files, monitor live processing status, and remove queued items on the fly.
 * **Intelligent Auto-Setup:** Automatically detects your Java environment and downloads the correct `plantuml.jar` on first launch (with Corporate Proxy support).
 
 ---
@@ -60,10 +61,12 @@ graph TD
     SVG -- "3a. Import & Ungroup" --> V
     V --> OutV
 
-    SVG -- "3b. Import & ExecuteMso" --> PPT
+    SVG -- "3b. Pipe through Visio" --> V
+    V -- "3c. Export EMF Vector" --> EMF[.emf File]
+    EMF -- "3d. Import & Natively Ungroup" --> PPT
     PPT --> OutP
 
-    SVG -- "3c. Save" --> OutS
+    SVG -- "3e. Save" --> OutS
     
     W -- "Unzip & Scan OLE .bin" --> P
     P -- "Extract" --> OutV
@@ -108,7 +111,7 @@ Because this application relies heavily on Microsoft's Component Object Model (C
 
 ## <a id="usage"></a>📖 How to Use the GUI
 
-The application features three main workspaces, seamlessly navigated via tabs.
+The application features three main workspaces navigated via tabs, with a fully resizable bottom terminal and queue viewer.
 
 ```mermaid
 stateDiagram-v2
@@ -129,10 +132,13 @@ stateDiagram-v2
     ExportOptions --> PowerPoint
 
     Tab2 --> BatchConvert: Drop .puml files
-    BatchConvert --> Visio
+    BatchConvert --> QueueViewer
 
     Tab3 --> UnzipDoc: Drop .docx
     UnzipDoc --> ExtractedVisioFiles
+    
+    QueueViewer --> Visio
+    QueueViewer --> PowerPoint
 ```
 
 ### 📝 Tab 1: Paste Code (Single Diagram Mode)
@@ -141,8 +147,17 @@ stateDiagram-v2
 
 ### 📂 Tab 2: Drag & Drop Files (Batch Mode)
 * Drag a selection of `.txt` or `.puml` files from your file explorer and drop them onto the dashed area. 
-* The application will queue them up and silently process them in the background, converting all of them into Visio files in their respective folders.
+* The application will queue them up in the **Queue Viewer** at the bottom right. You can select items in the queue and click `Remove` to cancel them before they process.
 
 ### 📄 Tab 3: Word Extractor
 * When collaborating on 3GPP standards, Visio files are often deeply embedded inside Word documents as OLE objects. 
-* Drag and drop a
+* Drag and drop a `.docx` file onto this tab. The app will bypass Word entirely, unzip the `.docx` archive in milliseconds, locate the binary Visio embeddings, extract them as clean `.vsdx` files, and place them right next to your original Word document.
+
+---
+
+## <a id="troubleshooting"></a>🛠️ Known Quirks / Troubleshooting
+
+* **PowerPoint "Leave Open" Behavior:** Unlike Visio exports (which save silently to your disk), clicking `Export PPTX` intentionally leaves the generated PowerPoint presentation open and unsaved on your screen. This allows you to immediately copy the generated slide and paste it directly into your master slide deck. 
+* **COM Errors:** If Visio or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory. If you start receiving `COM Error` messages in the app console, open Windows Task Manager and end any lingering background processes for `Visio.exe` or `PowerPoint.exe`.
+* **Missing Visio Source Code Alignment:** Modifying the PlantUML `textLength` attributes manually might cause Visio text boxes to behave erratically. The tool automatically cleans standard SVG artifacts, but highly customized `skinparam` settings may override this.
+
