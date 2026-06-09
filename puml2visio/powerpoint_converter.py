@@ -1,18 +1,15 @@
 import subprocess
 import re
 import logging
-import time
 from pathlib import Path
 
 import pythoncom
 import win32com.client
-import win32gui
-import win32con
 from PyQt5.QtCore import QThread, pyqtSignal
 
 
 class PptxConverterThread(QThread):
-    """Background thread to generate a PowerPoint slide with native Office shapes."""
+    """Background thread to generate a PowerPoint slide using Visio as an EMF translator."""
     ui_log_msg = pyqtSignal(str)
     finished_path = pyqtSignal(str)
 
@@ -31,80 +28,48 @@ class PptxConverterThread(QThread):
             with open(self.puml_path, "r", encoding="utf-8") as f:
                 source_code = f.read()
 
+            # --- THE MAGIC PIPELINE ---
+            # Pipe the SVG through Visio to generate a flawless Microsoft EMF vector
+            self._emit_log("⏳ Translating SVG to Microsoft EMF via Visio engine...", logging.INFO)
+            emf_path = self._create_emf_via_visio(svg_path)
+
+            # Now open PowerPoint
             ppt = win32com.client.DispatchEx("PowerPoint.Application")
-
-            # PowerPoint must be visible and normal-sized for Ribbon commands
             ppt.Visible = 1
-            try:
-                if ppt.WindowState == 2:  # If minimized, restore it
-                    ppt.WindowState = 1
-            except:
-                pass
+            if ppt.WindowState == 2:
+                ppt.WindowState = 1
 
-            # --- CRITICAL FIX: Force PowerPoint to the absolute foreground ---
-            # Ribbon commands fail if the application doesn't have OS focus
-            try:
-                hwnd = ppt.HWND
-                if hwnd:
-                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                    win32gui.SetForegroundWindow(hwnd)
-            except Exception as e:
-                pass
-
-            ppt.DisplayAlerts = 1  # Suppress UI popups
+                # ppAlertsNone = 1: Automatically answers "Yes" to the Ungroup safety prompt
+            ppt.DisplayAlerts = 1
 
             pres = ppt.Presentations.Add()
             slide = pres.Slides.Add(1, 12)  # 12 = ppLayoutBlank
 
-            # Insert the SVG
-            shape = slide.Shapes.AddPicture(str(svg_path.resolve()), 0, -1, 0, 0, -1, -1)
+            # Insert the EMF Vector
+            shape = slide.Shapes.AddPicture(str(emf_path.resolve()), 0, -1, 0, 0, -1, -1)
 
-            self._emit_log("⏳ Converting SVG to native PowerPoint shapes...", logging.INFO)
+            self._emit_log("⏳ Unpacking EMF into native PowerPoint shapes...", logging.INFO)
+            try:
+                # EMF perfectly ungroups without relying on the UI Ribbon!
+                sr = shape.Ungroup()
 
-            converted = False
+                # --- CRITICAL FIX ---
+                # PowerPoint crashes if you try to group a single item.
+                if sr.Count > 1:
+                    shape = sr.Group()
+                elif sr.Count == 1:
+                    shape = sr(1)
 
-            # Method 1: Robust Ribbon Command Execution
-            for attempt in range(15):
+                self._emit_log("✅ Successfully generated native shapes.", logging.INFO)
+            except Exception as e:
+                self._emit_log(f"⚠️ Could not unpack EMF: {e}", logging.WARNING)
+                # Safety Net: If Ungroup succeeded but Group failed, the original shape is dead.
+                # To prevent a crash during resize, we grab the last added shape on the slide.
                 try:
-                    # Ensure window focus and shape selection
-                    ppt.ActiveWindow.Activate()
-                    shape.Select()
-
-                    # ONLY execute if PowerPoint confirms the button is currently clickable!
-                    # This completely prevents the DISP_E_EXCEPTION crash.
-                    if ppt.CommandBars.GetEnabledMso("PictureConvertToShape"):
-                        ppt.CommandBars.ExecuteMso("PictureConvertToShape")
-
-                        # Wait for the shape to convert into a native Group (Type 6)
-                        for _ in range(15):
-                            time.sleep(0.1)
-                            if slide.Shapes.Count > 0 and slide.Shapes(1).Type in [6, 5]:
-                                shape = slide.Shapes(1)
-                                converted = True
-                                break
-                    if converted:
-                        break
-                except Exception as e:
-                    pass  # Ignore temporary COM lockups and retry
-                time.sleep(0.2)
-
-            # Method 2: Fallback to old Ungroup method if Ribbon wasn't available
-            if not converted:
-                for attempt in range(3):
-                    try:
-                        ppt.DisplayAlerts = 1
-                        shape_range = shape.Ungroup()
-                        shape = shape_range.Group()
-                        converted = True
-                        break
-                    except:
-                        pass
-                    time.sleep(0.5)
-
-            if converted:
-                self._emit_log("✅ Successfully converted to native shapes.", logging.INFO)
-            else:
-                self._emit_log("⚠️ Ribbon conversion timed out. Leaving as embedded SVG.", logging.WARNING)
+                    _ = shape.Width
+                except:
+                    if slide.Shapes.Count > 0:
+                        shape = slide.Shapes(slide.Shapes.Count)
 
             # Center and scale the figure
             slide_w = pres.PageSetup.SlideWidth
@@ -136,8 +101,17 @@ class PptxConverterThread(QThread):
             # DO NOT SAVE OR CLOSE - Detach COM object
             ppt = None
 
+            # Cleanup temp files
             if svg_path.exists():
-                svg_path.unlink()
+                try:
+                    svg_path.unlink()
+                except:
+                    pass
+            if emf_path.exists():
+                try:
+                    emf_path.unlink()
+                except:
+                    pass
 
             self._emit_log(f"✅ Slide generated! PowerPoint left open for copying.", logging.INFO)
             self.finished_path.emit("OPENED_IN_PPT")
@@ -152,6 +126,123 @@ class PptxConverterThread(QThread):
             self.finished_path.emit("")
         finally:
             pythoncom.CoUninitialize()
+
+    def _create_emf_via_visio(self, svg_path: Path) -> Path:
+        """Silently uses Visio to parse the SVG, fix text padding, and export as a native Microsoft EMF."""
+        visio = win32com.client.DispatchEx("Visio.Application")
+        visio.Visible = False
+        visio.AlertResponse = 7
+        doc = None
+        try:
+            doc = visio.Documents.Add("")
+            page = doc.Pages(1)
+            page.Import(str(svg_path.resolve()))
+
+            if page.Shapes.Count > 0:
+                orig_w = page.Shapes(1).CellsU("Width").ResultIU
+                orig_h = page.Shapes(1).CellsU("Height").ResultIU
+
+                peeling = True
+                while peeling:
+                    peeling = False
+                    for i in range(page.Shapes.Count, 0, -1):
+                        s = page.Shapes(i)
+                        try:
+                            w = s.CellsU("Width").ResultIU
+                            h = s.CellsU("Height").ResultIU
+                            if abs(w - orig_w) < 0.1 and abs(h - orig_h) < 0.1:
+                                if s.Type == 2:
+                                    s.Ungroup()
+                                    peeling = True
+                        except:
+                            pass
+
+                for i in range(page.Shapes.Count, 0, -1):
+                    s = page.Shapes(i)
+                    try:
+                        w = s.CellsU("Width").ResultIU
+                        h = s.CellsU("Height").ResultIU
+                        if abs(w - orig_w) < 0.1 and abs(h - orig_h) < 0.1:
+                            if len(s.Characters.Text.strip()) == 0:
+                                s.Delete()
+                    except:
+                        pass
+
+                def clean_and_shrink_text(shapes):
+                    for i in range(1, shapes.Count + 1):
+                        s = shapes(i)
+                        try:
+                            if len(s.Characters.Text.strip()) > 0:
+                                s.CellsU("TopMargin").FormulaU = "0 pt"
+                                s.CellsU("BottomMargin").FormulaU = "0 pt"
+                                s.CellsU("LeftMargin").FormulaU = "0 pt"
+                                s.CellsU("RightMargin").FormulaU = "0 pt"
+
+                                line_pattern = s.CellsU("LinePattern").ResultIU
+                                fill_pattern = s.CellsU("FillPattern").ResultIU
+
+                                if line_pattern == 0 and fill_pattern == 0:
+                                    pin_x = s.CellsU("PinX").ResultIU
+                                    pin_y = s.CellsU("PinY").ResultIU
+                                    loc_pin_x = s.CellsU("LocPinX").ResultIU
+                                    loc_pin_y = s.CellsU("LocPinY").ResultIU
+                                    h = s.CellsU("Height").ResultIU
+
+                                    left = pin_x - loc_pin_x
+                                    top = pin_y + (h - loc_pin_y)
+
+                                    s.CellsU("LocPinX").FormulaU = "0 in"
+                                    s.CellsU("LocPinY").FormulaU = "Height"
+                                    s.CellsU("PinX").FormulaU = f"{left} in"
+                                    s.CellsU("PinY").FormulaU = f"{top} in"
+
+                                    s.CellsU("Width").FormulaU = "TEXTWIDTH(TheText)"
+                                    s.CellsU("Height").FormulaU = "TEXTHEIGHT(TheText, Width)"
+                        except:
+                            pass
+                        try:
+                            if s.Type == 2:
+                                clean_and_shrink_text(s.Shapes)
+                        except:
+                            pass
+
+                clean_and_shrink_text(page.Shapes)
+
+                page_sheet = page.PageSheet
+                page_sheet.CellsU("PageLeftMargin").FormulaU = "0.05 in"
+                page_sheet.CellsU("PageRightMargin").FormulaU = "0.05 in"
+                page_sheet.CellsU("PageTopMargin").FormulaU = "0.05 in"
+                page_sheet.CellsU("PageBottomMargin").FormulaU = "0.05 in"
+                try:
+                    page.ResizeToFitContents()
+                except:
+                    pass
+
+            emf_path = svg_path.with_suffix(".emf")
+            if emf_path.exists():
+                try:
+                    emf_path.unlink()
+                except:
+                    pass
+
+            page.Export(str(emf_path.resolve()))
+
+            if doc: doc.Close()
+            visio.Quit()
+            return emf_path
+
+        except Exception as e:
+            if doc:
+                try:
+                    doc.Close()
+                except:
+                    pass
+            if visio:
+                try:
+                    visio.Quit()
+                except:
+                    pass
+            raise RuntimeError(f"Visio EMF Export Failed: {e}")
 
     def _emit_log(self, message: str, level: int):
         logging.log(level, message)
