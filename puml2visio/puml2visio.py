@@ -8,7 +8,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout,
                              QWidget, QTextEdit, QDialog, QLineEdit, QPushButton,
                              QFormLayout, QHBoxLayout, QTabWidget, QCheckBox,
-                             QSplitter, QStatusBar)
+                             QSplitter, QStatusBar, QListWidget)
 from PyQt5.QtCore import Qt, pyqtSignal
 
 # --- IMPORT FROM OUR MODULAR BACKEND ---
@@ -109,6 +109,26 @@ GLOBAL_STYLE = """
         background-color: #F0F0F0;
         border-top: 1px solid #D0D0D0;
         color: #333333;
+    }
+
+    /* Dark Theme for Console & Queue List */
+    QTextEdit#console, QListWidget#queueList {
+        background-color: #1E1E1E; 
+        color: #D4D4D4; 
+        font-family: Consolas, 'Courier New', monospace; 
+        font-size: 13px; 
+        border-radius: 8px; 
+        padding: 8px;
+        border: 1px solid #444444;
+    }
+    QListWidget#queueList::item {
+        padding: 4px;
+        border-bottom: 1px solid #333333;
+    }
+    QListWidget#queueList::item:selected {
+        background-color: #264F78;
+        color: #FFFFFF;
+        border-radius: 4px;
     }
 """
 
@@ -297,12 +317,10 @@ class DragDropUI(QMainWindow):
         self.init_thread.start()
 
     def _setup_ui(self):
-        # 1. Main Central Widget
         central_widget = QWidget()
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(15, 15, 15, 15)
 
-        # 2. Main Splitter (Allows resizing tabs vs console)
         self.splitter = QSplitter(Qt.Vertical)
 
         # --- TOP HALF: TABS ---
@@ -318,7 +336,7 @@ class DragDropUI(QMainWindow):
             "Paste PlantUML code OR drop a generated .vsdx file here to extract its source...")
         self.text_input.file_dropped.connect(self.extract_code_from_visio)
         self.text_input.setToolTip(
-            "Type or paste PlantUML code here. You can also drag & drop a generated .vsdx file onto this box to retrieve its source code.")
+            "Type or paste PlantUML code here. Drag & drop a generated .vsdx file to retrieve its source code.")
 
         btn_layout = QHBoxLayout()
 
@@ -389,7 +407,10 @@ class DragDropUI(QMainWindow):
 
         self.splitter.addWidget(self.tabs)
 
-        # --- BOTTOM HALF: CONSOLE ---
+        # --- BOTTOM HALF: CONSOLE AND QUEUE ---
+        self.bottom_splitter = QSplitter(Qt.Horizontal)
+
+        # 1. Console Terminal
         console_container = QWidget()
         console_layout = QVBoxLayout()
         console_layout.setContentsMargins(0, 5, 0, 0)
@@ -397,8 +418,8 @@ class DragDropUI(QMainWindow):
         console_header = QHBoxLayout()
         terminal_lbl = QLabel("Terminal Output")
         terminal_lbl.setStyleSheet("font-weight: bold; color: #555;")
-        clear_log_btn = QPushButton("Clear Log")
-        clear_log_btn.setFixedSize(80, 24)
+        clear_log_btn = QPushButton("Clear")
+        clear_log_btn.setFixedSize(60, 24)
         clear_log_btn.setStyleSheet("padding: 2px; font-size: 11px;")
         clear_log_btn.clicked.connect(lambda: self.console.clear())
 
@@ -408,26 +429,52 @@ class DragDropUI(QMainWindow):
 
         self.console = QTextEdit()
         self.console.setReadOnly(True)
-        self.console.setStyleSheet("""
-            QTextEdit {
-                background-color: #1E1E1E; 
-                color: #D4D4D4; 
-                font-family: Consolas, 'Courier New', monospace; 
-                font-size: 13px; 
-                border-radius: 8px; 
-                padding: 10px;
-                border: 1px solid #444444;
-            }
-        """)
+        self.console.setObjectName("console")
 
         console_layout.addLayout(console_header)
         console_layout.addWidget(self.console)
         console_container.setLayout(console_layout)
+        self.bottom_splitter.addWidget(console_container)
 
-        self.splitter.addWidget(console_container)
+        # 2. Queue Viewer
+        queue_container = QWidget()
+        queue_layout = QVBoxLayout()
+        queue_layout.setContentsMargins(0, 5, 0, 0)
 
-        # Set Splitter ratio (70% top, 30% bottom)
-        self.splitter.setSizes([500, 200])
+        queue_header = QHBoxLayout()
+        queue_lbl = QLabel("Queue")
+        queue_lbl.setStyleSheet("font-weight: bold; color: #555;")
+
+        self.remove_btn = QPushButton("Remove")
+        self.remove_btn.setFixedSize(60, 24)
+        self.remove_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.remove_btn.setToolTip("Remove selected item(s) from the waiting queue.")
+        self.remove_btn.clicked.connect(self.remove_selected_from_queue)
+
+        self.clear_q_btn = QPushButton("Clear All")
+        self.clear_q_btn.setFixedSize(60, 24)
+        self.clear_q_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.clear_q_btn.setToolTip("Remove all waiting items from the queue.")
+        self.clear_q_btn.clicked.connect(self.clear_queue)
+
+        queue_header.addWidget(queue_lbl)
+        queue_header.addStretch()
+        queue_header.addWidget(self.remove_btn)
+        queue_header.addWidget(self.clear_q_btn)
+
+        self.queue_list = QListWidget()
+        self.queue_list.setObjectName("queueList")
+        self.queue_list.setSelectionMode(QListWidget.ExtendedSelection)  # Allow multiple selections
+
+        queue_layout.addLayout(queue_header)
+        queue_layout.addWidget(self.queue_list)
+        queue_container.setLayout(queue_layout)
+
+        self.bottom_splitter.addWidget(queue_container)
+        self.bottom_splitter.setSizes([650, 250])  # 70% Terminal / 30% Queue
+
+        self.splitter.addWidget(self.bottom_splitter)
+        self.splitter.setSizes([450, 250])
         main_layout.addWidget(self.splitter)
 
         central_widget.setLayout(main_layout)
@@ -438,6 +485,33 @@ class DragDropUI(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("⏳ Initializing...")
 
+    # --- QUEUE MANAGEMENT LOGIC ---
+    def _refresh_queue_list(self):
+        """Updates the visual queue list widget to mirror the internal file_queue."""
+        self.queue_list.clear()
+        for file_path, target_format in self.file_queue:
+            self.queue_list.addItem(f"{file_path.name} → .{target_format.upper()}")
+
+    def remove_selected_from_queue(self):
+        """Removes user-selected items from the queue."""
+        selected_items = self.queue_list.selectedItems()
+        if not selected_items: return
+
+        # Get indices and reverse sort them so deleting doesn't shift remaining indices
+        rows = sorted([self.queue_list.row(item) for item in selected_items], reverse=True)
+        for row in rows:
+            del self.file_queue[row]
+
+        self._refresh_queue_list()
+        self._update_queue_ui_text()
+
+    def clear_queue(self):
+        """Empties the entire queue."""
+        self.file_queue.clear()
+        self._refresh_queue_list()
+        self._update_queue_ui_text()
+
+    # --- MAIN APPLICATION LOGIC ---
     def on_init_complete(self, success: bool):
         if success:
             self.tabs.setEnabled(True)
@@ -459,6 +533,8 @@ class DragDropUI(QMainWindow):
     def handle_batch_drop(self, file_paths):
         for file_path in file_paths:
             self.file_queue.append((Path(file_path), "vsdx"))
+
+        self._refresh_queue_list()
         if not self.is_processing:
             self.process_next_in_queue()
         else:
@@ -524,6 +600,7 @@ class DragDropUI(QMainWindow):
             f.write(raw_text)
 
         self.file_queue.append((puml_path, target_format))
+        self._refresh_queue_list()
 
         if self.is_processing:
             self._update_queue_ui_text()
@@ -533,12 +610,16 @@ class DragDropUI(QMainWindow):
     def _update_queue_ui_text(self, current_file_name=""):
         remaining = len(self.file_queue)
         rem_text = f" | {remaining} items waiting in queue." if remaining > 0 else ""
+
         if current_file_name:
             self.status_bar.showMessage(f"⚙️ Processing: {current_file_name}{rem_text}")
         else:
-            # Fallback if just updating queue count
+            # Fallback if we are just updating the queue count mid-process
             curr_text = self.status_bar.currentMessage().split("|")[0].strip()
-            self.status_bar.showMessage(f"{curr_text}{rem_text}")
+            if "Idle" in curr_text and remaining == 0:
+                self.status_bar.showMessage("🟢 System Idle.")
+            else:
+                self.status_bar.showMessage(f"{curr_text}{rem_text}")
 
     def process_next_in_queue(self):
         if not self.file_queue:
@@ -550,7 +631,10 @@ class DragDropUI(QMainWindow):
         self._set_drop_zone_busy()
 
         next_file, target_format = self.file_queue.pop(0)
-        self._update_queue_ui_text(f"{next_file.name} (to .{target_format})")
+
+        # Immediately update the UI list to show the item has left the "waiting" area
+        self._refresh_queue_list()
+        self._update_queue_ui_text(f"{next_file.name} (to .{target_format.upper()})")
 
         if target_format == "svg":
             self.conv_thread = SvgConverterThread(next_file, self.jar_path)
