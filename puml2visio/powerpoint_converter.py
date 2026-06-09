@@ -23,52 +23,57 @@ class PptxConverterThread(QThread):
         pythoncom.CoInitialize()
         ppt = None
         try:
-            self._emit_log(f"\n⚙️ Processing: {self.puml_path.name}", logging.INFO)
+            self._emit_log(f"\n⚙️ Generating PowerPoint slide for: {self.puml_path.name}", logging.INFO)
             svg_path = self._generate_svg()
-
-            pptx_path = self.puml_path.with_suffix(".pptx")
-            if pptx_path.exists():
-                try:
-                    pptx_path.unlink()
-                except PermissionError:
-                    raise PermissionError("Close file in PowerPoint first.")
 
             with open(self.puml_path, "r", encoding="utf-8") as f:
                 source_code = f.read()
 
             ppt = win32com.client.DispatchEx("PowerPoint.Application")
 
-            # PowerPoint MUST be fully visible for Ribbon/CommandBar executions to work securely
+            # --- CRITICAL FIX ---
+            # PowerPoint must be visible and normal-sized for Ribbon commands to execute
             ppt.Visible = 1
+            if ppt.WindowState == 2:  # If minimized, restore it
+                ppt.WindowState = 1
+
             ppt.DisplayAlerts = 1  # Suppress UI popups
 
             pres = ppt.Presentations.Add()
             slide = pres.Slides.Add(1, 12)  # 12 = ppLayoutBlank
 
-            # Insert the SVG as a standard picture
+            # Insert the SVG
             shape = slide.Shapes.AddPicture(str(svg_path.resolve()), 0, -1, 0, 0, -1, -1)
 
             self._emit_log("⏳ Converting SVG to native PowerPoint shapes...", logging.INFO)
             try:
-                # 1. Bring the slide into focus and select the SVG picture
+                # Force window focus and select the shape
+                ppt.ActiveWindow.Activate()
                 ppt.ActiveWindow.View.GotoSlide(slide.SlideIndex)
                 shape.Select()
 
-                # 2. Execute the native Ribbon command to convert the SVG to Office shapes
+                # Execute the native Ribbon command
                 ppt.CommandBars.ExecuteMso("PictureConvertToShape")
 
-                # 3. Ribbon commands are asynchronous. We must pause the thread briefly
-                # until the shape Type changes from 13 (Picture) to 6 (Grouped Office Shapes)
+                # Ribbon commands run asynchronously. Wait until the shape type
+                # changes from Picture (13) to Grouped Office Shapes (6)
                 attempts = 0
-                while slide.Shapes.Count > 0 and slide.Shapes(1).Type == 13 and attempts < 30:
-                    time.sleep(0.1)
+                converted = False
+                while attempts < 20:
+                    time.sleep(0.2)
+                    try:
+                        if slide.Shapes.Count > 0 and slide.Shapes(1).Type in [6, 5]:
+                            shape = slide.Shapes(1)
+                            converted = True
+                            break
+                    except:
+                        pass
                     attempts += 1
 
-                # Update our shape reference to the newly generated native Group shape
-                if slide.Shapes.Count > 0:
-                    shape = slide.Shapes(1)
-
-                self._emit_log("✅ Successfully converted to native shapes.", logging.INFO)
+                if converted:
+                    self._emit_log("✅ Successfully converted to native shapes.", logging.INFO)
+                else:
+                    self._emit_log("⚠️ Ribbon conversion timed out. Leaving as embedded SVG.", logging.WARNING)
             except Exception as e:
                 self._emit_log(f"⚠️ Could not convert to native shapes: {e}. Leaving as embedded SVG.", logging.WARNING)
 
@@ -88,7 +93,7 @@ class PptxConverterThread(QThread):
             shape.Left = (slide_w - shape.Width) / 2
             shape.Top = (slide_h - shape.Height) / 2
 
-            # Embed source code in Speaker Notes
+            # Embed source code securely in the Slide's Speaker Notes
             watermark = "' Generated with puml2visio, https://github.com/telekom/3gpp-meeting-tools/tree/master/puml2visio\n\n"
             try:
                 notes = slide.NotesPage
@@ -97,18 +102,19 @@ class PptxConverterThread(QThread):
                         notes.Shapes(i).TextFrame.TextRange.Text = watermark + source_code
                         break
             except Exception as e:
-                self._emit_log(f"⚠️ Warning: Could not write notes: {e}", logging.WARNING)
+                self._emit_log(f"⚠️ Warning: Could not write to Speaker Notes: {e}", logging.WARNING)
 
-            pres.SaveAs(str(pptx_path.resolve()))
-            pres.Close()
-            ppt.Quit()
+            # --- DO NOT SAVE OR CLOSE ---
+            # Detach the COM object and leave PowerPoint completely open
             ppt = None
 
             if svg_path.exists():
                 svg_path.unlink()
 
-            self._emit_log(f"✅ Saved: {pptx_path.name}", logging.INFO)
-            self.finished_path.emit(str(pptx_path.resolve()))
+            self._emit_log(f"✅ Slide generated! PowerPoint left open for copying.", logging.INFO)
+
+            # Send a special flag back to the UI
+            self.finished_path.emit("OPENED_IN_PPT")
 
         except Exception as e:
             if ppt:

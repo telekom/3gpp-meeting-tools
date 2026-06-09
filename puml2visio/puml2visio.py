@@ -29,7 +29,7 @@ logging.basicConfig(
 )
 
 # ==========================================
-# --- GLOBAL STYLESHEET ---
+# --- GLOBAL STYLESHEET (ALL-BLUE THEME) ---
 # ==========================================
 GLOBAL_STYLE = """
     QWidget {
@@ -75,14 +75,28 @@ GLOBAL_STYLE = """
         color: #A0A0A0;
         border: 1px solid #DFDFDF;
     }
+
+    /* Visio Button - Deep Navy */
     QPushButton#primaryBtn {
-        background-color: #395396; 
+        background-color: #1E5C99; 
         color: white; 
         border: none;
     }
     QPushButton#primaryBtn:hover {
-        background-color: #2D4278;
+        background-color: #15426E;
     }
+
+    /* PowerPoint Button - Standard Word/PPT Blue */
+    QPushButton#pptBtn {
+        background-color: #2B579A; 
+        color: white; 
+        border: none;
+    }
+    QPushButton#pptBtn:hover {
+        background-color: #1E3F75;
+    }
+
+    /* SVG Button - Muted Grey-Blue */
     QPushButton#secondaryBtn {
         background-color: #5C6B89; 
         color: white; 
@@ -90,14 +104,6 @@ GLOBAL_STYLE = """
     }
     QPushButton#secondaryBtn:hover {
         background-color: #4A566E;
-    }
-    QPushButton#pptBtn {
-        background-color: #D83B01; 
-        color: white; 
-        border: none;
-    }
-    QPushButton#pptBtn:hover {
-        background-color: #A82E00;
     }
 """
 
@@ -249,7 +255,7 @@ class DragDropUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PlantUML to Visio Converter (3GPP)")
-        self.resize(900, 680)  # Made slightly wider to fit 5 buttons
+        self.resize(900, 680)
         self.setAcceptDrops(True)
 
         self.jar_path = Path(__file__).parent.resolve() / JAR_NAME
@@ -461,8 +467,9 @@ class DragDropUI(QMainWindow):
         base_name = f"{timestamp} diagram"
         puml_path = base_dir / f"{base_name}.puml"
 
+        # We don't verify `.pptx` anymore since we aren't saving it
         counter = 1
-        while puml_path.exists() or puml_path.with_suffix(f".{target_format}").exists():
+        while puml_path.exists() or puml_path.with_suffix(".vsdx").exists() or puml_path.with_suffix(".svg").exists():
             puml_path = base_dir / f"{base_name}_{counter}.puml"
             counter += 1
 
@@ -497,13 +504,16 @@ class DragDropUI(QMainWindow):
         self.conv_thread.start()
 
     def on_conversion_success(self, out_path: str):
-        if out_path:
+        # Handle the flag passed by the PPT thread
+        if out_path == "OPENED_IN_PPT":
+            self.log_message("👁️ PowerPoint is open with your new slide. You can copy it directly.")
+        elif out_path:
             self.last_out_path = out_path
             self.copy_btn.setEnabled(True)
             self.copy_btn.setStyleSheet("background-color: #395396; color: white; border: none;")
 
-            # Auto-open SVG and PPTX files
-            if out_path.lower().endswith(('.svg', '.pptx')):
+            # Auto-open SVG files
+            if out_path.lower().endswith('.svg'):
                 try:
                     import os
                     os.startfile(out_path)
