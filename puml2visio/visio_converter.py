@@ -108,32 +108,34 @@ class ConverterThread(QThread):
                 orig_w = page.Shapes(1).CellsU("Width").ResultIU
                 orig_h = page.Shapes(1).CellsU("Height").ResultIU
 
-                # --- CANVAS FIX: Use 90% proportional rules instead of absolute limits ---
+                # --- CANVAS FIX 1: Aggressive Flattening ---
+                # Ungrouping ALL Type 2 shapes forces Visio to destroy phantom bounding boxes
+                # and snap perfectly to the true content size.
                 peeling = True
                 while peeling:
                     peeling = False
                     for i in range(page.Shapes.Count, 0, -1):
                         s = page.Shapes(i)
                         try:
-                            w = s.CellsU("Width").ResultIU
-                            h = s.CellsU("Height").ResultIU
-                            # Catch any group covering >=90% of the canvas
-                            if w >= orig_w * 0.90 and h >= orig_h * 0.90:
-                                if s.Type == 2:
-                                    s.Ungroup()
-                                    peeling = True
+                            if s.Type == 2:  # visTypeGroup
+                                s.Ungroup()
+                                peeling = True
                         except:
                             pass
 
+                # --- CANVAS FIX 2: Background Rect Deletion ---
+                # Now that everything is flat, find and delete the massive PlantUML background rect.
                 for i in range(page.Shapes.Count, 0, -1):
                     s = page.Shapes(i)
                     try:
                         w = s.CellsU("Width").ResultIU
                         h = s.CellsU("Height").ResultIU
-                        # Delete any textless shape covering >=90% of the canvas
-                        if w >= orig_w * 0.90 and h >= orig_h * 0.90:
+                        # If a shape covers > 75% of the canvas, has NO text, and NO border, it is a background.
+                        # (Valid large shapes like 'alt' boxes have borders, so they are safe!)
+                        if w >= orig_w * 0.75 and h >= orig_h * 0.75:
                             if len(s.Characters.Text.strip()) == 0:
-                                s.Delete()
+                                if s.CellsU("LinePattern").ResultIU == 0:
+                                    s.Delete()
                     except:
                         pass
 

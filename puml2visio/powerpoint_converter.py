@@ -24,15 +24,12 @@ class PptxConverterThread(QThread):
         try:
             self._emit_log(f"\n⚙️ Generating PowerPoint slide for: {self.puml_path.name}", logging.INFO)
 
-            # Use centralized SVG generation
             svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self._emit_log)
 
-            # Read, clean, and re-watermark to prevent duplication
             with open(self.puml_path, "r", encoding="utf-8") as f:
                 raw_code = f.read()
             final_source_code = WATERMARK + "\n\n" + strip_watermark(raw_code)
 
-            # --- THE MAGIC PIPELINE ---
             self._emit_log("⏳ Translating SVG to Microsoft EMF via Visio engine...", logging.INFO)
             emf_path = self._create_emf_via_visio(svg_path)
 
@@ -46,7 +43,6 @@ class PptxConverterThread(QThread):
             pres = ppt.Presentations.Add()
             slide = pres.Slides.Add(1, 12)  # 12 = ppLayoutBlank
 
-            # Insert the EMF Vector
             shape = slide.Shapes.AddPicture(str(emf_path.resolve()), 0, -1, 0, 0, -1, -1)
 
             self._emit_log("⏳ Unpacking EMF into native PowerPoint shapes...", logging.INFO)
@@ -67,7 +63,6 @@ class PptxConverterThread(QThread):
                     if slide.Shapes.Count > 0:
                         shape = slide.Shapes(slide.Shapes.Count)
 
-            # Center and scale the figure
             slide_w = pres.PageSetup.SlideWidth
             slide_h = pres.PageSetup.SlideHeight
 
@@ -92,10 +87,8 @@ class PptxConverterThread(QThread):
             except Exception as e:
                 self._emit_log(f"⚠️ Warning: Could not write to Speaker Notes: {e}", logging.WARNING)
 
-            # Detach COM object
             ppt = None
 
-            # Cleanup temp files
             if svg_path.exists():
                 try:
                     svg_path.unlink()
@@ -136,29 +129,29 @@ class PptxConverterThread(QThread):
                 orig_w = page.Shapes(1).CellsU("Width").ResultIU
                 orig_h = page.Shapes(1).CellsU("Height").ResultIU
 
+                # --- CANVAS FIX 1: Aggressive Flattening ---
                 peeling = True
                 while peeling:
                     peeling = False
                     for i in range(page.Shapes.Count, 0, -1):
                         s = page.Shapes(i)
                         try:
-                            w = s.CellsU("Width").ResultIU
-                            h = s.CellsU("Height").ResultIU
-                            if abs(w - orig_w) < 0.1 and abs(h - orig_h) < 0.1:
-                                if s.Type == 2:
-                                    s.Ungroup()
-                                    peeling = True
+                            if s.Type == 2:
+                                s.Ungroup()
+                                peeling = True
                         except:
                             pass
 
+                # --- CANVAS FIX 2: Background Rect Deletion ---
                 for i in range(page.Shapes.Count, 0, -1):
                     s = page.Shapes(i)
                     try:
                         w = s.CellsU("Width").ResultIU
                         h = s.CellsU("Height").ResultIU
-                        if abs(w - orig_w) < 0.1 and abs(h - orig_h) < 0.1:
+                        if w >= orig_w * 0.75 and h >= orig_h * 0.75:
                             if len(s.Characters.Text.strip()) == 0:
-                                s.Delete()
+                                if s.CellsU("LinePattern").ResultIU == 0:
+                                    s.Delete()
                     except:
                         pass
 
