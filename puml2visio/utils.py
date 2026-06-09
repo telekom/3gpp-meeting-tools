@@ -204,6 +204,7 @@ def encode_plantuml(text: str) -> str:
 class InitializationThread(QThread):
     ui_log_msg = pyqtSignal(str)
     init_complete = pyqtSignal(bool)
+    network_error = pyqtSignal()  # --- NEW: Signal to alert the GUI of firewalls ---
 
     def __init__(self, jar_path: Path, check_updates: bool = False):
         super().__init__()
@@ -211,7 +212,6 @@ class InitializationThread(QThread):
         self.check_updates = check_updates
 
     def _get_local_version(self, java_exe):
-        """Executes the local JAR to read its internal version number."""
         try:
             kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
             res = subprocess.run([java_exe, "-jar", str(self.jar_path), "-version"], capture_output=True, text=True,
@@ -224,16 +224,12 @@ class InitializationThread(QThread):
         return None
 
     def _get_remote_version(self):
-        """Uses a fast HEAD request to GitHub to find the latest release tag without downloading the file."""
-        try:
-            req = urllib.request.Request("https://github.com/plantuml/plantuml/releases/latest", method="HEAD")
-            req.add_header("User-Agent", "Mozilla/5.0")
-            with urllib.request.urlopen(req, timeout=5) as response:
-                match = re.search(r'/tag/v?(\d+\.\d+\.\d+)', response.url)
-                if match:
-                    return match.group(1)
-        except:
-            pass
+        req = urllib.request.Request("https://github.com/plantuml/plantuml/releases/latest", method="HEAD")
+        req.add_header("User-Agent", "Mozilla/5.0")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            match = re.search(r'/tag/v?(\d+\.\d+\.\d+)', response.url)
+            if match:
+                return match.group(1)
         return None
 
     def run(self):
@@ -255,7 +251,6 @@ class InitializationThread(QThread):
             elif not self.check_updates:
                 self._emit_log(f"✅ Active Engine: Java {java_major} ({java_exe})", logging.INFO)
 
-            # --- SMART JAR SYNC & UPDATE LOGIC ---
             required_type = "modern" if java_major >= 11 else "legacy"
             version_file = self.jar_path.with_suffix('.version')
 
@@ -268,35 +263,34 @@ class InitializationThread(QThread):
 
             download_reason = None
 
-            # 1. Check if missing or broken architecture
             if not self.jar_path.exists():
                 download_reason = "File is missing"
             elif current_type != required_type:
                 download_reason = f"Java mismatch (Required: {required_type}, Found: {current_type})"
-
-            # 2. Check online for newer versions if explicitly requested
             elif self.check_updates:
                 if required_type == "legacy":
                     self._emit_log("ℹ️ Legacy Java 8 version is pinned. No automated updates available.", logging.INFO)
                 else:
                     self._emit_log("🌐 Checking GitHub for the latest PlantUML release...", logging.INFO)
                     local_v = self._get_local_version(java_exe)
-                    remote_v = self._get_remote_version()
+                    try:
+                        remote_v = self._get_remote_version()
+                        if local_v and remote_v:
+                            def v_tuple(v_str):
+                                return tuple(int(x) for x in re.findall(r'\d+', v_str))
 
-                    if local_v and remote_v:
-                        # Convert version strings to tuples for safe math comparison (e.g., 1.2024.4 > 1.2023.13)
-                        def v_tuple(v_str):
-                            return tuple(int(x) for x in re.findall(r'\d+', v_str))
-
-                        if v_tuple(remote_v) > v_tuple(local_v):
-                            download_reason = f"Update available ({local_v} → {remote_v})"
+                            if v_tuple(remote_v) > v_tuple(local_v):
+                                download_reason = f"Update available ({local_v} → {remote_v})"
+                            else:
+                                self._emit_log(f"✅ PlantUML is up-to-date (Version {local_v}).", logging.INFO)
                         else:
-                            self._emit_log(f"✅ PlantUML is up-to-date (Version {local_v}).", logging.INFO)
-                    else:
-                        self._emit_log("⚠️ Network blocked or parsing failed. Cannot verify latest version.",
-                                       logging.WARNING)
+                            self._emit_log("⚠️ Could not parse version data from GitHub.", logging.WARNING)
+                    except Exception as e:
+                        self._emit_log(f"⚠️ Network check blocked: {e}", logging.WARNING)
+                        self.network_error.emit()  # Alert the GUI!
+                        self.init_complete.emit(False)
+                        return
 
-            # --- EXECUTE DOWNLOAD IF NEEDED ---
             if download_reason:
                 url_to_download = URL_LATEST if required_type == "modern" else URL_JAVA_8
                 self._emit_log(f"⚠️ Downloading PlantUML. Reason: {download_reason}...", logging.WARNING)
@@ -307,6 +301,7 @@ class InitializationThread(QThread):
                 except Exception as e:
                     self._emit_log(f"❌ Download failed. Please check your network or proxy settings: {e}",
                                    logging.ERROR)
+                    self.network_error.emit()  # Alert the GUI!
                     self.init_complete.emit(False)
                     return
 
