@@ -1,3 +1,4 @@
+import os
 import subprocess
 import urllib.request
 import winreg
@@ -14,7 +15,72 @@ URL_JAVA_8 = "https://github.com/plantuml/plantuml/releases/download/v1.2023.13/
 
 WATERMARK = "' Generated with puml2visio, https://github.com/telekom/3gpp-meeting-tools/tree/master/puml2visio"
 
+# --- SMART JAVA DISCOVERY ENGINE ---
+_BEST_JAVA_CACHE = None
 
+
+def get_best_java():
+    """Scans the environment for all Java executables and returns the path to the newest one."""
+    global _BEST_JAVA_CACHE
+    if _BEST_JAVA_CACHE is not None:
+        return _BEST_JAVA_CACHE
+
+    candidates = set()
+
+    # 1. Check JAVA_HOME
+    java_home = os.environ.get('JAVA_HOME')
+    if java_home:
+        exe = os.path.join(java_home, 'bin', 'java.exe')
+        if os.path.exists(exe):
+            candidates.add(os.path.normpath(exe))
+
+    # 2. Check the entirety of the PATH variable (System AND User paths combined)
+    path_env = os.environ.get('PATH', '')
+    for p in path_env.split(os.pathsep):
+        if p.strip():
+            exe = os.path.join(p.strip(), 'java.exe')
+            if os.path.exists(exe):
+                candidates.add(os.path.normpath(exe))
+
+    best_exe = "java"
+    best_ver = 0
+
+    def check_version(cmd):
+        try:
+            # CREATE_NO_WINDOW prevents the console from flashing during background checks
+            kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
+            result = subprocess.run([cmd, "-version"], capture_output=True, text=True, timeout=2, **kwargs)
+
+            match = re.search(r'(?:java|openjdk) version "([^"]+)"', result.stderr, re.IGNORECASE)
+            if match:
+                parts = match.group(1).split('.')
+                # Handle old formatting (1.8.0) vs new formatting (25.0)
+                if parts[0] == '1':
+                    return int(parts[1])
+                else:
+                    return int(parts[0])
+        except Exception:
+            pass
+        return 0
+
+    # Test all found executables
+    for exe in candidates:
+        v = check_version(exe)
+        if v > best_ver:
+            best_ver = v
+            best_exe = exe
+
+    # Final fallback test against the raw OS default
+    bare_v = check_version("java")
+    if bare_v > best_ver:
+        best_ver = bare_v
+        best_exe = "java"
+
+    _BEST_JAVA_CACHE = (best_exe, best_ver)
+    return _BEST_JAVA_CACHE
+
+
+# --- CORE UTILITIES ---
 def strip_watermark(raw_text: str) -> str:
     """Removes existing puml2visio watermarks and leading empty lines to prevent duplication."""
     lines = raw_text.splitlines()
@@ -24,10 +90,16 @@ def strip_watermark(raw_text: str) -> str:
 
 
 def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> Path:
-    """Centralized function to generate an SVG via PlantUML and clean text attributes."""
-    command = ["java", "-jar", str(jar_path), "-tsvg", str(puml_path)]
+    """Centralized function to generate an SVG using the highest available Java version."""
+    java_exe, _ = get_best_java()
+
+    command = [java_exe, "-jar", str(jar_path), "-tsvg", str(puml_path)]
+
+    # Prevent CMD window flashing when PlantUML runs
+    kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
+
     try:
-        subprocess.run(command, check=True, capture_output=True, text=True, cwd=puml_path.parent)
+        subprocess.run(command, check=True, capture_output=True, text=True, cwd=puml_path.parent, **kwargs)
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"PlantUML Syntax Error:\n{e.stderr}")
 
@@ -124,26 +196,47 @@ class InitializationThread(QThread):
                 self.init_complete.emit(False)
                 return
 
-            java_major = None
-            try:
-                result = subprocess.run(["java", "-version"], capture_output=True, text=True, check=True)
-                match = re.search(r'(?:java|openjdk) version "([^"]+)"', result.stderr, re.IGNORECASE)
-                if match:
-                    parts = match.group(1).split('.')
-                    java_major = int(parts[1]) if parts[0] == '1' else int(parts[0])
-            except:
-                pass
+            # --- Auto-detect Best Java ---
+            java_exe, java_major = get_best_java()
 
-            if not java_major:
-                self._emit_log("❌ ERROR: Java is not installed or not in system PATH.", logging.ERROR)
+            if java_major == 0:
+                self._emit_log("❌ ERROR: Java is not installed or could not be found.", logging.ERROR)
                 self.init_complete.emit(False)
                 return
+            else:
+                self._emit_log(f"✅ Active Engine: Java {java_major} ({java_exe})", logging.INFO)
 
-            if not self.jar_path.exists():
-                self._emit_log(f"⚠️ {JAR_NAME} missing. Attempting download...", logging.WARNING)
-                url = URL_LATEST if java_major >= 11 else URL_JAVA_8
-                urllib.request.urlretrieve(url, self.jar_path)
-                self._emit_log("✅ PlantUML downloaded successfully.", logging.INFO)
+            # --- SMART JAR SYNC ---
+            # Determine which JAR architecture is required based on the active Java version
+            required_type = "modern" if java_major >= 11 else "legacy"
+            version_file = self.jar_path.with_suffix('.version')
+
+            # Read the sidecar file to see which version is currently downloaded (if any)
+            current_type = None
+            if version_file.exists():
+                try:
+                    current_type = version_file.read_text(encoding="utf-8").strip()
+                except:
+                    pass
+
+            # If the JAR doesn't exist, OR if the Java environment changed, trigger a download
+            if not self.jar_path.exists() or current_type != required_type:
+                reason = "missing" if not self.jar_path.exists() else f"Java mismatch (Required: {required_type}, Found: {current_type})"
+                self._emit_log(f"⚠️ {JAR_NAME} is {reason}. Attempting download...", logging.WARNING)
+
+                try:
+                    url = URL_LATEST if required_type == "modern" else URL_JAVA_8
+                    urllib.request.urlretrieve(url, self.jar_path)
+
+                    # Save the sidecar metadata file
+                    version_file.write_text(required_type, encoding="utf-8")
+
+                    self._emit_log("✅ PlantUML downloaded successfully.", logging.INFO)
+                except Exception as e:
+                    self._emit_log(f"❌ Download failed. Please check your network or proxy settings: {e}",
+                                   logging.ERROR)
+                    self.init_complete.emit(False)
+                    return
 
             self.init_complete.emit(True)
 

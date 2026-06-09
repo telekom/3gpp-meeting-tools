@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout,
 from PyQt5.QtCore import Qt, pyqtSignal
 
 # --- IMPORT FROM OUR MODULAR BACKEND ---
-from utils import JAR_NAME, encode_plantuml, InitializationThread
+from utils import JAR_NAME, encode_plantuml, InitializationThread, get_best_java
 from word_extractor import WordExtractorThread
 from visio_converter import VisioReaderThread, ConverterThread, SvgConverterThread
 from powerpoint_converter import PptxConverterThread
@@ -704,8 +704,28 @@ if __name__ == '__main__':
     app.setStyleSheet(GLOBAL_STYLE)
 
     jar_path = Path(__file__).parent.resolve() / JAR_NAME
+    version_file = jar_path.with_suffix('.version')
 
+    # --- SMART PROXY CHECK ---
+    # Determine if a download is imminent (either missing JAR or mismatched architecture)
+    needs_download = False
     if not jar_path.exists():
+        needs_download = True
+    else:
+        _, java_major = get_best_java()
+        if java_major > 0:
+            required_type = "modern" if java_major >= 11 else "legacy"
+            current_type = None
+            if version_file.exists():
+                try:
+                    current_type = version_file.read_text(encoding="utf-8").strip()
+                except:
+                    pass
+            if current_type != required_type:
+                needs_download = True
+
+    # Only show the proxy dialog if we actually need to hit the network
+    if needs_download:
         proxy_dialog = ProxyDialog()
         if proxy_dialog.exec_() == QDialog.Accepted:
             http_val, https_val = proxy_dialog.get_proxies()
