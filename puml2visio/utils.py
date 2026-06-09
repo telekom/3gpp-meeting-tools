@@ -137,16 +137,16 @@ def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> 
         with open(svg_path, 'r', encoding='utf-8') as f:
             svg_content = f.read()
 
-        svg_content = re.sub(r'\s*textLength="[^"]*"', '', svg_content)
-        svg_content = re.sub(r'\s*lengthAdjust="[^"]*"', '', svg_content)
-
-        pattern = re.compile(r'(<text\b[^>]*?\by="([0-9.]+)"[^>]*>)(.*?)(</text>)', re.IGNORECASE | re.DOTALL)
+        # --- INTELLIGENT 2D TEXT MERGE ---
+        pattern = re.compile(r'(<text\b[^>]*?>)(.*?)(</text>)', re.IGNORECASE | re.DOTALL)
         matches = list(pattern.finditer(svg_content))
 
         if matches:
             result = []
             last_end = 0
+
             current_y = None
+            current_end_x = None
             current_start_tag = ""
             current_text = ""
 
@@ -154,21 +154,48 @@ def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> 
                 start = m.start()
                 end = m.end()
                 full_open_tag = m.group(1)
-                y_val = m.group(2)
-                inner_text = m.group(3)
+                inner_text = m.group(2)
                 between = svg_content[last_end:start]
 
-                if current_y == y_val and not between.strip():
-                    current_text += inner_text
+                # Extract coordinates and physical lengths
+                y_match = re.search(r'\by="([0-9.]+)"', full_open_tag)
+                x_match = re.search(r'\bx="([0-9.]+)"', full_open_tag)
+                tl_match = re.search(r'\btextLength="([0-9.]+)"', full_open_tag)
+
+                y_val = float(y_match.group(1)) if y_match else None
+                x_val = float(x_match.group(1)) if x_match else None
+                tl_val = float(tl_match.group(1)) if tl_match else (
+                            len(inner_text.strip()) * 7.0)  # Fallback to pixel estimation
+
+                # Check both Y alignment and X distance gap
+                should_merge = False
+                if current_y is not None and y_val == current_y and x_val is not None and current_end_x is not None:
+                    if not between.strip():  # Only merge if no other physical SVG elements exist between them
+                        gap = x_val - current_end_x
+                        # Threshold: if tags are within 25 pixels, they are a sentence. If > 25, they are distinct labels.
+                        if -10 <= gap <= 25:
+                            should_merge = True
+
+                if should_merge:
+                    # Intelligently inject spaces for shattered sentences to maintain Visio legibility
+                    if gap > 4 and not current_text.endswith(' ') and not inner_text.startswith(' '):
+                        current_text += " " + inner_text
+                    else:
+                        current_text += inner_text
+                    current_end_x = x_val + tl_val
                 else:
+                    # Flush the previous object and start a new distinct text box
                     if current_y is not None:
                         result.append(current_start_tag)
                         result.append(current_text)
                         result.append("</text>")
                     result.append(between)
+
                     current_y = y_val
+                    current_end_x = x_val + tl_val if x_val is not None else None
                     current_start_tag = full_open_tag
                     current_text = inner_text
+
                 last_end = end
 
             if current_y is not None:
@@ -179,10 +206,15 @@ def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> 
             result.append(svg_content[last_end:])
             svg_content = "".join(result)
 
+        # --- STRIP OFFICE COM ATTRIBUTES ---
+        # Now that we've analyzed the text lengths, we can safely delete them so Visio doesn't crash!
+        svg_content = re.sub(r'\s*textLength="[^"]*"', '', svg_content)
+        svg_content = re.sub(r'\s*lengthAdjust="[^"]*"', '', svg_content)
         svg_content = svg_content.replace('&#160;', ' ').replace('\xa0', ' ')
 
         with open(svg_path, 'w', encoding='utf-8') as f:
             f.write(svg_content)
+
     except Exception as e:
         if log_callback:
             log_callback(f"⚠️ Warning: Could not clean SVG text attributes: {e}", logging.WARNING)
@@ -204,7 +236,7 @@ def encode_plantuml(text: str) -> str:
 class InitializationThread(QThread):
     ui_log_msg = pyqtSignal(str)
     init_complete = pyqtSignal(bool)
-    network_error = pyqtSignal()  # --- NEW: Signal to alert the GUI of firewalls ---
+    network_error = pyqtSignal()
 
     def __init__(self, jar_path: Path, check_updates: bool = False):
         super().__init__()
@@ -287,7 +319,7 @@ class InitializationThread(QThread):
                             self._emit_log("⚠️ Could not parse version data from GitHub.", logging.WARNING)
                     except Exception as e:
                         self._emit_log(f"⚠️ Network check blocked: {e}", logging.WARNING)
-                        self.network_error.emit()  # Alert the GUI!
+                        self.network_error.emit()
                         self.init_complete.emit(False)
                         return
 
@@ -301,7 +333,7 @@ class InitializationThread(QThread):
                 except Exception as e:
                     self._emit_log(f"❌ Download failed. Please check your network or proxy settings: {e}",
                                    logging.ERROR)
-                    self.network_error.emit()  # Alert the GUI!
+                    self.network_error.emit()
                     self.init_complete.emit(False)
                     return
 
