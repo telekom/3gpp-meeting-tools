@@ -7,7 +7,8 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout,
                              QWidget, QTextEdit, QDialog, QLineEdit, QPushButton,
-                             QFormLayout, QHBoxLayout, QTabWidget, QCheckBox)
+                             QFormLayout, QHBoxLayout, QTabWidget, QCheckBox,
+                             QSplitter, QStatusBar)
 from PyQt5.QtCore import Qt, pyqtSignal
 
 # --- IMPORT FROM OUR MODULAR BACKEND ---
@@ -32,17 +33,17 @@ logging.basicConfig(
 # --- GLOBAL STYLESHEET (ALL-BLUE THEME) ---
 # ==========================================
 GLOBAL_STYLE = """
+    QWidget {
+        font-family: "Segoe UI", Arial, sans-serif;
+        font-size: 13px;
+        color: #333333;
+    }
     QToolTip {
         color: #333333;
         background-color: #F8F8F8;
         border: 1px solid #D0D0D0;
         border-radius: 4px;
         padding: 4px;
-    }
-    QWidget {
-        font-family: "Segoe UI", Arial, sans-serif;
-        font-size: 13px;
-        color: #333333;
     }
     QTabWidget::pane {
         border: 1px solid #D0D0D0;
@@ -83,34 +84,31 @@ GLOBAL_STYLE = """
         border: 1px solid #DFDFDF;
     }
 
-    /* Visio Button - Deep Navy */
-    QPushButton#primaryBtn {
+    /* Primary Action Buttons */
+    QPushButton#primaryBtn, QPushButton#pptBtn, QPushButton#svgBtn {
         background-color: #1E5C99; 
         color: white; 
         border: none;
     }
-    QPushButton#primaryBtn:hover {
+    QPushButton#primaryBtn:hover, QPushButton#pptBtn:hover, QPushButton#svgBtn:hover {
         background-color: #15426E;
     }
 
-    /* PowerPoint Button - Standard Word/PPT Blue */
-    QPushButton#pptBtn {
-        background-color: #2B579A; 
-        color: white; 
-        border: none;
+    /* Splitter Handle */
+    QSplitter::handle {
+        background-color: #E0E0E0;
+        height: 2px;
+        margin: 4px 0px;
     }
-    QPushButton#pptBtn:hover {
-        background-color: #1E3F75;
+    QSplitter::handle:hover {
+        background-color: #395396;
     }
 
-    /* SVG Button - Vibrant Windows Blue */
-    QPushButton#svgBtn {
-        background-color: #0078D4; 
-        color: white; 
-        border: none;
-    }
-    QPushButton#svgBtn:hover {
-        background-color: #005A9E;
+    /* Status Bar */
+    QStatusBar {
+        background-color: #F0F0F0;
+        border-top: 1px solid #D0D0D0;
+        color: #333333;
     }
 """
 
@@ -185,11 +183,12 @@ class ProxyDialog(QDialog):
 
 
 class CodeDropTextEdit(QTextEdit):
+    """Text editor that accepts dropped Visio files for reverse-extraction."""
     file_dropped = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
-        self.setStyleSheet("""
+        self.default_style = """
             QTextEdit {
                 font-family: Consolas, Courier New, monospace; 
                 font-size: 13px; 
@@ -202,17 +201,26 @@ class CodeDropTextEdit(QTextEdit):
                 border: 2px solid #395396;
                 background-color: #FFFFFF;
             }
-        """)
+        """
+        self.hover_style = self.default_style.replace("border: 2px solid #E0E0E0;",
+                                                      "border: 2px dashed #395396; background-color: #EBF3FC;")
+        self.setStyleSheet(self.default_style)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
             if any(url.toLocalFile().lower().endswith('.vsdx') for url in urls):
+                self.setStyleSheet(self.hover_style)
                 event.acceptProposedAction()
                 return
         super().dragEnterEvent(event)
 
+    def dragLeaveEvent(self, event):
+        self.setStyleSheet(self.default_style)
+        super().dragLeaveEvent(event)
+
     def dropEvent(self, event):
+        self.setStyleSheet(self.default_style)
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 file_path = url.toLocalFile()
@@ -223,47 +231,58 @@ class CodeDropTextEdit(QTextEdit):
         super().dropEvent(event)
 
 
-class WordDropLabel(QLabel):
-    file_dropped = pyqtSignal(str)
+class InteractiveDropLabel(QLabel):
+    """A generic Drop Area label that highlights on hover."""
+    file_dropped = pyqtSignal(list)
 
-    def __init__(self):
-        super().__init__(
-            "📥 Drag && Drop your Microsoft Word (.docx) file here\n\nExtracts all embedded Visio diagrams to the file's folder.")
+    def __init__(self, text, accepted_extensions):
+        super().__init__(text)
+        self.accepted_extensions = accepted_extensions
         self.setAlignment(Qt.AlignCenter)
-        self.setStyleSheet("""
-            QLabel {
-                border: 3px dashed #2B579A;
-                border-radius: 10px;
-                background-color: #F3F8FD;
-                font-size: 15px;
-                font-weight: bold;
-                color: #2B579A;
-                padding: 20px;
-            }
-        """)
         self.setAcceptDrops(True)
+        self.default_style = "border: 3px dashed #B0B0B0; border-radius: 10px; font-size: 15px; font-weight: bold; color: #777; background-color: #FAFAFA;"
+        self.hover_style = "border: 3px dashed #395396; border-radius: 10px; font-size: 15px; font-weight: bold; color: #395396; background-color: #EBF3FC;"
+        self.busy_style = "border: 3px dashed #D83B01; border-radius: 10px; font-size: 15px; font-weight: bold; color: #D83B01; background-color: #FDF4F0;"
+        self.error_style = "border: 3px dashed #D32F2F; border-radius: 10px; font-size: 15px; font-weight: bold; color: #D32F2F; background-color: #FDEDED;"
+        self.setStyleSheet(self.default_style)
+
+    def set_state(self, state, text=None):
+        if text: self.setText(text)
+        if state == "ready":
+            self.setStyleSheet(self.default_style)
+        elif state == "busy":
+            self.setStyleSheet(self.busy_style)
+        elif state == "error":
+            self.setStyleSheet(self.error_style)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
-            if any(url.toLocalFile().lower().endswith('.docx') for url in urls):
+            if any(url.toLocalFile().lower().endswith(ext) for url in urls for ext in self.accepted_extensions):
+                self.setStyleSheet(self.hover_style)
                 event.accept()
                 return
         event.ignore()
 
+    def dragLeaveEvent(self, event):
+        self.setStyleSheet(self.default_style)
+
     def dropEvent(self, event):
+        self.setStyleSheet(self.default_style)
+        valid_files = []
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
-            if file_path.lower().endswith('.docx'):
-                self.file_dropped.emit(file_path)
+            if any(file_path.lower().endswith(ext) for ext in self.accepted_extensions):
+                valid_files.append(file_path)
+        if valid_files:
+            self.file_dropped.emit(valid_files)
 
 
 class DragDropUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PlantUML to Visio Converter (3GPP)")
-        self.resize(900, 720)
-        self.setAcceptDrops(True)
+        self.resize(950, 750)
 
         self.jar_path = Path(__file__).parent.resolve() / JAR_NAME
         self.file_queue = []
@@ -278,10 +297,15 @@ class DragDropUI(QMainWindow):
         self.init_thread.start()
 
     def _setup_ui(self):
+        # 1. Main Central Widget
+        central_widget = QWidget()
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(12)
 
+        # 2. Main Splitter (Allows resizing tabs vs console)
+        self.splitter = QSplitter(Qt.Vertical)
+
+        # --- TOP HALF: TABS ---
         self.tabs = QTabWidget()
 
         # Tab 1: Paste Code
@@ -294,7 +318,7 @@ class DragDropUI(QMainWindow):
             "Paste PlantUML code OR drop a generated .vsdx file here to extract its source...")
         self.text_input.file_dropped.connect(self.extract_code_from_visio)
         self.text_input.setToolTip(
-            "Type or paste PlantUML code here. You can also drag & drop a generated .vsdx file onto this box to seamlessly retrieve its original source code.")
+            "Type or paste PlantUML code here. You can also drag & drop a generated .vsdx file onto this box to retrieve its source code.")
 
         btn_layout = QHBoxLayout()
 
@@ -302,32 +326,29 @@ class DragDropUI(QMainWindow):
         self.clear_btn.clicked.connect(self.text_input.clear)
         self.clear_btn.setToolTip("Clear the text editor.")
 
-        self.planttext_btn = QPushButton("🌐 Show in planttext.com")
+        self.planttext_btn = QPushButton("🌐 Show in planttext")
         self.planttext_btn.clicked.connect(self.show_in_planttext)
-        self.planttext_btn.setToolTip(
-            "Open your PlantUML code in PlantText.com for a quick, interactive online preview.")
+        self.planttext_btn.setToolTip("Open your code in PlantText.com for a quick web preview.")
 
-        self.copy_btn = QPushButton("📋 Copy File Path")
+        self.copy_btn = QPushButton("📋 Copy Path")
         self.copy_btn.setEnabled(False)
         self.copy_btn.clicked.connect(self.copy_out_path)
-        self.copy_btn.setToolTip("Copy the exact system file path of the last generated diagram to your clipboard.")
+        self.copy_btn.setToolTip("Copy the file path of the last generated diagram.")
 
         self.convert_svg_btn = QPushButton("Export SVG")
-        self.convert_svg_btn.setObjectName("primaryBtn")
+        self.convert_svg_btn.setObjectName("svgBtn")
         self.convert_svg_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("svg"))
-        self.convert_svg_btn.setToolTip("Generate a standard, scalable vector graphic (.svg) and open it immediately.")
+        self.convert_svg_btn.setToolTip("Generate a standard, scalable vector graphic (.svg) and open it.")
 
         self.convert_pptx_btn = QPushButton("Export PPTX")
-        self.convert_pptx_btn.setObjectName("primaryBtn")
+        self.convert_pptx_btn.setObjectName("pptBtn")
         self.convert_pptx_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("pptx"))
-        self.convert_pptx_btn.setToolTip(
-            "Pipe the diagram through the EMF translator to create a PowerPoint slide containing natively editable, ungroupable Office shapes.")
+        self.convert_pptx_btn.setToolTip("Generate a PowerPoint slide containing natively editable Office shapes.")
 
         self.convert_vsdx_btn = QPushButton("Export Visio")
         self.convert_vsdx_btn.setObjectName("primaryBtn")
         self.convert_vsdx_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("vsdx"))
-        self.convert_vsdx_btn.setToolTip(
-            "Use Microsoft COM automation to construct a perfectly aligned, natively editable Visio diagram (.vsdx).")
+        self.convert_vsdx_btn.setToolTip("Generate a perfectly aligned, natively editable Visio diagram (.vsdx).")
 
         btn_layout.addWidget(self.clear_btn)
         btn_layout.addWidget(self.planttext_btn)
@@ -341,14 +362,12 @@ class DragDropUI(QMainWindow):
         tab_text_layout.addLayout(btn_layout)
         self.tab_text.setLayout(tab_text_layout)
 
-        # Tab 2: Drag & Drop Files
+        # Tab 2: Drag & Drop Batch Files
         self.tab_file = QWidget()
         tab_file_layout = QVBoxLayout()
         tab_file_layout.setContentsMargins(15, 15, 15, 15)
-        self.drop_label = QLabel("⏳ Initializing system checks... Please wait.")
-        self.drop_label.setAlignment(Qt.AlignCenter)
-        self.drop_label.setStyleSheet(
-            "border: 3px dashed #B0B0B0; border-radius: 10px; font-size: 15px; font-weight: bold; color: #777;")
+        self.drop_label = InteractiveDropLabel("⏳ Initializing system checks... Please wait.", ['.puml', '.txt'])
+        self.drop_label.file_dropped.connect(self.handle_batch_drop)
         tab_file_layout.addWidget(self.drop_label)
         self.tab_file.setLayout(tab_file_layout)
 
@@ -356,24 +375,37 @@ class DragDropUI(QMainWindow):
         self.tab_word = QWidget()
         tab_word_layout = QVBoxLayout()
         tab_word_layout.setContentsMargins(15, 15, 15, 15)
-        self.word_drop_label = WordDropLabel()
-        self.word_drop_label.file_dropped.connect(self.start_word_extraction)
+        self.word_drop_label = InteractiveDropLabel(
+            "📥 Drag && Drop your Microsoft Word (.docx) file here\n\nExtracts all embedded Visio diagrams to the file's folder.",
+            ['.docx'])
+        self.word_drop_label.file_dropped.connect(lambda files: self.start_word_extraction(files[0]))
         tab_word_layout.addWidget(self.word_drop_label)
         self.tab_word.setLayout(tab_word_layout)
 
-        self.tabs.addTab(self.tab_text, "📝 Paste Code")
-        self.tabs.addTab(self.tab_file, "📂 Drag && Drop Files")
+        self.tabs.addTab(self.tab_text, "📝 Code Editor")
+        self.tabs.addTab(self.tab_file, "📂 Batch Convert")
         self.tabs.addTab(self.tab_word, "📄 Word Extractor")
         self.tabs.setEnabled(False)
 
-        main_layout.addWidget(self.tabs, stretch=3)
+        self.splitter.addWidget(self.tabs)
 
-        # NEW: Compact Queue Viewer
-        self.queue_label = QLabel("⏳ Initializing system checks...")
-        self.queue_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #555;")
-        main_layout.addWidget(self.queue_label)
+        # --- BOTTOM HALF: CONSOLE ---
+        console_container = QWidget()
+        console_layout = QVBoxLayout()
+        console_layout.setContentsMargins(0, 5, 0, 0)
 
-        # Console
+        console_header = QHBoxLayout()
+        terminal_lbl = QLabel("Terminal Output")
+        terminal_lbl.setStyleSheet("font-weight: bold; color: #555;")
+        clear_log_btn = QPushButton("Clear Log")
+        clear_log_btn.setFixedSize(80, 24)
+        clear_log_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        clear_log_btn.clicked.connect(lambda: self.console.clear())
+
+        console_header.addWidget(terminal_lbl)
+        console_header.addStretch()
+        console_header.addWidget(clear_log_btn)
+
         self.console = QTextEdit()
         self.console.setReadOnly(True)
         self.console.setStyleSheet("""
@@ -387,35 +419,50 @@ class DragDropUI(QMainWindow):
                 border: 1px solid #444444;
             }
         """)
-        main_layout.addWidget(self.console, stretch=1)
 
-        container = QWidget()
-        container.setLayout(main_layout)
-        self.setCentralWidget(container)
+        console_layout.addLayout(console_header)
+        console_layout.addWidget(self.console)
+        console_container.setLayout(console_layout)
+
+        self.splitter.addWidget(console_container)
+
+        # Set Splitter ratio (70% top, 30% bottom)
+        self.splitter.setSizes([500, 200])
+        main_layout.addWidget(self.splitter)
+
+        central_widget.setLayout(main_layout)
+        self.setCentralWidget(central_widget)
+
+        # --- STATUS BAR ---
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("⏳ Initializing...")
 
     def on_init_complete(self, success: bool):
         if success:
             self.tabs.setEnabled(True)
             self._set_drop_zone_ready()
-            self.log_message("\n🚀 System Ready. Paste code or drop files to begin.\n" + "-" * 45)
+            self.log_message("🚀 System Ready. Paste code or drop files to begin.\n" + "-" * 45)
         else:
-            self.drop_label.setStyleSheet(
-                "border: 3px dashed #D32F2F; border-radius: 10px; background-color: #FDEDED; color: #D32F2F; font-size: 15px; font-weight: bold;")
-            self.drop_label.setText("❌ Initialization Failed.")
-            self.queue_label.setText("❌ Initialization Failed. Check log for details.")
+            self.drop_label.set_state("error", "❌ Initialization Failed.")
+            self.status_bar.showMessage("❌ Initialization Failed. Check log for details.")
 
     def _set_drop_zone_ready(self):
-        self.drop_label.setText("📥 Drag && Drop your .puml or .txt file(s) here\n\n(Batch exports as Visio files)")
-        self.drop_label.setStyleSheet(
-            "border: 3px dashed #395396; border-radius: 10px; background-color: #F4F8FD; color: #395396; font-size: 15px; font-weight: bold;")
-        self.queue_label.setText("🟢 System Idle. Queue empty.")
-        self.queue_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #2B579A;")
+        self.drop_label.set_state("ready",
+                                  "📥 Drag && Drop your .puml or .txt file(s) here\n\n(Batch exports as Visio files)")
+        self.status_bar.showMessage("🟢 System Idle.")
 
     def _set_drop_zone_busy(self):
-        self.drop_label.setText("⚙️ Processing Queue...\n\nPlease wait until finished.")
-        self.drop_label.setStyleSheet(
-            "border: 3px dashed #D83B01; border-radius: 10px; background-color: #FDF4F0; color: #D83B01; font-size: 15px; font-weight: bold;")
-        # Note: Button is intentionally left enabled so users can continue queueing files!
+        self.drop_label.set_state("busy",
+                                  "⚙️ Processing Queue...\n\nPlease wait until finished or drop more files to queue them.")
+
+    def handle_batch_drop(self, file_paths):
+        for file_path in file_paths:
+            self.file_queue.append((Path(file_path), "vsdx"))
+        if not self.is_processing:
+            self.process_next_in_queue()
+        else:
+            self._update_queue_ui_text()
 
     def extract_code_from_visio(self, file_path):
         self.text_input.clear()
@@ -440,6 +487,8 @@ class DragDropUI(QMainWindow):
 
     def on_visio_code_error(self, error_msg):
         self.text_input.setEnabled(True)
+        self.text_input.setPlaceholderText(
+            "Paste PlantUML code OR drop a generated .vsdx file here to extract its source...")
         self.log_message(f"❌ {error_msg}")
 
     def show_in_planttext(self):
@@ -456,31 +505,6 @@ class DragDropUI(QMainWindow):
         if self.last_out_path:
             QApplication.clipboard().setText(self.last_out_path)
             self.log_message(f"📋 Copied to clipboard: {self.last_out_path}")
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.accept()
-        else:
-            event.ignore()
-
-    def dropEvent(self, event):
-        if not event.mimeData().urls(): return
-
-        puml_added = 0
-        for url in event.mimeData().urls():
-            file_path = Path(url.toLocalFile())
-            suffix = file_path.suffix.lower()
-
-            if suffix in [".puml", ".txt"]:
-                self.file_queue.append((file_path, "vsdx"))
-                puml_added += 1
-            elif suffix == ".docx":
-                self.start_word_extraction(str(file_path))
-            else:
-                self.log_message(f"⚠️ Skipped unsupported file: {file_path.name}")
-
-        if puml_added > 0 and not self.is_processing:
-            self.process_next_in_queue()
 
     def _save_and_queue_pasted_text(self, target_format):
         raw_text = self.text_input.toPlainText().strip()
@@ -501,7 +525,6 @@ class DragDropUI(QMainWindow):
 
         self.file_queue.append((puml_path, target_format))
 
-        # If the system is currently processing, we just update the queue counter.
         if self.is_processing:
             self._update_queue_ui_text()
         else:
@@ -509,15 +532,13 @@ class DragDropUI(QMainWindow):
 
     def _update_queue_ui_text(self, current_file_name=""):
         remaining = len(self.file_queue)
-        rem_text = f" | {remaining} items waiting in queue..." if remaining > 0 else ""
+        rem_text = f" | {remaining} items waiting in queue." if remaining > 0 else ""
         if current_file_name:
-            self.queue_label.setText(f"⚙️ Processing: {current_file_name}{rem_text}")
+            self.status_bar.showMessage(f"⚙️ Processing: {current_file_name}{rem_text}")
         else:
-            # Fallback if we just added to queue while another thread is busy
-            curr_text = self.queue_label.text().split("|")[0].strip()
-            self.queue_label.setText(f"{curr_text}{rem_text}")
-
-        self.queue_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #D83B01;")
+            # Fallback if just updating queue count
+            curr_text = self.status_bar.currentMessage().split("|")[0].strip()
+            self.status_bar.showMessage(f"{curr_text}{rem_text}")
 
     def process_next_in_queue(self):
         if not self.file_queue:
@@ -561,8 +582,20 @@ class DragDropUI(QMainWindow):
                 except Exception as e:
                     self.log_message(f"⚠️ Could not automatically open file: {e}")
 
-    def log_message(self, message: str):
-        self.console.append(message)
+    def log_message(self, message: str, level=logging.INFO):
+        """Prints to the GUI console with rich text color-coding."""
+        color = "#D4D4D4"  # Default VS Code Light Grey
+
+        if "❌" in message or "Error" in message:
+            color = "#F44747"  # Red
+        elif "⚠️" in message or "Warning" in message:
+            color = "#D7BA7D"  # Yellow/Orange
+        elif "✅" in message or "Success" in message or "Ready" in message:
+            color = "#6A9955"  # Green
+
+        html_msg = f'<span style="color: {color};">{message.replace(chr(10), "<br>")}</span>'
+        self.console.append(html_msg)
+
         QApplication.processEvents()
         scrollbar = self.console.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
