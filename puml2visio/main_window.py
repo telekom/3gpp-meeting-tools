@@ -28,11 +28,7 @@ class DragDropUI(QMainWindow):
         self.last_out_path = ""
 
         self._setup_ui()
-
-        self.init_thread = InitializationThread(self.jar_path)
-        self.init_thread.ui_log_msg.connect(self.log_message)
-        self.init_thread.init_complete.connect(self.on_init_complete)
-        self.init_thread.start()
+        self._launch_init_thread(check_updates=False)
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -137,7 +133,6 @@ class DragDropUI(QMainWindow):
         terminal_lbl = QLabel("Terminal Output")
         terminal_lbl.setStyleSheet("font-weight: bold; color: #555;")
 
-        # System Toolbar Buttons
         self.proxy_btn = QPushButton("📡 Proxy")
         self.proxy_btn.setFixedSize(70, 24)
         self.proxy_btn.setStyleSheet("padding: 2px; font-size: 11px;")
@@ -219,6 +214,15 @@ class DragDropUI(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("⏳ Initializing...")
 
+    # --- THREAD MANAGEMENT ---
+    def _launch_init_thread(self, check_updates=False):
+        """Helper to safely construct, connect, and launch the background init thread."""
+        self.init_thread = InitializationThread(self.jar_path, check_updates=check_updates)
+        self.init_thread.ui_log_msg.connect(self.log_message)
+        self.init_thread.init_complete.connect(self.on_init_complete)
+        self.init_thread.network_error.connect(self.open_proxy_settings)  # Auto-prompt on fail
+        self.init_thread.start()
+
     # --- APPLICATION LOGIC ---
     def open_proxy_settings(self):
         proxy_dialog = ProxyDialog()
@@ -239,22 +243,14 @@ class DragDropUI(QMainWindow):
             self.status_bar.showMessage("⏳ Re-initializing...")
             self.tabs.setEnabled(False)
 
-            self.init_thread = InitializationThread(self.jar_path)
-            self.init_thread.ui_log_msg.connect(self.log_message)
-            self.init_thread.init_complete.connect(self.on_init_complete)
-            self.init_thread.start()
+            self._launch_init_thread(check_updates=False)
 
     def check_for_jar_updates(self):
-        """Manually triggers the background thread to check GitHub for newer versions."""
         self.log_message("\n🔄 Initiating manual update check...", logging.INFO)
         self.drop_label.set_state("ready", "⏳ Checking online for updates...")
         self.status_bar.showMessage("⏳ Checking for updates...")
         self.tabs.setEnabled(False)
-
-        self.init_thread = InitializationThread(self.jar_path, check_updates=True)
-        self.init_thread.ui_log_msg.connect(self.log_message)
-        self.init_thread.init_complete.connect(self.on_init_complete)
-        self.init_thread.start()
+        self._launch_init_thread(check_updates=True)
 
     def _get_display_name(self, file_path):
         import re
