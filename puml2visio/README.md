@@ -150,8 +150,3 @@ The application features three main workspaces navigated via tabs, with a fully 
 * **PowerPoint "Leave Open" Behavior:** Unlike Visio exports (which save silently to your disk), clicking `Export PPTX` intentionally leaves the generated PowerPoint presentation open and unsaved on your screen. This allows you to immediately copy the generated slide and paste it directly into your master deck. 
 * **COM Errors:** If Visio or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory. If you start receiving `COM Error` messages in the app console, open Windows Task Manager and end any lingering background processes for `Visio.exe` or `PowerPoint.exe`.
 * **Missing Visio Source Code Alignment:** Modifying the PlantUML `textLength` attributes manually might cause Visio text boxes to behave erratically. The tool automatically cleans standard SVG artifacts, but highly customized `skinparam` settings may override this.
-
----
-
-## <a id="license"></a>📜 License
-*Please insert your preferred license here (e.g., MIT, GPLv3).*

@@ -7,7 +7,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QTabWidget, QSplitter, QStatusBar,
                              QListWidget, QLabel, QTextEdit, QApplication, QDialog,
-                             QComboBox, QMessageBox)
+                             QComboBox)
 from PyQt5.QtCore import Qt
 
 from ui_components import ProxyDialog, CodeDropTextEdit, InteractiveDropLabel
@@ -185,7 +185,7 @@ class DragDropUI(QMainWindow):
         clear_log_btn = QPushButton("Clear")
         clear_log_btn.setFixedSize(60, 24)
         clear_log_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-        clear_log_btn.clicked.connect(lambda: self.console.clear())
+        clear_log_btn.clicked.connect(self.clear_editor)
 
         console_header.addWidget(terminal_lbl)
         console_header.addStretch()
@@ -262,23 +262,15 @@ class DragDropUI(QMainWindow):
     def insert_template(self):
         selected = self.template_combo.currentText()
         tpl = PLANTUML_TYPES[selected]["template"]
-        current_text = self.text_input.toPlainText().strip()
 
-        if current_text:
-            reply = QMessageBox.question(self, "Overwrite Editor?",
-                                         "This will overwrite your current code. Do you want to continue?",
-                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if reply == QMessageBox.No:
-                return
-
+        # Bypass confirmation: instantly overwrite the editor
         self.text_input.setPlainText(tpl)
         self.log_message(f"📝 Inserted boilerplate for '{selected}' diagram.", logging.INFO)
 
-        # --- NEW: Instantly trigger preview bypassing the 750ms delay ---
+        # Instantly trigger live preview
         self.live_preview.update_now()
 
     def clear_editor(self):
-        """Clears the text area and instantly updates the live preview."""
         self.text_input.clear()
         self.live_preview.update_now()
 
@@ -395,7 +387,7 @@ class DragDropUI(QMainWindow):
         self.text_input.setEnabled(True)
         self.text_input.setPlainText(source_code)
         self.log_message("✅ Successfully extracted PlantUML source from Visio file.")
-        self.live_preview.update_now()  # NEW: Force update when extracting Visio code
+        self.live_preview.update_now()
 
     def on_visio_code_error(self, error_msg):
         self.text_input.setEnabled(True)
