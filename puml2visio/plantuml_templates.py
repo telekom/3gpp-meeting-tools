@@ -60,15 +60,15 @@ PLANTUML_TYPES = {
     # --- ADVANCED / NON-UML DIAGRAMS ---
     "Network (nwdiag)": {
         "url": "https://plantuml.com/en/nwdiag",
-        "template": "@startuml\nnwdiag {\n  network dmz {\n    address = \"210.x.x.x/24\"\n    web01 [address = \"210.x.x.1\"];\n    web02 [address = \"210.x.x.2\"];\n  }\n  network internal {\n    address = \"172.x.x.x/24\";\n    web01 [address = \"172.x.x.1\"];\n    db01;\n  }\n}\n@enduml"
+        "template": "@startnwdiag\nnwdiag {\n  network dmz {\n    address = \"210.x.x.x/24\"\n    web01 [address = \"210.x.x.1\"];\n    web02 [address = \"210.x.x.2\"];\n  }\n  network internal {\n    address = \"172.x.x.x/24\";\n    web01 [address = \"172.x.x.1\"];\n    db01;\n  }\n}\n@endnwdiag"
     },
     "Rack (rackdiag)": {
         "url": "https://plantuml.com/en/nwdiag",
-        "template": "@startuml\nrackdiag {\n  16U;\n  1: UPS [2U];\n  3: DB Server;\n  4: Web Server;\n  5: Web Server;\n  7: Load Balancer;\n  8: L3 Switch;\n}\n@enduml"
+        "template": "@startrackdiag\nrackdiag {\n  16U;\n  1: UPS [2U];\n  3: DB Server;\n  4: Web Server;\n  5: Web Server;\n  7: Load Balancer;\n  8: L3 Switch;\n}\n@endrackdiag"
     },
     "Packet (packetdiag)": {
         "url": "https://plantuml.com/en/nwdiag",
-        "template": "@startuml\npacketdiag {\n  colwidth = 32\n  node_height = 72\n\n  0-15: Source Port\n  16-31: Destination Port\n  32-63: Sequence Number\n  64-95: Acknowledgment Number\n  96-99: Data Offset\n  100-105: Reserved\n  106: URG [rotate = 270]\n  107: ACK [rotate = 270]\n  108: PSH [rotate = 270]\n  109: RST [rotate = 270]\n  110: SYN [rotate = 270]\n  111: FIN [rotate = 270]\n  112-127: Window\n  128-143: Checksum\n  144-159: Urgent Pointer\n  160-191: (Options and Padding)\n  192-223: data [colheight = 3]\n}\n@enduml"
+        "template": "@startpacketdiag\npacketdiag {\n  colwidth = 32\n  node_height = 72\n\n  0-15: Source Port\n  16-31: Destination Port\n  32-63: Sequence Number\n  64-95: Acknowledgment Number\n  96-99: Data Offset\n  100-105: Reserved\n  106: URG [rotate = 270]\n  107: ACK [rotate = 270]\n  108: PSH [rotate = 270]\n  109: RST [rotate = 270]\n  110: SYN [rotate = 270]\n  111: FIN [rotate = 270]\n  112-127: Window\n  128-143: Checksum\n  144-159: Urgent Pointer\n  160-191: (Options and Padding)\n  192-223: data [colheight = 3]\n}\n@endpacketdiag"
     },
     "Wireframe / UI Mockup (Salt)": {
         "url": "https://plantuml.com/en/salt",
