@@ -7,8 +7,10 @@ from pathlib import Path
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QTabWidget, QSplitter, QStatusBar,
                              QListWidget, QLabel, QTextEdit, QApplication, QDialog,
-                             QComboBox, QMessageBox)
-from PyQt5.QtCore import Qt
+                             QComboBox)
+# --- NEW IMPORTS FOR AUTO-SAVE AND UNDO ---
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QTextCursor
 
 from ui_components import ProxyDialog, CodeDropTextEdit, InteractiveDropLabel
 from utils import JAR_NAME, encode_plantuml, InitializationThread
@@ -31,6 +33,17 @@ class DragDropUI(QMainWindow):
         self.last_out_path = ""
 
         self._setup_ui()
+
+        # --- NEW: AUTO-SAVE CACHE ---
+        self.cache_file = Path(__file__).parent.resolve() / ".editor_cache.puml"
+        self._load_cache()
+
+        self.save_timer = QTimer()
+        self.save_timer.setSingleShot(True)
+        self.save_timer.setInterval(2000)  # Save 2 seconds after typing stops
+        self.save_timer.timeout.connect(self.save_cache)
+        self.text_input.textChanged.connect(self.save_timer.start)
+        # -----------------------------
 
         self.live_preview = LivePreviewManager(self.text_input, self.jar_path)
         self.live_preview.log_msg.connect(self.log_message)
@@ -89,7 +102,11 @@ class DragDropUI(QMainWindow):
         self.clear_btn.clicked.connect(self.clear_editor)
         self.clear_btn.setToolTip("Clear the text editor.")
 
-        # --- NEW: COPY CODE BUTTON ---
+        # --- NEW: UNDO BUTTON ---
+        self.undo_btn = QPushButton("↩️ Undo")
+        self.undo_btn.clicked.connect(self.text_input.undo)
+        self.undo_btn.setToolTip("Undo the last action (typing, clear, or template insert).")
+
         self.copy_code_btn = QPushButton("📄 Copy Code")
         self.copy_code_btn.clicked.connect(self.copy_editor_code)
         self.copy_code_btn.setToolTip("Copy the PlantUML source code to your clipboard.")
@@ -124,6 +141,7 @@ class DragDropUI(QMainWindow):
         self.convert_vsdx_btn.setToolTip("Generate a perfectly aligned, natively editable Visio diagram (.vsdx).")
 
         btn_layout.addWidget(self.clear_btn)
+        btn_layout.addWidget(self.undo_btn)
         btn_layout.addWidget(self.copy_code_btn)
         btn_layout.addWidget(self.live_view_btn)
         btn_layout.addWidget(self.planttext_btn)
@@ -191,7 +209,7 @@ class DragDropUI(QMainWindow):
         clear_log_btn = QPushButton("Clear")
         clear_log_btn.setFixedSize(60, 24)
         clear_log_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-        clear_log_btn.clicked.connect(self.clear_editor)
+        clear_log_btn.clicked.connect(lambda: self.console.clear())
 
         console_header.addWidget(terminal_lbl)
         console_header.addStretch()
@@ -264,22 +282,55 @@ class DragDropUI(QMainWindow):
         self.init_thread.network_error.connect(self.open_proxy_settings)
         self.init_thread.start()
 
+    # --- NEW: AUTO-SAVE LOGIC ---
+    def _load_cache(self):
+        if self.cache_file.exists():
+            try:
+                text = self.cache_file.read_text(encoding="utf-8")
+                if text.strip():
+                    self.text_input.setPlainText(text)
+                    self.log_message("♻️ Restored previous session.", logging.INFO)
+            except Exception as e:
+                self.log_message(f"⚠️ Could not load previous session: {e}", logging.WARNING)
+
+    def save_cache(self):
+        """Silently saves the editor content to a local cache file."""
+        try:
+            self.cache_file.write_text(self.text_input.toPlainText(), encoding="utf-8")
+        except Exception:
+            pass
+
+    def closeEvent(self, event):
+        """Ensures the editor text is saved if the application is closed."""
+        self.save_cache()
+        super().closeEvent(event)
+
     # --- UI INTERACTION LOGIC ---
+    def _set_editor_text(self, text):
+        """Replaces text using the cursor so the action can be natively undone."""
+        cursor = self.text_input.textCursor()
+        cursor.beginEditBlock()
+        cursor.select(QTextCursor.Document)
+        cursor.insertText(text)
+        cursor.endEditBlock()
+
+        # Reset cursor to the top of the newly inserted text
+        cursor.setPosition(0)
+        self.text_input.setTextCursor(cursor)
+        self.live_preview.update_now()
+
     def insert_template(self):
         selected = self.template_combo.currentText()
         tpl = PLANTUML_TYPES[selected]["template"]
 
-        self.text_input.setPlainText(tpl)
+        self._set_editor_text(tpl)
         self.log_message(f"📝 Inserted boilerplate for '{selected}' diagram.", logging.INFO)
-        self.live_preview.update_now()
 
     def clear_editor(self):
-        self.text_input.clear()
-        self.live_preview.update_now()
+        self._set_editor_text("")
+        self.log_message("🗑️ Editor cleared.", logging.INFO)
 
-    # --- NEW: COPY CODE FUNCTION ---
     def copy_editor_code(self):
-        """Copies the text from the PlantUML editor directly to the clipboard."""
         code_text = self.text_input.toPlainText().strip()
         if code_text:
             QApplication.clipboard().setText(code_text)
@@ -398,9 +449,8 @@ class DragDropUI(QMainWindow):
 
     def on_visio_code_read(self, source_code):
         self.text_input.setEnabled(True)
-        self.text_input.setPlainText(source_code)
+        self._set_editor_text(source_code)
         self.log_message("✅ Successfully extracted PlantUML source from Visio file.")
-        self.live_preview.update_now()
 
     def on_visio_code_error(self, error_msg):
         self.text_input.setEnabled(True)
