@@ -2,9 +2,7 @@
 
 An advanced desktop application designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
 
-Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence and activity diagrams and instantly export them as fully editable native Office shapes.
-
-> **🤖 AI-Assisted Development:** > The architecture, UI polishing, and complex Microsoft COM automation in this project were heavily co-developed using Large Language Models (LLMs), allowing for rapid iteration and deep integration into native Windows APIs.
+Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams and instantly export them as fully editable native Office shapes.
 
 ---
 
@@ -21,11 +19,12 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ## <a id="features"></a>✨ Features
 
-* **Real-Time Live Preview:** A debounced, background rendering engine that automatically pipes your PlantUML code to a live browser tab as you type. 
+* **Massive Diagram Support:** Includes built-in boilerplates and documentation links for **29 different diagram types**, ranging from standard UML (Sequence, Class, Activity) to highly specialized IT formats (`nwdiag` for Networks, `rackdiag` for Server Racks, and `packetdiag` for Protocol Headers).
+* **Real-Time Live Preview:** A debounced, background rendering engine that automatically pipes your PlantUML code to a live browser tab as you type. Includes instant-rendering bypasses when inserting templates.
 * **Intelligent 2D Text Parsing:** Bypasses Visio's text-shattering limitations by measuring X/Y coordinates and pixel gaps. This guarantees that side-by-side branch labels in Activity Diagrams (like `yes` / `no`) remain completely separate, rather than merging into single overlapping shapes.
 * **Native PowerPoint Export (The EMF Pipeline):** Bypasses PowerPoint's buggy SVG engine by silently piping the diagram through Visio to generate a Microsoft **Enhanced Metafile (.emf)**. This guarantees a flawless, natively ungroupable Office Drawing object.
 * **Bulletproof Java Discovery Engine:** Bypasses stale Windows Terminal paths by actively scanning both `PATH` variables and raw Windows Registry entries to automatically locate and utilize the highest installed Java version (perfectly parsing modern tags like `25.0.3+9`).
-* **Smart Proxy & JAR Synchronization:** Automatically downloads the correct PlantUML version architecture (`modern` vs `legacy`). Includes a built-in proxy tester to ping GitHub before saving network settings.
+* **Smart Proxy & JAR Synchronization:** Automatically downloads the correct PlantUML version architecture (`modern` vs `legacy`). Includes a built-in proxy tester to ping GitHub before saving network settings and an "Update JAR" button to poll for newer releases.
 * **Word Document Extractor:** Extracts hidden, embedded Visio (`.vsdx`) files natively trapped inside Word Document (`.docx`) OLE wrappers.
 * **Modular UI Architecture:** Built on a clean, maintainable, multi-file UI standard with a professional, IDE-style queue manager.
 
@@ -36,7 +35,9 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ```mermaid
 graph TD
     subgraph UI Architecture
-        M[main_window.py] --> UI[ui_components.py]
+        E[puml2visio.py<br>Entry Point] --> M[main_window.py]
+        M --> UI[ui_components.py]
+        M --> TPL[plantuml_templates.py]
         M --> LP[live_preview.py]
     end
 
@@ -46,13 +47,13 @@ graph TD
     end
 
     subgraph Core Engines
-        J[Java Registry Scanner<br>& plantuml.jar]
-        P[Python ZIP Extractor]
+        J[utils.py<br>Java Registry Scanner & JAR]
+        P[word_extractor.py<br>ZIP & OLE Scanner]
     end
 
     subgraph Windows COM Automation
-        V[Microsoft Visio API]
-        PPT[Microsoft PowerPoint API]
+        V[visio_converter.py]
+        PPT[powerpoint_converter.py]
     end
 
     subgraph Output
@@ -62,6 +63,7 @@ graph TD
         OutB[Local Web Browser<br>Live Preview]
     end
 
+    M -- "Insert Template" --> A
     M -- "Read Code" --> A
     A -- "Debounced Edit" --> LP
     LP -- "Background Render" --> J
@@ -78,7 +80,7 @@ graph TD
     EMF -- "3d. Import & Natively Ungroup" --> PPT
     PPT --> OutP
 
-    SVG -- "3e. Save" --> OutS
+    SVG -- "3e. Save directly" --> OutS
     
     W -- "Unzip & Scan OLE .bin" --> P
     P -- "Extract" --> OutV
@@ -124,7 +126,8 @@ Because this application relies heavily on Microsoft's Component Object Model (C
 The application features three main workspaces navigated via tabs, with a fully resizable bottom terminal and queue viewer.
 
 ### 📝 Tab 1: Paste Code (Single Diagram Mode)
-* **Live Preview:** Click the `👁️ Live Preview` toggle. The app will open a browser tab and automatically render your diagram as you type (waits for a 750ms pause to save CPU). Note: Un-toggling stops the rendering, but you must close the browser tab manually.
+* **Templates & Docs:** Use the dropdown menu at the top to select from 29 different diagram types. Click `Insert` to populate the editor with boilerplate code, or `Docs` to instantly open the official PlantUML syntax guide for that specific diagram.
+* **Live Preview:** Click the `👁️ Live Preview` toggle. The app will open a browser tab and automatically render your diagram as you type (waits for a 750ms pause to save CPU). If you insert a template or clear the editor, the preview updates instantly.
 * **Export:** Paste your PlantUML diagram code into the text box. Click `Export Visio`, `Export PPTX`, or `Export SVG`. The application will generate the file, copy its path to your clipboard, and automatically open it.
 * **Round-Trip Extract:** If you previously generated a Visio file using this tool, drag and drop the `.vsdx` file directly into the text box to instantly retrieve your original source code.
 
@@ -148,3 +151,7 @@ The application features three main workspaces navigated via tabs, with a fully 
 * **COM Errors:** If Visio or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory. If you start receiving `COM Error` messages in the app console, open Windows Task Manager and end any lingering background processes for `Visio.exe` or `PowerPoint.exe`.
 * **Missing Visio Source Code Alignment:** Modifying the PlantUML `textLength` attributes manually might cause Visio text boxes to behave erratically. The tool automatically cleans standard SVG artifacts, but highly customized `skinparam` settings may override this.
 
+---
+
+## <a id="license"></a>📜 License
+*Please insert your preferred license here (e.g., MIT, GPLv3).*
