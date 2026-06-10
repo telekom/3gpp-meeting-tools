@@ -199,7 +199,7 @@ database:
     # --- ADVANCED / NON-UML DIAGRAMS ---
     "Network (nwdiag)": {
         "url": "https://plantuml.com/en/nwdiag",
-        "template": "@startuml\n" + COMMON_STYLE + '''
+        "template": '''@startnwdiag
 nwdiag {
   network dmz {
     address = "210.x.x.x/24"
@@ -212,11 +212,11 @@ nwdiag {
     db01;
   }
 }
-@enduml'''
+@endnwdiag'''
     },
     "Rack (rackdiag)": {
         "url": "https://plantuml.com/en/nwdiag",
-        "template": "@startuml\n" + COMMON_STYLE + '''
+        "template": '''@startrackdiag
 rackdiag {
   16U;
   1: UPS [2U];
@@ -226,11 +226,11 @@ rackdiag {
   7: Load Balancer;
   8: L3 Switch;
 }
-@enduml'''
+@endrackdiag'''
     },
     "Packet (packetdiag)": {
         "url": "https://plantuml.com/en/nwdiag",
-        "template": "@startuml\n" + COMMON_STYLE + '''
+        "template": '''@startpacketdiag
 packetdiag {
   colwidth = 32
   node_height = 72
@@ -253,7 +253,7 @@ packetdiag {
   160-191: (Options and Padding)
   192-223: data [colheight = 3]
 }
-@enduml'''
+@endpacketdiag'''
     },
     "Wireframe / UI Mockup (Salt)": {
         "url": "https://plantuml.com/en/salt",
