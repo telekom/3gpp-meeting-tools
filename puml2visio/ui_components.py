@@ -3,7 +3,8 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QLabel, QFormLayout,
                              QLineEdit, QCheckBox, QHBoxLayout, QPushButton,
                              QTextEdit, QPlainTextEdit, QWidget, QApplication)
 from PyQt5.QtCore import Qt, pyqtSignal, QRect, QSize
-from PyQt5.QtGui import QPainter, QColor, QTextFormat
+# --- NEW: Added QIcon, QPixmap, QColor, QFont, QPainter for dynamic icon generation ---
+from PyQt5.QtGui import QPainter, QColor, QTextFormat, QIcon, QPixmap, QFont
 
 # ==========================================
 # --- GLOBAL STYLESHEET (ALL-BLUE THEME) ---
@@ -129,6 +130,29 @@ GLOBAL_STYLE = """
 """
 
 
+def create_app_icon():
+    """Dynamically generates a beautiful, scalable vector icon in memory."""
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+
+    # Draw a sleek blue rounded rectangle background
+    painter.setBrush(QColor("#1E5C99"))
+    painter.setPen(Qt.NoPen)
+    painter.drawRoundedRect(4, 4, 56, 56, 12, 12)
+
+    # Draw "P2V" text centered in white
+    painter.setPen(QColor("#FFFFFF"))
+    font = QFont("Segoe UI", 16, QFont.Bold)
+    painter.setFont(font)
+    painter.drawText(pixmap.rect(), Qt.AlignCenter, "P2V")
+
+    painter.end()
+    return QIcon(pixmap)
+
+
 class ProxyDialog(QDialog):
     def __init__(self):
         super().__init__()
@@ -231,12 +255,7 @@ class ProxyDialog(QDialog):
         return self.http_input.text().strip(), self.https_input.text().strip()
 
 
-# ==========================================
-# --- LINE NUMBER EDITOR COMPONENTS ---
-# ==========================================
 class LineNumberArea(QWidget):
-    """A side-panel widget that paints line numbers for the CodeDropTextEdit."""
-
     def __init__(self, editor):
         super().__init__(editor)
         self.code_editor = editor
@@ -249,14 +268,12 @@ class LineNumberArea(QWidget):
 
 
 class CodeDropTextEdit(QPlainTextEdit):
-    """An advanced code editor with line numbers, line highlighting, and Visio drop-extraction."""
     file_dropped = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
         self.line_number_area = LineNumberArea(self)
 
-        # Connect signals for dynamic line numbers and active line highlighting
         self.blockCountChanged.connect(self.update_line_number_area_width)
         self.updateRequest.connect(self.update_line_number_area)
         self.cursorPositionChanged.connect(self.highlight_current_line)
@@ -264,7 +281,6 @@ class CodeDropTextEdit(QPlainTextEdit):
         self.update_line_number_area_width(0)
         self.highlight_current_line()
 
-        # Stylesheet (Notice the padding is reduced so line numbers align cleanly)
         self.default_style = """
             QPlainTextEdit {
                 font-family: Consolas, Courier New, monospace; 
@@ -281,7 +297,7 @@ class CodeDropTextEdit(QPlainTextEdit):
         self.hover_style = self.default_style.replace("border: 2px solid #E0E0E0;",
                                                       "border: 2px dashed #395396; background-color: #EBF3FC;")
         self.setStyleSheet(self.default_style)
-        self.setLineWrapMode(QPlainTextEdit.NoWrap)  # Prevents line numbers from breaking on long lines
+        self.setLineWrapMode(QPlainTextEdit.NoWrap)
 
     def line_number_area_width(self):
         digits = 1
@@ -313,7 +329,7 @@ class CodeDropTextEdit(QPlainTextEdit):
 
     def lineNumberAreaPaintEvent(self, event):
         painter = QPainter(self.line_number_area)
-        painter.fillRect(event.rect(), QColor("#EAEAEA"))  # Light gray background for line area
+        painter.fillRect(event.rect(), QColor("#EAEAEA"))
 
         block = self.firstVisibleBlock()
         block_number = block.blockNumber()
@@ -324,7 +340,6 @@ class CodeDropTextEdit(QPlainTextEdit):
             if block.isVisible() and bottom >= event.rect().top():
                 number = str(block_number + 1)
                 painter.setPen(QColor("#888888"))
-                # Draw the number with a small right margin
                 painter.drawText(0, top, self.line_number_area.width() - 5, self.fontMetrics().height(),
                                  Qt.AlignRight | Qt.AlignVCenter, number)
 
@@ -337,7 +352,7 @@ class CodeDropTextEdit(QPlainTextEdit):
         extra_selections = []
         if not self.isReadOnly():
             selection = QTextEdit.ExtraSelection()
-            line_color = QColor("#EBF3FC")  # Subtle blue highlight
+            line_color = QColor("#EBF3FC")
             selection.format.setBackground(line_color)
             selection.format.setProperty(QTextFormat.FullWidthSelection, True)
             selection.cursor = self.textCursor()
@@ -345,7 +360,6 @@ class CodeDropTextEdit(QPlainTextEdit):
             extra_selections.append(selection)
         self.setExtraSelections(extra_selections)
 
-    # --- DRAG AND DROP LOGIC ---
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
@@ -372,7 +386,6 @@ class CodeDropTextEdit(QPlainTextEdit):
 
 
 class InteractiveDropLabel(QLabel):
-    """A generic Drop Area label that highlights on hover."""
     file_dropped = pyqtSignal(list)
 
     def __init__(self, text, accepted_extensions):
