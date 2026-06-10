@@ -15,6 +15,9 @@ from word_extractor import WordExtractorThread
 from visio_converter import VisioReaderThread, ConverterThread, SvgConverterThread
 from powerpoint_converter import PptxConverterThread
 
+# --- NEW: Import the Live Preview module ---
+from live_preview import LivePreviewManager
+
 
 class DragDropUI(QMainWindow):
     def __init__(self):
@@ -28,6 +31,11 @@ class DragDropUI(QMainWindow):
         self.last_out_path = ""
 
         self._setup_ui()
+
+        # Initialize Live Preview Manager
+        self.live_preview = LivePreviewManager(self.text_input, self.jar_path)
+        self.live_preview.log_msg.connect(self.log_message)
+
         self._launch_init_thread(check_updates=False)
 
     def _setup_ui(self):
@@ -58,6 +66,12 @@ class DragDropUI(QMainWindow):
         self.clear_btn.clicked.connect(self.text_input.clear)
         self.clear_btn.setToolTip("Clear the text editor.")
 
+        # --- NEW: Live View Button ---
+        self.live_view_btn = QPushButton("👁️ Live Preview")
+        self.live_view_btn.setCheckable(True)  # This allows the button to stay "pressed down"
+        self.live_view_btn.setToolTip("Toggle real-time browser preview. Auto-updates as you type!")
+        self.live_view_btn.clicked.connect(self.toggle_live_view)
+
         self.planttext_btn = QPushButton("🌐 Show in planttext")
         self.planttext_btn.clicked.connect(self.show_in_planttext)
         self.planttext_btn.setToolTip("Open your code in PlantText.com for a quick web preview.")
@@ -83,6 +97,7 @@ class DragDropUI(QMainWindow):
         self.convert_vsdx_btn.setToolTip("Generate a perfectly aligned, natively editable Visio diagram (.vsdx).")
 
         btn_layout.addWidget(self.clear_btn)
+        btn_layout.addWidget(self.live_view_btn)
         btn_layout.addWidget(self.planttext_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.copy_btn)
@@ -209,21 +224,23 @@ class DragDropUI(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
-        # --- STATUS BAR ---
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("⏳ Initializing...")
 
     # --- THREAD MANAGEMENT ---
     def _launch_init_thread(self, check_updates=False):
-        """Helper to safely construct, connect, and launch the background init thread."""
         self.init_thread = InitializationThread(self.jar_path, check_updates=check_updates)
         self.init_thread.ui_log_msg.connect(self.log_message)
         self.init_thread.init_complete.connect(self.on_init_complete)
-        self.init_thread.network_error.connect(self.open_proxy_settings)  # Auto-prompt on fail
+        self.init_thread.network_error.connect(self.open_proxy_settings)
         self.init_thread.start()
 
     # --- APPLICATION LOGIC ---
+    def toggle_live_view(self, checked):
+        """Passes the toggle state to the LivePreviewManager."""
+        self.live_preview.toggle(checked)
+
     def open_proxy_settings(self):
         proxy_dialog = ProxyDialog()
         if proxy_dialog.exec_() == QDialog.Accepted:
