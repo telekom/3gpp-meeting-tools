@@ -1,11 +1,13 @@
 import sys
 import logging
 import urllib.request
+import os
 from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication, QDialog
 
-from ui_components import GLOBAL_STYLE, ProxyDialog
+# --- NEW: Import the icon generation function ---
+from ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from main_window import DragDropUI
 from utils import JAR_NAME, get_best_java
 
@@ -22,7 +24,19 @@ logging.basicConfig(
 )
 
 if __name__ == '__main__':
+    # --- NEW: WINDOWS TASKBAR FIX ---
+    # This prevents Windows from grouping our app under the generic Python snake logo!
+    if os.name == 'nt':
+        import ctypes
+
+        myappid = '3gpp.puml2visio.converter.1.0'
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+
     app = QApplication(sys.argv)
+
+    # --- NEW: APPLY GLOBAL ICON ---
+    app.setWindowIcon(create_app_icon())
+
     app.setStyle("Fusion")
     app.setStyleSheet(GLOBAL_STYLE)
 
