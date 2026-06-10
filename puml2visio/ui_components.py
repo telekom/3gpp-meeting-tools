@@ -111,6 +111,19 @@ GLOBAL_STYLE = """
         border: 2px solid #395396;
         color: #395396;
     }
+    /* Combobox Styling */
+    QComboBox {
+        padding: 4px 8px;
+        border-radius: 4px;
+        border: 1px solid #CCCCCC;
+        background-color: #FFFFFF;
+        font-weight: bold;
+        color: #333333;
+    }
+    QComboBox::drop-down {
+        border: none;
+        width: 20px;
+    }
 """
 
 

@@ -73,17 +73,14 @@ class PreviewGeneratorThread(QThread):
 
     def run(self):
         try:
-            # Render to a distinct temp file to avoid file-lock contention with the browser
             temp_puml = self.temp_dir / "temp_render.puml"
             temp_puml.write_text(self.puml_text, encoding="utf-8")
 
-            # Silent logging so we don't spam the UI terminal
             def silent_log(msg, level):
                 pass
 
             temp_svg = generate_cleaned_svg(temp_puml, self.jar_path, silent_log)
 
-            # Atomically replace the live file
             live_svg = self.temp_dir / "preview.svg"
             shutil.copy2(temp_svg, live_svg)
 
@@ -99,21 +96,19 @@ class LivePreviewManager(QObject):
         self.text_edit = text_edit
         self.jar_path = jar_path
         self.active = False
+        self._pending_update = False  # NEW: Prevents dropped renders
 
-        # Isolate all generation to the OS Temp directory
         self.temp_dir = Path(tempfile.gettempdir()) / "puml2visio_live"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
         self.html_path = self.temp_dir / "index.html"
         self.svg_path = self.temp_dir / "preview.svg"
 
-        # Ensure a blank SVG exists so the browser doesn't show a broken image icon on first load
         if not self.svg_path.exists():
             self.svg_path.write_text(WAITING_SVG, encoding="utf-8")
 
         self.html_path.write_text(HTML_TEMPLATE, encoding="utf-8")
 
-        # Debouncer: Only trigger the Java compiler if the user STOPS typing for 750ms
         self.debounce_timer = QTimer()
         self.debounce_timer.setSingleShot(True)
         self.debounce_timer.setInterval(750)
@@ -126,11 +121,9 @@ class LivePreviewManager(QObject):
         if self.active:
             self.text_edit.textChanged.connect(self._on_text_changed)
 
-            # If the text area is empty on start, push the "waiting" placeholder
             if not self.text_edit.toPlainText().strip():
                 self.svg_path.write_text(WAITING_SVG, encoding="utf-8")
 
-            # Fire up the browser
             url = f"file://{self.html_path.resolve().as_posix()}"
             webbrowser.open(url)
 
@@ -139,17 +132,18 @@ class LivePreviewManager(QObject):
         else:
             self.text_edit.textChanged.disconnect(self._on_text_changed)
             self.debounce_timer.stop()
-
-            # --- THE MAGIC FIX ---
-            # Instantly overwrite the live file with the "Paused" state SVG.
-            # The browser will naturally fetch it on its next 1-second interval!
+            self._pending_update = False
             self.svg_path.write_text(OFFLINE_SVG, encoding="utf-8")
-
             self.log_msg.emit("🙈 Live Preview deactivated.", logging.INFO)
+
+    def update_now(self):
+        """NEW: Bypasses the typing debouncer and forces an instant render (for UI buttons)."""
+        if self.active:
+            self.debounce_timer.stop()
+            self._trigger_generation()
 
     def _on_text_changed(self):
         if self.active:
-            # Restarts the 750ms countdown every time a key is pressed
             self.debounce_timer.start()
 
     def _trigger_generation(self):
@@ -158,9 +152,17 @@ class LivePreviewManager(QObject):
             self.svg_path.write_text(WAITING_SVG, encoding="utf-8")
             return
 
-        # If a thread is currently running, drop this request. The debouncer will catch the next typing pause.
+        # FIX: If thread is running, flag a pending update so it isn't dropped!
         if self.generator_thread and self.generator_thread.isRunning():
+            self._pending_update = True
             return
 
+        self._pending_update = False
         self.generator_thread = PreviewGeneratorThread(text, self.jar_path, self.temp_dir)
+        self.generator_thread.finished.connect(self._on_thread_finished)
         self.generator_thread.start()
+
+    def _on_thread_finished(self):
+        """NEW: Automatically fires the next render if the user kept typing while Java was busy."""
+        if getattr(self, '_pending_update', False):
+            self._trigger_generation()

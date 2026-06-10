@@ -6,7 +6,8 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QTabWidget, QSplitter, QStatusBar,
-                             QListWidget, QLabel, QTextEdit, QApplication, QDialog)
+                             QListWidget, QLabel, QTextEdit, QApplication, QDialog,
+                             QComboBox, QMessageBox)
 from PyQt5.QtCore import Qt
 
 from ui_components import ProxyDialog, CodeDropTextEdit, InteractiveDropLabel
@@ -14,9 +15,8 @@ from utils import JAR_NAME, encode_plantuml, InitializationThread
 from word_extractor import WordExtractorThread
 from visio_converter import VisioReaderThread, ConverterThread, SvgConverterThread
 from powerpoint_converter import PptxConverterThread
-
-# --- NEW: Import the Live Preview module ---
 from live_preview import LivePreviewManager
+from plantuml_templates import PLANTUML_TYPES
 
 
 class DragDropUI(QMainWindow):
@@ -32,7 +32,6 @@ class DragDropUI(QMainWindow):
 
         self._setup_ui()
 
-        # Initialize Live Preview Manager
         self.live_preview = LivePreviewManager(self.text_input, self.jar_path)
         self.live_preview.log_msg.connect(self.log_message)
 
@@ -53,6 +52,30 @@ class DragDropUI(QMainWindow):
         tab_text_layout = QVBoxLayout()
         tab_text_layout.setContentsMargins(15, 15, 15, 15)
 
+        template_layout = QHBoxLayout()
+        template_lbl = QLabel("📖 Templates:")
+        template_lbl.setStyleSheet("font-weight: bold; color: #555;")
+
+        self.template_combo = QComboBox()
+        self.template_combo.addItems(list(PLANTUML_TYPES.keys()))
+        self.template_combo.setToolTip("Select a diagram type.")
+
+        self.insert_tpl_btn = QPushButton("Insert")
+        self.insert_tpl_btn.setToolTip("Insert the selected boilerplate into the editor.")
+        self.insert_tpl_btn.clicked.connect(self.insert_template)
+
+        self.docs_btn = QPushButton("📘 Docs")
+        self.docs_btn.setToolTip("Open the official PlantUML syntax documentation for this diagram type.")
+        self.docs_btn.clicked.connect(self.open_template_docs)
+
+        template_layout.addWidget(template_lbl)
+        template_layout.addWidget(self.template_combo)
+        template_layout.addWidget(self.insert_tpl_btn)
+        template_layout.addWidget(self.docs_btn)
+        template_layout.addStretch()
+
+        tab_text_layout.addLayout(template_layout)
+
         self.text_input = CodeDropTextEdit()
         self.text_input.setPlaceholderText(
             "Paste PlantUML code OR drop a generated .vsdx file here to extract its source...")
@@ -63,12 +86,11 @@ class DragDropUI(QMainWindow):
         btn_layout = QHBoxLayout()
 
         self.clear_btn = QPushButton("🗑️ Clear")
-        self.clear_btn.clicked.connect(self.text_input.clear)
+        self.clear_btn.clicked.connect(self.clear_editor)
         self.clear_btn.setToolTip("Clear the text editor.")
 
-        # --- NEW: Live View Button ---
         self.live_view_btn = QPushButton("👁️ Live Preview")
-        self.live_view_btn.setCheckable(True)  # This allows the button to stay "pressed down"
+        self.live_view_btn.setCheckable(True)
         self.live_view_btn.setToolTip("Toggle real-time browser preview. Auto-updates as you type!")
         self.live_view_btn.clicked.connect(self.toggle_live_view)
 
@@ -236,9 +258,40 @@ class DragDropUI(QMainWindow):
         self.init_thread.network_error.connect(self.open_proxy_settings)
         self.init_thread.start()
 
-    # --- APPLICATION LOGIC ---
+    # --- UI INTERACTION LOGIC ---
+    def insert_template(self):
+        selected = self.template_combo.currentText()
+        tpl = PLANTUML_TYPES[selected]["template"]
+        current_text = self.text_input.toPlainText().strip()
+
+        if current_text:
+            reply = QMessageBox.question(self, "Overwrite Editor?",
+                                         "This will overwrite your current code. Do you want to continue?",
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
+
+        self.text_input.setPlainText(tpl)
+        self.log_message(f"📝 Inserted boilerplate for '{selected}' diagram.", logging.INFO)
+
+        # --- NEW: Instantly trigger preview bypassing the 750ms delay ---
+        self.live_preview.update_now()
+
+    def clear_editor(self):
+        """Clears the text area and instantly updates the live preview."""
+        self.text_input.clear()
+        self.live_preview.update_now()
+
+    def open_template_docs(self):
+        selected = self.template_combo.currentText()
+        url = PLANTUML_TYPES[selected]["url"]
+        try:
+            webbrowser.open(url)
+            self.log_message(f"🌐 Opened documentation for '{selected}'.", logging.INFO)
+        except Exception as e:
+            self.log_message(f"❌ Failed to open URL: {e}", logging.ERROR)
+
     def toggle_live_view(self, checked):
-        """Passes the toggle state to the LivePreviewManager."""
         self.live_preview.toggle(checked)
 
     def open_proxy_settings(self):
@@ -342,6 +395,7 @@ class DragDropUI(QMainWindow):
         self.text_input.setEnabled(True)
         self.text_input.setPlainText(source_code)
         self.log_message("✅ Successfully extracted PlantUML source from Visio file.")
+        self.live_preview.update_now()  # NEW: Force update when extracting Visio code
 
     def on_visio_code_error(self, error_msg):
         self.text_input.setEnabled(True)
