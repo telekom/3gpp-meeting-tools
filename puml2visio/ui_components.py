@@ -1,8 +1,9 @@
 import urllib.request
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QLabel, QFormLayout,
                              QLineEdit, QCheckBox, QHBoxLayout, QPushButton,
-                             QTextEdit, QApplication)
-from PyQt5.QtCore import Qt, pyqtSignal
+                             QTextEdit, QPlainTextEdit, QWidget, QApplication)
+from PyQt5.QtCore import Qt, pyqtSignal, QRect, QSize
+from PyQt5.QtGui import QPainter, QColor, QTextFormat
 
 # ==========================================
 # --- GLOBAL STYLESHEET (ALL-BLUE THEME) ---
@@ -58,6 +59,12 @@ GLOBAL_STYLE = """
         color: #A0A0A0;
         border: 1px solid #DFDFDF;
     }
+    /* Toggled/Checked State for Live View Button */
+    QPushButton:checked {
+        background-color: #EBF3FC;
+        border: 2px solid #395396;
+        color: #395396;
+    }
 
     /* Primary Action Buttons */
     QPushButton#primaryBtn, QPushButton#pptBtn, QPushButton#svgBtn {
@@ -86,6 +93,20 @@ GLOBAL_STYLE = """
         color: #333333;
     }
 
+    /* Combobox Styling */
+    QComboBox {
+        padding: 4px 8px;
+        border-radius: 4px;
+        border: 1px solid #CCCCCC;
+        background-color: #FFFFFF;
+        font-weight: bold;
+        color: #333333;
+    }
+    QComboBox::drop-down {
+        border: none;
+        width: 20px;
+    }
+
     /* Dark Theme for Console & Queue List */
     QTextEdit#console, QListWidget#queueList {
         background-color: #1E1E1E; 
@@ -104,25 +125,6 @@ GLOBAL_STYLE = """
         background-color: #264F78;
         color: #FFFFFF;
         border-radius: 4px;
-    }
-    /* Toggled/Checked State for Live View Button */
-    QPushButton:checked {
-        background-color: #EBF3FC;
-        border: 2px solid #395396;
-        color: #395396;
-    }
-    /* Combobox Styling */
-    QComboBox {
-        padding: 4px 8px;
-        border-radius: 4px;
-        border: 1px solid #CCCCCC;
-        background-color: #FFFFFF;
-        font-weight: bold;
-        color: #333333;
-    }
-    QComboBox::drop-down {
-        border: none;
-        width: 20px;
     }
 """
 
@@ -229,22 +231,49 @@ class ProxyDialog(QDialog):
         return self.http_input.text().strip(), self.https_input.text().strip()
 
 
-class CodeDropTextEdit(QTextEdit):
-    """Text editor that accepts dropped Visio files for reverse-extraction."""
+# ==========================================
+# --- LINE NUMBER EDITOR COMPONENTS ---
+# ==========================================
+class LineNumberArea(QWidget):
+    """A side-panel widget that paints line numbers for the CodeDropTextEdit."""
+
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.code_editor = editor
+
+    def sizeHint(self):
+        return QSize(self.code_editor.line_number_area_width(), 0)
+
+    def paintEvent(self, event):
+        self.code_editor.lineNumberAreaPaintEvent(event)
+
+
+class CodeDropTextEdit(QPlainTextEdit):
+    """An advanced code editor with line numbers, line highlighting, and Visio drop-extraction."""
     file_dropped = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
+        self.line_number_area = LineNumberArea(self)
+
+        # Connect signals for dynamic line numbers and active line highlighting
+        self.blockCountChanged.connect(self.update_line_number_area_width)
+        self.updateRequest.connect(self.update_line_number_area)
+        self.cursorPositionChanged.connect(self.highlight_current_line)
+
+        self.update_line_number_area_width(0)
+        self.highlight_current_line()
+
+        # Stylesheet (Notice the padding is reduced so line numbers align cleanly)
         self.default_style = """
-            QTextEdit {
+            QPlainTextEdit {
                 font-family: Consolas, Courier New, monospace; 
                 font-size: 13px; 
                 border: 2px solid #E0E0E0; 
                 border-radius: 8px; 
-                padding: 10px;
                 background-color: #FAFAFA;
             }
-            QTextEdit:focus {
+            QPlainTextEdit:focus {
                 border: 2px solid #395396;
                 background-color: #FFFFFF;
             }
@@ -252,7 +281,71 @@ class CodeDropTextEdit(QTextEdit):
         self.hover_style = self.default_style.replace("border: 2px solid #E0E0E0;",
                                                       "border: 2px dashed #395396; background-color: #EBF3FC;")
         self.setStyleSheet(self.default_style)
+        self.setLineWrapMode(QPlainTextEdit.NoWrap)  # Prevents line numbers from breaking on long lines
 
+    def line_number_area_width(self):
+        digits = 1
+        max_val = max(1, self.blockCount())
+        while max_val >= 10:
+            max_val /= 10
+            digits += 1
+
+        fm = self.fontMetrics()
+        width_char = fm.horizontalAdvance('9') if hasattr(fm, 'horizontalAdvance') else fm.width('9')
+        space = 10 + width_char * digits
+        return space
+
+    def update_line_number_area_width(self, _):
+        self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
+
+    def update_line_number_area(self, rect, dy):
+        if dy:
+            self.line_number_area.scroll(0, dy)
+        else:
+            self.line_number_area.update(0, rect.y(), self.line_number_area.width(), rect.height())
+        if rect.contains(self.viewport().rect()):
+            self.update_line_number_area_width(0)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        cr = self.contentsRect()
+        self.line_number_area.setGeometry(QRect(cr.left(), cr.top(), self.line_number_area_width(), cr.height()))
+
+    def lineNumberAreaPaintEvent(self, event):
+        painter = QPainter(self.line_number_area)
+        painter.fillRect(event.rect(), QColor("#EAEAEA"))  # Light gray background for line area
+
+        block = self.firstVisibleBlock()
+        block_number = block.blockNumber()
+        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        bottom = top + round(self.blockBoundingRect(block).height())
+
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                number = str(block_number + 1)
+                painter.setPen(QColor("#888888"))
+                # Draw the number with a small right margin
+                painter.drawText(0, top, self.line_number_area.width() - 5, self.fontMetrics().height(),
+                                 Qt.AlignRight | Qt.AlignVCenter, number)
+
+            block = block.next()
+            top = bottom
+            bottom = top + round(self.blockBoundingRect(block).height())
+            block_number += 1
+
+    def highlight_current_line(self):
+        extra_selections = []
+        if not self.isReadOnly():
+            selection = QTextEdit.ExtraSelection()
+            line_color = QColor("#EBF3FC")  # Subtle blue highlight
+            selection.format.setBackground(line_color)
+            selection.format.setProperty(QTextFormat.FullWidthSelection, True)
+            selection.cursor = self.textCursor()
+            selection.cursor.clearSelection()
+            extra_selections.append(selection)
+        self.setExtraSelections(extra_selections)
+
+    # --- DRAG AND DROP LOGIC ---
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
