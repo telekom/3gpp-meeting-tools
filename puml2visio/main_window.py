@@ -7,7 +7,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QTabWidget, QSplitter, QStatusBar,
                              QListWidget, QLabel, QTextEdit, QApplication, QDialog,
-                             QComboBox)
+                             QComboBox, QMessageBox)
 from PyQt5.QtCore import Qt
 
 from ui_components import ProxyDialog, CodeDropTextEdit, InteractiveDropLabel
@@ -89,6 +89,11 @@ class DragDropUI(QMainWindow):
         self.clear_btn.clicked.connect(self.clear_editor)
         self.clear_btn.setToolTip("Clear the text editor.")
 
+        # --- NEW: COPY CODE BUTTON ---
+        self.copy_code_btn = QPushButton("📄 Copy Code")
+        self.copy_code_btn.clicked.connect(self.copy_editor_code)
+        self.copy_code_btn.setToolTip("Copy the PlantUML source code to your clipboard.")
+
         self.live_view_btn = QPushButton("👁️ Live Preview")
         self.live_view_btn.setCheckable(True)
         self.live_view_btn.setToolTip("Toggle real-time browser preview. Auto-updates as you type!")
@@ -98,7 +103,7 @@ class DragDropUI(QMainWindow):
         self.planttext_btn.clicked.connect(self.show_in_planttext)
         self.planttext_btn.setToolTip("Open your code in PlantText.com for a quick web preview.")
 
-        self.copy_btn = QPushButton("📋 Copy Path")
+        self.copy_btn = QPushButton("🔗 Copy Path")
         self.copy_btn.setEnabled(False)
         self.copy_btn.clicked.connect(self.copy_out_path)
         self.copy_btn.setToolTip("Copy the file path of the last generated diagram.")
@@ -119,6 +124,7 @@ class DragDropUI(QMainWindow):
         self.convert_vsdx_btn.setToolTip("Generate a perfectly aligned, natively editable Visio diagram (.vsdx).")
 
         btn_layout.addWidget(self.clear_btn)
+        btn_layout.addWidget(self.copy_code_btn)
         btn_layout.addWidget(self.live_view_btn)
         btn_layout.addWidget(self.planttext_btn)
         btn_layout.addStretch()
@@ -263,16 +269,23 @@ class DragDropUI(QMainWindow):
         selected = self.template_combo.currentText()
         tpl = PLANTUML_TYPES[selected]["template"]
 
-        # Bypass confirmation: instantly overwrite the editor
         self.text_input.setPlainText(tpl)
         self.log_message(f"📝 Inserted boilerplate for '{selected}' diagram.", logging.INFO)
-
-        # Instantly trigger live preview
         self.live_preview.update_now()
 
     def clear_editor(self):
         self.text_input.clear()
         self.live_preview.update_now()
+
+    # --- NEW: COPY CODE FUNCTION ---
+    def copy_editor_code(self):
+        """Copies the text from the PlantUML editor directly to the clipboard."""
+        code_text = self.text_input.toPlainText().strip()
+        if code_text:
+            QApplication.clipboard().setText(code_text)
+            self.log_message("📄 Source code copied to clipboard.", logging.INFO)
+        else:
+            self.log_message("⚠️ Editor is empty. Nothing to copy.", logging.WARNING)
 
     def open_template_docs(self):
         selected = self.template_combo.currentText()
