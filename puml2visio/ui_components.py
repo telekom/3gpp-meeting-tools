@@ -105,6 +105,12 @@ GLOBAL_STYLE = """
         color: #FFFFFF;
         border-radius: 4px;
     }
+    /* Toggled/Checked State for Live View Button */
+    QPushButton:checked {
+        background-color: #EBF3FC;
+        border: 2px solid #395396;
+        color: #395396;
+    }
 """
 
 

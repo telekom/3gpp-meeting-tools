@@ -2,9 +2,9 @@
 
 An advanced desktop application designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
 
-Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence diagrams and instantly export them as fully editable native Office shapes.
+Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence and activity diagrams and instantly export them as fully editable native Office shapes.
 
-> **🤖 AI-Assisted Development:** > The architecture, UI polishing, and complex Microsoft COM automation in this project were heavily co-developed using advanced Large Language Models (LLMs), allowing for rapid iteration and deep integration into native Windows APIs.
+> **🤖 AI-Assisted Development:** > The architecture, UI polishing, and complex Microsoft COM automation in this project were heavily co-developed using Large Language Models (LLMs), allowing for rapid iteration and deep integration into native Windows APIs.
 
 ---
 
@@ -21,12 +21,13 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ## <a id="features"></a>✨ Features
 
-* **Visio Integration:** Generates native `.vsdx` files from PlantUML text. Intelligently strips structural SVG wrappers so shapes are easily editable.
-* **Native PowerPoint Export (The EMF Pipeline):** Bypasses PowerPoint's buggy SVG engine by silently piping the diagram through Visio to generate a Microsoft **Enhanced Metafile (.emf)**. This guarantees a flawless, natively ungroupable Office Drawing object without relying on fragile UI macros.
-* **Flawless Round-Tripping:** Embeds your original PlantUML source code directly into the Visio Page or PowerPoint Speaker Notes. Drop a generated file back into the app to retrieve your source code!
+* **Real-Time Live Preview:** A debounced, background rendering engine that automatically pipes your PlantUML code to a live browser tab as you type. 
+* **Intelligent 2D Text Parsing:** Bypasses Visio's text-shattering limitations by measuring X/Y coordinates and pixel gaps. This guarantees that side-by-side branch labels in Activity Diagrams (like `yes` / `no`) remain completely separate, rather than merging into single overlapping shapes.
+* **Native PowerPoint Export (The EMF Pipeline):** Bypasses PowerPoint's buggy SVG engine by silently piping the diagram through Visio to generate a Microsoft **Enhanced Metafile (.emf)**. This guarantees a flawless, natively ungroupable Office Drawing object.
+* **Bulletproof Java Discovery Engine:** Bypasses stale Windows Terminal paths by actively scanning both `PATH` variables and raw Windows Registry entries to automatically locate and utilize the highest installed Java version (perfectly parsing modern tags like `25.0.3+9`).
+* **Smart Proxy & JAR Synchronization:** Automatically downloads the correct PlantUML version architecture (`modern` vs `legacy`). Includes a built-in proxy tester to ping GitHub before saving network settings.
 * **Word Document Extractor:** Extracts hidden, embedded Visio (`.vsdx`) files natively trapped inside Word Document (`.docx`) OLE wrappers.
-* **Smart Queue Viewer:** A professional, IDE-style queue manager lets you batch hundreds of files, monitor live processing status, and remove queued items on the fly.
-* **Intelligent Auto-Setup:** Automatically detects your Java environment and downloads the correct `plantuml.jar` on first launch (with Corporate Proxy support).
+* **Modular UI Architecture:** Built on a clean, maintainable, multi-file UI standard with a professional, IDE-style queue manager.
 
 ---
 
@@ -34,13 +35,18 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ```mermaid
 graph TD
+    subgraph UI Architecture
+        M[main_window.py] --> UI[ui_components.py]
+        M --> LP[live_preview.py]
+    end
+
     subgraph Input
-        A[PlantUML Text / .puml]
+        A[PlantUML Text Editor]
         W[Word Document .docx]
     end
 
     subgraph Core Engines
-        J[Java: plantuml.jar]
+        J[Java Registry Scanner<br>& plantuml.jar]
         P[Python ZIP Extractor]
     end
 
@@ -53,10 +59,16 @@ graph TD
         OutV[Visio .vsdx]
         OutP[PowerPoint .pptx<br>Native Shapes]
         OutS[Standard .svg]
+        OutB[Local Web Browser<br>Live Preview]
     end
 
-    A -- "1. Parse" --> J
-    J -- "2. Generate" --> SVG[Intermediate SVG]
+    M -- "Read Code" --> A
+    A -- "Debounced Edit" --> LP
+    LP -- "Background Render" --> J
+    J -- "Render to %TEMP%" --> OutB
+
+    A -- "1. Parse & Measure 2D Gaps" --> J
+    J -- "2. Generate" --> SVG[Cleaned Intermediate SVG]
     
     SVG -- "3a. Import & Ungroup" --> V
     V --> OutV
@@ -70,8 +82,6 @@ graph TD
     
     W -- "Unzip & Scan OLE .bin" --> P
     P -- "Extract" --> OutV
-
-    OutV -. "Drag & Drop to App" .-> A
 ```
 
 ---
@@ -82,7 +92,7 @@ Because this application relies heavily on Microsoft's Component Object Model (C
 
 1. **Windows OS** (Required for COM automation).
 2. **Microsoft Visio** and **Microsoft PowerPoint** installed locally.
-3. **Java Runtime Environment (JRE)** (Java 11+ recommended to support the newest PlantUML features; Java 8 minimum).
+3. **Java Runtime Environment (JRE)** (Java 11+ recommended to support the newest PlantUML features; Java 8 minimum. The tool will auto-detect the best version).
 4. **Python 3.8+**
 
 ---
@@ -105,7 +115,7 @@ Because this application relies heavily on Microsoft's Component Object Model (C
    ```bash
    python puml2visio.py
    ```
-   *Note: On first launch, the app will automatically attempt to download `plantuml.jar`. If you are behind a corporate firewall, a proxy configuration dialog will appear to assist.*
+   *Note: On first launch, the app will automatically attempt to download `plantuml.jar`. If you are behind a corporate firewall, a proxy configuration dialog will appear to assist. You can click "Test Connection" to verify your proxy credentials.*
 
 ---
 
@@ -113,37 +123,10 @@ Because this application relies heavily on Microsoft's Component Object Model (C
 
 The application features three main workspaces navigated via tabs, with a fully resizable bottom terminal and queue viewer.
 
-```mermaid
-stateDiagram-v2
-    direction LR
-    [*] --> GUI
-
-    state GUI {
-        Tab1: 📝 Paste Code
-        Tab2: 📂 Drag & Drop
-        Tab3: 📄 Word Extractor
-    }
-
-    Tab1 --> ExportOptions: Type/Paste Code
-    Tab1 --> ExtractCode: Drop Generated .vsdx
-    
-    ExportOptions --> SVG
-    ExportOptions --> Visio
-    ExportOptions --> PowerPoint
-
-    Tab2 --> BatchConvert: Drop .puml files
-    BatchConvert --> QueueViewer
-
-    Tab3 --> UnzipDoc: Drop .docx
-    UnzipDoc --> ExtractedVisioFiles
-    
-    QueueViewer --> Visio
-    QueueViewer --> PowerPoint
-```
-
 ### 📝 Tab 1: Paste Code (Single Diagram Mode)
-* **Generate:** Paste your PlantUML sequence diagram code into the text box. Click `Export Visio`, `Export PPTX`, or `Export SVG`. The application will generate the file, copy its path to your clipboard, and automatically open it.
-* **Round-Trip Extract:** If you previously generated a Visio file using this tool, drag and drop the `.vsdx` file directly into the text box. The app will instantly read the Visio file and paste your original source code back onto the screen.
+* **Live Preview:** Click the `👁️ Live Preview` toggle. The app will open a browser tab and automatically render your diagram as you type (waits for a 750ms pause to save CPU). Note: Un-toggling stops the rendering, but you must close the browser tab manually.
+* **Export:** Paste your PlantUML diagram code into the text box. Click `Export Visio`, `Export PPTX`, or `Export SVG`. The application will generate the file, copy its path to your clipboard, and automatically open it.
+* **Round-Trip Extract:** If you previously generated a Visio file using this tool, drag and drop the `.vsdx` file directly into the text box to instantly retrieve your original source code.
 
 ### 📂 Tab 2: Drag & Drop Files (Batch Mode)
 * Drag a selection of `.txt` or `.puml` files from your file explorer and drop them onto the dashed area. 
@@ -151,13 +134,17 @@ stateDiagram-v2
 
 ### 📄 Tab 3: Word Extractor
 * When collaborating on 3GPP standards, Visio files are often deeply embedded inside Word documents as OLE objects. 
-* Drag and drop a `.docx` file onto this tab. The app will bypass Word entirely, unzip the `.docx` archive in milliseconds, locate the binary Visio embeddings, extract them as clean `.vsdx` files, and place them right next to your original Word document.
+* Drag and drop a `.docx` file onto this tab. The app will unzip the `.docx` archive in milliseconds, extract the clean `.vsdx` files, and place them right next to your original Word document.
+
+### 🛠 System Toolbar (Console Header)
+* **📡 Proxy:** Update your network configuration on the fly and test the connection to GitHub.
+* **🔄 Update JAR:** Force the application to ping GitHub and check if a newer version of PlantUML is available to download.
 
 ---
 
 ## <a id="troubleshooting"></a>🛠️ Known Quirks / Troubleshooting
 
-* **PowerPoint "Leave Open" Behavior:** Unlike Visio exports (which save silently to your disk), clicking `Export PPTX` intentionally leaves the generated PowerPoint presentation open and unsaved on your screen. This allows you to immediately copy the generated slide and paste it directly into your master slide deck. 
+* **PowerPoint "Leave Open" Behavior:** Unlike Visio exports (which save silently to your disk), clicking `Export PPTX` intentionally leaves the generated PowerPoint presentation open and unsaved on your screen. This allows you to immediately copy the generated slide and paste it directly into your master deck. 
 * **COM Errors:** If Visio or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory. If you start receiving `COM Error` messages in the app console, open Windows Task Manager and end any lingering background processes for `Visio.exe` or `PowerPoint.exe`.
 * **Missing Visio Source Code Alignment:** Modifying the PlantUML `textLength` attributes manually might cause Visio text boxes to behave erratically. The tool automatically cleans standard SVG artifacts, but highly customized `skinparam` settings may override this.
 
