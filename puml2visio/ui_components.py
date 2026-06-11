@@ -3,7 +3,6 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QLabel, QFormLayout,
                              QLineEdit, QCheckBox, QHBoxLayout, QPushButton,
                              QTextEdit, QPlainTextEdit, QWidget, QApplication)
 from PyQt5.QtCore import Qt, pyqtSignal, QRect, QSize
-# --- NEW: Added QIcon, QPixmap, QColor, QFont, QPainter for dynamic icon generation ---
 from PyQt5.QtGui import QPainter, QColor, QTextFormat, QIcon, QPixmap, QFont
 
 # ==========================================
@@ -77,6 +76,28 @@ GLOBAL_STYLE = """
         background-color: #15426E;
     }
 
+    /* Dropdown Menus (Export Button) */
+    QMenu {
+        background-color: #FFFFFF;
+        border: 1px solid #CCCCCC;
+        border-radius: 6px;
+        padding: 4px;
+    }
+    QMenu::item {
+        padding: 8px 24px 8px 12px;
+        border-radius: 4px;
+        font-size: 13px;
+        color: #333333;
+    }
+    QMenu::item:selected {
+        background-color: #EBF3FC;
+        color: #395396;
+        font-weight: bold;
+    }
+    QPushButton::menu-indicator {
+        width: 0px; 
+    }
+
     /* Splitter Handle */
     QSplitter::handle {
         background-color: #E0E0E0;
@@ -131,19 +152,16 @@ GLOBAL_STYLE = """
 
 
 def create_app_icon():
-    """Dynamically generates a beautiful, scalable vector icon in memory."""
     pixmap = QPixmap(64, 64)
     pixmap.fill(Qt.transparent)
 
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
 
-    # Draw a sleek blue rounded rectangle background
     painter.setBrush(QColor("#1E5C99"))
     painter.setPen(Qt.NoPen)
     painter.drawRoundedRect(4, 4, 56, 56, 12, 12)
 
-    # Draw "P2V" text centered in white
     painter.setPen(QColor("#FFFFFF"))
     font = QFont("Segoe UI", 16, QFont.Bold)
     painter.setFont(font)

@@ -8,7 +8,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QTabWidget, QSplitter, QStatusBar,
                              QListWidget, QLabel, QTextEdit, QApplication, QDialog,
-                             QComboBox)
+                             QComboBox, QMenu, QAction)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
@@ -122,25 +122,31 @@ class DragDropUI(QMainWindow):
         self.copy_btn.clicked.connect(self.copy_out_path)
         self.copy_btn.setToolTip("Copy the file path of the last generated diagram.")
 
-        # --- NEW: OPEN FOLDER BUTTON ---
         self.open_folder_btn = QPushButton("📂 Open Folder")
         self.open_folder_btn.clicked.connect(self.open_export_folder)
         self.open_folder_btn.setToolTip("Open the working directory where files are saved.")
 
-        self.convert_svg_btn = QPushButton("Export SVG")
-        self.convert_svg_btn.setObjectName("svgBtn")
-        self.convert_svg_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("svg"))
-        self.convert_svg_btn.setToolTip("Generate a standard, scalable vector graphic (.svg) and open it.")
+        # --- NEW: COLLAPSED EXPORT DROPDOWN MENU ---
+        self.export_btn = QPushButton("📤 Export Diagram ▼")
+        self.export_btn.setObjectName("primaryBtn")
+        self.export_btn.setToolTip("Export your PlantUML code to various formats.")
 
-        self.convert_pptx_btn = QPushButton("Export PPTX")
-        self.convert_pptx_btn.setObjectName("pptBtn")
-        self.convert_pptx_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("pptx"))
-        self.convert_pptx_btn.setToolTip("Generate a PowerPoint slide containing natively editable Office shapes.")
+        export_menu = QMenu(self)
 
-        self.convert_vsdx_btn = QPushButton("Export Visio")
-        self.convert_vsdx_btn.setObjectName("primaryBtn")
-        self.convert_vsdx_btn.clicked.connect(lambda: self._save_and_queue_pasted_text("vsdx"))
-        self.convert_vsdx_btn.setToolTip("Generate a perfectly aligned, natively editable Visio diagram (.vsdx).")
+        visio_action = QAction("To Visio (.vsdx)", self)
+        visio_action.triggered.connect(lambda: self._save_and_queue_pasted_text("vsdx"))
+        export_menu.addAction(visio_action)
+
+        pptx_action = QAction("To PowerPoint (.pptx)", self)
+        pptx_action.triggered.connect(lambda: self._save_and_queue_pasted_text("pptx"))
+        export_menu.addAction(pptx_action)
+
+        svg_action = QAction("To Vector Graphic (.svg)", self)
+        svg_action.triggered.connect(lambda: self._save_and_queue_pasted_text("svg"))
+        export_menu.addAction(svg_action)
+
+        self.export_btn.setMenu(export_menu)
+        # ------------------------------------------
 
         btn_layout.addWidget(self.clear_btn)
         btn_layout.addWidget(self.undo_btn)
@@ -150,9 +156,7 @@ class DragDropUI(QMainWindow):
         btn_layout.addStretch()
         btn_layout.addWidget(self.copy_btn)
         btn_layout.addWidget(self.open_folder_btn)
-        btn_layout.addWidget(self.convert_svg_btn)
-        btn_layout.addWidget(self.convert_pptx_btn)
-        btn_layout.addWidget(self.convert_vsdx_btn)
+        btn_layout.addWidget(self.export_btn)
 
         tab_text_layout.addWidget(self.text_input)
         tab_text_layout.addLayout(btn_layout)
@@ -337,9 +341,7 @@ class DragDropUI(QMainWindow):
         else:
             self.log_message("⚠️ Editor is empty. Nothing to copy.", logging.WARNING)
 
-    # --- NEW: OPEN EXPORT FOLDER FUNCTION ---
     def open_export_folder(self):
-        """Opens the working directory in the native Windows file explorer."""
         export_dir = Path(__file__).parent.resolve()
         try:
             os.startfile(export_dir)
