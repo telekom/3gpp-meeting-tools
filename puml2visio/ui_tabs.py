@@ -176,7 +176,7 @@ class WordExtractorTab(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
         self.drop_label = InteractiveDropLabel(
-            "📥 Drag && Drop your Microsoft Word (.docx) file here\n\nExtracts all embedded Visio diagrams to the file's folder.",
+            "📥 Drag & Drop your Microsoft Word (.docx) file here\n\nExtracts all embedded Visio diagrams to the file's folder.",
             ['.docx'])
         self.drop_label.file_dropped.connect(lambda files: self.file_dropped.emit(files[0]))
         layout.addWidget(self.drop_label)
