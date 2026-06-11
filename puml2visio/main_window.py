@@ -19,6 +19,7 @@ from word_extractor import WordExtractorThread
 from visio_converter import VisioReaderThread
 from live_preview import LivePreviewManager
 from plantuml_templates import PLANTUML_TYPES
+from ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
 
 
 class DragDropUI(QMainWindow):
@@ -98,6 +99,8 @@ class DragDropUI(QMainWindow):
         self.console_panel = ConsolePanel()
         self.console_panel.proxy_requested.connect(self.open_proxy_settings)
         self.console_panel.update_requested.connect(self.check_for_jar_updates)
+
+        self.console_panel.task_manager_requested.connect(lambda: ProcessManagerDialog(self).exec_())
 
         self.queue_panel = QueuePanel()
 

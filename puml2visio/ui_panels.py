@@ -1,13 +1,117 @@
 import logging
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QLabel, QTextEdit, QListWidget, QApplication)
-from PyQt5.QtCore import pyqtSignal
+                             QLabel, QTextEdit, QListWidget, QApplication, QDialog, QFrame)
+from PyQt5.QtCore import pyqtSignal, Qt, QTimer
+
+from process_manager import ProcessManager
+
+
+class ProcessManagerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("COM Process Manager")
+        self.setModal(True)
+        self.resize(450, 300)
+        self.setStyleSheet("background-color: #FAFAFA;")
+
+        self.apps = {
+            "Microsoft Visio": "visio",
+            "Microsoft PowerPoint": "powerpnt",
+            "Microsoft Word": "winword"
+        }
+        self.rows = {}
+
+        self._setup_ui()
+        self._refresh_stats()
+
+        # Auto-refresh stats every 2 seconds while dialog is open
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._refresh_stats)
+        self.timer.start(2000)
+
+    def _setup_ui(self):
+        layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        title = QLabel("🖥️ Active Office Processes")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #333; margin-bottom: 10px;")
+        layout.addWidget(title)
+
+        desc = QLabel(
+            "Identify and kill background processes left hanging by crashes. 'Ghosts' are headless instances without a visible UI window.")
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #666; margin-bottom: 15px;")
+        layout.addWidget(desc)
+
+        for display_name, exe_name in self.apps.items():
+            row_widget = QFrame()
+            row_widget.setStyleSheet(
+                "background-color: white; border: 1px solid #DDD; border-radius: 6px; padding: 10px;")
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(10, 5, 10, 5)
+
+            lbl_name = QLabel(display_name)
+            lbl_name.setStyleSheet("font-weight: bold; font-size: 13px; border: none;")
+
+            lbl_stats = QLabel("Total: 0 | Ghosts: 0")
+            lbl_stats.setStyleSheet("color: #888; font-size: 12px; border: none;")
+
+            btn_kill_ghosts = QPushButton("Kill Ghosts")
+            btn_kill_ghosts.setStyleSheet(
+                "background-color: #FDF4F0; color: #D83B01; border: 1px solid #F3C3B1; padding: 4px 10px;")
+            btn_kill_ghosts.clicked.connect(lambda _, app=exe_name: self._kill(app, True))
+
+            btn_kill_all = QPushButton("Kill All")
+            btn_kill_all.setStyleSheet(
+                "background-color: #FDEDED; color: #D32F2F; border: 1px solid #E5A4A4; padding: 4px 10px;")
+            btn_kill_all.clicked.connect(lambda _, app=exe_name: self._kill(app, False))
+
+            row_layout.addWidget(lbl_name)
+            row_layout.addStretch()
+            row_layout.addWidget(lbl_stats)
+            row_layout.addWidget(btn_kill_ghosts)
+            row_layout.addWidget(btn_kill_all)
+
+            layout.addWidget(row_widget)
+            self.rows[exe_name] = lbl_stats
+
+        layout.addStretch()
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignRight)
+
+        self.setLayout(layout)
+
+    def _refresh_stats(self):
+        data = ProcessManager.get_process_stats()
+
+        # Reset counters
+        stats = {exe: {"total": 0, "ghosts": 0} for exe in self.apps.values()}
+
+        for p in data:
+            exe = p["Name"].lower()
+            if exe in stats:
+                stats[exe]["total"] += 1
+                if p["IsGhost"]:
+                    stats[exe]["ghosts"] += 1
+
+        # Update UI labels
+        for exe, data in stats.items():
+            color = "#D32F2F" if data["ghosts"] > 0 else "#6A9955"
+            ghost_text = f"<span style='color: {color}; font-weight: bold;'>Ghosts: {data['ghosts']}</span>"
+            self.rows[exe].setText(f"Total: {data['total']}  |  {ghost_text}")
+
+    def _kill(self, app_name, ghosts_only):
+        ProcessManager.kill_processes(app_name, ghosts_only)
+        self._refresh_stats()
 
 
 class ConsolePanel(QWidget):
     # --- Signals ---
     proxy_requested = pyqtSignal()
     update_requested = pyqtSignal()
+    task_manager_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -20,6 +124,13 @@ class ConsolePanel(QWidget):
         header = QHBoxLayout()
         lbl = QLabel("Terminal Output")
         lbl.setStyleSheet("font-weight: bold; color: #555;")
+
+        # --- NEW TASK MANAGER BUTTON ---
+        self.task_btn = QPushButton("🖥️ Task Manager")
+        self.task_btn.setFixedSize(110, 24)
+        self.task_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.task_btn.setToolTip("Manage hanging background COM processes.")
+        self.task_btn.clicked.connect(self.task_manager_requested.emit)
 
         self.proxy_btn = QPushButton("📡 Proxy")
         self.proxy_btn.setFixedSize(70, 24)
@@ -40,6 +151,7 @@ class ConsolePanel(QWidget):
 
         header.addWidget(lbl)
         header.addStretch()
+        header.addWidget(self.task_btn)
         header.addWidget(self.proxy_btn)
         header.addWidget(self.update_btn)
         header.addWidget(self.clear_btn)
@@ -56,7 +168,6 @@ class ConsolePanel(QWidget):
         self.console.clear()
 
     def log_message(self, message: str, level=logging.INFO):
-        """Handles HTML color coding and auto-scrolling."""
         color = "#D4D4D4"
         if "❌" in message or "Error" in message:
             color = "#F44747"
@@ -74,8 +185,7 @@ class ConsolePanel(QWidget):
 
 
 class QueuePanel(QWidget):
-    # --- Signals ---
-    remove_requested = pyqtSignal(list)  # Emits a list of row integers to delete
+    remove_requested = pyqtSignal(list)
     clear_requested = pyqtSignal()
 
     def __init__(self):
@@ -116,12 +226,10 @@ class QueuePanel(QWidget):
         self.setLayout(layout)
 
     def update_list(self, display_items: list):
-        """Re-draws the list with the provided formatted strings."""
         self.queue_list.clear()
         self.queue_list.addItems(display_items)
 
     def _on_remove_clicked(self):
-        """Finds which rows the user highlighted and passes them to the Traffic Cop."""
         selected_items = self.queue_list.selectedItems()
         if not selected_items: return
 
