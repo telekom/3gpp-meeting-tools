@@ -25,6 +25,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Rich Export Engine:** * **Visio (.vsdx):** Perfect alignment via 2D SVG gap-measuring.
   * **PowerPoint (.pptx):** Bypasses buggy SVG engines via an EMF pipeline for natively ungroupable objects.
   * **ASCII Text Art (.txt):** Uses PlantUML's `-tutxt` engine to generate clean Unicode text diagrams for markdown or RFC specs.
+* **Built-in COM Process Manager:** A native "kill switch" dialog that safely identifies and terminates headless "ghost" instances of Visio, PowerPoint, or Word left hanging in memory by background crashes, preventing file locks and memory leaks.
 * **Native Windows Integration:** Automatically applies a dynamic vector App Icon to the Windows Taskbar (bypassing the generic Python logo), features an "Open Folder" explorer hook, and dynamically copies generated file paths to your clipboard.
 * **Word Document Extractor:** Extracts hidden, embedded Visio (`.vsdx`) files natively trapped inside Word Document (`.docx`) OLE wrappers.
 * **Modular MVC Architecture:** Built on a decoupled UI standard, utilizing dedicated UI Tabs, UI Panels, and a centralized Python `QueueManager` to handle threading without locking the GUI.
@@ -50,6 +51,7 @@ graph TD
         Q --> V[visio_converter.py<br>COM Automation]
         Q --> PPT[powerpoint_converter.py]
         T --> LP[live_preview.py<br>Error Interceptor]
+        P --> PM[process_manager.py<br>OS Process Monitor]
     end
 
     subgraph Output
@@ -72,6 +74,8 @@ graph TD
     PPT --> OutP
     
     Q -- "2c. Unicode Render" --> OutA
+    
+    PM -- "Identify/Kill Ghosts" --> V
 ```
 
 ---
@@ -129,6 +133,7 @@ The application features three main workspaces navigated via tabs, with a fully 
 * Drag and drop a `.docx` file onto this tab. The app will unzip the archive in milliseconds, extract the clean `.vsdx` files, and place them right next to your original Word document.
 
 ### 🛠 System Toolbar (Console Header)
+* **🖥️ Task Manager:** Open the COM Process Manager to identify and kill background headless instances of Visio or PowerPoint that may have crashed.
 * **📡 Proxy:** Update your network configuration on the fly and test the connection to GitHub.
 * **🔄 Update JAR:** Force the application to ping GitHub and check if a newer version of PlantUML is available to download.
 
@@ -137,5 +142,6 @@ The application features three main workspaces navigated via tabs, with a fully 
 ## <a id="troubleshooting"></a>🛠️ Known Quirks / Troubleshooting
 
 * **PowerPoint "Leave Open" Behavior:** Unlike Visio exports (which save silently to your disk), clicking `Export PPTX` intentionally leaves the generated PowerPoint presentation open and unsaved on your screen. This allows you to immediately copy the generated slide and paste it directly into your master deck. 
-* **COM Errors:** If Visio or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory. If you start receiving `COM Error` messages in the app console, open Windows Task Manager and end any lingering background processes for `Visio.exe` or `PowerPoint.exe`.
+* **COM Errors & File Locks:** If Visio or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory and lock your files. If you start receiving `COM Error` messages, click the **🖥️ Task Manager** button in the app console and click **Kill Ghosts** to instantly clear them out without losing your active work.
 * **Missing Visio Source Code Alignment:** Modifying the PlantUML `textLength` attributes manually might cause Visio text boxes to behave erratically. The tool automatically cleans standard SVG artifacts, but highly customized `skinparam` settings may override this.
+
