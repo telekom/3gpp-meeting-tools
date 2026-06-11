@@ -36,17 +36,17 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ```mermaid
 graph TD
-    subgraph UI (View)
+    subgraph view [UI View]
         E[puml2visio.py<br>Entry Point] --> M[main_window.py<br>The Traffic Cop]
         M --> T[ui_tabs.py<br>Code Editor & Drop Zones]
         M --> P[ui_panels.py<br>Console & Task Manager]
     end
 
-    subgraph Controller
+    subgraph controller [Controller]
         M --> Q[queue_manager.py<br>Thread Orchestration]
     end
 
-    subgraph Core Engines (Model)
+    subgraph model [Core Engines - Model]
         Q --> J[utils.py<br>Java Registry Scanner]
         Q --> V[visio_converter.py<br>COM Automation]
         Q --> PPT[powerpoint_converter.py]
@@ -55,7 +55,7 @@ graph TD
         P --> PM[process_manager.py<br>OS Process Monitor]
     end
 
-    subgraph Output
+    subgraph output [Output]
         OutV[Visio .vsdx]
         OutP[PowerPoint .pptx<br>Native Shapes]
         OutA[ASCII .txt]
