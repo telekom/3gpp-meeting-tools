@@ -7,7 +7,7 @@ from plantuml_templates import PLANTUML_TYPES
 
 
 class CodeEditorTab(QWidget):
-    # --- Custom Signals (These talk to the Traffic Cop) ---
+    # --- Custom Signals ---
     template_requested = pyqtSignal(str)
     docs_requested = pyqtSignal(str)
     clear_requested = pyqtSignal()
@@ -100,20 +100,28 @@ class CodeEditorTab(QWidget):
         self.export_btn.setToolTip("Export your PlantUML code to various formats.")
 
         export_menu = QMenu(self)
+        # Force PyQt to render hover tooltips inside the floating menu
+        export_menu.setToolTipsVisible(True)
 
         visio_action = QAction("To Visio (.vsdx)", self)
+        visio_action.setToolTip("Saves to disk and natively opens a fully editable, perfectly aligned Visio diagram.")
         visio_action.triggered.connect(lambda: self.export_requested.emit("vsdx"))
         export_menu.addAction(visio_action)
 
         pptx_action = QAction("To PowerPoint (.pptx)", self)
+        pptx_action.setToolTip(
+            "Generates Office shapes and leaves PowerPoint open (UNSAVED) so you can instantly copy the slide.")
         pptx_action.triggered.connect(lambda: self.export_requested.emit("pptx"))
         export_menu.addAction(pptx_action)
 
         svg_action = QAction("To Vector Graphic (.svg)", self)
+        svg_action.setToolTip(
+            "Saves to disk and opens a standard, scalable vector image (.svg) in your default web browser or viewer.")
         svg_action.triggered.connect(lambda: self.export_requested.emit("svg"))
         export_menu.addAction(svg_action)
 
         ascii_action = QAction("To Text Art (.txt)", self)
+        ascii_action.setToolTip("Saves to disk and opens clean Unicode text-art in your default text editor.")
         ascii_action.triggered.connect(lambda: self.export_requested.emit("ascii"))
         export_menu.addAction(ascii_action)
 
