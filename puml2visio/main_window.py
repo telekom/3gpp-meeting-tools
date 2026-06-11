@@ -2,13 +2,13 @@ import logging
 import datetime
 import urllib.request
 import webbrowser
+import os
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QTabWidget, QSplitter, QStatusBar,
                              QListWidget, QLabel, QTextEdit, QApplication, QDialog,
                              QComboBox)
-# --- NEW IMPORTS FOR AUTO-SAVE AND UNDO ---
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
@@ -34,16 +34,14 @@ class DragDropUI(QMainWindow):
 
         self._setup_ui()
 
-        # --- NEW: AUTO-SAVE CACHE ---
         self.cache_file = Path(__file__).parent.resolve() / ".editor_cache.puml"
         self._load_cache()
 
         self.save_timer = QTimer()
         self.save_timer.setSingleShot(True)
-        self.save_timer.setInterval(2000)  # Save 2 seconds after typing stops
+        self.save_timer.setInterval(2000)
         self.save_timer.timeout.connect(self.save_cache)
         self.text_input.textChanged.connect(self.save_timer.start)
-        # -----------------------------
 
         self.live_preview = LivePreviewManager(self.text_input, self.jar_path)
         self.live_preview.log_msg.connect(self.log_message)
@@ -102,7 +100,6 @@ class DragDropUI(QMainWindow):
         self.clear_btn.clicked.connect(self.clear_editor)
         self.clear_btn.setToolTip("Clear the text editor.")
 
-        # --- NEW: UNDO BUTTON ---
         self.undo_btn = QPushButton("↩️ Undo")
         self.undo_btn.clicked.connect(self.text_input.undo)
         self.undo_btn.setToolTip("Undo the last action (typing, clear, or template insert).")
@@ -124,6 +121,11 @@ class DragDropUI(QMainWindow):
         self.copy_btn.setEnabled(False)
         self.copy_btn.clicked.connect(self.copy_out_path)
         self.copy_btn.setToolTip("Copy the file path of the last generated diagram.")
+
+        # --- NEW: OPEN FOLDER BUTTON ---
+        self.open_folder_btn = QPushButton("📂 Open Folder")
+        self.open_folder_btn.clicked.connect(self.open_export_folder)
+        self.open_folder_btn.setToolTip("Open the working directory where files are saved.")
 
         self.convert_svg_btn = QPushButton("Export SVG")
         self.convert_svg_btn.setObjectName("svgBtn")
@@ -147,6 +149,7 @@ class DragDropUI(QMainWindow):
         btn_layout.addWidget(self.planttext_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.copy_btn)
+        btn_layout.addWidget(self.open_folder_btn)
         btn_layout.addWidget(self.convert_svg_btn)
         btn_layout.addWidget(self.convert_pptx_btn)
         btn_layout.addWidget(self.convert_vsdx_btn)
@@ -282,7 +285,7 @@ class DragDropUI(QMainWindow):
         self.init_thread.network_error.connect(self.open_proxy_settings)
         self.init_thread.start()
 
-    # --- NEW: AUTO-SAVE LOGIC ---
+    # --- AUTO-SAVE LOGIC ---
     def _load_cache(self):
         if self.cache_file.exists():
             try:
@@ -294,27 +297,23 @@ class DragDropUI(QMainWindow):
                 self.log_message(f"⚠️ Could not load previous session: {e}", logging.WARNING)
 
     def save_cache(self):
-        """Silently saves the editor content to a local cache file."""
         try:
             self.cache_file.write_text(self.text_input.toPlainText(), encoding="utf-8")
         except Exception:
             pass
 
     def closeEvent(self, event):
-        """Ensures the editor text is saved if the application is closed."""
         self.save_cache()
         super().closeEvent(event)
 
     # --- UI INTERACTION LOGIC ---
     def _set_editor_text(self, text):
-        """Replaces text using the cursor so the action can be natively undone."""
         cursor = self.text_input.textCursor()
         cursor.beginEditBlock()
         cursor.select(QTextCursor.Document)
         cursor.insertText(text)
         cursor.endEditBlock()
 
-        # Reset cursor to the top of the newly inserted text
         cursor.setPosition(0)
         self.text_input.setTextCursor(cursor)
         self.live_preview.update_now()
@@ -337,6 +336,16 @@ class DragDropUI(QMainWindow):
             self.log_message("📄 Source code copied to clipboard.", logging.INFO)
         else:
             self.log_message("⚠️ Editor is empty. Nothing to copy.", logging.WARNING)
+
+    # --- NEW: OPEN EXPORT FOLDER FUNCTION ---
+    def open_export_folder(self):
+        """Opens the working directory in the native Windows file explorer."""
+        export_dir = Path(__file__).parent.resolve()
+        try:
+            os.startfile(export_dir)
+            self.log_message(f"📂 Opened export directory: {export_dir}", logging.INFO)
+        except Exception as e:
+            self.log_message(f"❌ Failed to open directory: {e}", logging.ERROR)
 
     def open_template_docs(self):
         selected = self.template_combo.currentText()
@@ -547,7 +556,6 @@ class DragDropUI(QMainWindow):
 
             if out_path.lower().endswith('.svg'):
                 try:
-                    import os
                     os.startfile(out_path)
                     ext = Path(out_path).suffix[1:].upper()
                     self.log_message(f"👁️ Opened {ext} in default system viewer.")
