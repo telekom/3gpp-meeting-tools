@@ -163,7 +163,7 @@ class DragDropUI(QMainWindow):
                                      "⚙️ Processing Queue...\n\nPlease wait until finished or drop more files to queue them.")
         else:
             self.batch_tab.set_state("ready",
-                                     "📥 Drag && Drop your .puml or .txt file(s) here\n\n(Batch exports as Visio files)")
+                                     "📥 Drag & Drop your .puml or .txt file(s) here\n\n(Batch exports as Visio files)")
 
     def _set_editor_text(self, text):
         cursor = self.code_tab.text_input.textCursor()
