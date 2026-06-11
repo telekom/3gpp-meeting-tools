@@ -1,14 +1,13 @@
 import os
 import shutil
 import logging
+import re
 from pathlib import Path
-from docx import Document
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# --- CORRECTED IMPORTS ---
+from docx import Document
 from docx.oxml.text.paragraph import CT_P
 from docx.oxml.table import CT_Tbl
-# -------------------------
-
 from PyQt5.QtCore import QThread, pyqtSignal
 
 
@@ -30,13 +29,57 @@ class DocxSplitter:
         clean_parts = [p for p in parts if p.strip()]
         return len(clean_parts)
 
-    def split(self, target_clause_prefix: str, split_depth: int, output_dir: str):
+    def _prune_unused_media(self, doc):
+        """
+        Garbage Collector: Scans the surviving XML for active Relationship IDs (rId).
+        Deletes any hidden media/OLE relationships that are no longer used in the clause.
+        """
+        xml_str = doc.element.body.xml
+        # Find every relationship ID currently active in the text body
+        used_rids = set(re.findall(r'r:id="([^"]+)"', xml_str))
+
+        rels = doc.part.rels
+        for rId in list(rels.keys()):
+            if rId not in used_rids:
+                rel = rels[rId]
+                # Aggressively unlink heavy media types. (We leave styles/fonts alone).
+                if "image" in rel.reltype or "oleObject" in rel.reltype or "package" in rel.reltype:
+                    del rels[rId]
+
+    def _process_section(self, section, output_dir, progress_callback):
+        """The isolated task run by the parallel ThreadPool."""
+        out_file = Path(output_dir) / f"{section['title']}.docx"
+        shutil.copy(self.file_path, out_file)
+
+        sub_doc = Document(out_file)
+        sub_blocks = list(self.iter_block_items(sub_doc))
+
+        # Delete everything BEFORE the target clause
+        for block in sub_blocks[:section['start_idx']]:
+            block.getparent().remove(block)
+
+        # Delete everything AFTER the target clause
+        for block in sub_blocks[section['end_idx']:]:
+            block.getparent().remove(block)
+
+        # Run the Garbage Collector to remove orphaned Visio/Image bloat!
+        self._prune_unused_media(sub_doc)
+
+        sub_doc.save(out_file)
+
+        if progress_callback:
+            progress_callback(section['title'])
+
+        return out_file
+
+    def split(self, target_clause_prefix: str, split_depth: int, output_dir: str, progress_callback=None):
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         doc = Document(self.file_path)
         blocks = list(self.iter_block_items(doc))
         toc = []
 
+        # Build the Map
         for i, block in enumerate(blocks):
             if isinstance(block, CT_P):
                 from docx.text.paragraph import Paragraph
@@ -59,27 +102,23 @@ class DocxSplitter:
             raise ValueError(
                 f"Could not find any clauses matching prefix '{target_clause_prefix}' at depth {split_depth}.")
 
+        # Determine Boundaries
         for i in range(len(toc) - 1):
             toc[i]['end_idx'] = toc[i + 1]['start_idx']
 
         generated_files = []
-        for section in toc:
-            out_file = Path(output_dir) / f"{section['title']}.docx"
-            shutil.copy(self.file_path, out_file)
 
-            sub_doc = Document(out_file)
-            sub_blocks = list(self.iter_block_items(sub_doc))
+        # Calculate a safe thread limit to prevent RAM spikes (Max 3 threads)
+        safe_threads = min(3, os.cpu_count() or 1)
 
-            # Delete everything BEFORE the start index
-            for block in sub_blocks[:section['start_idx']]:
-                block.getparent().remove(block)
+        # Run the Subtractive Slicing in a THROTTLED Parallel Pool!
+        with ThreadPoolExecutor(max_workers=safe_threads) as executor:
+            futures = []
+            for section in toc:
+                futures.append(executor.submit(self._process_section, section, output_dir, progress_callback))
 
-            # Delete everything AFTER the end index
-            for block in sub_blocks[section['end_idx']:]:
-                block.getparent().remove(block)
-
-            sub_doc.save(out_file)
-            generated_files.append(out_file)
+            for future in as_completed(futures):
+                generated_files.append(future.result())
 
         return generated_files
 
@@ -93,20 +132,29 @@ class DocxSplitterThread(QThread):
         self.file_path = file_path
         self.prefix = prefix
         self.depth = depth
+        self.completed_count = 0
+
+    def _on_section_complete(self, section_title: str):
+        """Thread-safe callback triggered every time a parallel worker finishes a file."""
+        self.completed_count += 1
+        self.ui_log_msg.emit(f"   ↳ [{self.completed_count}] Extracted: {section_title}", logging.INFO)
 
     def run(self):
         try:
-            # Force the output to a subfolder named after the document
-            file_path = Path(self.file_path)
-            output_dir = file_path.parent / f"{file_path.stem}_split"
-
-            self.ui_log_msg.emit(f"⏳ Splitting document into subfolder: {output_dir.name}", 20)
+            self.ui_log_msg.emit(
+                f"⏳ Initiating parallel document slicing (Prefix: '{self.prefix}', Depth: {self.depth})...",
+                logging.INFO)
+            output_dir = Path(self.file_path).parent / f"{Path(self.file_path).stem}_split"
 
             splitter = DocxSplitter(self.file_path)
-            generated_files = splitter.split(self.prefix, self.depth, str(output_dir))
 
-            self.ui_log_msg.emit(f"✅ Created {len(generated_files)} files in: {output_dir}", 20)
+            # Pass our callback directly into the engine
+            generated_files = splitter.split(self.prefix, self.depth, str(output_dir), self._on_section_complete)
+
+            self.ui_log_msg.emit(
+                f"✅ Successfully split document into {len(generated_files)} optimized files at:\n{output_dir}",
+                logging.INFO)
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Splitter Error: {str(e)}", 40)
+            self.ui_log_msg.emit(f"❌ Splitter Error: {str(e)}", logging.ERROR)
         finally:
             self.finished.emit()
