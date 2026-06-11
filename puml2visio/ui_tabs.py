@@ -219,10 +219,11 @@ class WordExtractorTab(QWidget):
         self.setLayout(layout)
 
     def _handle_drop(self, files):
-        file_path = files[0]
-        if self.radio_extract.isChecked():
-            self.extract_visio_requested.emit(file_path)
-        else:
-            prefix = self.prefix_input.text().strip()
-            depth = self.depth_input.value()
-            self.split_doc_requested.emit(file_path, prefix, depth)
+        # We must loop through the drop array so batch-dropping Word docs actually works
+        for file_path in files:
+            if self.radio_extract.isChecked():
+                self.extract_visio_requested.emit(file_path)
+            else:
+                prefix = self.prefix_input.text().strip()
+                depth = self.depth_input.value()
+                self.split_doc_requested.emit(file_path, prefix, depth)
