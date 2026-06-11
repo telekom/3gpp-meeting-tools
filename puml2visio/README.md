@@ -1,8 +1,8 @@
 # 📊 PlantUML to Visio/PowerPoint Converter (3GPP Tools)
 
-An advanced desktop application designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
+An advanced, component-based desktop IDE designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
 
-Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams and instantly export them as fully editable native Office shapes.
+Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams and instantly export them as fully editable native Office shapes, SVGs, or Unicode Text Art.
 
 ---
 
@@ -19,14 +19,15 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ## <a id="features"></a>✨ Features
 
-* **Massive Diagram Support:** Includes built-in boilerplates and documentation links for **29 different diagram types**, ranging from standard UML (Sequence, Class, Activity) to highly specialized IT formats (`nwdiag` for Networks, `rackdiag` for Server Racks, and `packetdiag` for Protocol Headers).
-* **Real-Time Live Preview:** A debounced, background rendering engine that automatically pipes your PlantUML code to a live browser tab as you type. Includes instant-rendering bypasses when inserting templates.
-* **Intelligent 2D Text Parsing:** Bypasses Visio's text-shattering limitations by measuring X/Y coordinates and pixel gaps. This guarantees that side-by-side branch labels in Activity Diagrams (like `yes` / `no`) remain completely separate, rather than merging into single overlapping shapes.
-* **Native PowerPoint Export (The EMF Pipeline):** Bypasses PowerPoint's buggy SVG engine by silently piping the diagram through Visio to generate a Microsoft **Enhanced Metafile (.emf)**. This guarantees a flawless, natively ungroupable Office Drawing object.
-* **Bulletproof Java Discovery Engine:** Bypasses stale Windows Terminal paths by actively scanning both `PATH` variables and raw Windows Registry entries to automatically locate and utilize the highest installed Java version (perfectly parsing modern tags like `25.0.3+9`).
-* **Smart Proxy & JAR Synchronization:** Automatically downloads the correct PlantUML version architecture (`modern` vs `legacy`). Includes a built-in proxy tester to ping GitHub before saving network settings and an "Update JAR" button to poll for newer releases.
+* **Smart Code Editor:** A professional IDE experience featuring dynamic line numbering, active-line highlighting, native Undo/Redo history, and a background Auto-Save Cache that restores your session if the app is closed or crashes.
+* **Intelligent Live Preview:** A debounced background rendering engine that automatically pipes your PlantUML code to a live browser tab as you type. If you make a typo, it intercepts the Java crash and dynamically paints a red Syntax Error overlay (with the exact line number) directly in your browser.
+* **Enterprise Diagram Boilerplates:** Includes 29 built-in diagram templates ranging from standard UML to specialized IT formats (`nwdiag`, `rackdiag`, `packetdiag`). All UML templates are automatically styled with a flat, enterprise-ready "monochrome" theme (Arial font, white backgrounds, black lines) optimized for corporate documents.
+* **Rich Export Engine:** * **Visio (.vsdx):** Perfect alignment via 2D SVG gap-measuring.
+  * **PowerPoint (.pptx):** Bypasses buggy SVG engines via an EMF pipeline for natively ungroupable objects.
+  * **ASCII Text Art (.txt):** Uses PlantUML's `-tutxt` engine to generate clean Unicode text diagrams for markdown or RFC specs.
+* **Native Windows Integration:** Automatically applies a dynamic vector App Icon to the Windows Taskbar (bypassing the generic Python logo), features an "Open Folder" explorer hook, and dynamically copies generated file paths to your clipboard.
 * **Word Document Extractor:** Extracts hidden, embedded Visio (`.vsdx`) files natively trapped inside Word Document (`.docx`) OLE wrappers.
-* **Modular UI Architecture:** Built on a clean, maintainable, multi-file UI standard with a professional, IDE-style queue manager.
+* **Modular MVC Architecture:** Built on a decoupled UI standard, utilizing dedicated UI Tabs, UI Panels, and a centralized Python `QueueManager` to handle threading without locking the GUI.
 
 ---
 
@@ -34,56 +35,43 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ```mermaid
 graph TD
-    subgraph UI Architecture
-        E[puml2visio.py<br>Entry Point] --> M[main_window.py]
-        M --> UI[ui_components.py]
-        M --> TPL[plantuml_templates.py]
-        M --> LP[live_preview.py]
+    subgraph UI (View)
+        E[puml2visio.py<br>Entry Point] --> M[main_window.py<br>The Traffic Cop]
+        M --> T[ui_tabs.py<br>Code Editor & Drop Zones]
+        M --> P[ui_panels.py<br>Console & Queue]
     end
 
-    subgraph Input
-        A[PlantUML Text Editor]
-        W[Word Document .docx]
+    subgraph Controller
+        M --> Q[queue_manager.py<br>Thread Orchestration]
     end
 
-    subgraph Core Engines
-        J[utils.py<br>Java Registry Scanner & JAR]
-        P[word_extractor.py<br>ZIP & OLE Scanner]
-    end
-
-    subgraph Windows COM Automation
-        V[visio_converter.py]
-        PPT[powerpoint_converter.py]
+    subgraph Core Engines (Model)
+        Q --> J[utils.py<br>Java Registry Scanner]
+        Q --> V[visio_converter.py<br>COM Automation]
+        Q --> PPT[powerpoint_converter.py]
+        T --> LP[live_preview.py<br>Error Interceptor]
     end
 
     subgraph Output
         OutV[Visio .vsdx]
         OutP[PowerPoint .pptx<br>Native Shapes]
-        OutS[Standard .svg]
-        OutB[Local Web Browser<br>Live Preview]
+        OutA[ASCII .txt]
+        OutB[Browser Preview]
     end
 
-    M -- "Insert Template" --> A
-    M -- "Read Code" --> A
-    A -- "Debounced Edit" --> LP
-    LP -- "Background Render" --> J
-    J -- "Render to %TEMP%" --> OutB
-
-    A -- "1. Parse & Measure 2D Gaps" --> J
-    J -- "2. Generate" --> SVG[Cleaned Intermediate SVG]
+    T -- "Type / Edit" --> LP
+    LP -- "Render / Error Hook" --> OutB
     
-    SVG -- "3a. Import & Ungroup" --> V
+    T -- "Export Requested" --> Q
+    Q -- "1. Generate Clean SVG" --> J
+    
+    J -- "2a. Visio Pipeline" --> V
     V --> OutV
 
-    SVG -- "3b. Pipe through Visio" --> V
-    V -- "3c. Export EMF Vector" --> EMF[.emf File]
-    EMF -- "3d. Import & Natively Ungroup" --> PPT
+    J -- "2b. PowerPoint EMF Pipeline" --> PPT
     PPT --> OutP
-
-    SVG -- "3e. Save directly" --> OutS
     
-    W -- "Unzip & Scan OLE .bin" --> P
-    P -- "Extract" --> OutV
+    Q -- "2c. Unicode Render" --> OutA
 ```
 
 ---
@@ -125,19 +113,20 @@ Because this application relies heavily on Microsoft's Component Object Model (C
 
 The application features three main workspaces navigated via tabs, with a fully resizable bottom terminal and queue viewer.
 
-### 📝 Tab 1: Paste Code (Single Diagram Mode)
-* **Templates & Docs:** Use the dropdown menu at the top to select from 29 different diagram types. Click `Insert` to populate the editor with boilerplate code, or `Docs` to instantly open the official PlantUML syntax guide for that specific diagram.
-* **Live Preview:** Click the `👁️ Live Preview` toggle. The app will open a browser tab and automatically render your diagram as you type (waits for a 750ms pause to save CPU). If you insert a template or clear the editor, the preview updates instantly.
-* **Export:** Paste your PlantUML diagram code into the text box. Click `Export Visio`, `Export PPTX`, or `Export SVG`. The application will generate the file, copy its path to your clipboard, and automatically open it.
-* **Round-Trip Extract:** If you previously generated a Visio file using this tool, drag and drop the `.vsdx` file directly into the text box to instantly retrieve your original source code.
+### 📝 Tab 1: Code Editor (Single Diagram Mode)
+* **Templates & Docs:** Use the dropdown menu to select from 29 diagram types. Click `Insert` to populate the editor with an enterprise-styled boilerplate, or `Docs` to instantly open the official syntax guide.
+* **Auto-Save & Undo:** The editor automatically saves your work every 2 seconds to a hidden cache file. If you accidentally clear the editor, click `↩️ Undo` to restore it. 
+* **Live Preview:** Click `👁️ Live Preview`. The app will open a browser tab and automatically render your diagram as you type. If you make a syntax error, the browser will flash red and tell you exactly which line failed.
+* **Exporting:** Click the `📤 Export Diagram ▼` dropdown to select your target format (.vsdx, .pptx, .svg, or .txt). The application will generate the file, change the `Copy Path` tooltip, and allow you to click `📂 Open Folder` to instantly view the result in Windows Explorer.
+* **Round-Trip Extract:** Drag and drop a previously generated `.vsdx` file directly into the text box to instantly retrieve its original source code.
 
-### 📂 Tab 2: Drag & Drop Files (Batch Mode)
+### 📂 Tab 2: Batch Convert
 * Drag a selection of `.txt` or `.puml` files from your file explorer and drop them onto the dashed area. 
 * The application will queue them up in the **Queue Viewer** at the bottom right. You can select items in the queue and click `Remove` to cancel them before they process.
 
 ### 📄 Tab 3: Word Extractor
 * When collaborating on 3GPP standards, Visio files are often deeply embedded inside Word documents as OLE objects. 
-* Drag and drop a `.docx` file onto this tab. The app will unzip the `.docx` archive in milliseconds, extract the clean `.vsdx` files, and place them right next to your original Word document.
+* Drag and drop a `.docx` file onto this tab. The app will unzip the archive in milliseconds, extract the clean `.vsdx` files, and place them right next to your original Word document.
 
 ### 🛠 System Toolbar (Console Header)
 * **📡 Proxy:** Update your network configuration on the fly and test the connection to GitHub.
