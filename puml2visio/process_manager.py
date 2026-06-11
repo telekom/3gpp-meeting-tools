@@ -7,20 +7,24 @@ class ProcessManager:
     @staticmethod
     def get_process_stats():
         """
-        Uses PowerShell to fetch Visio, PowerPoint, and Word processes.
-        If MainWindowHandle is 0, the process is a headless "Ghost".
+        Uses PowerShell to fetch processes, including their Window Titles.
         """
         ps_cmd = """
         $procs = Get-Process visio, powerpnt, winword -ErrorAction SilentlyContinue
         $out = @()
         foreach ($p in $procs) {
-            $out += @{ Name = $p.Name; Id = $p.Id; IsGhost = ($p.MainWindowHandle -eq 0) }
+            $isGhost = ($p.MainWindowHandle -eq 0)
+            $out += @{ 
+                Name = $p.Name; 
+                Id = $p.Id; 
+                IsGhost = $isGhost; 
+                Title = $p.MainWindowTitle 
+            }
         }
         $out | ConvertTo-Json -Compress
         """
 
         try:
-            # 0x08000000 prevents the black command prompt window from flashing on screen
             result = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd],
                                     capture_output=True, text=True, creationflags=0x08000000)
 
@@ -35,18 +39,23 @@ class ProcessManager:
             return []
 
     @staticmethod
-    def kill_processes(app_name: str, ghosts_only: bool = True):
-        """Kills processes matching the executable name. Can target only ghosts."""
+    def kill_process(pid: int):
+        """Kills a single specific process by its PID."""
+        try:
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                           creationflags=0x08000000, check=True)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+    @staticmethod
+    def kill_app_ghosts(app_name: str):
+        """Kills only the headless ghost processes for a specific application."""
         data = ProcessManager.get_process_stats()
         killed = 0
 
         for p in data:
-            if p["Name"].lower() == app_name.lower():
-                if not ghosts_only or p["IsGhost"]:
-                    try:
-                        subprocess.run(["taskkill", "/F", "/PID", str(p["Id"])],
-                                       creationflags=0x08000000, check=True)
-                        killed += 1
-                    except subprocess.CalledProcessError:
-                        pass
+            if p["Name"].lower() == app_name.lower() and p["IsGhost"]:
+                ProcessManager.kill_process(p["Id"])
+                killed += 1
         return killed
