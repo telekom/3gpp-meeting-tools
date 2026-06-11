@@ -13,6 +13,7 @@ from powerpoint_converter import PptxConverterThread
 # --- NEW: Import the Word Threads here! ---
 from word_extractor import WordExtractorThread
 from docx_splitter import DocxSplitterThread
+from word_comparator import WordComparatorThread
 
 
 # ==========================================
@@ -90,6 +91,8 @@ class QueueManager(QObject):
                 fmt_display = "SPLIT CLAUSES"
             elif target_format == "extract_visio":
                 fmt_display = "EXTRACT OLE"
+            elif target_format == "compare_docx":
+                fmt_display = "COMPARE DOCS"
             else:
                 fmt_display = f".{target_format.upper()}"
 
@@ -163,6 +166,9 @@ class QueueManager(QObject):
         elif target_format == "extract_visio":
             self._update_status(f"{display_name} (Extracting Visio)")
             self.conv_thread = WordExtractorThread(str(next_file))
+        elif target_format == "compare_docx":
+            self._update_status(f"Diff Engine (Comparing Documents)")
+            self.conv_thread = WordComparatorThread(params.get('doc_a'), params.get('doc_b'))
         elif target_format == "svg":
             self._update_status(f"{display_name} (to .SVG)")
             self.conv_thread = SvgConverterThread(next_file, self.jar_path)
