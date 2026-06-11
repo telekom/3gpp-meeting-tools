@@ -34,58 +34,49 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ## <a id="architecture"></a>🏗️ Architecture & Data Flow
 
-## <a id="architecture"></a>🏗️ Architecture & Data Flow
-
 ```mermaid
 graph TD
-    %% Modern Styling Definitions
-    classDef default fill:#ffffff,stroke:#94a3b8,stroke-width:1.5px,color:#0f172a,rx:6,ry:6
-    classDef cop fill:#2563eb,stroke:#1d4ed8,stroke-width:2px,color:#ffffff,rx:8,ry:8
-    classDef engine fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#334155,rx:6,ry:6
-    classDef output fill:#f0fdf4,stroke:#22c55e,stroke-width:1.5px,color:#166534,rx:6,ry:6
-
     subgraph view [UI View]
-        E[puml2visio.py<br>Entry Point] --> M[main_window.py<br>The Traffic Cop]:::cop
-        M --> T[ui_tabs.py<br>Code Editor & Drop Zones]
-        M --> P[ui_panels.py<br>Console & Task Manager]
+        E[puml2visio.py - Entry Point] --> M[main_window.py - The Traffic Cop]
+        M --> T[ui_tabs.py - Code Editor and Drop Zones]
+        M --> P[ui_panels.py - Console and Task Manager]
     end
 
     subgraph controller [Controller]
-        M --> Q[queue_manager.py<br>Thread Orchestration]
+        M --> Q[queue_manager.py - Thread Orchestration]
     end
 
     subgraph model [Core Engines - Model]
-        Q --> J[utils.py<br>Java Registry Scanner]:::engine
-        Q --> V[visio_converter.py<br>COM Automation]:::engine
-        Q --> PPT[powerpoint_converter.py]:::engine
-        Q --> DOCX[docx_splitter.py<br>XML Slicing & Garbage Collection]:::engine
-        T --> LP[live_preview.py<br>Error Interceptor]:::engine
-        P --> PM[process_manager.py<br>OS Process Monitor]:::engine
+        Q --> J[utils.py - Java Registry Scanner]
+        Q --> V[visio_converter.py - COM Automation]
+        Q --> PPT[powerpoint_converter.py]
+        Q --> DOCX[docx_splitter.py - XML Slicing]
+        T --> LP[live_preview.py - Error Interceptor]
+        P --> PM[process_manager.py - OS Process Monitor]
     end
 
     subgraph output_group [Output]
-        OutV[Visio .vsdx]:::output
-        OutP[PowerPoint .pptx<br>Native Shapes]:::output
-        OutA[ASCII .txt]:::output
-        OutW[Split .docx Chapters]:::output
+        OutV[Visio .vsdx]
+        OutP[PowerPoint .pptx - Native Shapes]
+        OutA[ASCII .txt]
+        OutW[Split .docx Chapters]
     end
 
-    %% Routing Data Flow
-    T -- "Export Requested" --> Q
-    Q -- "1. Generate Clean SVG" --> J
+    T -->|Export Requested| Q
+    Q -->|1. Generate Clean SVG| J
     
-    J -- "2a. Visio Pipeline" --> V
+    J -->|2a. Visio Pipeline| V
     V --> OutV
 
-    J -- "2b. PowerPoint EMF" --> PPT
+    J -->|2b. PowerPoint EMF| PPT
     PPT --> OutP
     
-    Q -- "2c. Unicode Render" --> OutA
+    Q -->|2c. Unicode Render| OutA
     
-    T -- "Word Doc Dropped" --> DOCX
-    DOCX -- "Multithreaded XML Pruning" --> OutW
+    T -->|Word Doc Dropped| DOCX
+    DOCX -->|Multithreaded XML Pruning| OutW
     
-    PM -. "Identify & Kill Ghosts" .-> V
+    PM -.->|Identify and Kill Ghosts| V
 ```
 
 ---
