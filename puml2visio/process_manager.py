@@ -6,9 +6,7 @@ import logging
 class ProcessManager:
     @staticmethod
     def get_process_stats():
-        """
-        Uses PowerShell to fetch processes, including their Window Titles.
-        """
+        """Uses PowerShell to fetch processes, including their Window Titles."""
         ps_cmd = """
         $procs = Get-Process visio, powerpnt, winword -ErrorAction SilentlyContinue
         $out = @()
@@ -56,6 +54,18 @@ class ProcessManager:
 
         for p in data:
             if p["Name"].lower() == app_name.lower() and p["IsGhost"]:
+                ProcessManager.kill_process(p["Id"])
+                killed += 1
+        return killed
+
+    @staticmethod
+    def kill_app_all(app_name: str):
+        """Kills ALL processes (both active and ghost) for a specific application."""
+        data = ProcessManager.get_process_stats()
+        killed = 0
+
+        for p in data:
+            if p["Name"].lower() == app_name.lower():
                 ProcessManager.kill_process(p["Id"])
                 killed += 1
         return killed
