@@ -109,7 +109,7 @@ class DragDropUI(QMainWindow):
         self.console_panel.proxy_requested.connect(self.open_proxy_settings)
         self.console_panel.update_requested.connect(self.check_for_jar_updates)
 
-        self.console_panel.task_manager_requested.connect(lambda: ProcessManagerDialog(self).exec_())
+        self.console_panel.task_manager_requested.connect(self.open_task_manager)
 
         self.queue_panel = QueuePanel()
 
@@ -288,6 +288,14 @@ class DragDropUI(QMainWindow):
         if self.last_out_path:
             QApplication.clipboard().setText(self.last_out_path)
             self.log_message(f"📋 Copied to clipboard: {self.last_out_path}")
+
+    def open_task_manager(self):
+        """Spawns the process manager as a non-blocking floating window."""
+        if not hasattr(self, 'task_manager_dialog') or not self.task_manager_dialog.isVisible():
+            self.task_manager_dialog = ProcessManagerDialog(self)
+            self.task_manager_dialog.show()
+        else:
+            self.task_manager_dialog.activateWindow()
 
     def _save_and_queue_pasted_text(self, target_format):
         raw_text = self.code_tab.get_text()

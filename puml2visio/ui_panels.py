@@ -1,8 +1,8 @@
 import logging
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QTextEdit, QListWidget, QApplication,
-                             QDialog, QTreeWidget, QTreeWidgetItem, QFrame)
-from PyQt5.QtCore import pyqtSignal, Qt, QTimer
+                             QDialog, QTreeWidget, QTreeWidgetItem, QHeaderView)
+from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QColor, QBrush
 
 from process_manager import ProcessManager
@@ -15,8 +15,8 @@ class ProcessManagerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("COM Process Manager")
-        self.setModal(True)
-        self.resize(550, 400)
+        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        self.resize(650, 450)  # Made slightly wider to comfortably fit multiple buttons
         self.setStyleSheet("background-color: #FAFAFA;")
 
         self.apps = {
@@ -27,11 +27,6 @@ class ProcessManagerDialog(QDialog):
 
         self._setup_ui()
         self._refresh_stats()
-
-        # Auto-refresh stats every 2 seconds
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._refresh_stats)
-        self.timer.start(2000)
 
     def _setup_ui(self):
         layout = QVBoxLayout()
@@ -49,23 +44,38 @@ class ProcessManagerDialog(QDialog):
 
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Application / Document", "Details", "Action"])
-        self.tree.setColumnWidth(0, 300)
-        self.tree.setColumnWidth(1, 100)
+
+        # --- FIX: Dynamic Column Sizing instead of hardcoded pixels ---
+        self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+
         self.tree.setStyleSheet("""
             QTreeWidget { background-color: white; border: 1px solid #DDD; border-radius: 6px; outline: none; }
             QTreeWidget::item { padding: 4px; border-bottom: 1px solid #F0F0F0; }
         """)
         layout.addWidget(self.tree)
 
-        close_btn = QPushButton("Close")
-        close_btn.setFixedSize(80, 30)
-        close_btn.clicked.connect(self.accept)
-        layout.addWidget(close_btn, alignment=Qt.AlignRight)
+        btn_layout = QHBoxLayout()
 
+        # --- FIX: Removed fixed width cap so text can naturally expand ---
+        refresh_btn = QPushButton("🔄 Refresh List")
+        refresh_btn.setMinimumHeight(30)
+        refresh_btn.clicked.connect(self._refresh_stats)
+
+        close_btn = QPushButton("Close")
+        close_btn.setMinimumHeight(30)
+        close_btn.setMinimumWidth(80)
+        close_btn.clicked.connect(self.accept)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(refresh_btn)
+        btn_layout.addWidget(close_btn)
+
+        layout.addLayout(btn_layout)
         self.setLayout(layout)
 
     def _refresh_stats(self):
-        # Save current expansion state so it doesn't snap closed during auto-refresh
         expanded_states = {}
         for i in range(self.tree.topLevelItemCount()):
             item = self.tree.topLevelItem(i)
@@ -78,14 +88,14 @@ class ProcessManagerDialog(QDialog):
             app_procs = [p for p in data if p["Name"].lower() == exe_name.lower()]
 
             if not app_procs:
-                continue  # Skip showing apps that aren't running
+                continue
 
             total = len(app_procs)
             ghosts = sum(1 for p in app_procs if p["IsGhost"])
 
-            # --- Top Level Item (The Application) ---
             app_item = QTreeWidgetItem(self.tree)
-            app_item.setText(0, f"▶ {display_name}")
+            # --- FIX: Removed the manual unicode arrow to prevent collision ---
+            app_item.setText(0, f"{display_name}")
             app_item.setText(1, f"Total: {total} | Ghosts: {ghosts}")
             app_item.setForeground(0, QBrush(QColor("#333333")))
 
@@ -93,27 +103,41 @@ class ProcessManagerDialog(QDialog):
             font.setBold(True)
             app_item.setFont(0, font)
 
+            # --- FIX: Container to hold multiple buttons in the Action column ---
+            action_widget = QWidget()
+            act_layout = QHBoxLayout(action_widget)
+            act_layout.setContentsMargins(0, 0, 0, 0)
+            act_layout.setSpacing(5)
+
+            # 1. Global "Kill All" Button (Always visible)
+            btn_kill_all = QPushButton("Kill All")
+            btn_kill_all.setStyleSheet(
+                "background-color: #FDF4F0; color: #D83B01; border: 1px solid #F3C3B1; padding: 2px 8px; border-radius: 3px;")
+            btn_kill_all.clicked.connect(lambda _, app=exe_name: self._kill_all(app))
+            act_layout.addWidget(btn_kill_all)
+
+            # 2. "Kill Ghosts" Button (Only if ghosts exist)
             if ghosts > 0:
                 btn_kill_ghosts = QPushButton("Kill Ghosts")
                 btn_kill_ghosts.setStyleSheet(
-                    "background-color: #FDF4F0; color: #D83B01; border: 1px solid #F3C3B1; padding: 2px 8px; border-radius: 3px;")
+                    "background-color: #FAFAFA; color: #555; border: 1px solid #CCC; padding: 2px 8px; border-radius: 3px;")
                 btn_kill_ghosts.clicked.connect(lambda _, app=exe_name: self._kill_ghosts(app))
-                self.tree.setItemWidget(app_item, 2, btn_kill_ghosts)
+                act_layout.addWidget(btn_kill_ghosts)
 
-            # Restore expansion state
-            if expanded_states.get(f"▶ {display_name}", False):
+            self.tree.setItemWidget(app_item, 2, action_widget)
+
+            if expanded_states.get(f"{display_name}", False):
                 app_item.setExpanded(True)
 
-            # --- Child Items (The Individual Documents) ---
             for p in app_procs:
                 child = QTreeWidgetItem(app_item)
 
                 if p["IsGhost"]:
-                    child.setText(0, "   👻 Headless Background Instance")
+                    child.setText(0, "👻 Headless Background Instance")
                     child.setForeground(0, QBrush(QColor("#D83B01")))
                 else:
                     doc_title = p.get("Title", "").strip() or "Untitled Document"
-                    child.setText(0, f"   📄 {doc_title}")
+                    child.setText(0, f"📄 {doc_title}")
                     child.setForeground(0, QBrush(QColor("#166534")))
 
                 child.setText(1, f"PID: {p['Id']}")
@@ -128,6 +152,10 @@ class ProcessManagerDialog(QDialog):
         ProcessManager.kill_app_ghosts(app_name)
         self._refresh_stats()
 
+    def _kill_all(self, app_name):
+        ProcessManager.kill_app_all(app_name)
+        self._refresh_stats()
+
     def _kill_single(self, pid):
         ProcessManager.kill_process(pid)
         self._refresh_stats()
@@ -137,7 +165,6 @@ class ProcessManagerDialog(QDialog):
 # --- CONSOLE PANEL ---
 # ==========================================
 class ConsolePanel(QWidget):
-    # --- Signals ---
     proxy_requested = pyqtSignal()
     update_requested = pyqtSignal()
     task_manager_requested = pyqtSignal()
