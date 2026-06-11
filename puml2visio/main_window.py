@@ -20,6 +20,7 @@ from visio_converter import VisioReaderThread
 from live_preview import LivePreviewManager
 from plantuml_templates import PLANTUML_TYPES
 from ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
+from docx_splitter import DocxSplitterThread
 
 
 class DragDropUI(QMainWindow):
@@ -84,7 +85,8 @@ class DragDropUI(QMainWindow):
         self.batch_tab.files_dropped.connect(lambda paths: self.queue_manager.add_batch(paths))
 
         self.word_tab = WordExtractorTab()
-        self.word_tab.file_dropped.connect(self.start_word_extraction)
+        self.word_tab.extract_visio_requested.connect(self.start_word_extraction)
+        self.word_tab.split_doc_requested.connect(self.start_word_splitting)
 
         self.tabs.addTab(self.code_tab, "📝 Code Editor")
         self.tabs.addTab(self.batch_tab, "📂 Batch Convert")
@@ -258,6 +260,11 @@ class DragDropUI(QMainWindow):
         self.word_extractor_thread = WordExtractorThread(file_path)
         self.word_extractor_thread.ui_log_msg.connect(self.log_message)
         self.word_extractor_thread.start()
+
+    def start_word_splitting(self, file_path, prefix, depth):
+        self.splitter_thread = DocxSplitterThread(file_path, prefix, depth)
+        self.splitter_thread.ui_log_msg.connect(self.log_message)
+        self.splitter_thread.start()
 
     def on_visio_code_read(self, source_code):
         self.code_tab.text_input.setEnabled(True)

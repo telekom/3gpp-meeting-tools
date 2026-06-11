@@ -1,5 +1,6 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QLabel, QComboBox, QMenu, QAction)
+                             QLabel, QComboBox, QMenu, QAction, QRadioButton,
+                             QGroupBox, QFormLayout, QLineEdit, QSpinBox)
 from PyQt5.QtCore import pyqtSignal
 
 from ui_components import CodeDropTextEdit, InteractiveDropLabel
@@ -28,7 +29,6 @@ class CodeEditorTab(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # --- TOP TOOLBAR ---
         template_layout = QHBoxLayout()
         template_lbl = QLabel("📖 Templates:")
         template_lbl.setStyleSheet("font-weight: bold; color: #555;")
@@ -52,7 +52,6 @@ class CodeEditorTab(QWidget):
         template_layout.addStretch()
         layout.addLayout(template_layout)
 
-        # --- TEXT EDITOR ---
         self.text_input = CodeDropTextEdit()
         self.text_input.setPlaceholderText(
             "Paste PlantUML code OR drop a generated .vsdx file here to extract its source...")
@@ -61,7 +60,6 @@ class CodeEditorTab(QWidget):
             "Type or paste PlantUML code here. Drag & drop a generated .vsdx file to retrieve its source code.")
         layout.addWidget(self.text_input)
 
-        # --- BOTTOM TOOLBAR ---
         btn_layout = QHBoxLayout()
 
         self.clear_btn = QPushButton("🗑️ Clear")
@@ -94,13 +92,11 @@ class CodeEditorTab(QWidget):
         self.open_folder_btn.clicked.connect(self.open_folder_requested.emit)
         self.open_folder_btn.setToolTip("Open the working directory where files are saved.")
 
-        # --- EXPORT DROPDOWN ---
         self.export_btn = QPushButton("📤 Export Diagram ▼")
         self.export_btn.setObjectName("primaryBtn")
         self.export_btn.setToolTip("Export your PlantUML code to various formats.")
 
         export_menu = QMenu(self)
-        # Force PyQt to render hover tooltips inside the floating menu
         export_menu.setToolTipsVisible(True)
 
         visio_action = QAction("To Visio (.vsdx)", self)
@@ -141,11 +137,9 @@ class CodeEditorTab(QWidget):
         self.setLayout(layout)
 
     def get_text(self):
-        """Helper to fetch the current editor text."""
         return self.text_input.toPlainText().strip()
 
     def set_copy_path_enabled(self, enabled: bool, out_path: str = ""):
-        """Helper to toggle the 'Copy Path' button state."""
         self.copy_btn.setEnabled(enabled)
         if enabled:
             self.copy_btn.setStyleSheet("background-color: #395396; color: white; border: none;")
@@ -169,15 +163,66 @@ class BatchConvertTab(QWidget):
 
 
 class WordExtractorTab(QWidget):
-    file_dropped = pyqtSignal(str)
+    extract_visio_requested = pyqtSignal(str)
+    split_doc_requested = pyqtSignal(str, str, int)
 
     def __init__(self):
         super().__init__()
+        self._setup_ui()
+
+    def _setup_ui(self):
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
-        self.drop_label = InteractiveDropLabel(
-            "📥 Drag & Drop your Microsoft Word (.docx) file here\n\nExtracts all embedded Visio diagrams to the file's folder.",
-            ['.docx'])
-        self.drop_label.file_dropped.connect(lambda files: self.file_dropped.emit(files[0]))
+
+        # --- NEW: CONTROL PANEL ---
+        controls = QGroupBox("Operation Type")
+        controls.setStyleSheet(
+            "QGroupBox { font-weight: bold; border: 1px solid #CCC; border-radius: 6px; margin-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; }")
+        controls_layout = QVBoxLayout()
+
+        self.radio_extract = QRadioButton("Extract Embedded Visio Diagrams")
+        self.radio_extract.setChecked(True)
+        self.radio_split = QRadioButton("Subtractive Slicing (Split by Clause)")
+
+        controls_layout.addWidget(self.radio_extract)
+        controls_layout.addWidget(self.radio_split)
+
+        self.split_opts = QWidget()
+        form = QFormLayout()
+
+        self.prefix_input = QLineEdit("6.")
+        self.prefix_input.setToolTip("The clause prefix to target (e.g., '6.' or '6.2')")
+        self.prefix_input.setStyleSheet("padding: 4px; border: 1px solid #CCC; border-radius: 4px;")
+
+        self.depth_input = QSpinBox()
+        self.depth_input.setRange(1, 6)
+        self.depth_input.setValue(2)
+        self.depth_input.setToolTip("How deep the heading should be. E.g., '6.1' is depth 2. '6.1.4' is depth 3.")
+        self.depth_input.setStyleSheet("padding: 4px; border: 1px solid #CCC; border-radius: 4px;")
+
+        form.addRow("Target Clause Prefix:", self.prefix_input)
+        form.addRow("Heading Depth:", self.depth_input)
+        self.split_opts.setLayout(form)
+        self.split_opts.setVisible(False)
+
+        controls_layout.addWidget(self.split_opts)
+        controls.setLayout(controls_layout)
+
+        self.radio_split.toggled.connect(self.split_opts.setVisible)
+        layout.addWidget(controls)
+
+        # --- DROP ZONE ---
+        self.drop_label = InteractiveDropLabel("📥 Drag & Drop your Microsoft Word (.docx) file here", ['.docx'])
+        self.drop_label.file_dropped.connect(self._handle_drop)
         layout.addWidget(self.drop_label)
+
         self.setLayout(layout)
+
+    def _handle_drop(self, files):
+        file_path = files[0]
+        if self.radio_extract.isChecked():
+            self.extract_visio_requested.emit(file_path)
+        else:
+            prefix = self.prefix_input.text().strip()
+            depth = self.depth_input.value()
+            self.split_doc_requested.emit(file_path, prefix, depth)
