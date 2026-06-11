@@ -91,7 +91,15 @@ class DocxSplitter:
                         level = self._get_heading_level(text)
 
                         if level == split_depth:
-                            safe_name = "".join(c for c in text if c.isalnum() or c in (' ', '.', '-')).strip()
+                            # 1. Convert tabs to standard spaces so words don't merge
+                            clean_text = text.replace('\t', ' ')
+
+                            # 2. Strip out invalid filename characters
+                            safe_name = "".join(c for c in clean_text if c.isalnum() or c in (' ', '.', '-')).strip()
+
+                            # 3. Collapse multiple spaces into a single space just in case
+                            safe_name = " ".join(safe_name.split())
+
                             toc.append({
                                 'title': safe_name,
                                 'start_idx': i,
