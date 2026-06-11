@@ -3,22 +3,69 @@ import datetime
 import urllib.request
 import webbrowser
 import os
+import subprocess
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QTabWidget, QSplitter, QStatusBar,
                              QListWidget, QLabel, QTextEdit, QApplication, QDialog,
                              QComboBox, QMenu, QAction)
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 
 from ui_components import ProxyDialog, CodeDropTextEdit, InteractiveDropLabel
-from utils import JAR_NAME, encode_plantuml, InitializationThread
+from utils import JAR_NAME, encode_plantuml, InitializationThread, get_best_java
 from word_extractor import WordExtractorThread
 from visio_converter import VisioReaderThread, ConverterThread, SvgConverterThread
 from powerpoint_converter import PptxConverterThread
 from live_preview import LivePreviewManager
 from plantuml_templates import PLANTUML_TYPES
+
+
+# ==========================================
+# --- NEW: ASCII CONVERTER THREAD ---
+# ==========================================
+class AsciiConverterThread(QThread):
+    ui_log_msg = pyqtSignal(str, int)
+    finished_path = pyqtSignal(str)
+    finished = pyqtSignal()
+
+    def __init__(self, puml_path: Path, jar_path: Path):
+        super().__init__()
+        self.puml_path = puml_path
+        self.jar_path = jar_path
+
+    def run(self):
+        try:
+            java_exe, _ = get_best_java()
+
+            # Use -tutxt for high-quality Unicode ASCII art
+            cmd = [java_exe, "-jar", str(self.jar_path), "-tutxt", str(self.puml_path)]
+            kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
+
+            subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=self.puml_path.parent, **kwargs)
+
+            # PlantUML outputs .utxt. We rename it to .txt so Windows opens it natively in Notepad/VSCode
+            utxt_path = self.puml_path.with_suffix(".utxt")
+            txt_path = self.puml_path.with_name(self.puml_path.stem + "_ascii.txt")
+
+            if utxt_path.exists():
+                if txt_path.exists():
+                    txt_path.unlink()
+                utxt_path.rename(txt_path)
+                self.ui_log_msg.emit("✅ Unicode Text Art generated successfully.", logging.INFO)
+                self.finished_path.emit(str(txt_path))
+            else:
+                self.ui_log_msg.emit(
+                    "❌ Failed to generate text art. Format may not be supported for this specific diagram type.",
+                    logging.ERROR)
+                self.finished_path.emit("")
+
+        except Exception as e:
+            self.ui_log_msg.emit(f"❌ Text Conversion Error: {e}", logging.ERROR)
+            self.finished_path.emit("")
+        finally:
+            self.finished.emit()
 
 
 class DragDropUI(QMainWindow):
@@ -126,7 +173,7 @@ class DragDropUI(QMainWindow):
         self.open_folder_btn.clicked.connect(self.open_export_folder)
         self.open_folder_btn.setToolTip("Open the working directory where files are saved.")
 
-        # --- NEW: COLLAPSED EXPORT DROPDOWN MENU ---
+        # --- COLLAPSED EXPORT DROPDOWN MENU ---
         self.export_btn = QPushButton("📤 Export Diagram ▼")
         self.export_btn.setObjectName("primaryBtn")
         self.export_btn.setToolTip("Export your PlantUML code to various formats.")
@@ -144,6 +191,11 @@ class DragDropUI(QMainWindow):
         svg_action = QAction("To Vector Graphic (.svg)", self)
         svg_action.triggered.connect(lambda: self._save_and_queue_pasted_text("svg"))
         export_menu.addAction(svg_action)
+
+        # --- NEW: ASCII EXPORT ACTION ---
+        ascii_action = QAction("To Text Art (.txt)", self)
+        ascii_action.triggered.connect(lambda: self._save_and_queue_pasted_text("ascii"))
+        export_menu.addAction(ascii_action)
 
         self.export_btn.setMenu(export_menu)
         # ------------------------------------------
@@ -521,6 +573,7 @@ class DragDropUI(QMainWindow):
             else:
                 self.status_bar.showMessage(f"{curr_text}{rem_text}")
 
+    # --- ROUTING UPDATE: Handle the "ascii" target format ---
     def process_next_in_queue(self):
         if not self.file_queue:
             self.is_processing = False
@@ -540,6 +593,8 @@ class DragDropUI(QMainWindow):
             self.conv_thread = SvgConverterThread(next_file, self.jar_path)
         elif target_format == "pptx":
             self.conv_thread = PptxConverterThread(next_file, self.jar_path)
+        elif target_format == "ascii":
+            self.conv_thread = AsciiConverterThread(next_file, self.jar_path)
         else:
             self.conv_thread = ConverterThread(next_file, self.jar_path)
 
@@ -548,6 +603,7 @@ class DragDropUI(QMainWindow):
         self.conv_thread.finished.connect(self.process_next_in_queue)
         self.conv_thread.start()
 
+    # --- OS OPEN UPDATE: Handle .txt files ---
     def on_conversion_success(self, out_path: str):
         if out_path == "OPENED_IN_PPT":
             self.log_message("👁️ PowerPoint is open with your new slide. You can copy it directly.")
@@ -556,7 +612,7 @@ class DragDropUI(QMainWindow):
             self.copy_btn.setEnabled(True)
             self.copy_btn.setStyleSheet("background-color: #395396; color: white; border: none;")
 
-            if out_path.lower().endswith('.svg'):
+            if out_path.lower().endswith(('.svg', '.txt')):
                 try:
                     os.startfile(out_path)
                     ext = Path(out_path).suffix[1:].upper()
