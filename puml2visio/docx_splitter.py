@@ -77,9 +77,9 @@ class DocxSplitter:
 
         doc = Document(self.file_path)
         blocks = list(self.iter_block_items(doc))
-        toc = []
 
-        # Build the Map
+        # 1. Map ALL structural boundaries first (same depth or higher)
+        boundaries = []
         for i, block in enumerate(blocks):
             if isinstance(block, CT_P):
                 from docx.text.paragraph import Paragraph
@@ -87,24 +87,28 @@ class DocxSplitter:
 
                 if para.style.name.startswith('Heading'):
                     text = para.text.strip()
-                    if text.startswith(target_clause_prefix):
-                        level = self._get_heading_level(text)
+                    if not text: continue
 
-                        if level == split_depth:
-                            # 1. Convert tabs to standard spaces so words don't merge
-                            clean_text = text.replace('\t', ' ')
+                    level = self._get_heading_level(text)
+                    # If it's a valid heading at our target depth OR higher (e.g., Clause 7), it's a boundary
+                    if level > 0 and level <= split_depth:
+                        boundaries.append({'title': text, 'level': level, 'start_idx': i})
 
-                            # 2. Strip out invalid filename characters
-                            safe_name = "".join(c for c in clean_text if c.isalnum() or c in (' ', '.', '-')).strip()
+        # 2. Filter out only the clauses we actually want, using the boundaries map to find exact end points
+        toc = []
+        for idx, b in enumerate(boundaries):
+            if b['level'] == split_depth and b['title'].startswith(target_clause_prefix):
+                clean_text = b['title'].replace('\t', ' ')
+                safe_name = " ".join("".join(c for c in clean_text if c.isalnum() or c in (' ', '.', '-')).split())
 
-                            # 3. Collapse multiple spaces into a single space just in case
-                            safe_name = " ".join(safe_name.split())
+                # The end index is strictly the start of the VERY NEXT boundary, even if it's Clause 7
+                end_idx = boundaries[idx + 1]['start_idx'] if idx + 1 < len(boundaries) else len(blocks)
 
-                            toc.append({
-                                'title': safe_name,
-                                'start_idx': i,
-                                'end_idx': len(blocks)
-                            })
+                toc.append({
+                    'title': safe_name,
+                    'start_idx': b['start_idx'],
+                    'end_idx': end_idx
+                })
 
         if not toc:
             raise ValueError(
