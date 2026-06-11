@@ -234,7 +234,9 @@ class ConsolePanel(QWidget):
         html_msg = f'<span style="color: {color};">{message.replace(chr(10), "<br>")}</span>'
         self.console.append(html_msg)
 
-        QApplication.processEvents()
+        # Remove QApplication.processEvents()
+
+        # Smoothly scroll to bottom without forcing a global UI lock
         scrollbar = self.console.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
