@@ -2,7 +2,8 @@
 
 # A unified styling block injected into all UML templates to guarantee
 # a flat, enterprise-ready look (Arial, white backgrounds, black lines).
-COMMON_STYLE = '''skinparam defaultFontName Arial
+COMMON_STYLE = '''!pragma teoz true
+skinparam defaultFontName Arial
 skinparam shadowing false
 skinparam monochrome true
 skinparam BackgroundColor white
@@ -17,6 +18,16 @@ PLANTUML_TYPES = {
     "Sequence": {
         "url": "https://plantuml.com/en/sequence-diagram",
         "template": "@startuml\n" + COMMON_STYLE + '''
+hide footbox
+skinparam BoxPadding 10
+skinparam ResponseMessageBelowArrow true
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+}
+
 Alice -> Bob: Authentication Request
 note right: This is a white note box
 Bob --> Alice: Authentication Response
@@ -82,6 +93,26 @@ stop
     "Component": {
         "url": "https://plantuml.com/en/component-diagram",
         "template": "@startuml\n" + COMMON_STYLE + '''
+left to right direction
+skinparam linetype ortho
+skinparam nodesep 60
+skinparam ranksep 60
+
+' Style all boxes (including groups) white with black borders
+skinparam componentStyle rectangle
+skinparam component {
+    BackgroundColor white
+    BorderColor black
+}
+skinparam rectangle {
+    BackgroundColor white
+    BorderColor black
+}
+skinparam note {
+    BackgroundColor white
+    BorderColor black
+}
+
 package "Some Group" {
   HTTP - [First Component]
   [Another Component]
