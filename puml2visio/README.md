@@ -2,7 +2,7 @@
 
 An advanced, component-based desktop IDE designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
 
-Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams and instantly export them as fully editable native Office shapes, SVGs, or Unicode Text Art.
+Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, and rapidly slice massive specification documents into manageable chapters.
 
 ---
 
@@ -20,14 +20,14 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ## <a id="features"></a>✨ Features
 
 * **Smart Code Editor:** A professional IDE experience featuring dynamic line numbering, active-line highlighting, native Undo/Redo history, and a background Auto-Save Cache that restores your session if the app is closed or crashes.
-* **Intelligent Live Preview:** A debounced background rendering engine that automatically pipes your PlantUML code to a live browser tab as you type. If you make a typo, it intercepts the Java crash and dynamically paints a red Syntax Error overlay (with the exact line number) directly in your browser.
-* **Enterprise Diagram Boilerplates:** Includes 29 built-in diagram templates ranging from standard UML to specialized IT formats (`nwdiag`, `rackdiag`, `packetdiag`). All UML templates are automatically styled with a flat, enterprise-ready "monochrome" theme (Arial font, white backgrounds, black lines) optimized for corporate documents.
+* **Intelligent Live Preview:** A debounced background rendering engine that automatically pipes your PlantUML code to a live browser tab as you type. If you make a typo, it intercepts the Java crash and dynamically paints a red Syntax Error overlay directly in your browser.
 * **Rich Export Engine:** * **Visio (.vsdx):** Perfect alignment via 2D SVG gap-measuring.
   * **PowerPoint (.pptx):** Bypasses buggy SVG engines via an EMF pipeline for natively ungroupable objects.
   * **ASCII Text Art (.txt):** Uses PlantUML's `-tutxt` engine to generate clean Unicode text diagrams for markdown or RFC specs.
-* **Built-in COM Process Manager:** A native "kill switch" dialog that safely identifies and terminates headless "ghost" instances of Visio, PowerPoint, or Word left hanging in memory by background crashes, preventing file locks and memory leaks.
-* **Native Windows Integration:** Automatically applies a dynamic vector App Icon to the Windows Taskbar (bypassing the generic Python logo), features an "Open Folder" explorer hook, and dynamically copies generated file paths to your clipboard.
-* **Word Document Extractor:** Extracts hidden, embedded Visio (`.vsdx`) files natively trapped inside Word Document (`.docx`) OLE wrappers.
+* **Subtractive Slicing Engine (Word):** Instantly split massive 200+ page `.docx` specifications into individual clauses. Processes files at the XML level (bypassing slow COM automation) using a throttled Thread Pool to extract multiple chapters simultaneously without maxing out system RAM.
+* **XML Garbage Collector:** When splitting Word documents, automatically scans the surviving XML and aggressively purges orphaned OLE objects and high-res images to prevent file bloat.
+* **Embedded Visio Extractor:** Extracts hidden, editable Visio (`.vsdx`) files natively trapped inside Word Document (`.docx`) OLE wrappers.
+* **Built-in COM Process Manager:** A native "kill switch" dialog that safely identifies and terminates headless "ghost" instances of Visio or PowerPoint left hanging in memory by background crashes.
 * **Modular MVC Architecture:** Built on a decoupled UI standard, utilizing dedicated UI Tabs, UI Panels, and a centralized Python `QueueManager` to handle threading without locking the GUI.
 
 ---
@@ -39,7 +39,7 @@ graph TD
     subgraph UI (View)
         E[puml2visio.py<br>Entry Point] --> M[main_window.py<br>The Traffic Cop]
         M --> T[ui_tabs.py<br>Code Editor & Drop Zones]
-        M --> P[ui_panels.py<br>Console & Queue]
+        M --> P[ui_panels.py<br>Console & Task Manager]
     end
 
     subgraph Controller
@@ -50,6 +50,7 @@ graph TD
         Q --> J[utils.py<br>Java Registry Scanner]
         Q --> V[visio_converter.py<br>COM Automation]
         Q --> PPT[powerpoint_converter.py]
+        Q --> DOCX[docx_splitter.py<br>XML Slicing & Garbage Collection]
         T --> LP[live_preview.py<br>Error Interceptor]
         P --> PM[process_manager.py<br>OS Process Monitor]
     end
@@ -58,12 +59,9 @@ graph TD
         OutV[Visio .vsdx]
         OutP[PowerPoint .pptx<br>Native Shapes]
         OutA[ASCII .txt]
-        OutB[Browser Preview]
+        OutW[Split .docx Chapters]
     end
 
-    T -- "Type / Edit" --> LP
-    LP -- "Render / Error Hook" --> OutB
-    
     T -- "Export Requested" --> Q
     Q -- "1. Generate Clean SVG" --> J
     
@@ -75,6 +73,9 @@ graph TD
     
     Q -- "2c. Unicode Render" --> OutA
     
+    T -- "Word Doc Dropped" --> DOCX
+    DOCX -- "Multithreaded XML Pruning" --> OutW
+    
     PM -- "Identify/Kill Ghosts" --> V
 ```
 
@@ -82,7 +83,7 @@ graph TD
 
 ## <a id="prerequisites"></a>⚙️ Prerequisites
 
-Because this application relies heavily on Microsoft's Component Object Model (COM) to natively manipulate diagrams, it requires a specific environment:
+Because this application relies heavily on Microsoft's Component Object Model (COM) and native XML parsing, it requires a specific environment:
 
 1. **Windows OS** (Required for COM automation).
 2. **Microsoft Visio** and **Microsoft PowerPoint** installed locally.
@@ -100,16 +101,16 @@ Because this application relies heavily on Microsoft's Component Object Model (C
    ```
 
 2. **Install the required Python packages:**
-   Create a virtual environment (optional but recommended) and install dependencies:
+   Create a virtual environment (optional but recommended) and install the dependencies (including `python-docx` for XML manipulation):
    ```bash
-   pip install PyQt5 pywin32
+   pip install -r requirements.txt
    ```
 
 3. **Run the application:**
    ```bash
    python puml2visio.py
    ```
-   *Note: On first launch, the app will automatically attempt to download `plantuml.jar`. If you are behind a corporate firewall, a proxy configuration dialog will appear to assist. You can click "Test Connection" to verify your proxy credentials.*
+   *Note: On first launch, the app will automatically attempt to download `plantuml.jar`. If you are behind a corporate firewall, a proxy configuration dialog will appear to assist.*
 
 ---
 
@@ -118,30 +119,31 @@ Because this application relies heavily on Microsoft's Component Object Model (C
 The application features three main workspaces navigated via tabs, with a fully resizable bottom terminal and queue viewer.
 
 ### 📝 Tab 1: Code Editor (Single Diagram Mode)
-* **Templates & Docs:** Use the dropdown menu to select from 29 diagram types. Click `Insert` to populate the editor with an enterprise-styled boilerplate, or `Docs` to instantly open the official syntax guide.
-* **Auto-Save & Undo:** The editor automatically saves your work every 2 seconds to a hidden cache file. If you accidentally clear the editor, click `↩️ Undo` to restore it. 
-* **Live Preview:** Click `👁️ Live Preview`. The app will open a browser tab and automatically render your diagram as you type. If you make a syntax error, the browser will flash red and tell you exactly which line failed.
-* **Exporting:** Click the `📤 Export Diagram ▼` dropdown to select your target format (.vsdx, .pptx, .svg, or .txt). The application will generate the file, change the `Copy Path` tooltip, and allow you to click `📂 Open Folder` to instantly view the result in Windows Explorer.
-* **Round-Trip Extract:** Drag and drop a previously generated `.vsdx` file directly into the text box to instantly retrieve its original source code.
+* **Auto-Save & Undo:** The editor saves your work every 2 seconds to a hidden cache file. Click `↩️ Undo` to restore accidental deletions.
+* **Live Preview:** Click `👁️ Live Preview` to open a real-time browser rendering of your code. Syntax errors will highlight in red with precise line numbers.
+* **Exporting:** Click `📤 Export Diagram ▼` to select your format (.vsdx, .pptx, .svg, or .txt). The app will dynamically update the `🔗 Copy Path` button for instant clipboard access.
+* **Round-Trip Extract:** Drag and drop a generated `.vsdx` file into the text box to retrieve its original PlantUML source code.
 
 ### 📂 Tab 2: Batch Convert
-* Drag a selection of `.txt` or `.puml` files from your file explorer and drop them onto the dashed area. 
-* The application will queue them up in the **Queue Viewer** at the bottom right. You can select items in the queue and click `Remove` to cancel them before they process.
+* Drag `.txt` or `.puml` files onto the dashed area. They will queue up in the **Queue Viewer**. You can highlight queue items and click `Remove` before they process.
 
-### 📄 Tab 3: Word Extractor
-* When collaborating on 3GPP standards, Visio files are often deeply embedded inside Word documents as OLE objects. 
-* Drag and drop a `.docx` file onto this tab. The app will unzip the archive in milliseconds, extract the clean `.vsdx` files, and place them right next to your original Word document.
+### 📄 Tab 3: Word Extractor & Splitter
+* **Extract Embedded Visio Diagrams:** Unzips the `.docx` archive and dumps clean `.vsdx` files (often trapped as OLE objects in 3GPP specs) next to your original document.
+* **Subtractive Slicing (Split by Clause):** Select this radio button to intelligently carve up a massive specification document.
+  * **Prefix:** Define the clause to target (e.g., `6.` targets 6.1, 6.2, etc.).
+  * **Depth:** Define the hierarchy level to cut at (e.g., Depth `2` slices at 6.1, Depth `3` slices at 6.1.1).
+  * The tool creates a `[filename]_split` subfolder and processes the chapters in parallel, purging orphaned images to keep file sizes small.
 
 ### 🛠 System Toolbar (Console Header)
-* **🖥️ Task Manager:** Open the COM Process Manager to identify and kill background headless instances of Visio or PowerPoint that may have crashed.
-* **📡 Proxy:** Update your network configuration on the fly and test the connection to GitHub.
-* **🔄 Update JAR:** Force the application to ping GitHub and check if a newer version of PlantUML is available to download.
+* **🖥️ Task Manager:** Open the COM Process Manager to identify and kill headless instances of Visio or PowerPoint.
+* **📡 Proxy:** Update network configuration on the fly.
+* **🔄 Update JAR:** Ping GitHub for newer versions of PlantUML.
 
 ---
 
 ## <a id="troubleshooting"></a>🛠️ Known Quirks / Troubleshooting
 
-* **PowerPoint "Leave Open" Behavior:** Unlike Visio exports (which save silently to your disk), clicking `Export PPTX` intentionally leaves the generated PowerPoint presentation open and unsaved on your screen. This allows you to immediately copy the generated slide and paste it directly into your master deck. 
-* **COM Errors & File Locks:** If Visio or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory and lock your files. If you start receiving `COM Error` messages, click the **🖥️ Task Manager** button in the app console and click **Kill Ghosts** to instantly clear them out without losing your active work.
-* **Missing Visio Source Code Alignment:** Modifying the PlantUML `textLength` attributes manually might cause Visio text boxes to behave erratically. The tool automatically cleans standard SVG artifacts, but highly customized `skinparam` settings may override this.
-
+* **COM Errors & File Locks:** If Visio or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory and lock your files. Click the **🖥️ Task Manager** button in the app console and click **Kill Ghosts** to instantly clear them out without losing your active work.
+* **Word Splitter Memory Throttling:** Slicing a heavy `.docx` file unzips a massive XML tree into your RAM. To prevent memory crashes and disk thrashing, the parallel processing is hard-capped at 3 maximum threads. You will see the chapters output in batches of 3 in the console.
+* **PowerPoint "Leave Open" Behavior:** Unlike Visio exports (which save silently to your disk), clicking `Export PPTX` intentionally leaves the generated PowerPoint presentation open and unsaved so you can immediately copy the slide.
+* **Missing Visio Source Code Alignment:** Modifying the PlantUML `textLength` attributes manually might cause Visio text boxes to behave erratically during export.
