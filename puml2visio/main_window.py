@@ -86,13 +86,19 @@ class DragDropUI(QMainWindow):
 
         self.word_tab = WordExtractorTab()
 
-        # Wire Word drops DIRECTLY into the QueueManager!
         self.word_tab.extract_visio_requested.connect(
             lambda fp: self.queue_manager.add_item(Path(fp), "extract_visio")
         )
         self.word_tab.split_doc_requested.connect(
             lambda fp, pref, depth: self.queue_manager.add_item(Path(fp), "split_docx",
                                                                 {"prefix": pref, "depth": depth})
+        )
+        self.word_tab.compare_doc_requested.connect(
+            lambda a, b, keep_open: self.queue_manager.add_item(
+                Path("Word_Comparison_Task"),
+                "compare_docx",
+                {"doc_a": a, "doc_b": b, "keep_open": keep_open}
+            )
         )
 
         self.tabs.addTab(self.code_tab, "📝 Code Editor")

@@ -1,7 +1,9 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QLabel, QComboBox, QMenu, QAction, QRadioButton,
-                             QGroupBox, QFormLayout, QLineEdit, QSpinBox)
+                             QLabel, QComboBox, QLineEdit, QSpinBox,
+                             QFormLayout, QStackedWidget, QTabWidget, QCheckBox, QMenu, QAction)
 from PyQt5.QtCore import pyqtSignal
+import win32com.client
+import pythoncom
 
 from ui_components import CodeDropTextEdit, InteractiveDropLabel
 from plantuml_templates import PLANTUML_TYPES
@@ -162,9 +164,100 @@ class BatchConvertTab(QWidget):
         self.drop_label.set_state(state, text)
 
 
+# ==========================================
+# --- REUSABLE SYMMETRIC INPUT PANE ---
+# ==========================================
+class DocumentSelectorPane(QWidget):
+    """A symmetric, reusable widget handling Local, Open, and URL inputs."""
+
+    def __init__(self, title: str):
+        super().__init__()
+        self.title = title
+        self.selected_file = ""
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        lbl = QLabel(f"<b>{self.title}</b>")
+        lbl.setStyleSheet("color: #444; margin-bottom: 5px;")
+        layout.addWidget(lbl)
+
+        self.tabs = QTabWidget()
+
+        # Tab 1: Local File Drop
+        self.drop_tab = QWidget()
+        drop_layout = QVBoxLayout(self.drop_tab)
+        self.drop_zone = InteractiveDropLabel("Drop .docx here", ['.docx'])
+        self.drop_zone.file_dropped.connect(self._on_drop)
+        drop_layout.addWidget(self.drop_zone)
+        self.tabs.addTab(self.drop_tab, "📁 Local")
+
+        # Tab 2: Open Documents
+        self.open_tab = QWidget()
+        open_layout = QVBoxLayout(self.open_tab)
+
+        self.open_combo = QComboBox()
+        self.refresh_btn = QPushButton("↻ Refresh Active Documents")
+        self.refresh_btn.clicked.connect(self.poll_open_documents)
+
+        open_layout.addWidget(QLabel("Select an open Word document:"))
+        open_layout.addWidget(self.open_combo)
+        open_layout.addWidget(self.refresh_btn)
+        open_layout.addStretch()
+        self.tabs.addTab(self.open_tab, "🖥️ Open Docs")
+
+        # Tab 3: URL
+        self.url_tab = QWidget()
+        url_layout = QVBoxLayout(self.url_tab)
+
+        self.url_input = QLineEdit()
+        self.url_input.setPlaceholderText("https://...")
+
+        url_layout.addWidget(QLabel("Paste document URL:"))
+        url_layout.addWidget(self.url_input)
+        url_layout.addStretch()
+        self.tabs.addTab(self.url_tab, "🌐 URL")
+
+        layout.addWidget(self.tabs)
+        self.setLayout(layout)
+
+    def _on_drop(self, files):
+        if files:
+            self.selected_file = files[0]
+            self.drop_zone.set_state("ready", f"Ready:\n{Path(self.selected_file).name}")
+
+    def poll_open_documents(self):
+        self.open_combo.clear()
+        try:
+            pythoncom.CoInitialize()
+            word = win32com.client.GetActiveObject("Word.Application")
+            for doc in word.Documents:
+                self.open_combo.addItem(doc.Name, doc.FullName)
+        except Exception:
+            self.open_combo.addItem("No open documents detected.", "")
+        finally:
+            pythoncom.CoUninitialize()
+
+    def get_input(self) -> str:
+        idx = self.tabs.currentIndex()
+        if idx == 0:
+            return self.selected_file
+        elif idx == 1:
+            return self.open_combo.currentData() or ""
+        elif idx == 2:
+            return self.url_input.text().strip()
+        return ""
+
+
+# ==========================================
+# --- WORD EXTRACTOR TAB (DYNAMIC STACK) ---
+# ==========================================
 class WordExtractorTab(QWidget):
     extract_visio_requested = pyqtSignal(str)
     split_doc_requested = pyqtSignal(str, str, int)
+    compare_doc_requested = pyqtSignal(str, str, bool)
 
     def __init__(self):
         super().__init__()
@@ -174,56 +267,90 @@ class WordExtractorTab(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # --- NEW: CONTROL PANEL ---
-        controls = QGroupBox("Operation Type")
-        controls.setStyleSheet(
-            "QGroupBox { font-weight: bold; border: 1px solid #CCC; border-radius: 6px; margin-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; }")
-        controls_layout = QVBoxLayout()
+        # Switcher
+        switcher_layout = QHBoxLayout()
+        switcher_layout.addWidget(QLabel("<b>⚙️ Operation Type:</b>"))
 
-        self.radio_extract = QRadioButton("Extract Embedded Visio Diagrams")
-        self.radio_extract.setChecked(True)
-        self.radio_split = QRadioButton("Subtractive Slicing (Split by Clause)")
+        self.op_combo = QComboBox()
+        self.op_combo.setStyleSheet("padding: 4px; font-weight: bold; font-size: 13px;")
+        self.op_combo.addItems([
+            "Extract Embedded Visio Diagrams",
+            "Subtractive Slicing (Split by Clause)",
+            "Compare Documents (Native Word Diff)"
+        ])
+        switcher_layout.addWidget(self.op_combo)
+        switcher_layout.addStretch()
+        layout.addLayout(switcher_layout)
 
-        controls_layout.addWidget(self.radio_extract)
-        controls_layout.addWidget(self.radio_split)
+        # Stack
+        self.stack = QStackedWidget()
 
-        self.split_opts = QWidget()
+        # Card 1: Visio Extractor
+        self.card_visio = QWidget()
+        visio_layout = QVBoxLayout(self.card_visio)
+        self.visio_drop = InteractiveDropLabel("📥 Drag & Drop a .docx file here to extract its Visio components",
+                                               ['.docx'])
+        self.visio_drop.file_dropped.connect(lambda files: [self.extract_visio_requested.emit(f) for f in files])
+        visio_layout.addWidget(self.visio_drop)
+        self.stack.addWidget(self.card_visio)
+
+        # Card 2: Splitter
+        self.card_split = QWidget()
+        split_layout = QVBoxLayout(self.card_split)
+
         form = QFormLayout()
-
         self.prefix_input = QLineEdit("6.")
-        self.prefix_input.setToolTip("The clause prefix to target (e.g., '6.' or '6.2')")
         self.prefix_input.setStyleSheet("padding: 4px; border: 1px solid #CCC; border-radius: 4px;")
 
         self.depth_input = QSpinBox()
         self.depth_input.setRange(1, 6)
         self.depth_input.setValue(2)
-        self.depth_input.setToolTip("How deep the heading should be. E.g., '6.1' is depth 2. '6.1.4' is depth 3.")
         self.depth_input.setStyleSheet("padding: 4px; border: 1px solid #CCC; border-radius: 4px;")
 
         form.addRow("Target Clause Prefix:", self.prefix_input)
-        form.addRow("Heading Depth:", self.depth_input)
-        self.split_opts.setLayout(form)
-        self.split_opts.setVisible(False)
+        form.addRow("Heading Depth Hierarchy:", self.depth_input)
+        split_layout.addLayout(form)
 
-        controls_layout.addWidget(self.split_opts)
-        controls.setLayout(controls_layout)
+        self.split_drop = InteractiveDropLabel("📥 Drag & Drop a .docx file here to slice it into chapters", ['.docx'])
+        self.split_drop.file_dropped.connect(
+            lambda files: [self.split_doc_requested.emit(f, self.prefix_input.text().strip(), self.depth_input.value())
+                           for f in files])
+        split_layout.addWidget(self.split_drop)
+        self.stack.addWidget(self.card_split)
 
-        self.radio_split.toggled.connect(self.split_opts.setVisible)
-        layout.addWidget(controls)
+        # Card 3: The Comparator
+        self.card_compare = QWidget()
+        compare_layout = QVBoxLayout(self.card_compare)
 
-        # --- DROP ZONE ---
-        self.drop_label = InteractiveDropLabel("📥 Drag & Drop your Microsoft Word (.docx) file here", ['.docx'])
-        self.drop_label.file_dropped.connect(self._handle_drop)
-        layout.addWidget(self.drop_label)
+        panes_layout = QHBoxLayout()
+        # BECAUSE DocumentSelectorPane IS DEFINED ABOVE, WE CAN USE IT HERE SAFELY:
+        self.pane_a = DocumentSelectorPane("📄 DOCUMENT A (Original)")
+        self.pane_b = DocumentSelectorPane("📄 DOCUMENT B (Revised)")
+        panes_layout.addWidget(self.pane_a)
+        panes_layout.addWidget(self.pane_b)
 
+        compare_layout.addLayout(panes_layout)
+
+        self.keep_open_cb = QCheckBox("Keep source documents (A and B) open after comparison")
+        self.keep_open_cb.setStyleSheet("color: #444; margin-top: 5px;")
+        compare_layout.addWidget(self.keep_open_cb)
+
+        self.run_compare_btn = QPushButton("⚖️ Run Word Comparison")
+        self.run_compare_btn.setStyleSheet(
+            "font-weight: bold; padding: 10px; background-color: #395396; color: white; border-radius: 4px;")
+        self.run_compare_btn.clicked.connect(self._trigger_comparison)
+        compare_layout.addWidget(self.run_compare_btn)
+
+        self.stack.addWidget(self.card_compare)
+
+        layout.addWidget(self.stack)
         self.setLayout(layout)
+        self.op_combo.currentIndexChanged.connect(self.stack.setCurrentIndex)
 
-    def _handle_drop(self, files):
-        # We must loop through the drop array so batch-dropping Word docs actually works
-        for file_path in files:
-            if self.radio_extract.isChecked():
-                self.extract_visio_requested.emit(file_path)
-            else:
-                prefix = self.prefix_input.text().strip()
-                depth = self.depth_input.value()
-                self.split_doc_requested.emit(file_path, prefix, depth)
+    def _trigger_comparison(self):
+        val_a = self.pane_a.get_input()
+        val_b = self.pane_b.get_input()
+        keep_open = self.keep_open_cb.isChecked()
+
+        if val_a and val_b:
+            self.compare_doc_requested.emit(val_a, val_b, keep_open)
