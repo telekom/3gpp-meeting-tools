@@ -23,7 +23,7 @@ from plantuml_templates import PLANTUML_TYPES
 
 
 # ==========================================
-# --- NEW: ASCII CONVERTER THREAD ---
+# --- ASCII CONVERTER THREAD ---
 # ==========================================
 class AsciiConverterThread(QThread):
     ui_log_msg = pyqtSignal(str, int)
@@ -39,13 +39,11 @@ class AsciiConverterThread(QThread):
         try:
             java_exe, _ = get_best_java()
 
-            # Use -tutxt for high-quality Unicode ASCII art
             cmd = [java_exe, "-jar", str(self.jar_path), "-tutxt", str(self.puml_path)]
             kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
 
             subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=self.puml_path.parent, **kwargs)
 
-            # PlantUML outputs .utxt. We rename it to .txt so Windows opens it natively in Notepad/VSCode
             utxt_path = self.puml_path.with_suffix(".utxt")
             txt_path = self.puml_path.with_name(self.puml_path.stem + "_ascii.txt")
 
@@ -192,7 +190,6 @@ class DragDropUI(QMainWindow):
         svg_action.triggered.connect(lambda: self._save_and_queue_pasted_text("svg"))
         export_menu.addAction(svg_action)
 
-        # --- NEW: ASCII EXPORT ACTION ---
         ascii_action = QAction("To Text Art (.txt)", self)
         ascii_action.triggered.connect(lambda: self._save_and_queue_pasted_text("ascii"))
         export_menu.addAction(ascii_action)
@@ -268,7 +265,7 @@ class DragDropUI(QMainWindow):
         clear_log_btn = QPushButton("Clear")
         clear_log_btn.setFixedSize(60, 24)
         clear_log_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-        clear_log_btn.clicked.connect(lambda: self.console.clear())
+        clear_log_btn.clicked.connect(self.clear_editor)
 
         console_header.addWidget(terminal_lbl)
         console_header.addStretch()
@@ -573,7 +570,6 @@ class DragDropUI(QMainWindow):
             else:
                 self.status_bar.showMessage(f"{curr_text}{rem_text}")
 
-    # --- ROUTING UPDATE: Handle the "ascii" target format ---
     def process_next_in_queue(self):
         if not self.file_queue:
             self.is_processing = False
@@ -611,6 +607,9 @@ class DragDropUI(QMainWindow):
             self.last_out_path = out_path
             self.copy_btn.setEnabled(True)
             self.copy_btn.setStyleSheet("background-color: #395396; color: white; border: none;")
+
+            # --- NEW: UPDATE TOOLTIP DYNAMICALLY ---
+            self.copy_btn.setToolTip(f"Copy path:\n{out_path}")
 
             if out_path.lower().endswith(('.svg', '.txt')):
                 try:
