@@ -34,7 +34,10 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ## <a id="architecture"></a>🏗️ Architecture & Data Flow
 
+## <a id="architecture"></a>🏗️ Architecture & Data Flow
+
 ```mermaid
+%%{init: {'theme': 'neutral'}}%%
 graph TD
     subgraph view [UI View]
         E[puml2visio.py - Entry Point] --> M[main_window.py - The Traffic Cop]
