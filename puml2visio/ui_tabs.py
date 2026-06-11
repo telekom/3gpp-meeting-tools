@@ -185,6 +185,7 @@ class DocumentSelectorPane(QWidget):
         layout.addWidget(lbl)
 
         self.tabs = QTabWidget()
+        self.tabs.setObjectName("selector_tabs")
 
         # Tab 1: Local File Drop
         self.drop_tab = QWidget()
@@ -222,6 +223,7 @@ class DocumentSelectorPane(QWidget):
 
         layout.addWidget(self.tabs)
         self.setLayout(layout)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
     def _on_drop(self, files):
         if files:
@@ -234,7 +236,17 @@ class DocumentSelectorPane(QWidget):
             pythoncom.CoInitialize()
             word = win32com.client.GetActiveObject("Word.Application")
             for doc in word.Documents:
-                self.open_combo.addItem(doc.Name, doc.FullName)
+                # Safely extract the name and strip any accidental whitespace
+                doc_name = str(doc.Name).strip()
+
+                # Only add the document to the dropdown if it actually has a valid name
+                if doc_name:
+                    self.open_combo.addItem(doc_name, doc.FullName)
+
+            # If the loop filtered out everything and the list is still empty, show the default message
+            if self.open_combo.count() == 0:
+                self.open_combo.addItem("No open documents detected.", "")
+
         except Exception:
             self.open_combo.addItem("No open documents detected.", "")
         finally:
@@ -249,6 +261,11 @@ class DocumentSelectorPane(QWidget):
         elif idx == 2:
             return self.url_input.text().strip()
         return ""
+
+    def _on_tab_changed(self, index):
+        """Auto-refreshes the list when the user switches to the 'Open Docs' tab (index 1)."""
+        if index == 1:
+            self.poll_open_documents()
 
 
 # ==========================================
@@ -333,6 +350,7 @@ class WordExtractorTab(QWidget):
 
         self.keep_open_cb = QCheckBox("Keep source documents (A and B) open after comparison")
         self.keep_open_cb.setStyleSheet("color: #444; margin-top: 5px;")
+        self.keep_open_cb.setChecked(True)
         compare_layout.addWidget(self.keep_open_cb)
 
         self.run_compare_btn = QPushButton("⚖️ Run Word Comparison")
