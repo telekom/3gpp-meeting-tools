@@ -3,65 +3,22 @@ import datetime
 import urllib.request
 import webbrowser
 import os
-import subprocess
 from pathlib import Path
 
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication, QDialog
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication, QDialog, QTabWidget
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
 from ui_components import ProxyDialog
 from ui_tabs import CodeEditorTab, BatchConvertTab, WordExtractorTab
-# --- NEW: Import our abstracted UI Panels! ---
 from ui_panels import ConsolePanel, QueuePanel
+from queue_manager import QueueManager
 
-from utils import JAR_NAME, encode_plantuml, InitializationThread, get_best_java
+from utils import JAR_NAME, encode_plantuml, InitializationThread
 from word_extractor import WordExtractorThread
-from visio_converter import VisioReaderThread, ConverterThread, SvgConverterThread
-from powerpoint_converter import PptxConverterThread
+from visio_converter import VisioReaderThread
 from live_preview import LivePreviewManager
 from plantuml_templates import PLANTUML_TYPES
-
-
-# ==========================================
-# --- ASCII CONVERTER THREAD ---
-# ==========================================
-class AsciiConverterThread(QThread):
-    ui_log_msg = pyqtSignal(str, int)
-    finished_path = pyqtSignal(str)
-    finished = pyqtSignal()
-
-    def __init__(self, puml_path: Path, jar_path: Path):
-        super().__init__()
-        self.puml_path = puml_path
-        self.jar_path = jar_path
-
-    def run(self):
-        try:
-            java_exe, _ = get_best_java()
-            cmd = [java_exe, "-jar", str(self.jar_path), "-tutxt", str(self.puml_path)]
-            kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
-
-            subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=self.puml_path.parent, **kwargs)
-
-            utxt_path = self.puml_path.with_suffix(".utxt")
-            txt_path = self.puml_path.with_name(self.puml_path.stem + "_ascii.txt")
-
-            if utxt_path.exists():
-                if txt_path.exists(): txt_path.unlink()
-                utxt_path.rename(txt_path)
-                self.ui_log_msg.emit("✅ Unicode Text Art generated successfully.", logging.INFO)
-                self.finished_path.emit(str(txt_path))
-            else:
-                self.ui_log_msg.emit(
-                    "❌ Failed to generate text art. Format may not be supported for this diagram type.", logging.ERROR)
-                self.finished_path.emit("")
-
-        except Exception as e:
-            self.ui_log_msg.emit(f"❌ Text Conversion Error: {e}", logging.ERROR)
-            self.finished_path.emit("")
-        finally:
-            self.finished.emit()
 
 
 class DragDropUI(QMainWindow):
@@ -71,11 +28,19 @@ class DragDropUI(QMainWindow):
         self.resize(950, 750)
 
         self.jar_path = Path(__file__).parent.resolve() / JAR_NAME
-        self.file_queue = []
-        self.is_processing = False
         self.last_out_path = ""
 
         self._setup_ui()
+
+        # --- Wire the Queue Manager directly to the UI ---
+        self.queue_manager = QueueManager(self.jar_path)
+        self.queue_manager.log_msg.connect(self.log_message)
+        self.queue_manager.queue_updated.connect(self.queue_panel.update_list)
+        self.queue_manager.processing_state_changed.connect(self._update_system_status)
+        self.queue_manager.conversion_success.connect(self.on_conversion_success)
+
+        self.queue_panel.remove_requested.connect(self.queue_manager.remove_items)
+        self.queue_panel.clear_requested.connect(self.queue_manager.clear_queue)
 
         self.cache_file = Path(__file__).parent.resolve() / ".editor_cache.puml"
         self._load_cache()
@@ -98,10 +63,7 @@ class DragDropUI(QMainWindow):
 
         self.splitter = QSplitter(Qt.Vertical)
 
-        # ==========================================
         # --- TOP HALF: TABS ---
-        # ==========================================
-        from PyQt5.QtWidgets import QTabWidget
         self.tabs = QTabWidget()
 
         self.code_tab = CodeEditorTab()
@@ -118,7 +80,7 @@ class DragDropUI(QMainWindow):
         self.code_tab.file_dropped.connect(self.extract_code_from_visio)
 
         self.batch_tab = BatchConvertTab()
-        self.batch_tab.files_dropped.connect(self.handle_batch_drop)
+        self.batch_tab.files_dropped.connect(lambda paths: self.queue_manager.add_batch(paths))
 
         self.word_tab = WordExtractorTab()
         self.word_tab.file_dropped.connect(self.start_word_extraction)
@@ -130,20 +92,14 @@ class DragDropUI(QMainWindow):
 
         self.splitter.addWidget(self.tabs)
 
-        # ==========================================
         # --- BOTTOM HALF: PANELS ---
-        # ==========================================
         self.bottom_splitter = QSplitter(Qt.Horizontal)
 
-        # 1. Console Panel
         self.console_panel = ConsolePanel()
         self.console_panel.proxy_requested.connect(self.open_proxy_settings)
         self.console_panel.update_requested.connect(self.check_for_jar_updates)
 
-        # 2. Queue Panel
         self.queue_panel = QueuePanel()
-        self.queue_panel.remove_requested.connect(self.remove_selected_from_queue)
-        self.queue_panel.clear_requested.connect(self.clear_queue)
 
         self.bottom_splitter.addWidget(self.console_panel)
         self.bottom_splitter.addWidget(self.queue_panel)
@@ -168,6 +124,15 @@ class DragDropUI(QMainWindow):
         self.init_thread.network_error.connect(self.open_proxy_settings)
         self.init_thread.start()
 
+    def on_init_complete(self, success: bool):
+        if success:
+            self.tabs.setEnabled(True)
+            self._update_system_status(False, "🟢 System Idle.")
+            self.log_message("🚀 System Ready. Paste code or drop files to begin.\n" + "-" * 45)
+        else:
+            self.batch_tab.set_state("error", "❌ Initialization Failed.")
+            self.status_bar.showMessage("❌ Initialization Failed. Check log for details.")
+
     # --- AUTO-SAVE LOGIC ---
     def _load_cache(self):
         if self.cache_file.exists():
@@ -190,6 +155,16 @@ class DragDropUI(QMainWindow):
         super().closeEvent(event)
 
     # --- UI INTERACTION LOGIC ---
+    def _update_system_status(self, is_processing: bool, status_text: str):
+        """Called dynamically by the QueueManager."""
+        self.status_bar.showMessage(status_text)
+        if is_processing:
+            self.batch_tab.set_state("busy",
+                                     "⚙️ Processing Queue...\n\nPlease wait until finished or drop more files to queue them.")
+        else:
+            self.batch_tab.set_state("ready",
+                                     "📥 Drag && Drop your .puml or .txt file(s) here\n\n(Batch exports as Visio files)")
+
     def _set_editor_text(self, text):
         cursor = self.code_tab.text_input.textCursor()
         cursor.beginEditBlock()
@@ -265,61 +240,6 @@ class DragDropUI(QMainWindow):
         self.tabs.setEnabled(False)
         self._launch_init_thread(check_updates=True)
 
-    def _get_display_name(self, file_path):
-        import re
-        name = file_path.name
-        if re.match(r"^\d{4}\.\d{2}\.\d{2} \d{2}-\d{2}-\d{2} ", name):
-            return name[20:]
-        return name
-
-    # --- QUEUE MANAGER DELEGATION ---
-    def _refresh_queue_list(self):
-        display_items = []
-        for index, (file_path, target_format) in enumerate(self.file_queue, start=1):
-            display_name = self._get_display_name(file_path)
-            display_items.append(f"{index}. {display_name} → .{target_format.upper()}")
-
-        self.queue_panel.update_list(display_items)
-
-    def remove_selected_from_queue(self, rows):
-        """Receives a list of integers (row indices) from the QueuePanel."""
-        for row in rows:
-            del self.file_queue[row]
-        self._refresh_queue_list()
-        self._update_queue_ui_text()
-
-    def clear_queue(self):
-        self.file_queue.clear()
-        self._refresh_queue_list()
-        self._update_queue_ui_text()
-
-    def on_init_complete(self, success: bool):
-        if success:
-            self.tabs.setEnabled(True)
-            self._set_drop_zone_ready()
-            self.log_message("🚀 System Ready. Paste code or drop files to begin.\n" + "-" * 45)
-        else:
-            self.batch_tab.set_state("error", "❌ Initialization Failed.")
-            self.status_bar.showMessage("❌ Initialization Failed. Check log for details.")
-
-    def _set_drop_zone_ready(self):
-        self.batch_tab.set_state("ready",
-                                 "📥 Drag && Drop your .puml or .txt file(s) here\n\n(Batch exports as Visio files)")
-        self.status_bar.showMessage("🟢 System Idle.")
-
-    def _set_drop_zone_busy(self):
-        self.batch_tab.set_state("busy",
-                                 "⚙️ Processing Queue...\n\nPlease wait until finished or drop more files to queue them.")
-
-    def handle_batch_drop(self, file_paths):
-        for file_path in file_paths:
-            self.file_queue.append((Path(file_path), "vsdx"))
-        self._refresh_queue_list()
-        if not self.is_processing:
-            self.process_next_in_queue()
-        else:
-            self._update_queue_ui_text()
-
     def extract_code_from_visio(self, file_path):
         self.code_tab.text_input.clear()
         self.code_tab.text_input.setPlaceholderText(
@@ -379,54 +299,7 @@ class DragDropUI(QMainWindow):
         with open(puml_path, "w", encoding="utf-8") as f:
             f.write(raw_text)
 
-        self.file_queue.append((puml_path, target_format))
-        self._refresh_queue_list()
-
-        if self.is_processing:
-            self._update_queue_ui_text()
-        else:
-            self.process_next_in_queue()
-
-    def _update_queue_ui_text(self, current_file_name=""):
-        remaining = len(self.file_queue)
-        rem_text = f" | {remaining} items waiting in queue." if remaining > 0 else ""
-        if current_file_name:
-            self.status_bar.showMessage(f"⚙️ Processing: {current_file_name}{rem_text}")
-        else:
-            curr_text = self.status_bar.currentMessage().split("|")[0].strip()
-            if "Idle" in curr_text and remaining == 0:
-                self.status_bar.showMessage("🟢 System Idle.")
-            else:
-                self.status_bar.showMessage(f"{curr_text}{rem_text}")
-
-    def process_next_in_queue(self):
-        if not self.file_queue:
-            self.is_processing = False
-            self._set_drop_zone_ready()
-            return
-
-        self.is_processing = True
-        self._set_drop_zone_busy()
-
-        next_file, target_format = self.file_queue.pop(0)
-        display_name = self._get_display_name(next_file)
-
-        self._refresh_queue_list()
-        self._update_queue_ui_text(f"{display_name} (to .{target_format.upper()})")
-
-        if target_format == "svg":
-            self.conv_thread = SvgConverterThread(next_file, self.jar_path)
-        elif target_format == "pptx":
-            self.conv_thread = PptxConverterThread(next_file, self.jar_path)
-        elif target_format == "ascii":
-            self.conv_thread = AsciiConverterThread(next_file, self.jar_path)
-        else:
-            self.conv_thread = ConverterThread(next_file, self.jar_path)
-
-        self.conv_thread.ui_log_msg.connect(self.log_message)
-        self.conv_thread.finished_path.connect(self.on_conversion_success)
-        self.conv_thread.finished.connect(self.process_next_in_queue)
-        self.conv_thread.start()
+        self.queue_manager.add_item(puml_path, target_format)
 
     def on_conversion_success(self, out_path: str):
         if out_path == "OPENED_IN_PPT":
@@ -443,7 +316,5 @@ class DragDropUI(QMainWindow):
                 except Exception as e:
                     self.log_message(f"⚠️ Could not automatically open file: {e}")
 
-    # --- WRAPPER METHOD ---
     def log_message(self, message: str, level=logging.INFO):
-        """Passes logs to the newly decoupled ConsolePanel."""
         self.console_panel.log_message(message, level)
