@@ -13,4 +13,4 @@ def get_project_root() -> Path:
 def get_asset_path(filename: str) -> Path:
     """Returns the path to static assets like the JAR or templates."""
     # Example: Resolves to src/puml2visio/templates/plantuml.jar
-    return get_project_root() / "templates" / filename
+    return get_project_root() / "assets" / filename

@@ -9,15 +9,16 @@ from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatu
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
-from ui_components import ProxyDialog
-from ui_tabs import CodeEditorTab, BatchConvertTab, WordExtractorTab
+from puml2visio.ui.ui_components import ProxyDialog
+from puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab, WordExtractorTab
 from puml2visio.core.queue_manager import QueueManager
 
 from puml2visio.utils.utils import JAR_NAME, encode_plantuml, InitializationThread
 from puml2visio.core.visio_converter import VisioReaderThread
 from puml2visio.core.live_preview import LivePreviewManager
 from puml2visio.templates.plantuml_templates import PLANTUML_TYPES
-from ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
+from puml2visio.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
+from puml2visio.utils.paths import get_project_root, get_asset_path
 
 
 class DragDropUI(QMainWindow):
@@ -26,7 +27,7 @@ class DragDropUI(QMainWindow):
         self.setWindowTitle("PlantUML to Visio Converter (3GPP)")
         self.resize(950, 750)
 
-        self.jar_path = Path(__file__).parent.resolve() / JAR_NAME
+        self.jar_path = get_asset_path(JAR_NAME)
         self.last_out_path = ""
 
         self._setup_ui()
@@ -41,7 +42,7 @@ class DragDropUI(QMainWindow):
         self.queue_panel.remove_requested.connect(self.queue_manager.remove_items)
         self.queue_panel.clear_requested.connect(self.queue_manager.clear_queue)
 
-        self.cache_file = Path(__file__).parent.resolve() / ".editor_cache.puml"
+        self.cache_file = get_project_root().parent / ".editor_cache.puml"
         self._load_cache()
 
         self.save_timer = QTimer()
@@ -209,7 +210,7 @@ class DragDropUI(QMainWindow):
             self.log_message("⚠️ Editor is empty. Nothing to copy.", logging.WARNING)
 
     def open_export_folder(self):
-        export_dir = Path(__file__).parent.resolve()
+        export_dir = get_project_root().parent
         try:
             os.startfile(export_dir)
             self.log_message(f"📂 Opened export directory: {export_dir}", logging.INFO)
@@ -304,7 +305,7 @@ class DragDropUI(QMainWindow):
         raw_text = self.code_tab.get_text()
         if not raw_text: return
 
-        base_dir = Path(__file__).parent.resolve()
+        base_dir = get_project_root().parent
         timestamp = datetime.datetime.now().strftime("%Y.%m.%d %H-%M-%S")
         base_name = f"{timestamp} diagram"
         puml_path = base_dir / f"{base_name}.puml"
