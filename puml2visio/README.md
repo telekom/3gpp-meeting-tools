@@ -109,7 +109,7 @@ Because this application relies heavily on Microsoft's Component Object Model (C
 
 3. **Run the application:**
    ```bash
-   python puml2visio.py
+   python main.py
    ```
    *Note: On first launch, the app will automatically attempt to download `plantuml.jar`. If you are behind a corporate firewall, a proxy configuration dialog will appear to assist.*
 

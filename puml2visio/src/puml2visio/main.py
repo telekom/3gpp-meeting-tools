@@ -7,9 +7,9 @@ from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QDialog
 
 # --- NEW: Import the icon generation function ---
-from ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
-from main_window import DragDropUI
-from utils import JAR_NAME, get_best_java
+from puml2visio.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
+from puml2visio.ui.main_window import DragDropUI
+from puml2visio.utils.utils import JAR_NAME, get_best_java
 
 # ==========================================
 # --- LOGGING SETUP ---
@@ -18,7 +18,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("puml2vsdx.log", mode="a", encoding="utf-8"),
+        logging.FileHandler("../../puml2vsdx.log", mode="a", encoding="utf-8"),
         logging.StreamHandler(sys.stdout)
     ]
 )

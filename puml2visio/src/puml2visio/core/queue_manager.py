@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PyQt5.QtCore import QObject, pyqtSignal, QThread
 
-from utils import get_best_java
+from puml2visio.utils.utils import get_best_java
 from visio_converter import ConverterThread, SvgConverterThread
 from powerpoint_converter import PptxConverterThread
 
