@@ -16,11 +16,12 @@ from modules.puml2visio.core.queue_manager import QueueManager
 
 from modules.puml2visio.utils.utils import encode_plantuml, InitializationThread
 from modules.puml2visio.config.paths import JAR_NAME
+from core.config.config import HELP_URL
 from modules.puml2visio.core.visio_converter import VisioReaderThread
 from modules.puml2visio.core.live_preview import LivePreviewManager
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 from modules.puml2visio.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
-from modules.puml2visio.utils.paths import get_project_root, get_asset_path, HELP_URL
+from modules.puml2visio.utils.paths import get_project_root, get_asset_path
 
 
 class DragDropUI(QMainWindow):
