@@ -21,14 +21,14 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 * **Smart Code Editor:** A professional IDE experience featuring dynamic line numbering, active-line highlighting, native Undo/Redo history, and a background Auto-Save Cache that restores your session if the app is closed or crashes.
 * **Intelligent Live Preview:** A debounced background rendering engine that automatically pipes your PlantUML code to a live browser tab as you type. If you make a typo, it intercepts the Java crash and dynamically paints a red Syntax Error overlay directly in your browser.
-* **Rich Export Engine:** * **Visio (.vsdx):** Perfect alignment via 2D SVG gap-measuring.
-  * **PowerPoint (.pptx):** Bypasses buggy SVG engines via an EMF pipeline for natively ungroupable objects.
-  * **ASCII Text Art (.txt):** Uses PlantUML's `-tutxt` engine to generate clean Unicode text diagrams for markdown or RFC specs.
+* **Visio Export (.vsdx):** Perfect alignment via 2D SVG gap-measuring.
+* **PowerPoint Export (.pptx):** Bypasses buggy SVG engines via an EMF pipeline for natively ungroupable objects.
+* **ASCII Text Art Export (.txt):** Uses PlantUML's `-tutxt` engine to generate clean Unicode text diagrams for markdown or RFC specs.
 * **Subtractive Slicing Engine (Word):** Instantly split massive 200+ page `.docx` specifications into individual clauses. Processes files at the XML level (bypassing slow COM automation) using a throttled Thread Pool to extract multiple chapters simultaneously without maxing out system RAM.
 * **XML Garbage Collector:** When splitting Word documents, automatically scans the surviving XML and aggressively purges orphaned OLE objects and high-res images to prevent file bloat.
 * **Embedded Visio Extractor:** Extracts hidden, editable Visio (`.vsdx`) files natively trapped inside Word Document (`.docx`) OLE wrappers.
 * **Built-in COM Process Manager:** A native "kill switch" dialog that safely identifies and terminates headless "ghost" instances of Visio or PowerPoint left hanging in memory by background crashes.
-* **Modular MVC Architecture:** Built on a decoupled UI standard, utilizing dedicated UI Tabs, UI Panels, and a centralized Python `QueueManager` to handle threading without locking the GUI.
+* **Modular MVC Architecture:** Built on a decoupled Python package standard (`src/`), utilizing dedicated UI components, Core engines, and a centralized `QueueManager` to handle threading without locking the GUI.
 
 ---
 
@@ -37,18 +37,18 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ```mermaid
 %%{init: {'theme': 'neutral'}}%%
 graph TD
-    subgraph view [UI View]
-        E[puml2visio.py - Entry Point] --> M[main_window.py - The Traffic Cop]
+    subgraph view [UI View (src/puml2visio/ui/)]
+        E[main.py - Entry Point] --> M[main_window.py - The Traffic Cop]
         M --> T[ui_tabs.py - Code Editor and Drop Zones]
         M --> P[ui_panels.py - Console and Task Manager]
     end
 
-    subgraph controller [Controller]
+    subgraph controller [Controller (src/puml2visio/core/)]
         M --> Q[queue_manager.py - Thread Orchestration]
     end
 
-    subgraph model [Core Engines - Model]
-        Q --> J[utils.py - Java Registry Scanner]
+    subgraph model [Core Engines (src/puml2visio/core/)]
+        Q --> J[utils/paths.py - Asset Resolution]
         Q --> V[visio_converter.py - COM Automation]
         Q --> PPT[powerpoint_converter.py]
         Q --> DOCX[docx_splitter.py - XML Slicing]
@@ -93,7 +93,9 @@ Because this application relies heavily on Microsoft's Component Object Model (C
 
 ---
 
-## <a id="installation"></a>🚀 Installation
+## <a id="installation"></a>🚀 Installation & Execution
+
+This application is built as a modern Python package using `pyproject.toml`. 
 
 1. **Clone the repository:**
    ```bash
@@ -101,17 +103,24 @@ Because this application relies heavily on Microsoft's Component Object Model (C
    cd 3gpp-meeting-tools/puml2visio
    ```
 
-2. **Install the required Python packages:**
-   Create a virtual environment (optional but recommended) and install the dependencies (including `python-docx` for XML manipulation):
+2. **Install the package (Editable Mode):**
+   This installs the dependencies and maps the application as a native terminal command, allowing you to run it from anywhere. Make sure you run this from the folder containing the `pyproject.toml` file.
    ```bash
-   pip install -r requirements.txt
+   pip install -e .
    ```
 
-3. **Run the application:**
+3. **Run the application (Method 1 - CLI Command):**
+   Once installed via pip, you can launch the app from any terminal window simply by typing:
    ```bash
-   python main.py
+   puml2visio
    ```
-   *Note: On first launch, the app will automatically attempt to download `plantuml.jar`. If you are behind a corporate firewall, a proxy configuration dialog will appear to assist.*
+
+4. **Run the application (Method 2 - Python Module):**
+   If you prefer not to install the CLI command, you can run the package directly through Python from your project root:
+   ```bash
+   python -m puml2visio.main
+   ```
+   *Note: On first launch, the app will automatically attempt to download `plantuml.jar` into the `templates` directory. If you are behind a corporate firewall, a proxy configuration dialog will appear to assist.*
 
 ---
 
@@ -130,10 +139,9 @@ The application features three main workspaces navigated via tabs, with a fully 
 
 ### 📄 Tab 3: Word Extractor & Splitter
 * **Extract Embedded Visio Diagrams:** Unzips the `.docx` archive and dumps clean `.vsdx` files (often trapped as OLE objects in 3GPP specs) next to your original document.
-* **Subtractive Slicing (Split by Clause):** Select this radio button to intelligently carve up a massive specification document.
-  * **Prefix:** Define the clause to target (e.g., `6.` targets 6.1, 6.2, etc.).
-  * **Depth:** Define the hierarchy level to cut at (e.g., Depth `2` slices at 6.1, Depth `3` slices at 6.1.1).
-  * The tool creates a `[filename]_split` subfolder and processes the chapters in parallel, purging orphaned images to keep file sizes small.
+* **Subtractive Slicing - Prefix:** Define the clause to target (e.g., `6.` targets 6.1, 6.2, etc.).
+* **Subtractive Slicing - Depth:** Define the hierarchy level to cut at (e.g., Depth `2` slices at 6.1, Depth `3` slices at 6.1.1).
+* **Subtractive Slicing - Execution:** The tool creates a `[filename]_split` subfolder and processes the chapters in parallel, purging orphaned images to keep file sizes small.
 
 ### 🛠 System Toolbar (Console Header)
 * **🖥️ Task Manager:** Open the COM Process Manager to identify and kill headless instances of Visio or PowerPoint.
