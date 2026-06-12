@@ -6,14 +6,14 @@ from pathlib import Path
 
 from PyQt5.QtCore import QObject, pyqtSignal, QThread
 
-from puml2visio.utils.utils import get_best_java
-from puml2visio.core.visio_converter import ConverterThread, SvgConverterThread
-from puml2visio.core.powerpoint_converter import PptxConverterThread
+from modules.puml2visio.utils.utils import get_best_java
+from modules.puml2visio.core.visio_converter import ConverterThread, SvgConverterThread
+from modules.puml2visio.core.powerpoint_converter import PptxConverterThread
 
 # --- NEW: Import the Word Threads here! ---
-from puml2visio.core.word_extractor import WordExtractorThread
-from puml2visio.core.docx_splitter import DocxSplitterThread
-from puml2visio.core.word_comparator import WordComparatorThread
+from modules.puml2visio.core.word_extractor import WordExtractorThread
+from modules.puml2visio.core.docx_splitter import DocxSplitterThread
+from modules.puml2visio.core.word_comparator import WordComparatorThread
 
 
 # ==========================================

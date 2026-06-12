@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
 
-from puml2visio.utils.utils import generate_cleaned_svg
+from modules.puml2visio.utils.utils import generate_cleaned_svg
 
 # Lightweight HTML wrapper (Status text removed from DOM)
 HTML_TEMPLATE = """<!DOCTYPE html>

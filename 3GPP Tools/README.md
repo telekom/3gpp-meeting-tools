@@ -100,7 +100,7 @@ This application is built as a modern Python package using `pyproject.toml`.
 1. **Clone the repository:**
    ```bash
    git clone [https://github.com/telekom/3gpp-meeting-tools.git](https://github.com/telekom/3gpp-meeting-tools.git)
-   cd 3gpp-meeting-tools/puml2visio
+   cd 3gpp-meeting-tools/3GPP Tools
    ```
 
 2. **Install the package (Editable Mode):**
@@ -112,13 +112,13 @@ This application is built as a modern Python package using `pyproject.toml`.
 3. **Run the application (Method 1 - CLI Command):**
    Once installed via pip, you can launch the app from any terminal window simply by typing:
    ```bash
-   puml2visio
+   3GPP Tools
    ```
 
 4. **Run the application (Method 2 - Python Module):**
    If you prefer not to install the CLI command, you can run the package directly through Python from your project root:
    ```bash
-   python -m puml2visio.main
+   python -m 3GPP Tools.main
    ```
    *Note: On first launch, the app will automatically attempt to download `plantuml.jar` into the `templates` directory. If you are behind a corporate firewall, a proxy configuration dialog will appear to assist.*
 

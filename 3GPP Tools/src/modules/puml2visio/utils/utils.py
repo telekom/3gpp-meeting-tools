@@ -9,11 +9,7 @@ import base64
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 
-JAR_NAME = "plantuml.jar"
-URL_LATEST = "https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar"
-URL_JAVA_8 = "https://github.com/plantuml/plantuml/releases/download/v1.2023.13/plantuml-1.2023.13.jar"
-
-WATERMARK = "' Generated with puml2visio, https://github.com/telekom/3gpp-meeting-tools/tree/master/puml2visio"
+from modules.puml2visio.config.paths import URL_LATEST, URL_JAVA_8
 
 # --- SMART JAVA DISCOVERY ENGINE ---
 _BEST_JAVA_CACHE = None
@@ -114,7 +110,7 @@ def get_best_java(log_callback=None):
 # --- CORE UTILITIES ---
 def strip_watermark(raw_text: str) -> str:
     lines = raw_text.splitlines()
-    while lines and ("Generated with puml2visio" in lines[0] or lines[0].strip() == ""):
+    while lines and ("Generated with 3GPP Tools" in lines[0] or lines[0].strip() == ""):
         lines.pop(0)
     return "\n".join(lines)
 

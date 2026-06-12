@@ -6,20 +6,21 @@ import os
 from pathlib import Path
 
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication, QDialog, QTabWidget, QPushButton, QShortcut
-from PyQt5.QtGui import QTextCursor, QKeySequence
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
-from puml2visio.ui.ui_components import ProxyDialog
-from puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab, WordExtractorTab
-from puml2visio.core.queue_manager import QueueManager
+from modules.puml2visio.ui.ui_components import ProxyDialog
+from modules.puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab, WordExtractorTab
+from modules.puml2visio.core.queue_manager import QueueManager
 
-from puml2visio.utils.utils import JAR_NAME, encode_plantuml, InitializationThread
-from puml2visio.core.visio_converter import VisioReaderThread
-from puml2visio.core.live_preview import LivePreviewManager
-from puml2visio.templates.plantuml_templates import PLANTUML_TYPES
-from puml2visio.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
-from puml2visio.utils.paths import get_project_root, get_asset_path, HELP_URL
+from modules.puml2visio.utils.utils import encode_plantuml, InitializationThread
+from modules.puml2visio.config.paths import JAR_NAME
+from modules.puml2visio.core.visio_converter import VisioReaderThread
+from modules.puml2visio.core.live_preview import LivePreviewManager
+from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
+from modules.puml2visio.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
+from modules.puml2visio.utils.paths import get_project_root, get_asset_path, HELP_URL
 
 
 class DragDropUI(QMainWindow):
