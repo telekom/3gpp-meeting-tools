@@ -1029,21 +1029,17 @@ Please provide a summary of the documents included in the PDF per agenda item.
         self.tree.delete(*self.tree.get_children())
         count = 0
 
-        for tdoc_id, row in self.tdocs_current_df.iterrows():
-            count = count + 1
-            mod = count % 2
-            if mod > 0:
-                tag = 'odd'
-            else:
-                tag = 'even'
+        # Convert to dict for much faster iteration compared to .iterrows()
+        df_records = self.tdocs_current_df.to_dict('index')
+
+        for tdoc_id, row in df_records.items():
+            count += 1
+            tag = 'odd' if count % 2 > 0 else 'even'
 
             local_file = self.meeting.get_tdoc_local_path(str(tdoc_id))
 
             # Icon to show if a TDoc was downloaded
-            if utils.local_cache.file_exists(local_file):
-                row_icon = cloud_download_icon
-            else:
-                row_icon = cloud_icon
+            row_icon = cloud_download_icon if utils.local_cache.file_exists(local_file) else cloud_icon
 
             # Text including spec number
             tdoc_title = row['Title']
@@ -1051,10 +1047,7 @@ Please provide a summary of the documents included in the PDF per agenda item.
                 tdoc_spec = row['Spec']
                 try:
                     cr_number = row['CR']
-                    if cr_number is None or cr_number == '':
-                        cr_number = ''
-                    else:
-                        cr_number = f"CR{cr_number:.0f}"
+                    cr_number = '' if cr_number is None or cr_number == '' else f"CR{cr_number:.0f}"
 
                     try:
                         tdoc_release = row['Release']  # Rel-18
@@ -1089,48 +1082,30 @@ Please provide a summary of the documents included in the PDF per agenda item.
                     row['Agenda item'],
                     row['Type'],
                     textwrap.fill(tdoc_title, width=70),
-                    textwrap.fill(row['Source'], width=25),
+                    textwrap.fill(str(row['Source']), width=25),
                     'Click',
-                    textwrap.fill(row['Secretary Remarks'], width=50)
+                    textwrap.fill(str(row['Secretary Remarks']), width=50)
                 ),
                 image=row_icon,
             )
 
         for tdoc_id in self.selected_tdocs_not_in_excel:
-            count = count + 1
-            mod = count % 2
-            if mod > 0:
-                tag = 'odd'
-            else:
-                tag = 'even'
+            count += 1
+            tag = 'odd' if count % 2 > 0 else 'even'
 
             local_file = self.meeting.get_tdoc_local_path(str(tdoc_id))
-
-            # Icon to show if a TDoc was downloaded
-            if utils.local_cache.file_exists(local_file):
-                row_icon = cloud_download_icon
-            else:
-                row_icon = cloud_icon
+            row_icon = cloud_download_icon if utils.local_cache.file_exists(local_file) else cloud_icon
 
             self.tree.insert(
                 "",
                 "end",
                 tags=(tag,),
-                values=(
-                    tdoc_id,
-                    '',
-                    '',
-                    '',
-                    '',
-                    'Click',
-                    ''
-                ),
+                values=(tdoc_id, '', '', '', '', 'Click', ''),
                 image=row_icon,
             )
 
-            treeview_set_row_formatting(self.tree)
-            self.tdoc_count.set('{0} documents'.format(count))
-
+        treeview_set_row_formatting(self.tree)
+        self.tdoc_count.set(f'{count} documents')
 
 class TdocDetailsFromExcel(GenericTable):
     def __init__(
