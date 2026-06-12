@@ -1,11 +1,10 @@
 import logging
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QLabel, QTextEdit, QListWidget, QApplication,
-                             QDialog, QTreeWidget, QTreeWidgetItem, QHeaderView)
+                             QLabel, QTextEdit, QListWidget, QDialog, QTreeWidget, QTreeWidgetItem, QHeaderView)
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QColor, QBrush
 
-from process_manager import ProcessManager
+from puml2visio.core.process_manager import ProcessManager
 
 
 # ==========================================

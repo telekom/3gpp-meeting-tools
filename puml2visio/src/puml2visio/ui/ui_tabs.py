@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QComboBox, QLineEdit, QSpinBox,
                              QFormLayout, QStackedWidget, QTabWidget, QCheckBox, QMenu, QAction)
@@ -6,7 +8,7 @@ import win32com.client
 import pythoncom
 
 from ui_components import CodeDropTextEdit, InteractiveDropLabel
-from plantuml_templates import PLANTUML_TYPES
+from puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 
 
 class CodeEditorTab(QWidget):

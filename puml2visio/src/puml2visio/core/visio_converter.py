@@ -5,7 +5,7 @@ import pythoncom
 import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from utils import WATERMARK, strip_watermark, generate_cleaned_svg
+from puml2visio.utils.utils import WATERMARK, strip_watermark, generate_cleaned_svg
 
 
 class VisioReaderThread(QThread):

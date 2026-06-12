@@ -11,16 +11,13 @@ from PyQt5.QtGui import QTextCursor
 
 from ui_components import ProxyDialog
 from ui_tabs import CodeEditorTab, BatchConvertTab, WordExtractorTab
-from ui_panels import ConsolePanel, QueuePanel
-from queue_manager import QueueManager
+from puml2visio.core.queue_manager import QueueManager
 
-from utils import JAR_NAME, encode_plantuml, InitializationThread
-from word_extractor import WordExtractorThread
-from visio_converter import VisioReaderThread
-from live_preview import LivePreviewManager
-from plantuml_templates import PLANTUML_TYPES
+from puml2visio.utils.utils import JAR_NAME, encode_plantuml, InitializationThread
+from puml2visio.core.visio_converter import VisioReaderThread
+from puml2visio.core.live_preview import LivePreviewManager
+from puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 from ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
-from docx_splitter import DocxSplitterThread
 
 
 class DragDropUI(QMainWindow):
