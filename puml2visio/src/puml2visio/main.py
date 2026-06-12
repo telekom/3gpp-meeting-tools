@@ -6,41 +6,48 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication, QDialog
 
-# --- NEW: Import the icon generation function ---
 from puml2visio.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from puml2visio.ui.main_window import DragDropUI
 from puml2visio.utils.utils import JAR_NAME, get_best_java
+from puml2visio.utils.paths import get_project_root, get_asset_path
+
+# ==========================================
+# --- PATH RESOLUTION ---
+# ==========================================
+# __file__ is src/puml2visio/main.py
+PACKAGE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = PACKAGE_DIR.parent.parent # The outer puml2visio folder
 
 # ==========================================
 # --- LOGGING SETUP ---
 # ==========================================
+# get_project_root() gives us src/puml2visio/.
+# We go up one more parent to put the log file next to pyproject.toml
+log_file_path = get_project_root().parent / "puml2vsdx.log"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("../../puml2vsdx.log", mode="a", encoding="utf-8"),
+        logging.FileHandler(log_file_path, mode="a", encoding="utf-8"),
         logging.StreamHandler(sys.stdout)
     ]
 )
 
 if __name__ == '__main__':
-    # --- NEW: WINDOWS TASKBAR FIX ---
     # This prevents Windows from grouping our app under the generic Python snake logo!
     if os.name == 'nt':
         import ctypes
-
         myappid = '3gpp.puml2visio.converter.1.0'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
     app = QApplication(sys.argv)
-
-    # --- NEW: APPLY GLOBAL ICON ---
     app.setWindowIcon(create_app_icon())
-
     app.setStyle("Fusion")
     app.setStyleSheet(GLOBAL_STYLE)
 
-    jar_path = Path(__file__).parent.resolve() / JAR_NAME
+    # --- POINT TO THE TEMPLATES FOLDER ---
+    jar_path = get_asset_path(JAR_NAME)
     version_file = jar_path.with_suffix('.version')
 
     # --- SMART PROXY CHECK ---
