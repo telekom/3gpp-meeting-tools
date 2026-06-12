@@ -5,7 +5,8 @@ import webbrowser
 import os
 from pathlib import Path
 
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication, QDialog, QTabWidget
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication, QDialog, QTabWidget, QPushButton, QShortcut
+from PyQt5.QtGui import QTextCursor, QKeySequence
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
@@ -18,7 +19,7 @@ from puml2visio.core.visio_converter import VisioReaderThread
 from puml2visio.core.live_preview import LivePreviewManager
 from puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 from puml2visio.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
-from puml2visio.utils.paths import get_project_root, get_asset_path
+from puml2visio.utils.paths import get_project_root, get_asset_path, HELP_URL
 
 
 class DragDropUI(QMainWindow):
@@ -104,6 +105,23 @@ class DragDropUI(QMainWindow):
         self.tabs.addTab(self.word_tab, "📄 Word Extractor")
         self.tabs.setEnabled(False)
 
+        # --- TAB CORNER HELP WIDGET ---
+        self.help_btn = QPushButton("📖 Help (F1)")
+        # Make it look like a clean, borderless link instead of a chunky button
+        self.help_btn.setStyleSheet("""
+                    QPushButton { border: none; background: transparent; color: #395396; font-weight: bold; padding: 4px 15px; }
+                    QPushButton:hover { color: #1E5C99; text-decoration: underline; }
+                """)
+        self.help_btn.setCursor(Qt.PointingHandCursor)
+        self.help_btn.clicked.connect(self.open_documentation)
+
+        # Inject it into the top right corner of the Tab Bar
+        self.tabs.setCornerWidget(self.help_btn, Qt.TopRightCorner)
+
+        # Restore the F1 Global Shortcut
+        self.help_shortcut = QShortcut(QKeySequence("F1"), self)
+        self.help_shortcut.activated.connect(self.open_documentation)
+
         self.splitter.addWidget(self.tabs)
 
         # --- BOTTOM HALF: PANELS ---
@@ -171,6 +189,14 @@ class DragDropUI(QMainWindow):
         super().closeEvent(event)
 
     # --- UI INTERACTION LOGIC ---
+    def open_documentation(self):
+        """Opens the configured README URL in the default web browser."""
+        try:
+            webbrowser.open(HELP_URL)
+            self.log_message("🌐 Opened Documentation (README) in your web browser.", logging.INFO)
+        except Exception as e:
+            self.log_message(f"❌ Failed to open documentation URL: {e}", logging.ERROR)
+
     def _update_system_status(self, is_processing: bool, status_text: str):
         """Called dynamically by the QueueManager."""
         self.status_bar.showMessage(status_text)
