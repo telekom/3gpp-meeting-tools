@@ -21,6 +21,17 @@ from gui.common.common_elements import tkvar_3gpp_wifi_available
 from server.network import detect_3gpp_network_state
 import server.tdoc_search
 
+import platform
+import ctypes
+
+# Force Windows to see this script as a distinct application on the taskbar
+if platform.system() == 'Windows':
+    try:
+        myappid = 'telekom.3gpp.meetingtools.helper.1.0'  # Arbitrary unique string identifier
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+    except Exception as e:
+        print(f"Could not set AppUserModelID for taskbar icon: {e}")
+
 # GUI init
 tk_root = root
 tk_root.title("3GPP Delegate helper")
