@@ -622,14 +622,15 @@ class TdocsTableFromExcel(GenericTable):
             def get_text_for_prompt(e:PdfBookmark) -> str:
                 el_tdoc_id = e.tdoc_id
                 try:
-                    el_title = self.tdocs_current_df.loc[e.tdoc_id, 'Title']
-                    el_sources = self.tdocs_current_df.loc[e.tdoc_id, 'Source']
-                    el_type = self.tdocs_current_df.loc[e.tdoc_id, 'Type']
-                    el_ai = self.tdocs_current_df.loc[e.tdoc_id, 'Agenda item']
+                    # Use .get() to prevent KeyError if the column doesn't exist in that specific meeting's Excel
+                    row_data = self.tdocs_current_df.loc[el_tdoc_id]
+                    el_title = row_data.get('Title', 'Unknown Title')
+                    el_sources = row_data.get('Source', 'Unknown Source')
+                    el_type = row_data.get('Type', 'Unknown Type')
+                    el_ai = row_data.get('Agenda item', 'Unknown AI')
 
-                    el_str = f'  - {el_tdoc_id}, titled {el_title}, is a {el_type} sourced by {el_sources} for agenda item {el_ai} and spans pages {e.page_begin} to {e.page_end}\n'
-                    return el_str
-                except KeyError as e:
+                    return f'  - {el_tdoc_id}, titled {el_title}, is a {el_type} sourced by {el_sources} for agenda item {el_ai} and spans pages {e.page_begin} to {e.page_end}\n'
+                except KeyError:
                     print(f'Could not generate prompt line for TDoc {el_tdoc_id}')
                     return ''
 
@@ -1108,6 +1109,16 @@ Please provide a summary of the documents included in the PDF per agenda item.
         self.tdoc_count.set(f'{count} documents')
 
 class TdocDetailsFromExcel(GenericTable):
+    # Class-level constant for clean referencing
+    DETAILS_FIELDS = (
+        'TDoc', 'Title', 'Source', '3GU Link', 'Contact', 'Type', 'For',
+        'Secretary Remarks', 'Agenda item', 'Agenda item description',
+        'TDoc Status', 'Is revision of', 'Revised to', 'Release', 'Spec',
+        'Version', 'Related WIs', 'CR', 'CR revision', 'CR category',
+        'TSG CR Pack', 'UICC', 'ME', 'RAN', 'CN', 'Clauses Affected',
+        'Reply to', 'To', 'Cc', 'Original LS', 'Reply in', 'URL'
+    )
+
     def __init__(
             self,
             favicon,
@@ -1158,47 +1169,10 @@ class TdocDetailsFromExcel(GenericTable):
     def insert_rows(self):
         print('Populating TDocs table')
         count = 0
-        for row_name in [
-            'TDoc',
-            'Title',
-            'Source',
-            '3GU Link',
-            'Contact',
-            'Type',
-            'For',
-            'Secretary Remarks',
-            'Agenda item',
-            'Agenda item description',
-            'TDoc Status',
-            'Is revision of',
-            'Revised to',
-            'Release',
-            'Spec',
-            'Version',
-            'Related WIs',
-            'CR',
-            'CR revision',
-            'CR category',
-            'TSG CR Pack',
-            'UICC',
-            'ME',
-            'RAN',
-            'CN',
-            'Clauses Affected',
-            'Reply to',
-            'To',
-            'Cc',
-            'Original LS',
-            'Reply in',
-            'URL'
-        ]:
+        for row_name in self.DETAILS_FIELDS:
 
             count = count + 1
-            mod = count % 2
-            if mod > 0:
-                tag = 'odd'
-            else:
-                tag = 'even'
+            tag = 'odd' if count % 2 > 0 else 'even'
 
             match row_name:
                 case 'TDoc':
