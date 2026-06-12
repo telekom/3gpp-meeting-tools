@@ -365,34 +365,59 @@ class MeetingsTable(GenericTable):
         def apply_meeting_data_to_df(
                 group_name: str,
                 meeting_name: str,
-                start_date:datetime,
-                docs_folder:str,
-                df_in: DataFrame)->DataFrame:
+                start_date: datetime.datetime,
+                docs_folder: str,
+                df_in: DataFrame) -> DataFrame:
             df_out = df_in.copy()
             df_out['WG'] = group_name
             df_out['Meeting'] = meeting_name
-            df_out['Start date'] = start_date
-            df_out['Start date'] = pd.to_datetime(df_out['Start date']).dt.date
 
-            def generate_cell_hyperlink(cell_value, cell_tdoc_idx):
-                return f'=HYPERLINK("{cell_value}{cell_tdoc_idx}.zip","{cell_tdoc_idx}")'
+            # FAST DATE: start_date is already a datetime scalar, just extract .date() once
+            df_out['Start date'] = start_date.date() if isinstance(start_date, datetime.datetime) else pd.to_datetime(
+                start_date).date()
 
-            df_out['Hyperlink'] = docs_folder
-            df_out['Hyperlink'] = df_out.apply(lambda row: generate_cell_hyperlink(row['Hyperlink'], row.name), axis=1)
+            # VECTORIZED HYPERLINKS: Massively faster than df.apply(axis=1)
+            index_str = df_out.index.astype(str)
+            df_out['Hyperlink'] = '=HYPERLINK("' + docs_folder + index_str + '.zip","' + index_str + '")'
+
             df_out = df_out.set_index(['Hyperlink'])
             df_out.index.names = ['TDoc']
             return df_out
 
-        merged_df = pd.concat(
-            [apply_meeting_data_to_df(
+        # 1. Generate the initial list of DataFrames
+        dfs_to_concat = [
+            apply_meeting_data_to_df(
                 e.meeting_group,
                 e.meeting_name,
                 e.start_date,
                 e.meeting_url_docs,
-                e.tdoc_data_from_excel.tdocs_df) for e in
-                       self.current_meeting_list if e.tdoc_data_from_excel is not None],
-            axis=0, join='outer',
-            ignore_index=False, keys=None, levels=None, names=None, verify_integrity=False, copy=True)
+                e.tdoc_data_from_excel.tdocs_df
+            )
+            for e in self.current_meeting_list
+            if e.tdoc_data_from_excel is not None
+        ]
+
+        # 2. Filter out empty DataFrames and drop completely empty (all-NA) columns
+        # to satisfy the Pandas FutureWarning before concatenating.
+        valid_dfs = [df.dropna(axis=1, how='all') for df in dfs_to_concat if not df.empty]
+
+        if not valid_dfs:
+            print("No valid TDoc data found to merge.")
+            return
+
+        # 3. Concatenate the cleaned DataFrames
+        merged_df = pd.concat(
+            valid_dfs,
+            axis=0,
+            join='outer',
+            ignore_index=False,
+            keys=None,
+            levels=None,
+            names=None,
+            verify_integrity=False,
+            copy=True
+        )
+
         print(f'Total of {len(merged_df)} TDocs')
         export_path = os.path.join(utils.local_cache.get_cache_folder(), 'Export')
         utils.local_cache.create_folder_if_needed(folder_name=export_path, create_dir=True)
