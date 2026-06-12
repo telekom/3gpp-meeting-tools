@@ -1,3 +1,5 @@
+import sv_ttk
+
 import gui.common.utils
 import gui.network_config
 import gui.main_gui
@@ -24,4 +26,8 @@ gui.main_gui.root.wait_window(proxy_dialog.top)
 waiting_for_proxy_label.grid_forget()
 
 gui.main_gui.start_main_gui()
+
+# Apply the modern theme
+sv_ttk.set_theme("light")
+
 gui.main_gui.root.mainloop()

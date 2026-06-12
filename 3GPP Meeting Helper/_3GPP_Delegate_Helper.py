@@ -2,6 +2,8 @@ import platform
 import tkinter
 from tkinter import ttk
 
+import sv_ttk
+
 from application.os import open_url
 from application.tkinter_config import root, main_frame, font_big, ttk_style_tbutton_medium
 import config.networking
@@ -221,4 +223,8 @@ tk_root.after(
         tk_root,
         loop=True,
         interval_ms=NetworkingConfig.network_check_interval_ms))
+
+# Apply the modern theme
+sv_ttk.set_theme("light")
+
 tk_root.mainloop()
