@@ -245,39 +245,38 @@ class MeetingsTable(GenericTable):
     def meeting_list_to_consider(self, tdoc_override=False) -> List[MeetingEntry]:
         try:
             if self.chosen_meeting is None:
-                if self.loaded_meeting_entries is None:
-                    meeting_list_to_consider = []
-                else:
-                    meeting_list_to_consider = self.loaded_meeting_entries
+                meeting_list_to_consider = self.loaded_meeting_entries if self.loaded_meeting_entries else []
             else:
                 meeting_list_to_consider = [self.chosen_meeting]
         except Exception as e:
             print(f'Could not retrieve current meeting list: {e}')
             meeting_list_to_consider = []
 
-        def meeting_matches_filter(m: MeetingEntry) -> bool:
-            filter_match = True
+        # FETCH ONCE: Avoid calling tkinter .get() inside the loop for massive speedup
+        selected_year = self.combo_years.get()
+        selected_group = self.combo_groups.get()
+        is_now_filter = self.filter_by_now
 
+        def meeting_matches_filter(m: MeetingEntry) -> bool:
             # If filtering by "now"
-            if self.filter_by_now:
-                filter_match = filter_match and m.meeting_is_now
+            if is_now_filter and not m.meeting_is_now:
+                return False
 
             # Filter by selected year
-            selected_year = self.combo_years.get()
             if (not selected_year.startswith('All')) and (not tdoc_override):
-                filter_match = filter_match and m.starts_in_given_year(int(selected_year))
+                if not m.starts_in_given_year(int(selected_year)):
+                    return False
 
             # Filter by selected group
-            selected_group = self.combo_groups.get()
             if (not selected_group.startswith('All')) and (not tdoc_override):
                 if selected_group == 'S3-LI':
-                    filter_match = filter_match and (m.meeting_group == 'S3' and m.is_li)
+                    if not (m.meeting_group == 'S3' and m.is_li): return False
                 elif selected_group == 'S3':
-                    filter_match = filter_match and (m.meeting_group == 'S3' and not m.is_li)
+                    if not (m.meeting_group == 'S3' and not m.is_li): return False
                 else:
-                    filter_match = filter_match and (m.meeting_group == selected_group)
+                    if m.meeting_group != selected_group: return False
 
-            return filter_match
+            return True
 
         meeting_list_to_consider = [m for m in meeting_list_to_consider if meeting_matches_filter(m)]
 
