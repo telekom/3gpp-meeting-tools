@@ -6,22 +6,23 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication, QDialog
 
-from puml2visio.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
-from puml2visio.ui.main_window import DragDropUI
-from puml2visio.utils.utils import JAR_NAME, get_best_java
-from puml2visio.utils.paths import get_project_root, get_asset_path
+from modules.puml2visio.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
+from modules.puml2visio.ui.main_window import DragDropUI
+from modules.puml2visio.utils.utils import get_best_java
+from modules.puml2visio.config.paths import JAR_NAME
+from modules.puml2visio.utils.paths import get_project_root, get_asset_path
 
 # ==========================================
 # --- PATH RESOLUTION ---
 # ==========================================
-# __file__ is src/puml2visio/main.py
+# __file__ is src/3GPP Tools/main.py
 PACKAGE_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = PACKAGE_DIR.parent.parent # The outer puml2visio folder
+PROJECT_ROOT = PACKAGE_DIR.parent.parent # The outer 3GPP Tools folder
 
 # ==========================================
 # --- LOGGING SETUP ---
 # ==========================================
-# get_project_root() gives us src/puml2visio/.
+# get_project_root() gives us src/3GPP Tools/.
 # We go up one more parent to put the log file next to pyproject.toml
 log_file_path = get_project_root().parent / "puml2vsdx.log"
 
@@ -38,7 +39,7 @@ if __name__ == '__main__':
     # This prevents Windows from grouping our app under the generic Python snake logo!
     if os.name == 'nt':
         import ctypes
-        myappid = '3gpp.puml2visio.converter.1.0'
+        myappid = '3gpp.3GPP Tools.converter.1.0'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
     app = QApplication(sys.argv)

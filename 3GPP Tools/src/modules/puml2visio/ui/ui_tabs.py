@@ -7,8 +7,8 @@ from PyQt5.QtCore import pyqtSignal
 import win32com.client
 import pythoncom
 
-from puml2visio.ui.ui_components import CodeDropTextEdit, InteractiveDropLabel
-from puml2visio.templates.plantuml_templates import PLANTUML_TYPES
+from modules.puml2visio.ui.ui_components import CodeDropTextEdit, InteractiveDropLabel
+from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 
 
 class CodeEditorTab(QWidget):
