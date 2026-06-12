@@ -13,6 +13,3 @@ def get_project_root() -> Path:
 def get_asset_path(filename: str) -> Path:
     """Returns the path to static assets like the JAR or templates."""
     return Path(__file__).resolve().parent.parent / "assets" / filename
-
-# --- CONFIGURATION ---
-HELP_URL = "https://github.com/telekom/3gpp-meeting-tools/tree/master/puml2visio"
