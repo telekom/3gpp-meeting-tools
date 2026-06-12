@@ -14,3 +14,6 @@ def get_asset_path(filename: str) -> Path:
     """Returns the path to static assets like the JAR or templates."""
     # Example: Resolves to src/puml2visio/templates/plantuml.jar
     return get_project_root() / "assets" / filename
+
+# --- CONFIGURATION ---
+HELP_URL = "https://github.com/telekom/3gpp-meeting-tools/tree/master/puml2visio"
