@@ -35,19 +35,19 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ## <a id="architecture"></a>🏗️ Architecture & Data Flow
 
 ```mermaid
-%%{init: {'theme': 'neutral'}}%%
+%%{init: {"theme": "base", "themeVariables": { "primaryColor": "#f4f5f7", "primaryBorderColor": "#c1c7d0", "primaryTextColor": "#172b4d", "lineColor": "#5e6c84", "fontFamily": "Segoe UI, sans-serif", "clusterBkg": "#ffffff", "clusterBorder": "#dfe1e6" }}}%%
 graph TD
-    subgraph view [UI View (src/puml2visio/ui/)]
+    subgraph view [UI View src/puml2visio/ui/]
         E[main.py - Entry Point] --> M[main_window.py - The Traffic Cop]
         M --> T[ui_tabs.py - Code Editor and Drop Zones]
         M --> P[ui_panels.py - Console and Task Manager]
     end
 
-    subgraph controller [Controller (src/puml2visio/core/)]
+    subgraph controller [Controller src/puml2visio/core/]
         M --> Q[queue_manager.py - Thread Orchestration]
     end
 
-    subgraph model [Core Engines (src/puml2visio/core/)]
+    subgraph model [Core Engines src/puml2visio/core/]
         Q --> J[utils/paths.py - Asset Resolution]
         Q --> V[visio_converter.py - COM Automation]
         Q --> PPT[powerpoint_converter.py]
