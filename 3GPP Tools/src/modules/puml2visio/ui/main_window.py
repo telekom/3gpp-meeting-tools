@@ -23,7 +23,6 @@ from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 from modules.puml2visio.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
 from modules.puml2visio.utils.paths import get_project_root, get_asset_path
 
-
 class DragDropUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -36,7 +35,10 @@ class DragDropUI(QMainWindow):
         self._setup_ui()
 
         # --- Wire the Queue Manager directly to the UI ---
-        self.queue_manager = QueueManager(self.jar_path)
+        app_context = {
+            "jar_path": self.jar_path
+        }
+        self.queue_manager = QueueManager(app_context=app_context)
         self.queue_manager.log_msg.connect(self.log_message)
         self.queue_manager.queue_updated.connect(self.queue_panel.update_list)
         self.queue_manager.processing_state_changed.connect(self._update_system_status)
