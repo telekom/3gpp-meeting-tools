@@ -12,7 +12,7 @@ from PyQt5.QtGui import QTextCursor
 
 from modules.puml2visio.ui.ui_components import ProxyDialog
 from modules.puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab, WordExtractorTab
-from modules.puml2visio.core.queue_manager import QueueManager
+from core.queue_manager import QueueManager
 
 from modules.puml2visio.utils.utils import encode_plantuml, InitializationThread
 from modules.puml2visio.config.paths import JAR_NAME
