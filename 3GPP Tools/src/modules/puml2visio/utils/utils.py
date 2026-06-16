@@ -10,7 +10,7 @@ from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.utils import get_best_java
-from modules.puml2visio.config.paths import URL_LATEST, URL_JAVA_8
+from modules.puml2visio.config.paths import PLANTUML_URL_LATEST, PLANTUML_URL_JAVA_8
 
 # --- CORE UTILITIES ---
 def strip_watermark(raw_text: str) -> str:
@@ -225,7 +225,7 @@ class InitializationThread(QThread):
                         return
 
             if download_reason:
-                url_to_download = URL_LATEST if required_type == "modern" else URL_JAVA_8
+                url_to_download = PLANTUML_URL_LATEST if required_type == "modern" else PLANTUML_URL_JAVA_8
                 self._emit_log(f"⚠️ Downloading PlantUML. Reason: {download_reason}...", logging.WARNING)
                 try:
                     urllib.request.urlretrieve(url_to_download, self.jar_path)
