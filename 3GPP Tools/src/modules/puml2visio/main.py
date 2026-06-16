@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication, QDialog
 
+from modules.puml2visio.core.plugin_loader import register_all_plugins
 from modules.puml2visio.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from modules.puml2visio.ui.main_window import DragDropUI
 from modules.puml2visio.utils.utils import get_best_java
@@ -41,6 +42,8 @@ if __name__ == '__main__':
         import ctypes
         myappid = '3gpp.3GPP Tools.converter.1.0'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+
+    register_all_plugins()
 
     app = QApplication(sys.argv)
     app.setWindowIcon(create_app_icon())

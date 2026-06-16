@@ -1,61 +1,30 @@
-import os
-import re
 import logging
-import subprocess
+import re
 from pathlib import Path
-
 from PyQt5.QtCore import QObject, pyqtSignal, QThread
 
-from modules.puml2visio.utils.utils import get_best_java
-from modules.puml2visio.core.visio_converter import ConverterThread, SvgConverterThread
-from modules.puml2visio.core.powerpoint_converter import PptxConverterThread
-
-# --- NEW: Import the Word Threads here! ---
-from modules.puml2visio.core.word_extractor import WordExtractorThread
-from modules.puml2visio.core.docx_splitter import DocxSplitterThread
-from modules.puml2visio.core.word_comparator import WordComparatorThread
-
-
 # ==========================================
-# --- ASCII CONVERTER THREAD ---
+# --- GLOBAL TASK REGISTRY ---
 # ==========================================
-class AsciiConverterThread(QThread):
-    ui_log_msg = pyqtSignal(str, int)
-    finished_path = pyqtSignal(str)
-    finished = pyqtSignal()
+# Maps a target_format string to a dictionary containing:
+# {
+#     "factory": callable(file_path, params, app_context) -> QThread,
+#     "display_name": str
+# }
+_TASK_REGISTRY = {}
 
-    def __init__(self, puml_path: Path, jar_path: Path):
-        super().__init__()
-        self.puml_path = puml_path
-        self.jar_path = jar_path
-
-    def run(self):
-        try:
-            java_exe, _ = get_best_java()
-            cmd = [java_exe, "-jar", str(self.jar_path), "-tutxt", str(self.puml_path)]
-            kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
-
-            subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=self.puml_path.parent, **kwargs)
-
-            utxt_path = self.puml_path.with_suffix(".utxt")
-            txt_path = self.puml_path.with_name(self.puml_path.stem + "_ascii.txt")
-
-            if utxt_path.exists():
-                if txt_path.exists(): txt_path.unlink()
-                utxt_path.rename(txt_path)
-                self.ui_log_msg.emit("✅ Unicode Text Art generated successfully.", logging.INFO)
-                self.finished_path.emit(str(txt_path))
-            else:
-                self.ui_log_msg.emit(
-                    "❌ Failed to generate text art. Format may not be supported for this specific diagram type.",
-                    logging.ERROR)
-                self.finished_path.emit("")
-
-        except Exception as e:
-            self.ui_log_msg.emit(f"❌ Text Conversion Error: {e}", logging.ERROR)
-            self.finished_path.emit("")
-        finally:
-            self.finished.emit()
+def register_task(target_format: str, display_name: str, thread_factory: callable):
+    """
+    Allows independent modules to register their background tasks.
+    :param target_format: The string ID of the task (e.g., 'split_docx').
+    :param display_name: How it appears in the UI queue.
+    :param thread_factory: A lambda or function that returns an instantiated QThread.
+                           Signature: func(file_path: Path, params: dict, app_context: dict) -> QThread
+    """
+    _TASK_REGISTRY[target_format] = {
+        "factory": thread_factory,
+        "display_name": display_name
+    }
 
 
 # ==========================================
@@ -67,9 +36,10 @@ class QueueManager(QObject):
     processing_state_changed = pyqtSignal(bool, str)
     conversion_success = pyqtSignal(str)
 
-    def __init__(self, jar_path: Path):
+    def __init__(self, app_context: dict = None):
         super().__init__()
-        self.jar_path = jar_path
+        # Generic dictionary to hold global data (like jar_path) that plugins might need
+        self.app_context = app_context or {}
         self.file_queue = []
         self.is_processing = False
         self.conv_thread = None
@@ -86,15 +56,9 @@ class QueueManager(QObject):
             file_path, target_format, _ = task
             display_name = self._get_display_name(file_path)
 
-            # Format UI text nicely for Word operations
-            if target_format == "split_docx":
-                fmt_display = "SPLIT CLAUSES"
-            elif target_format == "extract_visio":
-                fmt_display = "EXTRACT OLE"
-            elif target_format == "compare_docx":
-                fmt_display = "COMPARE DOCS"
-            else:
-                fmt_display = f".{target_format.upper()}"
+            # Fetch the clean UI name from the registry
+            registry_entry = _TASK_REGISTRY.get(target_format)
+            fmt_display = registry_entry["display_name"] if registry_entry else f".{target_format.upper()}"
 
             display_items.append(f"{index}. {display_name} → {fmt_display}")
 
@@ -117,8 +81,11 @@ class QueueManager(QObject):
         elif len(args) >= 2:
             self.log_msg.emit(args[0], args[1])
 
-    # --- UPDATE: Accept optional parameters for the Word Splitter ---
     def add_item(self, file_path: Path, target_format: str, params: dict = None):
+        if target_format not in _TASK_REGISTRY:
+            self.log_msg.emit(f"❌ System Error: Unknown task format '{target_format}'.", logging.ERROR)
+            return
+
         self.file_queue.append((file_path, target_format, params or {}))
         self._broadcast_queue_update()
         if not self.is_processing:
@@ -126,9 +93,13 @@ class QueueManager(QObject):
         else:
             self._update_status()
 
-    def add_batch(self, file_paths: list):
+    def add_batch(self, file_paths: list, target_format: str = "vsdx"):
+        if target_format not in _TASK_REGISTRY:
+            self.log_msg.emit(f"❌ System Error: Unknown batch task format '{target_format}'.", logging.ERROR)
+            return
+
         for fp in file_paths:
-            self.file_queue.append((Path(fp), "vsdx", {}))
+            self.file_queue.append((Path(fp), target_format, {}))
         self._broadcast_queue_update()
         if not self.is_processing:
             self.process_next()
@@ -136,8 +107,9 @@ class QueueManager(QObject):
             self._update_status()
 
     def remove_items(self, rows: list):
-        for row in rows:
-            del self.file_queue[row]
+        for row in sorted(rows, reverse=True):
+            if 0 <= row < len(self.file_queue):
+                del self.file_queue[row]
         self._broadcast_queue_update()
         self._update_status()
 
@@ -154,39 +126,35 @@ class QueueManager(QObject):
 
         self.is_processing = True
 
-        # --- UPDATE: Unpack the 3-part tuple ---
         next_file, target_format, params = self.file_queue.pop(0)
         display_name = self._get_display_name(next_file)
         self._broadcast_queue_update()
 
-        # --- UPDATE: Route to Word Threads if requested ---
-        if target_format == "split_docx":
-            self._update_status(f"{display_name} (Splitting Word Doc)")
-            self.conv_thread = DocxSplitterThread(str(next_file), params.get('prefix'), params.get('depth'))
-        elif target_format == "extract_visio":
-            self._update_status(f"{display_name} (Extracting Visio)")
-            self.conv_thread = WordExtractorThread(str(next_file))
-        elif target_format == "compare_docx":
-            self._update_status(f"Diff Engine (Comparing Documents)")
-            self.conv_thread = WordComparatorThread(params.get('doc_a'), params.get('doc_b'))
-        elif target_format == "svg":
-            self._update_status(f"{display_name} (to .SVG)")
-            self.conv_thread = SvgConverterThread(next_file, self.jar_path)
-        elif target_format == "pptx":
-            self._update_status(f"{display_name} (to .PPTX)")
-            self.conv_thread = PptxConverterThread(next_file, self.jar_path)
-        elif target_format == "ascii":
-            self._update_status(f"{display_name} (to .TXT)")
-            self.conv_thread = AsciiConverterThread(next_file, self.jar_path)
-        else:
-            self._update_status(f"{display_name} (to .VSDX)")
-            self.conv_thread = ConverterThread(next_file, self.jar_path)
+        registry_entry = _TASK_REGISTRY.get(target_format)
+        if not registry_entry:
+            self.log_msg.emit(f"❌ Task '{target_format}' is no longer registered.", logging.ERROR)
+            self.process_next()
+            return
 
-        self.conv_thread.ui_log_msg.connect(self._route_log)
+        fmt_display = registry_entry["display_name"]
+        self._update_status(f"{display_name} ({fmt_display})")
 
-        # Not all threads emit a finished path (like the Word threads), so we check safely
-        if hasattr(self.conv_thread, 'finished_path'):
-            self.conv_thread.finished_path.connect(self.conversion_success.emit)
+        try:
+            # --- THE MAGIC HANDOFF ---
+            # We call the registered factory function, blindly passing the data.
+            # The plugin module decides which thread class to create and how to map these parameters.
+            self.conv_thread = registry_entry["factory"](next_file, params, self.app_context)
 
-        self.conv_thread.finished.connect(self.process_next)
-        self.conv_thread.start()
+            # Duck-Typing: Connect standard signals if the thread implements them
+            if hasattr(self.conv_thread, 'ui_log_msg'):
+                self.conv_thread.ui_log_msg.connect(self._route_log)
+
+            if hasattr(self.conv_thread, 'finished_path'):
+                self.conv_thread.finished_path.connect(self.conversion_success.emit)
+
+            self.conv_thread.finished.connect(self.process_next)
+            self.conv_thread.start()
+
+        except Exception as e:
+            self.log_msg.emit(f"❌ Failed to execute task '{target_format}': {str(e)}", logging.ERROR)
+            self.process_next()

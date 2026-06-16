@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QColor, QBrush
 
-from modules.puml2visio.core.process_manager import ProcessManager
+from core.process_manager import ProcessManager
 
 
 # ==========================================
