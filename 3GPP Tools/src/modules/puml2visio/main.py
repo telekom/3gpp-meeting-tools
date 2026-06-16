@@ -7,7 +7,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QDialog
 
 from modules.puml2visio.core.plugin_loader import register_all_plugins
-from modules.puml2visio.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
+from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from modules.puml2visio.ui.main_window import DragDropUI
 from core.utils.utils import get_best_java
 from modules.puml2visio.config.paths import JAR_NAME

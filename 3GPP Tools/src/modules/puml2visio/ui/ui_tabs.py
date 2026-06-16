@@ -7,7 +7,8 @@ from PyQt5.QtCore import pyqtSignal
 import win32com.client
 import pythoncom
 
-from modules.puml2visio.ui.ui_components import CodeDropTextEdit, InteractiveDropLabel
+from core.ui.ui_components import InteractiveDropLabel
+from modules.puml2visio.ui.ui_components import CodeDropTextEdit
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 
 

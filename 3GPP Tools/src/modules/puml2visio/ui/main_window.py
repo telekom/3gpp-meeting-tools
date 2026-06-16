@@ -10,7 +10,7 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
-from modules.puml2visio.ui.ui_components import ProxyDialog
+from core.ui.ui_components import ProxyDialog
 from modules.puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab, WordExtractorTab
 from core.queue_manager import QueueManager
 
@@ -20,7 +20,7 @@ from core.config.config import HELP_URL
 from modules.puml2visio.core.visio_converter import VisioReaderThread
 from modules.puml2visio.core.live_preview import LivePreviewManager
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
-from modules.puml2visio.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
+from core.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
 from modules.puml2visio.utils.paths import get_project_root, get_asset_path
 
 class DragDropUI(QMainWindow):
