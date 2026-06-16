@@ -1,8 +1,7 @@
-# src/puml2visio/plugin_loader.py
 from core.queue_manager import register_task
 
 
-def register_all_plugins():
+def register_plugin():
     """
     Called once at startup. Announces all available modules and their
     background threads to the core QueueManager.
