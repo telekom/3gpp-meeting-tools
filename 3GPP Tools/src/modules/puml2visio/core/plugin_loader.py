@@ -1,6 +1,5 @@
 # src/puml2visio/plugin_loader.py
-from modules.puml2visio.core.ascii_converter import AsciiConverterThread
-from modules.puml2visio.core.queue_manager import register_task
+from core.queue_manager import register_task
 
 
 def register_all_plugins():
@@ -14,6 +13,7 @@ def register_all_plugins():
     from modules.puml2visio.core.word_extractor import WordExtractorThread
     from modules.puml2visio.core.docx_splitter import DocxSplitterThread
     from modules.puml2visio.core.word_comparator import WordComparatorThread
+    from modules.puml2visio.core.ascii_converter import AsciiConverterThread
 
     # 2. Register PlantUML / Visio tasks (These need the jar_path from context)
     register_task(
