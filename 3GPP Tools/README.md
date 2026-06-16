@@ -37,23 +37,23 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ```mermaid
 %%{init: {"theme": "base", "themeVariables": { "primaryColor": "#f4f5f7", "primaryBorderColor": "#c1c7d0", "primaryTextColor": "#172b4d", "lineColor": "#5e6c84", "fontFamily": "Segoe UI, sans-serif", "clusterBkg": "#ffffff", "clusterBorder": "#dfe1e6" }}}%%
 graph TD
-    subgraph view [UI View src/puml2visio/ui/]
-        E[main.py - Entry Point] --> M[main_window.py - The Traffic Cop]
+    subgraph view [UI View src/ui]
+        E[main_puml2visio.py - Entry Point] --> M[main_window.py - The Traffic Cop]
         M --> T[ui_tabs.py - Code Editor and Drop Zones]
         M --> P[ui_panels.py - Console and Task Manager]
     end
 
-    subgraph controller [Controller src/puml2visio/core/]
+    subgraph controller [Controller src/core]
         M --> Q[queue_manager.py - Thread Orchestration]
+        P --> PM[process_manager.py - OS Process Monitor]
     end
 
-    subgraph model [Core Engines src/puml2visio/core/]
-        Q --> J[utils/paths.py - Asset Resolution]
-        Q --> V[visio_converter.py - COM Automation]
-        Q --> PPT[powerpoint_converter.py]
-        Q --> DOCX[docx_splitter.py - XML Slicing]
-        T --> LP[live_preview.py - Error Interceptor]
-        P --> PM[process_manager.py - OS Process Monitor]
+    subgraph model [Core Engines src/modules/puml2visio/core]
+        Q --> V[visio_converter.py - COM Automation for converting to Visio]
+        Q --> V[ascii_converter.py - ASCII conversion]
+        Q --> PPT[powerpoint_converter.py - COM Automation for converting to PowerPoint]
+        Q --> DOCX[docx_splitter.py - XML Slicing to split big Word documents]
+        T --> LP[live_preview.py - Show changes live on a browser]
     end
 
     subgraph output_group [Output]
@@ -95,7 +95,7 @@ Because this application relies heavily on Microsoft's Component Object Model (C
 
 ## <a id="installation"></a>🚀 Installation & Execution
 
-This application is built as a modern Python package using `pyproject.toml`. 
+This application is built as a modern Python package using `pyproject.toml`.
 
 1. **Clone the repository:**
    ```bash
@@ -103,22 +103,11 @@ This application is built as a modern Python package using `pyproject.toml`.
    cd 3gpp-meeting-tools/3GPP Tools
    ```
 
-2. **Install the package (Editable Mode):**
-   This installs the dependencies and maps the application as a native terminal command, allowing you to run it from anywhere. Make sure you run this from the folder containing the `pyproject.toml` file.
-   ```bash
-   pip install -e .
-   ```
+2. **Go to the ``src`` directory:**
 
-3. **Run the application (Method 1 - CLI Command):**
-   Once installed via pip, you can launch the app from any terminal window simply by typing:
+3. **Run the application:**
    ```bash
-   3GPP Tools
-   ```
-
-4. **Run the application (Method 2 - Python Module):**
-   If you prefer not to install the CLI command, you can run the package directly through Python from your project root:
-   ```bash
-   python -m 3GPP Tools.main
+   python -m main_puml2visio
    ```
    *Note: On first launch, the app will automatically attempt to download `plantuml.jar` into the `templates` directory. If you are behind a corporate firewall, a proxy configuration dialog will appear to assist.*
 
