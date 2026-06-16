@@ -16,7 +16,6 @@ from modules.puml2visio.utils.paths import get_project_root, get_asset_path
 # ==========================================
 # --- PATH RESOLUTION ---
 # ==========================================
-# __file__ is src/3GPP Tools/main.py
 PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_DIR.parent.parent # The outer 3GPP Tools folder
 

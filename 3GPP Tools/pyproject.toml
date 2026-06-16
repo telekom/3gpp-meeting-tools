@@ -20,4 +20,4 @@ dependencies = [
 
 [project.scripts]
 # This magical line lets you type 'puml2visio' in your terminal anywhere to launch the app!
-3gpp-tools = "modules.puml2visio.main:main"
+3gpp-tools = "main_puml2visio:main"
