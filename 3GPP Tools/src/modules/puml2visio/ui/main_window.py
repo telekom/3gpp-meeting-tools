@@ -15,13 +15,15 @@ from modules.puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab, WordEx
 from core.queue_manager import QueueManager
 
 from modules.puml2visio.utils.utils import encode_plantuml, InitializationThread
-from modules.puml2visio.config.paths import JAR_NAME
+from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
 from core.config.config import HELP_URL
 from modules.puml2visio.core.visio_converter import VisioReaderThread
 from modules.puml2visio.core.live_preview import LivePreviewManager
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 from core.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
-from modules.puml2visio.utils.paths import get_project_root, get_asset_path
+from modules.puml2visio.utils.paths import get_puml2visio_asset_path
+from core.utils.paths import get_project_root
+
 
 class DragDropUI(QMainWindow):
     def __init__(self):
@@ -29,7 +31,7 @@ class DragDropUI(QMainWindow):
         self.setWindowTitle("PlantUML to Visio Converter (3GPP)")
         self.resize(950, 750)
 
-        self.jar_path = get_asset_path(JAR_NAME)
+        self.jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
         self.last_out_path = ""
 
         self._setup_ui()

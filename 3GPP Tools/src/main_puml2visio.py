@@ -8,10 +8,11 @@ from PyQt5.QtWidgets import QApplication, QDialog
 
 from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from core.utils.utils import get_best_java
+from core.utils.paths import get_project_root
 from modules.puml2visio.plugin_loader import register_plugin
 from modules.puml2visio.ui.main_window import DragDropUI
-from modules.puml2visio.config.paths import JAR_NAME
-from modules.puml2visio.utils.paths import get_project_root, get_asset_path
+from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
+from modules.puml2visio.utils.paths import get_puml2visio_asset_path
 
 # ==========================================
 # --- PATH RESOLUTION ---
@@ -50,7 +51,7 @@ if __name__ == '__main__':
     app.setStyleSheet(GLOBAL_STYLE)
 
     # --- POINT TO THE TEMPLATES FOLDER ---
-    jar_path = get_asset_path(JAR_NAME)
+    jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
     version_file = jar_path.with_suffix('.version')
 
     # --- SMART PROXY CHECK ---

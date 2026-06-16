@@ -6,7 +6,7 @@ import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from modules.puml2visio.utils.utils import strip_watermark, generate_cleaned_svg
-from modules.puml2visio.config.paths import WATERMARK
+from modules.puml2visio.config.paths import PLANTUML_WATERMARK
 
 
 class VisioReaderThread(QThread):
@@ -92,7 +92,7 @@ class ConverterThread(QThread):
 
         with open(self.puml_path, "r", encoding="utf-8") as f:
             raw_code = f.read()
-        final_source_code = WATERMARK + "\n\n" + strip_watermark(raw_code)
+        final_source_code = PLANTUML_WATERMARK + "\n\n" + strip_watermark(raw_code)
 
         visio = None
         try:
