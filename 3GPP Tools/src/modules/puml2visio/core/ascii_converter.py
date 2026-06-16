@@ -5,7 +5,8 @@ from pathlib import Path
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from modules.puml2visio.utils.utils import get_best_java
+from core.utils.utils import get_best_java
+
 
 # ==========================================
 # --- ASCII CONVERTER THREAD ---
