@@ -3,8 +3,8 @@ import webbrowser
 from pathlib import Path
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QCheckBox, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QLineEdit, QGroupBox, QComboBox)
-from PyQt5.QtCore import pyqtSignal, Qt
+                             QHeaderView, QLineEdit, QGroupBox, QComboBox, )
+from PyQt5.QtCore import pyqtSignal, QTimer, Qt
 
 from modules.specifications.core.database import SpecsDatabase
 
@@ -14,8 +14,14 @@ class SpecificationsTab(QWidget):
 
     def __init__(self, db_path: Path):
         super().__init__()
-        # Initialize a read-only connection for the UI to display data
         self.db = SpecsDatabase(db_path)
+
+        # --- NEW: Setup the debounce timer for live search ---
+        self.search_timer = QTimer()
+        self.search_timer.setSingleShot(True)  # Ensures the timer only fires once per typing pause
+        self.search_timer.setInterval(400)  # Waits 400ms after the last keystroke to search
+        self.search_timer.timeout.connect(self.refresh_table)
+
         self._setup_ui()
         self.refresh_table()  # Load initial data
 
@@ -43,18 +49,18 @@ class SpecificationsTab(QWidget):
         search_layout.addWidget(QLabel("🔍 Spec Number:"))
         self.spec_search_input = QLineEdit()
         self.spec_search_input.setPlaceholderText("e.g. 23.501")
-        self.spec_search_input.returnPressed.connect(self.refresh_table)
+        # ---> NEW: Restart the timer every time the text changes
+        self.spec_search_input.textChanged.connect(lambda: self.search_timer.start())
         search_layout.addWidget(self.spec_search_input)
 
         search_layout.addWidget(QLabel("Release/Version:"))
         self.version_search_input = QLineEdit()
         self.version_search_input.setPlaceholderText("e.g. 15. or 16.2")
-        self.version_search_input.returnPressed.connect(self.refresh_table)
+        # ---> NEW: Restart the timer every time the text changes
+        self.version_search_input.textChanged.connect(lambda: self.search_timer.start())
         search_layout.addWidget(self.version_search_input)
 
-        self.search_btn = QPushButton("Search")
-        self.search_btn.clicked.connect(self.refresh_table)
-        search_layout.addWidget(self.search_btn)
+        # (The Search button has been completely removed)
 
         main_layout.addLayout(search_layout)
 
@@ -63,9 +69,12 @@ class SpecificationsTab(QWidget):
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Spec #", "Type", "Title", "Version / Download"])
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Title takes space
+        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Title takes up remaining space
 
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)  # Read-only
+        self.table.setAlternatingRowColors(True)
         main_layout.addWidget(self.table)
+
         self.setLayout(main_layout)
 
     def _on_update_clicked(self):
@@ -73,32 +82,51 @@ class SpecificationsTab(QWidget):
         self.update_db_requested.emit(force_meta)
 
     def refresh_table(self):
-        specs = self.db.get_all_specifications()  # Gets (number, title, type)
-        self.table.setRowCount(0)
+        spec_query = self.spec_search_input.text().strip()
+        version_query = self.version_search_input.text().strip()
 
-        for row_idx, (number, title, spec_type) in enumerate(specs):
+        # Fetch results from database
+        specs = self.db.search_files(
+            spec_number=spec_query if spec_query else None,
+            release_version=version_query if version_query else None
+        )
+
+        self.table.setRowCount(0)  # Clear existing rows
+
+        # Because we changed the UI to Group by Spec earlier,
+        # let's map the raw search_files rows back into unique groupings:
+        grouped_specs = {}
+        for row in specs:
+            series, spec_num, title, filename, version, url = row
+            if spec_num not in grouped_specs:
+                grouped_specs[spec_num] = {
+                    'title': title,
+                    'type': "", # We extract Type separately in standard view, but Title is usually fine here
+                    'versions': []
+                }
+            grouped_specs[spec_num]['versions'].append((version, url, filename))
+
+        for row_idx, (spec_num, data) in enumerate(grouped_specs.items()):
             self.table.insertRow(row_idx)
 
-            # 1. Spec Number (Concatenated with type)
-            display_num = f"{spec_type} {number}" if spec_type else number
-            self.table.setItem(row_idx, 0, QTableWidgetItem(display_num))
+            # 1. Spec Number
+            self.table.setItem(row_idx, 0, QTableWidgetItem(spec_num))
 
-            # 2. Type and Title
-            self.table.setItem(row_idx, 1, QTableWidgetItem(spec_type))
-            self.table.setItem(row_idx, 2, QTableWidgetItem(title))
+            # 2. Type (Left blank or extracted if needed from Title)
+            self.table.setItem(row_idx, 1, QTableWidgetItem(data['type']))
 
-            # 3. Version Dropdown
+            # 3. Title
+            self.table.setItem(row_idx, 2, QTableWidgetItem(data['title'] if data['title'] else "Unknown Title"))
+
+            # 4. Version Dropdown & Download Button
             version_combo = QComboBox()
-            versions = self.db.get_versions_for_spec(number)
-
-            for ver, url, filename in versions:
+            for ver, url, fname in data['versions']:
                 version_combo.addItem(f"v{ver}", userData=url)
 
-            # Button to trigger download of selected version
             download_btn = QPushButton("⬇️")
+            download_btn.setCursor(Qt.PointingHandCursor)
             download_btn.clicked.connect(lambda _, c=version_combo: webbrowser.open(c.currentData()))
 
-            # Layout the combo and button together
             cell_widget = QWidget()
             layout = QHBoxLayout(cell_widget)
             layout.setContentsMargins(0, 0, 0, 0)
