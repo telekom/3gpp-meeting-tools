@@ -90,7 +90,7 @@ class SpecsDatabase:
 
     def search_files(self, spec_number: str = None, release_version: str = None) -> list:
         query = """
-            SELECT s.name, sp.number, sp.title, f.filename, f.version, f.url
+            SELECT s.name, sp.number, sp.title, sp.type, f.filename, f.version, f.url
             FROM files f
             JOIN specifications sp ON f.spec_id = sp.id
             JOIN series s ON sp.series_id = s.id

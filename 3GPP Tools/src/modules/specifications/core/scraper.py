@@ -2,6 +2,8 @@
 import logging
 import re
 from typing import Dict, List, Tuple
+
+import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,12 +20,14 @@ class SpecsCrawlerThread(QThread):
     finished_path: pyqtSignal = pyqtSignal(str)
 
     def __init__(self, db_path: Path, force_metadata_update: bool = False,
-                 root_url: str = "https://www.3gpp.org/ftp/Specs/archive/") -> None:
+                 target_specs: list = None, root_url: str = "https://www.3gpp.org/ftp/Specs/archive/") -> None:
         super().__init__()
         self.db: SpecsDatabase = SpecsDatabase(db_path)
         self.force_metadata_update: bool = force_metadata_update
+        self.target_specs: list = target_specs or []
         self.root_url: str = root_url
 
+        self.session: requests.Session = NetworkSession.get_instance()
         self.spec_folder_pattern: re.Pattern = re.compile(r'^(\d{2}\.\d{2,3})/?$')
         self.version_pattern: re.Pattern = re.compile(r'-([a-zA-Z0-9]{3})\.zip$')
 
@@ -62,25 +66,43 @@ class SpecsCrawlerThread(QThread):
         }
 
         try:
-            # ---> Uses the shared session automatically!
             html_text: str = NetworkSession.get_html(url=url, timeout=15)
             soup: BeautifulSoup = BeautifulSoup(html_text, 'html.parser')
 
-            def get_field(label_text: str) -> str:
-                label = soup.find(
-                    lambda tag: tag.name in ['td', 'th', 'span', 'b'] and label_text.lower() in tag.text.lower())
-                if label:
-                    val_cell = label.find_next('td')
-                    if val_cell:
-                        return val_cell.get_text(strip=True)
+            # Improved getter that checks for multiple label variations
+            def get_field(*label_texts: str) -> str:
+                for label_text in label_texts:
+                    label = soup.find(
+                        lambda tag: tag.name in ['td', 'th', 'span', 'b'] and tag.get_text(
+                            strip=True).lower() == label_text.lower()
+                    )
+                    if not label:
+                        label = soup.find(
+                            lambda tag: tag.name in ['td', 'th', 'span', 'b'] and label_text.lower() in tag.get_text(
+                                strip=True).lower()
+                        )
+                    if label:
+                        val_cell = label.find_next('td')
+                        if val_cell:
+                            return val_cell.get_text(strip=True)
                 return ''
 
             metadata['title'] = get_field('Title')
 
-            raw_type: str = get_field('Type')
+            # Look for multiple possible labels
+            raw_type: str = get_field('Specification type', 'Spec type', 'Type')
             if raw_type:
                 acronym_match = re.search(r'\(([^)]+)\)', raw_type)
-                metadata['type'] = acronym_match.group(1) if acronym_match else raw_type
+                if acronym_match:
+                    metadata['type'] = acronym_match.group(1)
+                else:
+                    # Fallbacks if the acronym isn't present in parentheses
+                    if "Technical Specification" in raw_type:
+                        metadata['type'] = "TS"
+                    elif "Technical Report" in raw_type:
+                        metadata['type'] = "TR"
+                    else:
+                        metadata['type'] = raw_type
 
             metadata['initial_release'] = get_field('Initial planned Release')
             metadata['radio_technology'] = get_field('Radio technology')
@@ -132,29 +154,47 @@ class SpecsCrawlerThread(QThread):
 
     def run(self) -> None:
         try:
-            self.ui_log_msg.emit("⏳ Starting 3GPP Database Synchronization...", logging.INFO)
-
-            if not self.root_url.endswith('/'): self.root_url += '/'
-            series_links: List[Tuple[str, str]] = [link for link in self.fetch_links(self.root_url) if 'series' in link[0].lower()]
+            if not self.root_url.endswith('/'):
+                self.root_url += '/'
 
             spec_tasks: List[Tuple[str, str, str, str]] = []
-            for series_name, series_url in series_links:
-                if not series_url.endswith('/'): series_url += '/'
 
-                specs = self.fetch_links(series_url)
-                for href, spec_url in specs:
+            # ---> NEW: Targeted Update Fast-Track!
+            if self.target_specs:
+                self.ui_log_msg.emit(f"⏳ Starting Targeted Update for {len(self.target_specs)} specifications...",
+                                     logging.INFO)
 
-                    folder_name: str = [x for x in spec_url.split('/') if x][-1]
+                for spec_num in self.target_specs:
+                    # e.g., "23.501" -> "23" -> "23_series"
+                    series_name = f"{spec_num[:2]}_series"
+                    series_url = urljoin(self.root_url, f"{series_name}/")
+                    spec_url = urljoin(series_url, f"{spec_num}/")
 
-                    match = self.spec_folder_pattern.search(folder_name)
-                    if match:
-                        clean_spec_number: str = match.group(1)
-                        if not spec_url.endswith('/'): spec_url += '/'
+                    spec_tasks.append((series_name, series_url, spec_num, spec_url))
 
-                        spec_tasks.append((series_name, series_url, clean_spec_number, spec_url))
+            # ---> ORIGINAL: Full Update Route
+            else:
+                self.ui_log_msg.emit("⏳ Starting Full 3GPP Database Synchronization...", logging.INFO)
+
+                series_links: List[Tuple[str, str]] = [
+                    link for link in self.fetch_links(self.root_url)
+                    if 'series' in link[0].lower()
+                ]
+
+                for series_name, series_url in series_links:
+                    if not series_url.endswith('/'): series_url += '/'
+
+                    specs = self.fetch_links(series_url)
+                    for href, spec_url in specs:
+                        folder_name: str = [x for x in spec_url.split('/') if x][-1]
+                        match = self.spec_folder_pattern.search(folder_name)
+                        if match:
+                            clean_spec_number: str = match.group(1)
+                            if not spec_url.endswith('/'): spec_url += '/'
+                            spec_tasks.append((series_name, series_url, clean_spec_number, spec_url))
 
             total_specs: int = len(spec_tasks)
-            self.ui_log_msg.emit(f"📥 Validated {total_specs} specification folders. Processing in parallel...", logging.INFO)
+            self.ui_log_msg.emit(f"📥 Validated {total_specs} specification folders. Processing...", logging.INFO)
 
             completed: int = 0
             with ThreadPoolExecutor(max_workers=3) as executor:
