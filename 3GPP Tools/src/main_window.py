@@ -108,10 +108,17 @@ class DragDropUI(QMainWindow):
                 {"doc_a": a, "doc_b": b, "keep_open": keep_open}
             )
         )
+        self.word_tab.convert_doc_requested.connect(
+            lambda source_doc, target_fmt: self.queue_manager.add_item(
+                Path(source_doc),
+                "word_convert",
+                {"fmt": target_fmt}
+            )
+        )
 
         self.tabs.addTab(self.code_tab, "📝 Code Editor")
         self.tabs.addTab(self.batch_tab, "📂 Batch Convert")
-        self.tabs.addTab(self.word_tab, "📄 Word Extractor")
+        self.tabs.addTab(self.word_tab, "📄 Word Tools")
         self.tabs.setEnabled(False)
 
         # --- TAB CORNER HELP WIDGET ---

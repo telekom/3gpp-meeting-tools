@@ -106,6 +106,7 @@ class WordExtractorTab(QWidget):
     extract_visio_requested = pyqtSignal(str)
     split_doc_requested = pyqtSignal(str, str, int)
     compare_doc_requested = pyqtSignal(str, str, bool)
+    convert_doc_requested = pyqtSignal(str, str)
 
     def __init__(self):
         super().__init__()
@@ -124,7 +125,8 @@ class WordExtractorTab(QWidget):
         self.op_combo.addItems([
             "Extract Embedded Visio Diagrams",
             "Subtractive Slicing (Split by Clause)",
-            "Compare Documents (Native Word Diff)"
+            "Compare Documents (Native Word Diff)",
+            "Convert Document Format"
         ])
         switcher_layout.addWidget(self.op_combo)
         switcher_layout.addStretch()
@@ -188,6 +190,28 @@ class WordExtractorTab(QWidget):
 
         self.stack.addWidget(self.card_compare)
 
+        # Card 4: The Converter
+        self.card_convert = QWidget()
+        convert_layout = QVBoxLayout(self.card_convert)
+
+        self.pane_convert = DocumentSelectorPane("📄 DOCUMENT TO CONVERT")
+        convert_layout.addWidget(self.pane_convert)
+
+        conv_form = QFormLayout()
+        self.format_combo = QComboBox()
+        self.format_combo.setStyleSheet("padding: 4px; font-weight: bold;")
+        self.format_combo.addItems(["PDF", "HTML", "XPS", "RTF", "TXT"])
+        conv_form.addRow("Target Format:", self.format_combo)
+        convert_layout.addLayout(conv_form)
+
+        self.run_convert_btn = QPushButton("🔄 Convert Document")
+        self.run_convert_btn.setStyleSheet(
+            "font-weight: bold; padding: 10px; background-color: #395396; color: white; border-radius: 4px;")
+        self.run_convert_btn.clicked.connect(self._trigger_conversion)
+        convert_layout.addWidget(self.run_convert_btn)
+
+        self.stack.addWidget(self.card_convert)
+
         layout.addWidget(self.stack)
         self.setLayout(layout)
         self.op_combo.currentIndexChanged.connect(self.stack.setCurrentIndex)
@@ -199,3 +223,10 @@ class WordExtractorTab(QWidget):
 
         if val_a and val_b:
             self.compare_doc_requested.emit(val_a, val_b, keep_open)
+
+    def _trigger_conversion(self):
+        source_doc = self.pane_convert.get_input()
+        target_fmt = self.format_combo.currentText().lower()
+
+        if source_doc:
+            self.convert_doc_requested.emit(source_doc, target_fmt)
