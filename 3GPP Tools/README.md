@@ -39,7 +39,6 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 %%{init: {"theme": "base", "themeVariables": { "primaryColor": "#f4f5f7", "primaryBorderColor": "#c1c7d0", "primaryTextColor": "#172b4d", "lineColor": "#5e6c84", "fontFamily": "Segoe UI, sans-serif", "clusterBkg": "#ffffff", "clusterBorder": "#dfe1e6" }}}%%
 graph TD
     subgraph view [UI View src/ui]
-        E[main_puml2visio.py - Entry Point] --> M[main_window.py - The Traffic Cop]
         M --> T[ui_tabs.py & word_tabs.py - Code Editor and Drop Zones]
         M --> P[ui_panels.py - Console and Task Manager]
     end
