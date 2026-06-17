@@ -24,6 +24,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Visio Export (.vsdx):** Perfect alignment via 2D SVG gap-measuring.
 * **PowerPoint Export (.pptx):** Bypasses buggy SVG engines via an EMF pipeline for natively ungroupable objects.
 * **ASCII Text Art Export (.txt):** Uses PlantUML's `-tutxt` engine to generate clean Unicode text diagrams for markdown or RFC specs.
+* **Background Document Converter:** Convert massive Word files to PDF, HTML, XPS, RTF, or pure Text using a detached, headless COM instance. This ensures your active Word sessions remain completely responsive and unfrozen during heavy background conversions.
 * **Subtractive Slicing Engine (Word):** Instantly split massive 200+ page `.docx` specifications into individual clauses. Processes files at the XML level (bypassing slow COM automation) using a throttled Thread Pool to extract multiple chapters simultaneously without maxing out system RAM.
 * **XML Garbage Collector:** When splitting Word documents, automatically scans the surviving XML and aggressively purges orphaned OLE objects and high-res images to prevent file bloat.
 * **Embedded Visio Extractor:** Extracts hidden, editable Visio (`.vsdx`) files natively trapped inside Word Document (`.docx`) OLE wrappers.
@@ -59,6 +60,7 @@ graph TD
         Q --> DOCX[docx_splitter.py - XML Slicing]
         Q --> WEXT[word_extractor.py - OLE Extraction]
         Q --> WCMP[word_comparator.py - Native Diff]
+        Q --> WCONV[word_converter.py - Detached COM]
     end
 
     subgraph output_group [Output]
@@ -66,6 +68,7 @@ graph TD
         OutP[PowerPoint .pptx]
         OutA[ASCII .txt]
         OutW[Split .docx Chapters]
+        OutC[PDF, HTML, XPS, RTF]
     end
 
     T -->|Export Requested| Q
@@ -82,6 +85,9 @@ graph TD
     
     T -->|Word Doc Dropped| DOCX
     DOCX -->|Multithreaded XML Pruning| OutW
+
+    T -->|Format Conversion| WCONV
+    WCONV -->|Background Export| OutC
     
     PM -.->|Identify and Kill Ghosts| V
 ```
@@ -135,12 +141,13 @@ The application features three main workspaces navigated via tabs, with a fully 
 ### 📂 Tab 2: Batch Convert
 * Drag `.txt` or `.puml` files onto the dashed area. They will queue up in the **Queue Viewer**. You can highlight queue items and click `Remove` before they process.
 
-### 📄 Tab 3: Word Tools (Extractor, Splitter, & Comparator)
+### 📄 Tab 3: Word Tools (Extractor, Splitter, Converter, & Comparator)
 * **Extract Embedded Visio Diagrams:** Unzips the `.docx` archive and dumps clean `.vsdx` files (often trapped as OLE objects in 3GPP specs) next to your original document.
 * **Subtractive Slicing - Prefix:** Define the clause to target (e.g., `6.` targets 6.1, 6.2, etc.).
 * **Subtractive Slicing - Depth:** Define the hierarchy level to cut at (e.g., Depth `2` slices at 6.1, Depth `3` slices at 6.1.1).
 * **Subtractive Slicing - Execution:** The tool creates a `[filename]_split` subfolder and processes the chapters in parallel, purging orphaned images to keep file sizes small.
 * **Compare Documents:** Select an original and a revised `.docx` file (via local file, active COM session, or URL) to spawn Microsoft Word's native document comparator.
+* **Convert Document Format:** Seamlessly convert any local, active, or remote Word document into PDF, HTML, XPS, RTF, or pure Text. Runs silently in the background via a detached COM instance to keep your active work safe from freezing.
 
 ### 🛠 System Toolbar (Console Header)
 * **🖥️ Task Manager:** Open the COM Process Manager to identify and kill headless instances of Visio or PowerPoint.
