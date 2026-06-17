@@ -1,6 +1,5 @@
 import os
 import subprocess
-import urllib.request
 import winreg
 import re
 import logging
@@ -11,6 +10,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.utils import get_best_java
 from modules.puml2visio.config.paths import PLANTUML_URL_LATEST, PLANTUML_URL_JAVA_8
+from core.network.session import NetworkSession  # <--- NEW: Import the shared session
+
 
 # --- CORE UTILITIES ---
 def strip_watermark(raw_text: str) -> str:
@@ -66,7 +67,7 @@ def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> 
                 y_val = float(y_match.group(1)) if y_match else None
                 x_val = float(x_match.group(1)) if x_match else None
                 tl_val = float(tl_match.group(1)) if tl_match else (
-                            len(inner_text.strip()) * 7.0)  # Fallback to pixel estimation
+                        len(inner_text.strip()) * 7.0)  # Fallback to pixel estimation
 
                 # Check both Y alignment and X distance gap
                 should_merge = False
@@ -157,12 +158,19 @@ class InitializationThread(QThread):
         return None
 
     def _get_remote_version(self):
-        req = urllib.request.Request("https://github.com/plantuml/plantuml/releases/latest", method="HEAD")
-        req.add_header("User-Agent", "Mozilla/5.0")
-        with urllib.request.urlopen(req, timeout=5) as response:
+        """Uses the shared NetworkSession to check GitHub for the latest release."""
+        try:
+            session = NetworkSession.get_instance()
+            # A HEAD request with redirects allows us to grab the final URL (which contains the version tag)
+            # without actually downloading the HTML body of the page.
+            response = session.head("https://github.com/plantuml/plantuml/releases/latest", allow_redirects=True,
+                                    timeout=10)
+
             match = re.search(r'/tag/v?(\d+\.\d+\.\d+)', response.url)
             if match:
                 return match.group(1)
+        except Exception:
+            pass
         return None
 
     def run(self):
@@ -228,9 +236,20 @@ class InitializationThread(QThread):
                 url_to_download = PLANTUML_URL_LATEST if required_type == "modern" else PLANTUML_URL_JAVA_8
                 self._emit_log(f"⚠️ Downloading PlantUML. Reason: {download_reason}...", logging.WARNING)
                 try:
-                    urllib.request.urlretrieve(url_to_download, self.jar_path)
+                    # ---> NEW: Download the file chunk-by-chunk using the shared NetworkSession
+                    session = NetworkSession.get_instance()
+                    response = session.get(url_to_download, stream=True, timeout=30)
+                    response.raise_for_status()
+
+                    # Save the stream to disk safely
+                    with open(self.jar_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+
                     version_file.write_text(required_type, encoding="utf-8")
                     self._emit_log("✅ PlantUML downloaded and installed successfully.", logging.INFO)
+
                 except Exception as e:
                     self._emit_log(f"❌ Download failed. Please check your network or proxy settings: {e}",
                                    logging.ERROR)
