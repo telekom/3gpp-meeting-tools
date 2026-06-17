@@ -189,7 +189,7 @@ class DragDropUI(QMainWindow):
         self.bottom_splitter.setSizes([650, 250])
 
         self.splitter.addWidget(self.bottom_splitter)
-        self.splitter.setSizes([450, 250])
+        self.splitter.setSizes([700, 100])
         main_layout.addWidget(self.splitter)
 
         central_widget.setLayout(main_layout)
