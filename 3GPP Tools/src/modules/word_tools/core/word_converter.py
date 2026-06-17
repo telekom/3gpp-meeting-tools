@@ -78,9 +78,13 @@ class WordConverterThread(QThread):
             # DispatchEx forces a completely new, invisible instance of Word
             word = win32com.client.DispatchEx("Word.Application")
             word.Visible = False
-            word.DisplayAlerts = False  # Prevent popup dialogs from hanging the background thread
 
-            doc = word.Documents.Open(source_path, ReadOnly=True)
+            # 0 is the native Word constant for wdAlertsNone
+            word.DisplayAlerts = 0
+
+            # We must pass the arguments positionally to bypass the file-lock popup.
+            # Signature: Open(FileName, ConfirmConversions, ReadOnly, AddToRecentFiles)
+            doc = word.Documents.Open(source_path, False, True, False)
 
             self.ui_log_msg.emit("⏳ Converting and saving...", logging.INFO)
             doc.SaveAs2(out_path, FileFormat=self.FORMAT_MAP[self.target_format])
