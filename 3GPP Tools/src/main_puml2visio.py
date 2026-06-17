@@ -10,7 +10,7 @@ from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from core.utils.utils import get_best_java
 from core.utils.paths import get_project_root
 from modules.puml2visio.plugin_loader import register_puml2visio_plugin
-from modules.puml2visio.ui.main_window import DragDropUI
+from main_window import DragDropUI
 from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
 from modules.puml2visio.utils.paths import get_puml2visio_asset_path
 
