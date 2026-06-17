@@ -27,6 +27,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Subtractive Slicing Engine (Word):** Instantly split massive 200+ page `.docx` specifications into individual clauses. Processes files at the XML level (bypassing slow COM automation) using a throttled Thread Pool to extract multiple chapters simultaneously without maxing out system RAM.
 * **XML Garbage Collector:** When splitting Word documents, automatically scans the surviving XML and aggressively purges orphaned OLE objects and high-res images to prevent file bloat.
 * **Embedded Visio Extractor:** Extracts hidden, editable Visio (`.vsdx`) files natively trapped inside Word Document (`.docx`) OLE wrappers.
+* **Native Word Comparator:** A UI-driven bridge to Microsoft Word's native diff engine for comparing standard and revised specifications.
 * **Built-in COM Process Manager:** A native "kill switch" dialog that safely identifies and terminates headless "ghost" instances of Visio or PowerPoint left hanging in memory by background crashes.
 * **Modular MVC Architecture:** Built on a decoupled Python package standard (`src/`), utilizing dedicated UI components, Core engines, and a centralized `QueueManager` to handle threading without locking the GUI.
 
@@ -39,7 +40,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 graph TD
     subgraph view [UI View src/ui]
         E[main_puml2visio.py - Entry Point] --> M[main_window.py - The Traffic Cop]
-        M --> T[ui_tabs.py - Code Editor and Drop Zones]
+        M --> T[ui_tabs.py & word_tabs.py - Code Editor and Drop Zones]
         M --> P[ui_panels.py - Console and Task Manager]
     end
 
@@ -48,17 +49,22 @@ graph TD
         P --> PM[process_manager.py - OS Process Monitor]
     end
 
-    subgraph model [Core Engines src/modules/puml2visio/core]
-        Q --> V[visio_converter.py - COM Automation for converting to Visio]
-        Q --> V[ascii_converter.py - ASCII conversion]
-        Q --> PPT[powerpoint_converter.py - COM Automation for converting to PowerPoint]
-        Q --> DOCX[docx_splitter.py - XML Slicing to split big Word documents]
-        T --> LP[live_preview.py - Show changes live on a browser]
+    subgraph model_puml [PlantUML Engines src/modules/puml2visio/core]
+        Q --> V[visio_converter.py - COM Automation]
+        Q --> A[ascii_converter.py - ASCII conversion]
+        Q --> PPT[powerpoint_converter.py - COM Automation]
+        T --> LP[live_preview.py - Browser Sync]
+    end
+
+    subgraph model_word [Word Engines src/modules/word_tools/core]
+        Q --> DOCX[docx_splitter.py - XML Slicing]
+        Q --> WEXT[word_extractor.py - OLE Extraction]
+        Q --> WCMP[word_comparator.py - Native Diff]
     end
 
     subgraph output_group [Output]
         OutV[Visio .vsdx]
-        OutP[PowerPoint .pptx - Native Shapes]
+        OutP[PowerPoint .pptx]
         OutA[ASCII .txt]
         OutW[Split .docx Chapters]
     end
@@ -72,7 +78,8 @@ graph TD
     J -->|2b. PowerPoint EMF| PPT
     PPT --> OutP
     
-    Q -->|2c. Unicode Render| OutA
+    Q -->|2c. Unicode Render| A
+    A --> OutA
     
     T -->|Word Doc Dropped| DOCX
     DOCX -->|Multithreaded XML Pruning| OutW
@@ -87,7 +94,7 @@ graph TD
 Because this application relies heavily on Microsoft's Component Object Model (COM) and native XML parsing, it requires a specific environment:
 
 1. **Windows OS** (Required for COM automation).
-2. **Microsoft Visio** and **Microsoft PowerPoint** installed locally.
+2. **Microsoft Visio**, **Microsoft Word**, and **Microsoft PowerPoint** installed locally.
 3. **Java Runtime Environment (JRE)** (Java 11+ recommended to support the newest PlantUML features; Java 8 minimum. The tool will auto-detect the best version).
 4. **Python 3.8+**
 
@@ -100,10 +107,13 @@ This application is built as a modern Python package using `pyproject.toml`.
 1. **Clone the repository:**
    ```bash
    git clone [https://github.com/telekom/3gpp-meeting-tools.git](https://github.com/telekom/3gpp-meeting-tools.git)
-   cd 3gpp-meeting-tools/3GPP Tools
+   cd "3gpp-meeting-tools/3GPP Tools"
    ```
 
-2. **Go to the ``src`` directory:**
+2. **Go to the `src` directory:**
+   ```bash
+   cd src
+   ```
 
 3. **Run the application:**
    ```bash
@@ -126,11 +136,12 @@ The application features three main workspaces navigated via tabs, with a fully 
 ### 📂 Tab 2: Batch Convert
 * Drag `.txt` or `.puml` files onto the dashed area. They will queue up in the **Queue Viewer**. You can highlight queue items and click `Remove` before they process.
 
-### 📄 Tab 3: Word Extractor & Splitter
+### 📄 Tab 3: Word Tools (Extractor, Splitter, & Comparator)
 * **Extract Embedded Visio Diagrams:** Unzips the `.docx` archive and dumps clean `.vsdx` files (often trapped as OLE objects in 3GPP specs) next to your original document.
 * **Subtractive Slicing - Prefix:** Define the clause to target (e.g., `6.` targets 6.1, 6.2, etc.).
 * **Subtractive Slicing - Depth:** Define the hierarchy level to cut at (e.g., Depth `2` slices at 6.1, Depth `3` slices at 6.1.1).
 * **Subtractive Slicing - Execution:** The tool creates a `[filename]_split` subfolder and processes the chapters in parallel, purging orphaned images to keep file sizes small.
+* **Compare Documents:** Select an original and a revised `.docx` file (via local file, active COM session, or URL) to spawn Microsoft Word's native document comparator.
 
 ### 🛠 System Toolbar (Console Header)
 * **🖥️ Task Manager:** Open the COM Process Manager to identify and kill headless instances of Visio or PowerPoint.
