@@ -3,15 +3,13 @@ import webbrowser
 from pathlib import Path
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QCheckBox, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QLineEdit, QGroupBox, QComboBox, QMenu, QAbstractItemView)
+                             QHeaderView, QLineEdit, QComboBox, QMenu, QAbstractItemView)
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer
 
 from modules.specifications.core.database import SpecsDatabase
 
-
 class SpecificationsTab(QWidget):
     update_db_requested = pyqtSignal(bool)
-    # ---> NEW: Signal for targeted updates passing a list of specification numbers
     update_specific_requested = pyqtSignal(list, bool)
 
     def __init__(self, db_path: Path):
@@ -28,50 +26,46 @@ class SpecificationsTab(QWidget):
 
     def _setup_ui(self):
         main_layout = QVBoxLayout()
+        # Reduce margins to push the table closer to the edges
+        main_layout.setContentsMargins(5, 10, 5, 5)
 
-        # --- TOP PANEL: Controls ---
-        control_group = QGroupBox("Database Synchronization")
-        control_layout = QHBoxLayout()
+        # --- COMPACT TOP PANEL: Sync & Search on ONE line ---
+        top_layout = QHBoxLayout()
 
-        self.force_meta_checkbox = QCheckBox("Force Scrape DynaReports (Metadata)")
-        self.force_meta_checkbox.setToolTip("If unchecked, only fetches metadata for new specifications.")
-        control_layout.addWidget(self.force_meta_checkbox)
-
-        self.update_btn = QPushButton("🔄 Full Synchronization")
+        self.update_btn = QPushButton("🔄 Sync DB")
+        self.update_btn.setToolTip("Run a full synchronization of the 3GPP database.")
         self.update_btn.clicked.connect(lambda: self.update_db_requested.emit(self.force_meta_checkbox.isChecked()))
-        control_layout.addWidget(self.update_btn)
+        top_layout.addWidget(self.update_btn)
 
-        control_group.setLayout(control_layout)
-        main_layout.addWidget(control_group)
+        self.force_meta_checkbox = QCheckBox("Force Metadata")
+        self.force_meta_checkbox.setToolTip("If unchecked, only fetches metadata for new specifications.")
+        top_layout.addWidget(self.force_meta_checkbox)
 
-        # --- MIDDLE PANEL: Search & Filter ---
-        search_layout = QHBoxLayout()
+        top_layout.addSpacing(20) # Add a small visual gap
 
-        # --- Inside your _setup_ui method ---
-        search_layout.addWidget(QLabel("🔍 Spec Number:"))
+        top_layout.addWidget(QLabel("🔍 Spec:"))
         self.spec_search_input = QLineEdit()
         self.spec_search_input.setPlaceholderText("e.g. 23.501")
-        # ---> FIX: Added 'text' argument to the lambda so PyQt5 doesn't crash
         self.spec_search_input.textChanged.connect(lambda text: self.search_timer.start())
-        search_layout.addWidget(self.spec_search_input)
+        top_layout.addWidget(self.spec_search_input)
 
-        search_layout.addWidget(QLabel("Release/Version:"))
+        top_layout.addWidget(QLabel("Ver:"))
         self.version_search_input = QLineEdit()
-        self.version_search_input.setPlaceholderText("e.g. 15. or 16.2")
-        # ---> FIX: Added 'text' argument to the lambda
+        self.version_search_input.setPlaceholderText("e.g. 15.")
         self.version_search_input.textChanged.connect(lambda text: self.search_timer.start())
-        search_layout.addWidget(self.version_search_input)
+        top_layout.addWidget(self.version_search_input)
 
+        main_layout.addLayout(top_layout)
+
+        # --- MIDDLE PANEL: Results Header ---
         self.count_label = QLabel("Showing 0 specifications")
         self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
 
         header_layout = QHBoxLayout()
-        header_layout.addWidget(QLabel("<b>Filter Results</b>"))
+        header_layout.addWidget(QLabel("<b>Database Results</b>"))
         header_layout.addStretch()
         header_layout.addWidget(self.count_label)
 
-        main_layout.addLayout(search_layout)
-        main_layout.addSpacing(10)
         main_layout.addLayout(header_layout)
 
         # --- BOTTOM PANEL: Data Table ---
@@ -86,11 +80,9 @@ class SpecificationsTab(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
 
-        # ---> NEW: Enable Multiple Selection and Full Row Selection
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
-        # ---> NEW: Setup Right-Click Context Menu
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
 
@@ -98,7 +90,6 @@ class SpecificationsTab(QWidget):
         self.setLayout(main_layout)
 
     def _show_context_menu(self, position):
-        """Displays the right-click menu for targeted updates."""
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
             return
@@ -109,11 +100,10 @@ class SpecificationsTab(QWidget):
         action = menu.exec_(self.table.viewport().mapToGlobal(position))
 
         if action == update_action:
-            # Extract the raw specification numbers (e.g., "TS 23.501" -> "23.501")
             target_specs = []
             for index in selected_rows:
                 display_text = self.table.item(index.row(), 0).text()
-                spec_num = display_text.split(" ")[-1]  # Gets the last part after the space
+                spec_num = display_text.split(" ")[-1]
                 target_specs.append(spec_num)
 
             force_meta = self.force_meta_checkbox.isChecked()
@@ -124,7 +114,6 @@ class SpecificationsTab(QWidget):
             spec_query = self.spec_search_input.text().strip()
             version_query = self.version_search_input.text().strip()
 
-            # Prevent massive DB queries on startup when fields are empty
             if not spec_query and not version_query:
                 self.table.setRowCount(0)
                 self.count_label.setText("⌨️ Type a specification number (e.g., 23.501) to begin searching...")
@@ -138,7 +127,6 @@ class SpecificationsTab(QWidget):
 
             self.table.setRowCount(0)
 
-            # Map raw rows back into unique groupings
             grouped_specs = {}
             for row in specs:
                 series, spec_num, title, spec_type, filename, version, url = row
@@ -150,7 +138,6 @@ class SpecificationsTab(QWidget):
                     }
                 grouped_specs[spec_num]['versions'].append((version, url, filename))
 
-            # UI Freeze Protection (Limit rendering to 100 rows max)
             total_found = len(grouped_specs)
             rendered_specs = list(grouped_specs.items())[:100]
 
@@ -165,14 +152,10 @@ class SpecificationsTab(QWidget):
             for row_idx, (spec_num, data) in enumerate(rendered_specs):
                 self.table.insertRow(row_idx)
 
-                # 1. Spec Number (Concatenated Type + Number)
                 display_num = f"{data['type']} {spec_num}".strip()
                 self.table.setItem(row_idx, 0, QTableWidgetItem(display_num))
-
-                # 2. Title
                 self.table.setItem(row_idx, 1, QTableWidgetItem(data['title'] if data['title'] else "Unknown Title"))
 
-                # 3. Version Dropdown & Download Button
                 version_combo = QComboBox()
                 for ver, url, fname in data['versions']:
                     version_combo.addItem(f"v{ver}", userData=url)
@@ -190,5 +173,4 @@ class SpecificationsTab(QWidget):
                 self.table.setCellWidget(row_idx, 2, cell_widget)
 
         except Exception as e:
-            # If something else fails, it will now visibly print to your console!
             print(f"Error during refresh_table: {e}")
