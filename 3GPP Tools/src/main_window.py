@@ -53,6 +53,14 @@ class DragDropUI(QMainWindow):
         self.queue_panel.remove_requested.connect(self.queue_manager.remove_items)
         self.queue_panel.clear_requested.connect(self.queue_manager.clear_queue)
 
+        # 1. Connect the Abort button click to the Queue Manager's new abort function
+        self.queue_panel.abort_requested.connect(self.queue_manager.abort_current_task)
+
+        # 2. Toggle the Abort button state (enabled only when processing)
+        self.queue_manager.processing_state_changed.connect(
+            lambda is_proc, status: self.queue_panel.abort_btn.setEnabled(is_proc)
+        )
+
         self.cache_file = get_project_root().parent / ".editor_cache.puml"
         self._load_cache()
 
