@@ -106,6 +106,25 @@ class QueueManager(QObject):
         else:
             self._update_status()
 
+    def abort_current_task(self):
+        """Forcefully stops the currently running QThread."""
+        if hasattr(self, 'conv_thread') and self.conv_thread and self.conv_thread.isRunning():
+            self.log_msg.emit("🛑 Forcefully aborting current task...", logging.WARNING)
+
+            # Force terminate the thread
+            self.conv_thread.terminate()
+            self.conv_thread.wait()  # Wait for it to fully die
+            self.conv_thread = None
+
+            self.is_processing = False
+            self._update_status("Task Aborted.")
+            self.processing_state_changed.emit(False, "Aborted")
+            self.log_msg.emit("ℹ️ Task aborted. If Office apps act strangely, clear them in the COM Process Manager.",
+                              logging.INFO)
+
+            # Broadcast the updated state so the UI catches up
+            self._broadcast_queue_update()
+
     def remove_items(self, rows: list):
         for row in sorted(rows, reverse=True):
             if 0 <= row < len(self.file_queue):

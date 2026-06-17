@@ -241,23 +241,31 @@ class ConsolePanel(QWidget):
 
 
 # ==========================================
-# --- QUEUE PANEL ---
+# --- QUEUE PANEL (SIDEBAR) ---
 # ==========================================
 class QueuePanel(QWidget):
-    remove_requested = pyqtSignal(list)
     clear_requested = pyqtSignal()
+    remove_requested = pyqtSignal(list)
+    abort_requested = pyqtSignal()
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self._setup_ui()
 
     def _setup_ui(self):
         layout = QVBoxLayout()
-        layout.setContentsMargins(0, 5, 0, 0)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         header = QHBoxLayout()
-        lbl = QLabel("Queue")
+        lbl = QLabel("⏳ Queue")
         lbl.setStyleSheet("font-weight: bold; color: #555;")
+
+        self.abort_btn = QPushButton("🛑 Abort")
+        self.abort_btn.setFixedSize(65, 24)
+        self.abort_btn.setStyleSheet("padding: 2px; font-size: 11px; color: #D32F2F; font-weight: bold;")
+        self.abort_btn.setToolTip("Forcefully abort the currently running task.")
+        self.abort_btn.setEnabled(False)
+        self.abort_btn.clicked.connect(self.abort_requested.emit)
 
         self.remove_btn = QPushButton("Remove")
         self.remove_btn.setFixedSize(60, 24)
@@ -273,6 +281,7 @@ class QueuePanel(QWidget):
 
         header.addWidget(lbl)
         header.addStretch()
+        header.addWidget(self.abort_btn)
         header.addWidget(self.remove_btn)
         header.addWidget(self.clear_btn)
 
@@ -290,7 +299,8 @@ class QueuePanel(QWidget):
 
     def _on_remove_clicked(self):
         selected_items = self.queue_list.selectedItems()
-        if not selected_items: return
-
-        rows = sorted([self.queue_list.row(item) for item in selected_items], reverse=True)
-        self.remove_requested.emit(rows)
+        if not selected_items:
+            return
+        # Pass the text (or indices) of selected items to the manager
+        items_to_remove = [item.text() for item in selected_items]
+        self.remove_requested.emit(items_to_remove)
