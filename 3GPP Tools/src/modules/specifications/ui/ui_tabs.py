@@ -3,7 +3,7 @@ import webbrowser
 from pathlib import Path
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QCheckBox, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QLineEdit, QGroupBox)
+                             QHeaderView, QLineEdit, QGroupBox, QComboBox)
 from PyQt5.QtCore import pyqtSignal, Qt
 
 from modules.specifications.core.database import SpecsDatabase
@@ -60,22 +60,12 @@ class SpecificationsTab(QWidget):
 
         # --- BOTTOM PANEL: Data Table ---
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Series", "Spec #", "Title", "File", "Version", "Action"])
-
-        # Make the table look nice and stretch the Title column
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Spec #", "Type", "Title", "Version / Download"])
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Title takes up remaining space
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Title takes space
 
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)  # Read-only
-        self.table.setAlternatingRowColors(True)
         main_layout.addWidget(self.table)
-
         self.setLayout(main_layout)
 
     def _on_update_clicked(self):
@@ -83,32 +73,36 @@ class SpecificationsTab(QWidget):
         self.update_db_requested.emit(force_meta)
 
     def refresh_table(self):
-        """Queries the database and populates the table."""
-        spec_query = self.spec_search_input.text().strip()
-        version_query = self.version_search_input.text().strip()
+        specs = self.db.get_all_specifications()  # Gets (number, title, type)
+        self.table.setRowCount(0)
 
-        # Fetch results from database
-        results = self.db.search_files(
-            spec_number=spec_query if spec_query else None,
-            release_version=version_query if version_query else None
-        )
-
-        self.table.setRowCount(0)  # Clear existing rows
-
-        for row_idx, row_data in enumerate(results):
-            # row_data format: (Series, Spec Number, Title, Filename, Version, URL)
+        for row_idx, (number, title, spec_type) in enumerate(specs):
             self.table.insertRow(row_idx)
 
-            # Populate columns 0 to 4 with text
-            for col_idx in range(5):
-                item = QTableWidgetItem(str(row_data[col_idx] if row_data[col_idx] else ""))
-                self.table.setItem(row_idx, col_idx, item)
+            # 1. Spec Number (Concatenated with type)
+            display_num = f"{spec_type} {number}" if spec_type else number
+            self.table.setItem(row_idx, 0, QTableWidgetItem(display_num))
 
-            # Column 5: Action Button (Open Link)
-            link_url = row_data[5]
-            if link_url:
-                open_btn = QPushButton("⬇️ Download")
-                open_btn.setCursor(Qt.PointingHandCursor)
-                # Capture the URL in the lambda to prevent late-binding issues
-                open_btn.clicked.connect(lambda checked, url=link_url: webbrowser.open(url))
-                self.table.setCellWidget(row_idx, 5, open_btn)
+            # 2. Type and Title
+            self.table.setItem(row_idx, 1, QTableWidgetItem(spec_type))
+            self.table.setItem(row_idx, 2, QTableWidgetItem(title))
+
+            # 3. Version Dropdown
+            version_combo = QComboBox()
+            versions = self.db.get_versions_for_spec(number)
+
+            for ver, url, filename in versions:
+                version_combo.addItem(f"v{ver}", userData=url)
+
+            # Button to trigger download of selected version
+            download_btn = QPushButton("⬇️")
+            download_btn.clicked.connect(lambda _, c=version_combo: webbrowser.open(c.currentData()))
+
+            # Layout the combo and button together
+            cell_widget = QWidget()
+            layout = QHBoxLayout(cell_widget)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.addWidget(version_combo)
+            layout.addWidget(download_btn)
+
+            self.table.setCellWidget(row_idx, 3, cell_widget)
