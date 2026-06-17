@@ -122,13 +122,28 @@ class DragDropUI(QMainWindow):
         # Pass the db_path into the tab so the table can read it!
         self.specs_tab = SpecificationsTab(db_path)
 
+        # Existing Full Update Signal
         self.specs_tab.update_db_requested.connect(
             lambda force_meta: self.queue_manager.add_item(
                 Path("3GPP_Archive"),
                 "update_specs_db",
                 {
                     "db_path": db_path,
-                    "force_metadata": force_meta
+                    "force_metadata": force_meta,
+                    "target_specs": []  # Empty list triggers full update
+                }
+            )
+        )
+
+        # NEW: Targeted Update Signal from Right-Click Menu
+        self.specs_tab.update_specific_requested.connect(
+            lambda target_specs, force_meta: self.queue_manager.add_item(
+                Path("3GPP_Archive_Targeted"),
+                "update_specs_db",
+                {
+                    "db_path": db_path,
+                    "force_metadata": force_meta,
+                    "target_specs": target_specs  # Pass the targeted list!
                 }
             )
         )
