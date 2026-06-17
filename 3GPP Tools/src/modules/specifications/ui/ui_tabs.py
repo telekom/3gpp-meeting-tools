@@ -3,10 +3,100 @@ import webbrowser
 from pathlib import Path
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QCheckBox, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QLineEdit, QComboBox, QMenu, QAbstractItemView)
+                             QHeaderView, QLineEdit, QComboBox, QMenu, QAbstractItemView,
+                             QDialog, QFormLayout)
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer
 
 from modules.specifications.core.database import SpecsDatabase
+
+
+class AdvancedSyncDialog(QDialog):
+    def __init__(self, db: SpecsDatabase, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.setWindowTitle("Advanced Filtered Sync")
+        self.setModal(True)
+        self.resize(450, 250)
+        self.matching_specs = []
+
+        # --- UI Setup ---
+        layout = QVBoxLayout(self)
+
+        info_label = QLabel("Note: Filters apply to specifications already discovered in your local database. "
+                            "To discover brand new specifications, run a 'Full Sync' first.")
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #666666; font-style: italic; margin-bottom: 10px;")
+        layout.addWidget(info_label)
+
+        form = QFormLayout()
+
+        self.series_input = QLineEdit()
+        self.series_input.setPlaceholderText("e.g. 23, 24")
+
+        self.tech_input = QLineEdit()
+        self.tech_input.setPlaceholderText("e.g. 5G")
+
+        self.group_input = QLineEdit()
+        self.group_input.setPlaceholderText("e.g. SA2")
+
+        type_layout = QHBoxLayout()
+        self.ts_cb = QCheckBox("TS")
+        self.ts_cb.setChecked(True)
+        self.tr_cb = QCheckBox("TR")
+        self.tr_cb.setChecked(True)
+        type_layout.addWidget(self.ts_cb)
+        type_layout.addWidget(self.tr_cb)
+        type_layout.addStretch()
+
+        form.addRow("Series:", self.series_input)
+        form.addRow("Radio Tech:", self.tech_input)
+        form.addRow("Working Group:", self.group_input)
+        form.addRow("Type:", type_layout)
+        layout.addLayout(form)
+
+        # --- Dynamic Counter ---
+        self.count_label = QLabel("Matching specifications: 0")
+        self.count_label.setStyleSheet("font-weight: bold; color: #395396; margin-top: 10px;")
+        layout.addWidget(self.count_label)
+
+        # --- Buttons ---
+        btn_layout = QHBoxLayout()
+        self.sync_btn = QPushButton("🚀 Start Sync")
+        self.sync_btn.clicked.connect(self.accept)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(self.sync_btn)
+        layout.addLayout(btn_layout)
+
+        # --- Live Connections ---
+        self.series_input.textChanged.connect(self.update_count)
+        self.tech_input.textChanged.connect(self.update_count)
+        self.group_input.textChanged.connect(self.update_count)
+        self.ts_cb.stateChanged.connect(self.update_count)
+        self.tr_cb.stateChanged.connect(self.update_count)
+
+        self.update_count()  # Initial run
+
+    def update_count(self):
+        """Dynamically queries the database as the user types."""
+        series = self.series_input.text().strip()
+        tech = self.tech_input.text().strip()
+        group = self.group_input.text().strip()
+
+        types = []
+        if self.ts_cb.isChecked(): types.append("TS")
+        if self.tr_cb.isChecked(): types.append("TR")
+
+        self.matching_specs = self.db.get_filtered_specs(series, tech, group, types)
+        count = len(self.matching_specs)
+
+        self.count_label.setText(f"Matching specifications in local DB: {count}")
+        self.sync_btn.setEnabled(count > 0)
+
 
 class SpecificationsTab(QWidget):
     update_db_requested = pyqtSignal(bool)
@@ -26,22 +116,27 @@ class SpecificationsTab(QWidget):
 
     def _setup_ui(self):
         main_layout = QVBoxLayout()
-        # Reduce margins to push the table closer to the edges
         main_layout.setContentsMargins(5, 10, 5, 5)
 
-        # --- COMPACT TOP PANEL: Sync & Search on ONE line ---
+        # --- COMPACT TOP PANEL ---
         top_layout = QHBoxLayout()
 
-        self.update_btn = QPushButton("🔄 Sync DB")
-        self.update_btn.setToolTip("Run a full synchronization of the 3GPP database.")
-        self.update_btn.clicked.connect(lambda: self.update_db_requested.emit(self.force_meta_checkbox.isChecked()))
-        top_layout.addWidget(self.update_btn)
+        self.full_sync_btn = QPushButton("🔄 Full Sync")
+        self.full_sync_btn.setToolTip("Scan the entire 3GPP FTP archive for updates.")
+        self.full_sync_btn.clicked.connect(lambda: self.update_db_requested.emit(self.force_meta_checkbox.isChecked()))
+        top_layout.addWidget(self.full_sync_btn)
+
+        # ---> NEW: Filtered Sync Button
+        self.adv_sync_btn = QPushButton("⚙️ Filtered Sync")
+        self.adv_sync_btn.setToolTip("Update only a specific subset of specifications (e.g. 5G, SA2).")
+        self.adv_sync_btn.clicked.connect(self._open_advanced_sync)
+        top_layout.addWidget(self.adv_sync_btn)
 
         self.force_meta_checkbox = QCheckBox("Force Metadata")
         self.force_meta_checkbox.setToolTip("If unchecked, only fetches metadata for new specifications.")
         top_layout.addWidget(self.force_meta_checkbox)
 
-        top_layout.addSpacing(20) # Add a small visual gap
+        top_layout.addSpacing(15)
 
         top_layout.addWidget(QLabel("🔍 Spec:"))
         self.spec_search_input = QLineEdit()
@@ -79,15 +174,22 @@ class SpecificationsTab(QWidget):
 
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
-
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
 
         main_layout.addWidget(self.table)
         self.setLayout(main_layout)
+
+    def _open_advanced_sync(self):
+        """Opens the Advanced Sync dialog and emits the target specs if accepted."""
+        dialog = AdvancedSyncDialog(self.db, self)
+        if dialog.exec_():
+            target_specs = dialog.matching_specs
+            if target_specs:
+                force_meta = self.force_meta_checkbox.isChecked()
+                self.update_specific_requested.emit(target_specs, force_meta)
 
     def _show_context_menu(self, position):
         selected_rows = self.table.selectionModel().selectedRows()
