@@ -11,18 +11,21 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
 from core.ui.ui_components import ProxyDialog
-from modules.puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab, WordExtractorTab
+from modules.puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab
 from core.queue_manager import QueueManager
+
+from core.config.config import HELP_URL
+from core.utils.paths import get_project_root
+from core.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
 
 from modules.puml2visio.utils.utils import encode_plantuml, InitializationThread
 from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
-from core.config.config import HELP_URL
 from modules.puml2visio.core.visio_converter import VisioReaderThread
 from modules.puml2visio.core.live_preview import LivePreviewManager
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
-from core.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
 from modules.puml2visio.utils.paths import get_puml2visio_asset_path
-from core.utils.paths import get_project_root
+
+from modules.word_tools.ui.word_tabs import WordExtractorTab
 
 
 class DragDropUI(QMainWindow):

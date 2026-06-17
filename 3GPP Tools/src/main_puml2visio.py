@@ -9,10 +9,12 @@ from PyQt5.QtWidgets import QApplication, QDialog
 from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from core.utils.utils import get_best_java
 from core.utils.paths import get_project_root
-from modules.puml2visio.plugin_loader import register_plugin
+from modules.puml2visio.plugin_loader import register_puml2visio_plugin
 from modules.puml2visio.ui.main_window import DragDropUI
 from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
 from modules.puml2visio.utils.paths import get_puml2visio_asset_path
+
+from modules.word_tools.plugin_loader import register_word_plugin
 
 # ==========================================
 # --- PATH RESOLUTION ---
@@ -43,7 +45,8 @@ if __name__ == '__main__':
         myappid = '3gpp.3GPP Tools.converter.1.0'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
-    register_plugin()
+    register_puml2visio_plugin()
+    register_word_plugin()
 
     app = QApplication(sys.argv)
     app.setWindowIcon(create_app_icon())
