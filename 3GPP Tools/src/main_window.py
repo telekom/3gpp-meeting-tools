@@ -24,6 +24,7 @@ from modules.puml2visio.core.visio_converter import VisioReaderThread
 from modules.puml2visio.core.live_preview import LivePreviewManager
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 from modules.puml2visio.utils.paths import get_puml2visio_asset_path
+from modules.specifications.ui.ui_tabs import SpecificationsTab
 
 from modules.word_tools.ui.word_tabs import WordExtractorTab
 
@@ -116,9 +117,23 @@ class DragDropUI(QMainWindow):
             )
         )
 
+        self.specs_tab = SpecificationsTab()
+        db_path = get_project_root().parent / "3gpp_specs.db"
+        self.specs_tab.update_db_requested.connect(
+            lambda force_meta: self.queue_manager.add_item(
+                Path("3GPP_Archive"),
+                "update_specs_db",
+                {
+                    "db_path": db_path,
+                    "force_metadata": force_meta
+                }
+            )
+        )
+
         self.tabs.addTab(self.code_tab, "📝 Code Editor")
         self.tabs.addTab(self.batch_tab, "📂 Batch Convert")
         self.tabs.addTab(self.word_tab, "📄 Word Tools")
+        self.tabs.addTab(self.specs_tab, "📚 3GPP Specifications")
         self.tabs.setEnabled(False)
 
         # --- TAB CORNER HELP WIDGET ---
