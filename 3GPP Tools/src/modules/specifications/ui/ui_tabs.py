@@ -47,16 +47,19 @@ class SpecificationsTab(QWidget):
         # --- MIDDLE PANEL: Search & Filter ---
         search_layout = QHBoxLayout()
 
+        # --- Inside your _setup_ui method ---
         search_layout.addWidget(QLabel("🔍 Spec Number:"))
         self.spec_search_input = QLineEdit()
         self.spec_search_input.setPlaceholderText("e.g. 23.501")
-        self.spec_search_input.textChanged.connect(lambda: self.search_timer.start())
+        # ---> FIX: Added 'text' argument to the lambda so PyQt5 doesn't crash
+        self.spec_search_input.textChanged.connect(lambda text: self.search_timer.start())
         search_layout.addWidget(self.spec_search_input)
 
         search_layout.addWidget(QLabel("Release/Version:"))
         self.version_search_input = QLineEdit()
         self.version_search_input.setPlaceholderText("e.g. 15. or 16.2")
-        self.version_search_input.textChanged.connect(lambda: self.search_timer.start())
+        # ---> FIX: Added 'text' argument to the lambda
+        self.version_search_input.textChanged.connect(lambda text: self.search_timer.start())
         search_layout.addWidget(self.version_search_input)
 
         self.count_label = QLabel("Showing 0 specifications")
@@ -117,49 +120,75 @@ class SpecificationsTab(QWidget):
             self.update_specific_requested.emit(target_specs, force_meta)
 
     def refresh_table(self):
-        # ... (Keep the rest of your refresh_table method exactly the same) ...
-        spec_query = self.spec_search_input.text().strip()
-        version_query = self.version_search_input.text().strip()
+        try:
+            spec_query = self.spec_search_input.text().strip()
+            version_query = self.version_search_input.text().strip()
 
-        specs = self.db.search_files(
-            spec_number=spec_query if spec_query else None,
-            release_version=version_query if version_query else None
-        )
+            # Prevent massive DB queries on startup when fields are empty
+            if not spec_query and not version_query:
+                self.table.setRowCount(0)
+                self.count_label.setText("⌨️ Type a specification number (e.g., 23.501) to begin searching...")
+                self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
+                return
 
-        self.table.setRowCount(0)
+            specs = self.db.search_files(
+                spec_number=spec_query if spec_query else None,
+                release_version=version_query if version_query else None
+            )
 
-        grouped_specs = {}
-        for row in specs:
-            series, spec_num, title, spec_type, filename, version, url = row
-            if spec_num not in grouped_specs:
-                grouped_specs[spec_num] = {
-                    'title': title,
-                    'type': spec_type if spec_type else "",
-                    'versions': []
-                }
-            grouped_specs[spec_num]['versions'].append((version, url, filename))
+            self.table.setRowCount(0)
 
-        self.count_label.setText(f"Showing {len(grouped_specs)} specifications")
+            # Map raw rows back into unique groupings
+            grouped_specs = {}
+            for row in specs:
+                series, spec_num, title, spec_type, filename, version, url = row
+                if spec_num not in grouped_specs:
+                    grouped_specs[spec_num] = {
+                        'title': title,
+                        'type': spec_type if spec_type else "",
+                        'versions': []
+                    }
+                grouped_specs[spec_num]['versions'].append((version, url, filename))
 
-        for row_idx, (spec_num, data) in enumerate(grouped_specs.items()):
-            self.table.insertRow(row_idx)
+            # UI Freeze Protection (Limit rendering to 100 rows max)
+            total_found = len(grouped_specs)
+            rendered_specs = list(grouped_specs.items())[:100]
 
-            display_num = f"{data['type']} {spec_num}".strip()
-            self.table.setItem(row_idx, 0, QTableWidgetItem(display_num))
-            self.table.setItem(row_idx, 1, QTableWidgetItem(data['title'] if data['title'] else "Unknown Title"))
+            if total_found > 100:
+                self.count_label.setText(
+                    f"⚠️ Showing top 100 of {total_found} specifications. Keep typing to narrow down.")
+                self.count_label.setStyleSheet("font-weight: bold; color: #D83B01;")
+            else:
+                self.count_label.setText(f"Showing {total_found} specifications")
+                self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
 
-            version_combo = QComboBox()
-            for ver, url, fname in data['versions']:
-                version_combo.addItem(f"v{ver}", userData=url)
+            for row_idx, (spec_num, data) in enumerate(rendered_specs):
+                self.table.insertRow(row_idx)
 
-            download_btn = QPushButton("⬇️")
-            download_btn.setCursor(Qt.PointingHandCursor)
-            download_btn.clicked.connect(lambda _, c=version_combo: webbrowser.open(c.currentData()))
+                # 1. Spec Number (Concatenated Type + Number)
+                display_num = f"{data['type']} {spec_num}".strip()
+                self.table.setItem(row_idx, 0, QTableWidgetItem(display_num))
 
-            cell_widget = QWidget()
-            layout = QHBoxLayout(cell_widget)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.addWidget(version_combo)
-            layout.addWidget(download_btn)
+                # 2. Title
+                self.table.setItem(row_idx, 1, QTableWidgetItem(data['title'] if data['title'] else "Unknown Title"))
 
-            self.table.setCellWidget(row_idx, 2, cell_widget)
+                # 3. Version Dropdown & Download Button
+                version_combo = QComboBox()
+                for ver, url, fname in data['versions']:
+                    version_combo.addItem(f"v{ver}", userData=url)
+
+                download_btn = QPushButton("⬇️")
+                download_btn.setCursor(Qt.PointingHandCursor)
+                download_btn.clicked.connect(lambda _, c=version_combo: webbrowser.open(c.currentData()))
+
+                cell_widget = QWidget()
+                layout = QHBoxLayout(cell_widget)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.addWidget(version_combo)
+                layout.addWidget(download_btn)
+
+                self.table.setCellWidget(row_idx, 2, cell_widget)
+
+        except Exception as e:
+            # If something else fails, it will now visibly print to your console!
+            print(f"Error during refresh_table: {e}")
