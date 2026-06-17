@@ -1,9 +1,10 @@
-import urllib.request
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QLabel, QFormLayout,
-                             QLineEdit, QCheckBox, QHBoxLayout, QPushButton,
-                             QApplication)
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QIcon, QPixmap, QFont
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QLabel, QFormLayout,
+                             QLineEdit, QCheckBox, QHBoxLayout, QPushButton,
+                             QApplication, QMessageBox)
+
+from core.network.session import NetworkSession
 
 # ==========================================
 # --- GLOBAL STYLESHEET (ALL-BLUE THEME) ---
@@ -213,7 +214,7 @@ class ProxyDialog(QDialog):
 
         self.test_btn = QPushButton("🔄 Test Connection")
         self.test_btn.setToolTip("Ping GitHub to verify if your proxy settings are working.")
-        self.test_btn.clicked.connect(self.test_connection)
+        self.test_btn.clicked.connect(self.test_proxy)
 
         self.save_btn = QPushButton("Save && Continue")
         self.save_btn.setObjectName("primaryBtn")
@@ -228,31 +229,46 @@ class ProxyDialog(QDialog):
         layout.addLayout(btn_layout)
         self.setLayout(layout)
 
-    def test_connection(self):
-        self.status_lbl.setText("⏳ Testing connection to GitHub... Please wait.")
-        self.status_lbl.setStyleSheet("color: #D83B01; font-weight: bold;")
-        QApplication.processEvents()
+    def test_proxy(self) -> None:
+        """Tests the proxy using the shared NetworkSession tester."""
+        http_val: str = self.http_input.text().strip()
+        https_val: str = self.https_input.text().strip()
 
-        http_val, https_val = self.get_proxies()
-        proxies = {}
+        proxies: dict = {}
         if http_val: proxies['http'] = http_val
         if https_val: proxies['https'] = https_val
 
-        try:
-            if proxies:
-                proxy_handler = urllib.request.ProxyHandler(proxies)
-                opener = urllib.request.build_opener(proxy_handler)
-            else:
-                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        # Update button to show loading state
+        self.test_btn.setText("Testing...")
+        self.test_btn.setEnabled(False)
+        QApplication.processEvents()  # Force UI to update the button text
 
-            req = urllib.request.Request("https://github.com", method="HEAD")
-            opener.open(req, timeout=5)
+        # Test the connection using the NetworkSession static method
+        success: bool = NetworkSession.test_connection(proxies)
 
-            self.status_lbl.setText("✅ Connection Successful! You can now save.")
-            self.status_lbl.setStyleSheet("color: #6A9955; font-weight: bold;")
-        except Exception as e:
-            self.status_lbl.setText(f"❌ Connection Failed: {str(e)}")
-            self.status_lbl.setStyleSheet("color: #D32F2F; font-weight: bold;")
+        # Restore button state
+        self.test_btn.setText("Test Connection")
+        self.test_btn.setEnabled(True)
+
+        if success:
+            QMessageBox.information(self, "Success", "Connection to 3GPP server successful!")
+        else:
+            QMessageBox.warning(self, "Failed", "Connection failed. Please check your proxy settings or firewall.")
+
+    def accept(self) -> None:
+        """Saves the proxy and instantly updates the running application session."""
+        # ... (Keep your existing code here that saves the proxy to your config file) ...
+
+        # ---> NEW: Update the running global session so the crawler uses it immediately
+        http_val: str = self.http_input.text().strip()
+        https_val: str = self.https_input.text().strip()
+        proxies: dict = {}
+        if http_val: proxies['http'] = http_val
+        if https_val: proxies['https'] = https_val
+
+        NetworkSession.update_proxies(proxies)
+
+        super().accept()
 
     def on_sync_changed(self, state):
         if state == Qt.Checked:
