@@ -15,7 +15,7 @@ class DocumentSelectorPane(QWidget):
     def __init__(self, title: str):
         super().__init__()
         self.title = title
-        self.selected_file = ""
+        self.selected_files = []  # Changed from a single string to an empty list
         self._setup_ui()
 
     def _setup_ui(self):
@@ -69,8 +69,12 @@ class DocumentSelectorPane(QWidget):
 
     def _on_drop(self, files):
         if files:
-            self.selected_file = files[0]
-            self.drop_zone.set_state("ready", f"Ready:\n{Path(self.selected_file).name}")
+            self.selected_files = files
+            # Update the UI to show a single filename or a batch count
+            if len(files) == 1:
+                self.drop_zone.set_state("ready", f"Ready:\n{Path(files[0]).name}")
+            else:
+                self.drop_zone.set_state("ready", f"Ready:\n{len(files)} files queued for batch")
 
     def poll_open_documents(self):
         self.open_combo.clear()
@@ -88,15 +92,18 @@ class DocumentSelectorPane(QWidget):
         finally:
             pythoncom.CoUninitialize()
 
-    def get_input(self) -> str:
+    def get_inputs(self) -> list:
+        # We rename this to get_inputs (plural) and return a list for all 3 tabs
         idx = self.tabs.currentIndex()
         if idx == 0:
-            return self.selected_file
+            return self.selected_files
         elif idx == 1:
-            return self.open_combo.currentData() or ""
+            doc = self.open_combo.currentData()
+            return [doc] if doc else []
         elif idx == 2:
-            return self.url_input.text().strip()
-        return ""
+            url = self.url_input.text().strip()
+            return [url] if url else []
+        return []
 
     def _on_tab_changed(self, index):
         if index == 1:
@@ -217,16 +224,24 @@ class WordExtractorTab(QWidget):
         self.op_combo.currentIndexChanged.connect(self.stack.setCurrentIndex)
 
     def _trigger_comparison(self):
-        val_a = self.pane_a.get_input()
-        val_b = self.pane_b.get_input()
+        # The comparator still strictly needs exactly 1 file for A and B.
+        # We safely grab the first item from the list if it exists.
+        val_a_list = self.pane_a.get_inputs()
+        val_b_list = self.pane_b.get_inputs()
+
+        val_a = val_a_list[0] if val_a_list else ""
+        val_b = val_b_list[0] if val_b_list else ""
         keep_open = self.keep_open_cb.isChecked()
 
         if val_a and val_b:
             self.compare_doc_requested.emit(val_a, val_b, keep_open)
 
     def _trigger_conversion(self):
-        source_doc = self.pane_convert.get_input()
+        # Grab the list of all dropped files
+        source_docs = self.pane_convert.get_inputs()
         target_fmt = self.format_combo.currentText().lower()
 
-        if source_doc:
-            self.convert_doc_requested.emit(source_doc, target_fmt)
+        # Loop through the list and rapidly fire them into the QueueManager!
+        for doc in source_docs:
+            if doc:
+                self.convert_doc_requested.emit(doc, target_fmt)
