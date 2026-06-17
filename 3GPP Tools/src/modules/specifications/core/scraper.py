@@ -16,7 +16,6 @@ from modules.specifications.core.database import SpecsDatabase
 
 
 class SpecsCrawlerThread(QThread):
-    # ---> FIX: NEVER use type annotations (like `: pyqtSignal`) on signals in PyQt5!
     ui_log_msg = pyqtSignal(str, int)
     finished = pyqtSignal()
     finished_path = pyqtSignal(str)
@@ -55,6 +54,7 @@ class SpecsCrawlerThread(QThread):
             self.ui_log_msg.emit(f"⚠️ Error fetching {url}: {e}", logging.WARNING)
             return []
 
+    # ---> UPGRADED: Dual-Strategy ASP.NET & Legacy Parser
     def fetch_metadata_from_dynareport(self, spec_number: str) -> Dict[str, str]:
         clean_number: str = spec_number.replace('.', '')
         url: str = f"https://www.3gpp.org/DynaReport/{clean_number}.htm"
@@ -67,21 +67,41 @@ class SpecsCrawlerThread(QThread):
             html_text: str = NetworkSession.get_html(url=url, timeout=15)
             soup: BeautifulSoup = BeautifulSoup(html_text, 'html.parser')
 
+            # Strategy 1: ASP.NET Portal IDs (Fast & Exact for new 3GPP Portal)
+            def get_by_id(keyword: str) -> str:
+                tag = soup.find(lambda t: t.has_attr('id') and keyword in t['id'].lower())
+                return tag.get_text(strip=True) if tag else ''
+
+            # Strategy 2: DOM Traversal (Fallback for old HTML tables or missing IDs)
             def get_field(*label_texts: str) -> str:
                 for label_text in label_texts:
-                    label = soup.find(lambda tag: tag.name in ['td', 'th', 'span', 'b'] and tag.get_text(
-                        strip=True).lower() == label_text.lower())
-                    if not label:
-                        label = soup.find(
-                            lambda tag: tag.name in ['td', 'th', 'span', 'b'] and label_text.lower() in tag.get_text(
-                                strip=True).lower())
-                    if label:
-                        val_cell = label.find_next('td')
-                        if val_cell: return val_cell.get_text(strip=True)
+                    tags = soup.find_all(lambda tag: tag.name in ['td', 'th', 'span', 'b', 'strong', 'div', 'label']
+                                                     and tag.get_text(strip=True).strip(
+                        ':').lower() == label_text.lower())
+                    for tag in tags:
+                        # Adjacent sibling check
+                        sibling = tag.find_next_sibling(
+                            lambda t: t.name in ['td', 'span', 'div'] and t.get_text(strip=True))
+                        if sibling: return sibling.get_text(strip=True)
+
+                        # Parent offset check (e.g. nested in a <td>)
+                        parent_cell = tag.find_parent(['td', 'th'])
+                        if parent_cell:
+                            next_cell = parent_cell.find_next_sibling(['td', 'th'])
+                            if next_cell: return next_cell.get_text(strip=True)
+
+                        # Absolute next DOM element check
+                        next_el = tag.find_next(lambda t: t.name in ['td', 'span', 'div', 'a'] and t.get_text(
+                            strip=True) and t not in tag.descendants)
+                        if next_el:
+                            val = next_el.get_text(strip=True)
+                            if len(val) < 200: return val
                 return ''
 
-            metadata['title'] = get_field('Title')
-            raw_type: str = get_field('Specification type', 'Spec type', 'Type')
+            # Map the fields using the dual-strategy
+            metadata['title'] = get_by_id('lbltitle') or get_field('Title', 'Specification Title')
+
+            raw_type: str = get_by_id('lblspectype') or get_field('Specification type', 'Spec type', 'Type')
             if raw_type:
                 acronym_match = re.search(r'\(([^)]+)\)', raw_type)
                 if acronym_match:
@@ -94,21 +114,24 @@ class SpecsCrawlerThread(QThread):
                     else:
                         metadata['type'] = raw_type
 
-            metadata['initial_release'] = get_field('Initial planned Release')
-            metadata['radio_technology'] = get_field('Radio technology')
-            metadata['primary_group'] = get_field('Primary responsible group')
-            metadata['secondary_groups'] = get_field('Secondary responsible groups')
+            metadata['initial_release'] = get_by_id('lblinitialrel') or get_field('Initial planned Release',
+                                                                                  'Initial Release')
+            metadata['radio_technology'] = get_by_id('lblradiotech') or get_field('Radio technology')
+            metadata['primary_group'] = get_by_id('lblprimarywg') or get_field('Primary responsible group',
+                                                                               'Primary WG')
+            metadata['secondary_groups'] = get_by_id('lblsecondarywg') or get_field('Secondary responsible groups',
+                                                                                    'Secondary WG')
 
             if not metadata['title']:
                 title_tag = soup.find('h1') or soup.find('h2')
                 if title_tag: metadata['title'] = title_tag.get_text(strip=True)
 
-        except Exception:
-            pass
+        except Exception as e:
+            # Explicit logging instead of passing, so 404 network errors are visible
+            logging.warning(f"Metadata fetch failed for {spec_number} at {url}: {e}")
 
         return metadata
 
-    # ---> PRODUCER: Strictly Network I/O (No Database Touching)
     def fetch_spec_network_data(self, series_name: str, series_url: str, spec_number: str, spec_url: str,
                                 needs_metadata: bool) -> dict:
         file_links: List[Tuple[str, str]] = self.fetch_links(spec_url)
@@ -132,7 +155,6 @@ class SpecsCrawlerThread(QThread):
             'files': files_to_save, 'metadata': metadata
         }
 
-    # ---> CONSUMER: Orchestrator and Database Writer
     def run(self) -> None:
         try:
             if not self.root_url.endswith('/'): self.root_url += '/'
@@ -156,7 +178,6 @@ class SpecsCrawlerThread(QThread):
                     link for link in self.fetch_links(self.root_url) if 'series' in link[0].lower()
                 ]
 
-                # Map all series folders concurrently
                 with ThreadPoolExecutor(max_workers=15) as executor:
                     future_to_series = {
                         executor.submit(self.fetch_links, s_url if s_url.endswith('/') else s_url + '/'): (
@@ -182,7 +203,6 @@ class SpecsCrawlerThread(QThread):
 
             completed: int = 0
 
-            # ---> MASSIVE PARALLELISM: 15 workers download, 1 thread writes safely to DB
             with ThreadPoolExecutor(max_workers=15) as executor:
                 futures = {executor.submit(self.fetch_spec_network_data, *task): task for task in spec_tasks}
 
@@ -198,7 +218,6 @@ class SpecsCrawlerThread(QThread):
 
                         if not files: continue
 
-                        # Write to SQLite in the main thread to prevent locks
                         for f_name, f_ver, f_url in files:
                             self.db.insert_or_update_file(
                                 result['series_name'], result['series_url'],
