@@ -1,8 +1,8 @@
-# 📊 PlantUML to Visio/PowerPoint Converter (3GPP Tools)
+# 📊 3GPP Meeting Tools & Diagram Converter
 
 An advanced, component-based desktop IDE designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
 
-Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, and rapidly slice massive specification documents into manageable chapters.
+Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, and seamlessly navigate, filter, and synchronize the vast 3GPP specification database locally.
 
 ---
 
@@ -19,145 +19,78 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ## <a id="features"></a>✨ Features
 
+### 📡 3GPP Database Synchronizer
+* **Massive Network Parallelism:** Utilizes a Producer-Consumer architecture with 15 concurrent HTTP workers and a single safe SQLite writer thread to rapidly sync the 3GPP FTP archive without disk-locking bottlenecks.
+* **Smart Metadata Scraper:** A dual-strategy HTML parser seamlessly extracts metadata (Title, Release, Working Group, Radio Tech) from both the legacy 3GPP HTML tables and the modern ASP.NET WebForms portal.
+* **Advanced Filtered Sync:** Don't want to sync 4,000+ files? Use the Advanced Sync dialog to target specific cross-sections (e.g., *only `TS` specifications from the `23` series where `SA2` is responsible*).
+* **Targeted Row Updates:** Shift-click multiple specifications in the UI and right-click to fast-track their synchronization instantly.
+
+### 🎨 Diagramming & Document Tools
 * **Smart Code Editor:** A professional IDE experience featuring dynamic line numbering, active-line highlighting, native Undo/Redo history, and a background Auto-Save Cache that restores your session if the app is closed or crashes.
-* **Intelligent Live Preview:** A debounced background rendering engine that automatically pipes your PlantUML code to a live browser tab as you type. If you make a typo, it intercepts the Java crash and dynamically paints a red Syntax Error overlay directly in your browser.
-* **Visio Export (.vsdx):** Perfect alignment via 2D SVG gap-measuring.
-* **PowerPoint Export (.pptx):** Bypasses buggy SVG engines via an EMF pipeline for natively ungroupable objects.
-* **ASCII Text Art Export (.txt):** Uses PlantUML's `-tutxt` engine to generate clean Unicode text diagrams for markdown or RFC specs.
-* **Background Document Converter:** Convert massive Word files to PDF, HTML, XPS, RTF, or pure Text using a detached, headless COM instance. This ensures your active Word sessions remain completely responsive and unfrozen during heavy background conversions.
-* **Subtractive Slicing Engine (Word):** Instantly split massive 200+ page `.docx` specifications into individual clauses. Processes files at the XML level (bypassing slow COM automation) using a throttled Thread Pool to extract multiple chapters simultaneously without maxing out system RAM.
-* **XML Garbage Collector:** When splitting Word documents, automatically scans the surviving XML and aggressively purges orphaned OLE objects and high-res images to prevent file bloat.
-* **Embedded Visio Extractor:** Extracts hidden, editable Visio (`.vsdx`) files natively trapped inside Word Document (`.docx`) OLE wrappers.
-* **Native Word Comparator:** A UI-driven bridge to Microsoft Word's native diff engine for comparing standard and revised specifications.
-* **Built-in COM Process Manager:** A native "kill switch" dialog that safely identifies and terminates headless "ghost" instances of Visio or PowerPoint left hanging in memory by background crashes.
-* **Modular MVC Architecture:** Built on a decoupled Python package standard (`src/`), utilizing dedicated UI components, Core engines, and a centralized `QueueManager` to handle threading without locking the GUI.
+* **Intelligent Live Preview:** A debounced background rendering engine that automatically pipes your PlantUML code to a live browser tab as you type. It intercepts Java crashes and dynamically paints a red Syntax Error overlay directly in your browser.
+* **Visio Export (.vsdx):** Perfect alignment via 2D SVG gap-measuring. Converts your PlantUML code into fully editable, ungroupable Microsoft Visio shapes.
+* **PowerPoint Export (.pptx):** Automatically injects the generated shapes directly into a blank PowerPoint slide for immediate copy-pasting.
+* **Bulk Document Splitter:** Extracts massive `.docx` specification documents and slices them chapter-by-chapter into standalone Word files using parallel processing.
 
 ---
 
 ## <a id="architecture"></a>🏗️ Architecture & Data Flow
 
-```mermaid
-%%{init: {"theme": "base", "themeVariables": { "primaryColor": "#f4f5f7", "primaryBorderColor": "#c1c7d0", "primaryTextColor": "#172b4d", "lineColor": "#5e6c84", "fontFamily": "Segoe UI, sans-serif", "clusterBkg": "#ffffff", "clusterBorder": "#dfe1e6" }}}%%
-graph TD
-    subgraph view [UI View src/ui]
-        M --> T[ui_tabs.py & word_tabs.py - Code Editor and Drop Zones]
-        M --> P[ui_panels.py - Console and Task Manager]
-    end
-
-    subgraph controller [Controller src/core]
-        M --> Q[queue_manager.py - Thread Orchestration]
-        P --> PM[process_manager.py - OS Process Monitor]
-    end
-
-    subgraph model_puml [PlantUML Engines src/modules/puml2visio/core]
-        Q --> V[visio_converter.py - COM Automation]
-        Q --> A[ascii_converter.py - ASCII conversion]
-        Q --> PPT[powerpoint_converter.py - COM Automation]
-        T --> LP[live_preview.py - Browser Sync]
-    end
-
-    subgraph model_word [Word Engines src/modules/word_tools/core]
-        Q --> DOCX[docx_splitter.py - XML Slicing]
-        Q --> WEXT[word_extractor.py - OLE Extraction]
-        Q --> WCMP[word_comparator.py - Native Diff]
-        Q --> WCONV[word_converter.py - Detached COM]
-    end
-
-    subgraph output_group [Output]
-        OutV[Visio .vsdx]
-        OutP[PowerPoint .pptx]
-        OutA[ASCII .txt]
-        OutW[Split .docx Chapters]
-        OutC[PDF, HTML, XPS, RTF]
-    end
-
-    T -->|Export Requested| Q
-    Q -->|1. Generate Clean SVG| J
-    
-    J -->|2a. Visio Pipeline| V
-    V --> OutV
-
-    J -->|2b. PowerPoint EMF| PPT
-    PPT --> OutP
-    
-    Q -->|2c. Unicode Render| A
-    A --> OutA
-    
-    T -->|Word Doc Dropped| DOCX
-    DOCX -->|Multithreaded XML Pruning| OutW
-
-    T -->|Format Conversion| WCONV
-    WCONV -->|Background Export| OutC
-    
-    PM -.->|Identify and Kill Ghosts| V
-```
+* **PyQt5 GUI:** A multi-tabbed, highly responsive user interface with built-in dark/light contextual elements and custom global stylesheets.
+* **Centralized Network Session:** All modules share a robust HTTP connection pool with automatic User-Agent spoofing and aggressive retry strategies (Backoff factor for 403, 429, 502 errors) to survive strict corporate firewalls.
+* **Asynchronous Task Queue & Emergency Abort:** Long-running network or COM tasks are isolated in background `QThreads`, ensuring the GUI remains buttery smooth. Includes an emergency **🛑 Abort** button in the Queue Panel to forcefully halt active jobs.
+* **Native Visio COM:** Interacts directly with the Windows Component Object Model (COM) via `pywin32` to manipulate the Visio application natively.
 
 ---
 
 ## <a id="prerequisites"></a>⚙️ Prerequisites
 
-Because this application relies heavily on Microsoft's Component Object Model (COM) and native XML parsing, it requires a specific environment:
-
-1. **Windows OS** (Required for COM automation).
-2. **Microsoft Visio**, **Microsoft Word**, and **Microsoft PowerPoint** installed locally.
-3. **Java Runtime Environment (JRE)** (Java 11+ recommended to support the newest PlantUML features; Java 8 minimum. The tool will auto-detect the best version).
-4. **Python 3.8+**
+* **Python:** Version 3.8 or higher.
+* **OS:** Windows 10 / 11 (Required for COM automation).
+* **Microsoft Office:** Installed and activated (Visio, PowerPoint, Word) for document interaction.
+* **Java (Optional but Recommended):** Java JRE or JDK must be installed for local PlantUML generation.
 
 ---
 
-## <a id="installation"></a>🚀 Installation & Execution
+## <a id="installation"></a>🚀 Installation
 
-This application is built as a modern Python package using `pyproject.toml`.
-
-1. **Clone the repository:**
+1. **Install required dependencies:**
    ```bash
-   git clone [https://github.com/telekom/3gpp-meeting-tools.git](https://github.com/telekom/3gpp-meeting-tools.git)
-   cd "3gpp-meeting-tools/3GPP Tools"
+   pip install PyQt5 requests beautifulsoup4 pywin32 python-docx
    ```
+   *(Note: Ensure you have your corporate proxy configured in your terminal if you are behind a firewall: `set HTTP_PROXY=http://...`)*
 
-2. **Go to the `src` directory:**
+2. **Run the Application:**
    ```bash
-   cd src
+   python main_window.py
    ```
-
-3. **Run the application:**
-   ```bash
-   python -m main_puml2visio
-   ```
-   *Note: On first launch, the app will automatically attempt to download `plantuml.jar` into the `templates` directory. If you are behind a corporate firewall, a proxy configuration dialog will appear to assist.*
 
 ---
 
 ## <a id="usage"></a>📖 How to Use the GUI
 
-The application features three main workspaces navigated via tabs, with a fully resizable bottom terminal and queue viewer.
+### 📂 3GPP Specifications Database
+* **Initialize Database:** Navigate to the **Specifications** tab. Click **Full Sync** on your first run to map the 3GPP archive to your local database.
+* **Filter and Download:** Use the dynamic search bars (e.g., Type `23.501`) to instantly filter the local database. Select the version you need from the dropdown and click the download button to open the zip file.
+* **Filtered Sync:** Click **⚙️ Filtered Sync** to update only a subset of specifications (e.g., 5G, SA2) without scanning the entire 3GPP server.
+* **Targeted Refresh:** Select specific rows in the table, right-click, and select **🔄 Update selected** to instantly fetch the latest files and metadata for those specific documents.
 
-### 📝 Tab 1: Code Editor (Single Diagram Mode)
-* **Auto-Save & Undo:** The editor saves your work every 2 seconds to a hidden cache file. Click `↩️ Undo` to restore accidental deletions.
-* **Live Preview:** Click `👁️ Live Preview` to open a real-time browser rendering of your code. Syntax errors will highlight in red with precise line numbers.
-* **Exporting:** Click `📤 Export Diagram ▼` to select your format (.vsdx, .pptx, .svg, or .txt). The app will dynamically update the `🔗 Copy Path` button for instant clipboard access.
-* **Round-Trip Extract:** Drag and drop a generated `.vsdx` file into the text box to retrieve its original PlantUML source code.
+### 🖱️ Drag & Drop Interface
+You can drag and drop `.puml`, `.txt`, `.svg`, or `.docx` files directly into the Batch Convert or Word Splitter tabs. The UI will visually indicate accepted files and automatically queue them for processing.
 
-### 📂 Tab 2: Batch Convert
-* Drag `.txt` or `.puml` files onto the dashed area. They will queue up in the **Queue Viewer**. You can highlight queue items and click `Remove` before they process.
-
-### 📄 Tab 3: Word Tools (Extractor, Splitter, Converter, & Comparator)
-* **Extract Embedded Visio Diagrams:** Unzips the `.docx` archive and dumps clean `.vsdx` files (often trapped as OLE objects in 3GPP specs) next to your original document.
-* **Subtractive Slicing - Prefix:** Define the clause to target (e.g., `6.` targets 6.1, 6.2, etc.).
-* **Subtractive Slicing - Depth:** Define the hierarchy level to cut at (e.g., Depth `2` slices at 6.1, Depth `3` slices at 6.1.1).
-* **Subtractive Slicing - Execution:** The tool creates a `[filename]_split` subfolder and processes the chapters in parallel, purging orphaned images to keep file sizes small.
-* **Compare Documents:** Select an original and a revised `.docx` file (via local file, active COM session, or URL) to spawn Microsoft Word's native document comparator.
-* **Convert Document Format:** Seamlessly convert any local, active, or remote Word document into PDF, HTML, XPS, RTF, or pure Text. Runs silently in the background via a detached COM instance to keep your active work safe from freezing.
+### ⚙️ Background Processing
+Keep an eye on the **Queue panel** on the right side of the screen. You can queue dozens of files to be exported to PDF, HTML, XPS, RTF, or pure Text. Runs silently in the background via detached COM instances to keep your active work safe from freezing. If you need to stop a task immediately, click the **🛑 Abort** button.
 
 ### 🛠 System Toolbar (Console Header)
-* **🖥️ Task Manager:** Open the COM Process Manager to identify and kill headless instances of Visio or PowerPoint.
-* **📡 Proxy:** Update network configuration on the fly.
+* **🖥️ Task Manager:** Open the COM Process Manager to identify and surgically kill headless/ghost instances of Visio or PowerPoint.
+* **📡 Proxy:** Instantly test and inject HTTP/HTTPS proxies into the global session without restarting the app.
 * **🔄 Update JAR:** Ping GitHub for newer versions of PlantUML.
 
 ---
 
 ## <a id="troubleshooting"></a>🛠️ Known Quirks / Troubleshooting
 
+* **3GPP Database Sync Returns 0 Results:** If you type in the search bar and see no results, your local database is empty. Ensure your corporate proxy is configured correctly via the **Proxy** toolbar button, then run a **Full Sync**.
 * **COM Errors & File Locks:** If Visio or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory and lock your files. Click the **🖥️ Task Manager** button in the app console and click **Kill Ghosts** to instantly clear them out without losing your active work.
 * **Word Splitter Memory Throttling:** Slicing a heavy `.docx` file unzips a massive XML tree into your RAM. To prevent memory crashes and disk thrashing, the parallel processing is hard-capped at 3 maximum threads. You will see the chapters output in batches of 3 in the console.
 * **PowerPoint "Leave Open" Behavior:** Unlike Visio exports (which save silently to your disk), clicking `Export PPTX` intentionally leaves the generated PowerPoint presentation open and unsaved so you can immediately copy the slide.
