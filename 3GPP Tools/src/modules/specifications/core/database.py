@@ -134,3 +134,38 @@ class SpecsDatabase:
         """
         with self._get_connection() as conn:
             return conn.cursor().execute(query, (spec_number,)).fetchall()
+
+    def get_filtered_specs(self, series: str, tech: str, group: str, types: list) -> list:
+        """Returns a list of specification numbers matching the combined advanced filters."""
+        query = "SELECT number FROM specifications WHERE 1=1"
+        params = []
+
+        if series:
+            # Handles single ("23") or multiple ("23, 24") series inputs
+            series_list = [s.strip() for s in series.split(',') if s.strip()]
+            if series_list:
+                clauses = []
+                for s in series_list:
+                    clauses.append("number LIKE ?")
+                    params.append(f"{s}.%")
+                query += f" AND ({' OR '.join(clauses)})"
+
+        if tech:
+            query += " AND radio_technology LIKE ?"
+            params.append(f"%{tech}%")
+
+        if group:
+            query += " AND (primary_group LIKE ? OR secondary_groups LIKE ?)"
+            params.extend([f"%{group}%", f"%{group}%"])
+
+        if types:
+            clauses = []
+            for t in types:
+                clauses.append("type = ?")
+                params.append(t)
+            query += f" AND ({' OR '.join(clauses)})"
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            return [row[0] for row in cursor.fetchall()]
