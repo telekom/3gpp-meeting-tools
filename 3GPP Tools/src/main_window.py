@@ -117,8 +117,11 @@ class DragDropUI(QMainWindow):
             )
         )
 
-        self.specs_tab = SpecificationsTab()
         db_path = get_project_root().parent / "3gpp_specs.db"
+
+        # Pass the db_path into the tab so the table can read it!
+        self.specs_tab = SpecificationsTab(db_path)
+
         self.specs_tab.update_db_requested.connect(
             lambda force_meta: self.queue_manager.add_item(
                 Path("3GPP_Archive"),
@@ -380,6 +383,10 @@ class DragDropUI(QMainWindow):
     def on_conversion_success(self, out_path: str):
         if out_path == "OPENED_IN_PPT":
             self.log_message("👁️ PowerPoint is open with your new slide. You can copy it directly.")
+        elif out_path == "SPECS_DB_UPDATED":
+            self.log_message("🔄 Reloading specifications table...")
+            if hasattr(self, 'specs_tab'):
+                self.specs_tab.refresh_table()
         elif out_path:
             self.last_out_path = out_path
             self.code_tab.set_copy_path_enabled(True, out_path)
