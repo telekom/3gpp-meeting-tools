@@ -109,3 +109,25 @@ class SpecsDatabase:
             cursor = conn.cursor()
             cursor.execute(query, params)
             return cursor.fetchall()
+
+    def get_all_specifications(self) -> list:
+        """Returns a list of all unique specifications: (number, title, type)."""
+        query = """
+            SELECT DISTINCT sp.number, sp.title, sp.type
+            FROM specifications sp
+            ORDER BY sp.number ASC
+        """
+        with self._get_connection() as conn:
+            return conn.cursor().execute(query).fetchall()
+
+    def get_versions_for_spec(self, spec_number: str) -> list:
+        """Returns all file versions and URLs for a specific spec number."""
+        query = """
+            SELECT f.version, f.url, f.filename
+            FROM files f
+            JOIN specifications sp ON f.spec_id = sp.id
+            WHERE sp.number = ?
+            ORDER BY f.version DESC
+        """
+        with self._get_connection() as conn:
+            return conn.cursor().execute(query, (spec_number,)).fetchall()
