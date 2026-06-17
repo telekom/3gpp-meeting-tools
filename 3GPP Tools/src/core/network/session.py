@@ -71,7 +71,8 @@ class NetworkSession:
             status_forcelist=[403, 429, 500, 502, 503, 504],
             allowed_methods=["GET"]
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=10, pool_maxsize=10)
+        # ---> UPGRADE: Allow up to 20 concurrent Keep-Alive connections
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=20, pool_maxsize=20)
         session.mount("https://", adapter)
         session.mount("http://", adapter)
 

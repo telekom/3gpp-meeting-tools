@@ -98,11 +98,14 @@ class SpecsDatabase:
         """
         params = []
         if spec_number:
-            query += " AND sp.number LIKE ?"
-            params.append(f"%{spec_number}%")
+            # Matches Number, Type, combined "TS 23.501", OR Title keywords!
+            query += " AND (sp.number LIKE ? OR sp.type LIKE ? OR (sp.type || ' ' || sp.number) LIKE ? OR sp.title LIKE ?)"
+            search_term = f"%{spec_number}%"
+            params.extend([search_term, search_term, search_term, search_term])
+
         if release_version:
             query += " AND f.version LIKE ?"
-            params.append(f"{release_version}%")
+            params.append(f"%{release_version}%")
 
         query += " ORDER BY sp.number ASC, f.version DESC"
         with self._get_connection() as conn:
