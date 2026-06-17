@@ -98,3 +98,11 @@ def get_best_java(log_callback=None):
 
     core.utils.utils._BEST_JAVA_CACHE = (best_exe, best_ver)
     return core.utils.utils._BEST_JAVA_CACHE
+
+
+def get_proxies():
+    """Safely fetches the proxy configuration from the application's environment."""
+    return {
+        "http": os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"),
+        "https": os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"),
+    }

@@ -1,12 +1,12 @@
-# src/modules/word_tools/core/word_converter.py
-
-import os
-import tempfile
 import logging
+import tempfile
 from pathlib import Path
-import win32com.client
+
 import pythoncom
+import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
+
+from core.utils.utils import get_proxies
 
 
 class WordConverterThread(QThread):
@@ -29,12 +29,6 @@ class WordConverterThread(QThread):
         self.doc_source = doc_source
         self.target_format = target_format.lower().replace(".", "")
 
-    def _get_proxies(self):
-        return {
-            "http": os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"),
-            "https": os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"),
-        }
-
     def _resolve_path(self, input_str: str) -> str:
         if not input_str:
             raise ValueError("Input document is empty. Please select a valid file, open document, or URL.")
@@ -47,7 +41,7 @@ class WordConverterThread(QThread):
 
             self.ui_log_msg.emit("⏳ Downloading document via proxy...", logging.INFO)
             import requests
-            r = requests.get(input_str, allow_redirects=True, proxies=self._get_proxies(), timeout=30)
+            r = requests.get(input_str, allow_redirects=True, proxies=get_proxies(), timeout=30)
             r.raise_for_status()
 
             tmp_path = Path(tempfile.gettempdir()) / "puml2visio_conv_temp.docx"

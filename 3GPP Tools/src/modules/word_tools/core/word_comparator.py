@@ -1,10 +1,11 @@
-import os
 import tempfile
 import logging
 from pathlib import Path
 import win32com.client
 import pythoncom
 from PyQt5.QtCore import QThread, pyqtSignal
+
+from core.utils.utils import get_proxies
 
 
 class WordComparatorThread(QThread):
@@ -16,13 +17,6 @@ class WordComparatorThread(QThread):
         self.doc_a = doc_a
         self.doc_b = doc_b
         self.keep_open = keep_open
-
-    def _get_proxies(self):
-        """Safely fetches the proxy configuration from the application's environment."""
-        return {
-            "http": os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"),
-            "https": os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"),
-        }
 
     def _resolve_path(self, input_str: str, doc_label: str) -> str:
         """Determines if the input is a local path or a URL. Downloads URLs via Proxy."""
@@ -47,7 +41,7 @@ class WordComparatorThread(QThread):
             self.ui_log_msg.emit(f"⏳ Downloading Document {doc_label} via proxy...", logging.INFO)
             import requests
 
-            proxies = self._get_proxies()
+            proxies = get_proxies()
             r = requests.get(input_str, allow_redirects=True, proxies=proxies, timeout=30)
             r.raise_for_status()
 
