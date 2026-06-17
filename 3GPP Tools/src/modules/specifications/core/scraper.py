@@ -93,7 +93,14 @@ class SpecsCrawlerThread(QThread):
                 return ''
 
             metadata['title'] = get_field('Title')
-            metadata['type'] = get_field('Type')
+
+            # --- Extract Type as Acronym ---
+            raw_type = get_field('Type')
+            if raw_type:
+                # Regex looks for content inside parentheses: e.g., "Technical Specification (TS)" -> "TS"
+                acronym_match = re.search(r'\(([^)]+)\)', raw_type)
+                metadata['type'] = acronym_match.group(1) if acronym_match else raw_type
+
             metadata['initial_release'] = get_field('Initial planned Release')
             metadata['radio_technology'] = get_field('Radio technology')
             metadata['primary_group'] = get_field('Primary responsible group')
