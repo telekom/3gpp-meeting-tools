@@ -169,3 +169,16 @@ class SpecsDatabase:
             cursor = conn.cursor()
             cursor.execute(query, params)
             return [row[0] for row in cursor.fetchall()]
+
+    def get_spec_details(self, spec_number: str) -> dict:
+        """Fetches all columns for a specific specification number robustly."""
+        query = "SELECT * FROM specifications WHERE number = ?"
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (spec_number,))
+            row = cursor.fetchone()
+            if not row:
+                return {}
+            # Zip the column names dynamically with the database row
+            columns = [description[0] for description in cursor.description]
+            return dict(zip(columns, row))
