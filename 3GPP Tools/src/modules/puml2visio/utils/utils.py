@@ -236,16 +236,8 @@ class InitializationThread(QThread):
                 url_to_download = PLANTUML_URL_LATEST if required_type == "modern" else PLANTUML_URL_JAVA_8
                 self._emit_log(f"⚠️ Downloading PlantUML. Reason: {download_reason}...", logging.WARNING)
                 try:
-                    # ---> NEW: Download the file chunk-by-chunk using the shared NetworkSession
-                    session = NetworkSession.get_instance()
-                    response = session.get(url_to_download, stream=True, timeout=30)
-                    response.raise_for_status()
-
-                    # Save the stream to disk safely
-                    with open(self.jar_path, 'wb') as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            if chunk:
-                                f.write(chunk)
+                    # ---> REUSING THE SHARED DOWNLOAD UTILITY <---
+                    NetworkSession.download_file(url_to_download, self.jar_path)
 
                     version_file.write_text(required_type, encoding="utf-8")
                     self._emit_log("✅ PlantUML downloaded and installed successfully.", logging.INFO)

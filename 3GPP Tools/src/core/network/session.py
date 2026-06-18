@@ -1,9 +1,11 @@
 # --- File: core/network/session.py ---
 import logging
+from pathlib import Path
+
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from typing import Optional, Dict
+from typing import Optional, Dict, Union
 
 from core.utils.utils import get_proxies
 
@@ -24,6 +26,19 @@ class NetworkSession:
         response: requests.Response = session.get(url, timeout=timeout)
         response.raise_for_status()
         return response.text
+
+    @classmethod
+    def download_file(cls, url: str, dest_path: Union[str, Path], timeout: int = 30) -> None:
+        """Downloads a large file chunk-by-chunk using the shared requests session."""
+        session = cls.get_instance()
+        response: requests.Response = session.get(url, stream=True, timeout=timeout)
+        response.raise_for_status()
+
+        # Save the stream to disk safely without maxing out RAM
+        with open(dest_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
 
     @classmethod
     def update_proxies(cls, proxies: Dict[str, str]) -> None:
