@@ -406,18 +406,18 @@ class SpecificationsTab(QWidget):
                 info_btn.setToolTip("View full specification details")
                 info_btn.setCursor(Qt.PointingHandCursor)
                 info_btn.setStyleSheet("""
-                                    QPushButton {
-                                        border: none;
-                                        background: transparent;
-                                        color: #0078D7;
-                                        font-size: 18px;
-                                        padding: 0px;
-                                        margin: 0px;
-                                    }
-                                    QPushButton:hover {
-                                        color: #004A85;
-                                    }
-                                """)
+                    QPushButton {
+                        border: none;
+                        background: transparent;
+                        color: #0078D7;
+                        font-size: 18px;
+                        padding: 0px;
+                        margin: 0px;
+                    }
+                    QPushButton:hover {
+                        color: #004A85;
+                    }
+                """)
                 info_btn.clicked.connect(lambda _, s=spec_num: self._show_spec_info(s))
 
                 display_num = f"{data['type']} {spec_num}".strip()
@@ -433,7 +433,15 @@ class SpecificationsTab(QWidget):
                 version_combo = QComboBox()
                 spec_target_dir = base_dl_dir / spec_num
 
-                for ver, url, fname in data['versions']:
+                # ---> THE FIX: Semantic Version Sorting
+                def parse_ver(v_str):
+                    # Safely splits "20.0.1" into [20, 0, 1] so mathematical sorting works!
+                    return [int(x) if x.isdigit() else x for x in str(v_str).split('.')]
+
+                # Sort the versions in descending mathematical order before populating the dropdown
+                sorted_versions = sorted(data['versions'], key=lambda x: parse_ver(x[0]), reverse=True)
+
+                for ver, url, fname in sorted_versions:
                     zip_path = spec_target_dir / fname
                     extracted_dir = zip_path.with_suffix('')
                     is_dl = zip_path.exists() or extracted_dir.exists()
@@ -446,7 +454,6 @@ class SpecificationsTab(QWidget):
                 download_btn = QPushButton()
                 download_btn.setCursor(Qt.PointingHandCursor)
 
-                # ---> UPGRADED: Safely absorb the 'index' integer emitted by PyQt5 to prevent crashes
                 def _update_btn_state(index_ignore=0, c=version_combo, b=download_btn):
                     c_data = c.currentData()
                     if c_data and c_data.get('is_downloaded'):
