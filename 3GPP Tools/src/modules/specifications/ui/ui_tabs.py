@@ -4,7 +4,8 @@ import os
 import zipfile
 from pathlib import Path
 
-from PyQt5.QtCore import pyqtSignal, Qt, QTimer, QThread
+from PyQt5.QtCore import pyqtSignal, Qt, QTimer, QThread, QEvent, QRect
+from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QCheckBox, QTableWidget, QTableWidgetItem,
                              QHeaderView, QLineEdit, QComboBox, QMenu, QAbstractItemView,
@@ -14,6 +15,50 @@ from core.network.session import NetworkSession
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.utils.utils import open_extracted_documents
 
+
+class HoverMenuButton(QPushButton):
+    """A bulletproof custom button that polls absolute mouse coordinates to handle web-like hover menus."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setInterval(50)  # Check the mouse location 20 times a second
+        self._hover_timer.timeout.connect(self._check_mouse_position)
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        if self.menu() and not self.menu().isVisible():
+            self.showMenu()
+            self._hover_timer.start()
+
+    def _check_mouse_position(self):
+        if not self.menu() or not self.menu().isVisible():
+            self._hover_timer.stop()
+            return
+
+        # 1. Get absolute global mouse coordinates on your physical monitor
+        global_pos = QCursor.pos()
+
+        # 2. Map the Button's boundaries to absolute global coordinates
+        btn_rect = QRect(
+            self.mapToGlobal(self.rect().topLeft()),
+            self.mapToGlobal(self.rect().bottomRight())
+        )
+
+        # 3. Map the Menu's boundaries to absolute global coordinates
+        menu_rect = QRect(
+            self.menu().mapToGlobal(self.menu().rect().topLeft()),
+            self.menu().mapToGlobal(self.menu().rect().bottomRight())
+        )
+
+        # Add a 5-pixel expansion buffer around the menu.
+        # This prevents it from instantly closing if your mouse wiggles across the tiny 1px gap!
+        buffered_menu_rect = menu_rect.adjusted(-5, -5, 5, 5)
+
+        # 4. If the mouse is completely outside both boundaries -> Close the menu!
+        if not btn_rect.contains(global_pos) and not buffered_menu_rect.contains(global_pos):
+            self.menu().hide()
+            self._hover_timer.stop()
 
 class SpecInfoDialog(QDialog):
     """Dynamic Popup to display all Database information about a Specification."""
@@ -601,7 +646,7 @@ class SpecificationsTab(QWidget):
                 spec_layout.setContentsMargins(5, 0, 5, 0)
 
                 # ---> UPGRADED: A single "Options" button that spawns a menu
-                action_btn = QPushButton("⋮")
+                action_btn = HoverMenuButton("⋮")
                 action_btn.setFixedSize(24, 24)
                 action_btn.setToolTip("Specification Actions")
                 action_btn.setCursor(Qt.PointingHandCursor)
