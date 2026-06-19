@@ -5,7 +5,8 @@ import webbrowser
 import os
 from pathlib import Path
 
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication, QDialog, QTabWidget, QPushButton, QShortcut
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication, QDialog, QTabWidget, \
+    QPushButton, QShortcut
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
@@ -404,12 +405,30 @@ class DragDropUI(QMainWindow):
         self.queue_manager.add_item(puml_path, target_format)
 
     def on_conversion_success(self, out_path: str):
-        if out_path == "OPENED_IN_PPT":
+        # ---> UPGRADED: Catcher for Two-Pass DB Synchronization via QueueManager
+        if out_path == "SPECS_DB_PASS_ONE":
+            self.log_message("🔄 Basic files loaded! You can now search while metadata downloads.", logging.INFO)
+            if hasattr(self, 'specs_tab'):
+                self.specs_tab.refresh_table()
+                if hasattr(self.specs_tab, 'set_bg_sync_active'):
+                    self.specs_tab.set_bg_sync_active(True)
+
+        elif out_path == "SPECS_DB_PASS_TWO":
+            self.log_message("✅ Deep metadata fully updated!", logging.INFO)
+            if hasattr(self, 'specs_tab'):
+                if hasattr(self.specs_tab, 'set_bg_sync_active'):
+                    self.specs_tab.set_bg_sync_active(False)
+                else:
+                    self.specs_tab.refresh_table()
+
+        elif out_path == "OPENED_IN_PPT":
             self.log_message("👁️ PowerPoint is open with your new slide. You can copy it directly.")
-        elif out_path == "SPECS_DB_UPDATED":
+
+        elif out_path == "SPECS_DB_UPDATED":  # Kept just in case for legacy tasks
             self.log_message("🔄 Reloading specifications table...")
             if hasattr(self, 'specs_tab'):
                 self.specs_tab.refresh_table()
+
         elif out_path:
             self.last_out_path = out_path
             self.code_tab.set_copy_path_enabled(True, out_path)

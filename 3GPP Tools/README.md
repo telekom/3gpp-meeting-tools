@@ -19,11 +19,13 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ## <a id="features"></a>✨ Features
 
-### 📡 3GPP Database Synchronizer
-* **Massive Network Parallelism:** Utilizes a Producer-Consumer architecture with 15 concurrent HTTP workers and a single safe SQLite writer thread to rapidly sync the 3GPP FTP archive without disk-locking bottlenecks.
-* **Smart Metadata Scraper:** A dual-strategy HTML parser seamlessly extracts metadata (Title, Release, Working Group, Radio Tech) from both the legacy 3GPP HTML tables and the modern ASP.NET WebForms portal.
-* **Advanced Filtered Sync:** Don't want to sync 4,000+ files? Use the Advanced Sync dialog to target specific cross-sections (e.g., *only `TS` specifications from the `23` series where `SA2` is responsible*).
-* **Targeted Row Updates:** Shift-click multiple specifications in the UI and right-click to fast-track their synchronization instantly.
+### 📡 3GPP Specifications Database
+* **Asynchronous Two-Pass Syncing:** * **Pass 1 (Lightning Fast):** Scrapes the 3GPP FTP archive in parallel to instantly populate your database with all available specification numbers and versions, unblocking the UI in seconds.
+  * **Pass 2 (Deep Metadata):** Silently connects to the 3GPP ASP.NET DynaReport pages in the background to fetch rich metadata (Working Groups, Radio Technologies, Initial Release dates) without freezing your workflow.
+* **1-Click Document Conversion (Word, PDF, HTML):** Replaces clunky "Download" buttons with instant action buttons (**📝 Word**, **📕 PDF**, **🌐 HTML**). Automatically downloads the `.zip`, flattens the internal folder structure, safely extracts the `.docx` files, and leverages native COM automation to convert the specification to your desired format.
+* **Smart Visual Caching:** The UI actively monitors your hard drive. If a specification has already been downloaded or converted to a PDF/HTML file, the action buttons instantly illuminate with a **Green ✅** and bold styling so you know the file is available offline.
+* **Data-Driven Precision Filtering:** All search filters (Series, Working Group, Radio Tech, Type) are strict, read-only dropdowns dynamically populated directly from your local database to eliminate typos and manual guessing.
+* **Self-Healing Architecture:** Runs a silent SQLite cleaner on startup to automatically purge orphaned Working Groups or Series. Built on SQLite WAL mode, allowing the background scraper to save metadata while you simultaneously search the frontend GUI. Type-safe semantic sorting prevents crashes on malformed 3GPP versions.
 
 ### 🎨 Diagramming & Document Tools
 * **Smart Code Editor:** A professional IDE experience featuring dynamic line numbering, active-line highlighting, native Undo/Redo history, and a background Auto-Save Cache that restores your session if the app is closed or crashes.
@@ -70,10 +72,12 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ## <a id="usage"></a>📖 How to Use the GUI
 
 ### 📂 3GPP Specifications Database
-* **Initialize Database:** Navigate to the **Specifications** tab. Click **Full Sync** on your first run to map the 3GPP archive to your local database.
-* **Filter and Download:** Use the dynamic search bars (e.g., Type `23.501`) to instantly filter the local database. Select the version you need from the dropdown and click the download button to open the zip file.
-* **Filtered Sync:** Click **⚙️ Filtered Sync** to update only a subset of specifications (e.g., 5G, SA2) without scanning the entire 3GPP server.
-* **Targeted Refresh:** Select specific rows in the table, right-click, and select **🔄 Update selected** to instantly fetch the latest files and metadata for those specific documents.
+1. **Set your Download Directory:** Use the `📂 Browse` button to set where specifications should be saved. Click `↗️ Open` to view this folder in Windows Explorer at any time.
+2. **Run a Full Sync:** Click `🔄 Full Sync` to map the 3GPP FTP server. The progress bar will disappear quickly, and an orange `⏳ Fetching deep metadata...` warning will appear while it safely downloads Working Group data in the background.
+3. **Filter and Search:** Type a specification number (e.g., `23.501`) into the search bar, or use the `⚙️ Table Filters` to isolate specifications by specific Working Groups (e.g., `SA2`).
+4. **Read Documents:** Select a version from the dropdown menu. Click **📝 Word** to open the raw document, or click **📕 PDF** / **🌐 HTML** to automatically convert and open it.
+5. **Advanced Sync:** Click `⚙️ Filtered Sync` to forcefully re-download metadata only for a specific subset of documents (e.g., only update metadata for `Series 23`).
+6. **Targeted Refresh:** Select specific rows in the table, right-click, and select `🔄 Update selected` to instantly fetch the latest files and metadata for those specific documents.
 
 ### 🖱️ Drag & Drop Interface
 You can drag and drop `.puml`, `.txt`, `.svg`, or `.docx` files directly into the Batch Convert or Word Splitter tabs. The UI will visually indicate accepted files and automatically queue them for processing.

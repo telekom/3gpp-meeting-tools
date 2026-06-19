@@ -15,6 +15,11 @@ class SpecsDatabase:
     def _init_db(self):
         with self._get_connection() as conn:
             cursor = conn.cursor()
+
+            # ---> UPGRADED: Enable concurrent Read/Write for background syncing!
+            # This prevents "database is locked" crashes during the Two-Pass sync.
+            cursor.execute('PRAGMA journal_mode=WAL;')
+
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS series (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,7 +86,6 @@ class SpecsDatabase:
                 )
             ''')
 
-    # ---> NEW: Garbage Collection Logic
     def _cleanup_orphans(self):
         """Removes any working groups, radio technologies, or series that are no longer linked to any specification."""
         try:
@@ -178,7 +182,7 @@ class SpecsDatabase:
             if not spec_row: return
             spec_id = spec_row[0]
 
-            # ---> UPGRADED: Wipe the old mappings clean before saving the new ones!
+            # Wipe the old mappings clean before saving the new ones!
             cursor.execute('DELETE FROM spec_radio_tech_map WHERE spec_id = ?', (spec_id,))
             cursor.execute('DELETE FROM spec_secondary_group_map WHERE spec_id = ?', (spec_id,))
 
