@@ -650,10 +650,13 @@ class SpecificationsTab(QWidget):
 
                 self.table.setItem(row_idx, 1, QTableWidgetItem(data['title'] if data['title'] else "Unknown Title"))
 
+                # --- 3. COLUMN 2: Version Dropdown & Download Button ---
                 version_combo = QComboBox()
 
+                # ---> UPGRADED: Type-safe semantic version parser
                 def parse_ver(v_str):
-                    return [int(x) if x.isdigit() else x for x in str(v_str).split('.')]
+                    # Wraps numbers in (0, val) and strings in (1, val) so they never crash!
+                    return [(0, int(x)) if x.isdigit() else (1, str(x)) for x in str(v_str).split('.')]
 
                 sorted_versions = sorted(data['versions'], key=lambda x: parse_ver(x[0]), reverse=True)
 
