@@ -118,7 +118,6 @@ class AdvancedSyncDialog(QDialog):
 
         form = QFormLayout()
 
-        # ---> UPGRADED: Strict Drop-Down Menus with explicit "Any" default
         self.series_combo = QComboBox()
         self.series_combo.addItem("Any")
         self.series_combo.addItems(options['series'])
@@ -164,7 +163,6 @@ class AdvancedSyncDialog(QDialog):
         self.update_count()
 
     def update_count(self):
-        # Translate "Any" back to empty strings for the database query
         series = "" if self.series_combo.currentText() == "Any" else self.series_combo.currentText()
         tech = "" if self.tech_combo.currentText() == "Any" else self.tech_combo.currentText()
         group = "" if self.group_combo.currentText() == "Any" else self.group_combo.currentText()
@@ -190,7 +188,6 @@ class TableFilterDialog(QDialog):
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
-        # ---> UPGRADED: Strict Drop-Down Menus reading the current filter state
         self.series_combo = QComboBox()
         self.series_combo.addItem("Any")
         self.series_combo.addItems(options['series'])
@@ -256,7 +253,6 @@ class SpecificationsTab(QWidget):
         self.config_file = db_path.parent / "specs_config.json"
         self.default_dl_dir = self._load_settings()
 
-        # Clean default filter state
         self.table_filters = {'series': '', 'tech': '', 'group': '', 'spec_type': 'Any'}
 
         self.search_timer = QTimer()
@@ -308,7 +304,6 @@ class SpecificationsTab(QWidget):
         dir_layout.addWidget(open_dir_btn)
         main_layout.addLayout(dir_layout)
 
-        # Visual Divider
         line1 = QFrame()
         line1.setFrameShape(QFrame.HLine)
         line1.setFrameShadow(QFrame.Sunken)
@@ -328,6 +323,12 @@ class SpecificationsTab(QWidget):
 
         self.force_meta_checkbox = QCheckBox("Force Metadata")
         sync_layout.addWidget(self.force_meta_checkbox)
+
+        self.bg_sync_label = QLabel("⏳ Fetching deep metadata in background...")
+        self.bg_sync_label.setStyleSheet("color: #E65100; font-weight: bold; font-style: italic;")
+        self.bg_sync_label.setVisible(False)
+        sync_layout.addWidget(self.bg_sync_label)
+
         sync_layout.addStretch()
 
         main_layout.addLayout(sync_layout)
@@ -390,6 +391,13 @@ class SpecificationsTab(QWidget):
 
         main_layout.addWidget(self.table)
         self.setLayout(main_layout)
+
+    # ---> UPGRADED: Toggle Method for QueueManager
+    def set_bg_sync_active(self, is_active: bool):
+        """Toggles the background sync warning and refreshes data when finished."""
+        self.bg_sync_label.setVisible(is_active)
+        if not is_active:
+            self.refresh_table()
 
     def _browse_dir(self):
         new_dir = QFileDialog.getExistingDirectory(self, "Select Download Directory", self.dl_dir_input.text())
