@@ -206,12 +206,14 @@ class SpecsDatabase:
                 query += f" AND ({' OR '.join(clauses)})"
 
         if tech:
-            query += " AND (r.name LIKE ? OR sp.radio_technology LIKE ?)"
-            params.extend([f"%{tech}%", f"%{tech}%"])
+            # ---> UPGRADED: Exact matching for normalized tables
+            query += " AND (r.name = ? OR sp.radio_technology LIKE ?)"
+            params.extend([tech, f"%{tech}%"])
 
         if group:
-            query += " AND (p_grp.name LIKE ? OR s_grp.name LIKE ?)"
-            params.extend([f"%{group}%", f"%{group}%"])
+            # ---> UPGRADED: Exact matching only!
+            query += " AND (p_grp.name = ? OR s_grp.name = ?)"
+            params.extend([group, group])
 
         if spec_type and spec_type != "Any":
             query += " AND sp.type = ?"
@@ -247,12 +249,14 @@ class SpecsDatabase:
                 query += f" AND ({' OR '.join(clauses)})"
 
         if tech:
-            query += " AND (r.name LIKE ? OR sp.radio_technology LIKE ?)"
-            params.extend([f"%{tech}%", f"%{tech}%"])
+            # ---> UPGRADED: Exact matching for normalized tables
+            query += " AND (r.name = ? OR sp.radio_technology LIKE ?)"
+            params.extend([tech, f"%{tech}%"])
 
         if group:
-            query += " AND (p_grp.name LIKE ? OR s_grp.name LIKE ?)"
-            params.extend([f"%{group}%", f"%{group}%"])
+            # ---> UPGRADED: Exact matching only!
+            query += " AND (p_grp.name = ? OR s_grp.name = ?)"
+            params.extend([group, group])
 
         if spec_type and spec_type != "Any":
             query += " AND sp.type = ?"

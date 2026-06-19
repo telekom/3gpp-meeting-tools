@@ -120,9 +120,12 @@ class SpecsCrawlerThread(QThread):
             metadata['secondary_groups_raw'] = raw_sec_groups
 
             if raw_sec_groups:
-                # Matches clean group acronyms like "SA2", "CT1", ignoring commas/spaces
-                matches = re.findall(r'([a-zA-Z0-9]+)', raw_sec_groups)
-                metadata['secondary_groups_list'] = list(dict.fromkeys([m.upper() for m in matches]))
+                # ---> UPGRADED: Smart regex that binds letters and trailing numbers together even with spaces
+                matches = re.findall(r'([a-zA-Z]+[\s]*\d*)', raw_sec_groups)
+
+                # Strip out extra whitespace inside the acronym (e.g., "SA 2" becomes "SA2") for perfectly clean DB storage
+                clean_matches = [m.replace(' ', '').upper() for m in matches if m.strip()]
+                metadata['secondary_groups_list'] = list(dict.fromkeys(clean_matches))
 
             # Radio Technology Parsing
             raw_tech = get_by_id('lblradiotech') or get_field('Radio technology')
