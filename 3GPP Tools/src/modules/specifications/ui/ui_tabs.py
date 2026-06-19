@@ -417,8 +417,15 @@ class SpecificationsTab(QWidget):
             except Exception as e:
                 QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
 
-    # ---> UPGRADED: Now accepts the folder_btn to dynamically reveal it
-    def _handle_download_action(self, combo: QComboBox, btn: QPushButton, folder_btn: QPushButton):
+    # ---> NEW: Method to open the 3GPP DynaReport
+    def _open_web_report(self, spec_num: str):
+        """Transforms 23.501 into 23501 and opens the 3GPP ASP.NET report."""
+        clean_number = spec_num.replace('.', '')
+        url = f"https://www.3gpp.org/DynaReport/{clean_number}.htm"
+        webbrowser.open(url)
+
+    # ---> REVERTED: Removed folder_btn argument since it's inside a menu now
+    def _handle_download_action(self, combo: QComboBox, btn: QPushButton):
         c_data = combo.currentData()
         if not c_data: return
 
@@ -454,9 +461,6 @@ class SpecificationsTab(QWidget):
 
         # Action: DOWNLOAD
         spec_dl_dir.mkdir(parents=True, exist_ok=True)
-        # ---> INSTANT UX: Reveal the folder button instantly because we just created the directory!
-        folder_btn.setVisible(True)
-
         zip_path = spec_dl_dir / c_data['fname']
 
         btn.setText("⏳ Downloading...")
@@ -589,41 +593,63 @@ class SpecificationsTab(QWidget):
             for row_idx, (spec_num, data) in enumerate(rendered_specs):
                 self.table.insertRow(row_idx)
 
-                # Resolve the directory early so we can check if it exists
                 spec_target_dir = base_dl_dir / spec_num
 
-                # --- 1. COLUMN 0: Info Button + Folder Button + Spec Number ---
+                # --- 1. COLUMN 0: Action Menu Button + Spec Number ---
                 spec_widget = QWidget()
                 spec_layout = QHBoxLayout(spec_widget)
                 spec_layout.setContentsMargins(5, 0, 5, 0)
 
-                info_btn = QPushButton("ⓘ")
-                info_btn.setFixedSize(24, 24)
-                info_btn.setToolTip("View full specification details")
-                info_btn.setCursor(Qt.PointingHandCursor)
-                info_btn.setStyleSheet("""
-                                QPushButton { border: none; background: transparent; color: #0078D7; font-size: 18px; padding: 0px; margin: 0px; }
-                                QPushButton:hover { color: #004A85; }
+                # ---> UPGRADED: A single "Options" button that spawns a menu
+                action_btn = QPushButton("⋮")
+                action_btn.setFixedSize(24, 24)
+                action_btn.setToolTip("Specification Actions")
+                action_btn.setCursor(Qt.PointingHandCursor)
+                action_btn.setStyleSheet("""
+                                QPushButton { 
+                                    border: none; background: transparent; color: #555; 
+                                    font-size: 20px; font-weight: bold; padding-bottom: 4px;
+                                }
+                                QPushButton:hover { color: #0078D7; }
+                                QPushButton::menu-indicator { image: none; width: 0px; } /* Hide the default dropdown arrow */
                             """)
-                info_btn.clicked.connect(lambda _, s=spec_num: self._show_spec_info(s))
 
-                # ---> NEW: Specification-Level Folder Button
-                spec_folder_btn = QPushButton("📂")
-                spec_folder_btn.setFixedSize(24, 24)
-                spec_folder_btn.setToolTip("Open specification folder")
-                spec_folder_btn.setCursor(Qt.PointingHandCursor)
-                spec_folder_btn.setStyleSheet("""
-                                QPushButton { border: none; background: transparent; font-size: 16px; padding: 0px; margin: 0px; }
-                                QPushButton:hover { font-size: 18px; }
-                            """)
-                spec_folder_btn.setVisible(spec_target_dir.exists())  # Only show if downloaded!
-                spec_folder_btn.clicked.connect(lambda _, s=spec_num: self._open_spec_folder(s))
+                # Build the Action Menu
+                menu = QMenu(self)
+                menu.setStyleSheet("""
+                                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
+                                    QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
+                                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+                                    QMenu::item:disabled { color: #AAAAAA; } 
+                                """)
+
+                info_action = menu.addAction("ℹ️  View Details")
+                info_action.triggered.connect(lambda _, s=spec_num: self._show_spec_info(s))
+
+                web_action = menu.addAction("🌐  Open 3GPP Web Report")
+                web_action.triggered.connect(lambda _, s=spec_num: self._open_web_report(s))
+
+                menu.addSeparator()
+
+                folder_action = menu.addAction("📂  Open Local Folder")
+                folder_action.triggered.connect(lambda _, s=spec_num: self._open_spec_folder(s))
+
+                def _update_menu_state(act=folder_action, path=spec_target_dir):
+                    if path.exists():
+                        act.setText("📂  Open Local Folder")
+                        act.setEnabled(True)
+                    else:
+                        act.setText("📁  Folder Not Created")
+                        act.setEnabled(False)
+
+                menu.aboutToShow.connect(_update_menu_state)
+
+                action_btn.setMenu(menu)
 
                 display_num = f"{data['type']} {spec_num}".strip()
                 spec_label = QLabel(display_num)
 
-                spec_layout.addWidget(info_btn)
-                spec_layout.addWidget(spec_folder_btn)
+                spec_layout.addWidget(action_btn)
                 spec_layout.addWidget(spec_label)
                 spec_layout.addStretch()
                 self.table.setCellWidget(row_idx, 0, spec_widget)
@@ -664,10 +690,8 @@ class SpecificationsTab(QWidget):
                 version_combo.currentIndexChanged.connect(_update_btn_state)
                 _update_btn_state()
 
-                # ---> Note: We pass 'spec_folder_btn' into the action so it can be revealed when downloaded!
                 download_btn.clicked.connect(
-                    lambda _, c=version_combo, b=download_btn, fb=spec_folder_btn: self._handle_download_action(c, b,
-                                                                                                                fb))
+                    lambda _, c=version_combo, b=download_btn: self._handle_download_action(c, b))
 
                 cell_widget = QWidget()
                 layout = QHBoxLayout(cell_widget)
