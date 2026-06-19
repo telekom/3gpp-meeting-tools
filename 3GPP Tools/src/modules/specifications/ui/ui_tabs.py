@@ -17,18 +17,20 @@ from modules.specifications.utils.utils import open_extracted_documents
 
 
 class HoverMenuButton(QPushButton):
-    """A bulletproof custom button that polls absolute mouse coordinates to handle web-like hover menus."""
+    """A bulletproof custom button that safely opens non-blocking hover menus."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._hover_timer = QTimer(self)
-        self._hover_timer.setInterval(50)  # Check the mouse location 20 times a second
+        self._hover_timer.setInterval(50)
         self._hover_timer.timeout.connect(self._check_mouse_position)
 
     def enterEvent(self, event):
         super().enterEvent(event)
         if self.menu() and not self.menu().isVisible():
-            self.showMenu()
+            # ---> FIX 1: popup() is asynchronous. showMenu() was blocking the timer!
+            spawn_pos = self.mapToGlobal(self.rect().bottomLeft())
+            self.menu().popup(spawn_pos)
             self._hover_timer.start()
 
     def _check_mouse_position(self):
@@ -36,26 +38,18 @@ class HoverMenuButton(QPushButton):
             self._hover_timer.stop()
             return
 
-        # 1. Get absolute global mouse coordinates on your physical monitor
         global_pos = QCursor.pos()
 
-        # 2. Map the Button's boundaries to absolute global coordinates
-        btn_rect = QRect(
-            self.mapToGlobal(self.rect().topLeft()),
-            self.mapToGlobal(self.rect().bottomRight())
-        )
+        # Button's exact coordinates on the monitor
+        btn_rect = QRect(self.mapToGlobal(self.rect().topLeft()), self.rect().size())
 
-        # 3. Map the Menu's boundaries to absolute global coordinates
-        menu_rect = QRect(
-            self.menu().mapToGlobal(self.menu().rect().topLeft()),
-            self.menu().mapToGlobal(self.menu().rect().bottomRight())
-        )
+        # ---> FIX 2: QMenu is a top-level window, so geometry() is ALREADY in monitor coordinates!
+        menu_rect = self.menu().geometry()
 
-        # Add a 5-pixel expansion buffer around the menu.
-        # This prevents it from instantly closing if your mouse wiggles across the tiny 1px gap!
-        buffered_menu_rect = menu_rect.adjusted(-5, -5, 5, 5)
+        # Add a 10px buffer so the menu doesn't instantly close if your hand jitters
+        buffered_menu_rect = menu_rect.adjusted(-10, -10, 10, 10)
 
-        # 4. If the mouse is completely outside both boundaries -> Close the menu!
+        # If mouse leaves both the button and the menu buffer -> close it!
         if not btn_rect.contains(global_pos) and not buffered_menu_rect.contains(global_pos):
             self.menu().hide()
             self._hover_timer.stop()
