@@ -146,6 +146,69 @@ class AdvancedSyncDialog(QDialog):
         self.count_label.setText(f"Matching specifications in local DB: {count}")
         self.sync_btn.setEnabled(count > 0)
 
+class TableFilterDialog(QDialog):
+    """Compact dialog for filtering the currently displayed table results."""
+    def __init__(self, current_filters: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Filter Specifications")
+        self.setModal(True)
+        self.resize(350, 200)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.series_input = QLineEdit(current_filters.get('series', ''))
+        self.series_input.setPlaceholderText("e.g. 23, 24")
+        self.tech_input = QLineEdit(current_filters.get('tech', ''))
+        self.tech_input.setPlaceholderText("e.g. 5G")
+        self.group_input = QLineEdit(current_filters.get('group', ''))
+        self.group_input.setPlaceholderText("e.g. SA2")
+
+        type_layout = QHBoxLayout()
+        active_types = current_filters.get('types', ['TS', 'TR'])
+        self.ts_cb = QCheckBox("TS")
+        self.ts_cb.setChecked('TS' in active_types)
+        self.tr_cb = QCheckBox("TR")
+        self.tr_cb.setChecked('TR' in active_types)
+        type_layout.addWidget(self.ts_cb)
+        type_layout.addWidget(self.tr_cb)
+        type_layout.addStretch()
+
+        form.addRow("Series:", self.series_input)
+        form.addRow("Radio Tech:", self.tech_input)
+        form.addRow("Working Group:", self.group_input)
+        form.addRow("Type:", type_layout)
+        layout.addLayout(form)
+
+        btn_layout = QHBoxLayout()
+        apply_btn = QPushButton("✅ Apply Filters")
+        apply_btn.clicked.connect(self.accept)
+        clear_btn = QPushButton("Clear")
+        clear_btn.clicked.connect(self._clear_and_accept)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(clear_btn)
+        btn_layout.addWidget(apply_btn)
+        layout.addLayout(btn_layout)
+
+    def _clear_and_accept(self):
+        self.series_input.clear()
+        self.tech_input.clear()
+        self.group_input.clear()
+        self.ts_cb.setChecked(True)
+        self.tr_cb.setChecked(True)
+        self.accept()
+
+    def get_filters(self) -> dict:
+        types = []
+        if self.ts_cb.isChecked(): types.append("TS")
+        if self.tr_cb.isChecked(): types.append("TR")
+        return {
+            'series': self.series_input.text().strip(),
+            'tech': self.tech_input.text().strip(),
+            'group': self.group_input.text().strip(),
+            'types': types
+        }
 
 class SpecificationsTab(QWidget):
     update_db_requested = pyqtSignal(bool)
@@ -158,6 +221,8 @@ class SpecificationsTab(QWidget):
 
         self.config_file = db_path.parent / "specs_config.json"
         self.default_dl_dir = self._load_settings()
+
+        self.table_filters = {'series': '', 'tech': '', 'group': '', 'types': ['TS', 'TR']}
 
         self.search_timer = QTimer()
         self.search_timer.setSingleShot(True)
@@ -232,6 +297,20 @@ class SpecificationsTab(QWidget):
         self.version_search_input.setPlaceholderText("e.g. 15.")
         self.version_search_input.textChanged.connect(lambda text: self.search_timer.start())
         top_layout.addWidget(self.version_search_input)
+
+        self.filter_btn = QPushButton("⚙️ Filters")
+        self.filter_btn.setCursor(Qt.PointingHandCursor)
+        self.filter_btn.clicked.connect(self._open_table_filters)
+
+        self.clear_filter_btn = QPushButton("❌")
+        self.clear_filter_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_filter_btn.setToolTip("Clear Active Filters")
+        self.clear_filter_btn.setFixedWidth(24)
+        self.clear_filter_btn.setVisible(False)
+        self.clear_filter_btn.clicked.connect(self._clear_table_filters)
+
+        top_layout.addWidget(self.filter_btn)
+        top_layout.addWidget(self.clear_filter_btn)
 
         main_layout.addLayout(top_layout)
 
@@ -353,23 +432,59 @@ class SpecificationsTab(QWidget):
         btn.setEnabled(True)
         QMessageBox.critical(self, "Download Failed", f"Network error during download:\n{error_msg}")
 
+    def _open_table_filters(self):
+        dialog = TableFilterDialog(self.table_filters, self)
+        if dialog.exec_():
+            self.table_filters = dialog.get_filters()
+            self._update_filter_ui()
+            self.refresh_table()
+
+    def _clear_table_filters(self):
+        self.table_filters = {'series': '', 'tech': '', 'group': '', 'types': ['TS', 'TR']}
+        self._update_filter_ui()
+        self.refresh_table()
+
+    def _update_filter_ui(self):
+        """Changes the button color and shows/hides the clear button if filters are active."""
+        active_count = 0
+        if self.table_filters['series']: active_count += 1
+        if self.table_filters['tech']: active_count += 1
+        if self.table_filters['group']: active_count += 1
+        if len(self.table_filters['types']) < 2: active_count += 1
+
+        if active_count > 0:
+            self.filter_btn.setText(f"⚙️ Filters ({active_count})")
+            self.filter_btn.setStyleSheet(
+                "background-color: #E1F0FF; color: #0078D7; font-weight: bold; border: 1px solid #0078D7;")
+            self.clear_filter_btn.setVisible(True)
+        else:
+            self.filter_btn.setText("⚙️ Filters")
+            self.filter_btn.setStyleSheet("")
+            self.clear_filter_btn.setVisible(False)
+
     def refresh_table(self):
         try:
             spec_query = self.spec_search_input.text().strip()
             version_query = self.version_search_input.text().strip()
             base_dl_dir = Path(self.dl_dir_input.text().strip())
 
-            if not spec_query and not version_query:
+            # Only require typing if NO filters are set to prevent loading 4000 rows
+            is_filtered = any([self.table_filters['series'], self.table_filters['tech'], self.table_filters['group']])
+
+            if not spec_query and not version_query and not is_filtered:
                 self.table.setRowCount(0)
-                self.count_label.setText("⌨️ Type a specification number (e.g., 23.501) to begin searching...")
+                self.count_label.setText("⌨️ Type a specification number or apply a Filter to begin...")
                 self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
                 return
 
+            # ---> UPGRADED: Pass the unpacked dictionary directly to the new search_files
             specs = self.db.search_files(
                 spec_number=spec_query if spec_query else None,
-                release_version=version_query if version_query else None
+                release_version=version_query if version_query else None,
+                **self.table_filters
             )
 
+            # ... (The rest of the refresh_table rendering loop remains EXACTLY the same) ...
             self.table.setRowCount(0)
 
             grouped_specs = {}
@@ -406,17 +521,8 @@ class SpecificationsTab(QWidget):
                 info_btn.setToolTip("View full specification details")
                 info_btn.setCursor(Qt.PointingHandCursor)
                 info_btn.setStyleSheet("""
-                    QPushButton {
-                        border: none;
-                        background: transparent;
-                        color: #0078D7;
-                        font-size: 18px;
-                        padding: 0px;
-                        margin: 0px;
-                    }
-                    QPushButton:hover {
-                        color: #004A85;
-                    }
+                    QPushButton { border: none; background: transparent; color: #0078D7; font-size: 18px; padding: 0px; margin: 0px; }
+                    QPushButton:hover { color: #004A85; }
                 """)
                 info_btn.clicked.connect(lambda _, s=spec_num: self._show_spec_info(s))
 
@@ -433,12 +539,9 @@ class SpecificationsTab(QWidget):
                 version_combo = QComboBox()
                 spec_target_dir = base_dl_dir / spec_num
 
-                # ---> THE FIX: Semantic Version Sorting
                 def parse_ver(v_str):
-                    # Safely splits "20.0.1" into [20, 0, 1] so mathematical sorting works!
                     return [int(x) if x.isdigit() else x for x in str(v_str).split('.')]
 
-                # Sort the versions in descending mathematical order before populating the dropdown
                 sorted_versions = sorted(data['versions'], key=lambda x: parse_ver(x[0]), reverse=True)
 
                 for ver, url, fname in sorted_versions:

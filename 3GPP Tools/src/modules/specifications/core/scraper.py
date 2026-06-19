@@ -54,43 +54,39 @@ class SpecsCrawlerThread(QThread):
             self.ui_log_msg.emit(f"⚠️ Error fetching {url}: {e}", logging.WARNING)
             return []
 
-    # ---> UPGRADED: Dual-Strategy ASP.NET & Legacy Parser
-    def fetch_metadata_from_dynareport(self, spec_number: str) -> Dict[str, str]:
+    def fetch_metadata_from_dynareport(self, spec_number: str) -> Dict:
         clean_number: str = spec_number.replace('.', '')
         url: str = f"https://www.3gpp.org/DynaReport/{clean_number}.htm"
-        metadata: Dict[str, str] = {
+        metadata = {
             'title': '', 'type': '', 'initial_release': '',
-            'radio_technology': '', 'primary_group': '', 'secondary_groups': ''
+            'radio_technology': '', 'radio_technologies_list': [],
+            'primary_group': '',
+            'secondary_groups_raw': '', 'secondary_groups_list': []
         }
 
         try:
             html_text: str = NetworkSession.get_html(url=url, timeout=15)
             soup: BeautifulSoup = BeautifulSoup(html_text, 'html.parser')
 
-            # Strategy 1: ASP.NET Portal IDs (Fast & Exact for new 3GPP Portal)
             def get_by_id(keyword: str) -> str:
                 tag = soup.find(lambda t: t.has_attr('id') and keyword in t['id'].lower())
                 return tag.get_text(strip=True) if tag else ''
 
-            # Strategy 2: DOM Traversal (Fallback for old HTML tables or missing IDs)
             def get_field(*label_texts: str) -> str:
                 for label_text in label_texts:
                     tags = soup.find_all(lambda tag: tag.name in ['td', 'th', 'span', 'b', 'strong', 'div', 'label']
                                                      and tag.get_text(strip=True).strip(
                         ':').lower() == label_text.lower())
                     for tag in tags:
-                        # Adjacent sibling check
                         sibling = tag.find_next_sibling(
                             lambda t: t.name in ['td', 'span', 'div'] and t.get_text(strip=True))
                         if sibling: return sibling.get_text(strip=True)
 
-                        # Parent offset check (e.g. nested in a <td>)
                         parent_cell = tag.find_parent(['td', 'th'])
                         if parent_cell:
                             next_cell = parent_cell.find_next_sibling(['td', 'th'])
                             if next_cell: return next_cell.get_text(strip=True)
 
-                        # Absolute next DOM element check
                         next_el = tag.find_next(lambda t: t.name in ['td', 'span', 'div', 'a'] and t.get_text(
                             strip=True) and t not in tag.descendants)
                         if next_el:
@@ -98,7 +94,6 @@ class SpecsCrawlerThread(QThread):
                             if len(val) < 200: return val
                 return ''
 
-            # Map the fields using the dual-strategy
             metadata['title'] = get_by_id('lbltitle') or get_field('Title', 'Specification Title')
 
             raw_type: str = get_by_id('lblspectype') or get_field('Specification type', 'Spec type', 'Type')
@@ -116,18 +111,32 @@ class SpecsCrawlerThread(QThread):
 
             metadata['initial_release'] = get_by_id('lblinitialrel') or get_field('Initial planned Release',
                                                                                   'Initial Release')
-            metadata['radio_technology'] = get_by_id('lblradiotech') or get_field('Radio technology')
+
+            # ---> UPGRADED: Primary and Secondary Group Parsing
             metadata['primary_group'] = get_by_id('lblprimarywg') or get_field('Primary responsible group',
                                                                                'Primary WG')
-            metadata['secondary_groups'] = get_by_id('lblsecondarywg') or get_field('Secondary responsible groups',
-                                                                                    'Secondary WG')
+
+            raw_sec_groups = get_by_id('lblsecondarywg') or get_field('Secondary responsible groups', 'Secondary WG')
+            metadata['secondary_groups_raw'] = raw_sec_groups
+
+            if raw_sec_groups:
+                # Matches clean group acronyms like "SA2", "CT1", ignoring commas/spaces
+                matches = re.findall(r'([a-zA-Z0-9]+)', raw_sec_groups)
+                metadata['secondary_groups_list'] = list(dict.fromkeys([m.upper() for m in matches]))
+
+            # Radio Technology Parsing
+            raw_tech = get_by_id('lblradiotech') or get_field('Radio technology')
+            metadata['radio_technology'] = raw_tech
+
+            if raw_tech:
+                matches = re.findall(r'(2G|3G|4G|LTE|5G|6G|GSM|UMTS|NB-IOT)', raw_tech, re.IGNORECASE)
+                metadata['radio_technologies_list'] = list(dict.fromkeys([m.upper() for m in matches]))
 
             if not metadata['title']:
                 title_tag = soup.find('h1') or soup.find('h2')
                 if title_tag: metadata['title'] = title_tag.get_text(strip=True)
 
         except Exception as e:
-            # Explicit logging instead of passing, so 404 network errors are visible
             logging.warning(f"Metadata fetch failed for {spec_number} at {url}: {e}")
 
         return metadata
