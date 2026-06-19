@@ -7,6 +7,7 @@ class SpecsDatabase:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self._init_db()
+        self._cleanup_orphans()  # ---> NEW: Silently purge orphans on every startup!
 
     def _get_connection(self):
         return sqlite3.connect(self.db_path, check_same_thread=False)
@@ -80,14 +81,41 @@ class SpecsDatabase:
                 )
             ''')
 
-    # ---> UPGRADED: Dynamically fetch unique options for EVERY category
+    # ---> NEW: Garbage Collection Logic
+    def _cleanup_orphans(self):
+        """Removes any working groups, radio technologies, or series that are no longer linked to any specification."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+
+                # 1. Purge Orphaned Radio Technologies
+                cursor.execute('''
+                    DELETE FROM radio_technologies 
+                    WHERE id NOT IN (SELECT DISTINCT tech_id FROM spec_radio_tech_map WHERE tech_id IS NOT NULL)
+                ''')
+
+                # 2. Purge Orphaned Working Groups (Must check BOTH Primary and Secondary foreign keys!)
+                cursor.execute('''
+                    DELETE FROM working_groups 
+                    WHERE id NOT IN (SELECT DISTINCT primary_group_id FROM specifications WHERE primary_group_id IS NOT NULL)
+                      AND id NOT IN (SELECT DISTINCT group_id FROM spec_secondary_group_map WHERE group_id IS NOT NULL)
+                ''')
+
+                # 3. Purge Orphaned Series
+                cursor.execute('''
+                    DELETE FROM series 
+                    WHERE id NOT IN (SELECT DISTINCT series_id FROM specifications WHERE series_id IS NOT NULL)
+                ''')
+
+        except Exception as e:
+            print(f"Error during database garbage collection: {e}")
+
     def get_filter_options(self) -> dict:
         options = {'series': [], 'techs': [], 'groups': [], 'types': []}
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
 
-                # Sort Series mathematically (so 9 comes before 22)
                 cursor.execute("SELECT name FROM series ORDER BY CAST(name AS INTEGER)")
                 options['series'] = [r[0] for r in cursor.fetchall() if r[0]]
 
@@ -97,7 +125,6 @@ class SpecsDatabase:
                 cursor.execute("SELECT name FROM working_groups ORDER BY name")
                 options['groups'] = [r[0] for r in cursor.fetchall() if r[0]]
 
-                # Fetch distinct Spec Types that currently exist in the database
                 cursor.execute(
                     "SELECT DISTINCT type FROM specifications WHERE type IS NOT NULL AND type != '' ORDER BY type")
                 options['types'] = [r[0] for r in cursor.fetchall() if r[0]]
@@ -150,6 +177,10 @@ class SpecsDatabase:
             spec_row = cursor.fetchone()
             if not spec_row: return
             spec_id = spec_row[0]
+
+            # ---> UPGRADED: Wipe the old mappings clean before saving the new ones!
+            cursor.execute('DELETE FROM spec_radio_tech_map WHERE spec_id = ?', (spec_id,))
+            cursor.execute('DELETE FROM spec_secondary_group_map WHERE spec_id = ?', (spec_id,))
 
             techs = metadata.get('radio_technologies_list', [])
             for tech in techs:
@@ -206,12 +237,10 @@ class SpecsDatabase:
                 query += f" AND ({' OR '.join(clauses)})"
 
         if tech:
-            # ---> UPGRADED: Exact matching for normalized tables
             query += " AND (r.name = ? OR sp.radio_technology LIKE ?)"
             params.extend([tech, f"%{tech}%"])
 
         if group:
-            # ---> UPGRADED: Exact matching only!
             query += " AND (p_grp.name = ? OR s_grp.name = ?)"
             params.extend([group, group])
 
@@ -249,12 +278,10 @@ class SpecsDatabase:
                 query += f" AND ({' OR '.join(clauses)})"
 
         if tech:
-            # ---> UPGRADED: Exact matching for normalized tables
             query += " AND (r.name = ? OR sp.radio_technology LIKE ?)"
             params.extend([tech, f"%{tech}%"])
 
         if group:
-            # ---> UPGRADED: Exact matching only!
             query += " AND (p_grp.name = ? OR s_grp.name = ?)"
             params.extend([group, group])
 
