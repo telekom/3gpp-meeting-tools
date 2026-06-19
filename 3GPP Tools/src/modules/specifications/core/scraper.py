@@ -112,9 +112,18 @@ class SpecsCrawlerThread(QThread):
             metadata['initial_release'] = get_by_id('lblinitialrel') or get_field('Initial planned Release',
                                                                                   'Initial Release')
 
-            # ---> UPGRADED: Primary and Secondary Group Parsing
-            metadata['primary_group'] = get_by_id('lblprimarywg') or get_field('Primary responsible group',
-                                                                               'Primary WG')
+            # ---> UPGRADED: Primary Group Parsing (with strict whitespace sanitization)
+            raw_primary = get_by_id('lblprimarywg') or get_field('Primary responsible group', 'Primary WG')
+            if raw_primary:
+                # Capture the letters and numbers, ignoring surrounding text
+                p_match = re.search(r'([a-zA-Z]+[\s]*\d*)', raw_primary)
+                if p_match:
+                    # Strip out the internal spaces (e.g. "CT 1" -> "CT1") and force uppercase
+                    metadata['primary_group'] = p_match.group(1).replace(' ', '').upper()
+                else:
+                    metadata['primary_group'] = raw_primary.strip()
+            else:
+                metadata['primary_group'] = ''
 
             raw_sec_groups = get_by_id('lblsecondarywg') or get_field('Secondary responsible groups', 'Secondary WG')
             metadata['secondary_groups_raw'] = raw_sec_groups
