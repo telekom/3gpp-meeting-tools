@@ -21,7 +21,6 @@ class SpecsDatabase:
                     url TEXT
                 )
             ''')
-            # ---> NEW: Centralized Working Groups Table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS working_groups (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,7 +37,7 @@ class SpecsDatabase:
                     type TEXT,
                     initial_release TEXT,
                     radio_technology TEXT,  
-                    primary_group_id INTEGER, -- ---> NEW: Replaced text with Foreign Key
+                    primary_group_id INTEGER,
                     secondary_groups TEXT,    
                     UNIQUE(series_id, number),
                     FOREIGN KEY(series_id) REFERENCES series(id),
@@ -71,7 +70,6 @@ class SpecsDatabase:
                     FOREIGN KEY(tech_id) REFERENCES radio_technologies(id)
                 )
             ''')
-            # ---> NEW: Many-to-Many Map for Secondary Groups
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS spec_secondary_group_map (
                     spec_id INTEGER,
@@ -81,6 +79,32 @@ class SpecsDatabase:
                     FOREIGN KEY(group_id) REFERENCES working_groups(id)
                 )
             ''')
+
+    # ---> UPGRADED: Dynamically fetch unique options for EVERY category
+    def get_filter_options(self) -> dict:
+        options = {'series': [], 'techs': [], 'groups': [], 'types': []}
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Sort Series mathematically (so 9 comes before 22)
+                cursor.execute("SELECT name FROM series ORDER BY CAST(name AS INTEGER)")
+                options['series'] = [r[0] for r in cursor.fetchall() if r[0]]
+
+                cursor.execute("SELECT name FROM radio_technologies ORDER BY name")
+                options['techs'] = [r[0] for r in cursor.fetchall() if r[0]]
+
+                cursor.execute("SELECT name FROM working_groups ORDER BY name")
+                options['groups'] = [r[0] for r in cursor.fetchall() if r[0]]
+
+                # Fetch distinct Spec Types that currently exist in the database
+                cursor.execute(
+                    "SELECT DISTINCT type FROM specifications WHERE type IS NOT NULL AND type != '' ORDER BY type")
+                options['types'] = [r[0] for r in cursor.fetchall() if r[0]]
+
+        except Exception as e:
+            print(f"Error fetching filter options: {e}")
+        return options
 
     def insert_or_update_file(self, series_name, series_url, spec_number, spec_url, filename, version, file_url):
         with self._get_connection() as conn:
@@ -104,8 +128,6 @@ class SpecsDatabase:
     def update_spec_metadata(self, spec_number, metadata):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-
-            # 1. Handle Primary Group Foreign Key Resolution
             primary_group_id = None
             p_group = metadata.get('primary_group')
             if p_group:
@@ -113,7 +135,6 @@ class SpecsDatabase:
                 cursor.execute('SELECT id FROM working_groups WHERE name = ?', (p_group,))
                 primary_group_id = cursor.fetchone()[0]
 
-            # 2. Update standard fields
             cursor.execute('''
                 UPDATE specifications 
                 SET title = ?, type = ?, initial_release = ?, radio_technology = ?, 
@@ -130,7 +151,6 @@ class SpecsDatabase:
             if not spec_row: return
             spec_id = spec_row[0]
 
-            # 3. Update Radio Technologies mapping
             techs = metadata.get('radio_technologies_list', [])
             for tech in techs:
                 cursor.execute('INSERT OR IGNORE INTO radio_technologies (name) VALUES (?)', (tech,))
@@ -139,7 +159,6 @@ class SpecsDatabase:
                 cursor.execute('INSERT OR IGNORE INTO spec_radio_tech_map (spec_id, tech_id) VALUES (?, ?)',
                                (spec_id, tech_id))
 
-            # 4. Update Secondary Groups mapping
             sec_groups = metadata.get('secondary_groups_list', [])
             for sg in sec_groups:
                 cursor.execute('INSERT OR IGNORE INTO working_groups (name) VALUES (?)', (sg,))
@@ -155,8 +174,7 @@ class SpecsDatabase:
             return not result or not result[0]
 
     def search_files(self, spec_number: str = None, release_version: str = None,
-                     series: str = None, tech: str = None, group: str = None, types: list = None) -> list:
-        # Use DISTINCT to prevent duplicate rows if a spec has multiple secondary groups
+                     series: str = None, tech: str = None, group: str = None, spec_type: str = None) -> list:
         query = """
             SELECT DISTINCT s.name, sp.number, sp.title, sp.type, f.filename, f.version, f.url
             FROM files f
@@ -171,7 +189,6 @@ class SpecsDatabase:
         """
         params = []
 
-        # 1. Standard Search
         if spec_number:
             query += " AND (sp.number LIKE ? OR sp.type LIKE ? OR (sp.type || ' ' || sp.number) LIKE ? OR sp.title LIKE ?)"
             search_term = f"%{spec_number}%"
@@ -181,7 +198,6 @@ class SpecsDatabase:
             query += " AND f.version LIKE ?"
             params.append(f"%{release_version}%")
 
-        # 2. Advanced Table Filters
         if series:
             series_list = [s.strip() for s in series.split(',') if s.strip()]
             if series_list:
@@ -197,10 +213,9 @@ class SpecsDatabase:
             query += " AND (p_grp.name LIKE ? OR s_grp.name LIKE ?)"
             params.extend([f"%{group}%", f"%{group}%"])
 
-        if types:
-            clauses = ["sp.type = ?" for _ in types]
-            params.extend(types)
-            query += f" AND ({' OR '.join(clauses)})"
+        if spec_type and spec_type != "Any":
+            query += " AND sp.type = ?"
+            params.append(spec_type)
 
         query += " ORDER BY sp.number ASC, f.version DESC"
 
@@ -209,8 +224,7 @@ class SpecsDatabase:
             cursor.execute(query, params)
             return cursor.fetchall()
 
-    def get_filtered_specs(self, series: str, tech: str, group: str, types: list) -> list:
-        # ---> UPGRADED: Massive join across 6 tables for absolute filtering precision
+    def get_filtered_specs(self, series: str, tech: str, group: str, spec_type: str) -> list:
         query = """
             SELECT DISTINCT sp.number 
             FROM specifications sp
@@ -237,16 +251,12 @@ class SpecsDatabase:
             params.extend([f"%{tech}%", f"%{tech}%"])
 
         if group:
-            # Scans both Primary and Secondary group tables
             query += " AND (p_grp.name LIKE ? OR s_grp.name LIKE ?)"
             params.extend([f"%{group}%", f"%{group}%"])
 
-        if types:
-            clauses = []
-            for t in types:
-                clauses.append("sp.type = ?")
-                params.append(t)
-            query += f" AND ({' OR '.join(clauses)})"
+        if spec_type and spec_type != "Any":
+            query += " AND sp.type = ?"
+            params.append(spec_type)
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -259,23 +269,17 @@ class SpecsDatabase:
             cursor = conn.cursor()
             cursor.execute(query, (spec_number,))
             row = cursor.fetchone()
-            if not row:
-                return {}
+            if not row: return {}
 
             columns = [description[0] for description in cursor.description]
             details = dict(zip(columns, row))
 
-            # 1. Resolve Primary Group ID to its Name
             if details.get('primary_group_id'):
                 cursor.execute('SELECT name FROM working_groups WHERE id = ?', (details['primary_group_id'],))
                 p_row = cursor.fetchone()
-                if p_row:
-                    details['primary_group'] = p_row[0]
-
-            # Hide the raw ID from the UI Popup
+                if p_row: details['primary_group'] = p_row[0]
             details.pop('primary_group_id', None)
 
-            # 2. Extract Normalized Radio Techs
             cursor.execute('''
                 SELECT r.name FROM radio_technologies r
                 JOIN spec_radio_tech_map m ON r.id = m.tech_id
@@ -283,10 +287,8 @@ class SpecsDatabase:
                 WHERE s.number = ?
             ''', (spec_number,))
             techs = [r[0] for r in cursor.fetchall()]
-            if techs:
-                details['radio_technology'] = ", ".join(techs)
+            if techs: details['radio_technology'] = ", ".join(techs)
 
-            # 3. Extract Normalized Secondary Groups
             cursor.execute('''
                 SELECT w.name FROM working_groups w
                 JOIN spec_secondary_group_map m ON w.id = m.group_id
@@ -294,7 +296,6 @@ class SpecsDatabase:
                 WHERE s.number = ?
             ''', (spec_number,))
             sec_groups = [r[0] for r in cursor.fetchall()]
-            if sec_groups:
-                details['secondary_groups'] = ", ".join(sec_groups)
+            if sec_groups: details['secondary_groups'] = ", ".join(sec_groups)
 
             return details

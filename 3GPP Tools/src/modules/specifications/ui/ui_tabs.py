@@ -2,6 +2,7 @@
 import json
 import os
 import zipfile
+import webbrowser
 from pathlib import Path
 
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer, QThread, QEvent, QRect
@@ -9,7 +10,7 @@ from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QCheckBox, QTableWidget, QTableWidgetItem,
                              QHeaderView, QLineEdit, QComboBox, QMenu, QAbstractItemView,
-                             QDialog, QFormLayout, QFileDialog, QMessageBox)
+                             QDialog, QFormLayout, QFileDialog, QMessageBox, QFrame)
 
 from core.network.session import NetworkSession
 from modules.specifications.core.database import SpecsDatabase
@@ -17,8 +18,6 @@ from modules.specifications.utils.utils import open_extracted_documents
 
 
 class HoverMenuButton(QPushButton):
-    """A bulletproof custom button that safely opens non-blocking hover menus."""
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._hover_timer = QTimer(self)
@@ -28,7 +27,6 @@ class HoverMenuButton(QPushButton):
     def enterEvent(self, event):
         super().enterEvent(event)
         if self.menu() and not self.menu().isVisible():
-            # ---> FIX 1: popup() is asynchronous. showMenu() was blocking the timer!
             spawn_pos = self.mapToGlobal(self.rect().bottomLeft())
             self.menu().popup(spawn_pos)
             self._hover_timer.start()
@@ -37,26 +35,16 @@ class HoverMenuButton(QPushButton):
         if not self.menu() or not self.menu().isVisible():
             self._hover_timer.stop()
             return
-
         global_pos = QCursor.pos()
-
-        # Button's exact coordinates on the monitor
         btn_rect = QRect(self.mapToGlobal(self.rect().topLeft()), self.rect().size())
-
-        # ---> FIX 2: QMenu is a top-level window, so geometry() is ALREADY in monitor coordinates!
         menu_rect = self.menu().geometry()
-
-        # Add a 10px buffer so the menu doesn't instantly close if your hand jitters
         buffered_menu_rect = menu_rect.adjusted(-10, -10, 10, 10)
-
-        # If mouse leaves both the button and the menu buffer -> close it!
         if not btn_rect.contains(global_pos) and not buffered_menu_rect.contains(global_pos):
             self.menu().hide()
             self._hover_timer.stop()
 
-class SpecInfoDialog(QDialog):
-    """Dynamic Popup to display all Database information about a Specification."""
 
+class SpecInfoDialog(QDialog):
     def __init__(self, details: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Specification Details: {details.get('number', '')}")
@@ -75,13 +63,11 @@ class SpecInfoDialog(QDialog):
             val_label = QLabel(str(value))
             val_label.setWordWrap(True)
             val_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-
             key_label = QLabel(f"<b>{display_key}:</b>")
             key_label.setStyleSheet("color: #444;")
             form.addRow(key_label, val_label)
 
         layout.addLayout(form)
-
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
         btn_layout = QHBoxLayout()
@@ -91,7 +77,6 @@ class SpecInfoDialog(QDialog):
 
 
 class SpecDownloadThread(QThread):
-    """Background worker to download and unzip files without freezing the GUI."""
     finished_success = pyqtSignal(Path)
     error = pyqtSignal(str)
 
@@ -112,6 +97,8 @@ class SpecDownloadThread(QThread):
 
 
 class AdvancedSyncDialog(QDialog):
+    """Network Database Sync Dialog with Strict Drop-Down Menus."""
+
     def __init__(self, db: SpecsDatabase, parent=None):
         super().__init__(parent)
         self.db = db
@@ -119,6 +106,8 @@ class AdvancedSyncDialog(QDialog):
         self.setModal(True)
         self.resize(450, 250)
         self.matching_specs = []
+
+        options = db.get_filter_options()
 
         layout = QVBoxLayout(self)
         info_label = QLabel("Note: Filters apply to specifications already discovered in your local database. "
@@ -128,26 +117,28 @@ class AdvancedSyncDialog(QDialog):
         layout.addWidget(info_label)
 
         form = QFormLayout()
-        self.series_input = QLineEdit()
-        self.series_input.setPlaceholderText("e.g. 23, 24")
-        self.tech_input = QLineEdit()
-        self.tech_input.setPlaceholderText("e.g. 5G")
-        self.group_input = QLineEdit()
-        self.group_input.setPlaceholderText("e.g. SA2")
 
-        type_layout = QHBoxLayout()
-        self.ts_cb = QCheckBox("TS")
-        self.ts_cb.setChecked(True)
-        self.tr_cb = QCheckBox("TR")
-        self.tr_cb.setChecked(True)
-        type_layout.addWidget(self.ts_cb)
-        type_layout.addWidget(self.tr_cb)
-        type_layout.addStretch()
+        # ---> UPGRADED: Strict Drop-Down Menus with explicit "Any" default
+        self.series_combo = QComboBox()
+        self.series_combo.addItem("Any")
+        self.series_combo.addItems(options['series'])
 
-        form.addRow("Series:", self.series_input)
-        form.addRow("Radio Tech:", self.tech_input)
-        form.addRow("Working Group:", self.group_input)
-        form.addRow("Type:", type_layout)
+        self.tech_combo = QComboBox()
+        self.tech_combo.addItem("Any")
+        self.tech_combo.addItems(options['techs'])
+
+        self.group_combo = QComboBox()
+        self.group_combo.addItem("Any")
+        self.group_combo.addItems(options['groups'])
+
+        self.type_combo = QComboBox()
+        self.type_combo.addItem("Any")
+        self.type_combo.addItems(options['types'])
+
+        form.addRow("Series:", self.series_combo)
+        form.addRow("Radio Tech:", self.tech_combo)
+        form.addRow("Working Group:", self.group_combo)
+        form.addRow("Type:", self.type_combo)
         layout.addLayout(form)
 
         self.count_label = QLabel("Matching specifications: 0")
@@ -165,59 +156,65 @@ class AdvancedSyncDialog(QDialog):
         btn_layout.addWidget(self.sync_btn)
         layout.addLayout(btn_layout)
 
-        self.series_input.textChanged.connect(self.update_count)
-        self.tech_input.textChanged.connect(self.update_count)
-        self.group_input.textChanged.connect(self.update_count)
-        self.ts_cb.stateChanged.connect(self.update_count)
-        self.tr_cb.stateChanged.connect(self.update_count)
+        self.series_combo.currentTextChanged.connect(self.update_count)
+        self.tech_combo.currentTextChanged.connect(self.update_count)
+        self.group_combo.currentTextChanged.connect(self.update_count)
+        self.type_combo.currentTextChanged.connect(self.update_count)
 
         self.update_count()
 
     def update_count(self):
-        series = self.series_input.text().strip()
-        tech = self.tech_input.text().strip()
-        group = self.group_input.text().strip()
-        types = []
-        if self.ts_cb.isChecked(): types.append("TS")
-        if self.tr_cb.isChecked(): types.append("TR")
+        # Translate "Any" back to empty strings for the database query
+        series = "" if self.series_combo.currentText() == "Any" else self.series_combo.currentText()
+        tech = "" if self.tech_combo.currentText() == "Any" else self.tech_combo.currentText()
+        group = "" if self.group_combo.currentText() == "Any" else self.group_combo.currentText()
+        spec_type = self.type_combo.currentText()
 
-        self.matching_specs = self.db.get_filtered_specs(series, tech, group, types)
+        self.matching_specs = self.db.get_filtered_specs(series, tech, group, spec_type)
         count = len(self.matching_specs)
         self.count_label.setText(f"Matching specifications in local DB: {count}")
         self.sync_btn.setEnabled(count > 0)
 
+
 class TableFilterDialog(QDialog):
-    """Compact dialog for filtering the currently displayed table results."""
-    def __init__(self, current_filters: dict, parent=None):
+    """Local Table Filter Dialog with Strict Drop-Down Menus."""
+
+    def __init__(self, db: SpecsDatabase, current_filters: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Filter Specifications")
         self.setModal(True)
         self.resize(350, 200)
 
+        options = db.get_filter_options()
+
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
-        self.series_input = QLineEdit(current_filters.get('series', ''))
-        self.series_input.setPlaceholderText("e.g. 23, 24")
-        self.tech_input = QLineEdit(current_filters.get('tech', ''))
-        self.tech_input.setPlaceholderText("e.g. 5G")
-        self.group_input = QLineEdit(current_filters.get('group', ''))
-        self.group_input.setPlaceholderText("e.g. SA2")
+        # ---> UPGRADED: Strict Drop-Down Menus reading the current filter state
+        self.series_combo = QComboBox()
+        self.series_combo.addItem("Any")
+        self.series_combo.addItems(options['series'])
+        self.series_combo.setCurrentText(current_filters.get('series', 'Any') or 'Any')
 
-        type_layout = QHBoxLayout()
-        active_types = current_filters.get('types', ['TS', 'TR'])
-        self.ts_cb = QCheckBox("TS")
-        self.ts_cb.setChecked('TS' in active_types)
-        self.tr_cb = QCheckBox("TR")
-        self.tr_cb.setChecked('TR' in active_types)
-        type_layout.addWidget(self.ts_cb)
-        type_layout.addWidget(self.tr_cb)
-        type_layout.addStretch()
+        self.tech_combo = QComboBox()
+        self.tech_combo.addItem("Any")
+        self.tech_combo.addItems(options['techs'])
+        self.tech_combo.setCurrentText(current_filters.get('tech', 'Any') or 'Any')
 
-        form.addRow("Series:", self.series_input)
-        form.addRow("Radio Tech:", self.tech_input)
-        form.addRow("Working Group:", self.group_input)
-        form.addRow("Type:", type_layout)
+        self.group_combo = QComboBox()
+        self.group_combo.addItem("Any")
+        self.group_combo.addItems(options['groups'])
+        self.group_combo.setCurrentText(current_filters.get('group', 'Any') or 'Any')
+
+        self.type_combo = QComboBox()
+        self.type_combo.addItem("Any")
+        self.type_combo.addItems(options['types'])
+        self.type_combo.setCurrentText(current_filters.get('spec_type', 'Any') or 'Any')
+
+        form.addRow("Series:", self.series_combo)
+        form.addRow("Radio Tech:", self.tech_combo)
+        form.addRow("Working Group:", self.group_combo)
+        form.addRow("Type:", self.type_combo)
         layout.addLayout(form)
 
         btn_layout = QHBoxLayout()
@@ -232,23 +229,20 @@ class TableFilterDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def _clear_and_accept(self):
-        self.series_input.clear()
-        self.tech_input.clear()
-        self.group_input.clear()
-        self.ts_cb.setChecked(True)
-        self.tr_cb.setChecked(True)
+        self.series_combo.setCurrentText("Any")
+        self.tech_combo.setCurrentText("Any")
+        self.group_combo.setCurrentText("Any")
+        self.type_combo.setCurrentText("Any")
         self.accept()
 
     def get_filters(self) -> dict:
-        types = []
-        if self.ts_cb.isChecked(): types.append("TS")
-        if self.tr_cb.isChecked(): types.append("TR")
         return {
-            'series': self.series_input.text().strip(),
-            'tech': self.tech_input.text().strip(),
-            'group': self.group_input.text().strip(),
-            'types': types
+            'series': "" if self.series_combo.currentText() == "Any" else self.series_combo.currentText(),
+            'tech': "" if self.tech_combo.currentText() == "Any" else self.tech_combo.currentText(),
+            'group': "" if self.group_combo.currentText() == "Any" else self.group_combo.currentText(),
+            'spec_type': self.type_combo.currentText()
         }
+
 
 class SpecificationsTab(QWidget):
     update_db_requested = pyqtSignal(bool)
@@ -262,7 +256,8 @@ class SpecificationsTab(QWidget):
         self.config_file = db_path.parent / "specs_config.json"
         self.default_dl_dir = self._load_settings()
 
-        self.table_filters = {'series': '', 'tech': '', 'group': '', 'types': ['TS', 'TR']}
+        # Clean default filter state
+        self.table_filters = {'series': '', 'tech': '', 'group': '', 'spec_type': 'Any'}
 
         self.search_timer = QTimer()
         self.search_timer.setSingleShot(True)
@@ -283,23 +278,6 @@ class SpecificationsTab(QWidget):
                 pass
         return fallback
 
-    def _open_download_dir(self):
-        """Safely opens the configured download directory in File Explorer."""
-        target_dir = Path(self.dl_dir_input.text().strip())
-
-        # If the user typed a new path but hasn't downloaded anything yet, create it.
-        if not target_dir.exists():
-            try:
-                target_dir.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                QMessageBox.warning(self, "Directory Error", f"Could not create directory:\n{e}")
-                return
-
-        try:
-            os.startfile(str(target_dir))
-        except Exception as e:
-            QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
-
     def _save_settings(self):
         try:
             current_dir = self.dl_dir_input.text().strip()
@@ -307,22 +285,18 @@ class SpecificationsTab(QWidget):
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
-            print(f"Error saving specifications config: {e}")
+            print(f"Error saving config: {e}")
 
     def _setup_ui(self):
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(5, 10, 5, 5)
 
-        # --- Download Directory Settings ---
+        # --- ROW 1: Download Path ---
         dir_layout = QHBoxLayout()
-
         self.dl_dir_input = QLineEdit(self.default_dl_dir)
         self.dl_dir_input.editingFinished.connect(self._save_settings)
-
         browse_btn = QPushButton("📂 Browse...")
         browse_btn.clicked.connect(self._browse_dir)
-
-        # ---> NEW: Compact "Open" Button
         open_dir_btn = QPushButton("↗️ Open")
         open_dir_btn.setToolTip("Open the base download folder in Windows Explorer")
         open_dir_btn.setCursor(Qt.PointingHandCursor)
@@ -331,38 +305,50 @@ class SpecificationsTab(QWidget):
         dir_layout.addWidget(QLabel("💾 Download Path:"))
         dir_layout.addWidget(self.dl_dir_input)
         dir_layout.addWidget(browse_btn)
-        dir_layout.addWidget(open_dir_btn)  # Added right next to Browse
+        dir_layout.addWidget(open_dir_btn)
         main_layout.addLayout(dir_layout)
 
-        # --- COMPACT TOP PANEL ---
-        top_layout = QHBoxLayout()
+        # Visual Divider
+        line1 = QFrame()
+        line1.setFrameShape(QFrame.HLine)
+        line1.setFrameShadow(QFrame.Sunken)
+        main_layout.addWidget(line1)
+
+        # --- ROW 2: Network Actions ---
+        sync_layout = QHBoxLayout()
+        sync_layout.addWidget(QLabel("<b>🌐 Network Sync:</b>"))
 
         self.full_sync_btn = QPushButton("🔄 Full Sync")
         self.full_sync_btn.clicked.connect(lambda: self.update_db_requested.emit(self.force_meta_checkbox.isChecked()))
-        top_layout.addWidget(self.full_sync_btn)
+        sync_layout.addWidget(self.full_sync_btn)
 
         self.adv_sync_btn = QPushButton("⚙️ Filtered Sync")
         self.adv_sync_btn.clicked.connect(self._open_advanced_sync)
-        top_layout.addWidget(self.adv_sync_btn)
+        sync_layout.addWidget(self.adv_sync_btn)
 
         self.force_meta_checkbox = QCheckBox("Force Metadata")
-        top_layout.addWidget(self.force_meta_checkbox)
+        sync_layout.addWidget(self.force_meta_checkbox)
+        sync_layout.addStretch()
 
-        top_layout.addSpacing(15)
+        main_layout.addLayout(sync_layout)
 
-        top_layout.addWidget(QLabel("🔍 Spec:"))
+        # --- ROW 3: Local Table Search ---
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("<b>🔍 Local Search:</b>"))
+
         self.spec_search_input = QLineEdit()
-        self.spec_search_input.setPlaceholderText("e.g. 23.501")
+        self.spec_search_input.setPlaceholderText("Spec Number or Title...")
         self.spec_search_input.textChanged.connect(lambda text: self.search_timer.start())
-        top_layout.addWidget(self.spec_search_input)
+        search_layout.addWidget(self.spec_search_input)
 
-        top_layout.addWidget(QLabel("Ver:"))
+        search_layout.addWidget(QLabel("Ver:"))
         self.version_search_input = QLineEdit()
         self.version_search_input.setPlaceholderText("e.g. 15.")
+        self.version_search_input.setFixedWidth(60)
         self.version_search_input.textChanged.connect(lambda text: self.search_timer.start())
-        top_layout.addWidget(self.version_search_input)
+        search_layout.addWidget(self.version_search_input)
 
-        self.filter_btn = QPushButton("⚙️ Filters")
+        self.filter_btn = QPushButton("⚙️ Table Filters")
         self.filter_btn.setCursor(Qt.PointingHandCursor)
         self.filter_btn.clicked.connect(self._open_table_filters)
 
@@ -373,23 +359,20 @@ class SpecificationsTab(QWidget):
         self.clear_filter_btn.setVisible(False)
         self.clear_filter_btn.clicked.connect(self._clear_table_filters)
 
-        top_layout.addWidget(self.filter_btn)
-        top_layout.addWidget(self.clear_filter_btn)
+        search_layout.addWidget(self.filter_btn)
+        search_layout.addWidget(self.clear_filter_btn)
+        main_layout.addLayout(search_layout)
 
-        main_layout.addLayout(top_layout)
-
-        # --- MIDDLE PANEL: Results Header ---
+        # --- Results Header ---
         self.count_label = QLabel("Showing 0 specifications")
-        self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
+        self.count_label.setStyleSheet("font-weight: bold; color: #555555; margin-top: 5px;")
 
         header_layout = QHBoxLayout()
-        header_layout.addWidget(QLabel("<b>Database Results</b>"))
         header_layout.addStretch()
         header_layout.addWidget(self.count_label)
-
         main_layout.addLayout(header_layout)
 
-        # --- BOTTOM PANEL: Data Table ---
+        # --- Data Table ---
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Specification", "Title", "Version / Download"])
@@ -415,6 +398,19 @@ class SpecificationsTab(QWidget):
             self._save_settings()
             self.refresh_table()
 
+    def _open_download_dir(self):
+        target_dir = Path(self.dl_dir_input.text().strip())
+        if not target_dir.exists():
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                QMessageBox.warning(self, "Directory Error", f"Could not create directory:\n{e}")
+                return
+        try:
+            os.startfile(str(target_dir))
+        except Exception as e:
+            QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
+
     def _open_advanced_sync(self):
         dialog = AdvancedSyncDialog(self.db, self)
         if dialog.exec_():
@@ -438,7 +434,6 @@ class SpecificationsTab(QWidget):
                 display_text = widget.findChild(QLabel).text()
                 spec_num = display_text.split(" ")[-1]
                 target_specs.append(spec_num)
-
             force_meta = self.force_meta_checkbox.isChecked()
             self.update_specific_requested.emit(target_specs, force_meta)
 
@@ -448,7 +443,6 @@ class SpecificationsTab(QWidget):
         dialog.exec_()
 
     def _open_spec_folder(self, spec_num: str):
-        """Opens the base folder for the specification (e.g. .../specs/23.501)"""
         target_dir = Path(self.dl_dir_input.text().strip()) / spec_num
         if target_dir.exists():
             try:
@@ -456,14 +450,11 @@ class SpecificationsTab(QWidget):
             except Exception as e:
                 QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
 
-    # ---> NEW: Method to open the 3GPP DynaReport
     def _open_web_report(self, spec_num: str):
-        """Transforms 23.501 into 23501 and opens the 3GPP ASP.NET report."""
         clean_number = spec_num.replace('.', '')
         url = f"https://www.3gpp.org/DynaReport/{clean_number}.htm"
         webbrowser.open(url)
 
-    # ---> REVERTED: Removed folder_btn argument since it's inside a menu now
     def _handle_download_action(self, combo: QComboBox, btn: QPushButton):
         c_data = combo.currentData()
         if not c_data: return
@@ -471,7 +462,6 @@ class SpecificationsTab(QWidget):
         dl_dir = Path(self.dl_dir_input.text().strip())
         spec_dl_dir = dl_dir / c_data['spec_num']
 
-        # Action: OPEN DOCUMENTS
         if c_data['is_downloaded']:
             zip_path = spec_dl_dir / c_data['fname']
             extracted_dir = zip_path.with_suffix('')
@@ -498,7 +488,6 @@ class SpecificationsTab(QWidget):
                     QMessageBox.warning(self, "Open Error", f"Could not open location:\n{e}")
             return
 
-        # Action: DOWNLOAD
         spec_dl_dir.mkdir(parents=True, exist_ok=True)
         zip_path = spec_dl_dir / c_data['fname']
 
@@ -508,43 +497,18 @@ class SpecificationsTab(QWidget):
         thread = SpecDownloadThread(c_data['url'], zip_path)
         thread.finished_success.connect(lambda p: self._on_download_success(combo, btn))
         thread.error.connect(lambda e: self._on_download_error(btn, e))
-
         self._download_threads.append(thread)
         thread.finished.connect(lambda t=thread: self._download_threads.remove(t))
         thread.start()
 
-    def _handle_open_folder_action(self, combo: QComboBox):
-        """Opens the extracted folder for the specific version, or the base spec folder if not extracted."""
-        c_data = combo.currentData()
-        if not c_data: return
-
-        dl_dir = Path(self.dl_dir_input.text().strip())
-        spec_dl_dir = dl_dir / c_data['spec_num']
-        zip_path = spec_dl_dir / c_data['fname']
-        extracted_dir = zip_path.with_suffix('')
-
-        # Prefer opening the fully extracted specific version folder if it exists
-        target_path = extracted_dir if extracted_dir.exists() else spec_dl_dir
-
-        if not target_path.exists():
-            QMessageBox.information(self, "Not Found", "Folder does not exist yet. Please download the file first.")
-            return
-
-        try:
-            os.startfile(str(target_path))
-        except Exception as e:
-            QMessageBox.warning(self, "Open Error", f"Could not open directory:\n{e}")
-
     def _on_download_success(self, combo: QComboBox, btn: QPushButton):
         c_data = combo.currentData()
         c_data['is_downloaded'] = True
-
         idx = combo.currentIndex()
         text = combo.itemText(idx)
         if not text.startswith("✅"):
             combo.setItemText(idx, f"✅ {text}")
-
-        btn.setText("📂 Open")
+        btn.setText("📄 Open Docs")
         btn.setEnabled(True)
 
     def _on_download_error(self, btn: QPushButton, error_msg: str):
@@ -553,24 +517,23 @@ class SpecificationsTab(QWidget):
         QMessageBox.critical(self, "Download Failed", f"Network error during download:\n{error_msg}")
 
     def _open_table_filters(self):
-        dialog = TableFilterDialog(self.table_filters, self)
+        dialog = TableFilterDialog(self.db, self.table_filters, self)
         if dialog.exec_():
             self.table_filters = dialog.get_filters()
             self._update_filter_ui()
             self.refresh_table()
 
     def _clear_table_filters(self):
-        self.table_filters = {'series': '', 'tech': '', 'group': '', 'types': ['TS', 'TR']}
+        self.table_filters = {'series': '', 'tech': '', 'group': '', 'spec_type': 'Any'}
         self._update_filter_ui()
         self.refresh_table()
 
     def _update_filter_ui(self):
-        """Changes the button color and shows/hides the clear button if filters are active."""
         active_count = 0
         if self.table_filters['series']: active_count += 1
         if self.table_filters['tech']: active_count += 1
         if self.table_filters['group']: active_count += 1
-        if len(self.table_filters['types']) < 2: active_count += 1
+        if self.table_filters['spec_type'] != 'Any': active_count += 1
 
         if active_count > 0:
             self.filter_btn.setText(f"⚙️ Filters ({active_count})")
@@ -578,7 +541,7 @@ class SpecificationsTab(QWidget):
                 "background-color: #E1F0FF; color: #0078D7; font-weight: bold; border: 1px solid #0078D7;")
             self.clear_filter_btn.setVisible(True)
         else:
-            self.filter_btn.setText("⚙️ Filters")
+            self.filter_btn.setText("⚙️ Table Filters")
             self.filter_btn.setStyleSheet("")
             self.clear_filter_btn.setVisible(False)
 
@@ -588,8 +551,10 @@ class SpecificationsTab(QWidget):
             version_query = self.version_search_input.text().strip()
             base_dl_dir = Path(self.dl_dir_input.text().strip())
 
-            # Only require typing if NO filters are set to prevent loading 4000 rows
-            is_filtered = any([self.table_filters['series'], self.table_filters['tech'], self.table_filters['group']])
+            is_filtered = any([
+                self.table_filters['series'], self.table_filters['tech'],
+                self.table_filters['group'], self.table_filters['spec_type'] != 'Any'
+            ])
 
             if not spec_query and not version_query and not is_filtered:
                 self.table.setRowCount(0)
@@ -597,14 +562,12 @@ class SpecificationsTab(QWidget):
                 self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
                 return
 
-            # ---> UPGRADED: Pass the unpacked dictionary directly to the new search_files
             specs = self.db.search_files(
                 spec_number=spec_query if spec_query else None,
                 release_version=version_query if version_query else None,
                 **self.table_filters
             )
 
-            # ... (The rest of the refresh_table rendering loop remains EXACTLY the same) ...
             self.table.setRowCount(0)
 
             grouped_specs = {}
@@ -631,36 +594,29 @@ class SpecificationsTab(QWidget):
 
             for row_idx, (spec_num, data) in enumerate(rendered_specs):
                 self.table.insertRow(row_idx)
-
                 spec_target_dir = base_dl_dir / spec_num
 
-                # --- 1. COLUMN 0: Action Menu Button + Spec Number ---
                 spec_widget = QWidget()
                 spec_layout = QHBoxLayout(spec_widget)
                 spec_layout.setContentsMargins(5, 0, 5, 0)
 
-                # ---> UPGRADED: A single "Options" button that spawns a menu
                 action_btn = HoverMenuButton("⋮")
                 action_btn.setFixedSize(24, 24)
                 action_btn.setToolTip("Specification Actions")
                 action_btn.setCursor(Qt.PointingHandCursor)
                 action_btn.setStyleSheet("""
-                                QPushButton { 
-                                    border: none; background: transparent; color: #555; 
-                                    font-size: 20px; font-weight: bold; padding-bottom: 4px;
-                                }
-                                QPushButton:hover { color: #0078D7; }
-                                QPushButton::menu-indicator { image: none; width: 0px; } /* Hide the default dropdown arrow */
-                            """)
+                    QPushButton { border: none; background: transparent; color: #555; font-size: 20px; font-weight: bold; padding-bottom: 4px; }
+                    QPushButton:hover { color: #0078D7; }
+                    QPushButton::menu-indicator { image: none; width: 0px; }
+                """)
 
-                # Build the Action Menu
                 menu = QMenu(self)
                 menu.setStyleSheet("""
-                                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
-                                    QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
-                                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-                                    QMenu::item:disabled { color: #AAAAAA; } 
-                                """)
+                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
+                    QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
+                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+                    QMenu::item:disabled { color: #AAAAAA; } 
+                """)
 
                 info_action = menu.addAction("ℹ️  View Details")
                 info_action.triggered.connect(lambda _, s=spec_num: self._show_spec_info(s))
@@ -682,7 +638,6 @@ class SpecificationsTab(QWidget):
                         act.setEnabled(False)
 
                 menu.aboutToShow.connect(_update_menu_state)
-
                 action_btn.setMenu(menu)
 
                 display_num = f"{data['type']} {spec_num}".strip()
@@ -693,10 +648,8 @@ class SpecificationsTab(QWidget):
                 spec_layout.addStretch()
                 self.table.setCellWidget(row_idx, 0, spec_widget)
 
-                # --- 2. COLUMN 1: Title ---
                 self.table.setItem(row_idx, 1, QTableWidgetItem(data['title'] if data['title'] else "Unknown Title"))
 
-                # --- 3. COLUMN 2: Version Dropdown & Download Button ---
                 version_combo = QComboBox()
 
                 def parse_ver(v_str):
@@ -708,7 +661,6 @@ class SpecificationsTab(QWidget):
                     zip_path = spec_target_dir / fname
                     extracted_dir = zip_path.with_suffix('')
                     is_dl = zip_path.exists() or extracted_dir.exists()
-
                     status = "✅ " if is_dl else ""
                     version_combo.addItem(f"{status}v{ver}", userData={
                         'url': url, 'fname': fname, 'spec_num': spec_num, 'is_downloaded': is_dl
