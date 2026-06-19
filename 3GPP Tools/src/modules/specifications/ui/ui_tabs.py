@@ -1,17 +1,18 @@
 # --- File: modules/specs_db/ui_tabs.py ---
-import os
 import json
+import os
 import zipfile
-import webbrowser
 from pathlib import Path
+
+from PyQt5.QtCore import pyqtSignal, Qt, QTimer, QThread
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QCheckBox, QTableWidget, QTableWidgetItem,
                              QHeaderView, QLineEdit, QComboBox, QMenu, QAbstractItemView,
                              QDialog, QFormLayout, QFileDialog, QMessageBox)
-from PyQt5.QtCore import pyqtSignal, Qt, QTimer, QThread
 
 from core.network.session import NetworkSession
 from modules.specifications.core.database import SpecsDatabase
+from modules.specifications.utils.utils import open_extracted_documents
 
 
 class SpecInfoDialog(QDialog):
@@ -243,6 +244,23 @@ class SpecificationsTab(QWidget):
                 pass
         return fallback
 
+    def _open_download_dir(self):
+        """Safely opens the configured download directory in File Explorer."""
+        target_dir = Path(self.dl_dir_input.text().strip())
+
+        # If the user typed a new path but hasn't downloaded anything yet, create it.
+        if not target_dir.exists():
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                QMessageBox.warning(self, "Directory Error", f"Could not create directory:\n{e}")
+                return
+
+        try:
+            os.startfile(str(target_dir))
+        except Exception as e:
+            QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
+
     def _save_settings(self):
         try:
             current_dir = self.dl_dir_input.text().strip()
@@ -265,9 +283,16 @@ class SpecificationsTab(QWidget):
         browse_btn = QPushButton("📂 Browse...")
         browse_btn.clicked.connect(self._browse_dir)
 
+        # ---> NEW: Compact "Open" Button
+        open_dir_btn = QPushButton("↗️ Open")
+        open_dir_btn.setToolTip("Open the base download folder in Windows Explorer")
+        open_dir_btn.setCursor(Qt.PointingHandCursor)
+        open_dir_btn.clicked.connect(self._open_download_dir)
+
         dir_layout.addWidget(QLabel("💾 Download Path:"))
         dir_layout.addWidget(self.dl_dir_input)
         dir_layout.addWidget(browse_btn)
+        dir_layout.addWidget(open_dir_btn)  # Added right next to Browse
         main_layout.addLayout(dir_layout)
 
         # --- COMPACT TOP PANEL ---
@@ -383,25 +408,55 @@ class SpecificationsTab(QWidget):
         dialog = SpecInfoDialog(details, self)
         dialog.exec_()
 
-    def _handle_download_action(self, combo: QComboBox, btn: QPushButton):
+    def _open_spec_folder(self, spec_num: str):
+        """Opens the base folder for the specification (e.g. .../specs/23.501)"""
+        target_dir = Path(self.dl_dir_input.text().strip()) / spec_num
+        if target_dir.exists():
+            try:
+                os.startfile(str(target_dir))
+            except Exception as e:
+                QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
+
+    # ---> UPGRADED: Now accepts the folder_btn to dynamically reveal it
+    def _handle_download_action(self, combo: QComboBox, btn: QPushButton, folder_btn: QPushButton):
         c_data = combo.currentData()
         if not c_data: return
 
         dl_dir = Path(self.dl_dir_input.text().strip())
         spec_dl_dir = dl_dir / c_data['spec_num']
 
+        # Action: OPEN DOCUMENTS
         if c_data['is_downloaded']:
-            target_path = spec_dl_dir / c_data['fname']
-            if target_path.with_suffix('').exists():
-                target_path = target_path.with_suffix('')
+            zip_path = spec_dl_dir / c_data['fname']
+            extracted_dir = zip_path.with_suffix('')
 
-            try:
-                os.startfile(target_path)
-            except Exception as e:
-                QMessageBox.warning(self, "Open Error", f"Could not open location:\n{e}")
+            if not extracted_dir.exists() and zip_path.exists():
+                try:
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(extracted_dir)
+                except Exception as e:
+                    QMessageBox.warning(self, "Extraction Error", f"Could not extract archive:\n{e}")
+                    return
+
+            if extracted_dir.exists():
+                opened_files = open_extracted_documents(extracted_dir)
+                if not opened_files:
+                    try:
+                        os.startfile(str(extracted_dir))
+                    except Exception as e:
+                        QMessageBox.warning(self, "Open Error", f"Could not open directory:\n{e}")
+            else:
+                try:
+                    os.startfile(str(spec_dl_dir))
+                except Exception as e:
+                    QMessageBox.warning(self, "Open Error", f"Could not open location:\n{e}")
             return
 
+        # Action: DOWNLOAD
         spec_dl_dir.mkdir(parents=True, exist_ok=True)
+        # ---> INSTANT UX: Reveal the folder button instantly because we just created the directory!
+        folder_btn.setVisible(True)
+
         zip_path = spec_dl_dir / c_data['fname']
 
         btn.setText("⏳ Downloading...")
@@ -414,6 +469,28 @@ class SpecificationsTab(QWidget):
         self._download_threads.append(thread)
         thread.finished.connect(lambda t=thread: self._download_threads.remove(t))
         thread.start()
+
+    def _handle_open_folder_action(self, combo: QComboBox):
+        """Opens the extracted folder for the specific version, or the base spec folder if not extracted."""
+        c_data = combo.currentData()
+        if not c_data: return
+
+        dl_dir = Path(self.dl_dir_input.text().strip())
+        spec_dl_dir = dl_dir / c_data['spec_num']
+        zip_path = spec_dl_dir / c_data['fname']
+        extracted_dir = zip_path.with_suffix('')
+
+        # Prefer opening the fully extracted specific version folder if it exists
+        target_path = extracted_dir if extracted_dir.exists() else spec_dl_dir
+
+        if not target_path.exists():
+            QMessageBox.information(self, "Not Found", "Folder does not exist yet. Please download the file first.")
+            return
+
+        try:
+            os.startfile(str(target_path))
+        except Exception as e:
+            QMessageBox.warning(self, "Open Error", f"Could not open directory:\n{e}")
 
     def _on_download_success(self, combo: QComboBox, btn: QPushButton):
         c_data = combo.currentData()
@@ -512,6 +589,10 @@ class SpecificationsTab(QWidget):
             for row_idx, (spec_num, data) in enumerate(rendered_specs):
                 self.table.insertRow(row_idx)
 
+                # Resolve the directory early so we can check if it exists
+                spec_target_dir = base_dl_dir / spec_num
+
+                # --- 1. COLUMN 0: Info Button + Folder Button + Spec Number ---
                 spec_widget = QWidget()
                 spec_layout = QHBoxLayout(spec_widget)
                 spec_layout.setContentsMargins(5, 0, 5, 0)
@@ -521,23 +602,37 @@ class SpecificationsTab(QWidget):
                 info_btn.setToolTip("View full specification details")
                 info_btn.setCursor(Qt.PointingHandCursor)
                 info_btn.setStyleSheet("""
-                    QPushButton { border: none; background: transparent; color: #0078D7; font-size: 18px; padding: 0px; margin: 0px; }
-                    QPushButton:hover { color: #004A85; }
-                """)
+                                QPushButton { border: none; background: transparent; color: #0078D7; font-size: 18px; padding: 0px; margin: 0px; }
+                                QPushButton:hover { color: #004A85; }
+                            """)
                 info_btn.clicked.connect(lambda _, s=spec_num: self._show_spec_info(s))
+
+                # ---> NEW: Specification-Level Folder Button
+                spec_folder_btn = QPushButton("📂")
+                spec_folder_btn.setFixedSize(24, 24)
+                spec_folder_btn.setToolTip("Open specification folder")
+                spec_folder_btn.setCursor(Qt.PointingHandCursor)
+                spec_folder_btn.setStyleSheet("""
+                                QPushButton { border: none; background: transparent; font-size: 16px; padding: 0px; margin: 0px; }
+                                QPushButton:hover { font-size: 18px; }
+                            """)
+                spec_folder_btn.setVisible(spec_target_dir.exists())  # Only show if downloaded!
+                spec_folder_btn.clicked.connect(lambda _, s=spec_num: self._open_spec_folder(s))
 
                 display_num = f"{data['type']} {spec_num}".strip()
                 spec_label = QLabel(display_num)
 
                 spec_layout.addWidget(info_btn)
+                spec_layout.addWidget(spec_folder_btn)
                 spec_layout.addWidget(spec_label)
                 spec_layout.addStretch()
                 self.table.setCellWidget(row_idx, 0, spec_widget)
 
+                # --- 2. COLUMN 1: Title ---
                 self.table.setItem(row_idx, 1, QTableWidgetItem(data['title'] if data['title'] else "Unknown Title"))
 
+                # --- 3. COLUMN 2: Version Dropdown & Download Button ---
                 version_combo = QComboBox()
-                spec_target_dir = base_dl_dir / spec_num
 
                 def parse_ver(v_str):
                     return [int(x) if x.isdigit() else x for x in str(v_str).split('.')]
@@ -560,7 +655,7 @@ class SpecificationsTab(QWidget):
                 def _update_btn_state(index_ignore=0, c=version_combo, b=download_btn):
                     c_data = c.currentData()
                     if c_data and c_data.get('is_downloaded'):
-                        b.setText("📂 Open")
+                        b.setText("📄 Open Docs")
                         b.setStyleSheet("font-weight: bold; color: #1E88E5;")
                     else:
                         b.setText("⬇️ Download")
@@ -569,8 +664,10 @@ class SpecificationsTab(QWidget):
                 version_combo.currentIndexChanged.connect(_update_btn_state)
                 _update_btn_state()
 
+                # ---> Note: We pass 'spec_folder_btn' into the action so it can be revealed when downloaded!
                 download_btn.clicked.connect(
-                    lambda _, c=version_combo, b=download_btn: self._handle_download_action(c, b))
+                    lambda _, c=version_combo, b=download_btn, fb=spec_folder_btn: self._handle_download_action(c, b,
+                                                                                                                fb))
 
                 cell_widget = QWidget()
                 layout = QHBoxLayout(cell_widget)
