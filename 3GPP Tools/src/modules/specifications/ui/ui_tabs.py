@@ -88,10 +88,7 @@ class SpecDownloadThread(QThread):
     def run(self):
         try:
             NetworkSession.download_file(self.url, self.zip_path)
-            extract_dir = self.zip_path.with_suffix('')
-            with zipfile.ZipFile(self.zip_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-            self.finished_success.emit(extract_dir)
+            self.finished_success.emit(self.zip_path)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -376,7 +373,7 @@ class SpecificationsTab(QWidget):
         # --- Data Table ---
         self.table = QTableWidget()
         self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["Specification", "Title", "Version / Download"])
+        self.table.setHorizontalHeaderLabels(["Specification", "Title", "Version / Documents"])
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
@@ -392,9 +389,7 @@ class SpecificationsTab(QWidget):
         main_layout.addWidget(self.table)
         self.setLayout(main_layout)
 
-    # ---> UPGRADED: Toggle Method for QueueManager
     def set_bg_sync_active(self, is_active: bool):
-        """Toggles the background sync warning and refreshes data when finished."""
         self.bg_sync_label.setVisible(is_active)
         if not is_active:
             self.refresh_table()
@@ -463,66 +458,141 @@ class SpecificationsTab(QWidget):
         url = f"https://www.3gpp.org/DynaReport/{clean_number}.htm"
         webbrowser.open(url)
 
-    def _handle_download_action(self, combo: QComboBox, btn: QPushButton):
+    def _handle_document_action(self, combo: QComboBox, doc_type: str, btn: QPushButton):
         c_data = combo.currentData()
         if not c_data: return
 
-        dl_dir = Path(self.dl_dir_input.text().strip())
-        spec_dl_dir = dl_dir / c_data['spec_num']
+        spec_dl_dir = Path(self.dl_dir_input.text().strip()) / c_data['spec_num']
+        zip_path = spec_dl_dir / c_data['fname']
+        stem = Path(c_data['fname']).stem
 
-        if c_data['is_downloaded']:
-            zip_path = spec_dl_dir / c_data['fname']
-            extracted_dir = zip_path.with_suffix('')
+        def _process_and_open():
+            extracted_docs = []
 
-            if not extracted_dir.exists() and zip_path.exists():
+            # 1. Flat Extraction (If zip exists and hasn't been extracted yet)
+            if zip_path.exists():
                 try:
-                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                        zip_ref.extractall(extracted_dir)
+                    with zipfile.ZipFile(zip_path, 'r') as z:
+                        for member in z.namelist():
+                            if '__MACOSX' in member or member.startswith('._'): continue
+
+                            if member.lower().endswith(('.doc', '.docx')):
+                                target_file = spec_dl_dir / Path(member).name
+                                if not target_file.exists():
+                                    target_file.write_bytes(z.read(member))
+
+                                if target_file not in extracted_docs:
+                                    extracted_docs.append(target_file)
                 except Exception as e:
-                    QMessageBox.warning(self, "Extraction Error", f"Could not extract archive:\n{e}")
+                    QMessageBox.warning(self, "Extraction Error", f"Failed to extract archive:\n{e}")
                     return
 
-            if extracted_dir.exists():
-                opened_files = open_extracted_documents(extracted_dir)
-                if not opened_files:
-                    try:
-                        os.startfile(str(extracted_dir))
-                    except Exception as e:
-                        QMessageBox.warning(self, "Open Error", f"Could not open directory:\n{e}")
-            else:
+            # Fallback: Find existing word docs on disk if zip didn't provide them (e.g. if zip was deleted manually)
+            if not extracted_docs:
+                extracted_docs = list(spec_dl_dir.glob(f"{stem}*.doc*"))
+
+            if not extracted_docs:
+                QMessageBox.warning(self, "Not Found", "No Word documents found on disk or inside the zip archive.")
+                return
+
+            # Lazy-load Converter
+            try:
+                from modules.word_tools.core.word_converter import WordConverterThread
+            except ImportError as e:
+                QMessageBox.warning(self, "Import Error", f"Could not import your existing word_converter:\n{e}")
+                return
+
+            # 2. Smart Conversion & Opening
+            for doc_path in extracted_docs:
                 try:
-                    os.startfile(str(spec_dl_dir))
+                    if doc_type == 'word':
+                        os.startfile(str(doc_path))
+
+                    elif doc_type in ('pdf', 'html'):
+                        target_ext = f".{doc_type}"
+                        target_path = doc_path.with_suffix(target_ext)
+
+                        if not target_path.exists():
+                            orig_text = btn.text()
+                            btn.setText("⏳ Converting...")
+                            btn.setEnabled(False)
+
+                            conv_thread = WordConverterThread(str(doc_path), doc_type)
+
+                            def on_success(p, c=combo, b=btn, txt=orig_text):
+                                try:
+                                    os.startfile(p)
+                                except Exception as e:
+                                    print(f"Error opening converted file: {e}")
+
+                                # Instantly force the row UI to update so the button turns Green ✅
+                                c.currentIndexChanged.emit(c.currentIndex())
+                                b.setText(txt)
+                                b.setEnabled(True)
+
+                            conv_thread.finished_path.connect(on_success)
+
+                            def cleanup(t=conv_thread, b=btn, txt=orig_text):
+                                if t in self._download_threads:
+                                    self._download_threads.remove(t)
+                                if not b.isEnabled():
+                                    b.setText(txt)
+                                    b.setEnabled(True)
+
+                            conv_thread.finished.connect(cleanup)
+                            self._download_threads.append(conv_thread)
+                            conv_thread.start()
+
+                        else:
+                            os.startfile(str(target_path))
+
                 except Exception as e:
-                    QMessageBox.warning(self, "Open Error", f"Could not open location:\n{e}")
-            return
+                    QMessageBox.warning(self, "Open Error", f"Could not open/convert {doc_type.upper()}:\n{e}")
 
-        spec_dl_dir.mkdir(parents=True, exist_ok=True)
-        zip_path = spec_dl_dir / c_data['fname']
+        # --- The Workflow Logic Gates ---
+        word_exists = any(spec_dl_dir.glob(f"{stem}*.doc*"))
+        target_exists = False
 
-        btn.setText("⏳ Downloading...")
-        btn.setEnabled(False)
+        if doc_type == 'word':
+            target_exists = word_exists
+        elif doc_type == 'pdf':
+            target_exists = any(spec_dl_dir.glob(f"{stem}*.pdf"))
+        elif doc_type == 'html':
+            target_exists = any(spec_dl_dir.glob(f"{stem}*.html"))
 
-        thread = SpecDownloadThread(c_data['url'], zip_path)
-        thread.finished_success.connect(lambda p: self._on_download_success(combo, btn))
-        thread.error.connect(lambda e: self._on_download_error(btn, e))
-        self._download_threads.append(thread)
-        thread.finished.connect(lambda t=thread: self._download_threads.remove(t))
-        thread.start()
+        # If the target exists, OR we have the Word doc to convert, OR we have the zip to extract... process locally!
+        if target_exists or word_exists or zip_path.exists():
+            _process_and_open()
+        else:
+            # We have nothing. Download the zip from the internet first.
+            spec_dl_dir.mkdir(parents=True, exist_ok=True)
 
-    def _on_download_success(self, combo: QComboBox, btn: QPushButton):
-        c_data = combo.currentData()
-        c_data['is_downloaded'] = True
-        idx = combo.currentIndex()
-        text = combo.itemText(idx)
-        if not text.startswith("✅"):
-            combo.setItemText(idx, f"✅ {text}")
-        btn.setText("📄 Open Docs")
-        btn.setEnabled(True)
+            idx = combo.currentIndex()
+            orig_text = combo.itemText(idx)
+            combo.setItemText(idx, "⏳ Downloading...")
+            combo.setEnabled(False)
 
-    def _on_download_error(self, btn: QPushButton, error_msg: str):
-        btn.setText("❌ Error")
-        btn.setEnabled(True)
-        QMessageBox.critical(self, "Download Failed", f"Network error during download:\n{error_msg}")
+            thread = SpecDownloadThread(c_data['url'], zip_path)
+
+            def _on_success(zp):
+                # Clean any formatting prefixes
+                clean_text = orig_text.replace('✅ ', '').replace('⚙️ ', '').replace('⬇️ ', '').strip()
+                combo.setItemText(idx, f"✅ {clean_text}")
+                combo.setEnabled(True)
+                _process_and_open()
+
+            def _on_err(err):
+                combo.setItemText(idx, "❌ Error")
+                combo.setEnabled(True)
+                QMessageBox.critical(self, "Download Failed", f"Network error:\n{err}")
+
+            thread.finished_success.connect(_on_success)
+            thread.error.connect(_on_err)
+
+            self._download_threads.append(thread)
+            thread.finished.connect(
+                lambda t=thread: self._download_threads.remove(t) if t in self._download_threads else None)
+            thread.start()
 
     def _open_table_filters(self):
         dialog = TableFilterDialog(self.db, self.table_filters, self)
@@ -658,48 +728,91 @@ class SpecificationsTab(QWidget):
 
                 self.table.setItem(row_idx, 1, QTableWidgetItem(data['title'] if data['title'] else "Unknown Title"))
 
-                # --- 3. COLUMN 2: Version Dropdown & Download Button ---
+                # --- COLUMN 2: Documents Action Bar ---
                 version_combo = QComboBox()
 
-                # ---> UPGRADED: Type-safe semantic version parser
+                # Type-safe semantic version parser
                 def parse_ver(v_str):
-                    # Wraps numbers in (0, val) and strings in (1, val) so they never crash!
                     return [(0, int(x)) if x.isdigit() else (1, str(x)) for x in str(v_str).split('.')]
 
                 sorted_versions = sorted(data['versions'], key=lambda x: parse_ver(x[0]), reverse=True)
 
                 for ver, url, fname in sorted_versions:
                     zip_path = spec_target_dir / fname
-                    extracted_dir = zip_path.with_suffix('')
-                    is_dl = zip_path.exists() or extracted_dir.exists()
+                    is_dl = zip_path.exists()
                     status = "✅ " if is_dl else ""
                     version_combo.addItem(f"{status}v{ver}", userData={
                         'url': url, 'fname': fname, 'spec_num': spec_num, 'is_downloaded': is_dl
                     })
 
-                download_btn = QPushButton()
-                download_btn.setCursor(Qt.PointingHandCursor)
+                # Action Buttons
+                word_btn = QPushButton("📝 Word")
+                pdf_btn = QPushButton("📕 PDF")
+                html_btn = QPushButton("🌐 HTML")
 
-                def _update_btn_state(index_ignore=0, c=version_combo, b=download_btn):
+                for b in (word_btn, pdf_btn, html_btn):
+                    b.setCursor(Qt.PointingHandCursor)
+
+                # ---> 3-STATE DYNAMIC UI CHECKER
+                def _update_btn_state(index_ignore=0, c=version_combo, wb=word_btn, pb=pdf_btn, hb=html_btn):
                     c_data = c.currentData()
-                    if c_data and c_data.get('is_downloaded'):
-                        b.setText("📄 Open Docs")
-                        b.setStyleSheet("font-weight: bold; color: #1E88E5;")
-                    else:
-                        b.setText("⬇️ Download")
-                        b.setStyleSheet("")
+                    if not c_data: return
 
+                    stem = Path(c_data['fname']).stem
+                    zip_exists = (spec_target_dir / c_data['fname']).exists()
+
+                    word_exists = any(spec_target_dir.glob(f"{stem}*.doc*"))
+                    pdf_exists = any(spec_target_dir.glob(f"{stem}*.pdf"))
+                    html_exists = any(spec_target_dir.glob(f"{stem}*.html"))
+
+                    def style_btn(btn, exists, icon, name):
+                        if exists:
+                            # State 1: File is ready locally
+                            btn.setText(f"{icon} {name} ✅")
+                            btn.setStyleSheet("""
+                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
+                                QPushButton:hover { background-color: #C8E6C9; }
+                            """)
+                        elif word_exists or zip_exists:
+                            # State 2: Can be processed entirely offline (Zip->Extract, or Word->Convert)
+                            action = "Extract" if name == "Word" else "Convert"
+                            btn.setText(f"⚙️ {action}")
+                            btn.setStyleSheet("""
+                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; } 
+                                QPushButton:hover { background-color: #FFE0B2; }
+                            """)
+                        else:
+                            # State 3: Requires Network Download
+                            btn.setText(f"⬇️ Get {name}")
+                            btn.setStyleSheet("""
+                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
+                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
+                            """)
+
+                    style_btn(wb, word_exists, "📝", "Word")
+                    style_btn(pb, pdf_exists, "📕", "PDF")
+                    style_btn(hb, html_exists, "🌐", "HTML")
+
+                # Bind the UI style updater
                 version_combo.currentIndexChanged.connect(_update_btn_state)
                 _update_btn_state()
 
-                download_btn.clicked.connect(
-                    lambda _, c=version_combo, b=download_btn: self._handle_download_action(c, b))
+                # Bind the specific buttons to the specific document extensions
+                word_btn.clicked.connect(
+                    lambda _, c=version_combo, b=word_btn: self._handle_document_action(c, 'word', b))
+                pdf_btn.clicked.connect(lambda _, c=version_combo, b=pdf_btn: self._handle_document_action(c, 'pdf', b))
+                html_btn.clicked.connect(
+                    lambda _, c=version_combo, b=html_btn: self._handle_document_action(c, 'html', b))
 
                 cell_widget = QWidget()
                 layout = QHBoxLayout(cell_widget)
                 layout.setContentsMargins(0, 0, 0, 0)
+                layout.setSpacing(4)
+
                 layout.addWidget(version_combo)
-                layout.addWidget(download_btn)
+                layout.addWidget(word_btn)
+                layout.addWidget(pdf_btn)
+                layout.addWidget(html_btn)
 
                 self.table.setCellWidget(row_idx, 2, cell_widget)
 
