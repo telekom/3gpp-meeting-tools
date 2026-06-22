@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import QApplication, QDialog
 from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from core.utils.utils import get_best_java
 from core.utils.paths import get_project_root
+from modules.meetings.plugin_loader import register_meetings_plugin
 from modules.puml2visio.plugin_loader import register_puml2visio_plugin
 from main_window import DragDropUI
 from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
@@ -49,6 +50,7 @@ if __name__ == '__main__':
     register_puml2visio_plugin()
     register_word_plugin()
     register_specs_plugin()
+    register_meetings_plugin()
 
     app = QApplication(sys.argv)
     app.setWindowIcon(create_app_icon())

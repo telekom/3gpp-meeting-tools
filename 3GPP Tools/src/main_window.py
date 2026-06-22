@@ -12,6 +12,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
 from core.ui.ui_components import ProxyDialog
+from modules.meetings.ui.ui_tabs import MeetingsTab
 from modules.puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab
 from core.queue_manager import QueueManager
 
@@ -157,10 +158,23 @@ class DragDropUI(QMainWindow):
             )
         )
 
+        # Instantiate the tab
+        self.meetings_tab = MeetingsTab(db_path)
+
+        # Connect the update signal to the QueueManager
+        self.meetings_tab.update_db_requested.connect(
+            lambda: self.queue_manager.add_item(
+                Path("3GPP_Meetings"),
+                "update_meetings_db",
+                {"db_path": db_path}
+            )
+        )
+
         self.tabs.addTab(self.code_tab, "📝 Code Editor")
         self.tabs.addTab(self.batch_tab, "📂 Batch Convert")
         self.tabs.addTab(self.word_tab, "📄 Word Tools")
         self.tabs.addTab(self.specs_tab, "📚 3GPP Specifications")
+        self.tabs.addTab(self.meetings_tab, "🗓️ 3GPP Meetings")
         self.tabs.setEnabled(False)
 
         # --- TAB CORNER HELP WIDGET ---
@@ -440,6 +454,12 @@ class DragDropUI(QMainWindow):
                     self.log_message(f"👁️ Opened {ext} in default system viewer.")
                 except Exception as e:
                     self.log_message(f"⚠️ Could not automatically open file: {e}")
+
+        elif out_path == "MEETINGS_DB_PASS_ONE" or out_path == "MEETINGS_DB_PASS_TWO":
+            self.log_message("🔄 Reloading meetings table...", logging.INFO)
+            if hasattr(self, 'meetings_tab'):
+                self.meetings_tab._populate_filters()
+                self.meetings_tab.refresh_table()
 
     def log_message(self, message: str, level=logging.INFO):
         self.console_panel.log_message(message, level)
