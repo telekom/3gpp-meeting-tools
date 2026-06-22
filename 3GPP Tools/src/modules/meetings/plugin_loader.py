@@ -5,12 +5,11 @@ from modules.meetings.core.scraper import MeetingsCrawlerThread
 
 
 def register_meetings_plugin():
-    """Registers the 3GPP Meetings background tasks with the global QueueManager."""
-
     register_task(
         target_format="update_meetings_db",
         display_name="Sync 3GPP Meetings",
         thread_factory=lambda file_path, params, app_context: MeetingsCrawlerThread(
-            db_path=params["db_path"]
+            db_path=params["db_path"],
+            target_meetings=params.get("target_meetings", []) # <--- Add this!
         )
     )

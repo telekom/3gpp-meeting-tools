@@ -76,7 +76,8 @@ class MeetingsDatabase:
                 WHERE wg_id = ? AND meeting_number = ?
             ''', (name, location, start_date, end_date, wg_id, meeting_number))
 
-    def search_meetings(self, wg_name: str = None, search_term: str = None) -> list:
+    def search_meetings(self, wg_name: str = None, search_term: str = None,
+                        location: str = None, date_from: str = None, date_to: str = None) -> list:
         query = """
             SELECT m.id, wg.name as wg_name, m.meeting_number, m.name, m.location, 
                    m.start_date, m.end_date, m.first_tdoc, m.last_tdoc, m.url_key, m.docs_folder_url
@@ -86,14 +87,26 @@ class MeetingsDatabase:
         """
         params = []
 
-        if wg_name and wg_name != "All":
+        if wg_name and wg_name != "All WGs":
             query += " AND wg.name = ?"
             params.append(wg_name)
 
         if search_term:
-            query += " AND (m.meeting_number LIKE ? OR m.name LIKE ? OR m.location LIKE ?)"
+            query += " AND (m.meeting_number LIKE ? OR m.name LIKE ?)"
             term = f"%{search_term}%"
-            params.extend([term, term, term])
+            params.extend([term, term])
+
+        if location:
+            query += " AND m.location LIKE ?"
+            params.append(f"%{location}%")
+
+        if date_from:
+            query += " AND m.start_date >= ?"
+            params.append(date_from)
+
+        if date_to:
+            query += " AND m.end_date <= ?"
+            params.append(date_to)
 
         query += " ORDER BY m.start_date DESC"
 
@@ -101,7 +114,6 @@ class MeetingsDatabase:
             cursor = conn.cursor()
             cursor.execute(query, params)
 
-            # Return as dictionaries for easy UI population
             columns = [col[0] for col in cursor.description]
             return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
