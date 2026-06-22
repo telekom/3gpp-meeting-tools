@@ -3,7 +3,8 @@ import webbrowser
 from pathlib import Path
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
-                             QMenu, QLabel, QCheckBox, QDateEdit, QSplitter, QDialog)
+                             QMenu, QLabel, QCheckBox, QDateEdit, QSplitter,
+                             QDialog, QMessageBox)
 from PyQt5.QtCore import Qt, pyqtSignal, QAbstractTableModel, QModelIndex, QDate, QPoint
 
 from modules.meetings.core.meetings_db import MeetingsDatabase
@@ -14,7 +15,6 @@ from modules.specifications.ui.components import HoverMenuButton
 # --- HELPER & DIALOG: MEETING INFO ---
 # ==========================================
 def _format_meeting_info(data: dict) -> str:
-    """Safely formats all database parameters into a clean HTML block, handling None values."""
     if not data: return ""
 
     def clean(val): return str(val) if val else "N/A"
@@ -34,8 +34,6 @@ def _format_meeting_info(data: dict) -> str:
 
 
 class MeetingInfoDialog(QDialog):
-    """A silent QDialog to show meeting info without triggering the Windows alert sound."""
-
     def __init__(self, data: dict, parent=None):
         super().__init__(parent)
         title_str = f"{data.get('wg_name', '')} {data.get('meeting_number', '')}".strip()
@@ -44,7 +42,6 @@ class MeetingInfoDialog(QDialog):
         self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; }")
 
         layout = QVBoxLayout(self)
-
         info_label = QLabel(_format_meeting_info(data))
         info_label.setWordWrap(True)
         info_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -68,15 +65,13 @@ class MeetingsTableModel(QAbstractTableModel):
         self._headers = ["", "WG", "Meeting", "Name", "Location", "Start Date", "End Date"]
 
     def data(self, index, role):
-        if not index.isValid():
-            return None
-
+        if not index.isValid(): return None
         row_data = self._data[index.row()]
 
         if role == Qt.DisplayRole:
             col = index.column()
             if col == 0:
-                return ""  # Left empty for the HoverMenuButton
+                return ""
             elif col == 1:
                 return row_data.get("wg_name", "")
             elif col == 2:
@@ -91,8 +86,7 @@ class MeetingsTableModel(QAbstractTableModel):
                 return row_data.get("end_date", "")
 
         elif role == Qt.TextAlignmentRole:
-            if index.column() in [0, 1, 2, 5, 6]:
-                return Qt.AlignCenter
+            if index.column() in [0, 1, 2, 5, 6]: return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
         elif role == Qt.UserRole:
@@ -148,7 +142,7 @@ class MeetingsTab(QWidget):
         self.table.setModel(self.table_model)
 
         self.table.setSelectionBehavior(QTableView.SelectRows)
-        self.table.setSelectionMode(QTableView.ExtendedSelection)  # <--- MULTI-SELECT ENABLED HERE
+        self.table.setSelectionMode(QTableView.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setStyleSheet("""
@@ -159,13 +153,13 @@ class MeetingsTab(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setSectionResizeMode(0, QHeaderView.Fixed)
-        header.resizeSection(0, 40)  # Kebab
-        header.resizeSection(1, 60)  # WG
-        header.resizeSection(2, 80)  # Meeting Num
-        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Name
-        header.resizeSection(4, 150)  # Location
-        header.resizeSection(5, 90)  # Start
-        header.resizeSection(6, 90)  # End
+        header.resizeSection(0, 40)
+        header.resizeSection(1, 60)
+        header.resizeSection(2, 80)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        header.resizeSection(4, 150)
+        header.resizeSection(5, 90)
+        header.resizeSection(6, 90)
 
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_right_click_menu)
@@ -222,10 +216,17 @@ class MeetingsTab(QWidget):
 
         right_layout.addStretch()
 
+        # Update Button
         self.update_btn = QPushButton("🔄 Sync All Meetings")
         self.update_btn.setStyleSheet("padding: 8px; font-weight: bold;")
         self.update_btn.clicked.connect(self.update_db_requested.emit)
         right_layout.addWidget(self.update_btn)
+
+        # DELETION BUTTON
+        self.delete_all_btn = QPushButton("🗑️ Clear All Meetings")
+        self.delete_all_btn.setStyleSheet("padding: 8px; font-weight: bold; color: #D83B01;")
+        self.delete_all_btn.clicked.connect(self._confirm_delete_all)
+        right_layout.addWidget(self.delete_all_btn)
 
         self.splitter.addWidget(right_widget)
         self.splitter.setSizes([750, 250])
@@ -233,6 +234,34 @@ class MeetingsTab(QWidget):
         main_layout.addWidget(self.splitter)
         self._populate_filters()
 
+    # --- DELETION LOGIC ---
+    def _confirm_delete_all(self):
+        reply = QMessageBox.question(self, 'Confirm Database Clear',
+                                     "Are you sure you want to delete ALL meetings from the database? This cannot be undone.",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.db.delete_all_meetings()
+            self.refresh_table()
+
+    def _confirm_delete_specific(self, targets: list):
+        plural = "s" if len(targets) > 1 else ""
+        reply = QMessageBox.question(self, 'Confirm Deletion',
+                                     f"Are you sure you want to delete the selected {len(targets)} meeting{plural}?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.db.delete_specific_meetings(targets)
+            self.refresh_table()
+
+    def _emit_multi_delete(self, selected_rows):
+        targets = []
+        for r in selected_rows:
+            row_data = self.table_model.data(r, Qt.UserRole)
+            if row_data:
+                targets.append({"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")})
+        if targets:
+            self._confirm_delete_specific(targets)
+
+    # --- EXISTING LOGIC ---
     def _toggle_date_inputs(self, checked):
         self.date_from.setEnabled(checked)
         self.date_to.setEnabled(checked)
@@ -258,43 +287,36 @@ class MeetingsTab(QWidget):
             date_to = self.date_to.date().toString("yyyy-MM-dd")
 
         data = self.db.search_meetings(
-            wg_name=wg,
-            search_term=search,
-            location=location,
-            date_from=date_from,
-            date_to=date_to
+            wg_name=wg, search_term=search, location=location,
+            date_from=date_from, date_to=date_to
         )
         self.table_model.update_data(data)
 
-        # Rebuild the Hover Menus for the updated data
         for row_idx, row_data in enumerate(data):
             self._inject_hover_menu(row_idx, row_data)
 
     def _emit_multi_sync(self, selected_rows):
-        """Extracts data from multiple selected rows and emits the update request."""
         targets = []
         for r in selected_rows:
             row_data = self.table_model.data(r, Qt.UserRole)
             if row_data:
                 targets.append({"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")})
-
         if targets:
             self.update_specific_requested.emit(targets)
 
     def _populate_dynamic_menu(self, menu: QMenu, row_data: dict, row_idx: int):
-        """Dynamically populates the menu based on the current table selection state."""
         menu.clear()
         selected_rows = self.table.selectionModel().selectedRows()
-
-        # Check if the clicked/hovered row is part of a multiple selection
         is_multi_select = len(selected_rows) > 1 and any(r.row() == row_idx for r in selected_rows)
 
         if is_multi_select:
-            # --- BULK ACTION MODE ---
             update_action = menu.addAction(f"🔄 Sync selected ({len(selected_rows)} meetings)")
             update_action.triggered.connect(lambda _, rows=selected_rows: self._emit_multi_sync(rows))
+
+            menu.addSeparator()
+            delete_action = menu.addAction(f"🗑️ Delete selected ({len(selected_rows)} meetings)")
+            delete_action.triggered.connect(lambda _, rows=selected_rows: self._emit_multi_delete(rows))
         else:
-            # --- SINGLE ACTION MODE ---
             info_action = menu.addAction("ℹ️ Meeting Info")
             info_action.triggered.connect(lambda _, d=row_data: self.show_meeting_info(d))
 
@@ -311,10 +333,15 @@ class MeetingsTab(QWidget):
             if url_key:
                 page_action = menu.addAction("🌐 Open Main Folder (FTP)")
                 page_action.triggered.connect(lambda: webbrowser.open(url_key))
-
             if docs_url:
                 docs_action = menu.addAction("📂 Open Documents Folder")
                 docs_action.triggered.connect(lambda: webbrowser.open(docs_url))
+
+            menu.addSeparator()
+            delete_action = menu.addAction("🗑️ Delete this Meeting")
+            delete_action.triggered.connect(lambda: self._confirm_delete_specific([
+                {"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}
+            ]))
 
     def _inject_hover_menu(self, row_idx: int, row_data: dict):
         action_btn = HoverMenuButton("⋮")
@@ -333,7 +360,6 @@ class MeetingsTab(QWidget):
             QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
         """)
 
-        # Connect the aboutToShow signal so the menu intelligently builds itself based on what is selected
         menu.aboutToShow.connect(lambda m=menu, d=row_data, i=row_idx: self._populate_dynamic_menu(m, d, i))
         action_btn.setMenu(menu)
 
@@ -358,7 +384,6 @@ class MeetingsTab(QWidget):
                 QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
             """)
 
-            # Use the same dynamic logic for standard right-clicks
             self._populate_dynamic_menu(menu, row_data, index.row())
             global_pos = self.table.viewport().mapToGlobal(pos)
             menu.exec_(global_pos)

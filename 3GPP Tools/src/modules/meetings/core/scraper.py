@@ -66,7 +66,6 @@ class MeetingsCrawlerThread(QThread):
         """Extracts the meeting number, ignoring 3G prefixes and normalizing hyphens."""
         match = re.search(r'(?:^|_|-)(AH\d*|\d+(?:-?bis|-?e|-?a|-?b)?)(?:_|-|$)', folder_name, re.IGNORECASE)
         if match:
-            # Remove hyphens so "114-e" becomes "114E" to perfectly match Pass 2
             return match.group(1).replace('-', '').upper()
         return folder_name
 
@@ -108,16 +107,16 @@ class MeetingsCrawlerThread(QThread):
 
         return meeting_tasks
 
-    def process_individual_meeting(self, task: dict):
-        """Checks the Docs/ folder for a single meeting and saves to DB."""
+    def process_individual_meeting(self, task: dict) -> int:
+        """Checks the Docs/ folder for a single meeting. Returns the number of TDocs found."""
         absolute_url = task["absolute_url"]
         docs_url = ""
         first_tdoc, last_tdoc = "", ""
+        tdoc_count = 0
 
         for doc_folder in ["Docs/", "docs/"]:
             test_docs_url = urljoin(absolute_url, doc_folder)
             try:
-                # Tight timeout since most 404s will hang
                 docs_html = NetworkSession.get_html(test_docs_url, timeout=5)
                 docs_url = test_docs_url
 
@@ -129,6 +128,7 @@ class MeetingsCrawlerThread(QThread):
                     tdoc_files.sort()
                     first_tdoc = tdoc_files[0]
                     last_tdoc = tdoc_files[-1]
+                    tdoc_count = len(tdoc_files)  # <--- COUNT EXTRACTED HERE
                 break
             except Exception:
                 pass
@@ -137,9 +137,9 @@ class MeetingsCrawlerThread(QThread):
             task["wg_name"], task["folder_name"], task["meeting_num"],
             task["url_key"], docs_url, first_tdoc, last_tdoc
         )
+        return tdoc_count
 
     def process_dynareport(self, wg_name: str, dyna_url: str):
-        # [Unchanged DynaReport parsing logic]
         try:
             html = NetworkSession.get_html(dyna_url)
             soup = BeautifulSoup(html, 'html.parser')
@@ -157,7 +157,6 @@ class MeetingsCrawlerThread(QThread):
                     if not meeting_num or meeting_name.lower() == "meeting":
                         continue
 
-                    # Combine meeting num and sub letter and strip hyphens (e.g., 149 + -E = 149E)
                     full_meeting_num = f"{meeting_num}{sub_num}".replace('-', '').strip().upper()
 
                     if self.target_meetings:
@@ -191,10 +190,12 @@ class MeetingsCrawlerThread(QThread):
                 futures = {executor.submit(self.fetch_wg_directories, wg, data["ftp"]): wg for wg, data in
                            MEETING_SOURCES.items()}
                 for future in as_completed(futures):
-                    if future.result():  # Only extend if it found tasks
+                    if future.result():
                         all_meeting_tasks.extend(future.result())
 
             total_meetings = len(all_meeting_tasks)
+            total_tdocs_found = 0  # <--- GLOBAL TDoc COUNTER
+
             if total_meetings > 0:
                 self.ui_log_msg.emit(f"📥 Found {total_meetings} meetings. Initiating deep scrape...", logging.INFO)
 
@@ -206,18 +207,24 @@ class MeetingsCrawlerThread(QThread):
 
                     for future in as_completed(futures):
                         completed += 1
-                        if completed % 50 == 0 or completed == total_meetings:
-                            if not self.target_meetings:
-                                self.ui_log_msg.emit(f"⏳ FTP Scanned {completed}/{total_meetings} meetings...",
-                                                     logging.INFO)
+                        try:
+                            # Add the number of files found in this folder to the total
+                            total_tdocs_found += future.result()
+                        except Exception:
+                            pass
 
-            self.ui_log_msg.emit("✅ Pass 1 Complete. Unblocking interface...", logging.INFO)
+                        if completed % 50 == 0 or completed == total_meetings:
+                            self.ui_log_msg.emit(
+                                f"⏳ Scanned {completed}/{total_meetings} meetings | TDocs found: {total_tdocs_found}",
+                                logging.INFO)
+
+            self.ui_log_msg.emit(f"✅ Pass 1 Complete. Indexed {total_tdocs_found} total TDocs! Unblocking interface...",
+                                 logging.INFO)
             self.finished_path.emit("MEETINGS_DB_PASS_ONE")
 
             # --- 3. Pass 2 (DynaReports) - OPTIMIZED ---
             self.ui_log_msg.emit("⏳ Pass 2: Updating meeting metadata from DynaReports...", logging.INFO)
 
-            # Determine exactly which WGs we need to fetch DynaReports for.
             if self.target_meetings:
                 wgs_to_fetch = {t["wg"] for t in self.target_meetings if t["wg"] in MEETING_SOURCES}
             else:
@@ -229,7 +236,7 @@ class MeetingsCrawlerThread(QThread):
                     for wg in wgs_to_fetch
                 }
                 for future in as_completed(dyna_futures):
-                    pass  # Errors are handled inside process_dynareport
+                    pass
 
             self.ui_log_msg.emit("✅ 3GPP Meetings Database Fully Updated!", logging.INFO)
             self.finished_path.emit("MEETINGS_DB_PASS_TWO")
