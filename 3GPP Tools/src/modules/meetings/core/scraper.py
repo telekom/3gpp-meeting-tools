@@ -1,6 +1,7 @@
 # --- File: modules/meetings/core/scraper.py ---
 import logging
 import re
+import time
 from pathlib import Path
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -132,22 +133,34 @@ class MeetingsCrawlerThread(QThread):
         tdoc_count = 0
 
         for doc_folder in ["Docs/", "docs/"]:
+            self.ui_log_msg.emit(f"Checking {doc_folder} folder for {absolute_url}", logging.INFO)
             test_docs_url = urljoin(absolute_url, doc_folder)
             try:
+                start_time_fetch = time.perf_counter()
                 docs_html = NetworkSession.get_html(test_docs_url, timeout=5)
                 docs_url = test_docs_url
+                end_time_fetch = time.perf_counter()
+                execution_time_fetch = end_time_fetch - start_time_fetch
 
+                start_time_parse = time.perf_counter()
                 d_soup = BeautifulSoup(docs_html, 'html.parser')
                 tdoc_files = [a.text for a in d_soup.find_all('a', href=True) if
                               a.text.endswith(('.zip', '.doc', '.docx', '.pdf'))]
+                end_time_parse = time.perf_counter()
+                execution_time_parse = end_time_parse - start_time_parse
+
+                self.ui_log_msg.emit(f"Fetched {doc_folder} in {execution_time_fetch}s. Parsed in {execution_time_parse}s", logging.INFO)
 
                 if tdoc_files:
                     tdoc_files.sort()
                     first_tdoc = tdoc_files[0]
                     last_tdoc = tdoc_files[-1]
                     tdoc_count = len(tdoc_files)  # <--- COUNT EXTRACTED HERE
+
+                # There is either docs or Docs. No need to crawl both
                 break
-            except Exception:
+            except Exception as e:
+                self.ui_log_msg.emit(f"⚠️ Document folder Error for {absolute_url}: {e}", logging.WARNING)
                 pass
 
         self.db.insert_or_update_meeting_pass1(
@@ -158,6 +171,7 @@ class MeetingsCrawlerThread(QThread):
 
     def process_dynareport(self, wg_name: str, dyna_url: str):
         try:
+            self.ui_log_msg.emit(f"Processing DynaReport for {wg_name}", logging.INFO)
             html = NetworkSession.get_html(dyna_url)
             soup = BeautifulSoup(html, 'html.parser')
 
