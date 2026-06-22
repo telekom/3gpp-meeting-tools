@@ -3,8 +3,8 @@ import webbrowser
 from pathlib import Path
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
-                             QMessageBox, QMenu)
-from PyQt5.QtCore import Qt, pyqtSignal, QAbstractTableModel, QModelIndex, QPoint
+                             QMessageBox, QMenu, QLabel, QCheckBox, QDateEdit, QSplitter)
+from PyQt5.QtCore import Qt, pyqtSignal, QAbstractTableModel, QModelIndex, QPoint, QDate
 
 from modules.meetings.core.meetings_db import MeetingsDatabase
 
@@ -36,7 +36,7 @@ class MeetingsTableModel(QAbstractTableModel):
             elif col == 5:
                 return row_data.get("end_date", "")
             elif col == 6:
-                return "⋮"  # Kebab menu column
+                return "⋮"
 
         elif role == Qt.TextAlignmentRole:
             if index.column() in [0, 1, 4, 5, 6]:
@@ -44,7 +44,7 @@ class MeetingsTableModel(QAbstractTableModel):
             return Qt.AlignLeft | Qt.AlignVCenter
 
         elif role == Qt.UserRole:
-            return row_data  # Return full dict for Kebab menu actions
+            return row_data
 
         return None
 
@@ -66,7 +66,9 @@ class MeetingsTableModel(QAbstractTableModel):
 
 
 class MeetingsTab(QWidget):
+    # --- SIGNALS MUST BE DEFINED HERE AT THE CLASS LEVEL ---
     update_db_requested = pyqtSignal()
+    update_specific_requested = pyqtSignal(list)
 
     def __init__(self, db_path: Path):
         super().__init__()
@@ -75,33 +77,18 @@ class MeetingsTab(QWidget):
         self.refresh_table()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        main_layout = QHBoxLayout(self)
+        self.splitter = QSplitter(Qt.Horizontal)
 
-        # --- Top Filter Bar ---
-        filter_layout = QHBoxLayout()
+        # --- Left Side: Table View ---
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.wg_filter = QComboBox()
-        self.wg_filter.addItem("All WGs")
-        self.wg_filter.currentIndexChanged.connect(self.refresh_table)
-
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍 Search by Meeting No, Name, or Location...")
-        self.search_input.textChanged.connect(self.refresh_table)
-
-        self.update_btn = QPushButton("🔄 Sync Meetings")
-        self.update_btn.clicked.connect(self.update_db_requested.emit)
-
-        filter_layout.addWidget(self.wg_filter)
-        filter_layout.addWidget(self.search_input)
-        filter_layout.addWidget(self.update_btn)
-        layout.addLayout(filter_layout)
-
-        # --- Table View ---
         self.table = QTableView()
         self.table_model = MeetingsTableModel()
         self.table.setModel(self.table_model)
 
-        # Table Styling
         self.table.setSelectionBehavior(QTableView.SelectRows)
         self.table.setSelectionMode(QTableView.SingleSelection)
         self.table.setAlternatingRowColors(True)
@@ -111,28 +98,89 @@ class MeetingsTab(QWidget):
             QTableView::item:selected { background-color: #cce8ff; color: #000; }
         """)
 
-        # Column Sizing
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.resizeSection(0, 60)  # WG
-        header.resizeSection(1, 80)  # Meeting Num
-        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Name
-        header.resizeSection(3, 150)  # Location
-        header.resizeSection(4, 100)  # Start
-        header.resizeSection(5, 100)  # End
+        header.resizeSection(0, 60)
+        header.resizeSection(1, 80)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.resizeSection(3, 150)
+        header.resizeSection(4, 90)
+        header.resizeSection(5, 90)
         header.setSectionResizeMode(6, QHeaderView.Fixed)
-        header.resizeSection(6, 40)  # Kebab
+        header.resizeSection(6, 40)
 
-        # Connect Context Menu for Kebab clicks
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_kebab_menu)
         self.table.clicked.connect(self.on_table_clicked)
 
-        layout.addWidget(self.table)
+        left_layout.addWidget(self.table)
+        self.splitter.addWidget(left_widget)
+
+        # --- Right Side: Filter Panel ---
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setAlignment(Qt.AlignTop)
+
+        title_lbl = QLabel("<b>Filter & Sync</b>")
+        title_lbl.setStyleSheet("font-size: 14px; margin-bottom: 10px;")
+        right_layout.addWidget(title_lbl)
+
+        right_layout.addWidget(QLabel("Working Group:"))
+        self.wg_filter = QComboBox()
+        self.wg_filter.addItem("All WGs")
+        self.wg_filter.currentIndexChanged.connect(self.refresh_table)
+        right_layout.addWidget(self.wg_filter)
+
+        right_layout.addWidget(QLabel("Search (No. or Name):"))
+        self.search_input = QLineEdit()
+        self.search_input.textChanged.connect(self.refresh_table)
+        right_layout.addWidget(self.search_input)
+
+        right_layout.addWidget(QLabel("Location:"))
+        self.location_input = QLineEdit()
+        self.location_input.textChanged.connect(self.refresh_table)
+        right_layout.addWidget(self.location_input)
+
+        right_layout.addSpacing(10)
+        self.enable_dates_cb = QCheckBox("Filter by Date Range")
+        self.enable_dates_cb.toggled.connect(self._toggle_date_inputs)
+        self.enable_dates_cb.toggled.connect(self.refresh_table)
+        right_layout.addWidget(self.enable_dates_cb)
+
+        self.date_from = QDateEdit()
+        self.date_from.setCalendarPopup(True)
+        self.date_from.setDate(QDate.currentDate().addYears(-1))
+        self.date_from.dateChanged.connect(self.refresh_table)
+        self.date_from.setEnabled(False)
+        right_layout.addWidget(QLabel("Start Date (From):"))
+        right_layout.addWidget(self.date_from)
+
+        self.date_to = QDateEdit()
+        self.date_to.setCalendarPopup(True)
+        self.date_to.setDate(QDate.currentDate().addYears(1))
+        self.date_to.dateChanged.connect(self.refresh_table)
+        self.date_to.setEnabled(False)
+        right_layout.addWidget(QLabel("End Date (To):"))
+        right_layout.addWidget(self.date_to)
+
+        right_layout.addStretch()
+
+        self.update_btn = QPushButton("🔄 Sync All Meetings")
+        self.update_btn.setStyleSheet("padding: 8px; font-weight: bold;")
+        self.update_btn.clicked.connect(self.update_db_requested.emit)
+        right_layout.addWidget(self.update_btn)
+
+        self.splitter.addWidget(right_widget)
+        self.splitter.setSizes([750, 250])
+
+        main_layout.addWidget(self.splitter)
         self._populate_filters()
 
+    def _toggle_date_inputs(self, checked):
+        self.date_from.setEnabled(checked)
+        self.date_to.setEnabled(checked)
+
     def _populate_filters(self):
-        """Loads available Working Groups into the dropdown."""
         wgs = self.db.get_working_groups()
         self.wg_filter.blockSignals(True)
         self.wg_filter.clear()
@@ -141,23 +189,33 @@ class MeetingsTab(QWidget):
         self.wg_filter.blockSignals(False)
 
     def refresh_table(self):
-        """Fetches data from DB based on current filters."""
-        wg = self.wg_filter.currentText() if self.wg_filter.currentIndex() > 0 else None
+        wg = self.wg_filter.currentText()
         search = self.search_input.text().strip()
+        location = self.location_input.text().strip()
 
-        data = self.db.search_meetings(wg_name=wg, search_term=search)
+        date_from = None
+        date_to = None
+
+        if self.enable_dates_cb.isChecked():
+            date_from = self.date_from.date().toString("yyyy-MM-dd")
+            date_to = self.date_to.date().toString("yyyy-MM-dd")
+
+        data = self.db.search_meetings(
+            wg_name=wg,
+            search_term=search,
+            location=location,
+            date_from=date_from,
+            date_to=date_to
+        )
         self.table_model.update_data(data)
 
     def on_table_clicked(self, index):
-        """Trigger the menu on left click if the kebab column is clicked."""
         if index.column() == 6:
-            # Calculate position to show menu right under the cell
             rect = self.table.visualRect(index)
             pos = self.table.viewport().mapToGlobal(rect.bottomRight())
             self._show_menu(index, pos)
 
     def show_kebab_menu(self, pos: QPoint):
-        """Trigger the menu on right click anywhere on the row."""
         index = self.table.indexAt(pos)
         if index.isValid():
             global_pos = self.table.viewport().mapToGlobal(pos)
@@ -169,13 +227,17 @@ class MeetingsTab(QWidget):
 
         menu = QMenu(self)
 
-        # Info Action
         info_action = menu.addAction("ℹ️ Meeting Info")
         info_action.triggered.connect(lambda: self.show_meeting_info(row_data))
 
+        # --- THE SPECIFIC UPDATE ACTION IS NOW PROPERLY WIRED ---
+        update_action = menu.addAction("🔄 Sync this Meeting")
+        update_action.triggered.connect(lambda: self.update_specific_requested.emit([
+            {"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}
+        ]))
+
         menu.addSeparator()
 
-        # Web Links
         url_key = row_data.get("url_key")
         docs_url = row_data.get("docs_folder_url")
 
@@ -190,7 +252,6 @@ class MeetingsTab(QWidget):
         menu.exec_(global_pos)
 
     def show_meeting_info(self, data: dict):
-        """Displays a clean popup with all meeting data."""
         info = (
             f"<b>Meeting:</b> {data.get('wg_name')} {data.get('meeting_number')}<br><br>"
             f"<b>Name:</b> {data.get('name') or 'N/A'}<br>"

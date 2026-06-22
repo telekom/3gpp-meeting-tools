@@ -10,7 +10,6 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.network.session import NetworkSession
 from modules.meetings.core.meetings_db import MeetingsDatabase
 
-# Mapping Working Groups to their FTP and DynaReport endpoints
 MEETING_SOURCES = {
     "RAN": {"ftp": "https://www.3gpp.org/ftp/tsg_ran/TSG_RAN/",
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-RP.htm"},
@@ -58,16 +57,18 @@ class MeetingsCrawlerThread(QThread):
     finished = pyqtSignal()
     finished_path = pyqtSignal(str)
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, target_meetings: list = None):
         super().__init__()
         self.db = MeetingsDatabase(db_path)
+        self.target_meetings = target_meetings or []
 
     def extract_meeting_number(self, folder_name: str) -> str:
-        """Extracts the meeting number, maintaining 'AH' or 'E' flags."""
         match = re.search(r'(AH|\d+[A-Z]?)', folder_name.upper())
         return match.group(1) if match else folder_name
 
-    def process_ftp_folder(self, wg_name: str, ftp_base_url: str):
+    def fetch_wg_directories(self, wg_name: str, ftp_base_url: str) -> list:
+        """Grabs the URLs of all meeting folders for a specific Working Group."""
+        meeting_tasks = []
         try:
             html = NetworkSession.get_html(ftp_base_url)
             soup = BeautifulSoup(html, 'html.parser')
@@ -80,43 +81,61 @@ class MeetingsCrawlerThread(QThread):
                 folder_name = href.strip('/')
                 absolute_url = urljoin(ftp_base_url, href)
 
-                # Exclude obvious non-meeting folders
                 if folder_name.lower() in ["docs", "inbox", "info", "specs", "drafts", "outgoing"]:
                     continue
 
                 meeting_num = self.extract_meeting_number(folder_name)
+
+                if self.target_meetings:
+                    is_target = any(t["wg"] == wg_name and t["meeting"] == meeting_num for t in self.target_meetings)
+                    if not is_target:
+                        continue
+
                 url_key = absolute_url.split('ftp/', 1)[-1] if 'ftp/' in absolute_url else absolute_url
-
-                # Check for Docs directory
-                docs_url = ""
-                first_tdoc, last_tdoc = "", ""
-
-                for doc_folder in ["Docs/", "docs/"]:
-                    test_docs_url = urljoin(absolute_url, doc_folder)
-                    try:
-                        docs_html = NetworkSession.get_html(test_docs_url, timeout=5)
-                        docs_url = test_docs_url
-
-                        # Find all zip/doc files to identify first and last Tdocs
-                        d_soup = BeautifulSoup(docs_html, 'html.parser')
-                        tdoc_files = [a.text for a in d_soup.find_all('a', href=True) if
-                                      a.text.endswith(('.zip', '.doc', '.docx', '.pdf'))]
-
-                        if tdoc_files:
-                            tdoc_files.sort()
-                            first_tdoc = tdoc_files[0]
-                            last_tdoc = tdoc_files[-1]
-                        break  # Found the docs folder, stop checking variations
-                    except Exception:
-                        pass  # Folder doesn't exist or timed out, try the next casing
-
-                self.db.insert_or_update_meeting_pass1(
-                    wg_name, folder_name, meeting_num, url_key, docs_url, first_tdoc, last_tdoc
-                )
+                meeting_tasks.append({
+                    "wg_name": wg_name,
+                    "folder_name": folder_name,
+                    "meeting_num": meeting_num,
+                    "url_key": url_key,
+                    "absolute_url": absolute_url
+                })
         except Exception as e:
-            self.ui_log_msg.emit(f"⚠️ FTP Fetch Error for {wg_name}: {e}", logging.WARNING)
+            self.ui_log_msg.emit(f"⚠️ Directory Fetch Error for {wg_name}: {e}", logging.WARNING)
+
+        return meeting_tasks
+
+    def process_individual_meeting(self, task: dict):
+        """Checks the Docs/ folder for a single meeting and saves to DB."""
+        absolute_url = task["absolute_url"]
+        docs_url = ""
+        first_tdoc, last_tdoc = "", ""
+
+        for doc_folder in ["Docs/", "docs/"]:
+            test_docs_url = urljoin(absolute_url, doc_folder)
+            try:
+                # Tight timeout since most 404s will hang
+                docs_html = NetworkSession.get_html(test_docs_url, timeout=5)
+                docs_url = test_docs_url
+
+                d_soup = BeautifulSoup(docs_html, 'html.parser')
+                tdoc_files = [a.text for a in d_soup.find_all('a', href=True) if
+                              a.text.endswith(('.zip', '.doc', '.docx', '.pdf'))]
+
+                if tdoc_files:
+                    tdoc_files.sort()
+                    first_tdoc = tdoc_files[0]
+                    last_tdoc = tdoc_files[-1]
+                break
+            except Exception:
+                pass
+
+        self.db.insert_or_update_meeting_pass1(
+            task["wg_name"], task["folder_name"], task["meeting_num"],
+            task["url_key"], docs_url, first_tdoc, last_tdoc
+        )
 
     def process_dynareport(self, wg_name: str, dyna_url: str):
+        # [Unchanged DynaReport parsing logic]
         try:
             html = NetworkSession.get_html(dyna_url)
             soup = BeautifulSoup(html, 'html.parser')
@@ -127,15 +146,20 @@ class MeetingsCrawlerThread(QThread):
                 if len(cols) >= 5:
                     meeting_name = cols[0].get_text(strip=True)
                     meeting_num = cols[1].get_text(strip=True)
-                    sub_num = cols[2].get_text(strip=True)  # e.g., 'e' or 'AH'
+                    sub_num = cols[2].get_text(strip=True)
                     dates_raw = cols[3].get_text(strip=True)
                     location = cols[4].get_text(strip=True)
 
                     if not meeting_num or meeting_name.lower() == "meeting":
                         continue
 
-                    # Combine meeting num and sub letter (e.g., 149 + E = 149E)
                     full_meeting_num = f"{meeting_num}{sub_num}".strip().upper()
+
+                    if self.target_meetings:
+                        is_target = any(
+                            t["wg"] == wg_name and t["meeting"] == full_meeting_num for t in self.target_meetings)
+                        if not is_target:
+                            continue
 
                     start_date, end_date = "", ""
                     if "..." in dates_raw:
@@ -151,25 +175,44 @@ class MeetingsCrawlerThread(QThread):
 
     def run(self):
         try:
-            self.ui_log_msg.emit("⏳ Pass 1: Fetching FTP Meeting directories...", logging.INFO)
+            # --- 1. Fast Map of Directories ---
+            if self.target_meetings:
+                self.ui_log_msg.emit(f"⏳ Mapping {len(self.target_meetings)} specific meeting(s)...", logging.INFO)
+            else:
+                self.ui_log_msg.emit("⏳ Mapping all FTP Meeting directories...", logging.INFO)
 
+            all_meeting_tasks = []
             with ThreadPoolExecutor(max_workers=10) as executor:
-                ftp_futures = {executor.submit(self.process_ftp_folder, wg, data["ftp"]): wg for wg, data in
-                               MEETING_SOURCES.items()}
-                for count, future in enumerate(as_completed(ftp_futures), 1):
-                    wg = ftp_futures[future]
-                    self.ui_log_msg.emit(f"⏳ FTP Scanned {wg} ({count}/{len(MEETING_SOURCES)})...", logging.INFO)
+                futures = {executor.submit(self.fetch_wg_directories, wg, data["ftp"]): wg for wg, data in
+                           MEETING_SOURCES.items()}
+                for future in as_completed(futures):
+                    all_meeting_tasks.extend(future.result())
+
+            total_meetings = len(all_meeting_tasks)
+            self.ui_log_msg.emit(f"📥 Found {total_meetings} meetings. Initiating deep scrape...", logging.INFO)
+
+            # --- 2. Fully Parallelized Deep Scrape ---
+            completed = 0
+            with ThreadPoolExecutor(max_workers=20) as executor:
+                futures = {executor.submit(self.process_individual_meeting, task): task for task in all_meeting_tasks}
+
+                for future in as_completed(futures):
+                    completed += 1
+                    if completed % 50 == 0 or completed == total_meetings:
+                        if not self.target_meetings:
+                            self.ui_log_msg.emit(f"⏳ FTP Scanned {completed}/{total_meetings} meetings...",
+                                                 logging.INFO)
 
             self.ui_log_msg.emit("✅ Pass 1 Complete. Unblocking interface...", logging.INFO)
             self.finished_path.emit("MEETINGS_DB_PASS_ONE")
 
+            # --- 3. Pass 2 (DynaReports) ---
             self.ui_log_msg.emit("⏳ Pass 2: Updating meeting metadata from DynaReports...", logging.INFO)
-
             with ThreadPoolExecutor(max_workers=5) as executor:
                 dyna_futures = {executor.submit(self.process_dynareport, wg, data["dyna"]): wg for wg, data in
                                 MEETING_SOURCES.items()}
                 for future in as_completed(dyna_futures):
-                    pass  # Errors logged internally
+                    pass
 
             self.ui_log_msg.emit("✅ 3GPP Meetings Database Fully Updated!", logging.INFO)
             self.finished_path.emit("MEETINGS_DB_PASS_TWO")

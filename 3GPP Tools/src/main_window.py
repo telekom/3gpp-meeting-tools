@@ -170,6 +170,17 @@ class DragDropUI(QMainWindow):
             )
         )
 
+        self.meetings_tab.update_specific_requested.connect(
+            lambda target_list: self.queue_manager.add_item(
+                Path("3GPP_Meetings_Targeted"),
+                "update_meetings_db",
+                {
+                    "db_path": db_path,
+                    "target_meetings": target_list
+                }
+            )
+        )
+
         self.tabs.addTab(self.code_tab, "📝 Code Editor")
         self.tabs.addTab(self.batch_tab, "📂 Batch Convert")
         self.tabs.addTab(self.word_tab, "📄 Word Tools")
