@@ -52,231 +52,186 @@ MEETING_SOURCES = {
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-C6.htm"},
 }
 
-# 1. Matches patterns like: TSGR2_05, TSGS2_109bis-e, TSGS2_154AHE_Electronic_2023-01
-meeting_pattern = re.compile(r'^TSG[A-Z0-9]+_\d+', re.IGNORECASE)
-
 
 class MeetingsCrawlerThread(QThread):
     ui_log_msg = pyqtSignal(str, int)
     finished = pyqtSignal()
     finished_path = pyqtSignal(str)
 
-    def __init__(self, db_path: Path, target_meetings: list = None):
+    def __init__(self, db_path: Path, target_meetings: list = None, sync_wg=True, sync_docs=True, sync_dyna=True):
         super().__init__()
         self.db = MeetingsDatabase(db_path)
         self.target_meetings = target_meetings or []
+        self.sync_wg = sync_wg
+        self.sync_docs = sync_docs
+        self.sync_dyna = sync_dyna
+
+        self.meeting_pattern = re.compile(r'^TSG[A-Z0-9]+_\d+', re.IGNORECASE)
+        self.deny_list = {
+            "cr_implementation", "tor", "tool_automation_6g", "specifications",
+            "r2_tss_trs_early_versions", "outgoing_liaisons", "_doc_list_archive",
+            "approved_reports", "docs", "latest_sa2_specs"
+        }
 
     def is_meeting(self, folder_name: str) -> bool:
-        # Check if it matches the TSG pattern
-        if meeting_pattern.match(folder_name):
-            return True
-
-        return False
+        if folder_name.lower() in self.deny_list: return False
+        return bool(self.meeting_pattern.match(folder_name))
 
     def extract_meeting_number(self, folder_name: str) -> str:
-        """Extracts the meeting number, ignoring 3G prefixes and normalizing hyphens."""
         match = re.search(r'(?:^|_|-)(AH\d*|\d+(?:-?bis|-?e|-?a|-?b)?)(?:_|-|$)', folder_name, re.IGNORECASE)
-        if match:
-            return match.group(1).replace('-', '').upper()
-        return folder_name
+        return match.group(1).replace('-', '').upper() if match else folder_name
 
     def fetch_wg_directories(self, wg_name: str, ftp_base_url: str) -> list:
-        """Grabs the URLs of all meeting folders for a specific Working Group."""
         meeting_tasks = []
         try:
-            html = NetworkSession.get_html(ftp_base_url)
             self.ui_log_msg.emit(f"Parsing {ftp_base_url}", logging.INFO)
-            soup = BeautifulSoup(html, 'html.parser')
-
+            soup = BeautifulSoup(NetworkSession.get_html(ftp_base_url), 'html.parser')
             for a_tag in soup.find_all('a', href=True):
                 href = a_tag['href']
-                if ".." in href or "?" in href:
-                    continue
+                if ".." in href or "?" in href: continue
+                folder_name = href.strip('/').split('/')[-1]
+                if folder_name in ["..", ".", ""] or not self.is_meeting(folder_name): continue
 
-                folder_name = href.strip('/')
-                folder_name = folder_name.split('/')[-1]
                 absolute_url = urljoin(ftp_base_url, href)
-
-                folder_lowercase = folder_name.lower()
-                if folder_lowercase in ["docs", "inbox", "info", "specs", "drafts", "outgoing"]:
-                    continue
-
-                if not self.is_meeting(folder_lowercase):
-                    self.ui_log_msg.emit(f"Folder {folder_lowercase} not a meeting. Skipping", logging.INFO)
-                    continue
-
                 meeting_num = self.extract_meeting_number(folder_name)
 
-                if self.target_meetings:
-                    is_target = any(t["wg"] == wg_name and t["meeting"] == meeting_num for t in self.target_meetings)
-                    if not is_target:
-                        continue
+                if self.target_meetings and not any(
+                        t["wg"] == wg_name and t["meeting"] == meeting_num for t in self.target_meetings):
+                    continue
 
                 url_key = absolute_url.split('ftp/', 1)[-1] if 'ftp/' in absolute_url else absolute_url
                 meeting_tasks.append({
-                    "wg_name": wg_name,
-                    "folder_name": folder_name,
-                    "meeting_num": meeting_num,
-                    "url_key": url_key,
-                    "absolute_url": absolute_url
+                    "wg_name": wg_name, "folder_name": folder_name, "meeting_num": meeting_num,
+                    "url_key": url_key, "absolute_url": absolute_url
                 })
         except Exception as e:
             self.ui_log_msg.emit(f"⚠️ Directory Fetch Error for {wg_name}: {e}", logging.WARNING)
-
         return meeting_tasks
 
     def process_individual_meeting(self, task: dict) -> int:
-        """Checks the Docs/ folder for a single meeting. Returns the number of TDocs found."""
-        absolute_url = task["absolute_url"]
-        docs_url = ""
-        first_tdoc, last_tdoc = "", ""
-        tdoc_count = 0
-
+        docs_url, first_tdoc, last_tdoc, tdoc_count = "", "", "", 0
         for doc_folder in ["Docs/", "docs/"]:
-            self.ui_log_msg.emit(f"Checking {doc_folder} folder for {absolute_url}", logging.INFO)
-            test_docs_url = urljoin(absolute_url, doc_folder)
+            test_docs_url = urljoin(task["absolute_url"], doc_folder)
             try:
-                start_time_fetch = time.perf_counter()
-                docs_html = NetworkSession.get_html(test_docs_url, timeout=5)
+                soup = BeautifulSoup(NetworkSession.get_html(test_docs_url, timeout=5), 'html.parser')
                 docs_url = test_docs_url
-                end_time_fetch = time.perf_counter()
-                execution_time_fetch = end_time_fetch - start_time_fetch
-
-                start_time_parse = time.perf_counter()
-                d_soup = BeautifulSoup(docs_html, 'html.parser')
-                tdoc_files = [a.text for a in d_soup.find_all('a', href=True) if
-                              a.text.endswith(('.zip', '.doc', '.docx', '.pdf'))]
-                end_time_parse = time.perf_counter()
-                execution_time_parse = end_time_parse - start_time_parse
-
-                self.ui_log_msg.emit(f"Fetched {doc_folder} in {execution_time_fetch}s. Parsed in {execution_time_parse}s", logging.INFO)
-
-                if tdoc_files:
-                    tdoc_files.sort()
-                    first_tdoc = tdoc_files[0]
-                    last_tdoc = tdoc_files[-1]
-                    tdoc_count = len(tdoc_files)  # <--- COUNT EXTRACTED HERE
-
-                # There is either docs or Docs. No need to crawl both
+                tdocs = sorted([a.text for a in soup.find_all('a', href=True) if
+                                a.text.endswith(('.zip', '.doc', '.docx', '.pdf'))])
+                if tdocs:
+                    first_tdoc, last_tdoc, tdoc_count = tdocs[0], tdocs[-1], len(tdocs)
                 break
-            except Exception as e:
-                self.ui_log_msg.emit(f"⚠️ Document folder Error for {absolute_url}: {e}", logging.WARNING)
+            except Exception:
                 pass
 
-        self.db.insert_or_update_meeting_pass1(
-            task["wg_name"], task["folder_name"], task["meeting_num"],
-            task["url_key"], docs_url, first_tdoc, last_tdoc
-        )
+        self.db.update_meeting_docs(task["url_key"], docs_url, first_tdoc, last_tdoc)
         return tdoc_count
 
     def process_dynareport(self, wg_name: str, dyna_url: str):
         try:
-            self.ui_log_msg.emit(f"Processing DynaReport for {wg_name}", logging.INFO)
-            html = NetworkSession.get_html(dyna_url)
-            soup = BeautifulSoup(html, 'html.parser')
-
-            rows = soup.find_all('tr')
-            for row in rows:
+            soup = BeautifulSoup(NetworkSession.get_html(dyna_url), 'html.parser')
+            for row in soup.find_all('tr'):
                 cols = row.find_all(['td', 'th'])
                 if len(cols) >= 5:
-                    meeting_name = cols[0].get_text(strip=True)
-                    meeting_num = cols[1].get_text(strip=True)
-                    sub_num = cols[2].get_text(strip=True)
-                    dates_raw = cols[3].get_text(strip=True)
-                    location = cols[4].get_text(strip=True)
+                    m_name = cols[0].get_text(strip=True)
+                    m_num = cols[1].get_text(strip=True)
+                    if not m_num or m_name.lower() == "meeting": continue
 
-                    if not meeting_num or meeting_name.lower() == "meeting":
+                    full_num = f"{m_num}{cols[2].get_text(strip=True)}".replace('-', '').strip().upper()
+                    if self.target_meetings and not any(
+                            t["wg"] == wg_name and t["meeting"] == full_num for t in self.target_meetings):
                         continue
 
-                    full_meeting_num = f"{meeting_num}{sub_num}".replace('-', '').strip().upper()
-
-                    if self.target_meetings:
-                        is_target = any(
-                            t["wg"] == wg_name and t["meeting"] == full_meeting_num for t in self.target_meetings)
-                        if not is_target:
-                            continue
-
-                    start_date, end_date = "", ""
-                    if "..." in dates_raw:
-                        parts = dates_raw.split("...")
-                        start_date = parts[0].strip()
-                        end_date = parts[1].strip() if len(parts) > 1 else ""
-
+                    dates = cols[3].get_text(strip=True).split("...")
                     self.db.update_meeting_metadata_pass2(
-                        wg_name, full_meeting_num, meeting_name, location, start_date, end_date
+                        wg_name, full_num, m_name, cols[4].get_text(strip=True),
+                        dates[0].strip(), dates[1].strip() if len(dates) > 1 else ""
                     )
         except Exception as e:
             self.ui_log_msg.emit(f"⚠️ DynaReport Error for {wg_name}: {e}", logging.WARNING)
 
     def run(self):
-        import time
         start_time = time.time()
-
         try:
-            # --- 1. Mapping Phase ---
-            self.ui_log_msg.emit("⏳ Mapping FTP directories...", logging.INFO)
-            all_meeting_tasks = []
+            all_tasks = []
 
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = {executor.submit(self.fetch_wg_directories, wg, data["ftp"]): wg for wg, data in
-                           MEETING_SOURCES.items()}
-                for future in as_completed(futures):
-                    if future.result(): all_meeting_tasks.extend(future.result())
+            # --- PHASE 1: DIRECTORIES ---
+            if self.sync_wg:
+                self.ui_log_msg.emit("⏳ [Phase 1/3] Mapping WG directories...", logging.INFO)
+                mapped = set()
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = {executor.submit(self.fetch_wg_directories, wg, data["ftp"]): wg for wg, data in
+                               MEETING_SOURCES.items()}
+                    for future in as_completed(futures):
+                        if res := future.result():
+                            all_tasks.extend(res)
+                            for t in res:
+                                mapped.add(f"{t['wg_name']}:{t['meeting_num']}")
+                                self.db.insert_meeting_basic(t["wg_name"], t["folder_name"], t["meeting_num"],
+                                                             t["url_key"])
 
-            total_meetings = len(all_meeting_tasks)
-            if total_meetings == 0:
-                self.ui_log_msg.emit("⚠️ No meeting folders found. Check network connection.", logging.WARNING)
-                return
+                if self.target_meetings:
+                    for t in self.target_meetings:
+                        if f"{t['wg']}:{t['meeting']}" not in mapped:
+                            self.ui_log_msg.emit(f"⚠️ Target {t['wg']}:{t['meeting']} not found on FTP!",
+                                                 logging.WARNING)
+            else:
+                self.ui_log_msg.emit("⏭️ [Phase 1/3] Skipping Directory Mapping (loading DB)...", logging.INFO)
+                for m in self.db.search_meetings():
+                    if self.target_meetings and not any(
+                            t["wg"] == m["wg_name"] and t["meeting"] == m["meeting_number"] for t in
+                            self.target_meetings):
+                        continue
+                    if m.get('url_key'):
+                        all_tasks.append({
+                            "wg_name": m["wg_name"], "folder_name": m.get("folder_name", m["meeting_number"]),
+                            "meeting_num": m["meeting_number"], "url_key": m["url_key"],
+                            "absolute_url": f"https://www.3gpp.org/ftp/{m['url_key']}"
+                        })
 
-            self.ui_log_msg.emit(f"📥 Found {total_meetings} meetings. Initiating deep scrape...", logging.INFO)
+            # --- PHASE 2: DOCS ---
+            if self.sync_docs:
+                if not all_tasks:
+                    self.ui_log_msg.emit("⚠️ No meetings available to scan for Docs.", logging.WARNING)
+                else:
+                    self.ui_log_msg.emit(f"⏳ [Phase 2/3] Deep scraping Docs for {len(all_tasks)} meetings...",
+                                         logging.INFO)
+                    completed, tdocs_found = 0, 0
 
-            # --- 2. Deep Scrape Phase (with enhanced logging) ---
-            completed = 0
-            total_tdocs_found = 0
+                    with ThreadPoolExecutor(max_workers=5) as executor:
+                        future_to_task = {executor.submit(self.process_individual_meeting, task): task for task in
+                                          all_tasks}
+                        for future in as_completed(future_to_task):
+                            task = future_to_task[future]
+                            completed += 1
+                            try:
+                                tdocs_found += future.result()
+                            except Exception as e:
+                                self.ui_log_msg.emit(f"❌ Error scraping {task['folder_name']}: {e}", logging.ERROR)
 
-            # Using a smaller chunk size for logging progress
-            with ThreadPoolExecutor(max_workers=20) as executor:
-                # Map futures to tasks to track which one might be hanging
-                future_to_task = {executor.submit(self.process_individual_meeting, task): task for task in
-                                  all_meeting_tasks}
+                            if completed % 10 == 0 or completed == len(all_tasks):
+                                self.ui_log_msg.emit(
+                                    f"⏳ Scanned {completed}/{len(all_tasks)} Docs folders | TDocs: {tdocs_found}",
+                                    logging.INFO)
+                    self.ui_log_msg.emit(f"✅ Pass 2 Complete. Indexed {tdocs_found} total TDocs.", logging.INFO)
+                    self.finished_path.emit("MEETINGS_DB_PASS_ONE")
+            else:
+                self.ui_log_msg.emit("⏭️ [Phase 2/3] Skipping Docs folder deep scrape...", logging.INFO)
 
-                for future in as_completed(future_to_task):
-                    task = future_to_task[future]
-                    completed += 1
+            # --- PHASE 3: METADATA ---
+            if self.sync_dyna:
+                self.ui_log_msg.emit("⏳ [Phase 3/3] Updating metadata from DynaReports...", logging.INFO)
+                wgs_to_fetch = {t["wg"] for t in
+                                self.target_meetings} if self.target_meetings else MEETING_SOURCES.keys()
 
-                    try:
-                        files_in_this_meeting = future.result()
-                        total_tdocs_found += files_in_this_meeting
-                    except Exception as e:
-                        # LOG THE FOLDER THAT FAILED
-                        self.ui_log_msg.emit(f"❌ Failed to scrape {task['folder_name']}: {e}", logging.ERROR)
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    dyna_futures = {executor.submit(self.process_dynareport, wg, MEETING_SOURCES[wg]["dyna"]): wg for wg
+                                    in wgs_to_fetch}
+                    for future in as_completed(dyna_futures): future.result()
+                self.ui_log_msg.emit("✅ Pass 3 Complete.", logging.INFO)
+            else:
+                self.ui_log_msg.emit("⏭️ [Phase 3/3] Skipping DynaReports metadata update...", logging.INFO)
 
-                    # LOGGING HEARTBEAT
-                    if completed % 20 == 0 or completed == total_meetings:
-                        elapsed = time.time() - start_time
-                        rate = completed / elapsed if elapsed > 0 else 0
-                        self.ui_log_msg.emit(
-                            f"⏳ Scanned {completed}/{total_meetings} meetings "
-                            f"| TDocs found: {total_tdocs_found} | "
-                            f"Speed: {rate:.1f} mtg/sec",
-                            logging.INFO
-                        )
-
-            self.ui_log_msg.emit(f"✅ Pass 1 Complete. Indexed {total_tdocs_found} TDocs in {elapsed:.1f}s",
-                                 logging.INFO)
-            self.finished_path.emit("MEETINGS_DB_PASS_ONE")
-
-            # --- 3. Pass 2 (DynaReports) ---
-            self.ui_log_msg.emit("⏳ Pass 2: Updating metadata from DynaReports...", logging.INFO)
-            wgs_to_fetch = {t["wg"] for t in self.target_meetings} if self.target_meetings else MEETING_SOURCES.keys()
-
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                dyna_futures = [executor.submit(self.process_dynareport, wg, MEETING_SOURCES[wg]["dyna"]) for wg in
-                                wgs_to_fetch]
-                for future in as_completed(dyna_futures):
-                    future.result()  # Trigger exceptions if any
-
-            self.ui_log_msg.emit("✅ 3GPP Database Update Fully Complete!", logging.INFO)
+            self.ui_log_msg.emit(f"✅ 3GPP Sync Fully Complete in {time.time() - start_time:.1f}s!", logging.INFO)
             self.finished_path.emit("MEETINGS_DB_PASS_TWO")
 
         except Exception as e:
