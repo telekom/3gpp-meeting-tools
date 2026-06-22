@@ -51,6 +51,9 @@ MEETING_SOURCES = {
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-C6.htm"},
 }
 
+# 1. Matches patterns like: TSGR2_05, TSGS2_109bis-e, TSGS2_154AHE_Electronic_2023-01
+meeting_pattern = re.compile(r'^TSG[A-Z0-9]+_\d+', re.IGNORECASE)
+
 
 class MeetingsCrawlerThread(QThread):
     ui_log_msg = pyqtSignal(str, int)
@@ -61,6 +64,13 @@ class MeetingsCrawlerThread(QThread):
         super().__init__()
         self.db = MeetingsDatabase(db_path)
         self.target_meetings = target_meetings or []
+
+    def is_meeting(self, folder_name: str) -> bool:
+        # Check if it matches the TSG pattern
+        if meeting_pattern.match(folder_name):
+            return True
+
+        return False
 
     def extract_meeting_number(self, folder_name: str) -> str:
         """Extracts the meeting number, ignoring 3G prefixes and normalizing hyphens."""
@@ -74,6 +84,7 @@ class MeetingsCrawlerThread(QThread):
         meeting_tasks = []
         try:
             html = NetworkSession.get_html(ftp_base_url)
+            self.ui_log_msg.emit(f"Parsing {ftp_base_url}", logging.INFO)
             soup = BeautifulSoup(html, 'html.parser')
 
             for a_tag in soup.find_all('a', href=True):
@@ -82,9 +93,15 @@ class MeetingsCrawlerThread(QThread):
                     continue
 
                 folder_name = href.strip('/')
+                folder_name = folder_name.split('/')[-1]
                 absolute_url = urljoin(ftp_base_url, href)
 
-                if folder_name.lower() in ["docs", "inbox", "info", "specs", "drafts", "outgoing"]:
+                folder_lowercase = folder_name.lower()
+                if folder_lowercase in ["docs", "inbox", "info", "specs", "drafts", "outgoing"]:
+                    continue
+
+                if not self.is_meeting(folder_lowercase):
+                    self.ui_log_msg.emit(f"Folder {folder_lowercase} not a meeting. Skipping", logging.INFO)
                     continue
 
                 meeting_num = self.extract_meeting_number(folder_name)
