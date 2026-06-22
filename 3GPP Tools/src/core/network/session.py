@@ -27,7 +27,6 @@ DEFAULT_UAS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
 ]
 
-
 class HumannessConfig:
     @staticmethod
     def load() -> dict:
@@ -54,10 +53,8 @@ class HumannessConfig:
         except Exception as e:
             logging.error(f"Failed to save network config: {e}")
 
-
 class NetworkConfigDialog(QDialog):
     """A UI Dialog to configure Humanness rules for network requests."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("⚙️ Humanness & Network Rules")
@@ -109,7 +106,6 @@ class NetworkConfigDialog(QDialog):
         })
         self.accept()
 
-
 # ==========================================
 # --- NETWORK SESSION ---
 # ==========================================
@@ -126,22 +122,39 @@ class NetworkSession:
     def apply_humanness(cls, session: requests.Session):
         """Applies delays and randomized headers directly before a request."""
         cfg = HumannessConfig.load()
-
-        # User-Agent spoofing
         if cfg["randomize_ua"]:
             session.headers.update({'User-Agent': random.choice(DEFAULT_UAS)})
         else:
             session.headers.update({'User-Agent': cfg["custom_ua"]})
 
-        # Randomized Jitter (Delay)
         delay = random.uniform(cfg["min_delay"], cfg["max_delay"])
-        if delay > 0:
-            time.sleep(delay)
+        if delay > 0: time.sleep(delay)
+
+    @classmethod
+    def update_proxies(cls, proxies: Dict[str, str]) -> None:
+        """Dynamically updates the proxies for the running global session."""
+        session = cls.get_instance()
+        session.proxies.clear()
+        session.proxies.update(proxies)
+        logging.info(f"🌐 Global Network Session proxies updated: {proxies}")
+
+    @staticmethod
+    def test_connection(proxies: Dict[str, str], test_url: str = "https://www.3gpp.org") -> bool:
+        """Tests a proxy configuration using a temporary session."""
+        try:
+            test_session = requests.Session()
+            test_session.trust_env = False
+            test_session.proxies.update(proxies)
+            response: requests.Response = test_session.get(test_url, timeout=10)
+            return response.status_code == 200
+        except Exception as e:
+            logging.warning(f"Proxy test failed: {e}")
+            return False
 
     @classmethod
     def get_html(cls, url: str, timeout: int = 20) -> str:
         session = cls.get_instance()
-        cls.apply_humanness(session)  # <-- Applies stealth logic
+        cls.apply_humanness(session)
         response: requests.Response = session.get(url, timeout=timeout)
         response.raise_for_status()
         return response.text
@@ -149,7 +162,7 @@ class NetworkSession:
     @classmethod
     def download_file(cls, url: str, dest_path: Union[str, Path], timeout: int = 30) -> None:
         session = cls.get_instance()
-        cls.apply_humanness(session)  # <-- Applies stealth logic
+        cls.apply_humanness(session)
         response: requests.Response = session.get(url, stream=True, timeout=timeout)
         response.raise_for_status()
 
@@ -163,7 +176,6 @@ class NetworkSession:
         session.trust_env = False
         session.proxies.update(get_proxies())
 
-        # Baseline headers typical of real browsers
         session.headers.update({
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',

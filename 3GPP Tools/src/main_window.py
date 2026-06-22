@@ -11,6 +11,7 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
+from core.network.session import NetworkConfigDialog
 from core.ui.ui_components import ProxyDialog
 from modules.meetings.ui.ui_tabs import MeetingsTab
 from modules.puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab
@@ -215,6 +216,7 @@ class DragDropUI(QMainWindow):
 
         self.console_panel = ConsolePanel()
         self.console_panel.proxy_requested.connect(self.open_proxy_settings)
+        self.console_panel.network_config_requested.connect(lambda: NetworkConfigDialog(self).exec_())
         self.console_panel.update_requested.connect(self.check_for_jar_updates)
 
         self.console_panel.task_manager_requested.connect(self.open_task_manager)
