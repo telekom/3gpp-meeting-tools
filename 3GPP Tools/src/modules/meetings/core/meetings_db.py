@@ -129,3 +129,20 @@ class MeetingsDatabase:
                 ORDER BY wg.name
             ''')
             return [r[0] for r in cursor.fetchall()]
+
+    def delete_all_meetings(self):
+        """Wipes all entries from the meetings table."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM meetings')
+
+    def delete_specific_meetings(self, targets: list):
+        """Deletes specific meetings based on WG and meeting number."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for target in targets:
+                cursor.execute('''
+                    DELETE FROM meetings 
+                    WHERE wg_id = (SELECT id FROM working_groups WHERE name = ?) 
+                    AND meeting_number = ?
+                ''', (target['wg'], target['meeting']))
