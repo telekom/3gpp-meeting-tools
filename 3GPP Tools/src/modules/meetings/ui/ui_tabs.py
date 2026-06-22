@@ -4,10 +4,9 @@ from pathlib import Path
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
                              QMenu, QLabel, QCheckBox, QDateEdit, QSplitter, QDialog)
-from PyQt5.QtCore import Qt, pyqtSignal, QAbstractTableModel, QModelIndex, QDate
+from PyQt5.QtCore import Qt, pyqtSignal, QAbstractTableModel, QModelIndex, QDate, QPoint
 
 from modules.meetings.core.meetings_db import MeetingsDatabase
-# Reuse the exact HoverMenuButton from the specifications module
 from modules.specifications.ui.components import HoverMenuButton
 
 
@@ -149,7 +148,7 @@ class MeetingsTab(QWidget):
         self.table.setModel(self.table_model)
 
         self.table.setSelectionBehavior(QTableView.SelectRows)
-        self.table.setSelectionMode(QTableView.SingleSelection)
+        self.table.setSelectionMode(QTableView.ExtendedSelection)  # <--- MULTI-SELECT ENABLED HERE
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setStyleSheet("""
@@ -167,6 +166,9 @@ class MeetingsTab(QWidget):
         header.resizeSection(4, 150)  # Location
         header.resizeSection(5, 90)  # Start
         header.resizeSection(6, 90)  # End
+
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_right_click_menu)
 
         left_layout.addWidget(self.table)
         self.splitter.addWidget(left_widget)
@@ -264,12 +266,57 @@ class MeetingsTab(QWidget):
         )
         self.table_model.update_data(data)
 
-        # --- Rebuild the Hover Menus for the updated data ---
+        # Rebuild the Hover Menus for the updated data
         for row_idx, row_data in enumerate(data):
             self._inject_hover_menu(row_idx, row_data)
 
+    def _emit_multi_sync(self, selected_rows):
+        """Extracts data from multiple selected rows and emits the update request."""
+        targets = []
+        for r in selected_rows:
+            row_data = self.table_model.data(r, Qt.UserRole)
+            if row_data:
+                targets.append({"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")})
+
+        if targets:
+            self.update_specific_requested.emit(targets)
+
+    def _populate_dynamic_menu(self, menu: QMenu, row_data: dict, row_idx: int):
+        """Dynamically populates the menu based on the current table selection state."""
+        menu.clear()
+        selected_rows = self.table.selectionModel().selectedRows()
+
+        # Check if the clicked/hovered row is part of a multiple selection
+        is_multi_select = len(selected_rows) > 1 and any(r.row() == row_idx for r in selected_rows)
+
+        if is_multi_select:
+            # --- BULK ACTION MODE ---
+            update_action = menu.addAction(f"🔄 Sync selected ({len(selected_rows)} meetings)")
+            update_action.triggered.connect(lambda _, rows=selected_rows: self._emit_multi_sync(rows))
+        else:
+            # --- SINGLE ACTION MODE ---
+            info_action = menu.addAction("ℹ️ Meeting Info")
+            info_action.triggered.connect(lambda _, d=row_data: self.show_meeting_info(d))
+
+            update_action = menu.addAction("🔄 Sync this Meeting")
+            update_action.triggered.connect(lambda: self.update_specific_requested.emit([
+                {"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}
+            ]))
+
+            menu.addSeparator()
+
+            url_key = row_data.get("url_key")
+            docs_url = row_data.get("docs_folder_url")
+
+            if url_key:
+                page_action = menu.addAction("🌐 Open Main Folder (FTP)")
+                page_action.triggered.connect(lambda: webbrowser.open(url_key))
+
+            if docs_url:
+                docs_action = menu.addAction("📂 Open Documents Folder")
+                docs_action.triggered.connect(lambda: webbrowser.open(docs_url))
+
     def _inject_hover_menu(self, row_idx: int, row_data: dict):
-        """Creates and embeds the reusable HoverMenuButton into Column 0."""
         action_btn = HoverMenuButton("⋮")
         action_btn.setFixedSize(24, 24)
         action_btn.setCursor(Qt.PointingHandCursor)
@@ -286,30 +333,10 @@ class MeetingsTab(QWidget):
             QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
         """)
 
-        info_action = menu.addAction("ℹ️ Meeting Info")
-        info_action.triggered.connect(lambda _, d=row_data: self.show_meeting_info(d))
-
-        update_action = menu.addAction("🔄 Sync this Meeting")
-        update_action.triggered.connect(lambda: self.update_specific_requested.emit([
-            {"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}
-        ]))
-
-        menu.addSeparator()
-
-        url_key = row_data.get("url_key")
-        docs_url = row_data.get("docs_folder_url")
-
-        if url_key:
-            page_action = menu.addAction("🌐 Open Main Folder (FTP)")
-            page_action.triggered.connect(lambda: webbrowser.open(url_key))
-
-        if docs_url:
-            docs_action = menu.addAction("📂 Open Documents Folder")
-            docs_action.triggered.connect(lambda: webbrowser.open(docs_url))
-
+        # Connect the aboutToShow signal so the menu intelligently builds itself based on what is selected
+        menu.aboutToShow.connect(lambda m=menu, d=row_data, i=row_idx: self._populate_dynamic_menu(m, d, i))
         action_btn.setMenu(menu)
 
-        # Center the button nicely in the cell
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -318,7 +345,24 @@ class MeetingsTab(QWidget):
 
         self.table.setIndexWidget(self.table_model.index(row_idx, 0), container)
 
+    def show_right_click_menu(self, pos: QPoint):
+        index = self.table.indexAt(pos)
+        if index.isValid():
+            row_data = self.table_model.data(index, Qt.UserRole)
+            if not row_data: return
+
+            menu = QMenu(self)
+            menu.setStyleSheet("""
+                QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
+                QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
+                QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+            """)
+
+            # Use the same dynamic logic for standard right-clicks
+            self._populate_dynamic_menu(menu, row_data, index.row())
+            global_pos = self.table.viewport().mapToGlobal(pos)
+            menu.exec_(global_pos)
+
     def show_meeting_info(self, data: dict):
-        """Silently displays the info dialog."""
         dialog = MeetingInfoDialog(data, self)
         dialog.exec_()
