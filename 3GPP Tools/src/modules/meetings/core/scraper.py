@@ -66,7 +66,7 @@ class MeetingsCrawlerThread(QThread):
         self.sync_docs = sync_docs
         self.sync_dyna = sync_dyna
 
-        self.meeting_pattern = re.compile(r'^TSG[A-Z0-9]+_\d+', re.IGNORECASE)
+        self.meeting_pattern = re.compile(r'^[A-Z0-9]+_\d+', re.IGNORECASE)
         self.deny_list = {
             "cr_implementation", "tor", "tool_automation_6g", "specifications",
             "r2_tss_trs_early_versions", "outgoing_liaisons", "_doc_list_archive",
@@ -85,8 +85,17 @@ class MeetingsCrawlerThread(QThread):
         meeting_tasks = []
         try:
             self.ui_log_msg.emit(f"Parsing {ftp_base_url}", logging.INFO)
-            soup = BeautifulSoup(NetworkSession.get_html(ftp_base_url), 'html.parser')
-            for a_tag in soup.find_all('a', href=True):
+            html = NetworkSession.get_html(ftp_base_url)
+            soup = BeautifulSoup(html, 'html.parser')
+
+            # DIAGNOSTIC CHECK 1: Did we get a blocked/empty page?
+            links = soup.find_all('a', href=True)
+            if not links:
+                self.ui_log_msg.emit(f"⚠️ [Debug] NO links found for {wg_name}. Possible Firewall/WAF block.",
+                                     logging.WARNING)
+                return meeting_tasks
+
+            for a_tag in links:
                 href = a_tag['href']
                 if ".." in href or "?" in href: continue
                 folder_name = href.strip('/').split('/')[-1]
@@ -104,6 +113,13 @@ class MeetingsCrawlerThread(QThread):
                     "wg_name": wg_name, "folder_name": folder_name, "meeting_num": meeting_num,
                     "url_key": url_key, "absolute_url": absolute_url
                 })
+
+            # DIAGNOSTIC CHECK 2: Did the Regex over-filter?
+            if links and not meeting_tasks:
+                self.ui_log_msg.emit(
+                    f"⚠️ [Debug] Found {len(links)} links in {wg_name}, but none matched the meeting naming regex.",
+                    logging.WARNING)
+
         except Exception as e:
             self.ui_log_msg.emit(f"⚠️ Directory Fetch Error for {wg_name}: {e}", logging.WARNING)
         return meeting_tasks
@@ -168,6 +184,10 @@ class MeetingsCrawlerThread(QThread):
                                 mapped.add(f"{t['wg_name']}:{t['meeting_num']}")
                                 self.db.insert_meeting_basic(t["wg_name"], t["folder_name"], t["meeting_num"],
                                                              t["url_key"])
+
+                # --- THIS WAS THE MISSING SUMMARY LOG ---
+                self.ui_log_msg.emit(f"✅ [Phase 1/3] Successfully mapped {len(all_tasks)} meeting folders.",
+                                     logging.INFO)
 
                 if self.target_meetings:
                     for t in self.target_meetings:

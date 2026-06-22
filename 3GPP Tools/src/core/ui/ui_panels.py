@@ -221,6 +221,7 @@ class ConsolePanel(QWidget):
         self.console = QTextEdit()
         self.console.setReadOnly(True)
         self.console.setObjectName("console")
+        self.console.setMinimumHeight(50)
 
         layout.addLayout(header)
         layout.addWidget(self.console)
@@ -296,6 +297,7 @@ class QueuePanel(QWidget):
         self.queue_list = QListWidget()
         self.queue_list.setObjectName("queueList")
         self.queue_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.queue_list.setMinimumHeight(50)
 
         layout.addLayout(header)
         layout.addWidget(self.queue_list)
