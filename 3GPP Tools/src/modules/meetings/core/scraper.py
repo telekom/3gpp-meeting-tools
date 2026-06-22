@@ -178,137 +178,63 @@ class MeetingsCrawlerThread(QThread):
         except Exception as e:
             self.ui_log_msg.emit(f"⚠️ DynaReport Error for {wg_name}: {e}", logging.WARNING)
 
-    def run(self) -> None:
+    def run(self):
         try:
-            if not self.root_url.endswith('/'): self.root_url += '/'
-
-            spec_tasks: List[Tuple[str, str, str, str, bool]] = []
-
-            # --- 1. Gather all directories ---
-            if self.target_specs:
-                self.ui_log_msg.emit(f"⏳ Starting Targeted Update for {len(self.target_specs)} specifications...",
-                                     logging.INFO)
-
-                for spec_num in self.target_specs:
-                    series_number = spec_num.split('.')[0]
-                    series_folder = f"{series_number}_series"
-                    series_url = urljoin(self.root_url, f"{series_folder}/")
-                    spec_url = urljoin(series_url, f"{spec_num}/")
-                    needs_meta = self.force_metadata_update or self.db.needs_metadata(spec_num)
-
-                    spec_tasks.append((series_number, series_url, spec_num, spec_url, needs_meta))
+            # --- 1. Fast Map of Directories ---
+            if self.target_meetings:
+                self.ui_log_msg.emit(f"⏳ Mapping {len(self.target_meetings)} specific meeting(s)...", logging.INFO)
             else:
-                self.ui_log_msg.emit("⏳ Mapping directories in parallel... (This is fast)", logging.INFO)
+                self.ui_log_msg.emit("⏳ Mapping all FTP Meeting directories...", logging.INFO)
 
-                raw_links = self.fetch_links(self.root_url)
-                series_links = []
-
-                for href, url in raw_links:
-                    folder_name = [x for x in url.split('/') if x][-1]
-                    match = re.search(r'^(\d{2,3})_series$', folder_name.lower())
-                    if match:
-                        clean_series_number = match.group(1)
-                        series_links.append((clean_series_number, url))
-
-                with ThreadPoolExecutor(max_workers=15) as executor:
-                    future_to_series = {
-                        executor.submit(self.fetch_links, s_url if s_url.endswith('/') else s_url + '/'): (
-                            s_name, s_url)
-                        for s_name, s_url in series_links
-                    }
-
-                    for future in as_completed(future_to_series):
-                        s_name, s_url = future_to_series[future]
-                        specs = future.result()
-
-                        for href, spec_url in specs:
-                            folder_name: str = [x for x in spec_url.split('/') if x][-1]
-                            match = self.spec_folder_pattern.search(folder_name)
-                            if match:
-                                clean_spec_number: str = match.group(1)
-                                if not spec_url.endswith('/'): spec_url += '/'
-                                needs_meta = self.force_metadata_update or self.db.needs_metadata(clean_spec_number)
-                                spec_tasks.append((s_name, s_url, clean_spec_number, spec_url, needs_meta))
-
-            total_specs: int = len(spec_tasks)
-
-            # ==========================================
-            # PASS 1: FAST FTP SYNC
-            # ==========================================
-            self.ui_log_msg.emit(f"📥 Pass 1: Scanning {total_specs} specification folders for files...",
-                                 logging.INFO)
-            completed: int = 0
-            total_files_found: int = 0  # <--- NEW: Tracks the exact number of files discovered
-
-            with ThreadPoolExecutor(max_workers=15) as executor:
-                futures = {executor.submit(self.fetch_spec_files, task[0], task[1], task[2], task[3]): task for task in
-                           spec_tasks}
-
+            all_meeting_tasks = []
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = {executor.submit(self.fetch_wg_directories, wg, data["ftp"]): wg for wg, data in
+                           MEETING_SOURCES.items()}
                 for future in as_completed(futures):
-                    completed += 1
-                    try:
-                        result = future.result()
-                        files = result['files']
-                        spec_num = result['spec_number']
+                    if future.result():  # Only extend if it found tasks
+                        all_meeting_tasks.extend(future.result())
 
-                        if files:
-                            total_files_found += len(files)  # <--- NEW: Increment total file count
-                            for f_name, f_ver, f_url in files:
-                                self.db.insert_or_update_file(
-                                    result['series_name'], result['series_url'],
-                                    spec_num, result['spec_url'], f_name, f_ver, f_url
-                                )
+            total_meetings = len(all_meeting_tasks)
+            if total_meetings > 0:
+                self.ui_log_msg.emit(f"📥 Found {total_meetings} meetings. Initiating deep scrape...", logging.INFO)
 
-                        # <--- UPDATED: Log both folder progress and file count
-                        if completed % 50 == 0 or completed == total_specs:
-                            self.ui_log_msg.emit(
-                                f"⏳ Folders scanned: {completed}/{total_specs} | Files found: {total_files_found}",
-                                logging.INFO)
+                # --- 2. Fully Parallelized Deep Scrape ---
+                completed = 0
+                with ThreadPoolExecutor(max_workers=20) as executor:
+                    futures = {executor.submit(self.process_individual_meeting, task): task for task in
+                               all_meeting_tasks}
 
-                    except Exception as e:
-                        self.ui_log_msg.emit(f"❌ File fetch error: {e}", logging.ERROR)
+                    for future in as_completed(futures):
+                        completed += 1
+                        if completed % 50 == 0 or completed == total_meetings:
+                            if not self.target_meetings:
+                                self.ui_log_msg.emit(f"⏳ FTP Scanned {completed}/{total_meetings} meetings...",
+                                                     logging.INFO)
 
-            self.ui_log_msg.emit(f"✅ Pass 1 Complete. Indexed {total_files_found} files! Unblocking interface...",
-                                 logging.INFO)
-            self.finished_path.emit("SPECS_DB_PASS_ONE")
+            self.ui_log_msg.emit("✅ Pass 1 Complete. Unblocking interface...", logging.INFO)
+            self.finished_path.emit("MEETINGS_DB_PASS_ONE")
 
-            # ==========================================
-            # PASS 2: SLOW METADATA SYNC (BACKGROUND)
-            # ==========================================
-            specs_needing_meta = [task for task in spec_tasks if task[4]]
+            # --- 3. Pass 2 (DynaReports) - OPTIMIZED ---
+            self.ui_log_msg.emit("⏳ Pass 2: Updating meeting metadata from DynaReports...", logging.INFO)
 
-            if specs_needing_meta:
-                # <--- UPDATED: Makes it clear we are scraping specific web pages now
-                self.ui_log_msg.emit(
-                    f"⏳ Pass 2: Fetching deep metadata web pages for {len(specs_needing_meta)} specifications...",
-                    logging.INFO)
-                completed_meta: int = 0
+            # Determine exactly which WGs we need to fetch DynaReports for.
+            if self.target_meetings:
+                wgs_to_fetch = {t["wg"] for t in self.target_meetings if t["wg"] in MEETING_SOURCES}
+            else:
+                wgs_to_fetch = MEETING_SOURCES.keys()
 
-                with ThreadPoolExecutor(max_workers=10) as executor:
-                    meta_futures = {executor.submit(self.fetch_metadata_from_dynareport, task[2]): task for task in
-                                    specs_needing_meta}
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                dyna_futures = {
+                    executor.submit(self.process_dynareport, wg, MEETING_SOURCES[wg]["dyna"]): wg
+                    for wg in wgs_to_fetch
+                }
+                for future in as_completed(dyna_futures):
+                    pass  # Errors are handled inside process_dynareport
 
-                    for future in as_completed(meta_futures):
-                        task = meta_futures[future]
-                        spec_num = task[2]
-                        completed_meta += 1
-
-                        if completed_meta % 20 == 0 or completed_meta == len(specs_needing_meta):
-                            self.ui_log_msg.emit(
-                                f"⏳ Metadata pages fetched: {completed_meta}/{len(specs_needing_meta)}...",
-                                logging.INFO)
-
-                        try:
-                            metadata = future.result()
-                            if metadata and metadata.get('title'):
-                                self.db.update_spec_metadata(spec_num, metadata)
-                        except Exception as e:
-                            self.ui_log_msg.emit(f"❌ Metadata error for {spec_num}: {e}", logging.ERROR)
-
-            self.ui_log_msg.emit("✅ 3GPP Database Update Fully Complete!", logging.INFO)
-            self.finished_path.emit("SPECS_DB_PASS_TWO")
+            self.ui_log_msg.emit("✅ 3GPP Meetings Database Fully Updated!", logging.INFO)
+            self.finished_path.emit("MEETINGS_DB_PASS_TWO")
 
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Database Update Failed: {str(e)}", logging.ERROR)
+            self.ui_log_msg.emit(f"❌ Meetings Sync Failed: {str(e)}", logging.ERROR)
         finally:
             self.finished.emit()
