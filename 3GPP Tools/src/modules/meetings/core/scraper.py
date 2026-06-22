@@ -63,8 +63,12 @@ class MeetingsCrawlerThread(QThread):
         self.target_meetings = target_meetings or []
 
     def extract_meeting_number(self, folder_name: str) -> str:
-        match = re.search(r'(AH|\d+[A-Z]?)', folder_name.upper())
-        return match.group(1) if match else folder_name
+        """Extracts the meeting number, ignoring 3G prefixes and normalizing hyphens."""
+        match = re.search(r'(?:^|_|-)(AH\d*|\d+(?:-?bis|-?e|-?a|-?b)?)(?:_|-|$)', folder_name, re.IGNORECASE)
+        if match:
+            # Remove hyphens so "114-e" becomes "114E" to perfectly match Pass 2
+            return match.group(1).replace('-', '').upper()
+        return folder_name
 
     def fetch_wg_directories(self, wg_name: str, ftp_base_url: str) -> list:
         """Grabs the URLs of all meeting folders for a specific Working Group."""
@@ -153,7 +157,8 @@ class MeetingsCrawlerThread(QThread):
                     if not meeting_num or meeting_name.lower() == "meeting":
                         continue
 
-                    full_meeting_num = f"{meeting_num}{sub_num}".strip().upper()
+                    # Combine meeting num and sub letter and strip hyphens (e.g., 149 + -E = 149E)
+                    full_meeting_num = f"{meeting_num}{sub_num}".replace('-', '').strip().upper()
 
                     if self.target_meetings:
                         is_target = any(

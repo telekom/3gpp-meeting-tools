@@ -60,6 +60,8 @@ class MeetingsDatabase:
                 INSERT INTO meetings (wg_id, folder_name, meeting_number, url_key, docs_folder_url, first_tdoc, last_tdoc)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(url_key) DO UPDATE SET
+                    folder_name=excluded.folder_name,
+                    meeting_number=excluded.meeting_number,
                     docs_folder_url=excluded.docs_folder_url,
                     first_tdoc=excluded.first_tdoc,
                     last_tdoc=excluded.last_tdoc
