@@ -167,6 +167,7 @@ class ConsolePanel(QWidget):
     proxy_requested = pyqtSignal()
     update_requested = pyqtSignal()
     task_manager_requested = pyqtSignal()
+    network_config_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -192,6 +193,12 @@ class ConsolePanel(QWidget):
         self.proxy_btn.setToolTip("Update network proxy settings and retry system initialization.")
         self.proxy_btn.clicked.connect(self.proxy_requested.emit)
 
+        self.net_cfg_btn = QPushButton("⚙️ Network")
+        self.net_cfg_btn.setFixedSize(70, 24)
+        self.net_cfg_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.net_cfg_btn.setToolTip("Update network settings to make the scraper look more human in behavior.")
+        self.net_cfg_btn.clicked.connect(self.network_config_requested.emit)
+
         self.update_btn = QPushButton("🔄 Update JAR")
         self.update_btn.setFixedSize(85, 24)
         self.update_btn.setStyleSheet("padding: 2px; font-size: 11px;")
@@ -207,6 +214,7 @@ class ConsolePanel(QWidget):
         header.addStretch()
         header.addWidget(self.task_btn)
         header.addWidget(self.proxy_btn)
+        header.addWidget(self.net_cfg_btn)
         header.addWidget(self.update_btn)
         header.addWidget(self.clear_btn)
 

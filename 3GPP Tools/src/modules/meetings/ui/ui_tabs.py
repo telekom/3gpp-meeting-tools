@@ -236,10 +236,6 @@ class MeetingsTab(QWidget):
         right_layout.addWidget(self.chk_docs)
         right_layout.addWidget(self.chk_dyna)
 
-        self.cfg_btn = QPushButton("⚙️ Network Rules & Humanness")
-        self.cfg_btn.clicked.connect(self._open_network_config)
-        right_layout.addWidget(self.cfg_btn)
-
         right_layout.addStretch()
 
         # 3. Actions
