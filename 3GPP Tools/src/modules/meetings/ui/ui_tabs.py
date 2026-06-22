@@ -3,43 +3,60 @@ import webbrowser
 from pathlib import Path
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
-                             QMessageBox, QMenu, QLabel, QCheckBox, QDateEdit,
-                             QSplitter, QStyledItemDelegate, QApplication, QStyle)
-from PyQt5.QtCore import Qt, pyqtSignal, QAbstractTableModel, QModelIndex, QPoint, QDate, QEvent
+                             QMenu, QLabel, QCheckBox, QDateEdit, QSplitter, QDialog)
+from PyQt5.QtCore import Qt, pyqtSignal, QAbstractTableModel, QModelIndex, QDate
 
 from modules.meetings.core.meetings_db import MeetingsDatabase
+# Reuse the exact HoverMenuButton from the specifications module
+from modules.specifications.ui.components import HoverMenuButton
 
 
 # ==========================================
-# --- KEBAB MENU DELEGATE ---
+# --- HELPER & DIALOG: MEETING INFO ---
 # ==========================================
-class KebabMenuDelegate(QStyledItemDelegate):
-    """Draws a '⋮' icon and triggers the context menu on Left-Click."""
-    menu_requested = pyqtSignal(QModelIndex, QPoint)
+def _format_meeting_info(data: dict) -> str:
+    """Safely formats all database parameters into a clean HTML block, handling None values."""
+    if not data: return ""
 
-    def paint(self, painter, option, index):
-        painter.save()
-        # Draw standard cell background
-        option.widget.style().drawPrimitive(QStyle.PE_PanelItemViewItem, option, painter, option.widget)
+    def clean(val): return str(val) if val else "N/A"
 
-        # Draw the Kebab Icon
-        rect = option.rect
-        painter.setPen(Qt.black if option.state & QStyle.State_Selected else Qt.darkGray)
-        font = painter.font()
-        font.setPixelSize(18)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.drawText(rect, Qt.AlignCenter, "⋮")
-        painter.restore()
+    return (
+        f"<b>Working Group:</b> {clean(data.get('wg_name'))}<br>"
+        f"<b>Meeting Number:</b> {clean(data.get('meeting_number'))}<br>"
+        f"<b>Meeting Name:</b> {clean(data.get('name'))}<br>"
+        f"<b>Location:</b> {clean(data.get('location'))}<br>"
+        f"<b>Dates:</b> {clean(data.get('start_date'))} to {clean(data.get('end_date'))}<br><hr>"
+        f"<b>First TDoc:</b> {clean(data.get('first_tdoc'))}<br>"
+        f"<b>Last TDoc:</b> {clean(data.get('last_tdoc'))}<br><hr>"
+        f"<b>Main FTP Link:</b> {clean(data.get('url_key'))}<br>"
+        f"<b>Docs Folder Link:</b> {clean(data.get('docs_folder_url'))}<br>"
+        f"<b>Database ID:</b> {clean(data.get('id'))}"
+    )
 
-    def editorEvent(self, event, model, option, index):
-        # Trigger on Left Mouse Release
-        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
-            rect = option.rect
-            global_pos = option.widget.viewport().mapToGlobal(rect.bottomRight())
-            self.menu_requested.emit(index, global_pos)
-            return True
-        return False
+
+class MeetingInfoDialog(QDialog):
+    """A silent QDialog to show meeting info without triggering the Windows alert sound."""
+
+    def __init__(self, data: dict, parent=None):
+        super().__init__(parent)
+        title_str = f"{data.get('wg_name', '')} {data.get('meeting_number', '')}".strip()
+        self.setWindowTitle(f"Meeting Details: {title_str}")
+        self.setMinimumWidth(450)
+        self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; }")
+
+        layout = QVBoxLayout(self)
+
+        info_label = QLabel(_format_meeting_info(data))
+        info_label.setWordWrap(True)
+        info_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(info_label)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
 
 
 # ==========================================
@@ -49,7 +66,7 @@ class MeetingsTableModel(QAbstractTableModel):
     def __init__(self, data=None):
         super().__init__()
         self._data = data or []
-        self._headers = ["WG", "Meeting", "Name", "Location", "Start Date", "End Date", ""]
+        self._headers = ["", "WG", "Meeting", "Name", "Location", "Start Date", "End Date"]
 
     def data(self, index, role):
         if not index.isValid():
@@ -60,38 +77,30 @@ class MeetingsTableModel(QAbstractTableModel):
         if role == Qt.DisplayRole:
             col = index.column()
             if col == 0:
-                return row_data.get("wg_name", "")
+                return ""  # Left empty for the HoverMenuButton
             elif col == 1:
-                return row_data.get("meeting_number", "")
+                return row_data.get("wg_name", "")
             elif col == 2:
-                return row_data.get("name", "")
+                return row_data.get("meeting_number", "")
             elif col == 3:
-                return row_data.get("location", "")
+                return row_data.get("name", "")
             elif col == 4:
-                return row_data.get("start_date", "")
+                return row_data.get("location", "")
             elif col == 5:
-                return row_data.get("end_date", "")
+                return row_data.get("start_date", "")
             elif col == 6:
-                return ""  # Drawn by delegate
+                return row_data.get("end_date", "")
 
         elif role == Qt.TextAlignmentRole:
-            if index.column() in [0, 1, 4, 5, 6]:
+            if index.column() in [0, 1, 2, 5, 6]:
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
         elif role == Qt.UserRole:
             return row_data
 
-        # --- BEAUTIFUL HOVER TOOLTIP ---
         elif role == Qt.ToolTipRole:
-            return (
-                f"<b>Meeting:</b> {row_data.get('wg_name')} {row_data.get('meeting_number')}<br>"
-                f"<b>Name:</b> {row_data.get('name') or 'N/A'}<br>"
-                f"<b>Location:</b> {row_data.get('location') or 'N/A'}<br>"
-                f"<b>Dates:</b> {row_data.get('start_date')} to {row_data.get('end_date')}<br><hr>"
-                f"<b>First TDoc:</b> {row_data.get('first_tdoc') or 'Unknown'}<br>"
-                f"<b>Last TDoc:</b> {row_data.get('last_tdoc') or 'Unknown'}"
-            )
+            return _format_meeting_info(row_data)
 
         return None
 
@@ -135,14 +144,9 @@ class MeetingsTab(QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
 
         self.table = QTableView()
-        self.table.setMouseTracking(True)  # Enables smooth tooltip hovering
+        self.table.setMouseTracking(True)
         self.table_model = MeetingsTableModel()
         self.table.setModel(self.table_model)
-
-        # Apply the Kebab Delegate to the last column
-        self.kebab_delegate = KebabMenuDelegate(self.table)
-        self.kebab_delegate.menu_requested.connect(self._show_menu)
-        self.table.setItemDelegateForColumn(6, self.kebab_delegate)
 
         self.table.setSelectionBehavior(QTableView.SelectRows)
         self.table.setSelectionMode(QTableView.SingleSelection)
@@ -155,18 +159,14 @@ class MeetingsTab(QWidget):
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.resizeSection(0, 60)
-        header.resizeSection(1, 80)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.resizeSection(3, 150)
-        header.resizeSection(4, 90)
-        header.resizeSection(5, 90)
-        header.setSectionResizeMode(6, QHeaderView.Fixed)
-        header.resizeSection(6, 40)
-
-        # Keep standard right-click context menu active as a fallback
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self.show_right_click_menu)
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.resizeSection(0, 40)  # Kebab
+        header.resizeSection(1, 60)  # WG
+        header.resizeSection(2, 80)  # Meeting Num
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Name
+        header.resizeSection(4, 150)  # Location
+        header.resizeSection(5, 90)  # Start
+        header.resizeSection(6, 90)  # End
 
         left_layout.addWidget(self.table)
         self.splitter.addWidget(left_widget)
@@ -264,19 +264,31 @@ class MeetingsTab(QWidget):
         )
         self.table_model.update_data(data)
 
-    def show_right_click_menu(self, pos: QPoint):
-        index = self.table.indexAt(pos)
-        if index.isValid():
-            global_pos = self.table.viewport().mapToGlobal(pos)
-            self._show_menu(index, global_pos)
+        # --- Rebuild the Hover Menus for the updated data ---
+        for row_idx, row_data in enumerate(data):
+            self._inject_hover_menu(row_idx, row_data)
 
-    def _show_menu(self, index: QModelIndex, global_pos: QPoint):
-        row_data = self.table_model.data(index, Qt.UserRole)
-        if not row_data: return
+    def _inject_hover_menu(self, row_idx: int, row_data: dict):
+        """Creates and embeds the reusable HoverMenuButton into Column 0."""
+        action_btn = HoverMenuButton("⋮")
+        action_btn.setFixedSize(24, 24)
+        action_btn.setCursor(Qt.PointingHandCursor)
+        action_btn.setStyleSheet("""
+            QPushButton { border: none; background: transparent; color: #555; font-size: 20px; font-weight: bold; padding-bottom: 4px; }
+            QPushButton:hover { color: #0078D7; }
+            QPushButton::menu-indicator { image: none; width: 0px; }
+        """)
 
         menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
+            QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
+            QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+        """)
 
-        # Action 1: Specific Target Sync
+        info_action = menu.addAction("ℹ️ Meeting Info")
+        info_action.triggered.connect(lambda _, d=row_data: self.show_meeting_info(d))
+
         update_action = menu.addAction("🔄 Sync this Meeting")
         update_action.triggered.connect(lambda: self.update_specific_requested.emit([
             {"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}
@@ -284,7 +296,6 @@ class MeetingsTab(QWidget):
 
         menu.addSeparator()
 
-        # Action 2 & 3: Web Links
         url_key = row_data.get("url_key")
         docs_url = row_data.get("docs_folder_url")
 
@@ -296,4 +307,18 @@ class MeetingsTab(QWidget):
             docs_action = menu.addAction("📂 Open Documents Folder")
             docs_action.triggered.connect(lambda: webbrowser.open(docs_url))
 
-        menu.exec_(global_pos)
+        action_btn.setMenu(menu)
+
+        # Center the button nicely in the cell
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.addWidget(action_btn)
+
+        self.table.setIndexWidget(self.table_model.index(row_idx, 0), container)
+
+    def show_meeting_info(self, data: dict):
+        """Silently displays the info dialog."""
+        dialog = MeetingInfoDialog(data, self)
+        dialog.exec_()
