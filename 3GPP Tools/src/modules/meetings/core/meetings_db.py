@@ -146,3 +146,26 @@ class MeetingsDatabase:
                     WHERE wg_id = (SELECT id FROM working_groups WHERE name = ?) 
                     AND meeting_number = ?
                 ''', (target['wg'], target['meeting']))
+
+    def insert_meeting_basic(self, wg_name: str, folder_name: str, meeting_number: str, url_key: str):
+        """Phase 1: Safely inserts directory info without overwriting existing TDoc data."""
+        wg_id = self.get_or_create_wg(wg_name)
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO meetings (wg_id, folder_name, meeting_number, url_key)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(url_key) DO UPDATE SET
+                    folder_name=excluded.folder_name,
+                    meeting_number=excluded.meeting_number
+            ''', (wg_id, folder_name, meeting_number, url_key))
+
+    def update_meeting_docs(self, url_key: str, docs_url: str, first_tdoc: str, last_tdoc: str):
+        """Phase 2: Updates only the TDoc references."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE meetings 
+                SET docs_folder_url = ?, first_tdoc = ?, last_tdoc = ?
+                WHERE url_key = ?
+            ''', (docs_url, first_tdoc, last_tdoc, url_key))

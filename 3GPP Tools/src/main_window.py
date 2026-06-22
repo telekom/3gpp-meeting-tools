@@ -163,20 +163,23 @@ class DragDropUI(QMainWindow):
 
         # Connect the update signal to the QueueManager
         self.meetings_tab.update_db_requested.connect(
-            lambda: self.queue_manager.add_item(
+            lambda wg, docs, dyna: self.queue_manager.add_item(
                 Path("3GPP_Meetings"),
                 "update_meetings_db",
-                {"db_path": db_path}
+                {"db_path": db_path, "sync_wg": wg, "sync_docs": docs, "sync_dyna": dyna}
             )
         )
 
         self.meetings_tab.update_specific_requested.connect(
-            lambda target_list: self.queue_manager.add_item(
+            lambda target_list, wg, docs, dyna: self.queue_manager.add_item(
                 Path("3GPP_Meetings_Targeted"),
                 "update_meetings_db",
                 {
                     "db_path": db_path,
-                    "target_meetings": target_list
+                    "target_meetings": target_list,
+                    "sync_wg": wg,
+                    "sync_docs": docs,
+                    "sync_dyna": dyna
                 }
             )
         )

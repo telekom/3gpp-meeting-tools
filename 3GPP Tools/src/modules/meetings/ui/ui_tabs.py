@@ -4,11 +4,12 @@ from pathlib import Path
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
                              QMenu, QLabel, QCheckBox, QDateEdit, QSplitter,
-                             QMessageBox, QDialog)
+                             QDialog, QMessageBox, QFrame)
 from PyQt5.QtCore import Qt, pyqtSignal, QAbstractTableModel, QModelIndex, QDate, QPoint
 
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.specifications.ui.components import HoverMenuButton
+from core.network.session import NetworkConfigDialog  # Import the new UI!
 
 
 # ==========================================
@@ -20,10 +21,8 @@ def _format_meeting_info(data: dict) -> str:
     def clean(val):
         return str(val) if val else "N/A"
 
-    # Helper to wrap URLs in HTML tags if they are valid links
     def format_link(val):
-        if val and val.startswith("http"):
-            return f'<a href="{val}">{val}</a>'
+        if val and val.startswith("http"): return f'<a href="{val}">{val}</a>'
         return clean(val)
 
     return (
@@ -38,6 +37,29 @@ def _format_meeting_info(data: dict) -> str:
         f"<b>Docs Folder Link:</b> {format_link(data.get('docs_folder_url'))}<br>"
         f"<b>Database ID:</b> {clean(data.get('id'))}"
     )
+
+
+class MeetingInfoDialog(QDialog):
+    def __init__(self, data: dict, parent=None):
+        super().__init__(parent)
+        title_str = f"{data.get('wg_name', '')} {data.get('meeting_number', '')}".strip()
+        self.setWindowTitle(f"Meeting Details: {title_str}")
+        self.setMinimumWidth(500)
+        self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; }")
+
+        layout = QVBoxLayout(self)
+        info_label = QLabel(_format_meeting_info(data))
+        info_label.setWordWrap(True)
+        info_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        info_label.linkActivated.connect(webbrowser.open)
+        layout.addWidget(info_label)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
 
 
 # ==========================================
@@ -73,10 +95,8 @@ class MeetingsTableModel(QAbstractTableModel):
         elif role == Qt.TextAlignmentRole:
             if index.column() in [0, 1, 2, 5, 6]: return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
-
         elif role == Qt.UserRole:
             return row_data
-
         elif role == Qt.ToolTipRole:
             return _format_meeting_info(row_data)
 
@@ -89,8 +109,7 @@ class MeetingsTableModel(QAbstractTableModel):
         return len(self._headers)
 
     def headerData(self, section, orientation, role):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return self._headers[section]
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole: return self._headers[section]
         return None
 
     def update_data(self, new_data):
@@ -103,8 +122,8 @@ class MeetingsTableModel(QAbstractTableModel):
 # --- MAIN UI TAB ---
 # ==========================================
 class MeetingsTab(QWidget):
-    update_db_requested = pyqtSignal()
-    update_specific_requested = pyqtSignal(list)
+    update_db_requested = pyqtSignal(bool, bool, bool)
+    update_specific_requested = pyqtSignal(list, bool, bool, bool)
 
     def __init__(self, db_path: Path):
         super().__init__()
@@ -130,10 +149,8 @@ class MeetingsTab(QWidget):
         self.table.setSelectionMode(QTableView.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.setStyleSheet("""
-            QTableView { border: 1px solid #dcdcdc; gridline-color: #f0f0f0; }
-            QTableView::item:selected { background-color: #cce8ff; color: #000; }
-        """)
+        self.table.setStyleSheet(
+            "QTableView { border: 1px solid #dcdcdc; gridline-color: #f0f0f0; } QTableView::item:selected { background-color: #cce8ff; color: #000; }")
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
@@ -152,13 +169,14 @@ class MeetingsTab(QWidget):
         left_layout.addWidget(self.table)
         self.splitter.addWidget(left_widget)
 
-        # --- Right Side: Filter Panel ---
+        # --- Right Side: Filter & Sync Panel ---
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setAlignment(Qt.AlignTop)
 
-        title_lbl = QLabel("<b>Filter & Sync</b>")
-        title_lbl.setStyleSheet("font-size: 14px; margin-bottom: 10px;")
+        # 1. Filters
+        title_lbl = QLabel("<b>Filter & Search</b>")
+        title_lbl.setStyleSheet("font-size: 14px; margin-bottom: 5px;")
         right_layout.addWidget(title_lbl)
 
         right_layout.addWidget(QLabel("Working Group:"))
@@ -177,7 +195,6 @@ class MeetingsTab(QWidget):
         self.location_input.textChanged.connect(self.refresh_table)
         right_layout.addWidget(self.location_input)
 
-        right_layout.addSpacing(10)
         self.enable_dates_cb = QCheckBox("Filter by Date Range")
         self.enable_dates_cb.toggled.connect(self._toggle_date_inputs)
         self.enable_dates_cb.toggled.connect(self.refresh_table)
@@ -188,7 +205,6 @@ class MeetingsTab(QWidget):
         self.date_from.setDate(QDate.currentDate().addYears(-1))
         self.date_from.dateChanged.connect(self.refresh_table)
         self.date_from.setEnabled(False)
-        right_layout.addWidget(QLabel("Start Date (From):"))
         right_layout.addWidget(self.date_from)
 
         self.date_to = QDateEdit()
@@ -196,18 +212,44 @@ class MeetingsTab(QWidget):
         self.date_to.setDate(QDate.currentDate().addYears(1))
         self.date_to.dateChanged.connect(self.refresh_table)
         self.date_to.setEnabled(False)
-        right_layout.addWidget(QLabel("End Date (To):"))
         right_layout.addWidget(self.date_to)
+
+        # Separator line
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        right_layout.addWidget(line)
+
+        # 2. Sync Configuration
+        sync_lbl = QLabel("<b>Scrape Configuration</b>")
+        sync_lbl.setStyleSheet("font-size: 14px; margin-top: 5px;")
+        right_layout.addWidget(sync_lbl)
+
+        self.chk_wg = QCheckBox("1. Check for New Folders")
+        self.chk_wg.setChecked(True)
+        self.chk_docs = QCheckBox("2. Deep Scrape 'Docs/'")
+        self.chk_docs.setChecked(True)
+        self.chk_dyna = QCheckBox("3. Update Metadata")
+        self.chk_dyna.setChecked(True)
+
+        right_layout.addWidget(self.chk_wg)
+        right_layout.addWidget(self.chk_docs)
+        right_layout.addWidget(self.chk_dyna)
+
+        self.cfg_btn = QPushButton("⚙️ Network Rules & Humanness")
+        self.cfg_btn.clicked.connect(self._open_network_config)
+        right_layout.addWidget(self.cfg_btn)
 
         right_layout.addStretch()
 
-        # Update Button
+        # 3. Actions
         self.update_btn = QPushButton("🔄 Sync All Meetings")
         self.update_btn.setStyleSheet("padding: 8px; font-weight: bold;")
-        self.update_btn.clicked.connect(self.update_db_requested.emit)
+        self.update_btn.clicked.connect(lambda: self.update_db_requested.emit(
+            self.chk_wg.isChecked(), self.chk_docs.isChecked(), self.chk_dyna.isChecked()
+        ))
         right_layout.addWidget(self.update_btn)
 
-        # DELETION BUTTON
         self.delete_all_btn = QPushButton("🗑️ Clear All Meetings")
         self.delete_all_btn.setStyleSheet("padding: 8px; font-weight: bold; color: #D83B01;")
         self.delete_all_btn.clicked.connect(self._confirm_delete_all)
@@ -215,136 +257,97 @@ class MeetingsTab(QWidget):
 
         self.splitter.addWidget(right_widget)
         self.splitter.setSizes([750, 250])
-
         main_layout.addWidget(self.splitter)
         self._populate_filters()
 
+    # --- NEW: Network Config Action ---
+    def _open_network_config(self):
+        NetworkConfigDialog(self).exec_()
+
     # --- DELETION LOGIC ---
     def _confirm_delete_all(self):
-        reply = QMessageBox.question(self, 'Confirm Database Clear',
-                                     "Are you sure you want to delete ALL meetings from the database? This cannot be undone.",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
+        if QMessageBox.question(self, 'Confirm Clear', "Delete ALL meetings? Cannot be undone.",
+                                QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
             self.db.delete_all_meetings()
             self.refresh_table()
 
     def _confirm_delete_specific(self, targets: list):
-        plural = "s" if len(targets) > 1 else ""
-        reply = QMessageBox.question(self, 'Confirm Deletion',
-                                     f"Are you sure you want to delete the selected {len(targets)} meeting{plural}?",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
+        if QMessageBox.question(self, 'Confirm', f"Delete {len(targets)} meeting(s)?",
+                                QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
             self.db.delete_specific_meetings(targets)
             self.refresh_table()
 
     def _emit_multi_delete(self, selected_rows):
-        targets = []
-        for r in selected_rows:
-            row_data = self.table_model.data(r, Qt.UserRole)
-            if row_data:
-                targets.append({"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")})
-        if targets:
-            self._confirm_delete_specific(targets)
+        targets = [{"wg": self.table_model.data(r, Qt.UserRole).get("wg_name"),
+                    "meeting": self.table_model.data(r, Qt.UserRole).get("meeting_number")} for r in selected_rows if
+                   self.table_model.data(r, Qt.UserRole)]
+        if targets: self._confirm_delete_specific(targets)
 
     # --- EXISTING LOGIC ---
     def _toggle_date_inputs(self, checked):
-        self.date_from.setEnabled(checked)
+        self.date_from.setEnabled(checked);
         self.date_to.setEnabled(checked)
 
     def _populate_filters(self):
         wgs = self.db.get_working_groups()
-        self.wg_filter.blockSignals(True)
+        self.wg_filter.blockSignals(True);
         self.wg_filter.clear()
-        self.wg_filter.addItem("All WGs")
+        self.wg_filter.addItem("All WGs");
         self.wg_filter.addItems(wgs)
         self.wg_filter.blockSignals(False)
 
     def refresh_table(self):
         wg = self.wg_filter.currentText()
-        search = self.search_input.text().strip()
-        location = self.location_input.text().strip()
-
-        date_from = None
-        date_to = None
-
-        if self.enable_dates_cb.isChecked():
-            date_from = self.date_from.date().toString("yyyy-MM-dd")
-            date_to = self.date_to.date().toString("yyyy-MM-dd")
+        date_from = self.date_from.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
+        date_to = self.date_to.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
 
         data = self.db.search_meetings(
-            wg_name=wg, search_term=search, location=location,
-            date_from=date_from, date_to=date_to
+            wg_name=wg, search_term=self.search_input.text().strip(),
+            location=self.location_input.text().strip(), date_from=date_from, date_to=date_to
         )
         self.table_model.update_data(data)
-
-        for row_idx, row_data in enumerate(data):
-            self._inject_hover_menu(row_idx, row_data)
+        for row_idx, row_data in enumerate(data): self._inject_hover_menu(row_idx, row_data)
 
     def _emit_multi_sync(self, selected_rows):
-        targets = []
-        for r in selected_rows:
-            row_data = self.table_model.data(r, Qt.UserRole)
-            if row_data:
-                targets.append({"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")})
-        if targets:
-            self.update_specific_requested.emit(targets)
+        targets = [{"wg": self.table_model.data(r, Qt.UserRole).get("wg_name"),
+                    "meeting": self.table_model.data(r, Qt.UserRole).get("meeting_number")} for r in selected_rows if
+                   self.table_model.data(r, Qt.UserRole)]
+        if targets: self.update_specific_requested.emit(targets, self.chk_wg.isChecked(), self.chk_docs.isChecked(),
+                                                        self.chk_dyna.isChecked())
 
     def _populate_dynamic_menu(self, menu: QMenu, row_data: dict, row_idx: int):
         menu.clear()
         selected_rows = self.table.selectionModel().selectedRows()
-        is_multi_select = len(selected_rows) > 1 and any(r.row() == row_idx for r in selected_rows)
-
-        if is_multi_select:
-            update_action = menu.addAction(f"🔄 Sync selected ({len(selected_rows)} meetings)")
-            update_action.triggered.connect(lambda _, rows=selected_rows: self._emit_multi_sync(rows))
-
+        if len(selected_rows) > 1 and any(r.row() == row_idx for r in selected_rows):
+            menu.addAction(f"🔄 Sync selected ({len(selected_rows)} meetings)").triggered.connect(
+                lambda _, rows=selected_rows: self._emit_multi_sync(rows))
             menu.addSeparator()
-            delete_action = menu.addAction(f"🗑️ Delete selected ({len(selected_rows)} meetings)")
-            delete_action.triggered.connect(lambda _, rows=selected_rows: self._emit_multi_delete(rows))
+            menu.addAction(f"🗑️ Delete selected ({len(selected_rows)} meetings)").triggered.connect(
+                lambda _, rows=selected_rows: self._emit_multi_delete(rows))
         else:
-            info_action = menu.addAction("ℹ️ Meeting Info")
-            info_action.triggered.connect(lambda _, d=row_data: self.show_meeting_info(d))
-
-            update_action = menu.addAction("🔄 Sync this Meeting")
-            update_action.triggered.connect(lambda: self.update_specific_requested.emit([
-                {"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}
-            ]))
-
+            menu.addAction("ℹ️ Meeting Info").triggered.connect(lambda _, d=row_data: self.show_meeting_info(d))
+            menu.addAction("🔄 Sync this Meeting").triggered.connect(lambda: self.update_specific_requested.emit(
+                [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}], self.chk_wg.isChecked(),
+                self.chk_docs.isChecked(), self.chk_dyna.isChecked()))
             menu.addSeparator()
-
-            url_key = row_data.get("url_key")
-            docs_url = row_data.get("docs_folder_url")
-
-            if url_key:
-                page_action = menu.addAction("🌐 Open Main Folder (FTP)")
-                page_action.triggered.connect(lambda: webbrowser.open(url_key))
-            if docs_url:
-                docs_action = menu.addAction("📂 Open Documents Folder")
-                docs_action.triggered.connect(lambda: webbrowser.open(docs_url))
-
+            if row_data.get("url_key"): menu.addAction("🌐 Open Main Folder (FTP)").triggered.connect(
+                lambda: webbrowser.open(row_data.get("url_key")))
+            if row_data.get("docs_folder_url"): menu.addAction("📂 Open Documents Folder").triggered.connect(
+                lambda: webbrowser.open(row_data.get("docs_folder_url")))
             menu.addSeparator()
-            delete_action = menu.addAction("🗑️ Delete this Meeting")
-            delete_action.triggered.connect(lambda: self._confirm_delete_specific([
-                {"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}
-            ]))
+            menu.addAction("🗑️ Delete this Meeting").triggered.connect(lambda: self._confirm_delete_specific(
+                [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}]))
 
     def _inject_hover_menu(self, row_idx: int, row_data: dict):
         action_btn = HoverMenuButton("⋮")
         action_btn.setFixedSize(24, 24)
         action_btn.setCursor(Qt.PointingHandCursor)
-        action_btn.setStyleSheet("""
-            QPushButton { border: none; background: transparent; color: #555; font-size: 20px; font-weight: bold; padding-bottom: 4px; }
-            QPushButton:hover { color: #0078D7; }
-            QPushButton::menu-indicator { image: none; width: 0px; }
-        """)
+        action_btn.setStyleSheet(
+            "QPushButton { border: none; background: transparent; color: #555; font-size: 20px; font-weight: bold; padding-bottom: 4px; } QPushButton:hover { color: #0078D7; } QPushButton::menu-indicator { image: none; width: 0px; }")
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
-            QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
-            QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-        """)
-
+        menu.setStyleSheet(
+            "QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }")
         menu.aboutToShow.connect(lambda m=menu, d=row_data, i=row_idx: self._populate_dynamic_menu(m, d, i))
         action_btn.setMenu(menu)
 
@@ -353,7 +356,6 @@ class MeetingsTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignCenter)
         layout.addWidget(action_btn)
-
         self.table.setIndexWidget(self.table_model.index(row_idx, 0), container)
 
     def show_right_click_menu(self, pos: QPoint):
@@ -361,48 +363,11 @@ class MeetingsTab(QWidget):
         if index.isValid():
             row_data = self.table_model.data(index, Qt.UserRole)
             if not row_data: return
-
             menu = QMenu(self)
-            menu.setStyleSheet("""
-                QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
-                QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
-                QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-            """)
-
+            menu.setStyleSheet(
+                "QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }")
             self._populate_dynamic_menu(menu, row_data, index.row())
-            global_pos = self.table.viewport().mapToGlobal(pos)
-            menu.exec_(global_pos)
+            menu.exec_(self.table.viewport().mapToGlobal(pos))
 
     def show_meeting_info(self, data: dict):
-        dialog = MeetingInfoDialog(data, self)
-        dialog.exec_()
-
-
-class MeetingInfoDialog(QDialog):
-    """A silent QDialog to show meeting info with clickable links."""
-
-    def __init__(self, data: dict, parent=None):
-        super().__init__(parent)
-        title_str = f"{data.get('wg_name', '')} {data.get('meeting_number', '')}".strip()
-        self.setWindowTitle(f"Meeting Details: {title_str}")
-        self.setMinimumWidth(500)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; }")
-
-        layout = QVBoxLayout(self)
-
-        # --- IMPROVED: Use a QLabel that supports interaction ---
-        info_label = QLabel(_format_meeting_info(data))
-        info_label.setWordWrap(True)
-        # TextBrowserInteraction allows clicking links, TextSelectableByMouse allows copying
-        info_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
-        # This ensures the browser opens when the link is clicked
-        info_label.linkActivated.connect(webbrowser.open)
-
-        layout.addWidget(info_label)
-
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.accept)
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-        btn_layout.addWidget(close_btn)
-        layout.addLayout(btn_layout)
+        MeetingInfoDialog(data, self).exec_()
