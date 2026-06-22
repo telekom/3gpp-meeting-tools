@@ -17,7 +17,14 @@ from modules.specifications.ui.components import HoverMenuButton
 def _format_meeting_info(data: dict) -> str:
     if not data: return ""
 
-    def clean(val): return str(val) if val else "N/A"
+    def clean(val):
+        return str(val) if val else "N/A"
+
+    # Helper to wrap URLs in HTML tags if they are valid links
+    def format_link(val):
+        if val and val.startswith("http"):
+            return f'<a href="{val}">{val}</a>'
+        return clean(val)
 
     return (
         f"<b>Working Group:</b> {clean(data.get('wg_name'))}<br>"
@@ -27,24 +34,32 @@ def _format_meeting_info(data: dict) -> str:
         f"<b>Dates:</b> {clean(data.get('start_date'))} to {clean(data.get('end_date'))}<br><hr>"
         f"<b>First TDoc:</b> {clean(data.get('first_tdoc'))}<br>"
         f"<b>Last TDoc:</b> {clean(data.get('last_tdoc'))}<br><hr>"
-        f"<b>Main FTP Link:</b> {clean(data.get('url_key'))}<br>"
-        f"<b>Docs Folder Link:</b> {clean(data.get('docs_folder_url'))}<br>"
+        f"<b>Main FTP Link:</b> {format_link(data.get('url_key'))}<br>"
+        f"<b>Docs Folder Link:</b> {format_link(data.get('docs_folder_url'))}<br>"
         f"<b>Database ID:</b> {clean(data.get('id'))}"
     )
 
 
 class MeetingInfoDialog(QDialog):
+    """A silent QDialog to show meeting info with clickable links."""
+
     def __init__(self, data: dict, parent=None):
         super().__init__(parent)
         title_str = f"{data.get('wg_name', '')} {data.get('meeting_number', '')}".strip()
         self.setWindowTitle(f"Meeting Details: {title_str}")
-        self.setMinimumWidth(450)
+        self.setMinimumWidth(500)
         self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; }")
 
         layout = QVBoxLayout(self)
+
+        # --- IMPROVED: Use a QLabel that supports interaction ---
         info_label = QLabel(_format_meeting_info(data))
         info_label.setWordWrap(True)
-        info_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # TextBrowserInteraction allows clicking links, TextSelectableByMouse allows copying
+        info_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        # This ensures the browser opens when the link is clicked
+        info_label.linkActivated.connect(webbrowser.open)
+
         layout.addWidget(info_label)
 
         close_btn = QPushButton("Close")

@@ -178,70 +178,77 @@ class MeetingsCrawlerThread(QThread):
             self.ui_log_msg.emit(f"⚠️ DynaReport Error for {wg_name}: {e}", logging.WARNING)
 
     def run(self):
-        try:
-            # --- 1. Fast Map of Directories ---
-            if self.target_meetings:
-                self.ui_log_msg.emit(f"⏳ Mapping {len(self.target_meetings)} specific meeting(s)...", logging.INFO)
-            else:
-                self.ui_log_msg.emit("⏳ Mapping all FTP Meeting directories...", logging.INFO)
+        import time
+        start_time = time.time()
 
+        try:
+            # --- 1. Mapping Phase ---
+            self.ui_log_msg.emit("⏳ Mapping FTP directories...", logging.INFO)
             all_meeting_tasks = []
+
             with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = {executor.submit(self.fetch_wg_directories, wg, data["ftp"]): wg for wg, data in
                            MEETING_SOURCES.items()}
                 for future in as_completed(futures):
-                    if future.result():
-                        all_meeting_tasks.extend(future.result())
+                    if future.result(): all_meeting_tasks.extend(future.result())
 
             total_meetings = len(all_meeting_tasks)
-            total_tdocs_found = 0  # <--- GLOBAL TDoc COUNTER
+            if total_meetings == 0:
+                self.ui_log_msg.emit("⚠️ No meeting folders found. Check network connection.", logging.WARNING)
+                return
 
-            if total_meetings > 0:
-                self.ui_log_msg.emit(f"📥 Found {total_meetings} meetings. Initiating deep scrape...", logging.INFO)
+            self.ui_log_msg.emit(f"📥 Found {total_meetings} meetings. Initiating deep scrape...", logging.INFO)
 
-                # --- 2. Fully Parallelized Deep Scrape ---
-                completed = 0
-                with ThreadPoolExecutor(max_workers=20) as executor:
-                    futures = {executor.submit(self.process_individual_meeting, task): task for task in
-                               all_meeting_tasks}
+            # --- 2. Deep Scrape Phase (with enhanced logging) ---
+            completed = 0
+            total_tdocs_found = 0
 
-                    for future in as_completed(futures):
-                        completed += 1
-                        try:
-                            # Add the number of files found in this folder to the total
-                            total_tdocs_found += future.result()
-                        except Exception:
-                            pass
+            # Using a smaller chunk size for logging progress
+            with ThreadPoolExecutor(max_workers=20) as executor:
+                # Map futures to tasks to track which one might be hanging
+                future_to_task = {executor.submit(self.process_individual_meeting, task): task for task in
+                                  all_meeting_tasks}
 
-                        if completed % 50 == 0 or completed == total_meetings:
-                            self.ui_log_msg.emit(
-                                f"⏳ Scanned {completed}/{total_meetings} meetings | TDocs found: {total_tdocs_found}",
-                                logging.INFO)
+                for future in as_completed(future_to_task):
+                    task = future_to_task[future]
+                    completed += 1
 
-            self.ui_log_msg.emit(f"✅ Pass 1 Complete. Indexed {total_tdocs_found} total TDocs! Unblocking interface...",
+                    try:
+                        files_in_this_meeting = future.result()
+                        total_tdocs_found += files_in_this_meeting
+                    except Exception as e:
+                        # LOG THE FOLDER THAT FAILED
+                        self.ui_log_msg.emit(f"❌ Failed to scrape {task['folder_name']}: {e}", logging.ERROR)
+
+                    # LOGGING HEARTBEAT
+                    if completed % 20 == 0 or completed == total_meetings:
+                        elapsed = time.time() - start_time
+                        rate = completed / elapsed if elapsed > 0 else 0
+                        self.ui_log_msg.emit(
+                            f"⏳ Scanned {completed}/{total_meetings} meetings "
+                            f"| TDocs found: {total_tdocs_found} | "
+                            f"Speed: {rate:.1f} mtg/sec",
+                            logging.INFO
+                        )
+
+            self.ui_log_msg.emit(f"✅ Pass 1 Complete. Indexed {total_tdocs_found} TDocs in {elapsed:.1f}s",
                                  logging.INFO)
             self.finished_path.emit("MEETINGS_DB_PASS_ONE")
 
-            # --- 3. Pass 2 (DynaReports) - OPTIMIZED ---
-            self.ui_log_msg.emit("⏳ Pass 2: Updating meeting metadata from DynaReports...", logging.INFO)
-
-            if self.target_meetings:
-                wgs_to_fetch = {t["wg"] for t in self.target_meetings if t["wg"] in MEETING_SOURCES}
-            else:
-                wgs_to_fetch = MEETING_SOURCES.keys()
+            # --- 3. Pass 2 (DynaReports) ---
+            self.ui_log_msg.emit("⏳ Pass 2: Updating metadata from DynaReports...", logging.INFO)
+            wgs_to_fetch = {t["wg"] for t in self.target_meetings} if self.target_meetings else MEETING_SOURCES.keys()
 
             with ThreadPoolExecutor(max_workers=5) as executor:
-                dyna_futures = {
-                    executor.submit(self.process_dynareport, wg, MEETING_SOURCES[wg]["dyna"]): wg
-                    for wg in wgs_to_fetch
-                }
+                dyna_futures = [executor.submit(self.process_dynareport, wg, MEETING_SOURCES[wg]["dyna"]) for wg in
+                                wgs_to_fetch]
                 for future in as_completed(dyna_futures):
-                    pass
+                    future.result()  # Trigger exceptions if any
 
-            self.ui_log_msg.emit("✅ 3GPP Meetings Database Fully Updated!", logging.INFO)
+            self.ui_log_msg.emit("✅ 3GPP Database Update Fully Complete!", logging.INFO)
             self.finished_path.emit("MEETINGS_DB_PASS_TWO")
 
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Meetings Sync Failed: {str(e)}", logging.ERROR)
+            self.ui_log_msg.emit(f"❌ Critical Failure: {str(e)}", logging.ERROR)
         finally:
             self.finished.emit()
