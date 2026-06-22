@@ -285,11 +285,20 @@ class MeetingsTab(QWidget):
         self.date_to.setEnabled(checked)
 
     def _populate_filters(self):
+        """Repopulates the WG dropdown while remembering the user's current selection."""
+        current_wg = self.wg_filter.currentText()
         wgs = self.db.get_working_groups()
-        self.wg_filter.blockSignals(True);
+
+        self.wg_filter.blockSignals(True)
         self.wg_filter.clear()
-        self.wg_filter.addItem("All WGs");
+        self.wg_filter.addItem("All WGs")
         self.wg_filter.addItems(wgs)
+
+        # Restore the previous selection if it still exists in the new data
+        idx = self.wg_filter.findText(current_wg)
+        if idx >= 0:
+            self.wg_filter.setCurrentIndex(idx)
+
         self.wg_filter.blockSignals(False)
 
     def refresh_table(self):
