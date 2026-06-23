@@ -72,6 +72,7 @@ class MeetingsCrawlerThread(QThread):
         self.num_pattern = re.compile(r'(?:^|_)(AH\d*|\d+(?:[a-z]+)?(?:-?AH)?(?:-?e)?)(?:_|-|$)', re.IGNORECASE)
         self.href_pattern = re.compile(r'href=["\']([^"\'>]+)["\']', re.IGNORECASE)
         self.tdoc_pattern = re.compile(r'>\s*([^<]+\.(?:zip|doc|docx|pdf))\s*</a>', re.IGNORECASE)
+
         self.deny_list = {
             "cr_implementation", "tor", "tool_automation_6g", "specifications",
             "r2_tss_trs_early_versions", "outgoing_liaisons", "_doc_list_archive",
@@ -173,63 +174,55 @@ class MeetingsCrawlerThread(QThread):
         return docs_data, tdoc_count
 
     def process_dynareport(self, wg_name: str, dyna_url: str) -> list:
-        """Dynamically parses the table structure and explicitly checks for FTP and MtgId links."""
+        # --- FIXED: Hybrid Parsing. Uses structural columns + deep link extraction ---
         results = []
         try:
             html = NetworkSession.get_html(dyna_url)
             soup = BeautifulSoup(html, 'html.parser')
 
-            headers = []
             for row in soup.find_all('tr'):
-                # 1. Map Table Headers dynamically to avoid hardcoded index mismatches
-                th_elements = row.find_all('th')
-                if th_elements and not headers:
-                    headers = [th.get_text(strip=True).lower() for th in th_elements]
+                cols = row.find_all(['td', 'th'])
+                if len(cols) < 5:
                     continue
 
-                cols = row.find_all('td')
-                if not cols: continue
+                m_name = cols[0].get_text(strip=True)
+                m_num_raw = cols[1].get_text(strip=True)
 
-                # Create a flexible dictionary out of the row data
-                col_texts = [td.get_text(strip=True) for td in cols]
-                col_texts += [''] * (len(headers) - len(col_texts))
-                row_dict = dict(zip(headers, col_texts))
+                # Skip header rows
+                if not m_num_raw or m_name.lower() == "meeting":
+                    continue
 
-                # 2. Safely Extract the MtgId via Regex inside the href tag
+                # 1. Assemble Full Meeting Number (e.g. 175 + AH-e)
+                suffix = cols[2].get_text(strip=True)
+                full_num = f"{m_num_raw}{suffix}".replace('-', '').strip().upper()
+
+                if self.target_meetings and not any(
+                        t["wg"] == wg_name and t["meeting"] == full_num for t in self.target_meetings):
+                    continue
+
+                # 2. Safely Extract Concatenated Dates
+                dates = cols[3].get_text(strip=True).split("...")
+                start_d = dates[0].strip()
+                end_d = dates[1].strip() if len(dates) > 1 else ""
+
+                # 3. Extract Location
+                town = cols[4].get_text(strip=True)
+
+                # 4. Deep Extract exact MtgId and relative FTP Link from anchor tags
                 mtg_id = ""
-                for a in row.find_all('a', href=True):
-                    match = re.search(r'MtgId=(\d+)', a['href'], re.IGNORECASE)
-                    if match:
-                        mtg_id = match.group(1)
-                        break
-
-                # 3. Extract exact FTP Relative Path to serve as the DB Primary Key (e.g. tsg_sa/WG2_Arch...)
                 url_key = ""
                 for a in row.find_all('a', href=True):
                     href = a['href']
+                    match_id = re.search(r'MtgId=(\d+)', href, re.IGNORECASE)
+                    if match_id:
+                        mtg_id = match_id.group(1)
+
                     if '/ftp/' in href.lower() and 'tsg_' in href.lower():
                         parts = re.split(r'/ftp/', href, flags=re.IGNORECASE)
                         if len(parts) > 1:
                             url_key = parts[1].strip('/').split('?')[0].rstrip('/')
-                            break
 
-                # 4. Extract Meta Values using dynamic keywords
-                m_name = row_dict.get('meeting', '') or row_dict.get('name', '') or (col_texts[0] if col_texts else '')
-                start_d = row_dict.get('start', '') or row_dict.get('start date', '')
-                end_d = row_dict.get('end', '') or row_dict.get('end date', '')
-                town = row_dict.get('town', '') or row_dict.get('location', '')
-
-                # 5. Extract Fallback Meeting Number (just in case the FTP URL was missing from the row)
-                m_num = ""
-                match_num = re.search(r'#(\d+[a-z0-9\-]*)', m_name, re.IGNORECASE)
-                if match_num:
-                    m_num = match_num.group(1).replace('-', '').upper()
-                else:
-                    match_num2 = re.search(r'(?:_|-| )(\d+[a-z0-9\-]*)', m_name, re.IGNORECASE)
-                    if match_num2: m_num = match_num2.group(1).replace('-', '').upper()
-
-                if url_key or m_num:
-                    results.append((wg_name, m_num, url_key, mtg_id, m_name, town, start_d, end_d))
+                results.append((wg_name, full_num, url_key, mtg_id, m_name, town, start_d, end_d))
 
         except Exception as e:
             self.ui_log_msg.emit(f"⚠️ DynaReport Error for {wg_name}: {e}", logging.WARNING)
