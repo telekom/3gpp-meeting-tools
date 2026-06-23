@@ -476,9 +476,16 @@ class MeetingsTab(QWidget):
         # ---> UPDATED: Clearer Loading State
         btn.setText("⏳ Fetching...")
         btn.setStyleSheet("""
-            color: #B85C00; background-color: #FFF4CE; 
-            border: 1px solid #B85C00; border-radius: 4px;
-        """)
+                    QPushButton {
+                        font-family: 'Segoe UI', Arial, sans-serif;
+                        font-size: 11px;
+                        border-radius: 12px;
+                        padding: 2px 10px;
+                        color: #B85C00; 
+                        background-color: #FFF4CE; 
+                        border: 1px solid #F3C74C;
+                    }
+                """)
         btn.setEnabled(False)
 
         current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.cache_dir
@@ -496,16 +503,29 @@ class MeetingsTab(QWidget):
         filepath = self._get_tdoc_list_path(row_data)
 
         btn = QPushButton()
-        btn.setFixedHeight(26)  # Keep height constrained to the row, let width expand
+        btn.setFixedHeight(24)
         btn.setCursor(Qt.PointingHandCursor)
+
+        # Base CSS for smooth transitions
+        base_css = """
+            QPushButton {
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 11px;
+                border-radius: 12px; /* Makes it a sleek pill shape */
+                padding: 2px 10px;
+            }
+        """
 
         # STATE 1: Unobtainable (No 3GPP ID)
         if not mtg_id:
             btn.setText("N/A")
             btn.setToolTip("Missing 3GPP Portal ID (Cannot fetch TDocs)")
-            btn.setStyleSheet("""
-                color: #999999; background-color: #F5F5F5; 
-                border: 1px solid #DDDDDD; border-radius: 4px;
+            btn.setStyleSheet(base_css + """
+                QPushButton {
+                    color: #7A7A7A; 
+                    background-color: #F0F0F0; 
+                    border: 1px solid #D1D1D1;
+                }
             """)
             btn.setEnabled(False)
 
@@ -513,9 +533,17 @@ class MeetingsTab(QWidget):
         elif filepath and filepath.exists():
             btn.setText("✓ Open")
             btn.setToolTip("TDocs are cached locally. Click to view table.")
-            btn.setStyleSheet("""
-                color: #0F7B0F; background-color: #E6F4E6; 
-                border: 1px solid #0F7B0F; border-radius: 4px; font-weight: bold;
+            btn.setStyleSheet(base_css + """
+                QPushButton {
+                    color: #0C6B0C; 
+                    background-color: #E6F4E6; 
+                    border: 1px solid #A3DDA3; 
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #D1EED1;
+                    border: 1px solid #0C6B0C;
+                }
             """)
             btn.clicked.connect(lambda _, d=row_data, f=str(filepath): self._open_tdocs_window(d, f))
 
@@ -523,17 +551,28 @@ class MeetingsTab(QWidget):
         else:
             btn.setText("⬇ Download")
             btn.setToolTip("Not cached. Click to download TDocs List from 3GPP Portal.")
-            btn.setStyleSheet("""
-                color: #005A9E; background-color: #E1F0FF; 
-                border: 1px solid #005A9E; border-radius: 4px;
+            btn.setStyleSheet(base_css + """
+                QPushButton {
+                    color: #005A9E; 
+                    background-color: #E1F0FF; 
+                    border: 1px solid #99C9FF;
+                }
+                QPushButton:hover {
+                    background-color: #CCE4FF;
+                    border: 1px solid #005A9E;
+                }
             """)
             btn.clicked.connect(lambda _, d=row_data, b=btn: self._download_and_open_tdocs(d, b))
 
         container = QWidget()
+        # ---> CRITICAL FIX: Make the container invisible so the row color shows through!
+        container.setStyleSheet("background-color: transparent;")
+
         layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 0, 4, 0)  # Add slight left/right margins
+        layout.setContentsMargins(4, 0, 4, 0)
         layout.setAlignment(Qt.AlignCenter)
         layout.addWidget(btn)
+
         self.table.setIndexWidget(self.table_model.index(row_idx, 1), container)
 
     def _open_tdocs_window(self, mtg_info: dict, filepath: str):
