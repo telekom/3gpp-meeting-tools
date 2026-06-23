@@ -191,11 +191,10 @@ class MeetingsCrawlerThread(QThread):
                     col_texts.append(text)
 
                 m_name = col_texts[0].strip()
-
                 if not m_name or m_name.lower() == 'meeting':
                     continue
 
-                # 1. Grab URL and MtgId
+                # 1. Grab URL and MtgId unconditionally from anchor tags
                 mtg_id = ""
                 url_key = ""
                 for a in row.find_all('a', href=True):
@@ -207,69 +206,80 @@ class MeetingsCrawlerThread(QThread):
                     if match_path:
                         url_key = unquote(match_path.group(1).split('?')[0].rstrip('/'))
 
-                # 2. Extract Dates and Town (using min/max heuristic)
+                # ==========================================
+                # --- FIXED: Intelligent Date & Location Parsing ---
+                # ==========================================
                 start_d, end_d, town = "", "", ""
-                all_dates = []
                 date_idx = -1
 
                 for i in range(1, len(col_texts)):
-                    found_dates = re.findall(r'(?:19|20)\d{2}[-/]\d{2}[-/]\d{2}', col_texts[i])
-                    if found_dates:
-                        found_dates = [d.replace('/', '-') for d in found_dates]
-                        all_dates.extend(found_dates)
-                        if date_idx == -1:
-                            date_idx = i
+                    text = col_texts[i].replace('\u2026', '...').replace('..', '...')
 
-                if all_dates:
-                    start_d = min(all_dates)
-                    end_d = max(all_dates)
+                    # Matches robust 3GPP formats (YYYY-MM-DD or 13 May 2024)
+                    if re.search(r'(?:19|20)\d{2}', text) and re.search(
+                            r'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|[-/]\d{2}[-/]', text, re.IGNORECASE):
+                        date_idx = i
+                        if "..." in text:
+                            parts = text.split("...")
+                            start_d, end_d = parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
+                        elif " to " in text:
+                            parts = text.split(" to ")
+                            start_d, end_d = parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
+                        elif " - " in text:
+                            parts = text.split(" - ")
+                            start_d, end_d = parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
+                        else:
+                            start_d = text.strip()
+                        break
 
-                if date_idx > 0:
-                    town = col_texts[date_idx - 1].strip()
+                if date_idx != -1:
+                    m_num_raw = col_texts[1].strip() if len(col_texts) > 1 else ""
+
+                    # 1st Priority: Town is AFTER dates (Standard 3GPP Layout)
+                    if date_idx + 1 < len(col_texts):
+                        candidate = col_texts[date_idx + 1].strip()
+                        if len(candidate) > 2 and not re.search(r'(?:19|20)\d{2}', candidate):
+                            town = candidate
+
+                    # 2nd Priority: Town is BEFORE dates (RAN Ad-Hoc Layout)
+                    if not town and date_idx > 0:
+                        candidate = col_texts[date_idx - 1].strip()
+                        if candidate and candidate != m_num_raw and candidate != m_name:
+                            town = candidate
 
                 # ==========================================
-                # --- FIXED: NLP Number Extractor ---
+                # --- FIXED: Meeting Number Generator ---
                 # ==========================================
                 full_num = ""
-                # Try explicit markers first: (#175, or 'meeting 34')
-                match_explicit = re.search(r'(?:#|meeting\s+)(AH\d*|\d+[a-z0-9\-]*)', m_name, re.IGNORECASE)
-
-                if match_explicit:
-                    full_num = match_explicit.group(1).replace('-', '').strip().upper()
+                match_num = re.search(r'#(\d+[a-z0-9\-]*)', m_name, re.IGNORECASE)
+                if match_num:
+                    full_num = match_num.group(1).replace('-', '').strip().upper()
                 else:
-                    # Look for the last token containing a digit or "AH" (e.g., catching "SP-88E" or "145E")
-                    tokens = m_name.split()
-                    found_token = ""
-                    for token in reversed(tokens):
-                        if re.search(r'\d|AH', token, re.IGNORECASE):
-                            found_token = token
-                            break
-
-                    # Fallback to column 1 if we couldn't find one in the name
-                    if not found_token and len(col_texts) > 1:
-                        if not re.search(r'(?:19|20)\d{2}', col_texts[1]):
-                            found_token = col_texts[1]
-
-                    if found_token:
-                        # Strip known WG prefixes off the number so 'R3-34' matches '34'
-                        clean_token = re.sub(r'^(?:R|S|C|RAN|SA|CT|SP|RP|CP)[P0-6]?\s*-?', '', found_token,
-                                             flags=re.IGNORECASE)
+                    if len(col_texts) > 1:
+                        m_num_raw = col_texts[1].strip()
+                        m_num_clean = re.sub(r'^(?:R|S|C|RAN|SA|CT)[P0-6]?\s*-?', '', m_num_raw, flags=re.IGNORECASE)
 
                         suffix = ""
-                        # Catch potential separated suffix columns (e.g., col1: 34, col2: AH-e)
                         if date_idx >= 4 and len(col_texts) > 2:
                             potential_suffix = col_texts[2].strip()
-                            if len(potential_suffix) <= 6 and not re.search(r'(?:19|20)\d{2}', potential_suffix):
+                            if len(potential_suffix) <= 8 and not re.search(r'(?:19|20)\d{2}', potential_suffix):
                                 suffix = potential_suffix
 
-                        full_num = f"{clean_token}{suffix}".replace('-', '').strip().upper()
-                # ==========================================
+                        full_num = f"{m_num_clean}{suffix}".replace('-', '').strip().upper()
 
                 if self.target_meetings and not any(
                         t["wg"] == wg_name and t["meeting"] == full_num for t in self.target_meetings):
                     continue
 
-                results.append((wg_name, full_num, url_key, mtg_id, m_name, town, start_d, end_d))
+                # ==========================================
+                # --- FIXED: Overwrite Number for RAN Ad-Hocs ---
+                # ==========================================
+                new_m_num = ""
+                if wg_name.startswith("RAN"):
+                    if "AH" in url_key.upper() or "AH" in full_num or full_num == "0" or "RELEASE" in m_name.upper():
+                        new_m_num = m_name
+
+                results.append((wg_name, full_num, url_key, mtg_id, m_name, town, start_d, end_d, new_m_num))
 
         except Exception as e:
             self.ui_log_msg.emit(f"⚠️ DynaReport Error for {wg_name}: {e}", logging.WARNING)
@@ -281,9 +291,6 @@ class MeetingsCrawlerThread(QThread):
         try:
             all_tasks = []
 
-            # ==========================================
-            # --- PHASE 1: DIRECTORIES ---
-            # ==========================================
             if self.sync_wg:
                 self.ui_log_msg.emit("⏳ [Phase 1/3] Mapping WG directories...", logging.INFO)
                 mapped = set()
@@ -331,9 +338,6 @@ class MeetingsCrawlerThread(QThread):
 
             self.finished_path.emit("MEETINGS_DB_PHASE_1")
 
-            # ==========================================
-            # --- PHASE 2: DOCS ---
-            # ==========================================
             if self.sync_docs:
                 if not all_tasks:
                     self.ui_log_msg.emit("⚠️ No meetings available to scan for Docs.", logging.WARNING)
@@ -379,9 +383,6 @@ class MeetingsCrawlerThread(QThread):
 
             self.finished_path.emit("MEETINGS_DB_PHASE_2")
 
-            # ==========================================
-            # --- PHASE 3: METADATA ---
-            # ==========================================
             if self.sync_dyna:
                 self.ui_log_msg.emit("⏳ [Phase 3/3] Updating metadata from DynaReports...", logging.INFO)
                 wgs_to_fetch = {t["wg"] for t in
