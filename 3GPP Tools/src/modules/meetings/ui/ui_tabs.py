@@ -1,13 +1,16 @@
 # --- File: modules/meetings/ui/ui_tabs.py ---
+import json
+import os
 import webbrowser
 from pathlib import Path
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
                              QMenu, QLabel, QCheckBox, QDateEdit, QSplitter,
-                             QMessageBox, QFrame)
+                             QMessageBox, QFrame, QFileDialog)
 from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint
 
 from modules.meetings.core.meetings_db import MeetingsDatabase
+from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.specifications.ui.components import HoverMenuButton
 from core.network.session import NetworkConfigDialog
 
@@ -26,8 +29,44 @@ class MeetingsTab(QWidget):
     def __init__(self, db_path: Path):
         super().__init__()
         self.db = MeetingsDatabase(db_path)
+
+        # --- Local Cache Configuration Setup ---
+        self.config_file = Path.home() / "3GPP_Delegate_Helper" / "meetings_config.json"
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
+        self.cache_dir = self._load_settings()
+
         self._setup_ui()
         self.refresh_table()
+
+    # --- SETTINGS LOGIC ---
+    def _load_settings(self) -> str:
+        fallback = str(Path.home() / "3GPP_Delegate_Helper" / "cache")
+        if self.config_file.exists():
+            try:
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return data.get('download_dir', fallback)
+            except Exception:
+                pass
+        return fallback
+
+    def _save_settings(self):
+        try:
+            current_dir = self.dl_dir_input.text().strip()
+            data = {'download_dir': current_dir}
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+            self.cache_dir = current_dir
+        except Exception as e:
+            print(f"Error saving config: {e}")
+
+    def _browse_cache_dir(self):
+        directory = QFileDialog.getExistingDirectory(self, "Select Cache Directory", self.dl_dir_input.text())
+        if directory:
+            # Normalize path slashes for the OS
+            normalized_dir = str(Path(directory))
+            self.dl_dir_input.setText(normalized_dir)
+            self._save_settings()
 
     def _setup_ui(self):
         main_layout = QHBoxLayout(self)
@@ -50,16 +89,15 @@ class MeetingsTab(QWidget):
         self.table.setStyleSheet(
             "QTableView { border: 1px solid #dcdcdc; gridline-color: #f0f0f0; } QTableView::item:selected { background-color: #cce8ff; color: #000; }")
 
-        # --- FIXED: Adjusted Column Widths for the new Layout ---
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setSectionResizeMode(0, QHeaderView.Fixed)
-        header.resizeSection(0, 40)   # Action Button
-        header.resizeSection(1, 60)   # WG
-        header.resizeSection(2, 90)   # Meeting Number
-        header.setSectionResizeMode(3, QHeaderView.Stretch) # Location gets the remaining space
-        header.resizeSection(4, 90)   # Start Date
-        header.resizeSection(5, 90)   # End Date
+        header.resizeSection(0, 40)  # Action Button
+        header.resizeSection(1, 60)  # WG
+        header.resizeSection(2, 90)  # Meeting Number
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Location gets the remaining space
+        header.resizeSection(4, 90)  # Start Date
+        header.resizeSection(5, 90)  # End Date
         header.resizeSection(6, 110)  # First TDoc
         header.resizeSection(7, 110)  # Last TDoc
 
@@ -147,6 +185,22 @@ class MeetingsTab(QWidget):
         right_layout.addWidget(self.chk_wg)
         right_layout.addWidget(self.chk_dyna)
         right_layout.addWidget(self.chk_docs)
+
+        # --- NEW: Local Cache GUI Element ---
+        right_layout.addWidget(QLabel("Local Cache Directory:"))
+        cache_layout = QHBoxLayout()
+        self.dl_dir_input = QLineEdit()
+        self.dl_dir_input.setText(self.cache_dir)
+        self.dl_dir_input.editingFinished.connect(self._save_settings)
+
+        browse_btn = QPushButton("...")
+        browse_btn.setFixedWidth(30)
+        browse_btn.clicked.connect(self._browse_cache_dir)
+
+        cache_layout.addWidget(self.dl_dir_input)
+        cache_layout.addWidget(browse_btn)
+        right_layout.addLayout(cache_layout)
+        # ------------------------------------
 
         right_layout.addStretch()
 
@@ -266,6 +320,26 @@ class MeetingsTab(QWidget):
             if docs_url:
                 menu.addAction("📂 Open Documents Folder").triggered.connect(lambda _, u=docs_url: webbrowser.open(u))
 
+            # --- NEW: VERIFY LOCAL CACHE DIRECTORY ---
+            folder_name = row_data.get("folder_name")
+            if not folder_name:
+                folder_name = row_data.get("meeting_number", "")
+
+            if folder_name:
+                local_path = Path(self.cache_dir) / folder_name
+                if local_path.exists() and local_path.is_dir():
+                    menu.addAction("📁 Open Local Cache Folder").triggered.connect(
+                        lambda _, p=str(local_path): os.startfile(p) if hasattr(os, 'startfile') else webbrowser.open(
+                            f"file:///{p}")
+                    )
+
+                mtg_id = row_data.get("mtg_id")
+                if mtg_id:
+                    menu.addAction("📊 Download TDocs List").triggered.connect(
+                        lambda _, m=mtg_id, p=local_path: self._start_tdocs_download(m, p)
+                    )
+            # -----------------------------------------
+
             wg_name = row_data.get("wg_name", "")
             meeting_name = row_data.get("name", "")
             start_date = row_data.get("start_date", "")
@@ -275,7 +349,6 @@ class MeetingsTab(QWidget):
             if self.db.is_active_sync_meeting(wg_name, start_date, end_date, is_elec):
                 menu.addSeparator()
 
-                # Handle the special SA3-LI edge case
                 sync_wg = "SA3LI" if wg_name == "SA3" and "LI" in meeting_name.upper() else wg_name
                 sync_base_url = f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{sync_wg}"
 
@@ -321,3 +394,30 @@ class MeetingsTab(QWidget):
 
     def show_meeting_info(self, data: dict):
         MeetingInfoDialog(data, self).exec_()
+
+    def _start_tdocs_download(self, mtg_id: str, local_path: Path):
+        # Notify the user that the download has started
+        self.update_btn.setText("⏳ Downloading TDocs...")
+        self.update_btn.setEnabled(False)
+
+        # Initialize and start the background worker
+        self.dl_thread = TDocsDownloaderThread(mtg_id, local_path)
+        self.dl_thread.finished.connect(self._on_tdocs_download_finished)
+        self.dl_thread.start()
+
+    def _on_tdocs_download_finished(self, success: bool, result: str):
+        # Reset the UI button
+        self.update_btn.setText("🔄 Sync All Meetings")
+        self.update_btn.setEnabled(True)
+
+        if success:
+            # Result contains the filepath. Open it natively in Excel.
+            try:
+                if hasattr(os, 'startfile'):
+                    os.startfile(result)
+                else:
+                    webbrowser.open(f"file:///{result}")
+            except Exception as e:
+                QMessageBox.warning(self, "Open Error", f"Could not open the downloaded file:\n{e}")
+        else:
+            QMessageBox.critical(self, "Download Error", f"Failed to download TDocs List:\n{result}")
