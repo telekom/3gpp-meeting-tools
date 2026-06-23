@@ -25,6 +25,10 @@ def _format_meeting_info(data: dict) -> str:
         if val and val.startswith("http"): return f'<a href="{val}">{val}</a>'
         return clean(val)
 
+    # --- FIXED: Reconstruct the full FTP URL from the relative url_key ---
+    raw_url = data.get('url_key', '')
+    main_ftp_url = raw_url if raw_url.startswith('http') else (f"https://www.3gpp.org/ftp/{raw_url}" if raw_url else "")
+
     return (
         f"<b>Working Group:</b> {clean(data.get('wg_name'))}<br>"
         f"<b>Meeting Number:</b> {clean(data.get('meeting_number'))}<br>"
@@ -33,7 +37,7 @@ def _format_meeting_info(data: dict) -> str:
         f"<b>Dates:</b> {clean(data.get('start_date'))} to {clean(data.get('end_date'))}<br><hr>"
         f"<b>First TDoc:</b> {clean(data.get('first_tdoc'))}<br>"
         f"<b>Last TDoc:</b> {clean(data.get('last_tdoc'))}<br><hr>"
-        f"<b>Main FTP Link:</b> {format_link(data.get('url_key'))}<br>"
+        f"<b>Main FTP Link:</b> {format_link(main_ftp_url)}<br>"
         f"<b>Docs Folder Link:</b> {format_link(data.get('docs_folder_url'))}<br>"
         f"<b>Database ID:</b> {clean(data.get('id'))}"
     )
@@ -335,10 +339,18 @@ class MeetingsTab(QWidget):
                 [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}], self.chk_wg.isChecked(),
                 self.chk_docs.isChecked(), self.chk_dyna.isChecked()))
             menu.addSeparator()
-            if row_data.get("url_key"): menu.addAction("🌐 Open Main Folder (FTP)").triggered.connect(
-                lambda: webbrowser.open(row_data.get("url_key")))
-            if row_data.get("docs_folder_url"): menu.addAction("📂 Open Documents Folder").triggered.connect(
-                lambda: webbrowser.open(row_data.get("docs_folder_url")))
+
+            # --- FIXED: Reconstruct URL for the right-click menu ---
+            raw_url = row_data.get("url_key", "")
+            if raw_url:
+                full_ftp_url = raw_url if raw_url.startswith("http") else f"https://www.3gpp.org/ftp/{raw_url}"
+                menu.addAction("🌐 Open Main Folder (FTP)").triggered.connect(
+                    lambda _, u=full_ftp_url: webbrowser.open(u))
+
+            docs_url = row_data.get("docs_folder_url")
+            if docs_url:
+                menu.addAction("📂 Open Documents Folder").triggered.connect(lambda _, u=docs_url: webbrowser.open(u))
+
             menu.addSeparator()
             menu.addAction("🗑️ Delete this Meeting").triggered.connect(lambda: self._confirm_delete_specific(
                 [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}]))
