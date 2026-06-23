@@ -1,11 +1,12 @@
 # --- File: modules/meetings/ui/tdocs_window.py ---
 import os
+import re
 import webbrowser
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QComboBox, QFrame,
-                             QPushButton, QMessageBox)
-from PyQt5.QtGui import QStandardItemModel, QStandardItem
-from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QEvent, pyqtSignal
+                             QPushButton, QMessageBox, QStyledItemDelegate, QStyleOptionViewItem, QStyle)
+from PyQt5.QtGui import QStandardItemModel, QStandardItem, QTextDocument
+from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QEvent, pyqtSignal, QRectF, QSize
 
 
 # ==========================================
@@ -19,28 +20,62 @@ class CheckableComboBox(QComboBox):
         self.title = title
         self.setEditable(True)
         self.lineEdit().setReadOnly(True)
+        self._updating = False  # Prevent recursive loops when bulk-checking
+
+        self.lineEdit().installEventFilter(self)
         self.setModel(QStandardItemModel(self))
-        # We handle state changes directly in the event filter to avoid signal loops
         self.view().viewport().installEventFilter(self)
 
     def eventFilter(self, obj, event):
+        # 1. Force the dropdown to open if the user clicks the text box
+        if obj == self.lineEdit() and event.type() == QEvent.MouseButtonPress:
+            self.showPopup()
+            return True
+
+        # 2. Handle the checkboxes inside the dropdown
         if obj == self.view().viewport() and event.type() == QEvent.MouseButtonRelease:
             index = self.view().indexAt(event.pos())
             if index.isValid():
                 item = self.model().itemFromIndex(index)
                 if item:
-                    # FIX 1: Explicitly check for Qt.Checked or the integer 2 to avoid Enum truthiness bugs
                     state = item.checkState()
                     new_state = Qt.Unchecked if (state == Qt.Checked or state == 2) else Qt.Checked
-                    item.setCheckState(new_state)
 
-                    # Manually trigger the update and emit to guarantee execution
+                    self._updating = True
+
+                    # If user clicked the "(Select All)" item at index 0
+                    if index.row() == 0:
+                        item.setCheckState(new_state)
+                        # Cascade state to all other items
+                        for i in range(1, self.model().rowCount()):
+                            self.model().item(i).setCheckState(new_state)
+                    else:
+                        # User clicked a standard item
+                        item.setCheckState(new_state)
+                        # Re-evaluate the "(Select All)" checkbox state
+                        all_checked = True
+                        for i in range(1, self.model().rowCount()):
+                            if self.model().item(i).checkState() not in (Qt.Checked, 2):
+                                all_checked = False
+                                break
+                        self.model().item(0).setCheckState(Qt.Checked if all_checked else Qt.Unchecked)
+
+                    self._updating = False
+
                     self.updateText()
                     self.selectionChanged.emit(self.getCheckedItems())
             return True  # Consume event to prevent popup from closing
+
         return super().eventFilter(obj, event)
 
     def addItems(self, items):
+        # ADDED: Master "(Select All)" item at the very top
+        item_all = QStandardItem("(Select All)")
+        item_all.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+        item_all.setCheckState(Qt.Checked)
+        item_all.setData("ALL", Qt.UserRole)
+        self.model().appendRow(item_all)
+
         for text in items:
             display_text = str(text) if text else "(Empty)"
             item = QStandardItem(display_text)
@@ -52,17 +87,18 @@ class CheckableComboBox(QComboBox):
 
     def getCheckedItems(self):
         checked = []
-        for i in range(self.model().rowCount()):
+        # Skip index 0 because it's the "(Select All)" master toggle
+        for i in range(1, self.model().rowCount()):
             item = self.model().item(i)
             state = item.checkState()
-            # FIX 1 continued
             if state == Qt.Checked or state == 2:
                 checked.append(item.data(Qt.UserRole))
         return checked
 
     def updateText(self):
+        if self._updating: return
         checked = self.getCheckedItems()
-        total = self.model().rowCount()
+        total = self.model().rowCount() - 1  # Exclude "(Select All)" from math
 
         if total == 0:
             self.lineEdit().setText(f"{self.title}: None")
@@ -75,6 +111,61 @@ class CheckableComboBox(QComboBox):
             self.lineEdit().setText(f"{self.title}: {len(checked)} selected")
 
 
+# ==========================================
+# --- HTML CLICKABLE CELL DELEGATE  ---
+# ==========================================
+class HtmlDelegate(QStyledItemDelegate):
+    linkClicked = pyqtSignal(str)
+
+    def paint(self, painter, option, index):
+        options = QStyleOptionViewItem(option)
+        self.initStyleOption(options, index)
+
+        painter.save()
+        doc = QTextDocument()
+        doc.setDocumentMargin(4)
+        doc.setDefaultFont(options.font)
+        doc.setHtml(options.text)
+
+        # Draw the standard background (maintains alternating row colors cleanly)
+        options.text = ""
+        options.widget.style().drawControl(QStyle.CE_ItemViewItem, options, painter)
+
+        # Draw the HTML text over it
+        painter.translate(options.rect.left(), options.rect.top())
+        clip = QRectF(0, 0, options.rect.width(), options.rect.height())
+        doc.drawContents(painter, clip)
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        options = QStyleOptionViewItem(option)
+        self.initStyleOption(options, index)
+        doc = QTextDocument()
+        doc.setDocumentMargin(4)
+        doc.setDefaultFont(options.font)
+        doc.setHtml(options.text)
+        return QSize(int(doc.idealWidth()), int(doc.size().height()))
+
+    def editorEvent(self, event, model, option, index):
+        if event.type() == QEvent.MouseButtonRelease:
+            options = QStyleOptionViewItem(option)
+            self.initStyleOption(options, index)
+            doc = QTextDocument()
+            doc.setDocumentMargin(4)
+            doc.setDefaultFont(options.font)
+            doc.setHtml(options.text)
+
+            pos = event.pos() - option.rect.topLeft()
+            anchor = doc.documentLayout().anchorAt(pos)
+            if anchor:
+                self.linkClicked.emit(anchor)
+                return True
+        return super().editorEvent(event, model, option, index)
+
+
+# ==========================================
+# --- DATA MODELS ---
+# ==========================================
 class TDocsTableModel(QAbstractTableModel):
     def __init__(self, data=None):
         super().__init__()
@@ -83,14 +174,36 @@ class TDocsTableModel(QAbstractTableModel):
             "TDoc", "Title", "Source", "Type", "For",
             "Abstract", "Secretary Remarks", "Agenda Item", "TDoc Status", "Related TDocs"
         ]
+        self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
 
-    def _format_related_tdocs(self, row_data: dict) -> str:
+    def _linkify(self, prefix: str, text: str, html: bool) -> str:
+        if not text: return ""
+        if not html: return f"{prefix}: {text}"
+
+        def repl(match):
+            tdoc = match.group(0)
+            if tdoc in self.valid_tdocs:
+                return f'<a href="{tdoc}" style="color: #005A9E; font-weight: bold; text-decoration: underline;">{tdoc}</a>'
+            else:
+                return f'<span style="color: #999999;">{tdoc}</span>'
+
+        linked_text = re.sub(r'[a-zA-Z0-9]+-\d+', repl, text)
+        return f"<span style='color: #444;'><b>{prefix}:</b></span> {linked_text}"
+
+    def _format_related_tdocs(self, row_data: dict, html=False) -> str:
         parts = []
-        if row_data.get("Is revision of"): parts.append(f"⬅️ Rev of: {row_data['Is revision of']}")
-        if row_data.get("Revised to"): parts.append(f"➡️ Rev to: {row_data['Revised to']}")
-        if row_data.get("Original LS"): parts.append(f"✉️ Orig LS: {row_data['Original LS']}")
-        if row_data.get("Reply in"): parts.append(f"↩️ Reply: {row_data['Reply in']}")
-        return "\n".join(parts)
+        r_rev_of = row_data.get("Is revision of")
+        r_rev_to = row_data.get("Revised to")
+        r_orig = row_data.get("Original LS")
+        r_reply = row_data.get("Reply in")
+
+        if r_rev_of: parts.append(self._linkify("⬅️ Rev of", r_rev_of, html))
+        if r_rev_to: parts.append(self._linkify("➡️ Rev to", r_rev_to, html))
+        if r_orig: parts.append(self._linkify("✉️ Orig LS", r_orig, html))
+        if r_reply: parts.append(self._linkify("↩️ Reply", r_reply, html))
+
+        separator = "<br>" if html else "\n"
+        return separator.join(parts)
 
     def data(self, index, role):
         if not index.isValid(): return None
@@ -99,9 +212,13 @@ class TDocsTableModel(QAbstractTableModel):
 
         if role == Qt.DisplayRole:
             if col_name == "Related TDocs":
-                return self._format_related_tdocs(row)
+                return self._format_related_tdocs(row, html=True)
+            val = row.get(col_name, "")
+            return str(val).strip() if val is not None else ""
 
-            # FIX 2 & 3: Force absolute string type and strip spaces to neutralize QVariant & Ghost space bugs
+        elif role == Qt.UserRole:
+            if col_name == "Related TDocs":
+                return self._format_related_tdocs(row, html=False)
             val = row.get(col_name, "")
             return str(val).strip() if val is not None else ""
 
@@ -122,9 +239,6 @@ class TDocsTableModel(QAbstractTableModel):
         return None
 
 
-# ==========================================
-# --- UPGRADED: PROXY FILTER MODEL ---
-# ==========================================
 class TDocsFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -152,25 +266,19 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
     def filterAcceptsRow(self, source_row, source_parent):
         model = self.sourceModel()
 
-        # Because we forced TDocsTableModel to output strict strings, we don't need complex conversions here
-
-        # 1. Type Filter
-        type_data = model.data(model.index(source_row, 3, source_parent), Qt.DisplayRole)
+        type_data = model.data(model.index(source_row, 3, source_parent), Qt.UserRole)
         if type_data not in self.type_filters: return False
 
-        # 2. Agenda Item Filter
-        ai_data = model.data(model.index(source_row, 7, source_parent), Qt.DisplayRole)
+        ai_data = model.data(model.index(source_row, 7, source_parent), Qt.UserRole)
         if ai_data not in self.ai_filters: return False
 
-        # 3. Status Filter
-        status_data = model.data(model.index(source_row, 8, source_parent), Qt.DisplayRole)
+        status_data = model.data(model.index(source_row, 8, source_parent), Qt.UserRole)
         if status_data not in self.status_filters: return False
 
-        # 4. Global Search
         if self.global_filter:
             match_found = False
             for col in [0, 1, 2, 5, 9]:
-                data = model.data(model.index(source_row, col, source_parent), Qt.DisplayRole)
+                data = model.data(model.index(source_row, col, source_parent), Qt.UserRole)
                 if data and self.global_filter in str(data).lower():
                     match_found = True
                     break
@@ -240,9 +348,7 @@ class TDocsWindow(QWidget):
         self.search_input.textChanged.connect(self._on_search_changed)
         filter_layout.addWidget(self.search_input)
 
-        # Helper to perfectly sanitize extracted data
-        def sanitize(val):
-            return str(val).strip() if val is not None else ""
+        def sanitize(val): return str(val).strip() if val is not None else ""
 
         self.type_combo = CheckableComboBox("Type")
         self.type_combo.setMinimumWidth(150)
@@ -275,33 +381,56 @@ class TDocsWindow(QWidget):
         self.proxy.setSourceModel(self.model)
         self.proxy.layoutChanged.connect(self._update_count_label)
 
-        # Initialize Proxy with all data selected
         self.proxy.setTypeFilters(unique_types)
         self.proxy.setAIFilters(unique_ais)
         self.proxy.setStatusFilters(unique_statuses)
 
         self.table.setModel(self.proxy)
 
-        self.table.setSelectionBehavior(QTableView.SelectRows)
+        self.table.setSelectionMode(QTableView.NoSelection)
+        self.table.setFocusPolicy(Qt.NoFocus)
+
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
         self.table.setStyleSheet("""
-            QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; }
-            QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }
-        """)
+                    QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; }
+                    QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }
+                """)
 
-        self.table.verticalHeader().setDefaultSectionSize(40)
-        self.table.resizeRowsToContents()
+        # ---> FIX 1: Remove bulky row padding and tightly wrap the text
+        self.table.setWordWrap(True)
+        self.table.verticalHeader().setDefaultSectionSize(24)  # Small, clean default height
+        self.table.resizeRowsToContents()  # Calculates exact heights based on content
+
+        self.html_delegate = HtmlDelegate(self.table)
+        self.html_delegate.linkClicked.connect(self._scroll_to_tdoc)
+        self.table.setItemDelegateForColumn(9, self.html_delegate)
+        self.table.viewport().setMouseTracking(True)
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.resizeSection(0, 110)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.resizeSection(9, 150)
+
+        # ---> FIX 2: Shift the flexible "Stretch" space from Title to Abstract
+        header.resizeSection(0, 110)  # TDoc
+        header.resizeSection(1, 250)  # Title (Now narrower and fixed width)
+        header.setSectionResizeMode(5, QHeaderView.Stretch)  # Abstract (Now takes all remaining space)
+        header.resizeSection(9, 160)  # Related TDocs
 
         main_layout.addWidget(self.table)
 
     # --- ACTIONS & TRIGGERS ---
+    def _scroll_to_tdoc(self, target_tdoc: str):
+        """Finds the TDoc and beautifully scrolls it to the exact center of the screen."""
+        for row in range(self.proxy.rowCount()):
+            idx = self.proxy.index(row, 0)
+            if self.proxy.data(idx, Qt.UserRole) == target_tdoc:
+                # FIXED 2: No more selectRow(). We just visually scroll to it.
+                self.table.scrollTo(idx, QTableView.PositionAtCenter)
+                return
+
+        QMessageBox.information(self, "Hidden",
+                                f"TDoc '{target_tdoc}' exists, but is currently hidden by your filters.")
+
     def _open_excel(self):
         try:
             if hasattr(os, 'startfile'):
