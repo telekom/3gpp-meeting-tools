@@ -194,62 +194,49 @@ class MeetingsCrawlerThread(QThread):
                 if not m_name or m_name.lower() == 'meeting':
                     continue
 
-                # 1. Grab URL and MtgId unconditionally from anchor tags
+                # ==========================================
+                # --- FIXED: Robust Backslash URL Extractor ---
+                # ==========================================
                 mtg_id = ""
                 url_key = ""
                 for a in row.find_all('a', href=True):
-                    href = a['href']
+                    # Replace broken windows slashes with unix ones
+                    href = a['href'].replace('\\', '/')
+
                     match_id = re.search(r'MtgId=(\d+)', href, re.IGNORECASE)
                     if match_id: mtg_id = match_id.group(1)
 
-                    match_path = re.search(r'(tsg_[a-z0-9_./-]+)', href, re.IGNORECASE)
-                    if match_path:
-                        url_key = unquote(match_path.group(1).split('?')[0].rstrip('/'))
+                    if '/ftp/' in href.lower() and 'tsg_' in href.lower():
+                        parts = re.split(r'/ftp/', href, flags=re.IGNORECASE)
+                        if len(parts) > 1:
+                            # Strip off queries and slashes
+                            path_after_ftp = unquote(parts[1].split('?')[0].strip('/'))
 
+                            # The "Shortest-Path Heuristic":
+                            # Always take the root folder instead of /Docs or /Invitation
+                            if not url_key or len(path_after_ftp) < len(url_key):
+                                url_key = path_after_ftp
                 # ==========================================
-                # --- FIXED: Intelligent Date & Location Parsing ---
-                # ==========================================
+
                 start_d, end_d, town = "", "", ""
+                all_dates = []
                 date_idx = -1
 
                 for i in range(1, len(col_texts)):
-                    text = col_texts[i].replace('\u2026', '...').replace('..', '...')
+                    found_dates = re.findall(r'(?:19|20)\d{2}[-/]\d{2}[-/]\d{2}', col_texts[i])
+                    if found_dates:
+                        found_dates = [d.replace('/', '-') for d in found_dates]
+                        all_dates.extend(found_dates)
+                        if date_idx == -1:
+                            date_idx = i
 
-                    # Matches robust 3GPP formats (YYYY-MM-DD or 13 May 2024)
-                    if re.search(r'(?:19|20)\d{2}', text) and re.search(
-                            r'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|[-/]\d{2}[-/]', text, re.IGNORECASE):
-                        date_idx = i
-                        if "..." in text:
-                            parts = text.split("...")
-                            start_d, end_d = parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
-                        elif " to " in text:
-                            parts = text.split(" to ")
-                            start_d, end_d = parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
-                        elif " - " in text:
-                            parts = text.split(" - ")
-                            start_d, end_d = parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
-                        else:
-                            start_d = text.strip()
-                        break
+                if all_dates:
+                    start_d = min(all_dates)
+                    end_d = max(all_dates)
 
-                if date_idx != -1:
-                    m_num_raw = col_texts[1].strip() if len(col_texts) > 1 else ""
+                if date_idx > 0:
+                    town = col_texts[date_idx - 1].strip()
 
-                    # 1st Priority: Town is AFTER dates (Standard 3GPP Layout)
-                    if date_idx + 1 < len(col_texts):
-                        candidate = col_texts[date_idx + 1].strip()
-                        if len(candidate) > 2 and not re.search(r'(?:19|20)\d{2}', candidate):
-                            town = candidate
-
-                    # 2nd Priority: Town is BEFORE dates (RAN Ad-Hoc Layout)
-                    if not town and date_idx > 0:
-                        candidate = col_texts[date_idx - 1].strip()
-                        if candidate and candidate != m_num_raw and candidate != m_name:
-                            town = candidate
-
-                # ==========================================
-                # --- FIXED: Meeting Number Generator ---
-                # ==========================================
                 full_num = ""
                 match_num = re.search(r'#(\d+[a-z0-9\-]*)', m_name, re.IGNORECASE)
                 if match_num:
@@ -271,9 +258,6 @@ class MeetingsCrawlerThread(QThread):
                         t["wg"] == wg_name and t["meeting"] == full_num for t in self.target_meetings):
                     continue
 
-                # ==========================================
-                # --- FIXED: Overwrite Number for RAN Ad-Hocs ---
-                # ==========================================
                 new_m_num = ""
                 if wg_name.startswith("RAN"):
                     if "AH" in url_key.upper() or "AH" in full_num or full_num == "0" or "RELEASE" in m_name.upper():
