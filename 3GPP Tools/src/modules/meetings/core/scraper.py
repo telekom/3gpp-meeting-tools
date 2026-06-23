@@ -11,45 +11,47 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.network.session import NetworkSession
 from modules.meetings.core.meetings_db import MeetingsDatabase
 
-# SA2 and SA3 correctly mapped
+# --- FIXED: Added all specific RAN Ad-Hoc Folders ---
 MEETING_SOURCES = {
-    "RAN": {"ftp": "https://www.3gpp.org/ftp/tsg_ran/TSG_RAN/",
+    "RAN": {"ftp": ["https://www.3gpp.org/ftp/tsg_ran/TSG_RAN/", "https://www.3gpp.org/ftp/tsg_ran/TSG_RAN/TSGR_AHs/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-RP.htm"},
-    "RAN1": {"ftp": "https://www.3gpp.org/ftp/tsg_ran/WG1_RL1/",
+    "RAN1": {"ftp": ["https://www.3gpp.org/ftp/tsg_ran/WG1_RL1/", "https://www.3gpp.org/ftp/tsg_ran/WG1_RL1/TSGR1_AH/"],
              "dyna": "https://www.3gpp.org/dynareport?code=Meetings-R1.htm"},
-    "RAN2": {"ftp": "https://www.3gpp.org/ftp/tsg_ran/WG2_RL2/",
-             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-R2.htm"},
-    "RAN3": {"ftp": "https://www.3gpp.org/ftp/tsg_ran/WG3_Iu/",
+    "RAN2": {
+        "ftp": ["https://www.3gpp.org/ftp/tsg_ran/WG2_RL2/", "https://www.3gpp.org/ftp/tsg_ran/WG2_RL2/TSGR2_AHs/"],
+        "dyna": "https://www.3gpp.org/dynareport?code=Meetings-R2.htm"},
+    "RAN3": {"ftp": ["https://www.3gpp.org/ftp/tsg_ran/WG3_Iu/", "https://www.3gpp.org/ftp/tsg_ran/WG3_Iu/TSGR3_AHGs/"],
              "dyna": "https://www.3gpp.org/dynareport?code=Meetings-R3.htm"},
-    "RAN4": {"ftp": "https://www.3gpp.org/ftp/tsg_ran/WG4_Radio/",
-             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-R4.htm"},
-    "SA": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/TSG_SA/",
+    "RAN4": {
+        "ftp": ["https://www.3gpp.org/ftp/tsg_ran/WG4_Radio/", "https://www.3gpp.org/ftp/tsg_ran/WG4_Radio/TSGR4_AHs/"],
+        "dyna": "https://www.3gpp.org/dynareport?code=Meetings-R4.htm"},
+    "SA": {"ftp": ["https://www.3gpp.org/ftp/tsg_sa/TSG_SA/"],
            "dyna": "https://www.3gpp.org/dynareport?code=Meetings-SP.htm"},
-    "SA1": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG1_Serv/",
+    "SA1": {"ftp": ["https://www.3gpp.org/ftp/tsg_sa/WG1_Serv/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S1.htm"},
-    "SA2": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/",
+    "SA2": {"ftp": ["https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S2.htm"},
-    "SA3": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG3_Security/",
+    "SA3": {"ftp": ["https://www.3gpp.org/ftp/tsg_sa/WG3_Security/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S3.htm"},
-    "SA4": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG4_CODEC/",
+    "SA4": {"ftp": ["https://www.3gpp.org/ftp/tsg_sa/WG4_CODEC/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S4.htm"},
-    "SA5": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG5_TM/",
+    "SA5": {"ftp": ["https://www.3gpp.org/ftp/tsg_sa/WG5_TM/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S5.htm"},
-    "SA6": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG6_MissionCritical/",
+    "SA6": {"ftp": ["https://www.3gpp.org/ftp/tsg_sa/WG6_MissionCritical/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S6.htm"},
-    "CT": {"ftp": "https://www.3gpp.org/ftp/tsg_ct/TSG_CT/",
+    "CT": {"ftp": ["https://www.3gpp.org/ftp/tsg_ct/TSG_CT/"],
            "dyna": "https://www.3gpp.org/dynareport?code=Meetings-CP.htm"},
-    "CT1": {"ftp": "https://www.3gpp.org/ftp/tsg_ct/WG1_mm-cc-sm_ex-CN1/",
+    "CT1": {"ftp": ["https://www.3gpp.org/ftp/tsg_ct/WG1_mm-cc-sm_ex-CN1/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-C1.htm"},
-    "CT2": {"ftp": "https://www.3gpp.org/ftp/tsg_ct/WG2_capability_ex-T2/",
+    "CT2": {"ftp": ["https://www.3gpp.org/ftp/tsg_ct/WG2_capability_ex-T2/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-C2.htm"},
-    "CT3": {"ftp": "https://www.3gpp.org/ftp/tsg_ct/WG3_interworking_ex-CN3/",
+    "CT3": {"ftp": ["https://www.3gpp.org/ftp/tsg_ct/WG3_interworking_ex-CN3/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-C3.htm"},
-    "CT4": {"ftp": "https://www.3gpp.org/ftp/tsg_ct/WG4_protocollars_ex-CN4/",
+    "CT4": {"ftp": ["https://www.3gpp.org/ftp/tsg_ct/WG4_protocollars_ex-CN4/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-C4.htm"},
-    "CT5": {"ftp": "https://www.3gpp.org/ftp/tsg_ct/WG5_osa_ex-CN5/",
+    "CT5": {"ftp": ["https://www.3gpp.org/ftp/tsg_ct/WG5_osa_ex-CN5/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-C5.htm"},
-    "CT6": {"ftp": "https://www.3gpp.org/ftp/tsg_ct/WG6_Smartcard_Ex-T3/",
+    "CT6": {"ftp": ["https://www.3gpp.org/ftp/tsg_ct/WG6_Smartcard_Ex-T3/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-C6.htm"},
 }
 
@@ -81,12 +83,7 @@ class MeetingsCrawlerThread(QThread):
 
     def is_meeting(self, folder_name: str) -> bool:
         if folder_name.lower() in self.deny_list: return False
-
-        # --- FIXED: Reject any strings that are clearly files (.zip, .pdf, .docx, etc.) ---
-        # Matches a dot followed by 2 to 4 letters/numbers at the very end of the string
-        if re.search(r'\.[a-z0-9]{2,4}$', folder_name, re.IGNORECASE):
-            return False
-
+        if re.search(r'\.[a-z0-9]{2,4}$', folder_name, re.IGNORECASE): return False
         return bool(self.meeting_pattern.match(folder_name))
 
     def extract_meeting_number(self, folder_name: str) -> str:
@@ -95,7 +92,7 @@ class MeetingsCrawlerThread(QThread):
             return match.group(1).replace('-', '').upper()
         return folder_name
 
-    def fetch_wg_directories(self, wg_name: str, ftp_base_url: str) -> list:
+    def fetch_wg_directories(self, wg_name: str, ftp_base_url: str, is_ah_folder: bool = False) -> list:
         meeting_tasks = []
         try:
             self.ui_log_msg.emit(f"🌐 Parsing {ftp_base_url}", logging.INFO)
@@ -103,14 +100,19 @@ class MeetingsCrawlerThread(QThread):
 
             hrefs = self.href_pattern.findall(html)
             if not hrefs:
-                self.ui_log_msg.emit(f"⚠️ [Debug] NO links found for {wg_name}. Possible Firewall/WAF block.",
-                                     logging.WARNING)
+                self.ui_log_msg.emit(f"⚠️ [Debug] NO links found for {ftp_base_url.split('/')[-2]}.", logging.WARNING)
                 return meeting_tasks
 
             for href in hrefs:
                 if ".." in href or "?" in href: continue
                 folder_name = href.strip('/').split('/')[-1]
-                if folder_name in ["..", ".", ""] or not self.is_meeting(folder_name): continue
+                if folder_name in ["..", ".", ""]: continue
+
+                if folder_name.lower() in self.deny_list: continue
+                if re.search(r'\.[a-z0-9]{2,4}$', folder_name, re.IGNORECASE): continue
+
+                # --- FIXED: Only strictly enforce meeting Regex if NOT in an AdHoc folder ---
+                if not is_ah_folder and not self.is_meeting(folder_name): continue
 
                 absolute_url = urljoin(ftp_base_url, href)
                 meeting_num = self.extract_meeting_number(folder_name)
@@ -120,39 +122,53 @@ class MeetingsCrawlerThread(QThread):
                     continue
 
                 url_key = absolute_url.split('ftp/', 1)[-1] if 'ftp/' in absolute_url else absolute_url
+
+                # --- FIXED: Auto-populate the Docs URL natively ---
+                docs_url = urljoin(absolute_url, "Docs/") if absolute_url.endswith('/') else f"{absolute_url}/Docs/"
+
                 meeting_tasks.append({
                     "wg_name": wg_name, "folder_name": folder_name, "meeting_num": meeting_num,
-                    "url_key": url_key, "absolute_url": absolute_url
+                    "url_key": url_key, "absolute_url": absolute_url,
+                    "is_ad_hoc": is_ah_folder,
+                    "docs_url": docs_url
                 })
 
-            self.ui_log_msg.emit(f"✅ {wg_name}: Found {len(meeting_tasks)} meeting folders.", logging.INFO)
+            self.ui_log_msg.emit(
+                f"✅ {wg_name}: Found {len(meeting_tasks)} meeting folders in {ftp_base_url.split('/')[-2]}.",
+                logging.INFO)
 
         except Exception as e:
-            self.ui_log_msg.emit(f"⚠️ Directory Fetch Error for {wg_name}: {e}", logging.WARNING)
+            self.ui_log_msg.emit(f"⚠️ Directory Fetch Error for {ftp_base_url}: {e}", logging.WARNING)
         return meeting_tasks
 
     def process_individual_meeting(self, task: dict) -> tuple:
-        """Returns the data tuple to be saved instead of saving directly."""
-        docs_url, first_tdoc, last_tdoc, tdoc_count = "", "", "", 0
-        for doc_folder in ["Docs/", "docs/"]:
-            test_docs_url = urljoin(task["absolute_url"], doc_folder)
-            try:
-                html = NetworkSession.get_html(test_docs_url, timeout=5)
-                docs_url = test_docs_url
+        # Phase 2 now leverages the auto-generated Docs URL
+        base_docs_url = task.get("docs_url", urljoin(task["absolute_url"], "Docs/"))
+        first_tdoc, last_tdoc, tdoc_count = "", "", 0
+        final_docs_url = base_docs_url
 
-                tdocs = sorted([m.strip() for m in self.tdoc_pattern.findall(html)])
-                if tdocs:
-                    first_tdoc, last_tdoc, tdoc_count = tdocs[0], tdocs[-1], len(tdocs)
-                break
-            except Exception:
-                pass
+        try:
+            html = NetworkSession.get_html(base_docs_url, timeout=5)
+            tdocs = sorted([m.strip() for m in self.tdoc_pattern.findall(html)])
+            if tdocs:
+                first_tdoc, last_tdoc, tdoc_count = tdocs[0], tdocs[-1], len(tdocs)
+        except Exception:
+            # Graceful fallback to lowercase 'docs/' if standard 'Docs/' 404s
+            if "Docs/" in base_docs_url:
+                try:
+                    fallback_url = base_docs_url.replace("Docs/", "docs/")
+                    html = NetworkSession.get_html(fallback_url, timeout=5)
+                    tdocs = sorted([m.strip() for m in self.tdoc_pattern.findall(html)])
+                    if tdocs:
+                        first_tdoc, last_tdoc, tdoc_count = tdocs[0], tdocs[-1], len(tdocs)
+                        final_docs_url = fallback_url
+                except Exception:
+                    pass
 
-        # Return the payload formatted exactly for the bulk update function
-        docs_data = (docs_url, first_tdoc, last_tdoc, task["url_key"])
+        docs_data = (final_docs_url, first_tdoc, last_tdoc, task["url_key"])
         return docs_data, tdoc_count
 
     def process_dynareport(self, wg_name: str, dyna_url: str) -> list:
-        """Returns a list of metadata tuples instead of saving directly."""
         results = []
         try:
             soup = BeautifulSoup(NetworkSession.get_html(dyna_url), 'html.parser')
@@ -194,8 +210,12 @@ class MeetingsCrawlerThread(QThread):
                 with ThreadPoolExecutor(max_workers=15) as executor:
                     futures = {}
                     for wg_name, source_info in MEETING_SOURCES.items():
-                        future = executor.submit(self.fetch_wg_directories, wg_name, source_info["ftp"])
-                        futures[future] = wg_name
+                        urls = source_info["ftp"] if isinstance(source_info["ftp"], list) else [source_info["ftp"]]
+                        for url in urls:
+                            # Safely flag URL as an Ad-Hoc directory
+                            is_ah = "AH" in url
+                            future = executor.submit(self.fetch_wg_directories, wg_name, url, is_ah)
+                            futures[future] = wg_name
 
                     for future in as_completed(futures):
                         if res := future.result():
@@ -243,7 +263,7 @@ class MeetingsCrawlerThread(QThread):
                     completed, tdocs_found = 0, 0
                     p2_start = time.time()
 
-                    all_docs_data = []  # Stores returned tuples for bulk insert
+                    all_docs_data = []
 
                     with ThreadPoolExecutor(max_workers=10) as executor:
                         future_to_task = {}
@@ -290,11 +310,12 @@ class MeetingsCrawlerThread(QThread):
                 completed_dyna = 0
                 total_dyna = len(wgs_to_fetch)
 
-                all_metadata = []  # Stores returned tuples for bulk insert
+                all_metadata = []
 
                 with ThreadPoolExecutor(max_workers=5) as executor:
                     dyna_futures = []
                     for wg_name in wgs_to_fetch:
+                        urls = MEETING_SOURCES[wg_name]["ftp"]
                         dyna_url = MEETING_SOURCES[wg_name]["dyna"]
                         future = executor.submit(self.process_dynareport, wg_name, dyna_url)
                         dyna_futures.append(future)

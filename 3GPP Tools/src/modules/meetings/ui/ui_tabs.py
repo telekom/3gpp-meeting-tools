@@ -219,10 +219,22 @@ class MeetingsTab(QWidget):
         right_layout.addWidget(title_lbl)
 
         right_layout.addWidget(QLabel("Working Group:"))
+        # (Inside _setup_ui)
         self.wg_filter = QComboBox()
         self.wg_filter.addItem("All WGs")
-        self.wg_filter.currentIndexChanged.connect(self.refresh_table)
+        self.wg_filter.currentTextChanged.connect(self.refresh_table)
+
+        self.adhoc_filter = QComboBox()
+        self.adhoc_filter.addItems(["All Meetings", "Regular", "Ad-Hoc / BIS"])
+        self.adhoc_filter.currentTextChanged.connect(self.refresh_table)
+
+        self.type_filter = QComboBox()
+        self.type_filter.addItems(["All Types", "In-Person", "Electronic"])
+        self.type_filter.currentTextChanged.connect(self.refresh_table)
+
         right_layout.addWidget(self.wg_filter)
+        right_layout.addWidget(self.adhoc_filter)  # <--- Add this
+        right_layout.addWidget(self.type_filter)
 
         right_layout.addWidget(QLabel("Search (No. or Name):"))
         self.search_input = QLineEdit()
