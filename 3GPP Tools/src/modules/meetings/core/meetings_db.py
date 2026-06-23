@@ -41,13 +41,11 @@ class MeetingsDatabase:
                 )
             ''')
 
-            # --- Graceful Schema Migrations ---
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN sort_number INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
 
-            # NEW: Add Ad-Hoc and Electronic columns safely
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN is_ad_hoc INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
@@ -64,7 +62,6 @@ class MeetingsDatabase:
         match = re.search(r'\d+', m_str or "")
         return int(match.group()) if match else 0
 
-    # --- NEW: Helper to detect specific characters in the meeting string ---
     def _get_meeting_flags(self, m_str: str):
         num_upper = (m_str or "").upper()
         is_ad_hoc = 1 if ("A" in num_upper or "BIS" in num_upper) else 0
@@ -110,27 +107,33 @@ class MeetingsDatabase:
         for task in meetings_data:
             m_num = task['meeting_num']
             is_ah, is_e = self._get_meeting_flags(m_num)
+
+            # --- FIXED: Combine auto-flags with explicit Ad-Hoc folder flags ---
+            final_ah = 1 if (is_ah or task.get('is_ad_hoc')) else 0
+
             insert_data.append((
                 wg_map[task['wg_name']],
                 task['folder_name'],
                 m_num,
                 self._extract_sort_num(m_num),
-                is_ah,
+                final_ah,
                 is_e,
-                task['url_key']
+                task['url_key'],
+                task.get('docs_url', '')  # Auto-populated Docs URL
             ))
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.executemany('''
-                INSERT INTO meetings (wg_id, folder_name, meeting_number, sort_number, is_ad_hoc, is_electronic, url_key)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO meetings (wg_id, folder_name, meeting_number, sort_number, is_ad_hoc, is_electronic, url_key, docs_folder_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(url_key) DO UPDATE SET
                     folder_name=excluded.folder_name,
                     meeting_number=excluded.meeting_number,
                     sort_number=excluded.sort_number,
                     is_ad_hoc=excluded.is_ad_hoc,
-                    is_electronic=excluded.is_electronic
+                    is_electronic=excluded.is_electronic,
+                    docs_folder_url=excluded.docs_folder_url
             ''', insert_data)
             conn.commit()
 
@@ -190,7 +193,8 @@ class MeetingsDatabase:
             ''', update_data)
             conn.commit()
 
-    def search_meetings(self, wg_name=None, search_term=None, location=None, date_from=None, date_to=None):
+    def search_meetings(self, wg_name=None, search_term=None, location=None, date_from=None, date_to=None,
+                        adhoc_filter=None, type_filter=None):
         query = '''
             SELECT m.*, w.name as wg_name 
             FROM meetings m
@@ -213,6 +217,17 @@ class MeetingsDatabase:
         if date_to:
             query += " AND m.end_date <= ?"
             params.append(date_to)
+
+        # --- FIXED: Apply New Dropdown Filters ---
+        if adhoc_filter == "Ad-Hoc / BIS":
+            query += " AND m.is_ad_hoc = 1"
+        elif adhoc_filter == "Regular":
+            query += " AND m.is_ad_hoc = 0"
+
+        if type_filter == "Electronic":
+            query += " AND m.is_electronic = 1"
+        elif type_filter == "In-Person":
+            query += " AND m.is_electronic = 0"
 
         query += " ORDER BY m.sort_number DESC, m.meeting_number DESC"
 
