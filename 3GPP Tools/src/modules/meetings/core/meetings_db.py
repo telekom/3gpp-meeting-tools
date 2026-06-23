@@ -169,3 +169,64 @@ class MeetingsDatabase:
                 SET docs_folder_url = ?, first_tdoc = ?, last_tdoc = ?
                 WHERE url_key = ?
             ''', (docs_url, first_tdoc, last_tdoc, url_key))
+
+        # --- Add this to modules/meetings/core/meetings_db.py ---
+
+        def insert_meetings_bulk(self, meetings_data: list):
+            """Phase 1: Safely bulk-inserts directory info to avoid disk I/O bottlenecks."""
+            if not meetings_data:
+                return
+
+            # 1. Pre-fetch or create all WG IDs to minimize DB queries
+            wg_map = {}
+            for task in meetings_data:
+                wg = task['wg_name']
+                if wg not in wg_map:
+                    wg_map[wg] = self.get_or_create_wg(wg)
+
+            # 2. Prepare the flat tuple data for the bulk execution
+            insert_data = [
+                (wg_map[task['wg_name']], task['folder_name'], task['meeting_num'], task['url_key'])
+                for task in meetings_data
+            ]
+
+            # 3. Execute all ~2400 inserts in ONE single transaction
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.executemany('''
+                    INSERT INTO meetings (wg_id, folder_name, meeting_number, url_key)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(url_key) DO UPDATE SET
+                        folder_name=excluded.folder_name,
+                        meeting_number=excluded.meeting_number
+                ''', insert_data)
+
+    def insert_meetings_bulk(self, meetings_data: list):
+        """Phase 1: Safely bulk-inserts directory info to avoid disk I/O bottlenecks."""
+        if not meetings_data:
+            return
+
+        # 1. Pre-fetch or create all WG IDs to minimize DB queries
+        wg_map = {}
+        for task in meetings_data:
+            wg = task['wg_name']
+            if wg not in wg_map:
+                wg_map[wg] = self.get_or_create_wg(wg)
+
+        # 2. Prepare the flat tuple data for the bulk execution
+        insert_data = [
+            (wg_map[task['wg_name']], task['folder_name'], task['meeting_num'], task['url_key'])
+            for task in meetings_data
+        ]
+
+        # 3. Execute all ~2400 inserts in ONE single transaction
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany('''
+                INSERT INTO meetings (wg_id, folder_name, meeting_number, url_key)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(url_key) DO UPDATE SET
+                    folder_name=excluded.folder_name,
+                    meeting_number=excluded.meeting_number
+            ''', insert_data)
+            conn.commit()  # Ensure changes are locked into the hard drive
