@@ -41,6 +41,7 @@ class MeetingsDatabase:
                 )
             ''')
 
+            # --- Graceful Schema Migrations ---
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN sort_number INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
@@ -176,65 +177,81 @@ class MeetingsDatabase:
             if wg not in wg_map:
                 wg_map[wg] = self.get_or_create_wg(wg)
 
-        updates_by_url = []
-        updates_by_num = []
-
-        for item in metadata_data:
-            wg_name, m_num, url_key, mtg_id, m_name, town, start_d, end_d, new_m_num = item
-            wg_id = wg_map[wg_name]
-
-            mtg_id, m_name, town = mtg_id or "", m_name or "", town or ""
-            start_d, end_d, new_m_num = start_d or "", end_d or "", new_m_num or ""
-            url_key, m_num = url_key or "NO_MATCH_URL", m_num or "NO_MATCH_NUM"
-            sort_n = self._extract_sort_num(new_m_num) if new_m_num else 0
-
-            if url_key != "NO_MATCH_URL":
-                updates_by_url.append((
-                    mtg_id, mtg_id, m_name, m_name, town, town, start_d, start_d, end_d, end_d,
-                    new_m_num, new_m_num, sort_n, sort_n, url_key
-                ))
-            elif m_num != "NO_MATCH_NUM":
-                # Add extra fallback parameters for the DB to check multiple variations!
-                updates_by_num.append((
-                    mtg_id, mtg_id, m_name, m_name, town, town, start_d, start_d, end_d, end_d,
-                    new_m_num, new_m_num, sort_n, sort_n, wg_id,
-                    m_num, m_num, m_name, m_name
-                ))
-
+        # --- FIXED: The Intelligent "Upsert" Engine ---
+        # Guarantees that EVERY meeting from the DynaReport is pushed to the UI,
+        # even if its FTP folder doesn't exist!
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            if updates_by_url:
-                cursor.executemany('''
-                    UPDATE meetings 
-                    SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
-                        name = CASE WHEN ? != '' THEN ? ELSE name END,
-                        location = CASE WHEN ? != '' THEN ? ELSE location END,
-                        start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
-                        end_date = CASE WHEN ? != '' THEN ? ELSE end_date END,
-                        meeting_number = CASE WHEN ? != '' THEN ? ELSE meeting_number END,
-                        sort_number = CASE WHEN ? != 0 THEN ? ELSE sort_number END
-                    WHERE LOWER(RTRIM(url_key, '/')) = LOWER(RTRIM(?, '/'))
-                ''', updates_by_url)
+            for item in metadata_data:
+                wg_name, m_num, url_key, mtg_id, m_name, town, start_d, end_d, new_m_num = item
+                wg_id = wg_map[wg_name]
 
-            # --- FIXED: Aggressive Fallback Matcher ---
-            # If the FTP URL is broken, tests 4 different ways to connect the rows!
-            if updates_by_num:
-                cursor.executemany('''
-                    UPDATE meetings 
-                    SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
-                        name = CASE WHEN ? != '' THEN ? ELSE name END,
-                        location = CASE WHEN ? != '' THEN ? ELSE location END,
-                        start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
-                        end_date = CASE WHEN ? != '' THEN ? ELSE end_date END,
-                        meeting_number = CASE WHEN ? != '' THEN ? ELSE meeting_number END,
-                        sort_number = CASE WHEN ? != 0 THEN ? ELSE sort_number END
-                    WHERE wg_id = ? AND (
-                        UPPER(meeting_number) = UPPER(?) 
-                        OR UPPER(meeting_number) = UPPER('AH' || ?) 
-                        OR UPPER(meeting_number) = UPPER(REPLACE(?, ' ', ''))
-                        OR UPPER(REPLACE(meeting_number, '-', '')) = UPPER(REPLACE(?, '-', ''))
-                    )
-                ''', updates_by_num)
+                mtg_id = mtg_id or ""
+                m_name = m_name or ""
+                town = town or ""
+                start_d = start_d or ""
+                end_d = end_d or ""
+                url_key = url_key or ""
+                m_num = m_num or ""
+                new_m_num = new_m_num or ""
+
+                # Apply the explicit Meeting Name overwrite if commanded by the Scraper
+                final_m_num = new_m_num if new_m_num else m_num
+                sort_n = self._extract_sort_num(final_m_num)
+                is_ah, is_e = self._get_meeting_flags(final_m_num)
+
+                # Flag as Ad-Hoc if requested
+                if wg_name.startswith("RAN") and (
+                        re.search(r'AH|Ad\s*Hoc', final_m_num, re.IGNORECASE) or re.search(r'Ad\s*Hoc', m_name,
+                                                                                           re.IGNORECASE)):
+                    is_ah = 1
+
+                row_id = None
+
+                # 1. Attempt strict match via FTP URL
+                if url_key:
+                    cursor.execute("SELECT id FROM meetings WHERE LOWER(RTRIM(url_key, '/')) = LOWER(RTRIM(?, '/'))",
+                                   (url_key,))
+                    res = cursor.fetchone()
+                    if res: row_id = res[0]
+
+                # 2. Attempt aggressive fallback match via the calculated Meeting Number
+                if not row_id and m_num:
+                    cursor.execute('''
+                        SELECT id FROM meetings 
+                        WHERE wg_id = ? AND (
+                            UPPER(meeting_number) = UPPER(?) 
+                            OR UPPER(meeting_number) = UPPER('AH' || ?) 
+                            OR UPPER(meeting_number) = UPPER(REPLACE(?, ' ', ''))
+                            OR UPPER(REPLACE(meeting_number, '-', '')) = UPPER(REPLACE(?, '-', ''))
+                        )
+                    ''', (wg_id, m_num, m_num, m_name, m_name))
+                    res = cursor.fetchone()
+                    if res: row_id = res[0]
+
+                # 3. UPSERT BRANCH
+                if row_id:
+                    # Update Existing
+                    cursor.execute('''
+                        UPDATE meetings 
+                        SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
+                            name = CASE WHEN ? != '' THEN ? ELSE name END,
+                            location = CASE WHEN ? != '' THEN ? ELSE location END,
+                            start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
+                            end_date = CASE WHEN ? != '' THEN ? ELSE end_date END,
+                            meeting_number = CASE WHEN ? != '' THEN ? ELSE meeting_number END,
+                            sort_number = CASE WHEN ? != 0 THEN ? ELSE sort_number END,
+                            is_ad_hoc = CASE WHEN ? = 1 THEN 1 ELSE is_ad_hoc END
+                        WHERE id = ?
+                    ''', (mtg_id, mtg_id, m_name, m_name, town, town, start_d, start_d, end_d, end_d,
+                          new_m_num, new_m_num, sort_n, sort_n, is_ah, row_id))
+                else:
+                    # Insert Missing (Meeting existed on DynaReport, but NOT on FTP server!)
+                    cursor.execute('''
+                        INSERT INTO meetings (wg_id, meeting_number, name, location, start_date, end_date, mtg_id, url_key, sort_number, is_ad_hoc, is_electronic)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (wg_id, final_m_num, m_name, town, start_d, end_d, mtg_id, url_key, sort_n, is_ah, is_e))
+
             conn.commit()
 
     def search_meetings(self, wg_name=None, search_term=None, location=None, date_from=None, date_to=None,

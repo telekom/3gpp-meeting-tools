@@ -88,7 +88,6 @@ class MeetingsCrawlerThread(QThread):
         match = self.num_pattern.search(folder_name)
         if match:
             raw = match.group(1).replace('-', '').upper()
-            # --- FIXED: Strips leading zeros properly even if preceded by letters! (e.g. AH03 -> AH3) ---
             return re.sub(r'(?<!\d)0+(\d)', r'\1', raw)
         return folder_name
 
@@ -227,10 +226,12 @@ class MeetingsCrawlerThread(QThread):
                     end_d = max(all_dates)
 
                 if date_idx > 0:
-                    town = col_texts[date_idx - 1].strip()
+                    candidate = col_texts[date_idx - 1].strip()
+                    # Protect against accidentally snagging the meeting number if Town is entirely empty
+                    if candidate and not re.search(r'3GPP|RAN|SA|CT', candidate, re.IGNORECASE):
+                        town = candidate
 
                 full_num = ""
-                # Now explicitly searches BOTH column 1 AND column 2 for the hidden "#" marker
                 search_text = m_name + " " + (col_texts[1] if len(col_texts) > 1 else "")
                 match_explicit = re.search(r'#(\d+[a-z0-9\-]*)', search_text, re.IGNORECASE)
 
@@ -260,17 +261,28 @@ class MeetingsCrawlerThread(QThread):
 
                         full_num = f"{clean_token}{suffix}".replace('-', '').strip().upper()
 
-                # --- FIXED: Ensures '03' strictly normalizes to '3', and 'AH03' normalizes to 'AH3' ---
                 full_num = re.sub(r'(?<!\d)0+(\d)', r'\1', full_num)
 
                 if self.target_meetings and not any(
                         t["wg"] == wg_name and t["meeting"] == full_num for t in self.target_meetings):
                     continue
 
+                # ==========================================
+                # --- FIXED: Aggressive Override for RAN Ad-Hocs ---
+                # ==========================================
                 new_m_num = ""
                 if wg_name.startswith("RAN"):
-                    if "AH" in url_key.upper() or "AH" in full_num or full_num == "0" or "RELEASE" in m_name.upper():
+                    is_adhoc = False
+                    if re.search(r'(?:AH|Ad\s*Hoc|Workshop|Release|Evolution)', m_name, re.IGNORECASE):
+                        is_adhoc = True
+                    elif re.search(r'^R[P1-4]-\d', m_name, re.IGNORECASE):
+                        is_adhoc = True
+                    elif "AH" in url_key.upper() or "AH" in full_num:
+                        is_adhoc = True
+
+                    if is_adhoc:
                         new_m_num = m_name
+                # ==========================================
 
                 results.append((wg_name, full_num, url_key, mtg_id, m_name, town, start_d, end_d, new_m_num))
 
