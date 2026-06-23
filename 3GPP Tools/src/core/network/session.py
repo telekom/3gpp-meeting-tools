@@ -184,9 +184,9 @@ class NetworkSession:
         })
 
         retry_strategy = Retry(
-            total=5,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
+            total=2,  # Reduced from 5
+            backoff_factor=0.5,  # Faster retries
+            status_forcelist=[429, 500, 502, 504],  # REMOVED 503 so Cloudflare doesn't trap us
             allowed_methods=["GET"]
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)

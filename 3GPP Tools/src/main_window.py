@@ -435,7 +435,6 @@ class DragDropUI(QMainWindow):
         self.queue_manager.add_item(puml_path, target_format)
 
     def on_conversion_success(self, out_path: str):
-        # ---> UPGRADED: Catcher for Two-Pass DB Synchronization via QueueManager
         if out_path == "SPECS_DB_PASS_ONE":
             self.log_message("🔄 Basic files loaded! You can now search while metadata downloads.", logging.INFO)
             if hasattr(self, 'specs_tab'):
@@ -454,11 +453,19 @@ class DragDropUI(QMainWindow):
         elif out_path == "OPENED_IN_PPT":
             self.log_message("👁️ PowerPoint is open with your new slide. You can copy it directly.")
 
-        elif out_path == "SPECS_DB_UPDATED":  # Kept just in case for legacy tasks
+        elif out_path == "SPECS_DB_UPDATED":
             self.log_message("🔄 Reloading specifications table...")
             if hasattr(self, 'specs_tab'):
                 self.specs_tab.refresh_table()
 
+        # ---> MOVED ABOVE THE GENERIC CATCH-ALL! <---
+        elif out_path and out_path.startswith("MEETINGS_DB"):
+            self.log_message("🔄 Reloading meetings table...", logging.INFO)
+            if hasattr(self, 'meetings_tab'):
+                self.meetings_tab._populate_filters()
+                self.meetings_tab.refresh_table()
+
+        # Generic catch-all for actual file paths
         elif out_path:
             self.last_out_path = out_path
             self.code_tab.set_copy_path_enabled(True, out_path)
@@ -470,12 +477,6 @@ class DragDropUI(QMainWindow):
                     self.log_message(f"👁️ Opened {ext} in default system viewer.")
                 except Exception as e:
                     self.log_message(f"⚠️ Could not automatically open file: {e}")
-
-        elif out_path == "MEETINGS_DB_PASS_ONE" or out_path == "MEETINGS_DB_PASS_TWO":
-            self.log_message("🔄 Reloading meetings table...", logging.INFO)
-            if hasattr(self, 'meetings_tab'):
-                self.meetings_tab._populate_filters()
-                self.meetings_tab.refresh_table()
 
     def log_message(self, message: str, level=logging.INFO):
         self.console_panel.log_message(message, level)
