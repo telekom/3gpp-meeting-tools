@@ -124,6 +124,7 @@ class MeetingsTab(QWidget):
         self.date_to.dateChanged.connect(self.refresh_table)
         self.date_to.setEnabled(False)
         right_layout.addWidget(self.date_to)
+        self.enable_dates_cb.setChecked(True)
 
         # Separator line
         line = QFrame()
@@ -264,6 +265,24 @@ class MeetingsTab(QWidget):
             docs_url = row_data.get("docs_folder_url")
             if docs_url:
                 menu.addAction("📂 Open Documents Folder").triggered.connect(lambda _, u=docs_url: webbrowser.open(u))
+
+            wg_name = row_data.get("wg_name", "")
+            meeting_name = row_data.get("name", "")
+            start_date = row_data.get("start_date", "")
+            end_date = row_data.get("end_date", "")
+            is_elec = row_data.get("is_electronic", 0)
+
+            if self.db.is_active_sync_meeting(wg_name, start_date, end_date, is_elec):
+                menu.addSeparator()
+
+                # Handle the special SA3-LI edge case
+                sync_wg = "SA3LI" if wg_name == "SA3" and "LI" in meeting_name.upper() else wg_name
+                sync_base_url = f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{sync_wg}"
+
+                menu.addAction("🔄 Open SYNC folder (FTP)").triggered.connect(
+                    lambda _, u=sync_base_url: webbrowser.open(u))
+                menu.addAction("📂 Open SYNC Documents folder").triggered.connect(
+                    lambda _, u=f"{sync_base_url}/Docs": webbrowser.open(u))
 
             menu.addSeparator()
             menu.addAction("🗑️ Delete this Meeting").triggered.connect(lambda: self._confirm_delete_specific(

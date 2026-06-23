@@ -1,4 +1,5 @@
 # --- File: modules/meetings/core/meetings_db.py ---
+import datetime
 import sqlite3
 import logging
 import re
@@ -229,25 +230,58 @@ class MeetingsDatabase:
 
                 # 3. Safe UPSERT
                 if row_id:
-                    cursor.execute('''
-                        UPDATE meetings 
-                        SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
-                            name = CASE WHEN ? != '' THEN ? ELSE name END,
-                            location = CASE WHEN ? != '' THEN ? ELSE location END,
-                            start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
-                            end_date = CASE WHEN ? != '' THEN ? ELSE end_date END,
-                            meeting_number = CASE WHEN ? != '' THEN ? ELSE meeting_number END,
-                            sort_number = CASE WHEN ? != 0 THEN ? ELSE sort_number END,
-                            is_ad_hoc = CASE WHEN ? = 1 THEN 1 ELSE is_ad_hoc END
-                        WHERE id = ?
-                    ''', (mtg_id, mtg_id, m_name, m_name, town, town, start_d, start_d, end_d, end_d,
-                          new_m_num, new_m_num, sort_n, sort_n, is_ah, row_id))
+                    try:
+                        cursor.execute('''
+                                            UPDATE meetings 
+                                            SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
+                                                name = CASE WHEN ? != '' THEN ? ELSE name END,
+                                                location = CASE WHEN ? != '' THEN ? ELSE location END,
+                                                start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
+                                                end_date = CASE WHEN ? != '' THEN ? ELSE end_date END,
+                                                meeting_number = CASE WHEN ? != '' THEN ? ELSE meeting_number END,
+                                                sort_number = CASE WHEN ? != 0 THEN ? ELSE sort_number END,
+                                                is_ad_hoc = CASE WHEN ? = 1 THEN 1 ELSE is_ad_hoc END,
+                                                is_electronic = CASE WHEN ? = 1 THEN 1 ELSE is_electronic END,
+                                                url_key = CASE WHEN (url_key IS NULL OR url_key = '') AND ? IS NOT NULL THEN ? ELSE url_key END
+                                            WHERE id = ?
+                                        ''',
+                                       (mtg_id, mtg_id, m_name, m_name, town, town, start_d, start_d, end_d, end_d,
+                                        new_m_num, new_m_num, sort_n, sort_n, is_ah, is_e, db_url_key, db_url_key,
+                                        row_id))
+                    except sqlite3.IntegrityError:
+                        # Safety Net: If 3GPP data has duplicate URLs, update metadata but leave the URL alone!
+                        cursor.execute('''
+                                            UPDATE meetings 
+                                            SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
+                                                name = CASE WHEN ? != '' THEN ? ELSE name END,
+                                                location = CASE WHEN ? != '' THEN ? ELSE location END,
+                                                start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
+                                                end_date = CASE WHEN ? != '' THEN ? ELSE end_date END,
+                                                meeting_number = CASE WHEN ? != '' THEN ? ELSE meeting_number END,
+                                                sort_number = CASE WHEN ? != 0 THEN ? ELSE sort_number END,
+                                                is_ad_hoc = CASE WHEN ? = 1 THEN 1 ELSE is_ad_hoc END,
+                                                is_electronic = CASE WHEN ? = 1 THEN 1 ELSE is_electronic END
+                                            WHERE id = ?
+                                        ''',
+                                       (mtg_id, mtg_id, m_name, m_name, town, town, start_d, start_d, end_d, end_d,
+                                        new_m_num, new_m_num, sort_n, sort_n, is_ah, is_e, row_id))
                 else:
-                    # Uses db_url_key safely to inject NULL instead of breaking the index
+                    # Uses SQLite ON CONFLICT to guarantee we never crash on duplicate inserts!
                     cursor.execute('''
-                        INSERT INTO meetings (wg_id, meeting_number, name, location, start_date, end_date, mtg_id, url_key, sort_number, is_ad_hoc, is_electronic)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (wg_id, final_m_num, m_name, town, start_d, end_d, mtg_id, db_url_key, sort_n, is_ah, is_e))
+                                        INSERT INTO meetings (wg_id, meeting_number, name, location, start_date, end_date, mtg_id, url_key, sort_number, is_ad_hoc, is_electronic)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        ON CONFLICT(url_key) DO UPDATE SET
+                                            mtg_id = excluded.mtg_id,
+                                            name = excluded.name,
+                                            location = excluded.location,
+                                            start_date = excluded.start_date,
+                                            end_date = excluded.end_date,
+                                            meeting_number = excluded.meeting_number,
+                                            sort_number = excluded.sort_number,
+                                            is_ad_hoc = excluded.is_ad_hoc,
+                                            is_electronic = excluded.is_electronic
+                                    ''', (
+                    wg_id, final_m_num, m_name, town, start_d, end_d, mtg_id, db_url_key, sort_n, is_ah, is_e))
 
             conn.commit()
 
@@ -315,3 +349,38 @@ class MeetingsDatabase:
                     WHERE wg_id = (SELECT id FROM working_groups WHERE name = ?) AND meeting_number = ?
                 ''', (t["wg"], t["meeting"]))
             conn.commit()
+
+    def is_active_sync_meeting(self, wg_name: str, start_date: str, end_date: str, is_electronic: int) -> bool:
+        """
+        Determines if a F2F meeting should link to the active SYNC folder.
+        True if currently happening, OR if it finished but no newer meeting has started yet.
+        """
+        # 1. Skip if it is an electronic meeting or missing critical date metadata
+        if is_electronic == 1 or not start_date or not end_date:
+            return False
+
+        today = datetime.date.today().strftime("%Y-%m-%d")
+
+        # 2. Is the meeting happening right now?
+        if start_date <= today <= end_date:
+            return True
+
+        # 3. Did it finish, and the next meeting hasn't started yet?
+        if today > end_date:
+            query = '''
+                SELECT m.id 
+                FROM meetings m
+                JOIN working_groups w ON m.wg_id = w.id
+                WHERE w.name = ? 
+                  AND m.start_date > ? 
+                  AND m.start_date <= ?
+                LIMIT 1
+            '''
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (wg_name, start_date, today))
+                # If no newer meeting has started, this one is still the active SYNC meeting
+                if not cursor.fetchone():
+                    return True
+
+        return False
