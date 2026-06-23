@@ -20,9 +20,7 @@ class CheckableComboBox(QComboBox):
         self.setEditable(True)
         self.lineEdit().setReadOnly(True)
         self.setModel(QStandardItemModel(self))
-
-        # FIXED: Catch ALL state changes via the model, guaranteeing it works with Mouse & Keyboard
-        self.model().itemChanged.connect(self._on_item_changed)
+        # We handle state changes directly in the event filter to avoid signal loops
         self.view().viewport().installEventFilter(self)
 
     def eventFilter(self, obj, event):
@@ -31,15 +29,18 @@ class CheckableComboBox(QComboBox):
             if index.isValid():
                 item = self.model().itemFromIndex(index)
                 if item:
-                    # FIXED: Safe truthy check bypasses the PyQt Enum vs Integer bug!
-                    new_state = Qt.Unchecked if item.checkState() else Qt.Checked
+                    # FIX 1: Explicitly check for Qt.Checked or the integer 2 to avoid Enum truthiness bugs
+                    state = item.checkState()
+                    new_state = Qt.Unchecked if (state == Qt.Checked or state == 2) else Qt.Checked
                     item.setCheckState(new_state)
+
+                    # Manually trigger the update and emit to guarantee execution
+                    self.updateText()
+                    self.selectionChanged.emit(self.getCheckedItems())
             return True  # Consume event to prevent popup from closing
         return super().eventFilter(obj, event)
 
     def addItems(self, items):
-        # Block signals briefly so it doesn't spam filters while building the dropdown
-        self.model().blockSignals(True)
         for text in items:
             display_text = str(text) if text else "(Empty)"
             item = QStandardItem(display_text)
@@ -47,23 +48,19 @@ class CheckableComboBox(QComboBox):
             item.setCheckState(Qt.Checked)
             item.setData(str(text), Qt.UserRole)
             self.model().appendRow(item)
-        self.model().blockSignals(False)
         self.updateText()
 
     def getCheckedItems(self):
         checked = []
         for i in range(self.model().rowCount()):
             item = self.model().item(i)
-            # Evaluates to True if it is Checked (2) or PartiallyChecked (1)
-            if item.checkState():
+            state = item.checkState()
+            # FIX 1 continued
+            if state == Qt.Checked or state == 2:
                 checked.append(item.data(Qt.UserRole))
         return checked
 
-    def _on_item_changed(self, item):
-        self.updateText()
-        self.selectionChanged.emit(self.getCheckedItems())
-
-    def updateText(self, *args):
+    def updateText(self):
         checked = self.getCheckedItems()
         total = self.model().rowCount()
 
@@ -103,7 +100,10 @@ class TDocsTableModel(QAbstractTableModel):
         if role == Qt.DisplayRole:
             if col_name == "Related TDocs":
                 return self._format_related_tdocs(row)
-            return row.get(col_name, "")
+
+            # FIX 2 & 3: Force absolute string type and strip spaces to neutralize QVariant & Ghost space bugs
+            val = row.get(col_name, "")
+            return str(val).strip() if val is not None else ""
 
         elif role == Qt.TextAlignmentRole:
             if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status"]:
@@ -129,7 +129,6 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.global_filter = ""
-        # FIXED: Using Python Sets for ultra-fast, robust lookups
         self.type_filters = set()
         self.status_filters = set()
         self.ai_filters = set()
@@ -153,18 +152,18 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
     def filterAcceptsRow(self, source_row, source_parent):
         model = self.sourceModel()
 
-        # FIXED: Enforce absolute Python strings, dodging QVariant mismatch bugs
+        # Because we forced TDocsTableModel to output strict strings, we don't need complex conversions here
 
         # 1. Type Filter
-        type_data = str(model.data(model.index(source_row, 3, source_parent), Qt.DisplayRole) or "")
+        type_data = model.data(model.index(source_row, 3, source_parent), Qt.DisplayRole)
         if type_data not in self.type_filters: return False
 
         # 2. Agenda Item Filter
-        ai_data = str(model.data(model.index(source_row, 7, source_parent), Qt.DisplayRole) or "")
+        ai_data = model.data(model.index(source_row, 7, source_parent), Qt.DisplayRole)
         if ai_data not in self.ai_filters: return False
 
         # 3. Status Filter
-        status_data = str(model.data(model.index(source_row, 8, source_parent), Qt.DisplayRole) or "")
+        status_data = model.data(model.index(source_row, 8, source_parent), Qt.DisplayRole)
         if status_data not in self.status_filters: return False
 
         # 4. Global Search
@@ -241,23 +240,27 @@ class TDocsWindow(QWidget):
         self.search_input.textChanged.connect(self._on_search_changed)
         filter_layout.addWidget(self.search_input)
 
+        # Helper to perfectly sanitize extracted data
+        def sanitize(val):
+            return str(val).strip() if val is not None else ""
+
         self.type_combo = CheckableComboBox("Type")
         self.type_combo.setMinimumWidth(150)
-        unique_types = sorted(list(set(str(r.get("Type", "")) for r in tdocs_data)))
+        unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in tdocs_data)))
         self.type_combo.addItems(unique_types)
         self.type_combo.selectionChanged.connect(self._on_type_changed)
         filter_layout.addWidget(self.type_combo)
 
         self.ai_combo = CheckableComboBox("AI")
         self.ai_combo.setMinimumWidth(150)
-        unique_ais = sorted(list(set(str(r.get("Agenda Item", "")) for r in tdocs_data)))
+        unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in tdocs_data)))
         self.ai_combo.addItems(unique_ais)
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
         self.status_combo = CheckableComboBox("Status")
         self.status_combo.setMinimumWidth(150)
-        unique_statuses = sorted(list(set(str(r.get("TDoc Status", "")) for r in tdocs_data)))
+        unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in tdocs_data)))
         self.status_combo.addItems(unique_statuses)
         self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
