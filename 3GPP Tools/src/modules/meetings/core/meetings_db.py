@@ -41,7 +41,6 @@ class MeetingsDatabase:
                 )
             ''')
 
-            # --- Graceful Schema Migrations ---
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN sort_number INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
@@ -54,7 +53,6 @@ class MeetingsDatabase:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN is_electronic INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
-
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN first_tdoc_prefix TEXT")
             except sqlite3.OperationalError:
@@ -71,7 +69,6 @@ class MeetingsDatabase:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN last_tdoc_num INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
-
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN mtg_id TEXT")
             except sqlite3.OperationalError:
@@ -117,7 +114,6 @@ class MeetingsDatabase:
 
     def insert_meetings_bulk(self, meetings_data: list):
         if not meetings_data: return
-
         wg_map = {}
         for task in meetings_data:
             wg = task['wg_name']
@@ -153,16 +149,10 @@ class MeetingsDatabase:
 
     def update_meeting_docs_bulk(self, docs_data: list):
         if not docs_data: return
-
         formatted_data = [
-            (
-                d[0],
-                d[1], d[1], d[1], d[2], d[1], d[3],
-                d[4], d[4], d[4], d[5], d[4], d[6],
-                d[7]
-            ) for d in docs_data
+            (d[0], d[1], d[1], d[1], d[2], d[1], d[3], d[4], d[4], d[4], d[5], d[4], d[6], d[7])
+            for d in docs_data
         ]
-
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.executemany('''
@@ -180,54 +170,66 @@ class MeetingsDatabase:
 
     def update_meeting_metadata_bulk(self, metadata_data: list):
         if not metadata_data: return
-
         wg_map = {}
         for item in metadata_data:
             wg = item[0]
             if wg not in wg_map:
                 wg_map[wg] = self.get_or_create_wg(wg)
 
-        formatted_data = []
+        updates_by_url = []
+        updates_by_num = []
+
         for item in metadata_data:
-            wg_name, m_num, url_key, mtg_id, m_name, town, start_d, end_d = item
+            # FIXED: Now Unpacks 9 Items to include new_m_num!
+            wg_name, m_num, url_key, mtg_id, m_name, town, start_d, end_d, new_m_num = item
             wg_id = wg_map[wg_name]
 
-            # Ensure None falls back to a clean string
-            mtg_id = mtg_id or ""
-            m_name = m_name or ""
-            town = town or ""
-            start_d = start_d or ""
-            end_d = end_d or ""
+            mtg_id, m_name, town = mtg_id or "", m_name or "", town or ""
+            start_d, end_d, new_m_num = start_d or "", end_d or "", new_m_num or ""
+            url_key, m_num = url_key or "NO_MATCH_URL", m_num or "NO_MATCH_NUM"
 
-            # Prevent accidental empty string matches across the DB
-            url_key = url_key or "NO_MATCH_URL"
-            m_num = m_num or "NO_MATCH_NUM"
+            # Re-calculate sorting if the Meeting Number is completely rewritten
+            sort_n = self._extract_sort_num(new_m_num) if new_m_num else 0
 
-            formatted_data.append((
-                mtg_id, mtg_id,
-                m_name, m_name,
-                town, town,
-                start_d, start_d,
-                end_d, end_d,
-                wg_id, url_key, m_num
-            ))
+            if url_key != "NO_MATCH_URL":
+                updates_by_url.append((
+                    mtg_id, mtg_id, m_name, m_name, town, town, start_d, start_d, end_d, end_d,
+                    new_m_num, new_m_num, sort_n, sort_n, url_key
+                ))
+            elif m_num != "NO_MATCH_NUM":
+                updates_by_num.append((
+                    mtg_id, mtg_id, m_name, m_name, town, town, start_d, start_d, end_d, end_d,
+                    new_m_num, new_m_num, sort_n, sort_n, wg_id, m_num
+                ))
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            # --- FIXED: Dual-Match (Matches URL OR Meeting Number!) ---
-            cursor.executemany('''
-                UPDATE meetings 
-                SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
-                    name = CASE WHEN ? != '' THEN ? ELSE name END,
-                    location = CASE WHEN ? != '' THEN ? ELSE location END,
-                    start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
-                    end_date = CASE WHEN ? != '' THEN ? ELSE end_date END
-                WHERE wg_id = ? 
-                  AND (
-                      LOWER(RTRIM(url_key, '/')) = LOWER(RTRIM(?, '/'))
-                      OR UPPER(meeting_number) = UPPER(?)
-                  )
-            ''', formatted_data)
+            # FIXED: Explicitly overwrites the meeting_number and sort_number if instructed!
+            if updates_by_url:
+                cursor.executemany('''
+                    UPDATE meetings 
+                    SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
+                        name = CASE WHEN ? != '' THEN ? ELSE name END,
+                        location = CASE WHEN ? != '' THEN ? ELSE location END,
+                        start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
+                        end_date = CASE WHEN ? != '' THEN ? ELSE end_date END,
+                        meeting_number = CASE WHEN ? != '' THEN ? ELSE meeting_number END,
+                        sort_number = CASE WHEN ? != 0 THEN ? ELSE sort_number END
+                    WHERE LOWER(RTRIM(url_key, '/')) = LOWER(RTRIM(?, '/'))
+                ''', updates_by_url)
+
+            if updates_by_num:
+                cursor.executemany('''
+                    UPDATE meetings 
+                    SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
+                        name = CASE WHEN ? != '' THEN ? ELSE name END,
+                        location = CASE WHEN ? != '' THEN ? ELSE location END,
+                        start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
+                        end_date = CASE WHEN ? != '' THEN ? ELSE end_date END,
+                        meeting_number = CASE WHEN ? != '' THEN ? ELSE meeting_number END,
+                        sort_number = CASE WHEN ? != 0 THEN ? ELSE sort_number END
+                    WHERE wg_id = ? AND UPPER(meeting_number) = UPPER(?)
+                ''', updates_by_num)
             conn.commit()
 
     def search_meetings(self, wg_name=None, search_term=None, location=None, date_from=None, date_to=None,
