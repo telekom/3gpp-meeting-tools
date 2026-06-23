@@ -100,7 +100,7 @@ class MeetingsTab(QWidget):
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         header.setSectionResizeMode(1, QHeaderView.Fixed)  # NEW TDocs Button Column
         header.resizeSection(0, 40)  # Action Button
-        header.resizeSection(1, 85)  # TDocs Button
+        header.resizeSection(1, 90)  # TDocs Button
         header.resizeSection(2, 60)  # WG
         header.resizeSection(3, 90)  # Meeting Number
         header.setSectionResizeMode(4, QHeaderView.Stretch)  # Location gets the remaining space
@@ -473,17 +473,13 @@ class MeetingsTab(QWidget):
     def _download_and_open_tdocs(self, row_data: dict, btn: QPushButton):
         mtg_id = row_data.get("mtg_id")
 
-        # ---> UPDATED: Clearer Loading State
-        btn.setText("⏳ Fetching...")
+        # Shortened text and unified CSS
+        btn.setText("⏳ Fetching")
         btn.setStyleSheet("""
                     QPushButton {
-                        font-family: 'Segoe UI', Arial, sans-serif;
-                        font-size: 11px;
-                        border-radius: 12px;
-                        padding: 2px 10px;
-                        color: #B85C00; 
-                        background-color: #FFF4CE; 
-                        border: 1px solid #F3C74C;
+                        font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; font-weight: bold;
+                        border-radius: 12px; padding: 2px 6px;
+                        color: #B85C00; background-color: #FFF4CE; border: 1px solid #F3C74C;
                     }
                 """)
         btn.setEnabled(False)
@@ -506,70 +502,59 @@ class MeetingsTab(QWidget):
         btn.setFixedHeight(24)
         btn.setCursor(Qt.PointingHandCursor)
 
-        # Base CSS for smooth transitions
-        base_css = """
-            QPushButton {
-                font-family: 'Segoe UI', Arial, sans-serif;
-                font-size: 11px;
-                border-radius: 12px; /* Makes it a sleek pill shape */
-                padding: 2px 10px;
-            }
-        """
-
         # STATE 1: Unobtainable (No 3GPP ID)
         if not mtg_id:
             btn.setText("N/A")
             btn.setToolTip("Missing 3GPP Portal ID (Cannot fetch TDocs)")
-            btn.setStyleSheet(base_css + """
+            btn.setStyleSheet("""
                 QPushButton {
-                    color: #7A7A7A; 
-                    background-color: #F0F0F0; 
-                    border: 1px solid #D1D1D1;
+                    font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; font-weight: bold;
+                    border-radius: 12px; padding: 2px 6px;
+                    color: #7A7A7A; background-color: #F0F0F0; border: 1px solid #D1D1D1;
                 }
             """)
             btn.setEnabled(False)
 
         # STATE 2: Cached Locally (Ready to Open)
         elif filepath and filepath.exists():
-            btn.setText("✓ Open")
+            # Using a bold unicode checkmark that inherits our green CSS color
+            btn.setText("✔ Open")
             btn.setToolTip("TDocs are cached locally. Click to view table.")
-            btn.setStyleSheet(base_css + """
+            btn.setStyleSheet("""
                 QPushButton {
-                    color: #0C6B0C; 
-                    background-color: #E6F4E6; 
-                    border: 1px solid #A3DDA3; 
-                    font-weight: bold;
+                    font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; font-weight: bold;
+                    border-radius: 12px; padding: 2px 6px;
+                    color: #0C6B0C; background-color: #E6F4E6; border: 1px solid #A3DDA3;
                 }
                 QPushButton:hover {
-                    background-color: #D1EED1;
-                    border: 1px solid #0C6B0C;
+                    background-color: #D1EED1; border: 1px solid #0C6B0C; color: #0C6B0C;
                 }
             """)
             btn.clicked.connect(lambda _, d=row_data, f=str(filepath): self._open_tdocs_window(d, f))
 
         # STATE 3: Missing (Needs Download)
         else:
-            btn.setText("⬇ Download")
+            # Shortened text to "Get" so it easily fits the column width!
+            btn.setText("⬇ Get")
             btn.setToolTip("Not cached. Click to download TDocs List from 3GPP Portal.")
-            btn.setStyleSheet(base_css + """
+            btn.setStyleSheet("""
                 QPushButton {
-                    color: #005A9E; 
-                    background-color: #E1F0FF; 
-                    border: 1px solid #99C9FF;
+                    font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; font-weight: bold;
+                    border-radius: 12px; padding: 2px 6px;
+                    color: #005A9E; background-color: #E1F0FF; border: 1px solid #99C9FF;
                 }
                 QPushButton:hover {
-                    background-color: #CCE4FF;
-                    border: 1px solid #005A9E;
+                    background-color: #CCE4FF; border: 1px solid #005A9E; color: #005A9E;
                 }
             """)
             btn.clicked.connect(lambda _, d=row_data, b=btn: self._download_and_open_tdocs(d, b))
 
         container = QWidget()
-        # ---> CRITICAL FIX: Make the container invisible so the row color shows through!
         container.setStyleSheet("background-color: transparent;")
 
         layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 0, 4, 0)
+        # Tightly pack the button inside the cell so it doesn't get clipped
+        layout.setContentsMargins(2, 0, 2, 0)
         layout.setAlignment(Qt.AlignCenter)
         layout.addWidget(btn)
 
