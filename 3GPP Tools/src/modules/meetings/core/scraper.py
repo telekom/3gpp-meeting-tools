@@ -87,7 +87,9 @@ class MeetingsCrawlerThread(QThread):
     def extract_meeting_number(self, folder_name: str) -> str:
         match = self.num_pattern.search(folder_name)
         if match:
-            return match.group(1).replace('-', '').upper()
+            raw = match.group(1).replace('-', '').upper()
+            # --- FIXED: Strips leading zeros properly even if preceded by letters! (e.g. AH03 -> AH3) ---
+            return re.sub(r'(?<!\d)0+(\d)', r'\1', raw)
         return folder_name
 
     def fetch_wg_directories(self, wg_name: str, ftp_base_url: str, is_ah_folder: bool = False) -> list:
@@ -194,29 +196,19 @@ class MeetingsCrawlerThread(QThread):
                 if not m_name or m_name.lower() == 'meeting':
                     continue
 
-                # ==========================================
-                # --- FIXED: Robust Backslash URL Extractor ---
-                # ==========================================
                 mtg_id = ""
                 url_key = ""
                 for a in row.find_all('a', href=True):
-                    # Replace broken windows slashes with unix ones
                     href = a['href'].replace('\\', '/')
-
                     match_id = re.search(r'MtgId=(\d+)', href, re.IGNORECASE)
                     if match_id: mtg_id = match_id.group(1)
 
                     if '/ftp/' in href.lower() and 'tsg_' in href.lower():
                         parts = re.split(r'/ftp/', href, flags=re.IGNORECASE)
                         if len(parts) > 1:
-                            # Strip off queries and slashes
                             path_after_ftp = unquote(parts[1].split('?')[0].strip('/'))
-
-                            # The "Shortest-Path Heuristic":
-                            # Always take the root folder instead of /Docs or /Invitation
                             if not url_key or len(path_after_ftp) < len(url_key):
                                 url_key = path_after_ftp
-                # ==========================================
 
                 start_d, end_d, town = "", "", ""
                 all_dates = []
@@ -238,21 +230,38 @@ class MeetingsCrawlerThread(QThread):
                     town = col_texts[date_idx - 1].strip()
 
                 full_num = ""
-                match_num = re.search(r'#(\d+[a-z0-9\-]*)', m_name, re.IGNORECASE)
-                if match_num:
-                    full_num = match_num.group(1).replace('-', '').strip().upper()
+                # Now explicitly searches BOTH column 1 AND column 2 for the hidden "#" marker
+                search_text = m_name + " " + (col_texts[1] if len(col_texts) > 1 else "")
+                match_explicit = re.search(r'#(\d+[a-z0-9\-]*)', search_text, re.IGNORECASE)
+
+                if match_explicit:
+                    full_num = match_explicit.group(1).replace('-', '').strip().upper()
                 else:
-                    if len(col_texts) > 1:
-                        m_num_raw = col_texts[1].strip()
-                        m_num_clean = re.sub(r'^(?:R|S|C|RAN|SA|CT)[P0-6]?\s*-?', '', m_num_raw, flags=re.IGNORECASE)
+                    tokens = m_name.split()
+                    found_token = ""
+                    for token in reversed(tokens):
+                        if re.search(r'\d|AH', token, re.IGNORECASE):
+                            found_token = token
+                            break
+
+                    if not found_token and len(col_texts) > 1:
+                        if not re.search(r'(?:19|20)\d{2}', col_texts[1]):
+                            found_token = col_texts[1]
+
+                    if found_token:
+                        clean_token = re.sub(r'^(?:3GPP)?(?:R|S|C|RAN|SA|CT|SP|RP|CP)[P0-6]?\s*-?', '', found_token,
+                                             flags=re.IGNORECASE)
 
                         suffix = ""
                         if date_idx >= 4 and len(col_texts) > 2:
                             potential_suffix = col_texts[2].strip()
-                            if len(potential_suffix) <= 8 and not re.search(r'(?:19|20)\d{2}', potential_suffix):
+                            if len(potential_suffix) <= 6 and not re.search(r'(?:19|20)\d{2}', potential_suffix):
                                 suffix = potential_suffix
 
-                        full_num = f"{m_num_clean}{suffix}".replace('-', '').strip().upper()
+                        full_num = f"{clean_token}{suffix}".replace('-', '').strip().upper()
+
+                # --- FIXED: Ensures '03' strictly normalizes to '3', and 'AH03' normalizes to 'AH3' ---
+                full_num = re.sub(r'(?<!\d)0+(\d)', r'\1', full_num)
 
                 if self.target_meetings and not any(
                         t["wg"] == wg_name and t["meeting"] == full_num for t in self.target_meetings):

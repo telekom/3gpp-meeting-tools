@@ -180,15 +180,12 @@ class MeetingsDatabase:
         updates_by_num = []
 
         for item in metadata_data:
-            # FIXED: Now Unpacks 9 Items to include new_m_num!
             wg_name, m_num, url_key, mtg_id, m_name, town, start_d, end_d, new_m_num = item
             wg_id = wg_map[wg_name]
 
             mtg_id, m_name, town = mtg_id or "", m_name or "", town or ""
             start_d, end_d, new_m_num = start_d or "", end_d or "", new_m_num or ""
             url_key, m_num = url_key or "NO_MATCH_URL", m_num or "NO_MATCH_NUM"
-
-            # Re-calculate sorting if the Meeting Number is completely rewritten
             sort_n = self._extract_sort_num(new_m_num) if new_m_num else 0
 
             if url_key != "NO_MATCH_URL":
@@ -197,14 +194,15 @@ class MeetingsDatabase:
                     new_m_num, new_m_num, sort_n, sort_n, url_key
                 ))
             elif m_num != "NO_MATCH_NUM":
+                # Add extra fallback parameters for the DB to check multiple variations!
                 updates_by_num.append((
                     mtg_id, mtg_id, m_name, m_name, town, town, start_d, start_d, end_d, end_d,
-                    new_m_num, new_m_num, sort_n, sort_n, wg_id, m_num
+                    new_m_num, new_m_num, sort_n, sort_n, wg_id,
+                    m_num, m_num, m_name, m_name
                 ))
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            # FIXED: Explicitly overwrites the meeting_number and sort_number if instructed!
             if updates_by_url:
                 cursor.executemany('''
                     UPDATE meetings 
@@ -218,6 +216,8 @@ class MeetingsDatabase:
                     WHERE LOWER(RTRIM(url_key, '/')) = LOWER(RTRIM(?, '/'))
                 ''', updates_by_url)
 
+            # --- FIXED: Aggressive Fallback Matcher ---
+            # If the FTP URL is broken, tests 4 different ways to connect the rows!
             if updates_by_num:
                 cursor.executemany('''
                     UPDATE meetings 
@@ -228,7 +228,12 @@ class MeetingsDatabase:
                         end_date = CASE WHEN ? != '' THEN ? ELSE end_date END,
                         meeting_number = CASE WHEN ? != '' THEN ? ELSE meeting_number END,
                         sort_number = CASE WHEN ? != 0 THEN ? ELSE sort_number END
-                    WHERE wg_id = ? AND UPPER(meeting_number) = UPPER(?)
+                    WHERE wg_id = ? AND (
+                        UPPER(meeting_number) = UPPER(?) 
+                        OR UPPER(meeting_number) = UPPER('AH' || ?) 
+                        OR UPPER(meeting_number) = UPPER(REPLACE(?, ' ', ''))
+                        OR UPPER(REPLACE(meeting_number, '-', '')) = UPPER(REPLACE(?, '-', ''))
+                    )
                 ''', updates_by_num)
             conn.commit()
 
