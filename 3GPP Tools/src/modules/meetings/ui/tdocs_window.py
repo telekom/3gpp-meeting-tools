@@ -1,14 +1,15 @@
+# --- File: modules/meetings/ui/tdocs_window.py ---
 import os
 import webbrowser
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QComboBox, QFrame,
                              QPushButton, QMessageBox)
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
-from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QEvent
+from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QEvent, pyqtSignal
 
 
 # ==========================================
-# --- NEW: CUSTOM MULTI-SELECT DROPDOWN ---
+# --- UPGRADED: BULLETPROOF MULTI-SELECT ---
 # ==========================================
 class CheckableComboBox(QComboBox):
     selectionChanged = pyqtSignal(list)
@@ -19,7 +20,10 @@ class CheckableComboBox(QComboBox):
         self.setEditable(True)
         self.lineEdit().setReadOnly(True)
         self.setModel(QStandardItemModel(self))
-        # Captures clicks so the popup doesn't close immediately after one click
+
+        # Stop QComboBox from overwriting our text when an item is clicked
+        self.currentIndexChanged.connect(self.updateText)
+        # Catch clicks directly in the dropdown viewport
         self.view().viewport().installEventFilter(self)
 
     def eventFilter(self, obj, event):
@@ -28,34 +32,42 @@ class CheckableComboBox(QComboBox):
             item = self.model().itemFromIndex(index)
             if item:
                 # Toggle Check State
-                item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
+                state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
+                item.setCheckState(state)
                 self.updateText()
                 self.selectionChanged.emit(self.getCheckedItems())
-            return True  # Consume event so popup stays open
+            return True  # Consume the event so the menu STAYS OPEN!
         return super().eventFilter(obj, event)
 
     def addItems(self, items):
         for text in items:
             display_text = text if text else "(Empty)"
             item = QStandardItem(display_text)
-            item.setData(text, Qt.UserRole)  # Keep original raw text in background
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
             item.setData(Qt.Checked, Qt.CheckStateRole)  # Default to checked
+            item.setData(text, Qt.UserRole)  # Save raw text safely
             self.model().appendRow(item)
         self.updateText()
 
     def getCheckedItems(self):
-        return [self.model().item(i).data(Qt.UserRole) for i in range(self.count()) if
-                self.model().item(i).checkState() == Qt.Checked]
+        checked = []
+        for i in range(self.model().rowCount()):
+            item = self.model().item(i)
+            if item.checkState() == Qt.Checked:
+                checked.append(item.data(Qt.UserRole))
+        return checked
 
-    def updateText(self):
+    def updateText(self, *args):
         checked = self.getCheckedItems()
-        if len(checked) == 0:
+        total = self.model().rowCount()
+
+        if total == 0:
             self.lineEdit().setText(f"{self.title}: None")
-        elif len(checked) == self.count():
+        elif len(checked) == total:
             self.lineEdit().setText(f"{self.title}: All")
         elif len(checked) == 1:
-            self.lineEdit().setText(f"{self.title}: {checked[0] if checked[0] else '(Empty)'}")
+            display = checked[0] if checked[0] else "(Empty)"
+            self.lineEdit().setText(f"{self.title}: {display}")
         else:
             self.lineEdit().setText(f"{self.title}: {len(checked)} selected")
 
@@ -104,9 +116,6 @@ class TDocsTableModel(QAbstractTableModel):
         return None
 
 
-# ==========================================
-# --- UPGRADED: PROXY FILTER MODEL ---
-# ==========================================
 class TDocsFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -134,7 +143,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
     def filterAcceptsRow(self, source_row, source_parent):
         model = self.sourceModel()
 
-        # 1. Type Filter (Must be in selected list)
+        # 1. Type Filter
         type_data = model.data(model.index(source_row, 3, source_parent), Qt.DisplayRole)
         if type_data not in self.type_filters: return False
 
@@ -146,7 +155,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         status_data = model.data(model.index(source_row, 8, source_parent), Qt.DisplayRole)
         if status_data not in self.status_filters: return False
 
-        # 4. Global Search (Iterates across key text columns)
+        # 4. Global Search
         if self.global_filter:
             match_found = False
             for col in [0, 1, 2, 5, 9]:
@@ -160,14 +169,12 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 
 
 # ==========================================
-# --- UPGRADED: TDOCS WINDOW ---
+# --- TDOCS WINDOW ---
 # ==========================================
 class TDocsWindow(QWidget):
-    # FIXED: Added filepath to the arguments
     def __init__(self, mtg_info: dict, tdocs_data: list, filepath: str):
         super().__init__()
         self.filepath = filepath
-
         title = f"TDocs: {mtg_info.get('wg_name', '')} {mtg_info.get('meeting_number', '')}"
         self.setWindowTitle(title)
         self.resize(1400, 750)
@@ -182,7 +189,6 @@ class TDocsWindow(QWidget):
         title_lbl = QLabel(f"<b>{title}</b>")
         title_lbl.setStyleSheet("font-size: 18px; color: #333;")
 
-        # NEW: Open in Excel Button
         self.excel_btn = QPushButton("📗 Open in Excel")
         self.excel_btn.setCursor(Qt.PointingHandCursor)
         self.excel_btn.setStyleSheet("""
@@ -191,9 +197,7 @@ class TDocsWindow(QWidget):
                 border-radius: 6px; padding: 5px 12px;
                 color: #0C6B0C; background-color: #E6F4E6; border: 1px solid #A3DDA3;
             }
-            QPushButton:hover {
-                background-color: #D1EED1; border: 1px solid #0C6B0C;
-            }
+            QPushButton:hover { background-color: #D1EED1; border: 1px solid #0C6B0C; }
         """)
         self.excel_btn.clicked.connect(self._open_excel)
 
@@ -218,7 +222,6 @@ class TDocsWindow(QWidget):
         filter_layout = QHBoxLayout(filter_frame)
         filter_layout.setContentsMargins(15, 10, 15, 10)
 
-        # 1. Global Search
         filter_layout.addWidget(QLabel("🔍 Search:"))
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search TDoc number, title, source, or abstract...")
@@ -226,7 +229,6 @@ class TDocsWindow(QWidget):
         self.search_input.textChanged.connect(self._on_search_changed)
         filter_layout.addWidget(self.search_input)
 
-        # 2. Type Multi-Select
         self.type_combo = CheckableComboBox("Type")
         self.type_combo.setMinimumWidth(150)
         unique_types = sorted(list(set(r.get("Type", "") for r in tdocs_data)))
@@ -234,7 +236,6 @@ class TDocsWindow(QWidget):
         self.type_combo.selectionChanged.connect(self._on_type_changed)
         filter_layout.addWidget(self.type_combo)
 
-        # 3. AI Multi-Select
         self.ai_combo = CheckableComboBox("AI")
         self.ai_combo.setMinimumWidth(150)
         unique_ais = sorted(list(set(r.get("Agenda Item", "") for r in tdocs_data)))
@@ -242,7 +243,6 @@ class TDocsWindow(QWidget):
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
-        # 4. Status Multi-Select
         self.status_combo = CheckableComboBox("Status")
         self.status_combo.setMinimumWidth(150)
         unique_statuses = sorted(list(set(r.get("TDoc Status", "") for r in tdocs_data)))
@@ -260,6 +260,7 @@ class TDocsWindow(QWidget):
         self.proxy.setSourceModel(self.model)
         self.proxy.layoutChanged.connect(self._update_count_label)
 
+        # Initialize Proxy with all data selected
         self.proxy.setTypeFilters(unique_types)
         self.proxy.setAIFilters(unique_ais)
         self.proxy.setStatusFilters(unique_statuses)
