@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayo
 # --- HELPER & DIALOG: MEETING INFO ---
 # ==========================================
 
+# --- In modules/meetings/ui/dialogs.py ---
 def _format_meeting_info(data: dict) -> str:
     if not data: return ""
 
@@ -15,6 +16,7 @@ def _format_meeting_info(data: dict) -> str:
     FIELD_MAP = {
         "wg_name": "Working Group",
         "meeting_number": "Meeting Number",
+        "mtg_id": "3GPP Portal ID",  # <--- NEW MtgId
         "name": "Meeting Name",
         "location": "Location",
         "start_date": "Start Date",
@@ -40,6 +42,12 @@ def _format_meeting_info(data: dict) -> str:
         elif key == "is_electronic":
             val_str = "✅ Yes (Electronic)" if val else "❌ No (In-Person)"
 
+        elif key == "mtg_id":
+            if val:
+                val_str = f'<a href="https://portal.3gpp.org/Home.aspx#/meeting?MtgId={val}">{val}</a>'
+            else:
+                val_str = "N/A"
+
         elif key == "url_key":
             if val and not str(val).startswith('http'):
                 val = f"https://www.3gpp.org/ftp/{str(val).lstrip('/')}"
@@ -59,13 +67,12 @@ def _format_meeting_info(data: dict) -> str:
             html_parts.append("<hr>")
 
     # 3. FUTURE-PROOFING: Catch any new database columns we add later!
-    # (We ignore internal columns like 'wg_id' and 'sort_number')
     future_keys = [k for k in data.keys() if k not in FIELD_MAP and k not in ["wg_id", "sort_number"]]
 
     if future_keys:
-        html_parts.append("<hr><b>--- Additional Data ---</b>")
+        html_parts.append("<hr><b>--- Advanced Metrics ---</b>")
         for k in future_keys:
-            clean_name = k.replace("_", " ").title() # Turns 'new_cool_column' into 'New Cool Column'
+            clean_name = k.replace("_", " ").title()
             html_parts.append(f"<b>{clean_name}:</b> {data[k]}")
 
     return "<br>".join(html_parts)
