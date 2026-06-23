@@ -303,7 +303,7 @@ class MeetingsDatabase:
         elif type_filter == "In-Person":
             query += " AND m.is_electronic = 0"
 
-        query += " ORDER BY m.sort_number DESC, m.meeting_number DESC"
+        query += " ORDER BY m.start_date DESC, w.name ASC"
 
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row

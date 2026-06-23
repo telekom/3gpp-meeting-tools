@@ -137,16 +137,16 @@ class MeetingsTab(QWidget):
         sync_lbl.setStyleSheet("font-size: 14px; margin-top: 5px;")
         right_layout.addWidget(sync_lbl)
 
-        self.chk_wg = QCheckBox("1. Check for New Folders")
+        self.chk_wg = QCheckBox("Check for New Folders")
         self.chk_wg.setChecked(True)
-        self.chk_docs = QCheckBox("2. Deep Scrape 'Docs/'")
-        self.chk_docs.setChecked(True)
-        self.chk_dyna = QCheckBox("3. Update Metadata")
+        self.chk_dyna = QCheckBox("Update Metadata")
         self.chk_dyna.setChecked(True)
+        self.chk_docs = QCheckBox("Deep Scrape 'Docs/'")
+        self.chk_docs.setChecked(True)
 
         right_layout.addWidget(self.chk_wg)
-        right_layout.addWidget(self.chk_docs)
         right_layout.addWidget(self.chk_dyna)
+        right_layout.addWidget(self.chk_docs)
 
         right_layout.addStretch()
 
