@@ -23,6 +23,9 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Asynchronous Three-Phase Syncing Engine:** * **Phase 1 (FTP Directory Mapping):** Scrapes the 3GPP FTP archives in parallel to instantly populate your database with all available meeting numbers, gracefully handling hidden RAN Ad-Hoc (`TSGR_AHs`) subdirectories.
   * **Phase 2 (Deep Document Scrape):** Crawls the `Docs/` folder of every meeting. Uses smart Regex stripping to ignore file extensions and revisions, mathematically sorting and saving the exact **First TDoc** and **Last TDoc** for chronological indexing.
   * **Phase 3 (DynaReport Metadata):** Connects to the 3GPP ASP.NET Portal to fetch rich metadata (Locations, Dates, Meeting Types). Built with a bulletproof **NLP Heuristic Engine** that universally normalizes unicode hyphens, bi-directionally searches for dates, and uses an **Upsert Engine** to add historical meetings even if their FTP folders have been deleted.
+* **Offline Local Cache & TDoc Management:**
+  * **1-Click TDocs List:** Bypasses 3GPP Portal bot-protection using randomized User-Agent headers to instantly download and natively open the official Meeting Excel list.
+  * **Bulk TDoc Cacher:** Asynchronously siphon an entire meeting's FTP `Docs/` folder to your local drive. The engine uses smart Regex to parse HTML for valid TDoc `.zip` files, automatically builds the correct subfolder architecture (e.g., `.../Agenda/`, `.../S2-2605693/`), and skips existing files to save bandwidth—perfect for terrible F2F hotel Wi-Fi!
 * **Advanced Database Filtering:** Instantly filter thousands of meetings by Working Group (SA2, RAN3, CT1, etc.), Date Range, Location, **In-Person vs. Electronic**, or **Regular vs. Ad-Hoc / BIS**.
 * **Direct Portal Integration:** Right-click any meeting to instantly open its parent FTP folder, its `Docs/` subfolder, or launch the official 3GPP Web Portal directly via its extracted `MtgId`.
 
@@ -61,7 +64,7 @@ This application is built with a highly decoupled, modular **PyQt5** architectur
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/yourusername/3gpp-meeting-tools.git](https://github.com/yourusername/3gpp-meeting-tools.git)
+   git clone https://github.com/yourusername/3gpp-meeting-tools.git
    cd 3gpp-meeting-tools
    ```
 2. **Install Python Dependencies:**
@@ -81,7 +84,8 @@ This application is built with a highly decoupled, modular **PyQt5** architectur
 ### Tab 1: Meetings & Sync
 * **Syncing:** On the right-side panel, ensure all three Scrape Configuration checkboxes are checked, then click **"🔄 Sync All Meetings"**. Watch the console as it maps directories, extracts TDocs, and back-fills metadata.
 * **Filtering:** Use the dropdowns to quickly find "SA2" meetings that were "Electronic" and "Ad-Hoc".
-* **Right-Click Menu:** Right-click any row to view full meeting info, jump to the FTP folder, or open the 3GPP Portal.
+* **Local Cache Setup:** Use the "Local Cache Directory" input box to define where your offline files and TDocs are saved.
+* **Right-Click Menu:** Right-click any row to view full meeting info, jump to the FTP folder, open the 3GPP Portal, **or manage local offline files (Open Cache, Open TDocs List, Bulk Cache Docs).**
 
 ### Tab 2: Document Slicer
 * Click **"Browse..."** to select a heavy `.docx` specification file.
