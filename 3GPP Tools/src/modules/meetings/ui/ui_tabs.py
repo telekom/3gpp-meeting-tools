@@ -335,7 +335,7 @@ class MeetingsTab(QWidget):
 
                 mtg_id = row_data.get("mtg_id")
                 if mtg_id:
-                    menu.addAction("📊 Download TDocs List").triggered.connect(
+                    menu.addAction("📗 Open TDocs List").triggered.connect(
                         lambda _, m=mtg_id, p=local_path: self._start_tdocs_download(m, p)
                     )
             # -----------------------------------------
@@ -397,7 +397,7 @@ class MeetingsTab(QWidget):
 
     def _start_tdocs_download(self, mtg_id: str, local_path: Path):
         # Notify the user that the download has started
-        self.update_btn.setText("⏳ Downloading TDocs...")
+        self.update_btn.setText("⏳ Opening TDocs...")
         self.update_btn.setEnabled(False)
 
         # Initialize and start the background worker
