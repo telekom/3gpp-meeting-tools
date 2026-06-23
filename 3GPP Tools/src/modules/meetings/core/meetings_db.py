@@ -72,7 +72,6 @@ class MeetingsDatabase:
             except sqlite3.OperationalError:
                 pass
 
-            # --- NEW: MtgId from 3GPP Portal ---
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN mtg_id TEXT")
             except sqlite3.OperationalError:
@@ -188,52 +187,47 @@ class MeetingsDatabase:
             if wg not in wg_map:
                 wg_map[wg] = self.get_or_create_wg(wg)
 
-        updates_by_url = []
-        updates_by_num = []
-
+        formatted_data = []
         for item in metadata_data:
             wg_name, m_num, url_key, mtg_id, m_name, town, start_d, end_d = item
             wg_id = wg_map[wg_name]
 
-            if url_key:
-                updates_by_url.append((mtg_id, m_name, town, start_d, end_d, url_key))
-            elif m_num:
-                updates_by_num.append((mtg_id, m_name, town, start_d, end_d, wg_id, m_num))
+            # Ensure None falls back to a clean string
+            mtg_id = mtg_id or ""
+            m_name = m_name or ""
+            town = town or ""
+            start_d = start_d or ""
+            end_d = end_d or ""
+
+            # Prevent accidental empty string matches across the DB
+            url_key = url_key or "NO_MATCH_URL"
+            m_num = m_num or "NO_MATCH_NUM"
+
+            formatted_data.append((
+                mtg_id, mtg_id,
+                m_name, m_name,
+                town, town,
+                start_d, start_d,
+                end_d, end_d,
+                wg_id, url_key, m_num
+            ))
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
-
-            # --- FIXED: Update safely using the exact URL key ---
-            if updates_by_url:
-                formatted_url = [
-                    (d[0], d[0], d[1], d[1], d[2], d[2], d[3], d[3], d[4], d[4], d[5])
-                    for d in updates_by_url
-                ]
-                cursor.executemany('''
-                    UPDATE meetings 
-                    SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
-                        name = CASE WHEN ? != '' THEN ? ELSE name END,
-                        location = CASE WHEN ? != '' THEN ? ELSE location END,
-                        start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
-                        end_date = CASE WHEN ? != '' THEN ? ELSE end_date END
-                    WHERE RTRIM(url_key, '/') = RTRIM(?, '/')
-                ''', formatted_url)
-
-            # Fallback for older meetings that lack an FTP link in the DynaReport
-            if updates_by_num:
-                formatted_num = [
-                    (d[0], d[0], d[1], d[1], d[2], d[2], d[3], d[3], d[4], d[4], d[5], d[6])
-                    for d in updates_by_num
-                ]
-                cursor.executemany('''
-                    UPDATE meetings 
-                    SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
-                        name = CASE WHEN ? != '' THEN ? ELSE name END,
-                        location = CASE WHEN ? != '' THEN ? ELSE location END,
-                        start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
-                        end_date = CASE WHEN ? != '' THEN ? ELSE end_date END
-                    WHERE wg_id = ? AND meeting_number = ?
-                ''', formatted_num)
+            # --- FIXED: Dual-Match (Matches URL OR Meeting Number!) ---
+            cursor.executemany('''
+                UPDATE meetings 
+                SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
+                    name = CASE WHEN ? != '' THEN ? ELSE name END,
+                    location = CASE WHEN ? != '' THEN ? ELSE location END,
+                    start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
+                    end_date = CASE WHEN ? != '' THEN ? ELSE end_date END
+                WHERE wg_id = ? 
+                  AND (
+                      LOWER(RTRIM(url_key, '/')) = LOWER(RTRIM(?, '/'))
+                      OR UPPER(meeting_number) = UPPER(?)
+                  )
+            ''', formatted_data)
             conn.commit()
 
     def search_meetings(self, wg_name=None, search_term=None, location=None, date_from=None, date_to=None,

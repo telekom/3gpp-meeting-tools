@@ -3,7 +3,7 @@ import logging
 import re
 import time
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, unquote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 from PyQt5.QtCore import QThread, pyqtSignal
@@ -174,7 +174,6 @@ class MeetingsCrawlerThread(QThread):
         return docs_data, tdoc_count
 
     def process_dynareport(self, wg_name: str, dyna_url: str) -> list:
-        # --- FIXED: Hybrid Parsing. Uses structural columns + deep link extraction ---
         results = []
         try:
             html = NetworkSession.get_html(dyna_url)
@@ -182,45 +181,82 @@ class MeetingsCrawlerThread(QThread):
 
             for row in soup.find_all('tr'):
                 cols = row.find_all(['td', 'th'])
-                if len(cols) < 5:
+                if len(cols) < 2:
                     continue
 
-                m_name = cols[0].get_text(strip=True)
-                m_num_raw = cols[1].get_text(strip=True)
+                # --- THE MAGIC FIX: Universal Unicode Normalization ---
+                # Converts &#8209;, en-dashes, and em-dashes into standard keyboard hyphens
+                col_texts = []
+                for td in cols:
+                    text = td.get_text(separator=" ", strip=True)
+                    text = re.sub(r'[\u2010-\u2015\u2212]', '-', text)
+                    col_texts.append(text)
 
-                # Skip header rows
-                if not m_num_raw or m_name.lower() == "meeting":
+                m_name = col_texts[0].strip()
+
+                if not m_name or m_name.lower() == 'meeting':
                     continue
 
-                # 1. Assemble Full Meeting Number (e.g. 175 + AH-e)
-                suffix = cols[2].get_text(strip=True)
-                full_num = f"{m_num_raw}{suffix}".replace('-', '').strip().upper()
-
-                if self.target_meetings and not any(
-                        t["wg"] == wg_name and t["meeting"] == full_num for t in self.target_meetings):
-                    continue
-
-                # 2. Safely Extract Concatenated Dates
-                dates = cols[3].get_text(strip=True).split("...")
-                start_d = dates[0].strip()
-                end_d = dates[1].strip() if len(dates) > 1 else ""
-
-                # 3. Extract Location
-                town = cols[4].get_text(strip=True)
-
-                # 4. Deep Extract exact MtgId and relative FTP Link from anchor tags
+                # 1. Grab URL and MtgId unconditionally from anchor tags
                 mtg_id = ""
                 url_key = ""
                 for a in row.find_all('a', href=True):
                     href = a['href']
                     match_id = re.search(r'MtgId=(\d+)', href, re.IGNORECASE)
-                    if match_id:
-                        mtg_id = match_id.group(1)
+                    if match_id: mtg_id = match_id.group(1)
 
                     if '/ftp/' in href.lower() and 'tsg_' in href.lower():
                         parts = re.split(r'/ftp/', href, flags=re.IGNORECASE)
                         if len(parts) > 1:
-                            url_key = parts[1].strip('/').split('?')[0].rstrip('/')
+                            url_key = unquote(parts[1].strip('/').split('?')[0].rstrip('/'))
+
+                # ==========================================
+                # --- USER'S MIN/MAX DATE HEURISTIC ---
+                # ==========================================
+                start_d, end_d, town = "", "", ""
+                all_dates = []
+                date_idx = -1
+
+                # Scan from column 1 onwards (avoids accidental dates in the meeting Name)
+                for i in range(1, len(col_texts)):
+                    # Extract standard YYYY-MM-DD or YYYY/MM/DD strings
+                    found_dates = re.findall(r'20\d{2}[-/]\d{2}[-/]\d{2}', col_texts[i])
+                    if found_dates:
+                        # Convert slashes to dashes for uniformity
+                        found_dates = [d.replace('/', '-') for d in found_dates]
+                        all_dates.extend(found_dates)
+                        if date_idx == -1:
+                            date_idx = i  # Log the exact column where dates first appeared
+
+                # Safely assign lowest and highest dates
+                if all_dates:
+                    start_d = min(all_dates)
+                    end_d = max(all_dates)
+
+                # Per the logic, Town is immediately before the Date column!
+                if date_idx > 0:
+                    town = col_texts[date_idx - 1].strip()
+                # ==========================================
+
+                # 3. Formulate the Meeting Number as a fallback matching tool
+                full_num = ""
+                # Now that hyphens are standard, this regex will perfectly match #175-AH-e
+                match_num = re.search(r'#(\d+[a-z0-9\-]*)', m_name, re.IGNORECASE)
+                if match_num:
+                    full_num = match_num.group(1).replace('-', '').strip().upper()
+                else:
+                    if len(col_texts) > 1:
+                        m_num_raw = col_texts[1].strip()
+                        suffix = ""
+                        # If date_idx is 4 or greater, col 2 is usually the suffix
+                        if date_idx >= 4 and len(col_texts) > 2:
+                            suffix = col_texts[2].strip()
+                            if len(suffix) > 8: suffix = ""  # Safety check
+                        full_num = f"{m_num_raw}{suffix}".replace('-', '').strip().upper()
+
+                if self.target_meetings and not any(
+                        t["wg"] == wg_name and t["meeting"] == full_num for t in self.target_meetings):
+                    continue
 
                 results.append((wg_name, full_num, url_key, mtg_id, m_name, town, start_d, end_d))
 
