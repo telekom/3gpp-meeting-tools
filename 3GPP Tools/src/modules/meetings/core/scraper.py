@@ -184,8 +184,6 @@ class MeetingsCrawlerThread(QThread):
                 if len(cols) < 2:
                     continue
 
-                # --- THE MAGIC FIX: Universal Unicode Normalization ---
-                # Converts &#8209;, en-dashes, and em-dashes into standard keyboard hyphens
                 col_texts = []
                 for td in cols:
                     text = td.get_text(separator=" ", strip=True)
@@ -197,7 +195,6 @@ class MeetingsCrawlerThread(QThread):
                 if not m_name or m_name.lower() == 'meeting':
                     continue
 
-                # 1. Grab URL and MtgId unconditionally from anchor tags
                 mtg_id = ""
                 url_key = ""
                 for a in row.find_all('a', href=True):
@@ -205,54 +202,46 @@ class MeetingsCrawlerThread(QThread):
                     match_id = re.search(r'MtgId=(\d+)', href, re.IGNORECASE)
                     if match_id: mtg_id = match_id.group(1)
 
-                    if '/ftp/' in href.lower() and 'tsg_' in href.lower():
-                        parts = re.split(r'/ftp/', href, flags=re.IGNORECASE)
-                        if len(parts) > 1:
-                            url_key = unquote(parts[1].strip('/').split('?')[0].rstrip('/'))
+                    # FIXED: Extracts exact path securely regardless of protocol
+                    match_path = re.search(r'(tsg_[a-z0-9_./-]+)', href, re.IGNORECASE)
+                    if match_path:
+                        url_key = unquote(match_path.group(1).split('?')[0].rstrip('/'))
 
-                # ==========================================
-                # --- USER'S MIN/MAX DATE HEURISTIC ---
-                # ==========================================
                 start_d, end_d, town = "", "", ""
                 all_dates = []
                 date_idx = -1
 
-                # Scan from column 1 onwards (avoids accidental dates in the meeting Name)
                 for i in range(1, len(col_texts)):
-                    # Extract standard YYYY-MM-DD or YYYY/MM/DD strings
-                    found_dates = re.findall(r'20\d{2}[-/]\d{2}[-/]\d{2}', col_texts[i])
+                    # FIXED: Allows dates from 1900-2099 to catch early RAN3 meetings
+                    found_dates = re.findall(r'(?:19|20)\d{2}[-/]\d{2}[-/]\d{2}', col_texts[i])
                     if found_dates:
-                        # Convert slashes to dashes for uniformity
                         found_dates = [d.replace('/', '-') for d in found_dates]
                         all_dates.extend(found_dates)
                         if date_idx == -1:
-                            date_idx = i  # Log the exact column where dates first appeared
+                            date_idx = i
 
-                # Safely assign lowest and highest dates
                 if all_dates:
                     start_d = min(all_dates)
                     end_d = max(all_dates)
 
-                # Per the logic, Town is immediately before the Date column!
                 if date_idx > 0:
                     town = col_texts[date_idx - 1].strip()
-                # ==========================================
 
-                # 3. Formulate the Meeting Number as a fallback matching tool
                 full_num = ""
-                # Now that hyphens are standard, this regex will perfectly match #175-AH-e
                 match_num = re.search(r'#(\d+[a-z0-9\-]*)', m_name, re.IGNORECASE)
                 if match_num:
                     full_num = match_num.group(1).replace('-', '').strip().upper()
                 else:
                     if len(col_texts) > 1:
                         m_num_raw = col_texts[1].strip()
+                        # FIXED: Strips WG prefixes (like R3-, S2-) from the raw number so it perfectly matches FTP format
+                        m_num_clean = re.sub(r'^(?:R|S|C|RAN|SA|CT)[P0-6]?\s*-?', '', m_num_raw, flags=re.IGNORECASE)
+
                         suffix = ""
-                        # If date_idx is 4 or greater, col 2 is usually the suffix
                         if date_idx >= 4 and len(col_texts) > 2:
                             suffix = col_texts[2].strip()
-                            if len(suffix) > 8: suffix = ""  # Safety check
-                        full_num = f"{m_num_raw}{suffix}".replace('-', '').strip().upper()
+                            if len(suffix) > 8: suffix = ""
+                        full_num = f"{m_num_clean}{suffix}".replace('-', '').strip().upper()
 
                 if self.target_meetings and not any(
                         t["wg"] == wg_name and t["meeting"] == full_num for t in self.target_meetings):
