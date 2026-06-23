@@ -21,22 +21,21 @@ class CheckableComboBox(QComboBox):
         self.lineEdit().setReadOnly(True)
         self.setModel(QStandardItemModel(self))
 
-        # Stop QComboBox from overwriting our text when an item is clicked
         self.currentIndexChanged.connect(self.updateText)
-        # Catch clicks directly in the dropdown viewport
         self.view().viewport().installEventFilter(self)
 
     def eventFilter(self, obj, event):
         if obj == self.view().viewport() and event.type() == QEvent.MouseButtonRelease:
             index = self.view().indexAt(event.pos())
-            item = self.model().itemFromIndex(index)
-            if item:
-                # Toggle Check State
-                state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
-                item.setCheckState(state)
-                self.updateText()
-                self.selectionChanged.emit(self.getCheckedItems())
-            return True  # Consume the event so the menu STAYS OPEN!
+            # FIXED: Ensure we actually clicked an item, not the scrollbar or a blank edge!
+            if index.isValid():
+                item = self.model().itemFromIndex(index)
+                if item:
+                    state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
+                    item.setCheckState(state)
+                    self.updateText()
+                    self.selectionChanged.emit(self.getCheckedItems())
+                return True  # Consume event so menu STAYS OPEN
         return super().eventFilter(obj, event)
 
     def addItems(self, items):
