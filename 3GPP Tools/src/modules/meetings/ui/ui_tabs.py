@@ -4,157 +4,14 @@ from pathlib import Path
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
                              QMenu, QLabel, QCheckBox, QDateEdit, QSplitter,
-                             QDialog, QMessageBox, QFrame)
-from PyQt5.QtCore import Qt, pyqtSignal, QAbstractTableModel, QModelIndex, QDate, QPoint
+                             QMessageBox, QFrame)
+from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint
 
 from modules.meetings.core.meetings_db import MeetingsDatabase
+from modules.meetings.ui.dialogs import MeetingInfoDialog
+from modules.meetings.ui.models import MeetingsTableModel
 from modules.specifications.ui.components import HoverMenuButton
 from core.network.session import NetworkConfigDialog  # Import the new UI!
-
-
-# ==========================================
-# --- HELPER & DIALOG: MEETING INFO ---
-# ==========================================
-def _format_meeting_info(data: dict) -> str:
-    if not data: return ""
-
-    # 1. Map database column names to pretty UI labels
-    FIELD_MAP = {
-        "wg_name": "Working Group",
-        "meeting_number": "Meeting Number",
-        "name": "Meeting Name",
-        "location": "Location",
-        "start_date": "Start Date",
-        "end_date": "End Date",
-        "is_ad_hoc": "Ad-Hoc / BIS",
-        "is_electronic": "Meeting Type",
-        "first_tdoc": "First TDoc",
-        "last_tdoc": "Last TDoc",
-        "url_key": "Main FTP Link",
-        "docs_folder_url": "Docs Folder Link",
-        "id": "Database ID"
-    }
-
-    html_parts = []
-
-    # 2. Iterate through our known fields in order
-    for key, display_name in FIELD_MAP.items():
-        val = data.get(key)
-
-        # --- Custom Formatting for specific data types ---
-        if key == "is_ad_hoc":
-            val_str = "✅ Yes" if val else "❌ No"
-        elif key == "is_electronic":
-            val_str = "✅ Yes (Electronic)" if val else "❌ No (In-Person)"
-
-        elif key == "url_key":
-            if val and not str(val).startswith('http'):
-                val = f"https://www.3gpp.org/ftp/{str(val).lstrip('/')}"
-            val_str = f'<a href="{val}">{val}</a>' if val else "N/A"
-
-        elif key == "docs_folder_url":
-            val_str = f'<a href="{val}">{val}</a>' if val else "N/A"
-
-        else:
-            val_str = str(val) if val else "N/A"
-
-        # Append the formatted line
-        html_parts.append(f"<b>{display_name}:</b> {val_str}")
-
-        # Add visual separators at logical sections
-        if key in ["end_date", "is_electronic", "last_tdoc"]:
-            html_parts.append("<hr>")
-
-    # 3. FUTURE-PROOFING: Catch any new database columns we add later!
-    # (We ignore internal columns like 'wg_id' and 'sort_number')
-    future_keys = [k for k in data.keys() if k not in FIELD_MAP and k not in ["wg_id", "sort_number"]]
-
-    if future_keys:
-        html_parts.append("<hr><b>--- Additional Data ---</b>")
-        for k in future_keys:
-            clean_name = k.replace("_", " ").title() # Turns 'new_cool_column' into 'New Cool Column'
-            html_parts.append(f"<b>{clean_name}:</b> {data[k]}")
-
-    return "<br>".join(html_parts)
-
-
-class MeetingInfoDialog(QDialog):
-    def __init__(self, data: dict, parent=None):
-        super().__init__(parent)
-        title_str = f"{data.get('wg_name', '')} {data.get('meeting_number', '')}".strip()
-        self.setWindowTitle(f"Meeting Details: {title_str}")
-        self.setMinimumWidth(500)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; }")
-
-        layout = QVBoxLayout(self)
-        info_label = QLabel(_format_meeting_info(data))
-        info_label.setWordWrap(True)
-        info_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
-        info_label.linkActivated.connect(webbrowser.open)
-        layout.addWidget(info_label)
-
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.accept)
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-        btn_layout.addWidget(close_btn)
-        layout.addLayout(btn_layout)
-
-
-# ==========================================
-# --- TABLE MODEL ---
-# ==========================================
-class MeetingsTableModel(QAbstractTableModel):
-    def __init__(self, data=None):
-        super().__init__()
-        self._data = data or []
-        self._headers = ["", "WG", "Meeting", "Name", "Location", "Start Date", "End Date"]
-
-    def data(self, index, role):
-        if not index.isValid(): return None
-        row_data = self._data[index.row()]
-
-        if role == Qt.DisplayRole:
-            col = index.column()
-            if col == 0:
-                return ""
-            elif col == 1:
-                return row_data.get("wg_name", "")
-            elif col == 2:
-                return row_data.get("meeting_number", "")
-            elif col == 3:
-                return row_data.get("name", "")
-            elif col == 4:
-                return row_data.get("location", "")
-            elif col == 5:
-                return row_data.get("start_date", "")
-            elif col == 6:
-                return row_data.get("end_date", "")
-
-        elif role == Qt.TextAlignmentRole:
-            if index.column() in [0, 1, 2, 5, 6]: return Qt.AlignCenter
-            return Qt.AlignLeft | Qt.AlignVCenter
-        elif role == Qt.UserRole:
-            return row_data
-        elif role == Qt.ToolTipRole:
-            return _format_meeting_info(row_data)
-
-        return None
-
-    def rowCount(self, index=QModelIndex()):
-        return len(self._data)
-
-    def columnCount(self, index=QModelIndex()):
-        return len(self._headers)
-
-    def headerData(self, section, orientation, role):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole: return self._headers[section]
-        return None
-
-    def update_data(self, new_data):
-        self.beginResetModel()
-        self._data = new_data
-        self.endResetModel()
 
 
 # ==========================================
@@ -357,12 +214,24 @@ class MeetingsTab(QWidget):
         date_from = self.date_from.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
         date_to = self.date_to.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
 
+        # --- FIXED: Read the current values of the new dropdowns ---
+        adhoc_val = self.adhoc_filter.currentText()
+        type_val = self.type_filter.currentText()
+
+        # --- FIXED: Pass the new filters into the database search query ---
         data = self.db.search_meetings(
-            wg_name=wg, search_term=self.search_input.text().strip(),
-            location=self.location_input.text().strip(), date_from=date_from, date_to=date_to
+            wg_name=wg,
+            search_term=self.search_input.text().strip(),
+            location=self.location_input.text().strip(),
+            date_from=date_from,
+            date_to=date_to,
+            adhoc_filter=adhoc_val,
+            type_filter=type_val
         )
+
         self.table_model.update_data(data)
-        for row_idx, row_data in enumerate(data): self._inject_hover_menu(row_idx, row_data)
+        for row_idx, row_data in enumerate(data):
+            self._inject_hover_menu(row_idx, row_data)
 
     def _emit_multi_sync(self, selected_rows):
         targets = [{"wg": self.table_model.data(r, Qt.UserRole).get("wg_name"),
