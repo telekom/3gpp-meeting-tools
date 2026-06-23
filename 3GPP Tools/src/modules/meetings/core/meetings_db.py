@@ -177,9 +177,6 @@ class MeetingsDatabase:
             if wg not in wg_map:
                 wg_map[wg] = self.get_or_create_wg(wg)
 
-        # --- FIXED: The Intelligent "Upsert" Engine ---
-        # Guarantees that EVERY meeting from the DynaReport is pushed to the UI,
-        # even if its FTP folder doesn't exist!
         with self._get_connection() as conn:
             cursor = conn.cursor()
             for item in metadata_data:
@@ -191,16 +188,17 @@ class MeetingsDatabase:
                 town = town or ""
                 start_d = start_d or ""
                 end_d = end_d or ""
-                url_key = url_key or ""
                 m_num = m_num or ""
                 new_m_num = new_m_num or ""
 
-                # Apply the explicit Meeting Name overwrite if commanded by the Scraper
+                # --- THE CRITICAL FIX: Safe SQLite Null Handling ---
+                # Converts empty strings to NULL to prevent UNIQUE constraint crashes!
+                db_url_key = url_key.strip() if url_key and url_key.strip() else None
+
                 final_m_num = new_m_num if new_m_num else m_num
                 sort_n = self._extract_sort_num(final_m_num)
                 is_ah, is_e = self._get_meeting_flags(final_m_num)
 
-                # Flag as Ad-Hoc if requested
                 if wg_name.startswith("RAN") and (
                         re.search(r'AH|Ad\s*Hoc', final_m_num, re.IGNORECASE) or re.search(r'Ad\s*Hoc', m_name,
                                                                                            re.IGNORECASE)):
@@ -209,9 +207,9 @@ class MeetingsDatabase:
                 row_id = None
 
                 # 1. Attempt strict match via FTP URL
-                if url_key:
+                if db_url_key:
                     cursor.execute("SELECT id FROM meetings WHERE LOWER(RTRIM(url_key, '/')) = LOWER(RTRIM(?, '/'))",
-                                   (url_key,))
+                                   (db_url_key,))
                     res = cursor.fetchone()
                     if res: row_id = res[0]
 
@@ -229,9 +227,8 @@ class MeetingsDatabase:
                     res = cursor.fetchone()
                     if res: row_id = res[0]
 
-                # 3. UPSERT BRANCH
+                # 3. Safe UPSERT
                 if row_id:
-                    # Update Existing
                     cursor.execute('''
                         UPDATE meetings 
                         SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
@@ -246,11 +243,11 @@ class MeetingsDatabase:
                     ''', (mtg_id, mtg_id, m_name, m_name, town, town, start_d, start_d, end_d, end_d,
                           new_m_num, new_m_num, sort_n, sort_n, is_ah, row_id))
                 else:
-                    # Insert Missing (Meeting existed on DynaReport, but NOT on FTP server!)
+                    # Uses db_url_key safely to inject NULL instead of breaking the index
                     cursor.execute('''
                         INSERT INTO meetings (wg_id, meeting_number, name, location, start_date, end_date, mtg_id, url_key, sort_number, is_ad_hoc, is_electronic)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (wg_id, final_m_num, m_name, town, start_d, end_d, mtg_id, url_key, sort_n, is_ah, is_e))
+                    ''', (wg_id, final_m_num, m_name, town, start_d, end_d, mtg_id, db_url_key, sort_n, is_ah, is_e))
 
             conn.commit()
 
