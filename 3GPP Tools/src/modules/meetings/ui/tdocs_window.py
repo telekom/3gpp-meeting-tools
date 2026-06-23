@@ -1,8 +1,10 @@
-# --- File: modules/meetings/ui/tdocs_window.py ---
+import os
+import webbrowser
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
-                             QHeaderView, QLabel, QLineEdit, QComboBox, QFrame)
+                             QHeaderView, QLabel, QLineEdit, QComboBox, QFrame,
+                             QPushButton, QMessageBox)
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
-from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QEvent, pyqtSignal
+from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QEvent
 
 
 # ==========================================
@@ -158,11 +160,14 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 
 
 # ==========================================
-# --- TDOCS WINDOW ---
+# --- UPGRADED: TDOCS WINDOW ---
 # ==========================================
 class TDocsWindow(QWidget):
-    def __init__(self, mtg_info: dict, tdocs_data: list):
+    # FIXED: Added filepath to the arguments
+    def __init__(self, mtg_info: dict, tdocs_data: list, filepath: str):
         super().__init__()
+        self.filepath = filepath
+
         title = f"TDocs: {mtg_info.get('wg_name', '')} {mtg_info.get('meeting_number', '')}"
         self.setWindowTitle(title)
         self.resize(1400, 750)
@@ -177,11 +182,28 @@ class TDocsWindow(QWidget):
         title_lbl = QLabel(f"<b>{title}</b>")
         title_lbl.setStyleSheet("font-size: 18px; color: #333;")
 
+        # NEW: Open in Excel Button
+        self.excel_btn = QPushButton("📗 Open in Excel")
+        self.excel_btn.setCursor(Qt.PointingHandCursor)
+        self.excel_btn.setStyleSheet("""
+            QPushButton {
+                font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold;
+                border-radius: 6px; padding: 5px 12px;
+                color: #0C6B0C; background-color: #E6F4E6; border: 1px solid #A3DDA3;
+            }
+            QPushButton:hover {
+                background-color: #D1EED1; border: 1px solid #0C6B0C;
+            }
+        """)
+        self.excel_btn.clicked.connect(self._open_excel)
+
         self.count_lbl = QLabel(f"Showing {len(tdocs_data)} of {len(tdocs_data)} TDocs")
         self.count_lbl.setStyleSheet("font-size: 13px; color: #666;")
 
         header_layout.addWidget(title_lbl)
         header_layout.addStretch()
+        header_layout.addWidget(self.excel_btn)
+        header_layout.addSpacing(15)
         header_layout.addWidget(self.count_lbl)
         main_layout.addLayout(header_layout)
 
@@ -238,7 +260,6 @@ class TDocsWindow(QWidget):
         self.proxy.setSourceModel(self.model)
         self.proxy.layoutChanged.connect(self._update_count_label)
 
-        # Initialize Proxy with all data selected
         self.proxy.setTypeFilters(unique_types)
         self.proxy.setAIFilters(unique_ais)
         self.proxy.setStatusFilters(unique_statuses)
@@ -258,20 +279,33 @@ class TDocsWindow(QWidget):
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.resizeSection(0, 110)  # TDoc
-        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Title
-        header.resizeSection(9, 150)  # Related TDocs
+        header.resizeSection(0, 110)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.resizeSection(9, 150)
 
         main_layout.addWidget(self.table)
 
-    # --- FILTER TRIGGERS ---
-    def _on_search_changed(self, text): self.proxy.setGlobalFilter(text)
+    # --- ACTIONS & TRIGGERS ---
+    def _open_excel(self):
+        try:
+            if hasattr(os, 'startfile'):
+                os.startfile(self.filepath)
+            else:
+                webbrowser.open(f"file:///{self.filepath}")
+        except Exception as e:
+            QMessageBox.warning(self, "Open Error", f"Could not open the Excel file:\n{e}")
 
-    def _on_type_changed(self, types): self.proxy.setTypeFilters(types)
+    def _on_search_changed(self, text):
+        self.proxy.setGlobalFilter(text)
 
-    def _on_ai_changed(self, ais): self.proxy.setAIFilters(ais)
+    def _on_type_changed(self, types):
+        self.proxy.setTypeFilters(types)
 
-    def _on_status_changed(self, statuses): self.proxy.setStatusFilters(statuses)
+    def _on_ai_changed(self, ais):
+        self.proxy.setAIFilters(ais)
+
+    def _on_status_changed(self, statuses):
+        self.proxy.setStatusFilters(statuses)
 
     def _update_count_label(self):
         visible = self.proxy.rowCount()

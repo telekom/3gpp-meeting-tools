@@ -575,7 +575,8 @@ class MeetingsTab(QWidget):
             QMessageBox.warning(self, "Parse Error", "Could not read data from the Excel file.")
             return
 
-        window = TDocsWindow(mtg_info, tdocs_data)
+        # FIXED: Pass the filepath as the third argument!
+        window = TDocsWindow(mtg_info, tdocs_data, filepath)
         self.tdoc_windows[mtg_id] = window
         window.show()
 
