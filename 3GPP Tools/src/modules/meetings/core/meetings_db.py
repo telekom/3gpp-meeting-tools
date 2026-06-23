@@ -41,8 +41,7 @@ class MeetingsDatabase:
                 )
             ''')
 
-            # --- NEW: Graceful Schema Migration ---
-            # Attempts to add the numeric column. If it already exists, it silently ignores the error.
+            # Graceful Schema Migration
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN sort_number INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
@@ -50,7 +49,6 @@ class MeetingsDatabase:
 
             conn.commit()
 
-    # --- NEW: Extracts pure numbers for sorting (e.g., '154AHE' -> 154) ---
     def _extract_sort_num(self, m_str: str) -> int:
         match = re.search(r'\d+', m_str or "")
         return int(match.group()) if match else 0
@@ -64,7 +62,7 @@ class MeetingsDatabase:
 
     def insert_meeting_basic(self, wg_name: str, folder_name: str, meeting_number: str, url_key: str):
         wg_id = self.get_or_create_wg(wg_name)
-        sort_num = self._extract_sort_num(meeting_number)  # Calculate sort number
+        sort_num = self._extract_sort_num(meeting_number)
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -78,6 +76,7 @@ class MeetingsDatabase:
             ''', (wg_id, folder_name, meeting_number, sort_num, url_key))
             conn.commit()
 
+    # --- PHASE 1 BULK ---
     def insert_meetings_bulk(self, meetings_data: list):
         if not meetings_data: return
 
@@ -87,7 +86,6 @@ class MeetingsDatabase:
             if wg not in wg_map:
                 wg_map[wg] = self.get_or_create_wg(wg)
 
-        # Inject the new calculated sort_number into the bulk tuples
         insert_data = [
             (wg_map[task['wg_name']], task['folder_name'], task['meeting_num'],
              self._extract_sort_num(task['meeting_num']), task['url_key'])
@@ -116,6 +114,19 @@ class MeetingsDatabase:
             ''', (docs_url, first_tdoc, last_tdoc, url_key))
             conn.commit()
 
+    # --- PHASE 2 BULK ---
+    def update_meeting_docs_bulk(self, docs_data: list):
+        """Bulk updates the documents info. Expects a list of tuples: (docs_url, first_tdoc, last_tdoc, url_key)"""
+        if not docs_data: return
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany('''
+                UPDATE meetings 
+                SET docs_folder_url = ?, first_tdoc = ?, last_tdoc = ?
+                WHERE url_key = ?
+            ''', docs_data)
+            conn.commit()
+
     def update_meeting_metadata_pass2(self, wg_name: str, meeting_number: str, name: str, location: str,
                                       start_date: str, end_date: str):
         wg_id = self.get_or_create_wg(wg_name)
@@ -126,6 +137,32 @@ class MeetingsDatabase:
                 SET name = ?, location = ?, start_date = ?, end_date = ?
                 WHERE wg_id = ? AND meeting_number = ?
             ''', (name, location, start_date, end_date, wg_id, meeting_number))
+            conn.commit()
+
+    # --- PHASE 3 BULK ---
+    def update_meeting_metadata_bulk(self, metadata_data: list):
+        """Bulk updates DynaReport metadata. Expects a list of tuples: (wg_name, meeting_number, name, location, start, end)"""
+        if not metadata_data: return
+
+        wg_map = {}
+        for item in metadata_data:
+            wg = item[0]
+            if wg not in wg_map:
+                wg_map[wg] = self.get_or_create_wg(wg)
+
+        # Reformat the tuple to match the SQL parameters layout
+        update_data = [
+            (item[2], item[3], item[4], item[5], wg_map[item[0]], item[1])
+            for item in metadata_data
+        ]
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany('''
+                UPDATE meetings 
+                SET name = ?, location = ?, start_date = ?, end_date = ?
+                WHERE wg_id = ? AND meeting_number = ?
+            ''', update_data)
             conn.commit()
 
     def search_meetings(self, wg_name=None, search_term=None, location=None, date_from=None, date_to=None):
@@ -152,7 +189,6 @@ class MeetingsDatabase:
             query += " AND m.end_date <= ?"
             params.append(date_to)
 
-        # --- FIXED: Use the numeric column for primary sorting! ---
         query += " ORDER BY m.sort_number DESC, m.meeting_number DESC"
 
         with self._get_connection() as conn:
