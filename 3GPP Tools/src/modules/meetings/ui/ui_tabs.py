@@ -18,29 +18,64 @@ from core.network.session import NetworkConfigDialog  # Import the new UI!
 def _format_meeting_info(data: dict) -> str:
     if not data: return ""
 
-    def clean(val):
-        return str(val) if val else "N/A"
+    # 1. Map database column names to pretty UI labels
+    FIELD_MAP = {
+        "wg_name": "Working Group",
+        "meeting_number": "Meeting Number",
+        "name": "Meeting Name",
+        "location": "Location",
+        "start_date": "Start Date",
+        "end_date": "End Date",
+        "is_ad_hoc": "Ad-Hoc / BIS",
+        "is_electronic": "Meeting Type",
+        "first_tdoc": "First TDoc",
+        "last_tdoc": "Last TDoc",
+        "url_key": "Main FTP Link",
+        "docs_folder_url": "Docs Folder Link",
+        "id": "Database ID"
+    }
 
-    def format_link(val):
-        if val and val.startswith("http"): return f'<a href="{val}">{val}</a>'
-        return clean(val)
+    html_parts = []
 
-    # --- FIXED: Reconstruct the full FTP URL from the relative url_key ---
-    raw_url = data.get('url_key', '')
-    main_ftp_url = raw_url if raw_url.startswith('http') else (f"https://www.3gpp.org/ftp/{raw_url}" if raw_url else "")
+    # 2. Iterate through our known fields in order
+    for key, display_name in FIELD_MAP.items():
+        val = data.get(key)
 
-    return (
-        f"<b>Working Group:</b> {clean(data.get('wg_name'))}<br>"
-        f"<b>Meeting Number:</b> {clean(data.get('meeting_number'))}<br>"
-        f"<b>Meeting Name:</b> {clean(data.get('name'))}<br>"
-        f"<b>Location:</b> {clean(data.get('location'))}<br>"
-        f"<b>Dates:</b> {clean(data.get('start_date'))} to {clean(data.get('end_date'))}<br><hr>"
-        f"<b>First TDoc:</b> {clean(data.get('first_tdoc'))}<br>"
-        f"<b>Last TDoc:</b> {clean(data.get('last_tdoc'))}<br><hr>"
-        f"<b>Main FTP Link:</b> {format_link(main_ftp_url)}<br>"
-        f"<b>Docs Folder Link:</b> {format_link(data.get('docs_folder_url'))}<br>"
-        f"<b>Database ID:</b> {clean(data.get('id'))}"
-    )
+        # --- Custom Formatting for specific data types ---
+        if key == "is_ad_hoc":
+            val_str = "✅ Yes" if val else "❌ No"
+        elif key == "is_electronic":
+            val_str = "✅ Yes (Electronic)" if val else "❌ No (In-Person)"
+
+        elif key == "url_key":
+            if val and not str(val).startswith('http'):
+                val = f"https://www.3gpp.org/ftp/{str(val).lstrip('/')}"
+            val_str = f'<a href="{val}">{val}</a>' if val else "N/A"
+
+        elif key == "docs_folder_url":
+            val_str = f'<a href="{val}">{val}</a>' if val else "N/A"
+
+        else:
+            val_str = str(val) if val else "N/A"
+
+        # Append the formatted line
+        html_parts.append(f"<b>{display_name}:</b> {val_str}")
+
+        # Add visual separators at logical sections
+        if key in ["end_date", "is_electronic", "last_tdoc"]:
+            html_parts.append("<hr>")
+
+    # 3. FUTURE-PROOFING: Catch any new database columns we add later!
+    # (We ignore internal columns like 'wg_id' and 'sort_number')
+    future_keys = [k for k in data.keys() if k not in FIELD_MAP and k not in ["wg_id", "sort_number"]]
+
+    if future_keys:
+        html_parts.append("<hr><b>--- Additional Data ---</b>")
+        for k in future_keys:
+            clean_name = k.replace("_", " ").title() # Turns 'new_cool_column' into 'New Cool Column'
+            html_parts.append(f"<b>{clean_name}:</b> {data[k]}")
+
+    return "<br>".join(html_parts)
 
 
 class MeetingInfoDialog(QDialog):

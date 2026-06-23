@@ -81,6 +81,12 @@ class MeetingsCrawlerThread(QThread):
 
     def is_meeting(self, folder_name: str) -> bool:
         if folder_name.lower() in self.deny_list: return False
+
+        # --- FIXED: Reject any strings that are clearly files (.zip, .pdf, .docx, etc.) ---
+        # Matches a dot followed by 2 to 4 letters/numbers at the very end of the string
+        if re.search(r'\.[a-z0-9]{2,4}$', folder_name, re.IGNORECASE):
+            return False
+
         return bool(self.meeting_pattern.match(folder_name))
 
     def extract_meeting_number(self, folder_name: str) -> str:

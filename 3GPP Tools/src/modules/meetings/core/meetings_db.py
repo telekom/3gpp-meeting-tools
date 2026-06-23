@@ -41,9 +41,20 @@ class MeetingsDatabase:
                 )
             ''')
 
-            # Graceful Schema Migration
+            # --- Graceful Schema Migrations ---
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN sort_number INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
+            # NEW: Add Ad-Hoc and Electronic columns safely
+            try:
+                cursor.execute("ALTER TABLE meetings ADD COLUMN is_ad_hoc INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                cursor.execute("ALTER TABLE meetings ADD COLUMN is_electronic INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
 
@@ -52,6 +63,13 @@ class MeetingsDatabase:
     def _extract_sort_num(self, m_str: str) -> int:
         match = re.search(r'\d+', m_str or "")
         return int(match.group()) if match else 0
+
+    # --- NEW: Helper to detect specific characters in the meeting string ---
+    def _get_meeting_flags(self, m_str: str):
+        num_upper = (m_str or "").upper()
+        is_ad_hoc = 1 if ("A" in num_upper or "BIS" in num_upper) else 0
+        is_electronic = 1 if ("E" in num_upper) else 0
+        return is_ad_hoc, is_electronic
 
     def get_or_create_wg(self, wg_name: str) -> int:
         with self._get_connection() as conn:
@@ -63,20 +81,22 @@ class MeetingsDatabase:
     def insert_meeting_basic(self, wg_name: str, folder_name: str, meeting_number: str, url_key: str):
         wg_id = self.get_or_create_wg(wg_name)
         sort_num = self._extract_sort_num(meeting_number)
+        is_ad_hoc, is_electronic = self._get_meeting_flags(meeting_number)
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO meetings (wg_id, folder_name, meeting_number, sort_number, url_key)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO meetings (wg_id, folder_name, meeting_number, sort_number, is_ad_hoc, is_electronic, url_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(url_key) DO UPDATE SET
                     folder_name=excluded.folder_name,
                     meeting_number=excluded.meeting_number,
-                    sort_number=excluded.sort_number
-            ''', (wg_id, folder_name, meeting_number, sort_num, url_key))
+                    sort_number=excluded.sort_number,
+                    is_ad_hoc=excluded.is_ad_hoc,
+                    is_electronic=excluded.is_electronic
+            ''', (wg_id, folder_name, meeting_number, sort_num, is_ad_hoc, is_electronic, url_key))
             conn.commit()
 
-    # --- PHASE 1 BULK ---
     def insert_meetings_bulk(self, meetings_data: list):
         if not meetings_data: return
 
@@ -86,21 +106,31 @@ class MeetingsDatabase:
             if wg not in wg_map:
                 wg_map[wg] = self.get_or_create_wg(wg)
 
-        insert_data = [
-            (wg_map[task['wg_name']], task['folder_name'], task['meeting_num'],
-             self._extract_sort_num(task['meeting_num']), task['url_key'])
-            for task in meetings_data
-        ]
+        insert_data = []
+        for task in meetings_data:
+            m_num = task['meeting_num']
+            is_ah, is_e = self._get_meeting_flags(m_num)
+            insert_data.append((
+                wg_map[task['wg_name']],
+                task['folder_name'],
+                m_num,
+                self._extract_sort_num(m_num),
+                is_ah,
+                is_e,
+                task['url_key']
+            ))
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.executemany('''
-                INSERT INTO meetings (wg_id, folder_name, meeting_number, sort_number, url_key)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO meetings (wg_id, folder_name, meeting_number, sort_number, is_ad_hoc, is_electronic, url_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(url_key) DO UPDATE SET
                     folder_name=excluded.folder_name,
                     meeting_number=excluded.meeting_number,
-                    sort_number=excluded.sort_number
+                    sort_number=excluded.sort_number,
+                    is_ad_hoc=excluded.is_ad_hoc,
+                    is_electronic=excluded.is_electronic
             ''', insert_data)
             conn.commit()
 
@@ -114,9 +144,7 @@ class MeetingsDatabase:
             ''', (docs_url, first_tdoc, last_tdoc, url_key))
             conn.commit()
 
-    # --- PHASE 2 BULK ---
     def update_meeting_docs_bulk(self, docs_data: list):
-        """Bulk updates the documents info. Expects a list of tuples: (docs_url, first_tdoc, last_tdoc, url_key)"""
         if not docs_data: return
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -139,9 +167,7 @@ class MeetingsDatabase:
             ''', (name, location, start_date, end_date, wg_id, meeting_number))
             conn.commit()
 
-    # --- PHASE 3 BULK ---
     def update_meeting_metadata_bulk(self, metadata_data: list):
-        """Bulk updates DynaReport metadata. Expects a list of tuples: (wg_name, meeting_number, name, location, start, end)"""
         if not metadata_data: return
 
         wg_map = {}
@@ -150,7 +176,6 @@ class MeetingsDatabase:
             if wg not in wg_map:
                 wg_map[wg] = self.get_or_create_wg(wg)
 
-        # Reformat the tuple to match the SQL parameters layout
         update_data = [
             (item[2], item[3], item[4], item[5], wg_map[item[0]], item[1])
             for item in metadata_data
