@@ -8,7 +8,7 @@ class MeetingsTableModel(QAbstractTableModel):
         super().__init__()
         self._data = data or []
         # --- FIXED: Removed Name, Added TDocs ---
-        self._headers = ["", "WG", "Meeting", "Location", "Start Date", "End Date", "First TDoc", "Last TDoc"]
+        self._headers = ["", "📄", "WG", "Meeting", "Location", "Start Date", "End Date", "First TDoc", "Last TDoc"]
 
     def data(self, index, role):
         if not index.isValid(): return None
@@ -16,27 +16,29 @@ class MeetingsTableModel(QAbstractTableModel):
 
         if role == Qt.DisplayRole:
             col = index.column()
-            if col == 0:
-                return ""
-            elif col == 1:
-                return row_data.get("wg_name", "")
+            if col in [0, 1]:
+                return ""  # 0 is HoverMenu, 1 is the new TDocs Button
             elif col == 2:
-                return row_data.get("meeting_number", "")
+                return row_data.get("wg_name", "")
             elif col == 3:
-                return row_data.get("location", "")
+                return row_data.get("meeting_number", "")
             elif col == 4:
-                return row_data.get("start_date", "")
+                return row_data.get("location", "")
             elif col == 5:
-                return row_data.get("end_date", "")
+                return row_data.get("start_date", "")
             elif col == 6:
-                return row_data.get("first_tdoc", "")
+                return row_data.get("end_date", "")
             elif col == 7:
+                return row_data.get("first_tdoc", "")
+            elif col == 8:
                 return row_data.get("last_tdoc", "")
 
+
         elif role == Qt.TextAlignmentRole:
-            # --- FIXED: Center everything except Location (index 3) ---
-            if index.column() in [0, 1, 2, 4, 5, 6, 7]:
+
+            if index.column() in [0, 1, 2, 3, 5, 6, 7, 8]:
                 return Qt.AlignCenter
+
             return Qt.AlignLeft | Qt.AlignVCenter
 
         elif role == Qt.UserRole:
