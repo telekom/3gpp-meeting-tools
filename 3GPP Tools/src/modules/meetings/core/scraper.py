@@ -11,7 +11,6 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.network.session import NetworkSession
 from modules.meetings.core.meetings_db import MeetingsDatabase
 
-# --- FIXED: Added all specific RAN Ad-Hoc Folders ---
 MEETING_SOURCES = {
     "RAN": {"ftp": ["https://www.3gpp.org/ftp/tsg_ran/TSG_RAN/", "https://www.3gpp.org/ftp/tsg_ran/TSG_RAN/TSGR_AHs/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-RP.htm"},
@@ -111,7 +110,6 @@ class MeetingsCrawlerThread(QThread):
                 if folder_name.lower() in self.deny_list: continue
                 if re.search(r'\.[a-z0-9]{2,4}$', folder_name, re.IGNORECASE): continue
 
-                # --- FIXED: Only strictly enforce meeting Regex if NOT in an AdHoc folder ---
                 if not is_ah_folder and not self.is_meeting(folder_name): continue
 
                 absolute_url = urljoin(ftp_base_url, href)
@@ -122,8 +120,6 @@ class MeetingsCrawlerThread(QThread):
                     continue
 
                 url_key = absolute_url.split('ftp/', 1)[-1] if 'ftp/' in absolute_url else absolute_url
-
-                # --- FIXED: Auto-populate the Docs URL natively ---
                 docs_url = urljoin(absolute_url, "Docs/") if absolute_url.endswith('/') else f"{absolute_url}/Docs/"
 
                 meeting_tasks.append({
@@ -142,30 +138,57 @@ class MeetingsCrawlerThread(QThread):
         return meeting_tasks
 
     def process_individual_meeting(self, task: dict) -> tuple:
-        # Phase 2 now leverages the auto-generated Docs URL
         base_docs_url = task.get("docs_url", urljoin(task["absolute_url"], "Docs/"))
-        first_tdoc, last_tdoc, tdoc_count = "", "", 0
+        first_tdoc, first_pfx, first_num = "", "", 0
+        last_tdoc, last_pfx, last_num = "", "", 0
+        tdoc_count = 0
         final_docs_url = base_docs_url
 
-        try:
-            html = NetworkSession.get_html(base_docs_url, timeout=5)
-            tdocs = sorted([m.strip() for m in self.tdoc_pattern.findall(html)])
-            if tdocs:
-                first_tdoc, last_tdoc, tdoc_count = tdocs[0], tdocs[-1], len(tdocs)
-        except Exception:
-            # Graceful fallback to lowercase 'docs/' if standard 'Docs/' 404s
-            if "Docs/" in base_docs_url:
-                try:
-                    fallback_url = base_docs_url.replace("Docs/", "docs/")
-                    html = NetworkSession.get_html(fallback_url, timeout=5)
-                    tdocs = sorted([m.strip() for m in self.tdoc_pattern.findall(html)])
-                    if tdocs:
-                        first_tdoc, last_tdoc, tdoc_count = tdocs[0], tdocs[-1], len(tdocs)
-                        final_docs_url = fallback_url
-                except Exception:
-                    pass
+        # --- FIXED: Parses TDoc, removes extension, and extracts Sequence Num ---
+        def fetch_and_parse(url):
+            html = NetworkSession.get_html(url, timeout=5)
+            tdocs_raw = self.tdoc_pattern.findall(html)
+            parsed = []
+            for f in tdocs_raw:
+                # 1. Remove the file extension completely (.zip, .doc, etc.)
+                clean_name = re.sub(r'\.[a-zA-Z0-9]{2,4}$', '', f.strip())
 
-        docs_data = (final_docs_url, first_tdoc, last_tdoc, task["url_key"])
+                # 2. Extract Prefix (S2) and true Numeric Base (2606512)
+                #    Ignores revisions like -r1 so sorting remains completely stable
+                match = re.match(r'^([A-Za-z0-9]+)-?(\d+)', clean_name)
+                if match:
+                    parsed.append({
+                        "clean": clean_name,
+                        "prefix": match.group(1).upper(),
+                        "num": int(match.group(2))
+                    })
+
+            if parsed:
+                # 3. Sort strictly by sequence number, then alphabetically (for -r1, -r2 suffixes)
+                parsed.sort(key=lambda x: (x["num"], x["clean"]))
+            return parsed
+
+        try:
+            parsed_list = fetch_and_parse(base_docs_url)
+            if not parsed_list and "Docs/" in base_docs_url:
+                fallback_url = base_docs_url.replace("Docs/", "docs/")
+                parsed_list = fetch_and_parse(fallback_url)
+                if parsed_list: final_docs_url = fallback_url
+        except Exception:
+            parsed_list = []
+
+        if parsed_list:
+            tdoc_count = len(parsed_list)
+            first_tdoc = parsed_list[0]["clean"]
+            first_pfx = parsed_list[0]["prefix"]
+            first_num = parsed_list[0]["num"]
+
+            last_tdoc = parsed_list[-1]["clean"]
+            last_pfx = parsed_list[-1]["prefix"]
+            last_num = parsed_list[-1]["num"]
+
+        # Formats the expanded data structure for the Database
+        docs_data = (final_docs_url, first_tdoc, first_pfx, first_num, last_tdoc, last_pfx, last_num, task["url_key"])
         return docs_data, tdoc_count
 
     def process_dynareport(self, wg_name: str, dyna_url: str) -> list:
@@ -212,7 +235,6 @@ class MeetingsCrawlerThread(QThread):
                     for wg_name, source_info in MEETING_SOURCES.items():
                         urls = source_info["ftp"] if isinstance(source_info["ftp"], list) else [source_info["ftp"]]
                         for url in urls:
-                            # Safely flag URL as an Ad-Hoc directory
                             is_ah = "AH" in url
                             future = executor.submit(self.fetch_wg_directories, wg_name, url, is_ah)
                             futures[future] = wg_name

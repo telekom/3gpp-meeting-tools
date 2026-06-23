@@ -41,18 +41,35 @@ class MeetingsDatabase:
                 )
             ''')
 
+            # --- Graceful Schema Migrations ---
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN sort_number INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
-
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN is_ad_hoc INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
-
             try:
                 cursor.execute("ALTER TABLE meetings ADD COLUMN is_electronic INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
+            # --- NEW: Split TDoc Indexing Columns ---
+            try:
+                cursor.execute("ALTER TABLE meetings ADD COLUMN first_tdoc_prefix TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE meetings ADD COLUMN first_tdoc_num INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE meetings ADD COLUMN last_tdoc_prefix TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE meetings ADD COLUMN last_tdoc_num INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
 
@@ -107,19 +124,12 @@ class MeetingsDatabase:
         for task in meetings_data:
             m_num = task['meeting_num']
             is_ah, is_e = self._get_meeting_flags(m_num)
-
-            # --- FIXED: Combine auto-flags with explicit Ad-Hoc folder flags ---
             final_ah = 1 if (is_ah or task.get('is_ad_hoc')) else 0
 
             insert_data.append((
-                wg_map[task['wg_name']],
-                task['folder_name'],
-                m_num,
-                self._extract_sort_num(m_num),
-                final_ah,
-                is_e,
-                task['url_key'],
-                task.get('docs_url', '')  # Auto-populated Docs URL
+                wg_map[task['wg_name']], task['folder_name'], m_num,
+                self._extract_sort_num(m_num), final_ah, is_e,
+                task['url_key'], task.get('docs_url', '')
             ))
 
         with self._get_connection() as conn:
@@ -138,24 +148,69 @@ class MeetingsDatabase:
             conn.commit()
 
     def update_meeting_docs(self, url_key: str, docs_url: str, first_tdoc: str, last_tdoc: str):
+        # Graceful parsing if this is ever called directly
+        def parse(tdoc):
+            match = re.match(r'^([A-Za-z0-9]+)-?(\d+)', tdoc or "")
+            if match: return match.group(1).upper(), int(match.group(2))
+            return "", 0
+
+        f_pfx, f_num = parse(first_tdoc)
+        l_pfx, l_num = parse(last_tdoc)
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE meetings 
-                SET docs_folder_url = ?, first_tdoc = ?, last_tdoc = ?
+                SET docs_folder_url = ?, 
+                    first_tdoc = CASE WHEN ? != '' THEN ? ELSE first_tdoc END,
+                    first_tdoc_prefix = CASE WHEN ? != '' THEN ? ELSE first_tdoc_prefix END,
+                    first_tdoc_num = CASE WHEN ? != '' THEN ? ELSE first_tdoc_num END,
+                    last_tdoc = CASE WHEN ? != '' THEN ? ELSE last_tdoc END,
+                    last_tdoc_prefix = CASE WHEN ? != '' THEN ? ELSE last_tdoc_prefix END,
+                    last_tdoc_num = CASE WHEN ? != '' THEN ? ELSE last_tdoc_num END
                 WHERE url_key = ?
-            ''', (docs_url, first_tdoc, last_tdoc, url_key))
+            ''', (
+                docs_url,
+                first_tdoc, first_tdoc,
+                first_tdoc, f_pfx,
+                first_tdoc, f_num,
+                last_tdoc, last_tdoc,
+                last_tdoc, l_pfx,
+                last_tdoc, l_num,
+                url_key
+            ))
             conn.commit()
 
     def update_meeting_docs_bulk(self, docs_data: list):
         if not docs_data: return
+
+        # --- FIXED: Only overwrites DB if a valid string is returned! ---
+        formatted_data = [
+            (
+                d[0],  # docs_folder_url
+                d[1], d[1],  # first_tdoc
+                d[1], d[2],  # first_tdoc_prefix
+                d[1], d[3],  # first_tdoc_num
+                d[4], d[4],  # last_tdoc
+                d[4], d[5],  # last_tdoc_prefix
+                d[4], d[6],  # last_tdoc_num
+                d[7]  # url_key
+            ) for d in docs_data
+        ]
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.executemany('''
                 UPDATE meetings 
-                SET docs_folder_url = ?, first_tdoc = ?, last_tdoc = ?
+                SET docs_folder_url = ?, 
+                    first_tdoc = CASE WHEN ? != '' THEN ? ELSE first_tdoc END,
+                    first_tdoc_prefix = CASE WHEN ? != '' THEN ? ELSE first_tdoc_prefix END,
+                    first_tdoc_num = CASE WHEN ? != '' THEN ? ELSE first_tdoc_num END,
+                    last_tdoc = CASE WHEN ? != '' THEN ? ELSE last_tdoc END,
+                    last_tdoc_prefix = CASE WHEN ? != '' THEN ? ELSE last_tdoc_prefix END,
+                    last_tdoc_num = CASE WHEN ? != '' THEN ? ELSE last_tdoc_num END
                 WHERE url_key = ?
-            ''', docs_data)
+            ''', formatted_data)
             conn.commit()
 
     def update_meeting_metadata_pass2(self, wg_name: str, meeting_number: str, name: str, location: str,
@@ -218,7 +273,6 @@ class MeetingsDatabase:
             query += " AND m.end_date <= ?"
             params.append(date_to)
 
-        # --- FIXED: Apply New Dropdown Filters ---
         if adhoc_filter == "Ad-Hoc / BIS":
             query += " AND m.is_ad_hoc = 1"
         elif adhoc_filter == "Regular":
