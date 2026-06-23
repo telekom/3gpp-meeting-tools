@@ -9,7 +9,7 @@ from core.network.session import NetworkSession
 
 class TDocsDownloaderThread(QThread):
     # Emits (success_boolean, file_path_or_error_message)
-    finished = pyqtSignal(bool, str)
+    finished = pyqtSignal(bool, str, str)
 
     def __init__(self, mtg_id: str, local_path: Path, parent=None):
         super().__init__(parent)
@@ -51,7 +51,7 @@ class TDocsDownloaderThread(QThread):
                     if chunk:
                         f.write(chunk)
 
-            self.finished.emit(True, str(filepath))
+            self.finished.emit(True, str(filepath), self.mtg_id)
 
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.finished.emit(False, str(e), self.mtg_id)
