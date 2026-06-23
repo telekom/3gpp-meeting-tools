@@ -1,48 +1,59 @@
 # --- File: modules/meetings/core/meetings_db.py ---
 import sqlite3
-from pathlib import Path
 import logging
+import re
+from pathlib import Path
 
 
 class MeetingsDatabase:
     def __init__(self, db_path: Path):
         self.db_path = db_path
-        self._init_db()
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._create_tables()
 
     def _get_connection(self):
-        return sqlite3.connect(self.db_path, check_same_thread=False)
+        return sqlite3.connect(self.db_path)
 
-    def _init_db(self):
+    def _create_tables(self):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('PRAGMA journal_mode=WAL;')
-
-            # Ensure working_groups exists (it should, from specs, but we make sure)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS working_groups (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE
+                    name TEXT UNIQUE NOT NULL
                 )
             ''')
-
-            # Create the new meetings table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS meetings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     wg_id INTEGER,
                     folder_name TEXT,
                     meeting_number TEXT,
-                    url_key TEXT UNIQUE,
                     name TEXT,
                     location TEXT,
                     start_date TEXT,
                     end_date TEXT,
+                    url_key TEXT UNIQUE,
+                    docs_folder_url TEXT,
                     first_tdoc TEXT,
                     last_tdoc TEXT,
-                    docs_folder_url TEXT,
-                    FOREIGN KEY(wg_id) REFERENCES working_groups(id)
+                    FOREIGN KEY (wg_id) REFERENCES working_groups (id)
                 )
             ''')
+
+            # --- NEW: Graceful Schema Migration ---
+            # Attempts to add the numeric column. If it already exists, it silently ignores the error.
+            try:
+                cursor.execute("ALTER TABLE meetings ADD COLUMN sort_number INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
+            conn.commit()
+
+    # --- NEW: Extracts pure numbers for sorting (e.g., '154AHE' -> 154) ---
+    def _extract_sort_num(self, m_str: str) -> int:
+        match = re.search(r'\d+', m_str or "")
+        return int(match.group()) if match else 0
 
     def get_or_create_wg(self, wg_name: str) -> int:
         with self._get_connection() as conn:
@@ -51,24 +62,62 @@ class MeetingsDatabase:
             cursor.execute('SELECT id FROM working_groups WHERE name = ?', (wg_name,))
             return cursor.fetchone()[0]
 
-    def insert_or_update_meeting_pass1(self, wg_name: str, folder_name: str, meeting_number: str,
-                                       url_key: str, docs_url: str, first_tdoc: str, last_tdoc: str):
+    def insert_meeting_basic(self, wg_name: str, folder_name: str, meeting_number: str, url_key: str):
         wg_id = self.get_or_create_wg(wg_name)
+        sort_num = self._extract_sort_num(meeting_number)  # Calculate sort number
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO meetings (wg_id, folder_name, meeting_number, url_key, docs_folder_url, first_tdoc, last_tdoc)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO meetings (wg_id, folder_name, meeting_number, sort_number, url_key)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(url_key) DO UPDATE SET
                     folder_name=excluded.folder_name,
                     meeting_number=excluded.meeting_number,
-                    docs_folder_url=excluded.docs_folder_url,
-                    first_tdoc=excluded.first_tdoc,
-                    last_tdoc=excluded.last_tdoc
-            ''', (wg_id, folder_name, meeting_number, url_key, docs_url, first_tdoc, last_tdoc))
+                    sort_number=excluded.sort_number
+            ''', (wg_id, folder_name, meeting_number, sort_num, url_key))
+            conn.commit()
 
-    def update_meeting_metadata_pass2(self, wg_name: str, meeting_number: str, name: str,
-                                      location: str, start_date: str, end_date: str):
+    def insert_meetings_bulk(self, meetings_data: list):
+        if not meetings_data: return
+
+        wg_map = {}
+        for task in meetings_data:
+            wg = task['wg_name']
+            if wg not in wg_map:
+                wg_map[wg] = self.get_or_create_wg(wg)
+
+        # Inject the new calculated sort_number into the bulk tuples
+        insert_data = [
+            (wg_map[task['wg_name']], task['folder_name'], task['meeting_num'],
+             self._extract_sort_num(task['meeting_num']), task['url_key'])
+            for task in meetings_data
+        ]
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany('''
+                INSERT INTO meetings (wg_id, folder_name, meeting_number, sort_number, url_key)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(url_key) DO UPDATE SET
+                    folder_name=excluded.folder_name,
+                    meeting_number=excluded.meeting_number,
+                    sort_number=excluded.sort_number
+            ''', insert_data)
+            conn.commit()
+
+    def update_meeting_docs(self, url_key: str, docs_url: str, first_tdoc: str, last_tdoc: str):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE meetings 
+                SET docs_folder_url = ?, first_tdoc = ?, last_tdoc = ?
+                WHERE url_key = ?
+            ''', (docs_url, first_tdoc, last_tdoc, url_key))
+            conn.commit()
+
+    def update_meeting_metadata_pass2(self, wg_name: str, meeting_number: str, name: str, location: str,
+                                      start_date: str, end_date: str):
         wg_id = self.get_or_create_wg(wg_name)
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -77,156 +126,59 @@ class MeetingsDatabase:
                 SET name = ?, location = ?, start_date = ?, end_date = ?
                 WHERE wg_id = ? AND meeting_number = ?
             ''', (name, location, start_date, end_date, wg_id, meeting_number))
+            conn.commit()
 
-    def search_meetings(self, wg_name: str = None, search_term: str = None,
-                        location: str = None, date_from: str = None, date_to: str = None) -> list:
-        query = """
-            SELECT m.id, wg.name as wg_name, m.meeting_number, m.name, m.location, 
-                   m.start_date, m.end_date, m.first_tdoc, m.last_tdoc, m.url_key, m.docs_folder_url
+    def search_meetings(self, wg_name=None, search_term=None, location=None, date_from=None, date_to=None):
+        query = '''
+            SELECT m.*, w.name as wg_name 
             FROM meetings m
-            JOIN working_groups wg ON m.wg_id = wg.id
+            JOIN working_groups w ON m.wg_id = w.id
             WHERE 1=1
-        """
+        '''
         params = []
-
         if wg_name and wg_name != "All WGs":
-            query += " AND wg.name = ?"
+            query += " AND w.name = ?"
             params.append(wg_name)
-
         if search_term:
             query += " AND (m.meeting_number LIKE ? OR m.name LIKE ?)"
-            term = f"%{search_term}%"
-            params.extend([term, term])
-
+            params.extend([f"%{search_term}%", f"%{search_term}%"])
         if location:
             query += " AND m.location LIKE ?"
             params.append(f"%{location}%")
-
         if date_from:
             query += " AND m.start_date >= ?"
             params.append(date_from)
-
         if date_to:
             query += " AND m.end_date <= ?"
             params.append(date_to)
 
-        query += " ORDER BY m.start_date DESC"
+        # --- FIXED: Use the numeric column for primary sorting! ---
+        query += " ORDER BY m.sort_number DESC, m.meeting_number DESC"
 
         with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
 
-            columns = [col[0] for col in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
-
-    def get_working_groups(self) -> list:
+    def get_working_groups(self):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT DISTINCT wg.name 
-                FROM working_groups wg
-                JOIN meetings m ON wg.id = m.wg_id
-                ORDER BY wg.name
-            ''')
-            return [r[0] for r in cursor.fetchall()]
+            cursor.execute('SELECT name FROM working_groups ORDER BY name')
+            return [row[0] for row in cursor.fetchall()]
 
     def delete_all_meetings(self):
-        """Wipes all entries from the meetings table."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('DELETE FROM meetings')
+            conn.commit()
 
     def delete_specific_meetings(self, targets: list):
-        """Deletes specific meetings based on WG and meeting number."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            for target in targets:
+            for t in targets:
                 cursor.execute('''
                     DELETE FROM meetings 
-                    WHERE wg_id = (SELECT id FROM working_groups WHERE name = ?) 
-                    AND meeting_number = ?
-                ''', (target['wg'], target['meeting']))
-
-    def insert_meeting_basic(self, wg_name: str, folder_name: str, meeting_number: str, url_key: str):
-        """Phase 1: Safely inserts directory info without overwriting existing TDoc data."""
-        wg_id = self.get_or_create_wg(wg_name)
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO meetings (wg_id, folder_name, meeting_number, url_key)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(url_key) DO UPDATE SET
-                    folder_name=excluded.folder_name,
-                    meeting_number=excluded.meeting_number
-            ''', (wg_id, folder_name, meeting_number, url_key))
-
-    def update_meeting_docs(self, url_key: str, docs_url: str, first_tdoc: str, last_tdoc: str):
-        """Phase 2: Updates only the TDoc references."""
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE meetings 
-                SET docs_folder_url = ?, first_tdoc = ?, last_tdoc = ?
-                WHERE url_key = ?
-            ''', (docs_url, first_tdoc, last_tdoc, url_key))
-
-        # --- Add this to modules/meetings/core/meetings_db.py ---
-
-        def insert_meetings_bulk(self, meetings_data: list):
-            """Phase 1: Safely bulk-inserts directory info to avoid disk I/O bottlenecks."""
-            if not meetings_data:
-                return
-
-            # 1. Pre-fetch or create all WG IDs to minimize DB queries
-            wg_map = {}
-            for task in meetings_data:
-                wg = task['wg_name']
-                if wg not in wg_map:
-                    wg_map[wg] = self.get_or_create_wg(wg)
-
-            # 2. Prepare the flat tuple data for the bulk execution
-            insert_data = [
-                (wg_map[task['wg_name']], task['folder_name'], task['meeting_num'], task['url_key'])
-                for task in meetings_data
-            ]
-
-            # 3. Execute all ~2400 inserts in ONE single transaction
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.executemany('''
-                    INSERT INTO meetings (wg_id, folder_name, meeting_number, url_key)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(url_key) DO UPDATE SET
-                        folder_name=excluded.folder_name,
-                        meeting_number=excluded.meeting_number
-                ''', insert_data)
-
-    def insert_meetings_bulk(self, meetings_data: list):
-        """Phase 1: Safely bulk-inserts directory info to avoid disk I/O bottlenecks."""
-        if not meetings_data:
-            return
-
-        # 1. Pre-fetch or create all WG IDs to minimize DB queries
-        wg_map = {}
-        for task in meetings_data:
-            wg = task['wg_name']
-            if wg not in wg_map:
-                wg_map[wg] = self.get_or_create_wg(wg)
-
-        # 2. Prepare the flat tuple data for the bulk execution
-        insert_data = [
-            (wg_map[task['wg_name']], task['folder_name'], task['meeting_num'], task['url_key'])
-            for task in meetings_data
-        ]
-
-        # 3. Execute all ~2400 inserts in ONE single transaction
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.executemany('''
-                INSERT INTO meetings (wg_id, folder_name, meeting_number, url_key)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(url_key) DO UPDATE SET
-                    folder_name=excluded.folder_name,
-                    meeting_number=excluded.meeting_number
-            ''', insert_data)
-            conn.commit()  # Ensure changes are locked into the hard drive
+                    WHERE wg_id = (SELECT id FROM working_groups WHERE name = ?) AND meeting_number = ?
+                ''', (t["wg"], t["meeting"]))
+            conn.commit()

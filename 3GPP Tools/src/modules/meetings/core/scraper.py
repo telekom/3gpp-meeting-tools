@@ -11,6 +11,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.network.session import NetworkSession
 from modules.meetings.core.meetings_db import MeetingsDatabase
 
+# --- FIXED: SA2 and SA3 URLs are now pointing to their correct WG folders! ---
 MEETING_SOURCES = {
     "RAN": {"ftp": "https://www.3gpp.org/ftp/tsg_ran/TSG_RAN/",
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-RP.htm"},
@@ -26,10 +27,10 @@ MEETING_SOURCES = {
            "dyna": "https://www.3gpp.org/dynareport?code=Meetings-SP.htm"},
     "SA1": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG1_Serv/",
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S1.htm"},
-    "SA2": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG3_Security/",
-            "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S2.htm"},
-    "SA3": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/",
-            "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S3.htm"},
+    "SA2": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/",
+            "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S2.htm"},  # <--- FIXED
+    "SA3": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG3_Security/",
+            "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S3.htm"},  # <--- FIXED
     "SA4": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG4_CODEC/",
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S4.htm"},
     "SA5": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG5_TM/",
@@ -66,8 +67,13 @@ class MeetingsCrawlerThread(QThread):
         self.sync_docs = sync_docs
         self.sync_dyna = sync_dyna
 
-        self.meeting_pattern = re.compile(r'^[A-Z0-9]+_\d+', re.IGNORECASE)
-        self.num_pattern = re.compile(r'(?:^|_|-)(AH\d*|\d+(?:-?bis|-?e|-?a|-?b)?)(?:_|-|$)', re.IGNORECASE)
+        # --- UPGRADED REGEXES ---
+        # 1. Matches any folder starting with Prefix_Number or Prefix_AH
+        self.meeting_pattern = re.compile(r'^[A-Z0-9]+_(?:\d+|AH)', re.IGNORECASE)
+
+        # 2. Safely captures complex suffixes (e.g., 175-AH-e, 122BIS, 56b-AH)
+        self.num_pattern = re.compile(r'(?:^|_)(AH\d*|\d+(?:[a-z]+)?(?:-?AH)?(?:-?e)?)(?:_|-|$)', re.IGNORECASE)
+
         self.href_pattern = re.compile(r'href=["\']([^"\'>]+)["\']', re.IGNORECASE)
         self.tdoc_pattern = re.compile(r'>\s*([^<]+\.(?:zip|doc|docx|pdf))\s*</a>', re.IGNORECASE)
 
@@ -82,8 +88,12 @@ class MeetingsCrawlerThread(QThread):
         return bool(self.meeting_pattern.match(folder_name))
 
     def extract_meeting_number(self, folder_name: str) -> str:
+        """Extracts and normalizes the number (e.g., '175-AH-e' -> '175AHE')"""
         match = self.num_pattern.search(folder_name)
-        return match.group(1).replace('-', '').upper() if match else folder_name
+        if match:
+            # We strip hyphens so '175-AH-E' matches DynaReport's '175AHE'
+            return match.group(1).replace('-', '').upper()
+        return folder_name
 
     def fetch_wg_directories(self, wg_name: str, ftp_base_url: str) -> list:
         meeting_tasks = []
@@ -176,7 +186,6 @@ class MeetingsCrawlerThread(QThread):
 
                 with ThreadPoolExecutor(max_workers=15) as executor:
                     futures = {}
-                    # REWRITTEN: Bulletproof standard loop mapping
                     for wg_name, source_info in MEETING_SOURCES.items():
                         future = executor.submit(self.fetch_wg_directories, wg_name, source_info["ftp"])
                         futures[future] = wg_name
@@ -229,7 +238,6 @@ class MeetingsCrawlerThread(QThread):
 
                     with ThreadPoolExecutor(max_workers=10) as executor:
                         future_to_task = {}
-                        # REWRITTEN: Bulletproof standard loop mapping
                         for task in all_tasks:
                             future = executor.submit(self.process_individual_meeting, task)
                             future_to_task[future] = task
