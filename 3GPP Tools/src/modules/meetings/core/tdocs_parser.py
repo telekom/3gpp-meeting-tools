@@ -1,4 +1,5 @@
 # --- File: modules/meetings/core/tdocs_parser.py ---
+import io
 import openpyxl
 import logging
 
@@ -6,19 +7,23 @@ import logging
 class TDocsParser:
     @staticmethod
     def parse_tdocs_excel(filepath: str) -> list:
-        """Parses the 3GPP TDocs Excel file and returns a list of dictionaries."""
         data = []
         try:
-            wb = openpyxl.load_workbook(filepath, data_only=True, read_only=True)
-            # Default to the first sheet if "TDoc_List" isn't explicitly found
+            # FIXED 1: Load file entirely into RAM to instantly release the OS file lock!
+            with open(filepath, "rb") as f:
+                in_mem_file = io.BytesIO(f.read())
+
+            wb = openpyxl.load_workbook(in_mem_file, data_only=True, read_only=True)
             sheet = wb["TDoc_List"] if "TDoc_List" in wb.sheetnames else wb.worksheets[0]
 
-            # Extract headers from the first row
             headers = []
             for cell in sheet[1]:
-                headers.append(str(cell.value).strip() if cell.value else "")
+                val = str(cell.value).strip() if cell.value else ""
+                # FIXED 2: Map the server's "AI" column to our "Agenda Item"
+                if val == "AI":
+                    val = "Agenda Item"
+                headers.append(val)
 
-            # Map rows to dictionaries
             for row in sheet.iter_rows(min_row=2, values_only=True):
                 row_dict = {}
                 is_empty = True
