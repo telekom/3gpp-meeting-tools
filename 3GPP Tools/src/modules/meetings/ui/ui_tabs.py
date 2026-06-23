@@ -8,10 +8,12 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
 from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint
 
 from modules.meetings.core.meetings_db import MeetingsDatabase
-from modules.meetings.ui.dialogs import MeetingInfoDialog
-from modules.meetings.ui.models import MeetingsTableModel
 from modules.specifications.ui.components import HoverMenuButton
-from core.network.session import NetworkConfigDialog  # Import the new UI!
+from core.network.session import NetworkConfigDialog
+
+# --- IMPORTS FROM REFACTORED FILES ---
+from modules.meetings.ui.models import MeetingsTableModel
+from modules.meetings.ui.dialogs import MeetingInfoDialog
 
 
 # ==========================================
@@ -48,16 +50,18 @@ class MeetingsTab(QWidget):
         self.table.setStyleSheet(
             "QTableView { border: 1px solid #dcdcdc; gridline-color: #f0f0f0; } QTableView::item:selected { background-color: #cce8ff; color: #000; }")
 
+        # --- FIXED: Adjusted Column Widths for the new Layout ---
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setSectionResizeMode(0, QHeaderView.Fixed)
-        header.resizeSection(0, 40)
-        header.resizeSection(1, 60)
-        header.resizeSection(2, 80)
-        header.setSectionResizeMode(3, QHeaderView.Stretch)
-        header.resizeSection(4, 150)
-        header.resizeSection(5, 90)
-        header.resizeSection(6, 90)
+        header.resizeSection(0, 40)   # Action Button
+        header.resizeSection(1, 60)   # WG
+        header.resizeSection(2, 90)   # Meeting Number
+        header.setSectionResizeMode(3, QHeaderView.Stretch) # Location gets the remaining space
+        header.resizeSection(4, 90)   # Start Date
+        header.resizeSection(5, 90)   # End Date
+        header.resizeSection(6, 110)  # First TDoc
+        header.resizeSection(7, 110)  # Last TDoc
 
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_right_click_menu)
@@ -76,7 +80,6 @@ class MeetingsTab(QWidget):
         right_layout.addWidget(title_lbl)
 
         right_layout.addWidget(QLabel("Working Group:"))
-        # (Inside _setup_ui)
         self.wg_filter = QComboBox()
         self.wg_filter.addItem("All WGs")
         self.wg_filter.currentTextChanged.connect(self.refresh_table)
@@ -90,7 +93,7 @@ class MeetingsTab(QWidget):
         self.type_filter.currentTextChanged.connect(self.refresh_table)
 
         right_layout.addWidget(self.wg_filter)
-        right_layout.addWidget(self.adhoc_filter)  # <--- Add this
+        right_layout.addWidget(self.adhoc_filter)
         right_layout.addWidget(self.type_filter)
 
         right_layout.addWidget(QLabel("Search (No. or Name):"))
@@ -164,7 +167,7 @@ class MeetingsTab(QWidget):
         main_layout.addWidget(self.splitter)
         self._populate_filters()
 
-    # --- NEW: Network Config Action ---
+    # --- NETWORK LOGIC ---
     def _open_network_config(self):
         NetworkConfigDialog(self).exec_()
 
@@ -187,13 +190,12 @@ class MeetingsTab(QWidget):
                    self.table_model.data(r, Qt.UserRole)]
         if targets: self._confirm_delete_specific(targets)
 
-    # --- EXISTING LOGIC ---
+    # --- INTERACTION LOGIC ---
     def _toggle_date_inputs(self, checked):
-        self.date_from.setEnabled(checked);
+        self.date_from.setEnabled(checked)
         self.date_to.setEnabled(checked)
 
     def _populate_filters(self):
-        """Repopulates the WG dropdown while remembering the user's current selection."""
         current_wg = self.wg_filter.currentText()
         wgs = self.db.get_working_groups()
 
@@ -202,7 +204,6 @@ class MeetingsTab(QWidget):
         self.wg_filter.addItem("All WGs")
         self.wg_filter.addItems(wgs)
 
-        # Restore the previous selection if it still exists in the new data
         idx = self.wg_filter.findText(current_wg)
         if idx >= 0:
             self.wg_filter.setCurrentIndex(idx)
@@ -214,11 +215,9 @@ class MeetingsTab(QWidget):
         date_from = self.date_from.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
         date_to = self.date_to.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
 
-        # --- FIXED: Read the current values of the new dropdowns ---
         adhoc_val = self.adhoc_filter.currentText()
         type_val = self.type_filter.currentText()
 
-        # --- FIXED: Pass the new filters into the database search query ---
         data = self.db.search_meetings(
             wg_name=wg,
             search_term=self.search_input.text().strip(),
@@ -256,7 +255,6 @@ class MeetingsTab(QWidget):
                 self.chk_docs.isChecked(), self.chk_dyna.isChecked()))
             menu.addSeparator()
 
-            # --- FIXED: Reconstruct URL for the right-click menu ---
             raw_url = row_data.get("url_key", "")
             if raw_url:
                 full_ftp_url = raw_url if raw_url.startswith("http") else f"https://www.3gpp.org/ftp/{raw_url}"
