@@ -265,23 +265,6 @@ class MeetingsDatabase:
                                         ''',
                                        (mtg_id, mtg_id, m_name, m_name, town, town, start_d, start_d, end_d, end_d,
                                         new_m_num, new_m_num, sort_n, sort_n, is_ah, is_e, row_id))
-                else:
-                    # Uses SQLite ON CONFLICT to guarantee we never crash on duplicate inserts!
-                    cursor.execute('''
-                                        INSERT INTO meetings (wg_id, meeting_number, name, location, start_date, end_date, mtg_id, url_key, sort_number, is_ad_hoc, is_electronic)
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                        ON CONFLICT(url_key) DO UPDATE SET
-                                            mtg_id = excluded.mtg_id,
-                                            name = excluded.name,
-                                            location = excluded.location,
-                                            start_date = excluded.start_date,
-                                            end_date = excluded.end_date,
-                                            meeting_number = excluded.meeting_number,
-                                            sort_number = excluded.sort_number,
-                                            is_ad_hoc = excluded.is_ad_hoc,
-                                            is_electronic = excluded.is_electronic
-                                    ''', (
-                    wg_id, final_m_num, m_name, town, start_d, end_d, mtg_id, db_url_key, sort_n, is_ah, is_e))
 
             conn.commit()
 

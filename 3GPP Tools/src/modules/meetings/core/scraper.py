@@ -227,8 +227,10 @@ class MeetingsCrawlerThread(QThread):
 
                 if date_idx > 0:
                     candidate = col_texts[date_idx - 1].strip()
-                    # Protect against accidentally snagging the meeting number if Town is entirely empty
-                    if candidate and not re.search(r'3GPP|RAN|SA|CT', candidate, re.IGNORECASE):
+                    # Protect against accidentally snagging the meeting number if Town is entirely empty.
+                    # Uses strict word boundaries to avoid catching "Sa" in "Saint Julian's" or "ran" in "San Francisco".
+                    if candidate and not re.search(r'3GPP|\bRAN[1-6]?\b|\bSA[1-6]?\b|\bCT[1-6]?\b', candidate,
+                                                   re.IGNORECASE):
                         town = candidate
 
                 full_num = ""
