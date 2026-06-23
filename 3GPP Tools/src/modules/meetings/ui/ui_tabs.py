@@ -14,9 +14,9 @@ from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.specifications.ui.components import HoverMenuButton
 from core.network.session import NetworkConfigDialog
 
-# --- IMPORTS FROM REFACTORED FILES ---
 from modules.meetings.ui.models import MeetingsTableModel
 from modules.meetings.ui.dialogs import MeetingInfoDialog
+from modules.meetings.core.tdocs_cacher import TDocsCacherThread
 
 
 # ==========================================
@@ -320,25 +320,36 @@ class MeetingsTab(QWidget):
             if docs_url:
                 menu.addAction("📂 Open Documents Folder").triggered.connect(lambda _, u=docs_url: webbrowser.open(u))
 
-            # --- NEW: VERIFY LOCAL CACHE DIRECTORY ---
+            # --- LOCAL CACHE & TDOCS DOWNLOAD INTEGRATION ---
             folder_name = row_data.get("folder_name")
             if not folder_name:
                 folder_name = row_data.get("meeting_number", "")
 
             if folder_name:
-                local_path = Path(self.cache_dir) / folder_name
+                # Bulletproof fallback: Read directly from the UI text box if self.cache_dir is missing
+                current_cache = getattr(self, 'cache_dir', self.dl_dir_input.text().strip())
+                local_path = Path(current_cache) / folder_name
+
+                # 1. Existing: Open Local Cache
                 if local_path.exists() and local_path.is_dir():
                     menu.addAction("📁 Open Local Cache Folder").triggered.connect(
                         lambda _, p=str(local_path): os.startfile(p) if hasattr(os, 'startfile') else webbrowser.open(
                             f"file:///{p}")
                     )
 
+                # 2. Existing: Download TDocs List via mtg_id
                 mtg_id = row_data.get("mtg_id")
                 if mtg_id:
                     menu.addAction("📗 Open TDocs List").triggered.connect(
                         lambda _, m=mtg_id, p=local_path: self._start_tdocs_download(m, p)
                     )
-            # -----------------------------------------
+
+                # 3. NEW: Bulk Cache TDocs
+                if docs_url:
+                    menu.addAction("📥 Cache TDocs (Docs/)").triggered.connect(
+                        lambda _, u=docs_url, p=local_path: self._start_tdocs_caching(u, p)
+                    )
+            # ------------------------------------------------
 
             wg_name = row_data.get("wg_name", "")
             meeting_name = row_data.get("name", "")
@@ -421,3 +432,22 @@ class MeetingsTab(QWidget):
                 QMessageBox.warning(self, "Open Error", f"Could not open the downloaded file:\n{e}")
         else:
             QMessageBox.critical(self, "Download Error", f"Failed to download TDocs List:\n{result}")
+
+    def _start_tdocs_caching(self, docs_url: str, local_path: Path):
+        """Initializes and starts the bulk caching background thread."""
+        self.update_btn.setText("⏳ Caching TDocs...")
+        self.update_btn.setEnabled(False)
+
+        self.cacher_thread = TDocsCacherThread(docs_url, local_path, self)
+        self.cacher_thread.finished.connect(self._on_tdocs_caching_finished)
+        self.cacher_thread.start()
+
+    def _on_tdocs_caching_finished(self, success: bool, result: str):
+        """Triggered when the caching thread completes."""
+        self.update_btn.setText("🔄 Sync All Meetings")
+        self.update_btn.setEnabled(True)
+
+        if success:
+            QMessageBox.information(self, "Cache Complete", result)
+        else:
+            QMessageBox.critical(self, "Cache Error", result)
