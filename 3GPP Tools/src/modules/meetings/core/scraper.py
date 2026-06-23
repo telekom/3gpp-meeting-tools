@@ -195,6 +195,7 @@ class MeetingsCrawlerThread(QThread):
                 if not m_name or m_name.lower() == 'meeting':
                     continue
 
+                # 1. Grab URL and MtgId
                 mtg_id = ""
                 url_key = ""
                 for a in row.find_all('a', href=True):
@@ -202,17 +203,16 @@ class MeetingsCrawlerThread(QThread):
                     match_id = re.search(r'MtgId=(\d+)', href, re.IGNORECASE)
                     if match_id: mtg_id = match_id.group(1)
 
-                    # FIXED: Extracts exact path securely regardless of protocol
                     match_path = re.search(r'(tsg_[a-z0-9_./-]+)', href, re.IGNORECASE)
                     if match_path:
                         url_key = unquote(match_path.group(1).split('?')[0].rstrip('/'))
 
+                # 2. Extract Dates and Town (using min/max heuristic)
                 start_d, end_d, town = "", "", ""
                 all_dates = []
                 date_idx = -1
 
                 for i in range(1, len(col_texts)):
-                    # FIXED: Allows dates from 1900-2099 to catch early RAN3 meetings
                     found_dates = re.findall(r'(?:19|20)\d{2}[-/]\d{2}[-/]\d{2}', col_texts[i])
                     if found_dates:
                         found_dates = [d.replace('/', '-') for d in found_dates]
@@ -227,21 +227,43 @@ class MeetingsCrawlerThread(QThread):
                 if date_idx > 0:
                     town = col_texts[date_idx - 1].strip()
 
+                # ==========================================
+                # --- FIXED: NLP Number Extractor ---
+                # ==========================================
                 full_num = ""
-                match_num = re.search(r'#(\d+[a-z0-9\-]*)', m_name, re.IGNORECASE)
-                if match_num:
-                    full_num = match_num.group(1).replace('-', '').strip().upper()
+                # Try explicit markers first: (#175, or 'meeting 34')
+                match_explicit = re.search(r'(?:#|meeting\s+)(AH\d*|\d+[a-z0-9\-]*)', m_name, re.IGNORECASE)
+
+                if match_explicit:
+                    full_num = match_explicit.group(1).replace('-', '').strip().upper()
                 else:
-                    if len(col_texts) > 1:
-                        m_num_raw = col_texts[1].strip()
-                        # FIXED: Strips WG prefixes (like R3-, S2-) from the raw number so it perfectly matches FTP format
-                        m_num_clean = re.sub(r'^(?:R|S|C|RAN|SA|CT)[P0-6]?\s*-?', '', m_num_raw, flags=re.IGNORECASE)
+                    # Look for the last token containing a digit or "AH" (e.g., catching "SP-88E" or "145E")
+                    tokens = m_name.split()
+                    found_token = ""
+                    for token in reversed(tokens):
+                        if re.search(r'\d|AH', token, re.IGNORECASE):
+                            found_token = token
+                            break
+
+                    # Fallback to column 1 if we couldn't find one in the name
+                    if not found_token and len(col_texts) > 1:
+                        if not re.search(r'(?:19|20)\d{2}', col_texts[1]):
+                            found_token = col_texts[1]
+
+                    if found_token:
+                        # Strip known WG prefixes off the number so 'R3-34' matches '34'
+                        clean_token = re.sub(r'^(?:R|S|C|RAN|SA|CT|SP|RP|CP)[P0-6]?\s*-?', '', found_token,
+                                             flags=re.IGNORECASE)
 
                         suffix = ""
+                        # Catch potential separated suffix columns (e.g., col1: 34, col2: AH-e)
                         if date_idx >= 4 and len(col_texts) > 2:
-                            suffix = col_texts[2].strip()
-                            if len(suffix) > 8: suffix = ""
-                        full_num = f"{m_num_clean}{suffix}".replace('-', '').strip().upper()
+                            potential_suffix = col_texts[2].strip()
+                            if len(potential_suffix) <= 6 and not re.search(r'(?:19|20)\d{2}', potential_suffix):
+                                suffix = potential_suffix
+
+                        full_num = f"{clean_token}{suffix}".replace('-', '').strip().upper()
+                # ==========================================
 
                 if self.target_meetings and not any(
                         t["wg"] == wg_name and t["meeting"] == full_num for t in self.target_meetings):
