@@ -11,7 +11,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.network.session import NetworkSession
 from modules.meetings.core.meetings_db import MeetingsDatabase
 
-# --- FIXED: SA2 and SA3 URLs are now pointing to their correct WG folders! ---
+# SA2 and SA3 correctly mapped
 MEETING_SOURCES = {
     "RAN": {"ftp": "https://www.3gpp.org/ftp/tsg_ran/TSG_RAN/",
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-RP.htm"},
@@ -28,9 +28,9 @@ MEETING_SOURCES = {
     "SA1": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG1_Serv/",
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S1.htm"},
     "SA2": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/",
-            "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S2.htm"},  # <--- FIXED
+            "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S2.htm"},
     "SA3": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG3_Security/",
-            "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S3.htm"},  # <--- FIXED
+            "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S3.htm"},
     "SA4": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG4_CODEC/",
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-S4.htm"},
     "SA5": {"ftp": "https://www.3gpp.org/ftp/tsg_sa/WG5_TM/",
@@ -67,11 +67,7 @@ class MeetingsCrawlerThread(QThread):
         self.sync_docs = sync_docs
         self.sync_dyna = sync_dyna
 
-        # --- UPGRADED REGEXES ---
-        # 1. Matches any folder starting with Prefix_Number or Prefix_AH
         self.meeting_pattern = re.compile(r'^[A-Z0-9]+_(?:\d+|AH)', re.IGNORECASE)
-
-        # 2. Safely captures complex suffixes (e.g., 175-AH-e, 122BIS, 56b-AH)
         self.num_pattern = re.compile(r'(?:^|_)(AH\d*|\d+(?:[a-z]+)?(?:-?AH)?(?:-?e)?)(?:_|-|$)', re.IGNORECASE)
 
         self.href_pattern = re.compile(r'href=["\']([^"\'>]+)["\']', re.IGNORECASE)
@@ -88,10 +84,8 @@ class MeetingsCrawlerThread(QThread):
         return bool(self.meeting_pattern.match(folder_name))
 
     def extract_meeting_number(self, folder_name: str) -> str:
-        """Extracts and normalizes the number (e.g., '175-AH-e' -> '175AHE')"""
         match = self.num_pattern.search(folder_name)
         if match:
-            # We strip hyphens so '175-AH-E' matches DynaReport's '175AHE'
             return match.group(1).replace('-', '').upper()
         return folder_name
 
@@ -131,7 +125,8 @@ class MeetingsCrawlerThread(QThread):
             self.ui_log_msg.emit(f"⚠️ Directory Fetch Error for {wg_name}: {e}", logging.WARNING)
         return meeting_tasks
 
-    def process_individual_meeting(self, task: dict) -> int:
+    def process_individual_meeting(self, task: dict) -> tuple:
+        """Returns the data tuple to be saved instead of saving directly."""
         docs_url, first_tdoc, last_tdoc, tdoc_count = "", "", "", 0
         for doc_folder in ["Docs/", "docs/"]:
             test_docs_url = urljoin(task["absolute_url"], doc_folder)
@@ -146,10 +141,13 @@ class MeetingsCrawlerThread(QThread):
             except Exception:
                 pass
 
-        self.db.update_meeting_docs(task["url_key"], docs_url, first_tdoc, last_tdoc)
-        return tdoc_count
+        # Return the payload formatted exactly for the bulk update function
+        docs_data = (docs_url, first_tdoc, last_tdoc, task["url_key"])
+        return docs_data, tdoc_count
 
-    def process_dynareport(self, wg_name: str, dyna_url: str):
+    def process_dynareport(self, wg_name: str, dyna_url: str) -> list:
+        """Returns a list of metadata tuples instead of saving directly."""
+        results = []
         try:
             soup = BeautifulSoup(NetworkSession.get_html(dyna_url), 'html.parser')
             for row in soup.find_all('tr'):
@@ -165,12 +163,15 @@ class MeetingsCrawlerThread(QThread):
                         continue
 
                     dates = cols[3].get_text(strip=True).split("...")
-                    self.db.update_meeting_metadata_pass2(
-                        wg_name, full_num, m_name, cols[4].get_text(strip=True),
-                        dates[0].strip(), dates[1].strip() if len(dates) > 1 else ""
-                    )
+                    start_d = dates[0].strip()
+                    end_d = dates[1].strip() if len(dates) > 1 else ""
+
+                    location = cols[4].get_text(strip=True)
+                    results.append((wg_name, full_num, m_name, location, start_d, end_d))
         except Exception as e:
             self.ui_log_msg.emit(f"⚠️ DynaReport Error for {wg_name}: {e}", logging.WARNING)
+
+        return results
 
     def run(self):
         start_time = time.time()
@@ -236,6 +237,8 @@ class MeetingsCrawlerThread(QThread):
                     completed, tdocs_found = 0, 0
                     p2_start = time.time()
 
+                    all_docs_data = []  # Stores returned tuples for bulk insert
+
                     with ThreadPoolExecutor(max_workers=10) as executor:
                         future_to_task = {}
                         for task in all_tasks:
@@ -246,7 +249,9 @@ class MeetingsCrawlerThread(QThread):
                             task = future_to_task[future]
                             completed += 1
                             try:
-                                tdocs_found += future.result()
+                                docs_tuple, count = future.result()
+                                tdocs_found += count
+                                all_docs_data.append(docs_tuple)
                             except Exception as e:
                                 self.ui_log_msg.emit(f"❌ Error scraping {task['folder_name']}: {e}", logging.ERROR)
 
@@ -258,6 +263,10 @@ class MeetingsCrawlerThread(QThread):
                                     f"| TDocs: {tdocs_found} | Speed: {rate:.1f} mtg/sec",
                                     logging.INFO
                                 )
+
+                    if all_docs_data:
+                        self.db.update_meeting_docs_bulk(all_docs_data)
+
                     self.ui_log_msg.emit(f"✅ Pass 2 Complete. Indexed {tdocs_found} total TDocs.", logging.INFO)
             else:
                 self.ui_log_msg.emit("⏭️ [Phase 2/3] Skipping Docs folder deep scrape...", logging.INFO)
@@ -275,6 +284,8 @@ class MeetingsCrawlerThread(QThread):
                 completed_dyna = 0
                 total_dyna = len(wgs_to_fetch)
 
+                all_metadata = []  # Stores returned tuples for bulk insert
+
                 with ThreadPoolExecutor(max_workers=5) as executor:
                     dyna_futures = []
                     for wg_name in wgs_to_fetch:
@@ -283,10 +294,15 @@ class MeetingsCrawlerThread(QThread):
                         dyna_futures.append(future)
 
                     for future in as_completed(dyna_futures):
-                        future.result()
+                        if res := future.result():
+                            all_metadata.extend(res)
                         completed_dyna += 1
                         self.ui_log_msg.emit(f"⏳ DynaReports: {completed_dyna}/{total_dyna} pages processed...",
                                              logging.INFO)
+
+                if all_metadata:
+                    self.ui_log_msg.emit(f"⏳ Bulk-saving metadata for {len(all_metadata)} meetings...", logging.INFO)
+                    self.db.update_meeting_metadata_bulk(all_metadata)
 
                 self.ui_log_msg.emit("✅ Pass 3 Complete.", logging.INFO)
             else:
