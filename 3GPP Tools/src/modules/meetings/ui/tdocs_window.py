@@ -1,7 +1,61 @@
 # --- File: modules/meetings/ui/tdocs_window.py ---
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QComboBox, QFrame)
-from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel
+from PyQt5.QtGui import QStandardItemModel, QStandardItem
+from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QEvent, pyqtSignal
+
+
+# ==========================================
+# --- NEW: CUSTOM MULTI-SELECT DROPDOWN ---
+# ==========================================
+class CheckableComboBox(QComboBox):
+    selectionChanged = pyqtSignal(list)
+
+    def __init__(self, title, parent=None):
+        super().__init__(parent)
+        self.title = title
+        self.setEditable(True)
+        self.lineEdit().setReadOnly(True)
+        self.setModel(QStandardItemModel(self))
+        # Captures clicks so the popup doesn't close immediately after one click
+        self.view().viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if obj == self.view().viewport() and event.type() == QEvent.MouseButtonRelease:
+            index = self.view().indexAt(event.pos())
+            item = self.model().itemFromIndex(index)
+            if item:
+                # Toggle Check State
+                item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
+                self.updateText()
+                self.selectionChanged.emit(self.getCheckedItems())
+            return True  # Consume event so popup stays open
+        return super().eventFilter(obj, event)
+
+    def addItems(self, items):
+        for text in items:
+            display_text = text if text else "(Empty)"
+            item = QStandardItem(display_text)
+            item.setData(text, Qt.UserRole)  # Keep original raw text in background
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setData(Qt.Checked, Qt.CheckStateRole)  # Default to checked
+            self.model().appendRow(item)
+        self.updateText()
+
+    def getCheckedItems(self):
+        return [self.model().item(i).data(Qt.UserRole) for i in range(self.count()) if
+                self.model().item(i).checkState() == Qt.Checked]
+
+    def updateText(self):
+        checked = self.getCheckedItems()
+        if len(checked) == 0:
+            self.lineEdit().setText(f"{self.title}: None")
+        elif len(checked) == self.count():
+            self.lineEdit().setText(f"{self.title}: All")
+        elif len(checked) == 1:
+            self.lineEdit().setText(f"{self.title}: {checked[0] if checked[0] else '(Empty)'}")
+        else:
+            self.lineEdit().setText(f"{self.title}: {len(checked)} selected")
 
 
 class TDocsTableModel(QAbstractTableModel):
@@ -35,7 +89,6 @@ class TDocsTableModel(QAbstractTableModel):
             if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status"]:
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignTop
-
         return None
 
     def rowCount(self, index=QModelIndex()):
@@ -50,59 +103,62 @@ class TDocsTableModel(QAbstractTableModel):
 
 
 # ==========================================
-# --- NEW: PROXY FILTER MODEL ---
+# --- UPGRADED: PROXY FILTER MODEL ---
 # ==========================================
 class TDocsFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.global_filter = ""
-        self.type_filter = "All Types"
-        self.status_filter = "All Statuses"
+        self.type_filters = []
+        self.status_filters = []
+        self.ai_filters = []
 
     def setGlobalFilter(self, text):
         self.global_filter = text.lower().strip()
         self.invalidateFilter()
 
-    def setTypeFilter(self, text):
-        self.type_filter = text
+    def setTypeFilters(self, types):
+        self.type_filters = types
         self.invalidateFilter()
 
-    def setStatusFilter(self, text):
-        self.status_filter = text
+    def setStatusFilters(self, statuses):
+        self.status_filters = statuses
+        self.invalidateFilter()
+
+    def setAIFilters(self, ais):
+        self.ai_filters = ais
         self.invalidateFilter()
 
     def filterAcceptsRow(self, source_row, source_parent):
         model = self.sourceModel()
 
-        # 1. Type Filter (Column Index 3)
-        if self.type_filter != "All Types":
-            type_idx = model.index(source_row, 3, source_parent)
-            if model.data(type_idx, Qt.DisplayRole) != self.type_filter:
-                return False
+        # 1. Type Filter (Must be in selected list)
+        type_data = model.data(model.index(source_row, 3, source_parent), Qt.DisplayRole)
+        if type_data not in self.type_filters: return False
 
-        # 2. Status Filter (Column Index 8)
-        if self.status_filter != "All Statuses":
-            status_idx = model.index(source_row, 8, source_parent)
-            if model.data(status_idx, Qt.DisplayRole) != self.status_filter:
-                return False
+        # 2. Agenda Item Filter
+        ai_data = model.data(model.index(source_row, 7, source_parent), Qt.DisplayRole)
+        if ai_data not in self.ai_filters: return False
 
-        # 3. Global Search (Searches TDoc, Title, Source, Abstract, and Related)
+        # 3. Status Filter
+        status_data = model.data(model.index(source_row, 8, source_parent), Qt.DisplayRole)
+        if status_data not in self.status_filters: return False
+
+        # 4. Global Search (Iterates across key text columns)
         if self.global_filter:
             match_found = False
             for col in [0, 1, 2, 5, 9]:
-                idx = model.index(source_row, col, source_parent)
-                data = model.data(idx, Qt.DisplayRole)
+                data = model.data(model.index(source_row, col, source_parent), Qt.DisplayRole)
                 if data and self.global_filter in str(data).lower():
                     match_found = True
                     break
-            if not match_found:
-                return False
+            if not match_found: return False
 
         return True
 
 
 # ==========================================
-# --- UPGRADED: TDOCS WINDOW ---
+# --- TDOCS WINDOW ---
 # ==========================================
 class TDocsWindow(QWidget):
     def __init__(self, mtg_info: dict, tdocs_data: list):
@@ -134,10 +190,8 @@ class TDocsWindow(QWidget):
         filter_frame.setStyleSheet("""
             QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 8px; }
             QLabel { font-weight: bold; color: #555; border: none; }
-            QLineEdit, QComboBox { 
-                padding: 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF;
-            }
-            QLineEdit:focus, QComboBox:focus { border: 1px solid #0078D7; }
+            QLineEdit, QComboBox { padding: 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; }
+            QLineEdit:focus { border: 1px solid #0078D7; }
         """)
         filter_layout = QHBoxLayout(filter_frame)
         filter_layout.setContentsMargins(15, 10, 15, 10)
@@ -146,28 +200,32 @@ class TDocsWindow(QWidget):
         filter_layout.addWidget(QLabel("🔍 Search:"))
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search TDoc number, title, source, or abstract...")
-        self.search_input.setMinimumWidth(300)
+        self.search_input.setMinimumWidth(250)
         self.search_input.textChanged.connect(self._on_search_changed)
         filter_layout.addWidget(self.search_input)
 
-        # 2. Dynamic Type Dropdown
-        filter_layout.addWidget(QLabel("Type:"))
-        self.type_combo = QComboBox()
-        self.type_combo.addItem("All Types")
-        # Extract unique types dynamically
-        unique_types = sorted(list(set(r.get("Type", "") for r in tdocs_data if r.get("Type"))))
+        # 2. Type Multi-Select
+        self.type_combo = CheckableComboBox("Type")
+        self.type_combo.setMinimumWidth(150)
+        unique_types = sorted(list(set(r.get("Type", "") for r in tdocs_data)))
         self.type_combo.addItems(unique_types)
-        self.type_combo.currentTextChanged.connect(self._on_type_changed)
+        self.type_combo.selectionChanged.connect(self._on_type_changed)
         filter_layout.addWidget(self.type_combo)
 
-        # 3. Dynamic Status Dropdown
-        filter_layout.addWidget(QLabel("Status:"))
-        self.status_combo = QComboBox()
-        self.status_combo.addItem("All Statuses")
-        # Extract unique statuses dynamically
-        unique_statuses = sorted(list(set(r.get("TDoc Status", "") for r in tdocs_data if r.get("TDoc Status"))))
+        # 3. AI Multi-Select
+        self.ai_combo = CheckableComboBox("AI")
+        self.ai_combo.setMinimumWidth(150)
+        unique_ais = sorted(list(set(r.get("Agenda Item", "") for r in tdocs_data)))
+        self.ai_combo.addItems(unique_ais)
+        self.ai_combo.selectionChanged.connect(self._on_ai_changed)
+        filter_layout.addWidget(self.ai_combo)
+
+        # 4. Status Multi-Select
+        self.status_combo = CheckableComboBox("Status")
+        self.status_combo.setMinimumWidth(150)
+        unique_statuses = sorted(list(set(r.get("TDoc Status", "") for r in tdocs_data)))
         self.status_combo.addItems(unique_statuses)
-        self.status_combo.currentTextChanged.connect(self._on_status_changed)
+        self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
 
         main_layout.addWidget(filter_frame)
@@ -176,28 +234,26 @@ class TDocsWindow(QWidget):
         self.table = QTableView()
         self.model = TDocsTableModel(tdocs_data)
 
-        # Wrap the model in our new Proxy!
         self.proxy = TDocsFilterProxyModel()
         self.proxy.setSourceModel(self.model)
         self.proxy.layoutChanged.connect(self._update_count_label)
 
+        # Initialize Proxy with all data selected
+        self.proxy.setTypeFilters(unique_types)
+        self.proxy.setAIFilters(unique_ais)
+        self.proxy.setStatusFilters(unique_statuses)
+
         self.table.setModel(self.proxy)
 
-        # UI Styling & Sorting
         self.table.setSelectionBehavior(QTableView.SelectRows)
         self.table.setAlternatingRowColors(True)
-        self.table.setSortingEnabled(True)  # Bonus feature: Click headers to sort!
+        self.table.setSortingEnabled(True)
         self.table.setStyleSheet("""
-            QTableView { 
-                gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF;
-            }
-            QHeaderView::section {
-                background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0;
-            }
+            QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; }
+            QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }
         """)
 
-        # Formatting Columns & Rows
-        self.table.verticalHeader().setDefaultSectionSize(40)  # Breathing room
+        self.table.verticalHeader().setDefaultSectionSize(40)
         self.table.resizeRowsToContents()
 
         header = self.table.horizontalHeader()
@@ -209,14 +265,13 @@ class TDocsWindow(QWidget):
         main_layout.addWidget(self.table)
 
     # --- FILTER TRIGGERS ---
-    def _on_search_changed(self, text):
-        self.proxy.setGlobalFilter(text)
+    def _on_search_changed(self, text): self.proxy.setGlobalFilter(text)
 
-    def _on_type_changed(self, text):
-        self.proxy.setTypeFilter(text)
+    def _on_type_changed(self, types): self.proxy.setTypeFilters(types)
 
-    def _on_status_changed(self, text):
-        self.proxy.setStatusFilter(text)
+    def _on_ai_changed(self, ais): self.proxy.setAIFilters(ais)
+
+    def _on_status_changed(self, statuses): self.proxy.setStatusFilters(statuses)
 
     def _update_count_label(self):
         visible = self.proxy.rowCount()
