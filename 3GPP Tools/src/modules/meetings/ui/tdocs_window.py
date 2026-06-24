@@ -353,23 +353,46 @@ class TDocsTableModel(QAbstractTableModel):
                 return "EXISTS" if zip_path.exists() else "MISSING"
             return None
 
-        # Existing string handling
+        # Display Role (What the user visually sees)
         if role == Qt.DisplayRole:
             if col_name == "Related TDocs":
                 return self._format_related_tdocs(row, html=True)
-            val = row.get(col_name, "")
-            return str(val).strip() if val is not None else ""
 
+            val = row.get(col_name, "")
+            val_str = str(val).strip() if val is not None else ""
+
+            # ---> FIX: Flatten and truncate the Abstract so rows stay short!
+            if col_name == "Abstract" and len(val_str) > 90:
+                flat_str = val_str.replace('\n', ' ').replace('\r', '')
+                return flat_str[:87] + "..."
+
+            return val_str
+
+        # User Role (Raw data used by the background Search Engine)
         elif role == Qt.UserRole:
             if col_name == "Related TDocs":
                 return self._format_related_tdocs(row, html=False)
             val = row.get(col_name, "")
             return str(val).strip() if val is not None else ""
 
+        # ---> NEW: ToolTip Role (Shows the full text on hover!)
+        elif role == Qt.ToolTipRole:
+            val = row.get(col_name, "")
+            val_str = str(val).strip() if val is not None else ""
+
+            if col_name == "Abstract" and val_str:
+                # Wrap in a fixed-width HTML div so PyQt automatically word-wraps the tooltip beautifully
+                return f"<div style='width: 400px; white-space: pre-wrap;'>{val_str}</div>"
+            elif col_name in ["Title", "Source", "Secretary Remarks"] and len(val_str) > 30:
+                return val_str
+            return None
+
+        # Alignment
         elif role == Qt.TextAlignmentRole:
-            if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status"]:
+            if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related TDocs"]:
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
+
         return None
 
     def rowCount(self, index=QModelIndex()):
@@ -579,9 +602,12 @@ class TDocsWindow(QWidget):
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.resizeSection(0, 85)  # Action Button
         header.resizeSection(1, 110)  # TDoc
-        header.resizeSection(2, 250)  # Title
-        header.setSectionResizeMode(6, QHeaderView.Stretch)  # Abstract
-        header.resizeSection(10, 160)  # Related
+        header.resizeSection(2, 200)  # Title (Narrowed)
+        header.resizeSection(3, 100)  # Source (Constrained)
+
+        # Abstract stretches to consume all remaining space dynamically
+        header.setSectionResizeMode(6, QHeaderView.Stretch)
+        header.resizeSection(10, 160)  # Related TDocs
 
         main_layout.addWidget(self.table)
 
