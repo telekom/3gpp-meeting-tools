@@ -4,6 +4,10 @@ from pathlib import Path
 from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyModel
 
 
+def natural_sort_key(s):
+    """Splits string into chunks of digits and non-digits for natural sorting."""
+    return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
+
 class TDocsTableModel(QAbstractTableModel):
     def __init__(self, meeting_dir: Path, data=None):
         super().__init__()
@@ -75,6 +79,10 @@ class TDocsTableModel(QAbstractTableModel):
                 return len(self.revisions.get(row.get("TDoc", ""), [])) > 0
             return None
 
+        if role == Qt.UserRole + 2:
+            val = row.get(col_name, "")
+            return str(val).strip() if val is not None else ""
+
         if role == Qt.DisplayRole:
             if col_name == "Related TDocs": return self._format_related_tdocs(row, html=True)
             val = row.get(col_name, "")
@@ -98,10 +106,14 @@ class TDocsTableModel(QAbstractTableModel):
                 return val_str
             return None
 
+
+
         elif role == Qt.TextAlignmentRole:
-            if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related TDocs"]: return Qt.AlignCenter
+            if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related TDocs"]:
+                return Qt.AlignCenter
+
+            # Everything else stays left-aligned and vertically centered
             return Qt.AlignLeft | Qt.AlignVCenter
-        return None
 
     def rowCount(self, index=QModelIndex()):
         return len(self._data)
@@ -154,3 +166,13 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             if not match_found: return False
 
         return True
+
+    def lessThan(self, left, right):
+        left_data = self.sourceModel().data(left, Qt.UserRole + 2)
+        right_data = self.sourceModel().data(right, Qt.UserRole + 2)
+
+        # Only apply natural sort to Agenda Items
+        if self.sourceModel()._headers[left.column()] == "Agenda Item":
+            return natural_sort_key(left_data) < natural_sort_key(right_data)
+
+        return super().lessThan(left, right)
