@@ -55,13 +55,15 @@ class TDocsRevisionsFetcherThread(QThread):
 class TDocActionThread(QThread):
     finished_action = pyqtSignal(str, bool, str)
 
-    def __init__(self, base_tdoc: str, target_filename: str, base_url: str, meeting_dir: Path):
+    # ---> FIX 2: Added 'open_file' parameter
+    def __init__(self, base_tdoc: str, target_filename: str, base_url: str, meeting_dir: Path, open_file: bool = True):
         super().__init__()
         self.base_tdoc = base_tdoc
         self.target_filename = target_filename
         self.base_url = base_url
         self.tdoc_dir = meeting_dir / base_tdoc
         self.zip_path = self.tdoc_dir / f"{target_filename}.zip"
+        self.open_file = open_file
 
     def run(self):
         try:
@@ -86,12 +88,10 @@ class TDocActionThread(QThread):
                     if info.filename.lower().endswith(('.doc', '.docx', '.pdf', '.ppt', '.pptx')):
                         out_path = self.tdoc_dir / Path(info.filename).name
 
-                        # Extract only if it isn't already unzipped
                         if not out_path.exists():
                             with open(out_path, 'wb') as f:
                                 f.write(z.read(info.filename))
 
-                        # Crucial: We ONLY track files coming from THIS specific ZIP version
                         extracted_files.append(out_path)
 
             if not extracted_files:
@@ -99,13 +99,17 @@ class TDocActionThread(QThread):
                                           "No viewable documents (.doc, .pdf, .ppt) found inside the ZIP.")
                 return
 
-            for doc in extracted_files:
-                if hasattr(os, 'startfile'):
-                    os.startfile(str(doc))
-                else:
-                    webbrowser.open(f"file:///{doc}")
+            # ---> FIX 2: Only open the file if the flag allows it!
+            if self.open_file:
+                for doc in extracted_files:
+                    if hasattr(os, 'startfile'):
+                        os.startfile(str(doc))
+                    else:
+                        webbrowser.open(f"file:///{doc}")
 
-            self.finished_action.emit(self.base_tdoc, True, "Opened successfully.")
+            # Send a dynamic success message based on the action
+            msg = "Opened successfully." if self.open_file else "Downloaded & Added successfully."
+            self.finished_action.emit(self.base_tdoc, True, msg)
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:

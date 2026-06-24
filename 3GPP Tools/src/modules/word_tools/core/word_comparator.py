@@ -51,9 +51,11 @@ class WordComparatorThread(QThread):
             return str(tmp_path)
 
         return input_str
+
     def run(self):
         doc_original = None
         doc_revised = None
+        word = None
         try:
             pythoncom.CoInitialize()  # Thread-safe COM initialization
 
@@ -62,12 +64,20 @@ class WordComparatorThread(QThread):
             path_b = self._resolve_path(self.doc_b, "B")
 
             self.ui_log_msg.emit("⏳ Spawning Native Word Diff Engine...", logging.INFO)
-            word = win32com.client.Dispatch("Word.Application")
+            word = win32com.client.DispatchEx("Word.Application")
             word.Visible = True
 
-            # Open both documents in the background
+            # ---> FIX 3: Suppress all native Word popups
+            word.DisplayAlerts = 0
+
+            # ---> FIX 3: Open as Read-Only and Accept Tracked Changes purely in memory!
             doc_original = word.Documents.Open(path_a, ReadOnly=True)
+            if doc_original.Revisions.Count > 0:
+                doc_original.Revisions.AcceptAll()
+
             doc_revised = word.Documents.Open(path_b, ReadOnly=True)
+            if doc_revised.Revisions.Count > 0:
+                doc_revised.Revisions.AcceptAll()
 
             # Fire the native COM diff engine
             word.CompareDocuments(OriginalDocument=doc_original, RevisedDocument=doc_revised)
@@ -79,13 +89,10 @@ class WordComparatorThread(QThread):
         except Exception as e:
             self.ui_log_msg.emit(f"❌ Comparison Error: {str(e)}", logging.ERROR)
         finally:
-            # Clean up conditionally based on user UI preference
             if not self.keep_open:
                 try:
                     if doc_original: doc_original.Close(SaveChanges=False)
                     if doc_revised: doc_revised.Close(SaveChanges=False)
                 except Exception:
                     pass
-
             pythoncom.CoUninitialize()
-            self.finished.emit()

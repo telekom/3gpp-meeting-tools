@@ -340,13 +340,18 @@ class TDocsWindow(QWidget):
         menu.addSeparator()
         compare_menu = menu.addMenu("⚖️ Add to Comparison Cart...")
 
-        act_cmp_base = compare_menu.addAction(f"🗎 Base Version: {base_tdoc}")
+        # ---> FIX 1: Visually indicate if the Base TDoc is Local in the Cart menu
+        act_cmp_base = compare_menu.addAction(
+            f"🗎 Base Version: {base_tdoc}" + ("  (Local)" if base_zip.exists() else ""))
         act_cmp_base.triggered.connect(
             lambda _, t=base_tdoc: self._trigger_download_thread(base_tdoc, t, docs_url, True))
 
         for rev in revisions:
             target_filename = f"{base_tdoc}{rev}"
-            act_cmp_rev = compare_menu.addAction(f"📝 Revision: {target_filename}")
+            rev_zip = self.meeting_dir / base_tdoc / f"{target_filename}.zip"
+            # ---> FIX 1: Visually indicate if the Revision is Local in the Cart menu
+            act_cmp_rev = compare_menu.addAction(
+                f"📝 Revision: {target_filename}" + ("  (Local)" if rev_zip.exists() else ""))
             act_cmp_rev.triggered.connect(
                 lambda _, t=target_filename: self._trigger_download_thread(base_tdoc, t, self.revisions_url, True))
 
@@ -356,9 +361,10 @@ class TDocsWindow(QWidget):
                                  is_silent_compare: bool = False):
         self.model.set_loading(base_tdoc, True)
 
-        thread = TDocActionThread(base_tdoc, target_filename, base_url, self.meeting_dir)
+        # ---> FIX 2: Pass open_file=not is_silent_compare to suppress the auto-open behavior
+        thread = TDocActionThread(base_tdoc, target_filename, base_url, self.meeting_dir,
+                                  open_file=not is_silent_compare)
 
-        # We hackily attach the flag to the thread object so the callback knows what to do!
         thread.is_silent_compare = is_silent_compare
         thread.target_filename = target_filename
 
