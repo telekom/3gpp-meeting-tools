@@ -1,0 +1,156 @@
+import re
+from pathlib import Path
+
+from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyModel
+
+
+class TDocsTableModel(QAbstractTableModel):
+    def __init__(self, meeting_dir: Path, data=None):
+        super().__init__()
+        self.meeting_dir = meeting_dir
+        self._data = data or []
+        self._headers = [
+            "", "TDoc", "Title", "Source", "Type", "For",
+            "Abstract", "Secretary Remarks", "Agenda Item", "TDoc Status", "Related TDocs"
+        ]
+        self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
+        self.loading_tdocs = set()
+        self.revisions = {}  # Stores {base_tdoc: ["r01", "r02"]}
+
+    def update_data(self, new_data):
+        self.beginResetModel()
+        self._data = new_data
+        self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
+        self.loading_tdocs.clear()
+        # Note: We specifically DO NOT clear self.revisions here so they persist during updates
+        self.endResetModel()
+
+    def set_loading(self, tdoc: str, is_loading: bool):
+        if is_loading:
+            self.loading_tdocs.add(tdoc)
+        else:
+            self.loading_tdocs.discard(tdoc)
+        for r in range(self.rowCount()):
+            if self._data[r].get("TDoc") == tdoc:
+                idx = self.index(r, 0)
+                self.dataChanged.emit(idx, idx)
+                break
+
+    def _linkify(self, prefix: str, text: str, html: bool) -> str:
+        if not text: return ""
+        if not html: return f"{prefix}: {text}"
+
+        def repl(match):
+            tdoc = match.group(0)
+            if tdoc in self.valid_tdocs:
+                return f'<a href="{tdoc}" style="color: #005A9E; font-weight: bold; text-decoration: underline;">{tdoc}</a>'
+            else:
+                return f'<span style="color: #999999;">{tdoc}</span>'
+
+        linked_text = re.sub(r'[a-zA-Z0-9]+-\d+', repl, text)
+        return f"<span style='color: #444;'><b>{prefix}:</b></span> {linked_text}"
+
+    def _format_related_tdocs(self, row_data: dict, html=False) -> str:
+        parts = []
+        if r_rev_of := row_data.get("Is revision of"): parts.append(self._linkify("⬅️ Rev of", r_rev_of, html))
+        if r_rev_to := row_data.get("Revised to"): parts.append(self._linkify("➡️ Rev to", r_rev_to, html))
+        if r_orig := row_data.get("Original LS"): parts.append(self._linkify("✉️ Orig LS", r_orig, html))
+        if r_reply := row_data.get("Reply in"): parts.append(self._linkify("↩️ Reply", r_reply, html))
+        return ("<br>" if html else "\n").join(parts)
+
+    def data(self, index, role):
+        if not index.isValid(): return None
+        row = self._data[index.row()]
+        col_name = self._headers[index.column()]
+
+        if col_name == "":
+            if role == Qt.UserRole: return row.get("TDoc", "")
+            if role == Qt.UserRole + 1:
+                tdoc = row.get("TDoc", "")
+                if tdoc in self.loading_tdocs: return "LOADING"
+                zip_path = self.meeting_dir / tdoc / f"{tdoc}.zip"
+                return "EXISTS" if zip_path.exists() else "MISSING"
+            if role == Qt.UserRole + 2:
+                # Indicates if revisions exist in memory for this TDoc
+                return len(self.revisions.get(row.get("TDoc", ""), [])) > 0
+            return None
+
+        if role == Qt.DisplayRole:
+            if col_name == "Related TDocs": return self._format_related_tdocs(row, html=True)
+            val = row.get(col_name, "")
+            val_str = str(val).strip() if val is not None else ""
+
+            if col_name == "Abstract" and len(val_str) > 90:
+                return val_str.replace('\n', ' ').replace('\r', '')[:87] + "..."
+            return val_str
+
+        elif role == Qt.UserRole:
+            if col_name == "Related TDocs": return self._format_related_tdocs(row, html=False)
+            val = row.get(col_name, "")
+            return str(val).strip() if val is not None else ""
+
+        elif role == Qt.ToolTipRole:
+            val = row.get(col_name, "")
+            val_str = str(val).strip() if val is not None else ""
+            if col_name == "Abstract" and val_str:
+                return f"<div style='width: 400px; white-space: pre-wrap;'>{val_str}</div>"
+            elif col_name in ["Title", "Source", "Secretary Remarks"] and len(val_str) > 30:
+                return val_str
+            return None
+
+        elif role == Qt.TextAlignmentRole:
+            if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related TDocs"]: return Qt.AlignCenter
+            return Qt.AlignLeft | Qt.AlignVCenter
+        return None
+
+    def rowCount(self, index=QModelIndex()):
+        return len(self._data)
+
+    def columnCount(self, index=QModelIndex()):
+        return len(self._headers)
+
+    def headerData(self, section, orientation, role):
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole: return self._headers[section]
+        return None
+
+
+class TDocsFilterProxyModel(QSortFilterProxyModel):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.global_filter = ""
+        self.type_filters = set()
+        self.status_filters = set()
+        self.ai_filters = set()
+
+    def setGlobalFilter(self, text):
+        self.global_filter = str(text).lower().strip()
+        self.invalidateFilter()
+
+    def setTypeFilters(self, types):
+        self.type_filters = set(types)
+        self.invalidateFilter()
+
+    def setStatusFilters(self, statuses):
+        self.status_filters = set(statuses)
+        self.invalidateFilter()
+
+    def setAIFilters(self, ais):
+        self.ai_filters = set(ais)
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row, source_parent):
+        model = self.sourceModel()
+        if model.data(model.index(source_row, 4, source_parent), Qt.UserRole) not in self.type_filters: return False
+        if model.data(model.index(source_row, 8, source_parent), Qt.UserRole) not in self.ai_filters: return False
+        if model.data(model.index(source_row, 9, source_parent), Qt.UserRole) not in self.status_filters: return False
+
+        if self.global_filter:
+            match_found = False
+            for col in [1, 2, 3, 6, 10]:
+                data = model.data(model.index(source_row, col, source_parent), Qt.UserRole)
+                if data and self.global_filter in str(data).lower():
+                    match_found = True
+                    break
+            if not match_found: return False
+
+        return True
