@@ -1,487 +1,21 @@
 # --- File: modules/meetings/ui/tdocs_window.py ---
 import os
-import re
 import webbrowser
-import zipfile
-import requests
 import datetime
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
-                             QHeaderView, QLabel, QLineEdit, QComboBox, QFrame,
-                             QPushButton, QMessageBox, QStyledItemDelegate, QStyleOptionViewItem, QStyle)
-from PyQt5.QtGui import QStandardItemModel, QStandardItem, QTextDocument, QColor, QPainter, QPen
-from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QEvent, pyqtSignal, QRectF, QSize, \
-    QThread, QTimer
+                             QHeaderView, QLabel, QLineEdit, QFrame,
+                             QPushButton, QMessageBox, QMenu)
+from PyQt5.QtGui import QCursor
+from PyQt5.QtCore import Qt, QTimer
 
-from core.network.session import NetworkSession
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
-
-
-# ==========================================
-# --- BACKGROUND WORKER: TDOC DOWNLOADER ---
-# ==========================================
-class TDocActionThread(QThread):
-    finished_action = pyqtSignal(str, bool, str)
-
-    def __init__(self, tdoc: str, docs_url: str, meeting_dir: Path):
-        super().__init__()
-        self.tdoc = tdoc
-        self.docs_url = docs_url
-        self.tdoc_dir = meeting_dir / tdoc
-        self.zip_path = self.tdoc_dir / f"{tdoc}.zip"
-
-    def run(self):
-        try:
-            extracted_files = []
-            if self.tdoc_dir.exists():
-                valid_exts = ('.doc', '.docx', '.pdf', '.ppt', '.pptx')
-                extracted_files = [f for f in self.tdoc_dir.iterdir()
-                                   if f.is_file() and f.suffix.lower() in valid_exts and not f.name.startswith('~$')]
-
-            if not extracted_files:
-                if not self.zip_path.exists():
-                    self.tdoc_dir.mkdir(parents=True, exist_ok=True)
-                    dl_url = self.docs_url.rstrip('/') + f"/{self.tdoc}.zip"
-
-                    session = NetworkSession.get_instance()
-                    NetworkSession.apply_humanness(session)
-                    response = session.get(dl_url, stream=True, timeout=30)
-                    response.raise_for_status()
-
-                    with open(self.zip_path, 'wb') as f:
-                        for chunk in response.iter_content(chunk_size=16384):
-                            if chunk: f.write(chunk)
-
-                with zipfile.ZipFile(self.zip_path, 'r') as z:
-                    for info in z.infolist():
-                        if '__MACOSX' in info.filename or info.filename.startswith('._'):
-                            continue
-                        if info.filename.lower().endswith(('.doc', '.docx', '.pdf', '.ppt', '.pptx')):
-                            out_path = self.tdoc_dir / Path(info.filename).name
-                            with open(out_path, 'wb') as f:
-                                f.write(z.read(info.filename))
-                            extracted_files.append(out_path)
-
-            if not extracted_files:
-                self.finished_action.emit(self.tdoc, False,
-                                          "No viewable documents (.doc, .pdf, .ppt) found inside the ZIP.")
-                return
-
-            for doc in extracted_files:
-                if hasattr(os, 'startfile'):
-                    os.startfile(str(doc))
-                else:
-                    webbrowser.open(f"file:///{doc}")
-
-            self.finished_action.emit(self.tdoc, True, "Opened successfully.")
-
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                self.finished_action.emit(self.tdoc, False, "TDoc ZIP not found on the server (404 Error).")
-            else:
-                self.finished_action.emit(self.tdoc, False, f"Network error: {e}")
-        except Exception as e:
-            self.finished_action.emit(self.tdoc, False, str(e))
-
-
-# ==========================================
-# --- UPGRADED: BULLETPROOF MULTI-SELECT ---
-# ==========================================
-class CheckableComboBox(QComboBox):
-    selectionChanged = pyqtSignal(list)
-
-    def __init__(self, title, parent=None):
-        super().__init__(parent)
-        self.title = title
-        self.setEditable(True)
-        self.lineEdit().setReadOnly(True)
-        self._updating = False
-
-        self.lineEdit().installEventFilter(self)
-        self.setModel(QStandardItemModel(self))
-        self.view().viewport().installEventFilter(self)
-
-    def eventFilter(self, obj, event):
-        if obj == self.lineEdit() and event.type() == QEvent.MouseButtonPress:
-            self.showPopup()
-            return True
-
-        if obj == self.view().viewport() and event.type() == QEvent.MouseButtonRelease:
-            index = self.view().indexAt(event.pos())
-            if index.isValid():
-                item = self.model().itemFromIndex(index)
-                if item:
-                    state = item.checkState()
-                    new_state = Qt.Unchecked if (state == Qt.Checked or state == 2) else Qt.Checked
-
-                    self._updating = True
-                    if index.row() == 0:
-                        item.setCheckState(new_state)
-                        for i in range(1, self.model().rowCount()):
-                            self.model().item(i).setCheckState(new_state)
-                    else:
-                        item.setCheckState(new_state)
-                        all_checked = True
-                        for i in range(1, self.model().rowCount()):
-                            if self.model().item(i).checkState() not in (Qt.Checked, 2):
-                                all_checked = False
-                                break
-                        self.model().item(0).setCheckState(Qt.Checked if all_checked else Qt.Unchecked)
-
-                    self._updating = False
-                    self.updateText()
-                    self.selectionChanged.emit(self.getCheckedItems())
-            return True
-        return super().eventFilter(obj, event)
-
-    def addItems(self, items):
-        item_all = QStandardItem("(Select All)")
-        item_all.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-        item_all.setCheckState(Qt.Checked)
-        item_all.setData("ALL", Qt.UserRole)
-        self.model().appendRow(item_all)
-
-        for text in items:
-            display_text = str(text) if text else "(Empty)"
-            item = QStandardItem(display_text)
-            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked)
-            item.setData(str(text), Qt.UserRole)
-            self.model().appendRow(item)
-        self.updateText()
-
-    def updateItems(self, items):
-        """Safely hot-swaps the dropdown items while retaining user check states"""
-        previously_checked = set(self.getCheckedItems())
-        was_all_checked = (self.model().item(0).checkState() == Qt.Checked) if self.model().rowCount() > 0 else True
-
-        self.model().blockSignals(True)
-        self.model().clear()
-
-        item_all = QStandardItem("(Select All)")
-        item_all.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-        item_all.setData("ALL", Qt.UserRole)
-        self.model().appendRow(item_all)
-
-        all_checked_now = True
-        for text in items:
-            display_text = str(text) if text else "(Empty)"
-            item = QStandardItem(display_text)
-            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-
-            # Reapply previous check state, or default to checked if "Select All" was active
-            if was_all_checked or text in previously_checked:
-                item.setCheckState(Qt.Checked)
-            else:
-                item.setCheckState(Qt.Unchecked)
-                all_checked_now = False
-
-            item.setData(str(text), Qt.UserRole)
-            self.model().appendRow(item)
-
-        self.model().item(0).setCheckState(Qt.Checked if all_checked_now else Qt.Unchecked)
-        self.model().blockSignals(False)
-        self.updateText()
-
-    def getCheckedItems(self):
-        checked = []
-        for i in range(1, self.model().rowCount()):
-            item = self.model().item(i)
-            state = item.checkState()
-            if state == Qt.Checked or state == 2:
-                checked.append(item.data(Qt.UserRole))
-        return checked
-
-    def updateText(self):
-        if self._updating: return
-        checked = self.getCheckedItems()
-        total = self.model().rowCount() - 1
-
-        if total == 0:
-            self.lineEdit().setText(f"{self.title}: None")
-        elif len(checked) == total:
-            self.lineEdit().setText(f"{self.title}: All")
-        elif len(checked) == 1:
-            display = checked[0] if checked[0] else "(Empty)"
-            self.lineEdit().setText(f"{self.title}: {display}")
-        else:
-            self.lineEdit().setText(f"{self.title}: {len(checked)} selected")
-
-
-# ==========================================
-# --- DELEGATES ---
-# ==========================================
-class HtmlDelegate(QStyledItemDelegate):
-    linkClicked = pyqtSignal(str)
-
-    def paint(self, painter, option, index):
-        options = QStyleOptionViewItem(option)
-        self.initStyleOption(options, index)
-        painter.save()
-        doc = QTextDocument()
-        doc.setDocumentMargin(4)
-        doc.setDefaultFont(options.font)
-        doc.setHtml(options.text)
-
-        options.text = ""
-        options.widget.style().drawControl(QStyle.CE_ItemViewItem, options, painter)
-
-        painter.translate(options.rect.left(), options.rect.top())
-        clip = QRectF(0, 0, options.rect.width(), options.rect.height())
-        doc.drawContents(painter, clip)
-        painter.restore()
-
-    def sizeHint(self, option, index):
-        options = QStyleOptionViewItem(option)
-        self.initStyleOption(options, index)
-        doc = QTextDocument()
-        doc.setDocumentMargin(4)
-        doc.setDefaultFont(options.font)
-        doc.setHtml(options.text)
-        return QSize(int(doc.idealWidth()), int(doc.size().height()))
-
-    def editorEvent(self, event, model, option, index):
-        if event.type() == QEvent.MouseButtonRelease:
-            options = QStyleOptionViewItem(option)
-            self.initStyleOption(options, index)
-            doc = QTextDocument()
-            doc.setDocumentMargin(4)
-            doc.setDefaultFont(options.font)
-            doc.setHtml(options.text)
-
-            pos = event.pos() - option.rect.topLeft()
-            anchor = doc.documentLayout().anchorAt(pos)
-            if anchor:
-                self.linkClicked.emit(anchor)
-                return True
-        return super().editorEvent(event, model, option, index)
-
-
-class TDocActionDelegate(QStyledItemDelegate):
-    actionClicked = pyqtSignal(str)
-
-    def paint(self, painter, option, index):
-        options = QStyleOptionViewItem(option)
-        self.initStyleOption(options, index)
-        options.text = ""
-        options.widget.style().drawControl(QStyle.CE_ItemViewItem, options, painter)
-
-        tdoc = index.data(Qt.UserRole)
-        state = index.data(Qt.UserRole + 1)
-        if not tdoc: return
-
-        painter.save()
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        rect = option.rect.adjusted(4, 4, -4, -4)
-
-        if state == 'EXISTS':
-            bg_color, border_color, text_color = QColor("#E6F4E6"), QColor("#A3DDA3"), QColor("#0C6B0C")
-            text = "✓ Open"
-        elif state == 'LOADING':
-            bg_color, border_color, text_color = QColor("#FFF4CE"), QColor("#F3C74C"), QColor("#B85C00")
-            text = "⏳ Fetching"
-        else:
-            bg_color, border_color, text_color = QColor("#E1F0FF"), QColor("#99C9FF"), QColor("#005A9E")
-            text = "⬇ Download"
-
-        painter.setBrush(bg_color)
-        painter.setPen(QPen(border_color, 1))
-        painter.drawRoundedRect(rect, 10, 10)
-
-        painter.setPen(text_color)
-        font = painter.font()
-        font.setBold(True)
-        font.setPointSize(8)
-        painter.setFont(font)
-        painter.drawText(rect, Qt.AlignCenter, text)
-
-        painter.restore()
-
-    def editorEvent(self, event, model, option, index):
-        if event.type() == QEvent.MouseButtonRelease:
-            rect = option.rect.adjusted(4, 4, -4, -4)
-            if rect.contains(event.pos()):
-                tdoc = index.data(Qt.UserRole)
-                if tdoc:
-                    self.actionClicked.emit(tdoc)
-                    return True
-        return super().editorEvent(event, model, option, index)
-
-
-# ==========================================
-# --- DATA MODELS ---
-# ==========================================
-class TDocsTableModel(QAbstractTableModel):
-    def __init__(self, meeting_dir: Path, data=None):
-        super().__init__()
-        self.meeting_dir = meeting_dir
-        self._data = data or []
-        self._headers = [
-            "", "TDoc", "Title", "Source", "Type", "For",
-            "Abstract", "Secretary Remarks", "Agenda Item", "TDoc Status", "Related TDocs"
-        ]
-        self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
-        self.loading_tdocs = set()
-
-    def update_data(self, new_data):
-        self.beginResetModel()
-        self._data = new_data
-        self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
-        self.loading_tdocs.clear()
-        self.endResetModel()
-
-    def set_loading(self, tdoc: str, is_loading: bool):
-        if is_loading:
-            self.loading_tdocs.add(tdoc)
-        else:
-            self.loading_tdocs.discard(tdoc)
-
-        for r in range(self.rowCount()):
-            if self._data[r].get("TDoc") == tdoc:
-                idx = self.index(r, 0)
-                self.dataChanged.emit(idx, idx)
-                break
-
-    def _linkify(self, prefix: str, text: str, html: bool) -> str:
-        if not text: return ""
-        if not html: return f"{prefix}: {text}"
-
-        def repl(match):
-            tdoc = match.group(0)
-            if tdoc in self.valid_tdocs:
-                return f'<a href="{tdoc}" style="color: #005A9E; font-weight: bold; text-decoration: underline;">{tdoc}</a>'
-            else:
-                return f'<span style="color: #999999;">{tdoc}</span>'
-
-        linked_text = re.sub(r'[a-zA-Z0-9]+-\d+', repl, text)
-        return f"<span style='color: #444;'><b>{prefix}:</b></span> {linked_text}"
-
-    def _format_related_tdocs(self, row_data: dict, html=False) -> str:
-        parts = []
-        r_rev_of = row_data.get("Is revision of")
-        r_rev_to = row_data.get("Revised to")
-        r_orig = row_data.get("Original LS")
-        r_reply = row_data.get("Reply in")
-
-        if r_rev_of: parts.append(self._linkify("⬅️ Rev of", r_rev_of, html))
-        if r_rev_to: parts.append(self._linkify("➡️ Rev to", r_rev_to, html))
-        if r_orig: parts.append(self._linkify("✉️ Orig LS", r_orig, html))
-        if r_reply: parts.append(self._linkify("↩️ Reply", r_reply, html))
-
-        separator = "<br>" if html else "\n"
-        return separator.join(parts)
-
-    def data(self, index, role):
-        if not index.isValid(): return None
-        row = self._data[index.row()]
-        col_name = self._headers[index.column()]
-
-        if col_name == "":
-            if role == Qt.UserRole:
-                return row.get("TDoc", "")
-            if role == Qt.UserRole + 1:
-                tdoc = row.get("TDoc", "")
-                if tdoc in self.loading_tdocs: return "LOADING"
-                zip_path = self.meeting_dir / tdoc / f"{tdoc}.zip"
-                return "EXISTS" if zip_path.exists() else "MISSING"
-            return None
-
-        if role == Qt.DisplayRole:
-            if col_name == "Related TDocs":
-                return self._format_related_tdocs(row, html=True)
-
-            val = row.get(col_name, "")
-            val_str = str(val).strip() if val is not None else ""
-
-            if col_name == "Abstract" and len(val_str) > 90:
-                flat_str = val_str.replace('\n', ' ').replace('\r', '')
-                return flat_str[:87] + "..."
-
-            return val_str
-
-        elif role == Qt.UserRole:
-            if col_name == "Related TDocs":
-                return self._format_related_tdocs(row, html=False)
-            val = row.get(col_name, "")
-            return str(val).strip() if val is not None else ""
-
-        elif role == Qt.ToolTipRole:
-            val = row.get(col_name, "")
-            val_str = str(val).strip() if val is not None else ""
-
-            if col_name == "Abstract" and val_str:
-                return f"<div style='width: 400px; white-space: pre-wrap;'>{val_str}</div>"
-            elif col_name in ["Title", "Source", "Secretary Remarks"] and len(val_str) > 30:
-                return val_str
-            return None
-
-        elif role == Qt.TextAlignmentRole:
-            if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related TDocs"]:
-                return Qt.AlignCenter
-            return Qt.AlignLeft | Qt.AlignVCenter
-
-        return None
-
-    def rowCount(self, index=QModelIndex()):
-        return len(self._data)
-
-    def columnCount(self, index=QModelIndex()):
-        return len(self._headers)
-
-    def headerData(self, section, orientation, role):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole: return self._headers[section]
-        return None
-
-
-class TDocsFilterProxyModel(QSortFilterProxyModel):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.global_filter = ""
-        self.type_filters = set()
-        self.status_filters = set()
-        self.ai_filters = set()
-
-    def setGlobalFilter(self, text):
-        self.global_filter = str(text).lower().strip()
-        self.invalidateFilter()
-
-    def setTypeFilters(self, types):
-        self.type_filters = set(types)
-        self.invalidateFilter()
-
-    def setStatusFilters(self, statuses):
-        self.status_filters = set(statuses)
-        self.invalidateFilter()
-
-    def setAIFilters(self, ais):
-        self.ai_filters = set(ais)
-        self.invalidateFilter()
-
-    def filterAcceptsRow(self, source_row, source_parent):
-        model = self.sourceModel()
-
-        type_data = model.data(model.index(source_row, 4, source_parent), Qt.UserRole)
-        if type_data not in self.type_filters: return False
-
-        ai_data = model.data(model.index(source_row, 8, source_parent), Qt.UserRole)
-        if ai_data not in self.ai_filters: return False
-
-        status_data = model.data(model.index(source_row, 9, source_parent), Qt.UserRole)
-        if status_data not in self.status_filters: return False
-
-        if self.global_filter:
-            match_found = False
-            for col in [1, 2, 3, 6, 10]:
-                data = model.data(model.index(source_row, col, source_parent), Qt.UserRole)
-                if data and self.global_filter in str(data).lower():
-                    match_found = True
-                    break
-            if not match_found: return False
-
-        return True
+from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDocActionThread
+from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
+from modules.meetings.ui.tdocs_components import CheckableComboBox
+from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel
 
 
 # ==========================================
@@ -494,6 +28,10 @@ class TDocsWindow(QWidget):
         self.filepath = filepath
         self.meeting_dir = Path(filepath).parent.parent
         self.active_threads = {}
+
+        # Identifies SA2 Electronic meetings for Revisions scraping
+        wg_name = str(self.mtg_info.get('wg_name', '')).upper()
+        self.is_sa2_electronic = ('SA2' in wg_name) and bool(self.mtg_info.get('is_electronic', 0))
 
         title = f"TDocs: {mtg_info.get('wg_name', '')} {mtg_info.get('meeting_number', '')}"
         self.setWindowTitle(title)
@@ -509,12 +47,11 @@ class TDocsWindow(QWidget):
         title_lbl = QLabel(f"<b>{title}</b>")
         title_lbl.setStyleSheet("font-size: 18px; color: #333;")
 
-        # ---> NEW: Discreet Last Modified Timestamp
         self.last_mod_lbl = QLabel(self._get_mod_date_str())
         self.last_mod_lbl.setStyleSheet("font-size: 11px; color: #999999; margin-right: 15px; font-style: italic;")
 
-        # ---> NEW: Dedicated Refresh Button
-        self.refresh_btn = QPushButton("🔄 Refresh List")
+        # Multi-Action Refresh Menu
+        self.refresh_btn = QPushButton("🔄 Refresh")
         self.refresh_btn.setCursor(Qt.PointingHandCursor)
         self.refresh_btn.setStyleSheet("""
             QPushButton {
@@ -522,9 +59,18 @@ class TDocsWindow(QWidget):
                 border-radius: 6px; padding: 5px 12px;
                 color: #555555; background-color: #F0F0F0; border: 1px solid #CCCCCC;
             }
-            QPushButton:hover { background-color: #E0E0E0; border: 1px solid #AAAAAA; }
+            QPushButton:hover, QPushButton::menu-indicator { background-color: #E0E0E0; border: 1px solid #AAAAAA; }
         """)
-        self.refresh_btn.clicked.connect(self._refresh_excel)
+
+        refresh_menu = QMenu(self)
+        refresh_menu.setStyleSheet("QMenu { font-size: 12px; }")
+        refresh_menu.addAction("Refresh Excel List", self._refresh_excel)
+
+        if self.is_sa2_electronic:
+            refresh_menu.addAction("Refresh Revisions", lambda: self._refresh_revisions(silent=False))
+            refresh_menu.addAction("Refresh Both", self._refresh_both)
+
+        self.refresh_btn.setMenu(refresh_menu)
 
         self.folder_btn = QPushButton("📂 Meeting Folder")
         self.folder_btn.setCursor(Qt.PointingHandCursor)
@@ -581,7 +127,8 @@ class TDocsWindow(QWidget):
         self.search_input.textChanged.connect(self._on_search_changed)
         filter_layout.addWidget(self.search_input)
 
-        def sanitize(val): return str(val).strip() if val is not None else ""
+        def sanitize(val):
+            return str(val).strip() if val is not None else ""
 
         self.type_combo = CheckableComboBox("Type")
         self.type_combo.setMinimumWidth(150)
@@ -619,10 +166,8 @@ class TDocsWindow(QWidget):
         self.proxy.setStatusFilters(unique_statuses)
 
         self.table.setModel(self.proxy)
-
         self.table.setSelectionMode(QTableView.NoSelection)
         self.table.setFocusPolicy(Qt.NoFocus)
-
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
         self.table.setStyleSheet("""
@@ -645,14 +190,19 @@ class TDocsWindow(QWidget):
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.resizeSection(0, 85)
-        header.resizeSection(1, 110)
+        header.resizeSection(0, 110)  # Expanded to fit "(+Rev)"
+        header.resizeSection(1, 100)
         header.resizeSection(2, 200)
         header.resizeSection(3, 100)
         header.setSectionResizeMode(6, QHeaderView.Stretch)
         header.resizeSection(10, 160)
 
         main_layout.addWidget(self.table)
+
+        # Fire off an initial silent background fetch for revisions if applicable
+        if self.is_sa2_electronic and self.mtg_info.get("url_key"):
+            self.revisions_url = self.mtg_info.get("url_key").rstrip('/') + '/INBOX/Revisions/'
+            self._refresh_revisions(silent=True)
 
     # --- ACTIONS & TRIGGERS ---
     def _get_mod_date_str(self):
@@ -662,8 +212,33 @@ class TDocsWindow(QWidget):
         except Exception:
             return "List last updated: Unknown"
 
+    def _refresh_both(self):
+        self._refresh_excel()
+        self._refresh_revisions(silent=True)
+
+    def _refresh_revisions(self, silent=False):
+        if not hasattr(self, 'revisions_url'): return
+
+        self.rev_thread = TDocsRevisionsFetcherThread(self.revisions_url)
+        self.rev_thread.finished.connect(lambda s, d, m: self._on_revisions_fetched(s, d, m, silent))
+        self.rev_thread.start()
+
+    def _on_revisions_fetched(self, success: bool, data: dict, msg: str, silent: bool):
+        if success:
+            self.model.revisions = data
+            # Force the Action Column to redraw to instantly show (+Rev)
+            topLeft = self.model.index(0, 0)
+            bottomRight = self.model.index(self.model.rowCount() - 1, 0)
+            self.model.dataChanged.emit(topLeft, bottomRight)
+
+            if not silent:
+                QMessageBox.information(self, "Revisions Sync",
+                                        f"Successfully synced available revisions for {len(data)} TDocs.")
+        else:
+            if not silent:
+                QMessageBox.warning(self, "Revisions Error", f"Failed to sync revisions:\n{msg}")
+
     def _refresh_excel(self):
-        """Triggers a background download to update the current Excel file."""
         mtg_id = self.mtg_info.get("mtg_id")
         if not mtg_id:
             QMessageBox.warning(self, "Missing ID", "Cannot refresh: Missing 3GPP Portal ID for this meeting.")
@@ -673,11 +248,11 @@ class TDocsWindow(QWidget):
         self.refresh_btn.setEnabled(False)
 
         self.dl_thread = TDocsDownloaderThread(mtg_id, self.meeting_dir, self)
-        self.dl_thread.finished.connect(self._on_refresh_finished)
+        self.dl_thread.finished.connect(self._on_refresh_excel_finished)
         self.dl_thread.start()
 
-    def _on_refresh_finished(self, success: bool, result: str, mtg_id: str):
-        self.refresh_btn.setText("🔄 Refresh List")
+    def _on_refresh_excel_finished(self, success: bool, result: str, mtg_id: str):
+        self.refresh_btn.setText("🔄 Refresh")
         self.refresh_btn.setEnabled(True)
 
         if success:
@@ -687,10 +262,8 @@ class TDocsWindow(QWidget):
                 QMessageBox.warning(self, "Parse Error", "Successfully downloaded, but could not parse the Excel file.")
                 return
 
-            # Push new data to the Table
             self.model.update_data(new_data)
 
-            # Hot-Swap the ComboBoxes without losing check states
             def sanitize(val):
                 return str(val).strip() if val is not None else ""
 
@@ -702,32 +275,58 @@ class TDocsWindow(QWidget):
             self.ai_combo.updateItems(unique_ais)
             self.status_combo.updateItems(unique_statuses)
 
-            # Re-apply the active filters
             self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
             self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
             self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
 
-            # Update Header text
             self.last_mod_lbl.setText(self._get_mod_date_str())
             self._update_count_label()
         else:
             QMessageBox.critical(self, "Download Error", f"Failed to refresh TDocs List:\n{result}")
 
-    def _handle_tdoc_action(self, tdoc: str):
-        if tdoc in self.model.loading_tdocs:
-            return
+    def _handle_tdoc_action(self, base_tdoc: str):
+        if base_tdoc in self.model.loading_tdocs: return
 
         docs_url = self.mtg_info.get("docs_folder_url")
         if not docs_url:
             QMessageBox.warning(self, "Missing URL", "This meeting does not have a Docs/ URL mapped in the database.")
             return
 
-        self.model.set_loading(tdoc, True)
+        revisions = self.model.revisions.get(base_tdoc, [])
+        if not revisions:
+            # Standard Download for files with NO Revisions
+            self._trigger_download_thread(base_tdoc, base_tdoc, docs_url)
+        else:
+            # Construct a dynamic Context Menu
+            menu = QMenu(self.table)
+            menu.setStyleSheet("QMenu { font-size: 13px; }")
+
+            base_zip = self.meeting_dir / base_tdoc / f"{base_tdoc}.zip"
+            lbl = f"🗎 Base Version: {base_tdoc}" + ("  (Local)" if base_zip.exists() else "")
+
+            act_base = menu.addAction(lbl)
+            act_base.triggered.connect(lambda _, t=base_tdoc: self._trigger_download_thread(base_tdoc, t, docs_url))
+            menu.addSeparator()
+
+            # Add all known revisions
+            for rev in revisions:
+                target_filename = f"{base_tdoc}{rev}"
+                rev_zip = self.meeting_dir / base_tdoc / f"{target_filename}.zip"
+                lbl = f"📝 Revision: {target_filename}" + ("  (Local)" if rev_zip.exists() else "")
+
+                act_rev = menu.addAction(lbl)
+                act_rev.triggered.connect(
+                    lambda _, t=target_filename: self._trigger_download_thread(base_tdoc, t, self.revisions_url))
+
+            menu.exec_(QCursor.pos())
+
+    def _trigger_download_thread(self, base_tdoc: str, target_filename: str, base_url: str):
+        self.model.set_loading(base_tdoc, True)
         QTimer.singleShot(0, self.table.resizeRowsToContents)
 
-        thread = TDocActionThread(tdoc, docs_url, self.meeting_dir)
+        thread = TDocActionThread(base_tdoc, target_filename, base_url, self.meeting_dir)
         thread.finished_action.connect(self._on_tdoc_action_finished)
-        self.active_threads[tdoc] = thread
+        self.active_threads[base_tdoc] = thread
         thread.start()
 
     def _on_tdoc_action_finished(self, tdoc: str, success: bool, msg: str):

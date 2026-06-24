@@ -1,0 +1,116 @@
+import os
+import re
+import webbrowser
+import zipfile
+from pathlib import Path
+
+import requests
+from PyQt5.QtCore import QThread, pyqtSignal
+
+from core.network.session import NetworkSession
+
+
+class TDocsRevisionsFetcherThread(QThread):
+    finished = pyqtSignal(bool, dict, str)
+
+    def __init__(self, url: str):
+        super().__init__()
+        self.url = url
+
+    def run(self):
+        try:
+            session = NetworkSession.get_instance()
+            NetworkSession.apply_humanness(session)
+            response = session.get(self.url, timeout=30)
+            response.raise_for_status()
+
+            html = response.text
+            # Safely capture full filename, base TDoc, and revision string (e.g., S2-2605740r01)
+            pattern = re.compile(r'href=["\']?(([A-Za-z0-9\-]+)(r\d+[a-zA-Z]?)\.zip)["\']?', re.IGNORECASE)
+            matches = pattern.findall(html)
+
+            revisions = {}
+            for full_file, base_tdoc, rev_str in matches:
+                base_tdoc = base_tdoc.upper()
+                rev_str = rev_str.lower()
+                if base_tdoc not in revisions:
+                    revisions[base_tdoc] = []
+                if rev_str not in revisions[base_tdoc]:
+                    revisions[base_tdoc].append(rev_str)
+
+            for k in revisions:
+                revisions[k].sort()
+
+            self.finished.emit(True, revisions, "Success")
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                self.finished.emit(True, {}, "No Revisions folder found.")
+            else:
+                self.finished.emit(False, {}, str(e))
+        except Exception as e:
+            self.finished.emit(False, {}, str(e))
+
+
+class TDocActionThread(QThread):
+    finished_action = pyqtSignal(str, bool, str)
+
+    def __init__(self, base_tdoc: str, target_filename: str, base_url: str, meeting_dir: Path):
+        super().__init__()
+        self.base_tdoc = base_tdoc
+        self.target_filename = target_filename
+        self.base_url = base_url
+        self.tdoc_dir = meeting_dir / base_tdoc
+        self.zip_path = self.tdoc_dir / f"{target_filename}.zip"
+
+    def run(self):
+        try:
+            if not self.zip_path.exists():
+                self.tdoc_dir.mkdir(parents=True, exist_ok=True)
+                dl_url = self.base_url.rstrip('/') + f"/{self.target_filename}.zip"
+
+                session = NetworkSession.get_instance()
+                NetworkSession.apply_humanness(session)
+                response = session.get(dl_url, stream=True, timeout=30)
+                response.raise_for_status()
+
+                with open(self.zip_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=16384):
+                        if chunk: f.write(chunk)
+
+            extracted_files = []
+            with zipfile.ZipFile(self.zip_path, 'r') as z:
+                for info in z.infolist():
+                    if '__MACOSX' in info.filename or info.filename.startswith('._'):
+                        continue
+                    if info.filename.lower().endswith(('.doc', '.docx', '.pdf', '.ppt', '.pptx')):
+                        out_path = self.tdoc_dir / Path(info.filename).name
+
+                        # Extract only if it isn't already unzipped
+                        if not out_path.exists():
+                            with open(out_path, 'wb') as f:
+                                f.write(z.read(info.filename))
+
+                        # Crucial: We ONLY track files coming from THIS specific ZIP version
+                        extracted_files.append(out_path)
+
+            if not extracted_files:
+                self.finished_action.emit(self.base_tdoc, False,
+                                          "No viewable documents (.doc, .pdf, .ppt) found inside the ZIP.")
+                return
+
+            for doc in extracted_files:
+                if hasattr(os, 'startfile'):
+                    os.startfile(str(doc))
+                else:
+                    webbrowser.open(f"file:///{doc}")
+
+            self.finished_action.emit(self.base_tdoc, True, "Opened successfully.")
+
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                self.finished_action.emit(self.base_tdoc, False,
+                                          f"Version '{self.target_filename}' not found on server (404 Error).")
+            else:
+                self.finished_action.emit(self.base_tdoc, False, f"Network error: {e}")
+        except Exception as e:
+            self.finished_action.emit(self.base_tdoc, False, str(e))
