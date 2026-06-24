@@ -311,21 +311,27 @@ class TDocsWindow(QWidget):
             QMessageBox.warning(self, "Missing URL", "This meeting does not have a Docs/ URL mapped in the database.")
             return
 
+        # Ensure the base docs URL is also a full HTTPS URL
+        docs_url = self.docs_ftp_url
+        if not docs_url.startswith("http"):
+            docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip('/')
+
         revisions = self.model.revisions.get(base_tdoc, [])
-        if not revisions:
-            self._trigger_download_thread(base_tdoc, base_tdoc, self.docs_ftp_url)
-        else:
-            menu = QMenu(self.table)
-            menu.setStyleSheet("QMenu { font-size: 13px; }")
 
-            base_zip = self.meeting_dir / base_tdoc / f"{base_tdoc}.zip"
-            lbl = f"🗎 Base Version: {base_tdoc}" + ("  (Local)" if base_zip.exists() else "")
+        # ---> FIX: Always build and show the menu, regardless of whether revisions exist!
+        menu = QMenu(self.table)
+        menu.setStyleSheet("QMenu { font-size: 13px; }")
 
-            act_base = menu.addAction(lbl)
-            act_base.triggered.connect(
-                lambda _, t=base_tdoc: self._trigger_download_thread(base_tdoc, t, self.docs_ftp_url))
+        # 1. Base Version Action
+        base_zip = self.meeting_dir / base_tdoc / f"{base_tdoc}.zip"
+        lbl = f"🗎 Base Version: {base_tdoc}" + ("  (Local)" if base_zip.exists() else "")
+
+        act_base = menu.addAction(lbl)
+        act_base.triggered.connect(lambda _, t=base_tdoc: self._trigger_download_thread(base_tdoc, t, docs_url))
+
+        # 2. Revisions Actions (Only added if they exist)
+        if revisions:
             menu.addSeparator()
-
             for rev in revisions:
                 target_filename = f"{base_tdoc}{rev}"
                 rev_zip = self.meeting_dir / base_tdoc / f"{target_filename}.zip"
@@ -335,13 +341,13 @@ class TDocsWindow(QWidget):
                 act_rev.triggered.connect(
                     lambda _, t=target_filename: self._trigger_download_thread(base_tdoc, t, self.revisions_url))
 
-            # ---> NEW: Add the Local Folder shortcut to the bottom of the menu
-            menu.addSeparator()
-            act_folder = menu.addAction("📂 Open Local Folder")
-            tdoc_dir = self.meeting_dir / base_tdoc
-            act_folder.triggered.connect(lambda _, d=tdoc_dir: self._open_specific_folder(d))
+        # 3. Open Local Folder Action (Always available at the bottom!)
+        menu.addSeparator()
+        act_folder = menu.addAction("📂 Open Local Folder")
+        tdoc_dir = self.meeting_dir / base_tdoc
+        act_folder.triggered.connect(lambda _, d=tdoc_dir: self._open_specific_folder(d))
 
-            menu.exec_(QCursor.pos())
+        menu.exec_(QCursor.pos())
 
     def _trigger_download_thread(self, base_tdoc: str, target_filename: str, base_url: str):
         self.model.set_loading(base_tdoc, True)
