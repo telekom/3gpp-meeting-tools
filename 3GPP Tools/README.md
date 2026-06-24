@@ -21,88 +21,94 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ### 📡 3GPP Meeting & Specifications Database
 * **Asynchronous Three-Phase Syncing Engine:** * **Phase 1 (FTP Directory Mapping):** Scrapes the 3GPP FTP archives in parallel to instantly populate your database with all available meeting numbers, gracefully handling hidden RAN Ad-Hoc (`TSGR_AHs`) subdirectories.
-  * **Phase 2 (Deep Document Scrape):** Crawls the `Docs/` folder of every meeting. Uses smart Regex stripping to ignore file extensions and revisions, mathematically sorting and saving the exact **First TDoc** and **Last TDoc** for chronological indexing.
-  * **Phase 3 (DynaReport Metadata):** Connects to the 3GPP ASP.NET Portal to fetch rich metadata (Locations, Dates, Meeting Types). Built with a bulletproof **NLP Heuristic Engine** that universally normalizes unicode hyphens, bi-directionally searches for dates, and uses an **Upsert Engine** to add historical meetings even if their FTP folders have been deleted.
-* **Offline Local Cache & TDoc Management:**
-  * **1-Click TDocs List:** Bypasses 3GPP Portal bot-protection using randomized User-Agent headers to instantly download and natively open the official Meeting Excel list.
-  * **Bulk TDoc Cacher:** Asynchronously siphon an entire meeting's FTP `Docs/` folder to your local drive. The engine uses smart Regex to parse HTML for valid TDoc `.zip` files, automatically builds the correct subfolder architecture (e.g., `.../Agenda/`, `.../S2-2605693/`), and skips existing files to save bandwidth—perfect for terrible F2F hotel Wi-Fi!
-* **Advanced Database Filtering:** Instantly filter thousands of meetings by Working Group (SA2, RAN3, CT1, etc.), Date Range, Location, **In-Person vs. Electronic**, or **Regular vs. Ad-Hoc / BIS**.
-* **Direct Portal Integration:** Right-click any meeting to instantly open its parent FTP folder, its `Docs/` subfolder, or launch the official 3GPP Web Portal directly via its extracted `MtgId`.
+  * **Phase 2 (Deep Document Scrape):** Crawls the `Docs/` folder of every meeting. Uses smart Regex stripping to ignore file extensions and revisions, mathematically sorting the files to determine the first and last TDocs of the meeting.
+  * **Phase 3 (DynaReport Upserting):** Injects metadata (Location, Start/End Dates, Ad-Hoc/Electronic status) by fetching the legacy 3GPP Portal HTML tables.
+* **Intelligent TDocs Manager:**
+  * **Natural Sorting & Smart Filtering:** Bulletproof multi-select dropdowns and natural numerical sorting for complex multi-level Agenda Items (e.g., AI 20.6.2 sorts correctly before 20.6.11).
+  * **SA2 Electronic Revisions:** Automatically scrapes `INBOX/Revisions/` for electronic meetings, seamlessly mapping `rXX` versions to their base TDocs via an intuitive cascading context menu.
+  * **Multi-Action Folder Integration:** Instantly jump to local cache directories, Main FTP folders, Docs/ folders, or Revisions/ folders directly from the UI.
+* **3GPP FTP Session Manager:** Automatically injects randomized User-Agents and HTTP Keep-Alive headers to bypass aggressive 3GPP server throttling and "Too Many Requests" blocks.
 
-### 1-Click Document Slicer
-* **Massive File Handling:** Upload a monolithic 3GPP `.docx` specification (often hundreds of pages long) and automatically slice it into individual, bite-sized Word documents based on Heading 1 chapters.
-* **Parallel Processing:** Utilizes `concurrent.futures` to slice heavy XML structures across multiple CPU threads, finishing in seconds what would take minutes manually.
+### 📝 Word Document Manipulation
+* **Global Comparison Cart:** A persistent state dashboard that bridges multiple meeting windows. Push any Base TDoc or specific Revision into "Slot A" and "Slot B", then launch a native Word comparison instantly.
+* **Isolated Word Diff Engine:** Uses COM `DispatchEx` to spawn an invisible, isolated instance of Microsoft Word. It safely opens files as Read-Only, auto-accepts tracked changes purely in RAM, and generates a visual comparison without freezing your active Word sessions or locking local files.
+* **Intelligent DocxSplitter:** Safely slices massive 3GPP TS/TR specifications (often hundreds of pages long) into individual Word documents based on Heading 1 or Heading 2 boundaries, perfectly preserving styles, images, and Visio objects.
+* **Background Word-to-PDF Converter:** A headless Word automation thread that silently converts generated files to PDFs or XPS without interrupting your workflow.
+* **Native Visio Extractor:** Parses the raw XML (`document.xml`) of a `.docx` file, identifies embedded `OLEObject` bins, and extracts raw `.vsdx` Visio diagrams straight out of the Word document to your local disk.
 
-### 🎨 Native PlantUML to Visio / PPTX
-* **Text-to-Vector:** Write standard PlantUML code and click "Export." The tool compiles the code to an SVG, parses the internal XML, and translates it entirely into native Microsoft COM Objects. 
-* **Fully Editable Shapes:** No flat images! Every lifeline, arrow, and text box becomes a real, grouped Visio shape or PowerPoint element that you can drag, recolor, and edit natively.
-* **Smart Alignment:** Calculates bounding boxes and font metrics dynamically to ensure your Visio exports look exactly like the generated PlantUML preview.
+### 🎨 PlantUML to Visio Converter
+* **Live Preview IDE:** A code editor featuring syntax highlighting, line numbering, and a 500ms debounced live-rendering engine.
+* **Batch Conversion Engine:** Drag and drop hundreds of `.puml` or `.txt` files to queue them for multi-threaded background conversion.
+* **Custom Visio Stencil Engine:** Converts standard PlantUML shapes into grouped Visio shapes (`.vsdx`) mapped directly to custom 3GPP node stencils.
 
 ---
 
 ## <a id="architecture"></a>🏗️ Architecture & Data Flow
 
-This application is built with a highly decoupled, modular **PyQt5** architecture.
+This application strictly adheres to the **Model-View-Controller (MVC)** and **Event-Driven Architecture (EDA)** paradigms using `PyQt5`. 
 
-1. **`core/`:** Contains network sessions with automatic proxy injection, multi-threaded worker classes, database managers (`SQLite3`), and the 3GPP HTML/Regex scraping engines.
-2. **`ui/`:** Component-based UI elements. Features a dark-mode Syntax Highlighter (`QsciScintilla`), SVG preview panes, responsive splitters, and separated Data Models (`QAbstractTableModel`).
-3. **`exporters/`:** The COM interop layer. Uses `win32com.client` to boot invisible background instances of Visio and PowerPoint, injecting XML path data directly into the Microsoft Office API.
+1. **The UI Layer (`modules/*/ui/`):** Contains only dumb Qt Widgets and standard `QAbstractTableModel` proxies. It never blocks the main thread.
+2. **The Core Layer (`modules/*/core/`):** Contains the heavy lifting. All database transactions (`sqlite3`), FTP network scraping (`requests`), COM object automation (`win32com`), and XML manipulation (`python-docx`) are isolated here.
+3. **The Threading Bridge:** Every Core module inherits from `QThread`. The UI sends data to the Thread, and the Thread emits `pyqtSignals` back to the UI to update progress bars or logs.
+4. **The Singleton Managers:** The Network Configuration (proxies) and Comparison Cart states are managed by robust Singletons to ensure cross-tab synchronization.
 
 ---
 
 ## <a id="prerequisites"></a>⚙️ Prerequisites
 
-* **Windows OS** (Required for the `win32com` Office exporting functionality).
-* **Python 3.9+**
-* **Microsoft Visio & PowerPoint** (Must be locally installed and activated. Web-only versions are not supported).
-* **Java (JRE)** (Required by the local PlantUML `.jar` compiler).
-* Graphviz / Dot (Optional, but recommended for advanced PlantUML activity diagrams).
+To run this application natively or build it from source, you must have the following installed on your Windows machine:
+
+1. **Python 3.10+**
+2. **Microsoft Word (Desktop App)** (Required for the COM Automation Splitter, Converter, and Diff Engine)
+3. **Java Runtime Environment (JRE) 11+** (Required for the local PlantUML generation engine)
+4. *(Optional but Recommended)* **Microsoft Visio** (To view the generated outputs)
 
 ---
 
 ## <a id="installation"></a>🚀 Installation
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/yourusername/3gpp-meeting-tools.git
-   cd 3gpp-meeting-tools
-   ```
-2. **Install Python Dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-   *(Core dependencies include: `PyQt5`, `QScintilla`, `pywin32`, `beautifulsoup4`, `requests`, `python-docx`)*
-3. **Run the Application:**
-   ```bash
-   python main.py
-   ```
+### 1. Clone the Repository
+```bash
+git clone https://github.com/your-repo/3GPP-Delegate-Helper.git
+cd 3GPP-Delegate-Helper
+```
+
+### 2. Install Python Dependencies
+```bash
+pip install -r requirements.txt
+```
+*Note: This includes `PyQt5`, `requests`, `python-docx`, `beautifulsoup4`, `openpyxl`, and `pywin32`.*
+
+### 3. Launch the Application
+```bash
+python src/main_puml2visio.py
+```
+*Upon first launch, the app will automatically attempt to download the latest `plantuml.jar` from GitHub if it is not present in your assets folder.*
 
 ---
 
 ## <a id="usage"></a>📖 How to Use the GUI
 
-### Tab 1: Meetings & Sync
-* **Syncing:** On the right-side panel, ensure all three Scrape Configuration checkboxes are checked, then click **"🔄 Sync All Meetings"**. Watch the console as it maps directories, extracts TDocs, and back-fills metadata.
-* **Filtering:** Use the dropdowns to quickly find "SA2" meetings that were "Electronic" and "Ad-Hoc".
-* **Local Cache Setup:** Use the "Local Cache Directory" input box to define where your offline files and TDocs are saved.
-* **Right-Click Menu:** Right-click any row to view full meeting info, jump to the FTP folder, open the 3GPP Portal, **or manage local offline files (Open Cache, Open TDocs List, Bulk Cache Docs).**
+### 📊 3GPP Meetings & Specifications
+1. Navigate to the **Meetings** tab.
+2. Click **Sync All Meetings** to trigger the 3-Phase scraper. 
+3. Right-click any meeting to access its FTP folders, view its info, or open its cached **TDocs List**.
+4. In the TDocs Window, use the **Search** bar or dropdown filters to find specific documents. Click the Action column to automatically download, unzip, and open the `.doc` files, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
 
-### Tab 2: Document Slicer
-* Click **"Browse..."** to select a heavy `.docx` specification file.
-* Select an output folder.
-* Click **"Slice Document"**. The progress bar will track the asynchronous extraction of chapters.
+### 📝 Slicing & Comparing Word Documents
+1. In the **Comparison Cart** at the bottom of the Meetings Tab, populate Slot A and Slot B with local files or fetched 3GPP Revisions.
+2. Click **Compare in Word**. The tool will spawn a background process and present you with a native Word redline document.
+3. For large specs, navigate to the **Spec Splitter** tab, drag a `.docx` file, choose a Heading depth (e.g., "Level 2" for clauses like `6.1`, `6.2`), and click Split.
 
-### Tab 3: Diagram Converter
-* **Editor:** Write your code in the left pane. Syntax is automatically highlighted. 
-* **Preview:** Click `Render Preview` (or press `Ctrl+Enter` / `F5`) to generate an SVG preview on the right.
-* **Export Visio:** Ensure Visio is closed or idle. Click `Export Visio`. The app will launch Visio in the background, draw the shapes, and prompt you to save the `.vsdx` file.
-* **Export PPTX:** Click `Export PPTX`. PowerPoint will open, generate a new slide with your editable shapes, and leave the application open for you to review.
+### 🎨 PlantUML Editor
+1. Type standard PlantUML code into the left pane.
+2. The Live Preview will automatically update the image on the right.
+3. Click **Export Visio** to generate a native `.vsdx` file, or **Copy to Clipboard** to paste the image directly into PowerPoint.
 
-### 🌐 Top Toolbar Controls
-* **🖥️ Task Manager:** Instantly lists all background `VISIO.EXE` and `POWERPNT.EXE` processes. Use "Kill Ghosts" if an export crashes and leaves a locked process behind.
-* **🗑️ Clear Cache:** Deletes temporary SVG files and downloaded `.jar` files from your AppData temp point.
-* **📡 Proxy:** Instantly test and inject HTTP/HTTPS proxies into the global session without restarting the app.
-* **🔄 Update JAR:** Ping GitHub for newer versions of PlantUML.
+### ⚙️ Configuring Corporate Proxies
+If you are behind a corporate firewall:
+1. Click the **Network Config (Proxy)** button in the top right.
+2. Enter your HTTP/HTTPS proxies into the global session without restarting the app.
 
 ---
 
@@ -111,5 +117,5 @@ This application is built with a highly decoupled, modular **PyQt5** architectur
 * **Missing / Ghost Meetings in DB:** If 3GPP deletes an old folder from their FTP server, Phase 1 cannot find it. However, the Phase 3 Upsert Engine will find the historical record on the DynaReport page and *force* it into your database anyway. These meetings will have a valid 3GPP Portal link, but their FTP links will lead to a 404.
 * **The "3GPP Empty String" Crash:** The scraper uses advanced unicode normalization to handle 3GPP's notorious formatting errors (like using non-breaking hyphens in dates or completely omitting table columns). If a meeting appears with blank dates, try clicking "Sync this Meeting" via the right-click menu to run the heuristic parser again.
 * **COM Errors & File Locks:** If Visio or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory and lock your files. Click the **🖥️ Task Manager** button in the app console and click **Kill Ghosts** to instantly clear them out without losing your active work.
+* **The Table Resizing "Amnesia":** If a dropdown menu is open while filtering TDocs, the row heights might appear squished. Qt inherently suspends geometry calculations while popups are active to save memory. 
 * **Word Splitter Memory Throttling:** Slicing a heavy `.docx` file unzips a massive XML tree into your RAM. To prevent memory crashes and disk thrashing, the parallel processing is hard-capped at 3 maximum threads. You will see the chapters output in batches of 3 in the console.
-
