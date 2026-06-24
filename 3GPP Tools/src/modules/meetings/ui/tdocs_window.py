@@ -225,7 +225,8 @@ class TDocsTableModel(QAbstractTableModel):
         elif role == Qt.TextAlignmentRole:
             if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status"]:
                 return Qt.AlignCenter
-            return Qt.AlignLeft | Qt.AlignTop
+            # ---> FIX: Vertically center all other text columns!
+            return Qt.AlignLeft | Qt.AlignVCenter
         return None
 
     def rowCount(self, index=QModelIndex()):
@@ -373,7 +374,6 @@ class TDocsWindow(QWidget):
 
         main_layout.addWidget(filter_frame)
 
-        # --- TABLE SETUP ---
         self.table = QTableView()
         self.model = TDocsTableModel(tdocs_data)
 
@@ -399,7 +399,7 @@ class TDocsWindow(QWidget):
 
         # ---> FIX 1: Remove bulky row padding and tightly wrap the text
         self.table.setWordWrap(True)
-        self.table.verticalHeader().setDefaultSectionSize(24)  # Small, clean default height
+        self.table.verticalHeader().setDefaultSectionSize(20)  # Small, clean default height
         self.table.resizeRowsToContents()  # Calculates exact heights based on content
 
         self.html_delegate = HtmlDelegate(self.table)
@@ -456,3 +456,7 @@ class TDocsWindow(QWidget):
         visible = self.proxy.rowCount()
         total = self.model.rowCount()
         self.count_lbl.setText(f"Showing {visible} of {total} TDocs")
+
+        # ---> FIX: Force PyQt to recalculate text-wrap heights whenever rows are filtered!
+        if hasattr(self, 'table'):
+            self.table.resizeRowsToContents()
