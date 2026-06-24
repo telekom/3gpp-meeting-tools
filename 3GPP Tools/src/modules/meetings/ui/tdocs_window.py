@@ -2,11 +2,89 @@
 import os
 import re
 import webbrowser
+import zipfile
+import requests
+from pathlib import Path
+
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QComboBox, QFrame,
                              QPushButton, QMessageBox, QStyledItemDelegate, QStyleOptionViewItem, QStyle)
-from PyQt5.QtGui import QStandardItemModel, QStandardItem, QTextDocument
-from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QEvent, pyqtSignal, QRectF, QSize
+from PyQt5.QtGui import QStandardItemModel, QStandardItem, QTextDocument, QColor, QPainter, QPen
+from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QEvent, pyqtSignal, QRectF, QSize, \
+    QThread, QTimer
+
+from core.network.session import NetworkSession
+
+
+# ==========================================
+# --- BACKGROUND WORKER: TDOC DOWNLOADER ---
+# ==========================================
+class TDocActionThread(QThread):
+    finished_action = pyqtSignal(str, bool, str)
+
+    def __init__(self, tdoc: str, docs_url: str, meeting_dir: Path):
+        super().__init__()
+        self.tdoc = tdoc
+        self.docs_url = docs_url
+        self.tdoc_dir = meeting_dir / tdoc
+        self.zip_path = self.tdoc_dir / f"{tdoc}.zip"
+
+    def run(self):
+        try:
+            # 1. Check if viewable files are already extracted
+            extracted_files = []
+            if self.tdoc_dir.exists():
+                valid_exts = ('.doc', '.docx', '.pdf', '.ppt', '.pptx')
+                extracted_files = [f for f in self.tdoc_dir.iterdir()
+                                   if f.is_file() and f.suffix.lower() in valid_exts and not f.name.startswith('~$')]
+
+            # 2. Download and Extract if necessary
+            if not extracted_files:
+                if not self.zip_path.exists():
+                    self.tdoc_dir.mkdir(parents=True, exist_ok=True)
+                    dl_url = self.docs_url.rstrip('/') + f"/{self.tdoc}.zip"
+
+                    session = NetworkSession.get_instance()
+                    NetworkSession.apply_humanness(session)
+                    response = session.get(dl_url, stream=True, timeout=30)
+                    response.raise_for_status()
+
+                    with open(self.zip_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=16384):
+                            if chunk: f.write(chunk)
+
+                # Extract all valid documents flatly (ignoring internal ZIP folder structures)
+                with zipfile.ZipFile(self.zip_path, 'r') as z:
+                    for info in z.infolist():
+                        if '__MACOSX' in info.filename or info.filename.startswith('._'):
+                            continue
+                        if info.filename.lower().endswith(('.doc', '.docx', '.pdf', '.ppt', '.pptx')):
+                            out_path = self.tdoc_dir / Path(info.filename).name
+                            with open(out_path, 'wb') as f:
+                                f.write(z.read(info.filename))
+                            extracted_files.append(out_path)
+
+            if not extracted_files:
+                self.finished_action.emit(self.tdoc, False,
+                                          "No viewable documents (.doc, .pdf, .ppt) found inside the ZIP.")
+                return
+
+            # 3. Open extracted files
+            for doc in extracted_files:
+                if hasattr(os, 'startfile'):
+                    os.startfile(str(doc))
+                else:
+                    webbrowser.open(f"file:///{doc}")
+
+            self.finished_action.emit(self.tdoc, True, "Opened successfully.")
+
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                self.finished_action.emit(self.tdoc, False, "TDoc ZIP not found on the server (404 Error).")
+            else:
+                self.finished_action.emit(self.tdoc, False, f"Network error: {e}")
+        except Exception as e:
+            self.finished_action.emit(self.tdoc, False, str(e))
 
 
 # ==========================================
@@ -20,19 +98,17 @@ class CheckableComboBox(QComboBox):
         self.title = title
         self.setEditable(True)
         self.lineEdit().setReadOnly(True)
-        self._updating = False  # Prevent recursive loops when bulk-checking
+        self._updating = False
 
         self.lineEdit().installEventFilter(self)
         self.setModel(QStandardItemModel(self))
         self.view().viewport().installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        # 1. Force the dropdown to open if the user clicks the text box
         if obj == self.lineEdit() and event.type() == QEvent.MouseButtonPress:
             self.showPopup()
             return True
 
-        # 2. Handle the checkboxes inside the dropdown
         if obj == self.view().viewport() and event.type() == QEvent.MouseButtonRelease:
             index = self.view().indexAt(event.pos())
             if index.isValid():
@@ -42,17 +118,12 @@ class CheckableComboBox(QComboBox):
                     new_state = Qt.Unchecked if (state == Qt.Checked or state == 2) else Qt.Checked
 
                     self._updating = True
-
-                    # If user clicked the "(Select All)" item at index 0
                     if index.row() == 0:
                         item.setCheckState(new_state)
-                        # Cascade state to all other items
                         for i in range(1, self.model().rowCount()):
                             self.model().item(i).setCheckState(new_state)
                     else:
-                        # User clicked a standard item
                         item.setCheckState(new_state)
-                        # Re-evaluate the "(Select All)" checkbox state
                         all_checked = True
                         for i in range(1, self.model().rowCount()):
                             if self.model().item(i).checkState() not in (Qt.Checked, 2):
@@ -61,15 +132,12 @@ class CheckableComboBox(QComboBox):
                         self.model().item(0).setCheckState(Qt.Checked if all_checked else Qt.Unchecked)
 
                     self._updating = False
-
                     self.updateText()
                     self.selectionChanged.emit(self.getCheckedItems())
-            return True  # Consume event to prevent popup from closing
-
+            return True
         return super().eventFilter(obj, event)
 
     def addItems(self, items):
-        # ADDED: Master "(Select All)" item at the very top
         item_all = QStandardItem("(Select All)")
         item_all.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
         item_all.setCheckState(Qt.Checked)
@@ -87,7 +155,6 @@ class CheckableComboBox(QComboBox):
 
     def getCheckedItems(self):
         checked = []
-        # Skip index 0 because it's the "(Select All)" master toggle
         for i in range(1, self.model().rowCount()):
             item = self.model().item(i)
             state = item.checkState()
@@ -98,7 +165,7 @@ class CheckableComboBox(QComboBox):
     def updateText(self):
         if self._updating: return
         checked = self.getCheckedItems()
-        total = self.model().rowCount() - 1  # Exclude "(Select All)" from math
+        total = self.model().rowCount() - 1
 
         if total == 0:
             self.lineEdit().setText(f"{self.title}: None")
@@ -112,7 +179,7 @@ class CheckableComboBox(QComboBox):
 
 
 # ==========================================
-# --- HTML CLICKABLE CELL DELEGATE  ---
+# --- DELEGATES ---
 # ==========================================
 class HtmlDelegate(QStyledItemDelegate):
     linkClicked = pyqtSignal(str)
@@ -120,18 +187,15 @@ class HtmlDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         options = QStyleOptionViewItem(option)
         self.initStyleOption(options, index)
-
         painter.save()
         doc = QTextDocument()
         doc.setDocumentMargin(4)
         doc.setDefaultFont(options.font)
         doc.setHtml(options.text)
 
-        # Draw the standard background (maintains alternating row colors cleanly)
         options.text = ""
         options.widget.style().drawControl(QStyle.CE_ItemViewItem, options, painter)
 
-        # Draw the HTML text over it
         painter.translate(options.rect.left(), options.rect.top())
         clip = QRectF(0, 0, options.rect.width(), options.rect.height())
         doc.drawContents(painter, clip)
@@ -163,18 +227,86 @@ class HtmlDelegate(QStyledItemDelegate):
         return super().editorEvent(event, model, option, index)
 
 
+class TDocActionDelegate(QStyledItemDelegate):
+    actionClicked = pyqtSignal(str)
+
+    def paint(self, painter, option, index):
+        options = QStyleOptionViewItem(option)
+        self.initStyleOption(options, index)
+        options.text = ""
+        options.widget.style().drawControl(QStyle.CE_ItemViewItem, options, painter)
+
+        tdoc = index.data(Qt.UserRole)
+        state = index.data(Qt.UserRole + 1)
+        if not tdoc: return
+
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Add internal padding to make it float like a pill
+        rect = option.rect.adjusted(4, 4, -4, -4)
+
+        if state == 'EXISTS':
+            bg_color, border_color, text_color = QColor("#E6F4E6"), QColor("#A3DDA3"), QColor("#0C6B0C")
+            text = "✓ Open"
+        elif state == 'LOADING':
+            bg_color, border_color, text_color = QColor("#FFF4CE"), QColor("#F3C74C"), QColor("#B85C00")
+            text = "⏳ Fetching"
+        else:
+            bg_color, border_color, text_color = QColor("#E1F0FF"), QColor("#99C9FF"), QColor("#005A9E")
+            text = "⬇ Download"
+
+        painter.setBrush(bg_color)
+        painter.setPen(QPen(border_color, 1))
+        painter.drawRoundedRect(rect, 10, 10)
+
+        painter.setPen(text_color)
+        font = painter.font()
+        font.setBold(True)
+        font.setPointSize(8)
+        painter.setFont(font)
+        painter.drawText(rect, Qt.AlignCenter, text)
+
+        painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        if event.type() == QEvent.MouseButtonRelease:
+            rect = option.rect.adjusted(4, 4, -4, -4)
+            if rect.contains(event.pos()):
+                tdoc = index.data(Qt.UserRole)
+                if tdoc:
+                    self.actionClicked.emit(tdoc)
+                    return True
+        return super().editorEvent(event, model, option, index)
+
+
 # ==========================================
 # --- DATA MODELS ---
 # ==========================================
 class TDocsTableModel(QAbstractTableModel):
-    def __init__(self, data=None):
+    def __init__(self, meeting_dir: Path, data=None):
         super().__init__()
+        self.meeting_dir = meeting_dir
         self._data = data or []
+        # INDEX 0 is now the Action Button Column
         self._headers = [
-            "TDoc", "Title", "Source", "Type", "For",
+            "", "TDoc", "Title", "Source", "Type", "For",
             "Abstract", "Secretary Remarks", "Agenda Item", "TDoc Status", "Related TDocs"
         ]
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
+        self.loading_tdocs = set()
+
+    def set_loading(self, tdoc: str, is_loading: bool):
+        if is_loading:
+            self.loading_tdocs.add(tdoc)
+        else:
+            self.loading_tdocs.discard(tdoc)
+
+        for r in range(self.rowCount()):
+            if self._data[r].get("TDoc") == tdoc:
+                idx = self.index(r, 0)
+                self.dataChanged.emit(idx, idx)
+                break
 
     def _linkify(self, prefix: str, text: str, html: bool) -> str:
         if not text: return ""
@@ -210,6 +342,18 @@ class TDocsTableModel(QAbstractTableModel):
         row = self._data[index.row()]
         col_name = self._headers[index.column()]
 
+        # Handle the new Action Column
+        if col_name == "":
+            if role == Qt.UserRole:
+                return row.get("TDoc", "")
+            if role == Qt.UserRole + 1:
+                tdoc = row.get("TDoc", "")
+                if tdoc in self.loading_tdocs: return "LOADING"
+                zip_path = self.meeting_dir / tdoc / f"{tdoc}.zip"
+                return "EXISTS" if zip_path.exists() else "MISSING"
+            return None
+
+        # Existing string handling
         if role == Qt.DisplayRole:
             if col_name == "Related TDocs":
                 return self._format_related_tdocs(row, html=True)
@@ -225,7 +369,6 @@ class TDocsTableModel(QAbstractTableModel):
         elif role == Qt.TextAlignmentRole:
             if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status"]:
                 return Qt.AlignCenter
-            # ---> FIX: Vertically center all other text columns!
             return Qt.AlignLeft | Qt.AlignVCenter
         return None
 
@@ -267,18 +410,20 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
     def filterAcceptsRow(self, source_row, source_parent):
         model = self.sourceModel()
 
-        type_data = model.data(model.index(source_row, 3, source_parent), Qt.UserRole)
+        # Columns shifted +1 due to the new Action button at index 0
+        type_data = model.data(model.index(source_row, 4, source_parent), Qt.UserRole)
         if type_data not in self.type_filters: return False
 
-        ai_data = model.data(model.index(source_row, 7, source_parent), Qt.UserRole)
+        ai_data = model.data(model.index(source_row, 8, source_parent), Qt.UserRole)
         if ai_data not in self.ai_filters: return False
 
-        status_data = model.data(model.index(source_row, 8, source_parent), Qt.UserRole)
+        status_data = model.data(model.index(source_row, 9, source_parent), Qt.UserRole)
         if status_data not in self.status_filters: return False
 
         if self.global_filter:
             match_found = False
-            for col in [0, 1, 2, 5, 9]:
+            # Search TDoc, Title, Source, Abstract, and Related
+            for col in [1, 2, 3, 6, 10]:
                 data = model.data(model.index(source_row, col, source_parent), Qt.UserRole)
                 if data and self.global_filter in str(data).lower():
                     match_found = True
@@ -294,7 +439,11 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 class TDocsWindow(QWidget):
     def __init__(self, mtg_info: dict, tdocs_data: list, filepath: str):
         super().__init__()
+        self.mtg_info = mtg_info
         self.filepath = filepath
+        self.meeting_dir = Path(filepath).parent.parent
+        self.active_threads = {}
+
         title = f"TDocs: {mtg_info.get('wg_name', '')} {mtg_info.get('meeting_number', '')}"
         self.setWindowTitle(title)
         self.resize(1400, 750)
@@ -308,6 +457,18 @@ class TDocsWindow(QWidget):
         header_layout = QHBoxLayout()
         title_lbl = QLabel(f"<b>{title}</b>")
         title_lbl.setStyleSheet("font-size: 18px; color: #333;")
+
+        self.folder_btn = QPushButton("📂 Meeting Folder")
+        self.folder_btn.setCursor(Qt.PointingHandCursor)
+        self.folder_btn.setStyleSheet("""
+            QPushButton {
+                font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold;
+                border-radius: 6px; padding: 5px 12px;
+                color: #005A9E; background-color: #E1F0FF; border: 1px solid #99C9FF;
+            }
+            QPushButton:hover { background-color: #CCE4FF; border: 1px solid #005A9E; }
+        """)
+        self.folder_btn.clicked.connect(self._open_meeting_folder)
 
         self.excel_btn = QPushButton("📗 Open in Excel")
         self.excel_btn.setCursor(Qt.PointingHandCursor)
@@ -326,6 +487,7 @@ class TDocsWindow(QWidget):
 
         header_layout.addWidget(title_lbl)
         header_layout.addStretch()
+        header_layout.addWidget(self.folder_btn)
         header_layout.addWidget(self.excel_btn)
         header_layout.addSpacing(15)
         header_layout.addWidget(self.count_lbl)
@@ -374,8 +536,9 @@ class TDocsWindow(QWidget):
 
         main_layout.addWidget(filter_frame)
 
+        # --- TABLE SETUP ---
         self.table = QTableView()
-        self.model = TDocsTableModel(tdocs_data)
+        self.model = TDocsTableModel(self.meeting_dir, tdocs_data)
 
         self.proxy = TDocsFilterProxyModel()
         self.proxy.setSourceModel(self.model)
@@ -393,43 +556,79 @@ class TDocsWindow(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
         self.table.setStyleSheet("""
-                    QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; }
-                    QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }
-                """)
+            QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; }
+            QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }
+        """)
 
-        # ---> FIX 1: Remove bulky row padding and tightly wrap the text
         self.table.setWordWrap(True)
-        self.table.verticalHeader().setDefaultSectionSize(20)  # Small, clean default height
-        self.table.resizeRowsToContents()  # Calculates exact heights based on content
+        self.table.verticalHeader().setDefaultSectionSize(20)
+        self.table.resizeRowsToContents()
 
+        # Action Delegate (Index 0)
+        self.action_delegate = TDocActionDelegate(self.table)
+        self.action_delegate.actionClicked.connect(self._handle_tdoc_action)
+        self.table.setItemDelegateForColumn(0, self.action_delegate)
+
+        # HTML Link Delegate (Index 10)
         self.html_delegate = HtmlDelegate(self.table)
         self.html_delegate.linkClicked.connect(self._scroll_to_tdoc)
-        self.table.setItemDelegateForColumn(9, self.html_delegate)
+        self.table.setItemDelegateForColumn(10, self.html_delegate)
         self.table.viewport().setMouseTracking(True)
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-
-        # ---> FIX 2: Shift the flexible "Stretch" space from Title to Abstract
-        header.resizeSection(0, 110)  # TDoc
-        header.resizeSection(1, 250)  # Title (Now narrower and fixed width)
-        header.setSectionResizeMode(5, QHeaderView.Stretch)  # Abstract (Now takes all remaining space)
-        header.resizeSection(9, 160)  # Related TDocs
+        header.resizeSection(0, 85)  # Action Button
+        header.resizeSection(1, 110)  # TDoc
+        header.resizeSection(2, 250)  # Title
+        header.setSectionResizeMode(6, QHeaderView.Stretch)  # Abstract
+        header.resizeSection(10, 160)  # Related
 
         main_layout.addWidget(self.table)
 
     # --- ACTIONS & TRIGGERS ---
+    def _handle_tdoc_action(self, tdoc: str):
+        if tdoc in self.model.loading_tdocs:
+            return
+
+        docs_url = self.mtg_info.get("docs_folder_url")
+        if not docs_url:
+            QMessageBox.warning(self, "Missing URL", "This meeting does not have a Docs/ URL mapped in the database.")
+            return
+
+        self.model.set_loading(tdoc, True)
+        QTimer.singleShot(0, self.table.resizeRowsToContents) # <--- NEW: Stop row from shrinking!
+
+        thread = TDocActionThread(tdoc, docs_url, self.meeting_dir)
+        thread.finished_action.connect(self._on_tdoc_action_finished)
+        self.active_threads[tdoc] = thread
+        thread.start()
+
+    def _on_tdoc_action_finished(self, tdoc: str, success: bool, msg: str):
+        if tdoc in self.active_threads:
+            del self.active_threads[tdoc]
+
+        self.model.set_loading(tdoc, False)
+        QTimer.singleShot(0, self.table.resizeRowsToContents)  # <--- NEW: Stop row from shrinking!
+
+        if not success:
+            QMessageBox.warning(self, f"Action Failed: {tdoc}", msg)
+
     def _scroll_to_tdoc(self, target_tdoc: str):
-        """Finds the TDoc and beautifully scrolls it to the exact center of the screen."""
         for row in range(self.proxy.rowCount()):
-            idx = self.proxy.index(row, 0)
+            idx = self.proxy.index(row, 1)  # Column 1 is TDoc string
             if self.proxy.data(idx, Qt.UserRole) == target_tdoc:
-                # FIXED 2: No more selectRow(). We just visually scroll to it.
                 self.table.scrollTo(idx, QTableView.PositionAtCenter)
                 return
+        QMessageBox.information(self, "Hidden", f"TDoc '{target_tdoc}' is currently hidden by your filters.")
 
-        QMessageBox.information(self, "Hidden",
-                                f"TDoc '{target_tdoc}' exists, but is currently hidden by your filters.")
+    def _open_meeting_folder(self):
+        if self.meeting_dir.exists():
+            if hasattr(os, 'startfile'):
+                os.startfile(str(self.meeting_dir))
+            else:
+                webbrowser.open(f"file:///{self.meeting_dir}")
+        else:
+            QMessageBox.warning(self, "Not Found", "The root meeting folder has not been created yet.")
 
     def _open_excel(self):
         try:
@@ -457,6 +656,6 @@ class TDocsWindow(QWidget):
         total = self.model.rowCount()
         self.count_lbl.setText(f"Showing {visible} of {total} TDocs")
 
-        # ---> FIX: Force PyQt to recalculate text-wrap heights whenever rows are filtered!
+        # <--- NEW: Force resize AFTER the filter completely finishes updating the UI!
         if hasattr(self, 'table'):
-            self.table.resizeRowsToContents()
+            QTimer.singleShot(0, self.table.resizeRowsToContents)
