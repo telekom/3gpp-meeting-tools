@@ -16,6 +16,7 @@ from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDo
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel
+from modules.meetings.core.compare_manager import ComparisonManager
 
 
 # ==========================================
@@ -306,65 +307,82 @@ class TDocsWindow(QWidget):
 
     def _handle_tdoc_action(self, base_tdoc: str):
         if base_tdoc in self.model.loading_tdocs: return
+        if not hasattr(self, 'docs_ftp_url') or not self.docs_ftp_url: return
 
-        if not hasattr(self, 'docs_ftp_url') or not self.docs_ftp_url:
-            QMessageBox.warning(self, "Missing URL", "This meeting does not have a Docs/ URL mapped in the database.")
-            return
-
-        # Ensure the base docs URL is also a full HTTPS URL
-        docs_url = self.docs_ftp_url
-        if not docs_url.startswith("http"):
-            docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip('/')
-
+        docs_url = self.docs_ftp_url if self.docs_ftp_url.startswith(
+            "http") else "https://www.3gpp.org/ftp/" + self.docs_ftp_url.lstrip('/')
         revisions = self.model.revisions.get(base_tdoc, [])
 
-        # ---> FIX: Always build and show the menu, regardless of whether revisions exist!
         menu = QMenu(self.table)
         menu.setStyleSheet("QMenu { font-size: 13px; }")
 
-        # 1. Base Version Action
+        # --- 1. OPEN ACTIONS ---
         base_zip = self.meeting_dir / base_tdoc / f"{base_tdoc}.zip"
-        lbl = f"🗎 Base Version: {base_tdoc}" + ("  (Local)" if base_zip.exists() else "")
+        act_base = menu.addAction(f"🗎 Open Base: {base_tdoc}" + ("  (Local)" if base_zip.exists() else ""))
+        act_base.triggered.connect(lambda _, t=base_tdoc: self._trigger_download_thread(base_tdoc, t, docs_url, False))
 
-        act_base = menu.addAction(lbl)
-        act_base.triggered.connect(lambda _, t=base_tdoc: self._trigger_download_thread(base_tdoc, t, docs_url))
-
-        # 2. Revisions Actions (Only added if they exist)
         if revisions:
             menu.addSeparator()
             for rev in revisions:
                 target_filename = f"{base_tdoc}{rev}"
                 rev_zip = self.meeting_dir / base_tdoc / f"{target_filename}.zip"
-                lbl = f"📝 Revision: {target_filename}" + ("  (Local)" if rev_zip.exists() else "")
-
-                act_rev = menu.addAction(lbl)
+                act_rev = menu.addAction(
+                    f"📝 Open Revision: {target_filename}" + ("  (Local)" if rev_zip.exists() else ""))
                 act_rev.triggered.connect(
-                    lambda _, t=target_filename: self._trigger_download_thread(base_tdoc, t, self.revisions_url))
+                    lambda _, t=target_filename: self._trigger_download_thread(base_tdoc, t, self.revisions_url, False))
 
-        # 3. Open Local Folder Action (Always available at the bottom!)
+        # --- 2. LOCAL FOLDER ---
         menu.addSeparator()
         act_folder = menu.addAction("📂 Open Local Folder")
-        tdoc_dir = self.meeting_dir / base_tdoc
-        act_folder.triggered.connect(lambda _, d=tdoc_dir: self._open_specific_folder(d))
+        act_folder.triggered.connect(lambda _, d=(self.meeting_dir / base_tdoc): self._open_specific_folder(d))
+
+        # --- 3. COMPARISON CART SUBMENU ---
+        menu.addSeparator()
+        compare_menu = menu.addMenu("⚖️ Add to Comparison Cart...")
+
+        act_cmp_base = compare_menu.addAction(f"🗎 Base Version: {base_tdoc}")
+        act_cmp_base.triggered.connect(
+            lambda _, t=base_tdoc: self._trigger_download_thread(base_tdoc, t, docs_url, True))
+
+        for rev in revisions:
+            target_filename = f"{base_tdoc}{rev}"
+            act_cmp_rev = compare_menu.addAction(f"📝 Revision: {target_filename}")
+            act_cmp_rev.triggered.connect(
+                lambda _, t=target_filename: self._trigger_download_thread(base_tdoc, t, self.revisions_url, True))
 
         menu.exec_(QCursor.pos())
 
-    def _trigger_download_thread(self, base_tdoc: str, target_filename: str, base_url: str):
+    def _trigger_download_thread(self, base_tdoc: str, target_filename: str, base_url: str,
+                                 is_silent_compare: bool = False):
         self.model.set_loading(base_tdoc, True)
 
         thread = TDocActionThread(base_tdoc, target_filename, base_url, self.meeting_dir)
-        thread.finished_action.connect(self._on_tdoc_action_finished)
+
+        # We hackily attach the flag to the thread object so the callback knows what to do!
+        thread.is_silent_compare = is_silent_compare
+        thread.target_filename = target_filename
+
+        thread.finished_action.connect(lambda t, s, m, th=thread: self._on_tdoc_action_finished(t, s, m, th))
         self.active_threads[base_tdoc] = thread
         thread.start()
 
-    def _on_tdoc_action_finished(self, tdoc: str, success: bool, msg: str):
+    def _on_tdoc_action_finished(self, tdoc: str, success: bool, msg: str, thread: TDocActionThread):
         if tdoc in self.active_threads:
             del self.active_threads[tdoc]
-
         self.model.set_loading(tdoc, False)
 
         if not success:
             QMessageBox.warning(self, f"Action Failed: {tdoc}", msg)
+            return
+
+        if getattr(thread, "is_silent_compare", False):
+            # Locate the extracted Word doc inside the folder
+            extracted_files = list((self.meeting_dir / tdoc).glob("*.doc*"))
+            if extracted_files:
+                # Add to global cart!
+                ComparisonManager.get_instance().add_to_cart(thread.target_filename, str(extracted_files[0]))
+            else:
+                QMessageBox.warning(self, "Compare Failed", "No Word document found inside this TDoc ZIP.")
 
     def _scroll_to_tdoc(self, target_tdoc: str):
         for row in range(self.proxy.rowCount()):

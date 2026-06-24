@@ -18,6 +18,8 @@ from modules.meetings.ui.dialogs import MeetingInfoDialog
 from modules.meetings.ui.models import MeetingsTableModel
 from modules.meetings.ui.tdocs_window import TDocsWindow
 from modules.specifications.ui.components import HoverMenuButton
+from modules.meetings.core.compare_manager import ComparisonManager
+from modules.word_tools.core.word_comparator import WordComparatorThread
 
 
 # ==========================================
@@ -113,6 +115,50 @@ class MeetingsTab(QWidget):
 
         left_layout.addWidget(self.table)
         self.splitter.addWidget(left_widget)
+
+        # ==========================================
+        # ---> NEW: GLOBAL COMPARISON CART UI <---
+        # ==========================================
+        self.cart_frame = QFrame()
+        self.cart_frame.setStyleSheet("""
+                    QFrame { background-color: #E8F2FB; border: 1px solid #B0D0F0; border-radius: 8px; }
+                    QLabel { color: #333; border: none; }
+                """)
+        cart_layout = QHBoxLayout(self.cart_frame)
+        cart_layout.setContentsMargins(15, 10, 15, 10)
+
+        cart_layout.addWidget(QLabel("<b>⚖️ Comparison Cart:</b>"))
+
+        self.lbl_slot_a = QLabel("<i style='color:#777;'>[Slot A Empty]</i>")
+        self.lbl_slot_b = QLabel("<i style='color:#777;'>[Slot B Empty]</i>")
+
+        cart_layout.addSpacing(10)
+        cart_layout.addWidget(self.lbl_slot_a)
+        cart_layout.addWidget(QLabel(" <b>VS</b> "))
+        cart_layout.addWidget(self.lbl_slot_b)
+        cart_layout.addStretch()
+
+        self.btn_compare = QPushButton("⚖️ Compare in Word")
+        self.btn_compare.setEnabled(False)
+        self.btn_compare.setStyleSheet(
+            "QPushButton { font-weight: bold; background-color: #0078D7; color: white; padding: 5px 15px; border-radius: 4px; } QPushButton:disabled { background-color: #A0C0E0; }")
+        self.btn_compare.clicked.connect(self._run_comparison)
+
+        self.btn_clear_cart = QPushButton("✖ Clear")
+        self.btn_clear_cart.setStyleSheet("QPushButton { color: #555; padding: 5px 10px; }")
+        self.btn_clear_cart.clicked.connect(ComparisonManager.get_instance().clear_cart)
+
+        cart_layout.addWidget(self.btn_compare)
+        cart_layout.addWidget(self.btn_clear_cart)
+
+        left_layout.addWidget(self.cart_frame)
+
+        # Wire up the Singleton signals
+        ComparisonManager.get_instance().cart_updated.connect(self._update_cart_ui)
+
+        # ==========================================
+        # ---> END OF: GLOBAL COMPARISON CART UI <---
+        # ==========================================
 
         # --- Right Side: Filter & Sync Panel ---
         right_widget = QWidget()
@@ -256,6 +302,25 @@ class MeetingsTab(QWidget):
     def _toggle_date_inputs(self, checked):
         self.date_from.setEnabled(checked)
         self.date_to.setEnabled(checked)
+
+    def _update_cart_ui(self, slot_a: dict, slot_b: dict):
+        self.lbl_slot_a.setText(
+            f"<b style='color:#005A9E;'>{slot_a['name']}</b>" if slot_a else "<i style='color:#777;'>[Slot A Empty]</i>")
+        self.lbl_slot_b.setText(
+            f"<b style='color:#005A9E;'>{slot_b['name']}</b>" if slot_b else "<i style='color:#777;'>[Slot B Empty]</i>")
+        self.btn_compare.setEnabled(bool(slot_a and slot_b))
+
+    def _run_comparison(self):
+        mgr = ComparisonManager.get_instance()
+        if mgr.slot_a and mgr.slot_b:
+            self.btn_compare.setText("⏳ Comparing...")
+            self.btn_compare.setEnabled(False)
+
+            # Fire the existing Word Comparator Thread!
+            self.cmp_thread = WordComparatorThread(mgr.slot_a['path'], mgr.slot_b['path'])
+            self.cmp_thread.finished.connect(lambda: self.btn_compare.setText("⚖️ Compare in Word"))
+            self.cmp_thread.finished.connect(lambda: self.btn_compare.setEnabled(True))
+            self.cmp_thread.start()
 
     def _populate_filters(self):
         current_wg = self.wg_filter.currentText()
