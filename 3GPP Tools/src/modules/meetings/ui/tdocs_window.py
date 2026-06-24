@@ -419,7 +419,7 @@ class TDocsTableModel(QAbstractTableModel):
             return None
 
         elif role == Qt.TextAlignmentRole:
-            if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status"]:
+            if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related TDocs"]:
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
