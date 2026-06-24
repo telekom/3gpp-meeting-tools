@@ -413,10 +413,12 @@ class TDocsWindow(QWidget):
             return
 
         if getattr(thread, "is_silent_compare", False):
-            # Locate the extracted Word doc inside the folder
-            extracted_files = list((self.meeting_dir / tdoc).glob("*.doc*"))
+            # ---> THE FIX: Grab the EXACT file path directly from the extraction thread!
+            # No more guessing with glob("*.doc*")
+            extracted_files = getattr(thread, "extracted_doc_paths", [])
+
             if extracted_files:
-                # Add to global cart!
+                # Add the exact file to the global cart
                 ComparisonManager.get_instance().add_to_cart(thread.target_filename, str(extracted_files[0]))
             else:
                 QMessageBox.warning(self, "Compare Failed", "No Word document found inside this TDoc ZIP.")

@@ -1,5 +1,6 @@
 import tempfile
 import logging
+import traceback  # <--- NEW: Crucial for getting exact error lines
 from pathlib import Path
 import win32com.client
 import pythoncom
@@ -19,80 +20,164 @@ class WordComparatorThread(QThread):
         self.keep_open = keep_open
 
     def _resolve_path(self, input_str: str, doc_label: str) -> str:
-        """Determines if the input is a local path or a URL. Downloads URLs via Proxy."""
+        # ... (Keep your existing _resolve_path code here) ...
         if not input_str:
             raise ValueError(f"Document {doc_label} input is empty. Please select a valid file, open document, or URL.")
 
         if input_str.startswith("http://") or input_str.startswith("https://"):
-
-            # --- NEW: SharePoint & Office 365 Authentication Bypass ---
             if "sharepoint.com" in input_str.lower() or "onedrive" in input_str.lower():
                 self.ui_log_msg.emit(
                     f"🔗 Corporate link detected for Document {doc_label}. Delegating secure authentication to MS Word...",
                     logging.INFO)
-
-                # Strip web-viewer parameters (like ?web=1) so Word doesn't get confused
                 clean_url = input_str.split("?")[0] if "?web=" in input_str else input_str
-
-                # We return the URL directly. word.Documents.Open(clean_url) handles the SSO!
                 return clean_url
 
-            # --- Standard Public URL Download ---
             self.ui_log_msg.emit(f"⏳ Downloading Document {doc_label} via proxy...", logging.INFO)
             import requests
-
             proxies = get_proxies()
             r = requests.get(input_str, allow_redirects=True, proxies=proxies, timeout=30)
             r.raise_for_status()
-
             tmp_path = Path(tempfile.gettempdir()) / f"puml2visio_cmp_{doc_label}.docx"
             with open(tmp_path, 'wb') as f:
                 f.write(r.content)
             return str(tmp_path)
-
         return input_str
 
     def run(self):
         doc_original = None
         doc_revised = None
         word = None
-        try:
-            pythoncom.CoInitialize()  # Thread-safe COM initialization
+        original_security = None
+        temp_path_a = None
+        temp_path_b = None
 
-            self.ui_log_msg.emit("⏳ Preparing documents for comparison...", logging.INFO)
+        try:
+            pythoncom.CoInitialize()
+
+            self.ui_log_msg.emit("⏳ Step 1: Initializing paths...", logging.INFO)
             path_a = self._resolve_path(self.doc_a, "A")
             path_b = self._resolve_path(self.doc_b, "B")
 
-            self.ui_log_msg.emit("⏳ Spawning Native Word Diff Engine...", logging.INFO)
-            word = win32com.client.DispatchEx("Word.Application")
+            # ---> THE FIX: Explicit Logging & Sanity Check
+            file_a_name = Path(path_a).name
+            file_b_name = Path(path_b).name
+            self.ui_log_msg.emit(f"   ➔ Doc A (Base): {file_a_name}", logging.INFO)
+            self.ui_log_msg.emit(f"   ➔ Doc B (Rev) : {file_b_name}", logging.INFO)
+
+            if Path(path_a).resolve() == Path(path_b).resolve():
+                self.ui_log_msg.emit("⚠️ WARNING: Document A and Document B are the exact same file!", logging.WARNING)
+
+            self.ui_log_msg.emit("⏳ Step 2: Creating local sandbox copies...", logging.INFO)
+            import shutil
+            import os
+            import stat
+            temp_dir = Path(tempfile.gettempdir()) / "3gpp_compare_tmp"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
+            temp_path_a = temp_dir / f"A_{file_a_name}"
+            temp_path_b = temp_dir / f"B_{file_b_name}"
+
+            # Copy content only, dropping strict Windows metadata
+            shutil.copyfile(path_a, temp_path_a)
+            shutil.copyfile(path_b, temp_path_b)
+
+            # Explicitly strip OS-level Read-Only locks
+            os.chmod(temp_path_a, stat.S_IWRITE)
+            os.chmod(temp_path_b, stat.S_IWRITE)
+
+            self.ui_log_msg.emit("⏳ Step 3: Spawning Native Word Diff Engine...", logging.INFO)
+            word = win32com.client.Dispatch("Word.Application")
             word.Visible = True
 
-            # ---> FIX 3: Suppress all native Word popups
+            try:
+                original_security = word.AutomationSecurity
+                word.AutomationSecurity = 3  # msoAutomationSecurityForceDisable
+            except Exception:
+                pass
+
+            # Disable alerts so InsertFile doesn't throw hidden "conversion" popups
             word.DisplayAlerts = 0
 
-            # ---> FIX 3: Open as Read-Only and Accept Tracked Changes purely in memory!
-            doc_original = word.Documents.Open(path_a, ReadOnly=True)
-            if doc_original.Revisions.Count > 0:
-                doc_original.Revisions.AcceptAll()
+            self.ui_log_msg.emit("⏳ Step 4: Bypassing corporate locks via Skeleton Key...", logging.INFO)
 
-            doc_revised = word.Documents.Open(path_b, ReadOnly=True)
-            if doc_revised.Revisions.Count > 0:
-                doc_revised.Revisions.AcceptAll()
+            def process_sandbox_doc(filepath, label):
+                self.ui_log_msg.emit(f"   ➔ Extracting Doc {label} into unlocked container...", logging.INFO)
 
-            # Fire the native COM diff engine
-            word.CompareDocuments(OriginalDocument=doc_original, RevisedDocument=doc_revised)
+                # 1. Create a pristine, completely unlocked blank document
+                doc = word.Documents.Add()
 
-            self.ui_log_msg.emit(
-                "✅ Comparison generated successfully! Please check the newly opened Microsoft Word window.",
-                logging.INFO)
+                # 2. Insert the locked file's contents natively.
+                # This leaves all passwords, Restrict Editing, and IT locks behind!
+                doc.Content.InsertFile(FileName=str(filepath))
+
+                # 3. Because this new container is unlocked, AcceptAll will NEVER crash here!
+                if doc.Revisions.Count > 0:
+                    doc.Revisions.AcceptAll()
+
+                return doc
+
+            # Process both documents safely
+            doc_original = process_sandbox_doc(temp_path_a, "A")
+            doc_revised = process_sandbox_doc(temp_path_b, "B")
+
+            self.ui_log_msg.emit("⏳ Step 5: Executing CompareDocuments engine...", logging.INFO)
+
+            # Restore alerts for the user
+            word.DisplayAlerts = -1
+
+            # Execute comparison using the exact kwargs you verified
+            cmp_doc = word.CompareDocuments(
+                OriginalDocument=doc_original,
+                RevisedDocument=doc_revised,
+                Destination=2,
+                IgnoreAllComparisonWarnings=True,
+                CompareFormatting=True,
+                CompareCaseChanges=True,
+                CompareWhitespace=True,
+                CompareFields=True
+            )
+
+            self.ui_log_msg.emit("⏳ Step 6: Closing source documents...", logging.INFO)
+            try:
+                doc_original.Close(SaveChanges=False)
+                doc_revised.Close(SaveChanges=False)
+                doc_original = None
+                doc_revised = None
+            except Exception:
+                pass
+
+            if cmp_doc:
+                cmp_doc.Activate()
+            word.Activate()
+
+            self.ui_log_msg.emit("✅ Comparison generated successfully!", logging.INFO)
 
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Comparison Error: {str(e)}", logging.ERROR)
+            import traceback
+            err_trace = traceback.format_exc()
+            self.ui_log_msg.emit(f"❌ Comparison Error: {str(e)}\n\nTraceback:\n{err_trace}", logging.ERROR)
+            print(f"Detailed Comparison Traceback:\n{err_trace}")
+
         finally:
-            if not self.keep_open:
+            self.ui_log_msg.emit("🧹 Step 7: Cleaning up thread...", logging.INFO)
+
+            if word and original_security is not None:
                 try:
-                    if doc_original: doc_original.Close(SaveChanges=False)
-                    if doc_revised: doc_revised.Close(SaveChanges=False)
+                    word.AutomationSecurity = original_security
                 except Exception:
                     pass
+
+            try:
+                if doc_original: doc_original.Close(SaveChanges=False)
+                if doc_revised: doc_revised.Close(SaveChanges=False)
+            except Exception:
+                pass
+
+            try:
+                if temp_path_a and temp_path_a.exists(): temp_path_a.unlink()
+                if temp_path_b and temp_path_b.exists(): temp_path_b.unlink()
+            except Exception:
+                pass
+
             pythoncom.CoUninitialize()
+            self.finished.emit()
