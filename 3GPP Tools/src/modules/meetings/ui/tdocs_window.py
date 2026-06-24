@@ -8,7 +8,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QFrame,
-                             QPushButton, QMessageBox, QMenu)
+                             QPushButton, QMessageBox, QMenu, QApplication, QToolTip)
 
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
@@ -22,6 +22,24 @@ from modules.meetings.core.compare_manager import ComparisonManager
 # ==========================================
 # --- TDOCS WINDOW ---
 # ==========================================
+class TDocActionMenu(QMenu):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def mouseReleaseEvent(self, event):
+        # Intercept right-clicks on the menu
+        if event.button() == Qt.RightButton:
+            action = self.actionAt(event.pos())
+            if action and action.data():
+                # Grab the hidden URL, copy to clipboard, and show a temporary tooltip
+                url = action.data()
+                QApplication.clipboard().setText(url)
+                QToolTip.showText(event.globalPos(), "📋 URL Copied to Clipboard!", self)
+                self.close()
+                return
+        # Pass normal left-clicks through
+        super().mouseReleaseEvent(event)
+
 class TDocsWindow(QWidget):
     def __init__(self, mtg_info: dict, tdocs_data: list, filepath: str):
         super().__init__()
@@ -313,12 +331,18 @@ class TDocsWindow(QWidget):
             "http") else "https://www.3gpp.org/ftp/" + self.docs_ftp_url.lstrip('/')
         revisions = self.model.revisions.get(base_tdoc, [])
 
-        menu = QMenu(self.table)
+        # ---> FIX: Use our new custom right-click capable menu!
+        menu = TDocActionMenu(self.table)
         menu.setStyleSheet("QMenu { font-size: 13px; }")
+        menu.setToolTipsVisible(True)
 
         # --- 1. OPEN ACTIONS ---
         base_zip = self.meeting_dir / base_tdoc / f"{base_tdoc}.zip"
         act_base = menu.addAction(f"🗎 Open Base: {base_tdoc}" + ("  (Local)" if base_zip.exists() else ""))
+
+        # ---> Embed the URL so the right-click event can extract it
+        act_base.setData(docs_url.rstrip('/') + f"/{base_tdoc}.zip")
+        act_base.setToolTip("Left-click to open. Right-click to copy FTP link.")
         act_base.triggered.connect(lambda _, t=base_tdoc: self._trigger_download_thread(base_tdoc, t, docs_url, False))
 
         if revisions:
@@ -328,6 +352,9 @@ class TDocsWindow(QWidget):
                 rev_zip = self.meeting_dir / base_tdoc / f"{target_filename}.zip"
                 act_rev = menu.addAction(
                     f"📝 Open Revision: {target_filename}" + ("  (Local)" if rev_zip.exists() else ""))
+
+                act_rev.setData(self.revisions_url.rstrip('/') + f"/{target_filename}.zip")
+                act_rev.setToolTip("Left-click to open. Right-click to copy FTP link.")
                 act_rev.triggered.connect(
                     lambda _, t=target_filename: self._trigger_download_thread(base_tdoc, t, self.revisions_url, False))
 
@@ -338,20 +365,24 @@ class TDocsWindow(QWidget):
 
         # --- 3. COMPARISON CART SUBMENU ---
         menu.addSeparator()
-        compare_menu = menu.addMenu("⚖️ Add to Comparison Cart...")
+        compare_menu = TDocActionMenu("⚖️ Add to Comparison Cart...", self.table)
+        compare_menu.setToolTipsVisible(True)
+        menu.addMenu(compare_menu)
 
-        # ---> FIX 1: Visually indicate if the Base TDoc is Local in the Cart menu
         act_cmp_base = compare_menu.addAction(
             f"🗎 Base Version: {base_tdoc}" + ("  (Local)" if base_zip.exists() else ""))
+        act_cmp_base.setData(docs_url.rstrip('/') + f"/{base_tdoc}.zip")
+        act_cmp_base.setToolTip("Right-click to copy FTP link.")
         act_cmp_base.triggered.connect(
             lambda _, t=base_tdoc: self._trigger_download_thread(base_tdoc, t, docs_url, True))
 
         for rev in revisions:
             target_filename = f"{base_tdoc}{rev}"
             rev_zip = self.meeting_dir / base_tdoc / f"{target_filename}.zip"
-            # ---> FIX 1: Visually indicate if the Revision is Local in the Cart menu
             act_cmp_rev = compare_menu.addAction(
                 f"📝 Revision: {target_filename}" + ("  (Local)" if rev_zip.exists() else ""))
+            act_cmp_rev.setData(self.revisions_url.rstrip('/') + f"/{target_filename}.zip")
+            act_cmp_rev.setToolTip("Right-click to copy FTP link.")
             act_cmp_rev.triggered.connect(
                 lambda _, t=target_filename: self._trigger_download_thread(base_tdoc, t, self.revisions_url, True))
 
