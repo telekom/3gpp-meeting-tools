@@ -335,6 +335,12 @@ class TDocsWindow(QWidget):
                 act_rev.triggered.connect(
                     lambda _, t=target_filename: self._trigger_download_thread(base_tdoc, t, self.revisions_url))
 
+            # ---> NEW: Add the Local Folder shortcut to the bottom of the menu
+            menu.addSeparator()
+            act_folder = menu.addAction("📂 Open Local Folder")
+            tdoc_dir = self.meeting_dir / base_tdoc
+            act_folder.triggered.connect(lambda _, d=tdoc_dir: self._open_specific_folder(d))
+
             menu.exec_(QCursor.pos())
 
     def _trigger_download_thread(self, base_tdoc: str, target_filename: str, base_url: str):
@@ -370,6 +376,17 @@ class TDocsWindow(QWidget):
                 webbrowser.open(f"file:///{self.meeting_dir}")
         else:
             QMessageBox.warning(self, "Not Found", "The root meeting folder has not been created yet.")
+
+    def _open_specific_folder(self, folder_path: Path):
+        """Safely opens a specific TDoc's local folder."""
+        if folder_path.exists():
+            if hasattr(os, 'startfile'):
+                os.startfile(str(folder_path))
+            else:
+                webbrowser.open(f"file:///{folder_path}")
+        else:
+            QMessageBox.information(self, "Not Found",
+                                    "This TDoc has not been downloaded yet, so its local folder does not exist.")
 
     def _open_excel(self):
         try:
