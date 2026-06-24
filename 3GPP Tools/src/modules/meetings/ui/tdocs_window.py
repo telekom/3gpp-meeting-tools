@@ -15,7 +15,7 @@ from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDocActionThread
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
-from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel
+from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
 from modules.meetings.core.compare_manager import ComparisonManager
 
 
@@ -163,7 +163,7 @@ class TDocsWindow(QWidget):
 
         self.ai_combo = CheckableComboBox("AI")
         self.ai_combo.setMinimumWidth(150)
-        unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in tdocs_data)))
+        unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in tdocs_data)), key=natural_sort_key)
         self.ai_combo.addItems(unique_ais)
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
@@ -289,7 +289,7 @@ class TDocsWindow(QWidget):
                 return str(val).strip() if val is not None else ""
 
             unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in new_data)))
-            unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in new_data)))
+            unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in new_data)), key=natural_sort_key)
             unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in new_data)))
 
             self.type_combo.updateItems(unique_types)
