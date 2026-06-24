@@ -26,7 +26,8 @@ class TDocsRevisionsFetcherThread(QThread):
 
             html = response.text
             # Safely capture full filename, base TDoc, and revision string (e.g., S2-2605740r01)
-            pattern = re.compile(r'href=["\']?(([A-Za-z0-9\-]+)(r\d+[a-zA-Z]?)\.zip)["\']?', re.IGNORECASE)
+            pattern = re.compile(r'href=["\']?(?:[^"\'>]*/)?(([A-Za-z0-9\-]+)(r\d+[a-zA-Z]?)\.zip)["\']?',
+                                 re.IGNORECASE)
             matches = pattern.findall(html)
 
             revisions = {}

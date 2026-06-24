@@ -1,14 +1,14 @@
 # --- File: modules/meetings/ui/tdocs_window.py ---
+import datetime
 import os
 import webbrowser
-import datetime
 from pathlib import Path
 
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QFrame,
                              QPushButton, QMessageBox, QMenu)
-from PyQt5.QtGui import QCursor
-from PyQt5.QtCore import Qt, QTimer
 
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
@@ -29,10 +29,24 @@ class TDocsWindow(QWidget):
         self.meeting_dir = Path(filepath).parent.parent
         self.active_threads = {}
 
-        # Identifies SA2 Electronic meetings for Revisions scraping
+        # 1. Safely initialize and sanitize all URLs
         wg_name = str(self.mtg_info.get('wg_name', '')).upper()
         self.is_sa2_electronic = ('SA2' in wg_name) and bool(self.mtg_info.get('is_electronic', 0))
 
+        main_ftp = self.mtg_info.get("url_key", "")
+        if main_ftp and not main_ftp.startswith("http"):
+            main_ftp = "https://www.3gpp.org/ftp/" + main_ftp.lstrip('/')
+        self.main_ftp_url = main_ftp
+
+        docs_ftp = self.mtg_info.get("docs_folder_url", "")
+        if docs_ftp and not docs_ftp.startswith("http"):
+            docs_ftp = "https://www.3gpp.org/ftp/" + docs_ftp.lstrip('/')
+        self.docs_ftp_url = docs_ftp
+
+        if self.is_sa2_electronic and self.main_ftp_url:
+            self.revisions_url = self.main_ftp_url.rstrip('/') + '/INBOX/Revisions/'
+
+        # 2. Build UI
         title = f"TDocs: {mtg_info.get('wg_name', '')} {mtg_info.get('meeting_number', '')}"
         self.setWindowTitle(title)
         self.resize(1400, 750)
@@ -50,7 +64,6 @@ class TDocsWindow(QWidget):
         self.last_mod_lbl = QLabel(self._get_mod_date_str())
         self.last_mod_lbl.setStyleSheet("font-size: 11px; color: #999999; margin-right: 15px; font-style: italic;")
 
-        # Multi-Action Refresh Menu
         self.refresh_btn = QPushButton("🔄 Refresh")
         self.refresh_btn.setCursor(Qt.PointingHandCursor)
         self.refresh_btn.setStyleSheet("""
@@ -65,14 +78,13 @@ class TDocsWindow(QWidget):
         refresh_menu = QMenu(self)
         refresh_menu.setStyleSheet("QMenu { font-size: 12px; }")
         refresh_menu.addAction("Refresh Excel List", self._refresh_excel)
-
         if self.is_sa2_electronic:
             refresh_menu.addAction("Refresh Revisions", lambda: self._refresh_revisions(silent=False))
             refresh_menu.addAction("Refresh Both", self._refresh_both)
-
         self.refresh_btn.setMenu(refresh_menu)
 
-        self.folder_btn = QPushButton("📂 Meeting Folder")
+        # ---> FIXED: New Multi-Action Folders Menu!
+        self.folder_btn = QPushButton("📂 Folders")
         self.folder_btn.setCursor(Qt.PointingHandCursor)
         self.folder_btn.setStyleSheet("""
             QPushButton {
@@ -80,9 +92,20 @@ class TDocsWindow(QWidget):
                 border-radius: 6px; padding: 5px 12px;
                 color: #005A9E; background-color: #E1F0FF; border: 1px solid #99C9FF;
             }
-            QPushButton:hover { background-color: #CCE4FF; border: 1px solid #005A9E; }
+            QPushButton:hover, QPushButton::menu-indicator { background-color: #CCE4FF; border: 1px solid #005A9E; }
         """)
-        self.folder_btn.clicked.connect(self._open_meeting_folder)
+
+        folder_menu = QMenu(self)
+        folder_menu.setStyleSheet("QMenu { font-size: 12px; }")
+        folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
+        folder_menu.addSeparator()
+        if hasattr(self, 'main_ftp_url') and self.main_ftp_url:
+            folder_menu.addAction("🌐 FTP: Main Folder", lambda: webbrowser.open(self.main_ftp_url))
+        if hasattr(self, 'docs_ftp_url') and self.docs_ftp_url:
+            folder_menu.addAction("🌐 FTP: Docs Folder", lambda: webbrowser.open(self.docs_ftp_url))
+        if hasattr(self, 'revisions_url') and self.revisions_url:
+            folder_menu.addAction("🌐 FTP: Revisions Folder", lambda: webbrowser.open(self.revisions_url))
+        self.folder_btn.setMenu(folder_menu)
 
         self.excel_btn = QPushButton("📗 Open in Excel")
         self.excel_btn.setCursor(Qt.PointingHandCursor)
@@ -176,8 +199,8 @@ class TDocsWindow(QWidget):
         """)
 
         self.table.setWordWrap(True)
-        self.table.verticalHeader().setDefaultSectionSize(20)
-        self.table.resizeRowsToContents()
+        # ---> DEFINITIVE FIX: Force native dynamic row heights!
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
 
         self.action_delegate = TDocActionDelegate(self.table)
         self.action_delegate.actionClicked.connect(self._handle_tdoc_action)
@@ -190,7 +213,7 @@ class TDocsWindow(QWidget):
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.resizeSection(0, 110)  # Expanded to fit "(+Rev)"
+        header.resizeSection(0, 110)
         header.resizeSection(1, 100)
         header.resizeSection(2, 200)
         header.resizeSection(3, 100)
@@ -199,15 +222,7 @@ class TDocsWindow(QWidget):
 
         main_layout.addWidget(self.table)
 
-        # Fire off an initial silent background fetch for revisions if applicable
-        if self.is_sa2_electronic and self.mtg_info.get("url_key"):
-            url_key = self.mtg_info.get("url_key").rstrip('/')
-
-            # ---> FIX 1: Ensure it is a full HTTPS URL
-            if not url_key.startswith("http"):
-                url_key = "https://www.3gpp.org/ftp/" + url_key.lstrip('/')
-
-            self.revisions_url = url_key + '/INBOX/Revisions/'
+        if hasattr(self, 'revisions_url') and self.revisions_url:
             self._refresh_revisions(silent=True)
 
     # --- ACTIONS & TRIGGERS ---
@@ -232,7 +247,6 @@ class TDocsWindow(QWidget):
     def _on_revisions_fetched(self, success: bool, data: dict, msg: str, silent: bool):
         if success:
             self.model.revisions = data
-            # Force the Action Column to redraw to instantly show (+Rev)
             topLeft = self.model.index(0, 0)
             bottomRight = self.model.index(self.model.rowCount() - 1, 0)
             self.model.dataChanged.emit(topLeft, bottomRight)
@@ -293,21 +307,14 @@ class TDocsWindow(QWidget):
     def _handle_tdoc_action(self, base_tdoc: str):
         if base_tdoc in self.model.loading_tdocs: return
 
-        docs_url = self.mtg_info.get("docs_folder_url")
-        if not docs_url:
+        if not hasattr(self, 'docs_ftp_url') or not self.docs_ftp_url:
             QMessageBox.warning(self, "Missing URL", "This meeting does not have a Docs/ URL mapped in the database.")
             return
 
-        # ---> FIX 2: Ensure the base docs URL is also a full HTTPS URL
-        if not docs_url.startswith("http"):
-            docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip('/')
-
         revisions = self.model.revisions.get(base_tdoc, [])
         if not revisions:
-            # Standard Download for files with NO Revisions
-            self._trigger_download_thread(base_tdoc, base_tdoc, docs_url)
+            self._trigger_download_thread(base_tdoc, base_tdoc, self.docs_ftp_url)
         else:
-            # Construct a dynamic Context Menu
             menu = QMenu(self.table)
             menu.setStyleSheet("QMenu { font-size: 13px; }")
 
@@ -315,10 +322,10 @@ class TDocsWindow(QWidget):
             lbl = f"🗎 Base Version: {base_tdoc}" + ("  (Local)" if base_zip.exists() else "")
 
             act_base = menu.addAction(lbl)
-            act_base.triggered.connect(lambda _, t=base_tdoc: self._trigger_download_thread(base_tdoc, t, docs_url))
+            act_base.triggered.connect(
+                lambda _, t=base_tdoc: self._trigger_download_thread(base_tdoc, t, self.docs_ftp_url))
             menu.addSeparator()
 
-            # Add all known revisions
             for rev in revisions:
                 target_filename = f"{base_tdoc}{rev}"
                 rev_zip = self.meeting_dir / base_tdoc / f"{target_filename}.zip"
@@ -332,7 +339,6 @@ class TDocsWindow(QWidget):
 
     def _trigger_download_thread(self, base_tdoc: str, target_filename: str, base_url: str):
         self.model.set_loading(base_tdoc, True)
-        QTimer.singleShot(0, self.table.resizeRowsToContents)
 
         thread = TDocActionThread(base_tdoc, target_filename, base_url, self.meeting_dir)
         thread.finished_action.connect(self._on_tdoc_action_finished)
@@ -344,7 +350,6 @@ class TDocsWindow(QWidget):
             del self.active_threads[tdoc]
 
         self.model.set_loading(tdoc, False)
-        QTimer.singleShot(0, self.table.resizeRowsToContents)
 
         if not success:
             QMessageBox.warning(self, f"Action Failed: {tdoc}", msg)
@@ -391,5 +396,3 @@ class TDocsWindow(QWidget):
         visible = self.proxy.rowCount()
         total = self.model.rowCount()
         self.count_lbl.setText(f"Showing {visible} of {total} TDocs")
-        if hasattr(self, 'table'):
-            QTimer.singleShot(0, self.table.resizeRowsToContents)
