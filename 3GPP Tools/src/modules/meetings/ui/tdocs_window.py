@@ -201,7 +201,13 @@ class TDocsWindow(QWidget):
 
         # Fire off an initial silent background fetch for revisions if applicable
         if self.is_sa2_electronic and self.mtg_info.get("url_key"):
-            self.revisions_url = self.mtg_info.get("url_key").rstrip('/') + '/INBOX/Revisions/'
+            url_key = self.mtg_info.get("url_key").rstrip('/')
+
+            # ---> FIX 1: Ensure it is a full HTTPS URL
+            if not url_key.startswith("http"):
+                url_key = "https://www.3gpp.org/ftp/" + url_key.lstrip('/')
+
+            self.revisions_url = url_key + '/INBOX/Revisions/'
             self._refresh_revisions(silent=True)
 
     # --- ACTIONS & TRIGGERS ---
@@ -291,6 +297,10 @@ class TDocsWindow(QWidget):
         if not docs_url:
             QMessageBox.warning(self, "Missing URL", "This meeting does not have a Docs/ URL mapped in the database.")
             return
+
+        # ---> FIX 2: Ensure the base docs URL is also a full HTTPS URL
+        if not docs_url.startswith("http"):
+            docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip('/')
 
         revisions = self.model.revisions.get(base_tdoc, [])
         if not revisions:
