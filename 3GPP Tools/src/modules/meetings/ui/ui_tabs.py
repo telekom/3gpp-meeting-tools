@@ -3,22 +3,21 @@ import json
 import os
 import webbrowser
 from pathlib import Path
+
+from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
                              QMenu, QLabel, QCheckBox, QDateEdit, QSplitter,
                              QMessageBox, QFrame, QFileDialog)
-from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint
 
+from core.network.session import NetworkConfigDialog
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
-from modules.specifications.ui.components import HoverMenuButton
-from core.network.session import NetworkConfigDialog
-
-from modules.meetings.ui.models import MeetingsTableModel
-from modules.meetings.ui.dialogs import MeetingInfoDialog
-from modules.meetings.core.tdocs_cacher import TDocsCacherThread
 from modules.meetings.core.tdocs_parser import TDocsParser
+from modules.meetings.ui.dialogs import MeetingInfoDialog
+from modules.meetings.ui.models import MeetingsTableModel
 from modules.meetings.ui.tdocs_window import TDocsWindow
+from modules.specifications.ui.components import HoverMenuButton
 
 
 # ==========================================
