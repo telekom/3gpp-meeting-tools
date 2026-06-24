@@ -622,7 +622,8 @@ class TDocsWindow(QWidget):
             return
 
         self.model.set_loading(tdoc, True)
-        QTimer.singleShot(0, self.table.resizeRowsToContents) # <--- NEW: Stop row from shrinking!
+        # ---> RESTORED FIX: Queue resize for after the UI repaints the loading state!
+        QTimer.singleShot(0, self.table.resizeRowsToContents)
 
         thread = TDocActionThread(tdoc, docs_url, self.meeting_dir)
         thread.finished_action.connect(self._on_tdoc_action_finished)
@@ -634,7 +635,8 @@ class TDocsWindow(QWidget):
             del self.active_threads[tdoc]
 
         self.model.set_loading(tdoc, False)
-        QTimer.singleShot(0, self.table.resizeRowsToContents)  # <--- NEW: Stop row from shrinking!
+        # ---> RESTORED FIX: Queue resize for after the UI repaints the finished state!
+        QTimer.singleShot(0, self.table.resizeRowsToContents)
 
         if not success:
             QMessageBox.warning(self, f"Action Failed: {tdoc}", msg)
@@ -682,6 +684,6 @@ class TDocsWindow(QWidget):
         total = self.model.rowCount()
         self.count_lbl.setText(f"Showing {visible} of {total} TDocs")
 
-        # <--- NEW: Force resize AFTER the filter completely finishes updating the UI!
+        # ---> RESTORED FIX: Force resize AFTER the filter completely finishes updating!
         if hasattr(self, 'table'):
             QTimer.singleShot(0, self.table.resizeRowsToContents)
