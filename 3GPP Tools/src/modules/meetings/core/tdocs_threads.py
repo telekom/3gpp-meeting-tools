@@ -71,6 +71,7 @@ class TDocActionThread(QThread):
                 self.tdoc_dir.mkdir(parents=True, exist_ok=True)
                 dl_url = self.base_url.rstrip('/') + f"/{self.target_filename}.zip"
 
+                from core.network.session import NetworkSession
                 session = NetworkSession.get_instance()
                 NetworkSession.apply_humanness(session)
                 response = session.get(dl_url, stream=True, timeout=30)
@@ -81,12 +82,24 @@ class TDocActionThread(QThread):
                         if chunk: f.write(chunk)
 
             extracted_files = []
+            import zipfile
             with zipfile.ZipFile(self.zip_path, 'r') as z:
                 for info in z.infolist():
                     if '__MACOSX' in info.filename or info.filename.startswith('._'):
                         continue
                     if info.filename.lower().endswith(('.doc', '.docx', '.pdf', '.ppt', '.pptx')):
-                        out_path = self.tdoc_dir / Path(info.filename).name
+                        original_name = Path(info.filename).name
+
+                        # ---> THE FIX: Smart Rename instead of Subfolders!
+                        # If the inner file is missing the revision marker (e.g. S2-2603332r01),
+                        # we prepend it so it doesn't collide with the base document in the folder.
+                        if self.target_filename.lower() not in original_name.lower():
+                            safe_name = f"{self.target_filename}_{original_name}"
+                        else:
+                            safe_name = original_name
+
+                        # Extract directly into the root tdoc_dir (restoring your existing functionality)
+                        out_path = self.tdoc_dir / safe_name
 
                         if not out_path.exists():
                             with open(out_path, 'wb') as f:
@@ -95,27 +108,22 @@ class TDocActionThread(QThread):
                         extracted_files.append(out_path)
 
             if not extracted_files:
-                self.finished_action.emit(self.base_tdoc, False,
-                                          "No viewable documents (.doc, .pdf, .ppt) found inside the ZIP.")
+                self.finished_action.emit(self.base_tdoc, False, "No viewable documents found inside the ZIP.")
                 return
 
-            # ---> FIX 2: Only open the file if the flag allows it!
+            # Keep the exact paths stored for the UI Comparison Cart
+            self.extracted_doc_paths = extracted_files
+
             if self.open_file:
+                import os, webbrowser
                 for doc in extracted_files:
                     if hasattr(os, 'startfile'):
                         os.startfile(str(doc))
                     else:
                         webbrowser.open(f"file:///{doc}")
 
-            # Send a dynamic success message based on the action
             msg = "Opened successfully." if self.open_file else "Downloaded & Added successfully."
             self.finished_action.emit(self.base_tdoc, True, msg)
 
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                self.finished_action.emit(self.base_tdoc, False,
-                                          f"Version '{self.target_filename}' not found on server (404 Error).")
-            else:
-                self.finished_action.emit(self.base_tdoc, False, f"Network error: {e}")
         except Exception as e:
             self.finished_action.emit(self.base_tdoc, False, str(e))
