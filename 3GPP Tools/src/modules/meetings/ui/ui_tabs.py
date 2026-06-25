@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QMenu, QLabel, QCheckBox, QDateEdit, QSplitter,
                              QMessageBox, QFrame, QFileDialog)
 
+import core.utils.paths
 from core.network.session import NetworkConfigDialog
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
@@ -34,7 +35,7 @@ class MeetingsTab(QWidget):
         self.db = MeetingsDatabase(db_path)
 
         # --- Local Cache Configuration Setup ---
-        self.config_file = Path.home() / "3GPP_Delegate_Helper" / "meetings_config.json"
+        self.config_file = core.utils.paths.get_project_root() / "meetings_config.json"
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
         self.cache_dir = self._load_settings()
 
@@ -59,12 +60,34 @@ class MeetingsTab(QWidget):
     def _save_settings(self):
         try:
             current_dir = self.dl_dir_input.text().strip()
-            data = {'download_dir': current_dir}
+            data = {}
+            if self.config_file.exists():
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+            data['download_dir'] = current_dir
+
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
             self.cache_dir = current_dir
         except Exception as e:
             print(f"Error saving config: {e}")
+
+    def _save_last_meeting(self, mtg_info: dict):
+        """Silently logs the last accessed meeting to the config file."""
+        try:
+            data = {}
+            if self.config_file.exists():
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+            data['last_mtg_id'] = mtg_info.get("mtg_id")
+            data['last_mtg_number'] = mtg_info.get("meeting_number")
+
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+        except Exception as e:
+            print(f"Error saving last meeting state: {e}")
 
     def _browse_cache_dir(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Cache Directory", self.dl_dir_input.text())
@@ -164,6 +187,23 @@ class MeetingsTab(QWidget):
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setAlignment(Qt.AlignTop)
+
+        self.btn_open_last = QPushButton("🚀 Open Last Meeting")
+        self.btn_open_last.setStyleSheet("""
+                    QPushButton {
+                        font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; font-weight: bold;
+                        background-color: #0078D7; color: white; border: none;
+                        padding: 8px; border-radius: 6px; margin-bottom: 10px;
+                    }
+                    QPushButton:hover { 
+                        background-color: #005A9E; 
+                    }
+                    QPushButton:pressed { 
+                        background-color: #004578; 
+                    }
+                """)
+        self.btn_open_last.clicked.connect(self._open_last_meeting)
+        right_layout.addWidget(self.btn_open_last)
 
         # 1. Filters
         title_lbl = QLabel("<b>Filter & Search</b>")
@@ -635,6 +675,7 @@ class MeetingsTab(QWidget):
         self.table.setIndexWidget(self.table_model.index(row_idx, 1), container)
 
     def _open_tdocs_window(self, mtg_info: dict, filepath: str):
+        self._save_last_meeting(mtg_info)
         mtg_id = mtg_info.get("mtg_id")
 
         # 1. Bring to front if already open
@@ -664,3 +705,46 @@ class MeetingsTab(QWidget):
             self._open_tdocs_window(row_data, result)
         else:
             QMessageBox.critical(self, "Download Error", f"Failed to download TDocs List:\n{result}")
+
+    def _open_last_meeting(self):
+        try:
+            if not self.config_file.exists():
+                QMessageBox.information(self, "No History",
+                                        "No recent meeting history found. Please open a meeting first.")
+                return
+
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            last_id = data.get("last_mtg_id")
+            last_num = data.get("last_mtg_number")
+
+            if not last_id or not last_num:
+                QMessageBox.information(self, "No History",
+                                        "No recent meeting history found. Please open a meeting first.")
+                return
+
+            # Search the DB using the meeting number as a highly optimized search term
+            results = self.db.search_meetings(search_term=last_num)
+
+            # Find the exact match in the returned results
+            target_meeting = next((m for m in results if m.get("mtg_id") == last_id), None)
+
+            if not target_meeting:
+                QMessageBox.warning(self, "Not Found",
+                                    f"Meeting '{last_num}' could not be found in the database.\nIt may have been cleared or the database was updated.")
+                return
+
+            filepath = self._get_tdoc_list_path(target_meeting)
+
+            if filepath and filepath.exists():
+                # TDocs are already cached, jump straight to the window!
+                self._open_tdocs_window(target_meeting, str(filepath))
+            else:
+                # Needs to be downloaded. We pass a dummy UI button in memory to absorb
+                # the "⏳ Fetching" state changes safely, preventing crashes if the row is currently filtered out!
+                dummy_btn = QPushButton()
+                self._download_and_open_tdocs(target_meeting, dummy_btn)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Launch Error", f"Could not open last meeting:\n{e}")
