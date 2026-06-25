@@ -29,7 +29,7 @@ class SpecsCrawlerThread(QThread):
         self.root_url: str = root_url
 
         self.session: requests.Session = NetworkSession.get_instance()
-        self.spec_folder_pattern: re.Pattern = re.compile(r'^(\d{2}\.\d{2,3})/?$')
+        self.spec_folder_pattern: re.Pattern = re.compile(r'^(\d{2}\.\d{2,3}(?:-[a-zA-Z0-9]+)?)/?$')
         self.version_pattern: re.Pattern = re.compile(r'-([a-zA-Z0-9]{3})\.zip$')
 
     def fetch_links(self, url: str) -> List[Tuple[str, str]]:
