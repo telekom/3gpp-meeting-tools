@@ -1,6 +1,7 @@
 # --- File: modules/specs_db/ui_tabs.py ---
 import json
 import os
+import re
 import zipfile
 import webbrowser
 from pathlib import Path
@@ -234,7 +235,16 @@ class SpecificationsTab(QWidget):
 
     def _show_spec_info(self, spec_num: str):
         details = self.db.get_spec_details(spec_num)
-        dialog = SpecInfoDialog(details, self)
+
+        # --- FIX: Fallback if the database strictly stored the base number ---
+        if not details and "-" in spec_num:
+            base_num = spec_num.split("-")[0]
+            details = self.db.get_spec_details(base_num)
+            if details:
+                # Graft the part number back onto the details dictionary for the UI display
+                details['number'] = spec_num
+
+        dialog = SpecInfoDialog(details or {}, self)
         dialog.exec_()
 
     def _open_spec_folder(self, spec_num: str):
@@ -443,6 +453,15 @@ class SpecificationsTab(QWidget):
             grouped_specs = {}
             for row in specs:
                 series, spec_num, title, spec_type, filename, version, url = row
+
+                # --- NEW LOGIC: Extract part number from filename ---
+                # This safely corrects multipart specs like 23.801-01 missing their suffix in the DB
+                if filename:
+                    part_match = re.search(r'^\d{4,5}-(\d{2,3})(?:[-_.]|$)', filename)
+                    if part_match and "-" not in spec_num:
+                        spec_num = f"{spec_num}-{part_match.group(1)}"
+                # ----------------------------------------------------
+
                 if spec_num not in grouped_specs:
                     grouped_specs[spec_num] = {
                         'title': title,
