@@ -251,8 +251,12 @@ class TDocsWindow(QWidget):
         header.resizeSection(3, 100)
         header.setSectionResizeMode(6, QHeaderView.Stretch)
 
-        # ---> NEW: Make the Secretary Remarks column specifically wider (e.g., 250px)
-        header.resizeSection(7, 250)
+        # ---> UPDATE: Lock the Abstract column to exactly 28 pixels!
+        header.setSectionResizeMode(6, QHeaderView.Fixed)
+        header.resizeSection(6, 28)
+
+        # Stretch Secretary Remarks to fill the remaining space
+        header.setSectionResizeMode(7, QHeaderView.Stretch)
 
         header.resizeSection(10, 160)
 

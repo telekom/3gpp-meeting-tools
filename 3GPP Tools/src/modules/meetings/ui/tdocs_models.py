@@ -88,8 +88,12 @@ class TDocsTableModel(QAbstractTableModel):
             val = row.get(col_name, "")
             val_str = str(val).strip() if val is not None else ""
 
-            # ---> UPDATE: Add "Secretary Remarks" to the truncation logic
-            if col_name in ["Abstract", "Secretary Remarks"] and len(val_str) > 90:
+            # ---> NEW: Replace Abstract text with an icon
+            if col_name == "Abstract":
+                return "📝" if val_str else ""
+
+            # Keep the truncation logic for Secretary Remarks
+            if col_name == "Secretary Remarks" and len(val_str) > 90:
                 return val_str.replace('\n', ' ').replace('\r', '')[:87] + "..."
             return val_str
 
@@ -102,7 +106,6 @@ class TDocsTableModel(QAbstractTableModel):
             val = row.get(col_name, "")
             val_str = str(val).strip() if val is not None else ""
 
-            # ---> UPDATE: Group "Secretary Remarks" with Abstract for the nice, wrapped tooltip box!
             if col_name in ["Abstract", "Secretary Remarks"] and val_str:
                 return f"<div style='width: 400px; white-space: pre-wrap;'>{val_str}</div>"
             elif col_name in ["Title", "Source"] and len(val_str) > 30:
@@ -110,7 +113,8 @@ class TDocsTableModel(QAbstractTableModel):
             return None
 
         elif role == Qt.TextAlignmentRole:
-            if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related TDocs"]:
+            # ---> UPDATE: Added "Abstract" to the list of centered columns
+            if col_name in ["TDoc", "Type", "For", "Abstract", "Agenda Item", "TDoc Status", "Related TDocs"]:
                 return Qt.AlignCenter
 
             # Everything else stays left-aligned and vertically centered
@@ -123,7 +127,17 @@ class TDocsTableModel(QAbstractTableModel):
         return len(self._headers)
 
     def headerData(self, section, orientation, role):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole: return self._headers[section]
+        if orientation == Qt.Horizontal:
+            col_name = self._headers[section]
+
+            if role == Qt.DisplayRole:
+                # Replace the wide word with a compact icon
+                return "📝" if col_name == "Abstract" else col_name
+
+            elif role == Qt.ToolTipRole:
+                # Add a tooltip to the header so users know what the icon means
+                return "Abstract" if col_name == "Abstract" else col_name
+
         return None
 
     def merge_agenda_data(self, agenda_data: dict, ui_logger=None):
