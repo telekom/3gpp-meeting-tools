@@ -64,7 +64,7 @@ class DragDropUI(QMainWindow):
             lambda is_proc, status: self.queue_panel.abort_btn.setEnabled(is_proc)
         )
 
-        self.cache_file = get_project_root().parent / ".editor_cache.puml"
+        self.cache_file = get_project_root() / ".editor_cache.puml"
         self._load_cache()
 
         self.save_timer = QTimer()

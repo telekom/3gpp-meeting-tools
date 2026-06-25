@@ -29,7 +29,7 @@ PROJECT_ROOT = PACKAGE_DIR.parent.parent # The outer 3GPP Tools folder
 # ==========================================
 # get_project_root() gives us src/3GPP Tools/.
 # We go up one more parent to put the log file next to pyproject.toml
-log_file_path = get_project_root().parent / "3gpp_tools.log"
+log_file_path = get_project_root() / "3gpp_tools.log"
 
 logging.basicConfig(
     level=logging.INFO,
