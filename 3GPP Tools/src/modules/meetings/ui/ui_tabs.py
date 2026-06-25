@@ -1,7 +1,5 @@
 # --- File: modules/meetings/ui/ui_tabs.py ---
-import json
 import os
-import re
 import webbrowser
 from pathlib import Path
 
@@ -9,9 +7,8 @@ from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
                              QMenu, QLabel, QCheckBox, QDateEdit, QSplitter,
-                             QMessageBox, QFrame, QFileDialog, QApplication)
+                             QMessageBox, QFrame, QFileDialog)
 
-import core.utils.paths
 from core.network.session import NetworkConfigDialog
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
@@ -22,7 +19,8 @@ from modules.meetings.ui.tdocs_window import TDocsWindow
 from modules.specifications.ui.components import HoverMenuButton
 from modules.meetings.core.compare_manager import ComparisonManager
 from modules.word_tools.core.word_comparator import WordComparatorThread
-from modules.meetings.core.tdocs_threads import TDocActionThread
+from modules.meetings.core.settings import MeetingsSettings
+from modules.meetings.ui.search_controller import GlobalSearchController
 
 
 # ==========================================
@@ -36,68 +34,23 @@ class MeetingsTab(QWidget):
         super().__init__()
         self.db = MeetingsDatabase(db_path)
 
-        # --- Local Cache Configuration Setup ---
-        self.config_file = core.utils.paths.get_project_root() / "meetings_config.json"
-        self.config_file.parent.mkdir(parents=True, exist_ok=True)
-        self.cache_dir = self._load_settings()
+        # Extracted Dependencies
+        self.settings = MeetingsSettings()
+        self.search_controller = GlobalSearchController(self)
 
-        self.tdoc_windows = {}  # <-- NEW: Keeps track of open windows by mtg_id
-        self._active_dl_threads = {}  # <-- NEW: Keeps threads alive during execution
+        self.tdoc_windows = {}
+        self._active_dl_threads = {}
 
         self._setup_ui()
+        self.search_controller.connect_signals()  # Wires up the global search box
         self.refresh_table()
-
-    # --- SETTINGS LOGIC ---
-    def _load_settings(self) -> str:
-        fallback = str(Path.home() / "3GPP_Delegate_Helper" / "cache")
-        if self.config_file.exists():
-            try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    return data.get('download_dir', fallback)
-            except Exception:
-                pass
-        return fallback
-
-    def _save_settings(self):
-        try:
-            current_dir = self.dl_dir_input.text().strip()
-            data = {}
-            if self.config_file.exists():
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-
-            data['download_dir'] = current_dir
-
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=4)
-            self.cache_dir = current_dir
-        except Exception as e:
-            print(f"Error saving config: {e}")
-
-    def _save_last_meeting(self, mtg_info: dict):
-        """Silently logs the last accessed meeting to the config file."""
-        try:
-            data = {}
-            if self.config_file.exists():
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-
-            data['last_mtg_id'] = mtg_info.get("mtg_id")
-            data['last_mtg_number'] = mtg_info.get("meeting_number")
-
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=4)
-        except Exception as e:
-            print(f"Error saving last meeting state: {e}")
 
     def _browse_cache_dir(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Cache Directory", self.dl_dir_input.text())
         if directory:
-            # Normalize path slashes for the OS
             normalized_dir = str(Path(directory))
             self.dl_dir_input.setText(normalized_dir)
-            self._save_settings()
+            self.settings.save_settings(normalized_dir)
 
     def _setup_ui(self):
         main_layout = QHBoxLayout(self)
@@ -142,7 +95,7 @@ class MeetingsTab(QWidget):
         self.splitter.addWidget(left_widget)
 
         # ==========================================
-        # ---> NEW: GLOBAL COMPARISON CART UI <---
+        # ---> GLOBAL COMPARISON CART UI <---
         # ==========================================
         self.cart_frame = QFrame()
         self.cart_frame.setStyleSheet("""
@@ -181,10 +134,6 @@ class MeetingsTab(QWidget):
         # Wire up the Singleton signals
         ComparisonManager.get_instance().cart_updated.connect(self._update_cart_ui)
 
-        # ==========================================
-        # ---> END OF: GLOBAL COMPARISON CART UI <---
-        # ==========================================
-
         # --- Right Side: Filter & Sync Panel ---
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
@@ -197,12 +146,8 @@ class MeetingsTab(QWidget):
                         background-color: #0078D7; color: white; border: none;
                         padding: 8px; border-radius: 6px; margin-bottom: 10px;
                     }
-                    QPushButton:hover { 
-                        background-color: #005A9E; 
-                    }
-                    QPushButton:pressed { 
-                        background-color: #004578; 
-                    }
+                    QPushButton:hover { background-color: #005A9E; }
+                    QPushButton:pressed { background-color: #004578; }
                 """)
         self.btn_open_last.clicked.connect(self._open_last_meeting)
         right_layout.addWidget(self.btn_open_last)
@@ -239,10 +184,9 @@ class MeetingsTab(QWidget):
         global_search_layout = QHBoxLayout()
         self.global_tdoc_input = QLineEdit()
         self.global_tdoc_input.setPlaceholderText("e.g., S2-2605740")
-        self.global_tdoc_input.setMinimumWidth(130)  # <-- Prevents the box from squishing!
+        self.global_tdoc_input.setMinimumWidth(130)
         self.global_tdoc_input.setToolTip("Type a valid TDoc. Press Enter to instantly download and open it.")
 
-        # Primary Action: Minimalist Doc Button
         self.btn_open_tdoc = QPushButton("📄 Doc")
         self.btn_open_tdoc.setCursor(Qt.PointingHandCursor)
         self.btn_open_tdoc.setFixedHeight(24)
@@ -253,7 +197,6 @@ class MeetingsTab(QWidget):
                 """)
         self.btn_open_tdoc.setVisible(False)
 
-        # Secondary Action: Minimalist Meeting Button
         self.btn_open_meeting = QPushButton("🗓️ Mtg")
         self.btn_open_meeting.setCursor(Qt.PointingHandCursor)
         self.btn_open_meeting.setFixedHeight(24)
@@ -268,13 +211,6 @@ class MeetingsTab(QWidget):
         global_search_layout.addWidget(self.btn_open_tdoc)
         global_search_layout.addWidget(self.btn_open_meeting)
         right_layout.addLayout(global_search_layout)
-
-        # --- Connections for the Smart Input ---
-        self.global_tdoc_input.textChanged.connect(self._on_tdoc_input_changed)
-        self.global_tdoc_input.returnPressed.connect(self._action_open_tdoc_only)
-        self.btn_open_tdoc.clicked.connect(self._action_open_tdoc_only)
-        self.btn_open_meeting.clicked.connect(self._action_open_meeting_list)
-        # --------------------------------------------
 
         self.enable_dates_cb = QCheckBox("Filter by Date Range")
         self.enable_dates_cb.toggled.connect(self._toggle_date_inputs)
@@ -296,7 +232,6 @@ class MeetingsTab(QWidget):
         right_layout.addWidget(self.date_to)
         self.enable_dates_cb.setChecked(True)
 
-        # Separator line
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
         line.setFrameShadow(QFrame.Sunken)
@@ -312,7 +247,7 @@ class MeetingsTab(QWidget):
                 """)
 
         self.scrape_frame = QFrame()
-        self.scrape_frame.setVisible(False)  # Hidden by default
+        self.scrape_frame.setVisible(False)
         scrape_layout = QVBoxLayout(self.scrape_frame)
         scrape_layout.setContentsMargins(15, 0, 0, 5)
 
@@ -332,12 +267,14 @@ class MeetingsTab(QWidget):
         right_layout.addWidget(self.scrape_toggle_btn)
         right_layout.addWidget(self.scrape_frame)
 
-        # --- NEW: Local Cache GUI Element ---
+        # --- Local Cache GUI Element ---
         right_layout.addWidget(QLabel("Local Cache Directory:"))
         cache_layout = QHBoxLayout()
         self.dl_dir_input = QLineEdit()
-        self.dl_dir_input.setText(self.cache_dir)
-        self.dl_dir_input.editingFinished.connect(self._save_settings)
+        self.dl_dir_input.setText(self.settings.cache_dir)
+
+        # Uses a lambda to pass the text directly to the settings manager
+        self.dl_dir_input.editingFinished.connect(lambda: self.settings.save_settings(self.dl_dir_input.text().strip()))
 
         browse_btn = QPushButton("...")
         browse_btn.setFixedWidth(30)
@@ -346,7 +283,6 @@ class MeetingsTab(QWidget):
         cache_layout.addWidget(self.dl_dir_input)
         cache_layout.addWidget(browse_btn)
         right_layout.addLayout(cache_layout)
-        # ------------------------------------
 
         right_layout.addStretch()
 
@@ -368,11 +304,9 @@ class MeetingsTab(QWidget):
         main_layout.addWidget(self.splitter)
         self._populate_filters()
 
-    # --- NETWORK LOGIC ---
     def _open_network_config(self):
         NetworkConfigDialog(self).exec_()
 
-    # --- DELETION LOGIC ---
     def _confirm_delete_all(self):
         if QMessageBox.question(self, 'Confirm Clear', "Delete ALL meetings? Cannot be undone.",
                                 QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
@@ -391,7 +325,6 @@ class MeetingsTab(QWidget):
                    self.table_model.data(r, Qt.UserRole)]
         if targets: self._confirm_delete_specific(targets)
 
-    # --- INTERACTION LOGIC ---
     def _toggle_date_inputs(self, checked):
         self.date_from.setEnabled(checked)
         self.date_to.setEnabled(checked)
@@ -409,7 +342,6 @@ class MeetingsTab(QWidget):
             self.btn_compare.setText("⏳ Comparing...")
             self.btn_compare.setEnabled(False)
 
-            # Fire the existing Word Comparator Thread!
             self.cmp_thread = WordComparatorThread(mgr.slot_a['path'], mgr.slot_b['path'])
             self.cmp_thread.ui_log_msg.connect(self._handle_compare_log)
             self.cmp_thread.finished.connect(lambda: self.btn_compare.setText("⚖️ Compare in Word"))
@@ -451,7 +383,7 @@ class MeetingsTab(QWidget):
         data = self.db.search_meetings(
             wg_name=wg,
             search_term=self.search_input.text().strip(),
-            location=None,  # <--- THE FIX: Set this to None since we removed the text box!
+            location=None,
             date_from=date_from,
             date_to=date_to,
             adhoc_filter=adhoc_val,
@@ -496,40 +428,31 @@ class MeetingsTab(QWidget):
             if docs_url:
                 menu.addAction("📂 Open Documents Folder").triggered.connect(lambda _, u=docs_url: webbrowser.open(u))
 
-            # --- LOCAL CACHE & TDOCS DOWNLOAD INTEGRATION ---
-            folder_name = row_data.get("folder_name")
-            if not folder_name:
-                folder_name = row_data.get("meeting_number", "")
+            folder_name = row_data.get("folder_name") or row_data.get("meeting_number", "")
 
             if folder_name:
-                # Bulletproof fallback: Read directly from the UI text box if self.cache_dir is missing
-                current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.cache_dir
+                current_cache = self.dl_dir_input.text().strip() if hasattr(self,
+                                                                            'dl_dir_input') else self.settings.cache_dir
                 local_path = Path(current_cache) / folder_name
 
-                # 1. Existing: Open Local Cache
                 if local_path.exists() and local_path.is_dir():
                     menu.addAction("📁 Open Local Cache Folder").triggered.connect(
                         lambda _, p=str(local_path): os.startfile(p) if hasattr(os, 'startfile') else webbrowser.open(
                             f"file:///{p}")
                     )
 
-                # 2. UPGRADED: Trigger the inline TDocs button directly!
                 mtg_id = row_data.get("mtg_id")
                 if mtg_id:
-                    # Grab the container widget we injected into Column 1
                     container = self.table.indexWidget(self.table_model.index(row_idx, 1))
                     if container:
-                        # Find the actual QPushButton inside the container
                         tdocs_btn = container.findChild(QPushButton)
                         if tdocs_btn and tdocs_btn.isEnabled():
                             menu.addAction("📗 Open TDocs List").triggered.connect(tdocs_btn.click)
 
-                # 3. NEW: Bulk Cache TDocs
                 if docs_url:
                     menu.addAction("📥 Cache TDocs (Docs/)").triggered.connect(
                         lambda _, u=docs_url, p=local_path: self._start_tdocs_caching(u, p)
                     )
-            # ------------------------------------------------
 
             wg_name = row_data.get("wg_name", "")
             meeting_name = row_data.get("name", "")
@@ -587,22 +510,18 @@ class MeetingsTab(QWidget):
         MeetingInfoDialog(data, self).exec_()
 
     def _start_tdocs_download(self, mtg_id: str, local_path: Path):
-        # Notify the user that the download has started
         self.update_btn.setText("⏳ Opening TDocs...")
         self.update_btn.setEnabled(False)
 
-        # Initialize and start the background worker
         self.dl_thread = TDocsDownloaderThread(mtg_id, local_path)
         self.dl_thread.finished.connect(self._on_tdocs_download_finished)
         self.dl_thread.start()
 
     def _on_tdocs_download_finished(self, success: bool, result: str):
-        # Reset the UI button
         self.update_btn.setText("🔄 Sync All Meetings")
         self.update_btn.setEnabled(True)
 
         if success:
-            # Result contains the filepath. Open it natively in Excel.
             try:
                 if hasattr(os, 'startfile'):
                     os.startfile(result)
@@ -613,34 +532,26 @@ class MeetingsTab(QWidget):
         else:
             QMessageBox.critical(self, "Download Error", f"Failed to download TDocs List:\n{result}")
 
-    # ==========================================
-    # --- NEW: TDOC BUTTON & WINDOW LOGIC ---
-    # ==========================================
     def _get_tdoc_list_path(self, row_data: dict) -> Path:
         mtg_id = row_data.get("mtg_id")
         if not mtg_id: return None
 
-        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.cache_dir
+        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.settings.cache_dir
         folder_name = row_data.get("folder_name") or row_data.get("meeting_number", "")
 
         agenda_dir = Path(current_cache) / folder_name / "Agenda"
 
-        # FIXED: Dynamically search the folder for existing files!
         if agenda_dir.exists() and agenda_dir.is_dir():
             for file_path in agenda_dir.iterdir():
                 filename = file_path.name.lower()
-                # Catch both the new names and the old server fallback names
                 if (filename.startswith("tdoc_list_meeting_") or filename.startswith(
                         "tdocs_list_")) and filename.endswith(".xlsx"):
                     return file_path
 
-        # If no file exists, return a fallback path for the downloader to use
         return agenda_dir / f"TDoc_List_Meeting_{mtg_id}.xlsx"
 
     def _download_and_open_tdocs(self, row_data: dict, btn: QPushButton):
         mtg_id = row_data.get("mtg_id")
-
-        # Shortened text and unified CSS
         btn.setText("⏳ Fetching")
         btn.setStyleSheet("""
                     QPushButton {
@@ -651,7 +562,7 @@ class MeetingsTab(QWidget):
                 """)
         btn.setEnabled(False)
 
-        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.cache_dir
+        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.settings.cache_dir
         folder_name = row_data.get("folder_name") or row_data.get("meeting_number", "")
         local_path = Path(current_cache) / folder_name
 
@@ -669,7 +580,6 @@ class MeetingsTab(QWidget):
         btn.setFixedHeight(24)
         btn.setCursor(Qt.PointingHandCursor)
 
-        # STATE 1: Unobtainable (No 3GPP ID)
         if not mtg_id:
             btn.setText("N/A")
             btn.setToolTip("Missing 3GPP Portal ID (Cannot fetch TDocs)")
@@ -682,9 +592,7 @@ class MeetingsTab(QWidget):
             """)
             btn.setEnabled(False)
 
-        # STATE 2: Cached Locally (Ready to Open)
         elif filepath and filepath.exists():
-            # Using a bold unicode checkmark that inherits our green CSS color
             btn.setText("✔ Open")
             btn.setToolTip("TDocs are cached locally. Click to view table.")
             btn.setStyleSheet("""
@@ -693,15 +601,11 @@ class MeetingsTab(QWidget):
                     border-radius: 12px; padding: 2px 6px;
                     color: #0C6B0C; background-color: #E6F4E6; border: 1px solid #A3DDA3;
                 }
-                QPushButton:hover {
-                    background-color: #D1EED1; border: 1px solid #0C6B0C; color: #0C6B0C;
-                }
+                QPushButton:hover { background-color: #D1EED1; border: 1px solid #0C6B0C; color: #0C6B0C; }
             """)
             btn.clicked.connect(lambda _, d=row_data, f=str(filepath): self._open_tdocs_window(d, f))
 
-        # STATE 3: Missing (Needs Download)
         else:
-            # Shortened text to "Get" so it easily fits the column width!
             btn.setText("⬇ Get")
             btn.setToolTip("Not cached. Click to download TDocs List from 3GPP Portal.")
             btn.setStyleSheet("""
@@ -710,17 +614,13 @@ class MeetingsTab(QWidget):
                     border-radius: 12px; padding: 2px 6px;
                     color: #005A9E; background-color: #E1F0FF; border: 1px solid #99C9FF;
                 }
-                QPushButton:hover {
-                    background-color: #CCE4FF; border: 1px solid #005A9E; color: #005A9E;
-                }
+                QPushButton:hover { background-color: #CCE4FF; border: 1px solid #005A9E; color: #005A9E; }
             """)
             btn.clicked.connect(lambda _, d=row_data, b=btn: self._download_and_open_tdocs(d, b))
 
         container = QWidget()
         container.setStyleSheet("background-color: transparent;")
-
         layout = QHBoxLayout(container)
-        # Tightly pack the button inside the cell so it doesn't get clipped
         layout.setContentsMargins(2, 0, 2, 0)
         layout.setAlignment(Qt.AlignCenter)
         layout.addWidget(btn)
@@ -728,22 +628,19 @@ class MeetingsTab(QWidget):
         self.table.setIndexWidget(self.table_model.index(row_idx, 1), container)
 
     def _open_tdocs_window(self, mtg_info: dict, filepath: str):
-        self._save_last_meeting(mtg_info)
+        self.settings.save_last_meeting(mtg_info)
         mtg_id = mtg_info.get("mtg_id")
 
-        # 1. Bring to front if already open
         if mtg_id in self.tdoc_windows and self.tdoc_windows[mtg_id].isVisible():
             self.tdoc_windows[mtg_id].raise_()
             self.tdoc_windows[mtg_id].activateWindow()
             return
 
-        # 2. Parse and Create Window
         tdocs_data = TDocsParser.parse_tdocs_excel(filepath)
         if not tdocs_data:
             QMessageBox.warning(self, "Parse Error", "Could not read data from the Excel file.")
             return
 
-        # FIXED: Pass the filepath as the third argument!
         window = TDocsWindow(mtg_info, tdocs_data, filepath)
         self.tdoc_windows[mtg_id] = window
         window.show()
@@ -752,7 +649,7 @@ class MeetingsTab(QWidget):
         if mtg_id in self._active_dl_threads:
             del self._active_dl_threads[mtg_id]
 
-        self.refresh_table()  # This resets the button icons from ⏳ to 📊
+        self.refresh_table()
 
         if success:
             self._open_tdocs_window(row_data, result)
@@ -761,26 +658,14 @@ class MeetingsTab(QWidget):
 
     def _open_last_meeting(self):
         try:
-            if not self.config_file.exists():
-                QMessageBox.information(self, "No History",
-                                        "No recent meeting history found. Please open a meeting first.")
-                return
-
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            last_id = data.get("last_mtg_id")
-            last_num = data.get("last_mtg_number")
+            last_id, last_num = self.settings.get_last_meeting()
 
             if not last_id or not last_num:
                 QMessageBox.information(self, "No History",
                                         "No recent meeting history found. Please open a meeting first.")
                 return
 
-            # Search the DB using the meeting number as a highly optimized search term
             results = self.db.search_meetings(search_term=last_num)
-
-            # Find the exact match in the returned results
             target_meeting = next((m for m in results if m.get("mtg_id") == last_id), None)
 
             if not target_meeting:
@@ -791,190 +676,26 @@ class MeetingsTab(QWidget):
             filepath = self._get_tdoc_list_path(target_meeting)
 
             if filepath and filepath.exists():
-                # TDocs are already cached, jump straight to the window!
                 self._open_tdocs_window(target_meeting, str(filepath))
             else:
-                # Needs to be downloaded. We pass a dummy UI button in memory to absorb
-                # the "⏳ Fetching" state changes safely, preventing crashes if the row is currently filtered out!
                 dummy_btn = QPushButton()
                 self._download_and_open_tdocs(target_meeting, dummy_btn)
 
         except Exception as e:
             QMessageBox.critical(self, "Launch Error", f"Could not open last meeting:\n{e}")
 
-    # ==========================================
-    # --- GLOBAL TDOC SEARCH LOGIC ---
-    # ==========================================
-    def _on_global_tdoc_search(self):
-        tdoc_str = self.global_tdoc_input.text().strip()
-        if not tdoc_str:
-            return
+    def _start_tdocs_caching(self, docs_url: str, local_path: Path):
+        from modules.meetings.core.tdocs_cacher import TDocsCacherThread
+        self.update_btn.setText("⏳ Caching TDocs...")
+        self.update_btn.setEnabled(False)
+        self.cacher_thread = TDocsCacherThread(docs_url, local_path, self)
+        self.cacher_thread.finished.connect(self._on_tdocs_caching_finished)
+        self.cacher_thread.start()
 
-        # --- FIX 1: Prevent UI Double-Firing ---
-        if not self.global_tdoc_btn.isEnabled():
-            return
-
-        self.global_tdoc_input.setEnabled(False)
-        self.global_tdoc_btn.setEnabled(False)
-        self.global_tdoc_btn.setText("⏳ Searching...")
-        QApplication.processEvents()  # Force UI update
-
-        # 1. Find the parent meeting in the database
-        meeting = self.db.find_meeting_by_tdoc(tdoc_str)
-
-        # Restore UI State immediately after DB lookup
-        self.global_tdoc_btn.setText("🔍 Find TDoc")
-        self.global_tdoc_input.setEnabled(True)
-        self.global_tdoc_btn.setEnabled(True)
-
-        if not meeting:
-            QMessageBox.warning(
-                self,
-                "Not Found",
-                f"Could not find a meeting containing TDoc '{tdoc_str}'.\n\nEnsure you have fully synced the database and enabled the 'Deep Scrape Docs' option."
-            )
-            return
-
-        # 2. Extract clean base TDoc and revision targets
-        match = re.match(r'^([A-Za-z0-9]+-\d+)(r\d+[a-zA-Z]?)?$', tdoc_str, re.IGNORECASE)
-        if not match:
-            QMessageBox.warning(self, "Invalid Format", "Could not parse the provided TDoc number.")
-            return
-
-        base_tdoc = match.group(1).upper()
-        target_filename = (base_tdoc + (match.group(2) or "")).upper()
-
-        # --- FIX 2: Prevent overlapping background threads for the same file ---
-        if target_filename in self._active_dl_threads:
-            return
-
-        # 3. Open the TDocs table for this meeting (downloading the Excel file if necessary)
-        filepath = self._get_tdoc_list_path(meeting)
-        if filepath and filepath.exists():
-            self._open_tdocs_window(meeting, str(filepath))
+    def _on_tdocs_caching_finished(self, success: bool, msg: str):
+        self.update_btn.setText("🔄 Sync All Meetings")
+        self.update_btn.setEnabled(True)
+        if success:
+            QMessageBox.information(self, "Caching Complete", msg)
         else:
-            dummy_btn = QPushButton()  # Dummy button to absorb loading states
-            self._download_and_open_tdocs(meeting, dummy_btn)
-
-        # 4. Trigger the background download and auto-open of the specific TDoc file
-        self._download_global_tdoc(meeting, base_tdoc, target_filename, has_rev=bool(match.group(2)))
-
-    def _download_global_tdoc(self, meeting: dict, base_tdoc: str, target_filename: str, has_rev: bool):
-        docs_url = meeting.get("docs_folder_url")
-        if not docs_url:
-            return
-
-        if not docs_url.startswith("http"):
-            docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip('/')
-
-        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.cache_dir
-        folder_name = meeting.get("folder_name") or meeting.get("meeting_number", "")
-        meeting_dir = Path(current_cache) / folder_name
-
-        # If it's a revision, we assume it's in the Revisions folder.
-        # If the revision folder doesn't exist, the TDocActionThread will safely handle the 404 error.
-        dl_url = docs_url
-        if has_rev:
-            raw_url = meeting.get("url_key", "")
-            main_ftp = raw_url if raw_url.startswith("http") else f"https://www.3gpp.org/ftp/{raw_url.lstrip('/')}"
-            dl_url = main_ftp.rstrip('/') + '/INBOX/Revisions/'
-
-        # Launch the action thread!
-        thread = TDocActionThread(base_tdoc, target_filename, dl_url, meeting_dir, open_file=True)
-        self._active_dl_threads[target_filename] = thread
-
-        # Connect cleanup and error handling
-        thread.finished_action.connect(
-            lambda t, s, m, th=thread: self._on_global_tdoc_download_finished(target_filename, s, m, th)
-        )
-        thread.start()
-
-    # ==========================================
-    # --- SMART GLOBAL TDOC SEARCH LOGIC ---
-    # ==========================================
-    def _on_tdoc_input_changed(self, text):
-        """Validates input as you type. Shows buttons if a matching meeting is found."""
-        text = text.strip()
-        # Strict regex ensures we only hit the DB when the user types a full TDoc format
-        match = re.match(r'^([A-Za-z0-9]+-\d+)(r\d+[a-zA-Z]?)?$', text, re.IGNORECASE)
-
-        if not match:
-            self.btn_open_tdoc.setVisible(False)
-            self.btn_open_meeting.setVisible(False)
-            self.current_found_meeting = None
-            return
-
-        # Query the DB silently
-        meeting = self.db.find_meeting_by_tdoc(text)
-
-        if meeting:
-            self.current_found_meeting = meeting
-            self.btn_open_tdoc.setVisible(True)
-            self.btn_open_meeting.setVisible(True)
-
-            # Add helpful hover tooltips
-            mtg_name = f"{meeting.get('wg_name', '')} {meeting.get('meeting_number', '')}"
-            self.btn_open_meeting.setToolTip(f"Open the full TDocs table for {mtg_name}")
-            self.btn_open_tdoc.setToolTip(f"Instantly download {text.upper()} from {mtg_name}")
-        else:
-            self.btn_open_tdoc.setVisible(False)
-            self.btn_open_meeting.setVisible(False)
-            self.current_found_meeting = None
-
-    def _action_open_tdoc_only(self):
-        """Fired by clicking 'Open TDoc' or pressing Enter. Downloads and opens the file directly."""
-        if not self.btn_open_tdoc.isVisible() or not getattr(self, 'current_found_meeting', None):
-            return
-
-        tdoc_str = self.global_tdoc_input.text().strip()
-        match = re.match(r'^([A-Za-z0-9]+-\d+)(r\d+[a-zA-Z]?)?$', tdoc_str, re.IGNORECASE)
-        if not match: return
-
-        base_tdoc = match.group(1).upper()
-        target_filename = (base_tdoc + (match.group(2) or "")).upper()
-
-        if target_filename in self._active_dl_threads:
-            return
-
-        self.btn_open_tdoc.setText("⏳ Get...")
-        self.btn_open_tdoc.setEnabled(False)
-        self.global_tdoc_input.setEnabled(False)
-        QApplication.processEvents()
-
-        # Fire the background download
-        self._download_global_tdoc(self.current_found_meeting, base_tdoc, target_filename,
-                                   has_rev=bool(match.group(2)))
-
-    def _action_open_meeting_list(self):
-        """Fired by clicking 'Open Meeting'. Loads the Excel file and opens the TDocsWindow."""
-        if not getattr(self, 'current_found_meeting', None):
-            return
-
-        meeting = self.current_found_meeting
-        self.btn_open_meeting.setText("⏳ Load...")
-        self.btn_open_meeting.setEnabled(False)
-        QApplication.processEvents()
-
-        filepath = self._get_tdoc_list_path(meeting)
-        if filepath and filepath.exists():
-            self._open_tdocs_window(meeting, str(filepath))
-        else:
-            # Need to download the Excel list first
-            dummy_btn = QPushButton()
-            self._download_and_open_tdocs(meeting, dummy_btn)
-
-        self.btn_open_meeting.setText("🗓️ Mtg")
-        self.btn_open_meeting.setEnabled(True)
-
-    def _on_global_tdoc_download_finished(self, tdoc_name: str, success: bool, msg: str, thread: TDocActionThread):
-        if tdoc_name in self._active_dl_threads:
-            del self._active_dl_threads[tdoc_name]
-
-        # ---> NEW: Restore the UI state
-        self.btn_open_tdoc.setText("📄 Doc")
-        self.btn_open_tdoc.setEnabled(True)
-        self.global_tdoc_input.setEnabled(True)
-        # ------------------------------
-
-        if not success:
-            QMessageBox.warning(self, f"Download Failed: {tdoc_name}", msg)
+            QMessageBox.warning(self, "Caching Failed", msg)
