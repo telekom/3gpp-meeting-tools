@@ -76,3 +76,84 @@ class TDocsParser:
         except Exception as e:
             logging.error(f"Failed to parse Excel file {filepath}: {e}")
             return []
+
+    @classmethod
+    def parse_tdocs_by_agenda(cls, filepath: str, ui_logger=None) -> dict:
+        from bs4 import BeautifulSoup
+        import logging
+
+        if ui_logger: ui_logger.emit("⏳ Parsing TdocsByAgenda HTML (Word Export)...", logging.INFO)
+        data = {}
+
+        try:
+            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+                soup = BeautifulSoup(f, 'html.parser')
+
+            tables = soup.find_all('table')
+            if not tables:
+                if ui_logger: ui_logger.emit("❌ No tables found in HTML.", logging.ERROR)
+                return data
+
+            target_table = None
+            for table in tables:
+                # Inspect the first few rows to find the headers
+                headers = [th.get_text(strip=True).lower() for th in table.find_all(['th', 'td'])[:20]]
+                if any('td#' in h or 'td #' in h for h in headers):
+                    target_table = table
+                    break
+
+            if not target_table:
+                if ui_logger: ui_logger.emit("❌ Could not identify the main TDoc table in HTML.", logging.ERROR)
+                return data
+
+            rows = target_table.find_all('tr')
+            if not rows: return data
+
+            # Extract dynamic column indices
+            header_row = rows[0].find_all(['th', 'td'])
+            headers = [h.get_text(separator=' ', strip=True).lower() for h in header_row]
+
+            td_idx = next((i for i, h in enumerate(headers) if 'td#' in h or 'td #' in h), -1)
+            comments_idx = next((i for i, h in enumerate(headers) if 'comments' in h), -1)
+            email_idx = next((i for i, h in enumerate(headers) if 'e-mail_discussion' in h), -1)
+            title_idx = next((i for i, h in enumerate(headers) if 'title' in h), -1)
+            source_idx = next((i for i, h in enumerate(headers) if 'source' in h), -1)
+
+            if td_idx == -1:
+                if ui_logger: ui_logger.emit("❌ 'TD#' column missing in HTML table.", logging.ERROR)
+                return data
+
+            for row in rows[1:]:
+                cols = row.find_all(['td'])
+                if len(cols) <= td_idx: continue
+
+                tdoc_id = cols[td_idx].get_text(separator=' ', strip=True)
+                # Ignore empty rows or AI separator rows that don't look like TDocs
+                if not tdoc_id or not tdoc_id.startswith(('S2-', 'R', 'C', 'S')):
+                    continue
+
+                comments = cols[comments_idx].get_text(separator=' ', strip=True) if comments_idx != -1 and len(
+                    cols) > comments_idx else ""
+                email_disc = cols[email_idx].get_text(separator=' ', strip=True) if email_idx != -1 and len(
+                    cols) > email_idx else ""
+                title = cols[title_idx].get_text(separator=' ', strip=True) if title_idx != -1 and len(
+                    cols) > title_idx else ""
+                source = cols[source_idx].get_text(separator=' ', strip=True) if source_idx != -1 and len(
+                    cols) > source_idx else ""
+
+                if ui_logger and (comments or email_disc):
+                    ui_logger.emit(f"   ➔ Extracted agenda remarks for {tdoc_id}", logging.DEBUG)
+
+                data[tdoc_id] = {
+                    'Comments': comments,
+                    'e-mail_Discussion': email_disc,
+                    'Title': title,
+                    'Source': source
+                }
+
+            if ui_logger: ui_logger.emit(f"✅ Successfully parsed {len(data)} TDocs from Agenda HTML.", logging.INFO)
+
+        except Exception as e:
+            if ui_logger: ui_logger.emit(f"❌ Error parsing HTML: {str(e)}", logging.ERROR)
+
+        return data
