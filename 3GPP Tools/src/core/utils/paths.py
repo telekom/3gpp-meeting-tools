@@ -9,4 +9,4 @@ def get_project_root() -> Path:
     # __file__ is src/3GPP Tools/utils/paths.py
     # .parent is utils/
     # .parent.parent is 3GPP Tools/ (The package root)
-    return Path(__file__).resolve().parent.parent
+    return Path(__file__).resolve().parent.parent.parent

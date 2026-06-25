@@ -128,7 +128,7 @@ class DragDropUI(QMainWindow):
             )
         )
 
-        db_path = get_project_root().parent / "3gpp_data.db"
+        db_path = get_project_root() / "3gpp_data.db"
 
         # Pass the db_path into the tab so the table can read it!
         self.specs_tab = SpecificationsTab(db_path)

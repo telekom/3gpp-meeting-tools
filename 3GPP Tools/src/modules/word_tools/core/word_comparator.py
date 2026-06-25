@@ -48,8 +48,7 @@ class WordComparatorThread(QThread):
         doc_revised = None
         word = None
         original_security = None
-        temp_path_a = None
-        temp_path_b = None
+        temp_dir = None
 
         try:
             pythoncom.CoInitialize()
@@ -58,7 +57,6 @@ class WordComparatorThread(QThread):
             path_a = self._resolve_path(self.doc_a, "A")
             path_b = self._resolve_path(self.doc_b, "B")
 
-            # ---> THE FIX: Explicit Logging & Sanity Check
             file_a_name = Path(path_a).name
             file_b_name = Path(path_b).name
             self.ui_log_msg.emit(f"   ➔ Doc A (Base): {file_a_name}", logging.INFO)
@@ -100,25 +98,34 @@ class WordComparatorThread(QThread):
 
             self.ui_log_msg.emit("⏳ Step 4: Bypassing corporate locks via Skeleton Key...", logging.INFO)
 
-            def process_sandbox_doc(filepath, label):
+            def process_sandbox_doc(filepath, label, original_filename):
                 self.ui_log_msg.emit(f"   ➔ Extracting Doc {label} into unlocked container...", logging.INFO)
 
                 # 1. Create a pristine, completely unlocked blank document
                 doc = word.Documents.Add()
 
                 # 2. Insert the locked file's contents natively.
-                # This leaves all passwords, Restrict Editing, and IT locks behind!
                 doc.Content.InsertFile(FileName=str(filepath))
 
-                # 3. Because this new container is unlocked, AcceptAll will NEVER crash here!
+                # 3. Accept all revisions safely
                 if doc.Revisions.Count > 0:
                     doc.Revisions.AcceptAll()
 
+                # ---> NEW: Apply Sensitivity Label BEFORE saving to prevent IT popup blockers!
+                from modules.word_tools.core.sensitivity_label import set_sensitivity_label
+                set_sensitivity_label(doc, self.ui_log_msg)
+
+                # 4. Save the document using the exact original filename
+                save_dir = temp_dir / f"unlocked_{label}"
+                save_dir.mkdir(parents=True, exist_ok=True)
+                out_path = save_dir / original_filename
+
+                doc.SaveAs(FileName=str(out_path))
                 return doc
 
-            # Process both documents safely
-            doc_original = process_sandbox_doc(temp_path_a, "A")
-            doc_revised = process_sandbox_doc(temp_path_b, "B")
+            # Process both documents safely, passing the original filenames down
+            doc_original = process_sandbox_doc(temp_path_a, "A", file_a_name)
+            doc_revised = process_sandbox_doc(temp_path_b, "B", file_b_name)
 
             self.ui_log_msg.emit("⏳ Step 5: Executing CompareDocuments engine...", logging.INFO)
 
@@ -173,11 +180,13 @@ class WordComparatorThread(QThread):
             except Exception:
                 pass
 
+            # -> NEW: Wipe the entire temp directory in one shot, destroying the locked copies and the saved unlocked copies
             try:
-                if temp_path_a and temp_path_a.exists(): temp_path_a.unlink()
-                if temp_path_b and temp_path_b.exists(): temp_path_b.unlink()
-            except Exception:
-                pass
+                if temp_dir and temp_dir.exists():
+                    import shutil
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception as e:
+                print(f"Cleanup warning: {e}")
 
             pythoncom.CoUninitialize()
             self.finished.emit()
