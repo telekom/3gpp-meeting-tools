@@ -1,6 +1,7 @@
 # --- File: modules/meetings/ui/ui_tabs.py ---
 import json
 import os
+import re
 import webbrowser
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
                              QMenu, QLabel, QCheckBox, QDateEdit, QSplitter,
-                             QMessageBox, QFrame, QFileDialog)
+                             QMessageBox, QFrame, QFileDialog, QApplication)
 
 import core.utils.paths
 from core.network.session import NetworkConfigDialog
@@ -21,6 +22,7 @@ from modules.meetings.ui.tdocs_window import TDocsWindow
 from modules.specifications.ui.components import HoverMenuButton
 from modules.meetings.core.compare_manager import ComparisonManager
 from modules.word_tools.core.word_comparator import WordComparatorThread
+from modules.meetings.core.tdocs_threads import TDocActionThread
 
 
 # ==========================================
@@ -232,10 +234,29 @@ class MeetingsTab(QWidget):
         self.search_input.textChanged.connect(self.refresh_table)
         right_layout.addWidget(self.search_input)
 
-        right_layout.addWidget(QLabel("Location:"))
-        self.location_input = QLineEdit()
-        self.location_input.textChanged.connect(self.refresh_table)
-        right_layout.addWidget(self.location_input)
+        # --- NEW: GLOBAL TDOC SEARCH ---
+        right_layout.addWidget(QLabel("Global TDoc Search:"))
+        global_search_layout = QHBoxLayout()
+        self.global_tdoc_input = QLineEdit()
+        self.global_tdoc_input.setPlaceholderText("e.g., S2-2605740")
+        self.global_tdoc_input.returnPressed.connect(self._on_global_tdoc_search)
+
+        self.global_tdoc_btn = QPushButton("🔍 Find TDoc")
+        self.global_tdoc_btn.setCursor(Qt.PointingHandCursor)
+        self.global_tdoc_btn.setStyleSheet("""
+                    QPushButton { 
+                        font-weight: bold; background-color: #0078D7; color: white; 
+                        padding: 6px 15px; border-radius: 4px; 
+                    } 
+                    QPushButton:hover { background-color: #005A9E; }
+                    QPushButton:pressed { background-color: #004578; }
+                    QPushButton:disabled { background-color: #A0C0E0; }
+                """)
+        self.global_tdoc_btn.clicked.connect(self._on_global_tdoc_search)
+
+        global_search_layout.addWidget(self.global_tdoc_input)
+        global_search_layout.addWidget(self.global_tdoc_btn)
+        right_layout.addLayout(global_search_layout)
 
         self.enable_dates_cb = QCheckBox("Filter by Date Range")
         self.enable_dates_cb.toggled.connect(self._toggle_date_inputs)
@@ -263,10 +284,19 @@ class MeetingsTab(QWidget):
         line.setFrameShadow(QFrame.Sunken)
         right_layout.addWidget(line)
 
-        # 2. Sync Configuration
-        sync_lbl = QLabel("<b>Scrape Configuration</b>")
-        sync_lbl.setStyleSheet("font-size: 14px; margin-top: 5px;")
-        right_layout.addWidget(sync_lbl)
+        # 2. Compact Sync Configuration
+        self.scrape_toggle_btn = QPushButton("⚙️ Scrape Configuration (Click to Expand)")
+        self.scrape_toggle_btn.setCheckable(True)
+        self.scrape_toggle_btn.setCursor(Qt.PointingHandCursor)
+        self.scrape_toggle_btn.setStyleSheet("""
+                    QPushButton { text-align: left; padding: 5px; border: none; font-weight: bold; color: #555; }
+                    QPushButton:hover { color: #0078D7; }
+                """)
+
+        self.scrape_frame = QFrame()
+        self.scrape_frame.setVisible(False)  # Hidden by default
+        scrape_layout = QVBoxLayout(self.scrape_frame)
+        scrape_layout.setContentsMargins(15, 0, 0, 5)
 
         self.chk_wg = QCheckBox("Check for New Folders")
         self.chk_wg.setChecked(True)
@@ -275,9 +305,14 @@ class MeetingsTab(QWidget):
         self.chk_docs = QCheckBox("Deep Scrape 'Docs/'")
         self.chk_docs.setChecked(True)
 
-        right_layout.addWidget(self.chk_wg)
-        right_layout.addWidget(self.chk_dyna)
-        right_layout.addWidget(self.chk_docs)
+        scrape_layout.addWidget(self.chk_wg)
+        scrape_layout.addWidget(self.chk_dyna)
+        scrape_layout.addWidget(self.chk_docs)
+
+        self.scrape_toggle_btn.toggled.connect(self.scrape_frame.setVisible)
+
+        right_layout.addWidget(self.scrape_toggle_btn)
+        right_layout.addWidget(self.scrape_frame)
 
         # --- NEW: Local Cache GUI Element ---
         right_layout.addWidget(QLabel("Local Cache Directory:"))
@@ -398,7 +433,7 @@ class MeetingsTab(QWidget):
         data = self.db.search_meetings(
             wg_name=wg,
             search_term=self.search_input.text().strip(),
-            location=self.location_input.text().strip(),
+            location=None,  # <--- THE FIX: Set this to None since we removed the text box!
             date_from=date_from,
             date_to=date_to,
             adhoc_filter=adhoc_val,
@@ -748,3 +783,97 @@ class MeetingsTab(QWidget):
 
         except Exception as e:
             QMessageBox.critical(self, "Launch Error", f"Could not open last meeting:\n{e}")
+
+    # ==========================================
+    # --- GLOBAL TDOC SEARCH LOGIC ---
+    # ==========================================
+    def _on_global_tdoc_search(self):
+        tdoc_str = self.global_tdoc_input.text().strip()
+        if not tdoc_str:
+            return
+
+        # --- FIX 1: Prevent UI Double-Firing ---
+        if not self.global_tdoc_btn.isEnabled():
+            return
+
+        self.global_tdoc_input.setEnabled(False)
+        self.global_tdoc_btn.setEnabled(False)
+        self.global_tdoc_btn.setText("⏳ Searching...")
+        QApplication.processEvents()  # Force UI update
+
+        # 1. Find the parent meeting in the database
+        meeting = self.db.find_meeting_by_tdoc(tdoc_str)
+
+        # Restore UI State immediately after DB lookup
+        self.global_tdoc_btn.setText("🔍 Find TDoc")
+        self.global_tdoc_input.setEnabled(True)
+        self.global_tdoc_btn.setEnabled(True)
+
+        if not meeting:
+            QMessageBox.warning(
+                self,
+                "Not Found",
+                f"Could not find a meeting containing TDoc '{tdoc_str}'.\n\nEnsure you have fully synced the database and enabled the 'Deep Scrape Docs' option."
+            )
+            return
+
+        # 2. Extract clean base TDoc and revision targets
+        match = re.match(r'^([A-Za-z0-9]+-\d+)(r\d+[a-zA-Z]?)?$', tdoc_str, re.IGNORECASE)
+        if not match:
+            QMessageBox.warning(self, "Invalid Format", "Could not parse the provided TDoc number.")
+            return
+
+        base_tdoc = match.group(1).upper()
+        target_filename = (base_tdoc + (match.group(2) or "")).upper()
+
+        # --- FIX 2: Prevent overlapping background threads for the same file ---
+        if target_filename in self._active_dl_threads:
+            return
+
+        # 3. Open the TDocs table for this meeting (downloading the Excel file if necessary)
+        filepath = self._get_tdoc_list_path(meeting)
+        if filepath and filepath.exists():
+            self._open_tdocs_window(meeting, str(filepath))
+        else:
+            dummy_btn = QPushButton()  # Dummy button to absorb loading states
+            self._download_and_open_tdocs(meeting, dummy_btn)
+
+        # 4. Trigger the background download and auto-open of the specific TDoc file
+        self._download_global_tdoc(meeting, base_tdoc, target_filename, has_rev=bool(match.group(2)))
+
+    def _download_global_tdoc(self, meeting: dict, base_tdoc: str, target_filename: str, has_rev: bool):
+        docs_url = meeting.get("docs_folder_url")
+        if not docs_url:
+            return
+
+        if not docs_url.startswith("http"):
+            docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip('/')
+
+        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.cache_dir
+        folder_name = meeting.get("folder_name") or meeting.get("meeting_number", "")
+        meeting_dir = Path(current_cache) / folder_name
+
+        # If it's a revision, we assume it's in the Revisions folder.
+        # If the revision folder doesn't exist, the TDocActionThread will safely handle the 404 error.
+        dl_url = docs_url
+        if has_rev:
+            raw_url = meeting.get("url_key", "")
+            main_ftp = raw_url if raw_url.startswith("http") else f"https://www.3gpp.org/ftp/{raw_url.lstrip('/')}"
+            dl_url = main_ftp.rstrip('/') + '/INBOX/Revisions/'
+
+        # Launch the action thread!
+        thread = TDocActionThread(base_tdoc, target_filename, dl_url, meeting_dir, open_file=True)
+        self._active_dl_threads[target_filename] = thread
+
+        # Connect cleanup and error handling
+        thread.finished_action.connect(
+            lambda t, s, m, th=thread: self._on_global_tdoc_download_finished(target_filename, s, m, th)
+        )
+        thread.start()
+
+    def _on_global_tdoc_download_finished(self, tdoc_name: str, success: bool, msg: str, thread: TDocActionThread):
+        if tdoc_name in self._active_dl_threads:
+            del self._active_dl_threads[tdoc_name]
+
+        if not success:
+            QMessageBox.warning(self, f"Download Failed: {tdoc_name}", msg)

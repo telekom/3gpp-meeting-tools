@@ -367,3 +367,35 @@ class MeetingsDatabase:
                     return True
 
         return False
+
+    def find_meeting_by_tdoc(self, tdoc_str: str) -> dict:
+        """
+        Attempts to find the meeting where a specific TDoc was presented.
+        Expects a format like 'S2-2605740' or 'R1-2601234r1'.
+        """
+        # Match pattern like "S2-2605740" (ignoring revisions for the search)
+        match = re.match(r'^([A-Za-z0-9]+)-?(\d+)', tdoc_str.strip(), re.IGNORECASE)
+        if not match:
+            return {}
+
+        prefix = match.group(1).upper()
+        num = int(match.group(2))
+
+        # Find a meeting where the prefix matches and the TDoc number falls within the known bounds
+        query = '''
+            SELECT m.*, w.name as wg_name 
+            FROM meetings m
+            JOIN working_groups w ON m.wg_id = w.id
+            WHERE m.first_tdoc_num <= ? AND m.last_tdoc_num >= ?
+              AND (UPPER(m.first_tdoc_prefix) = ? OR UPPER(m.last_tdoc_prefix) = ?)
+        '''
+
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, (num, num, prefix, prefix))
+            row = cursor.fetchone()
+
+            if row:
+                return dict(row)
+        return {}
