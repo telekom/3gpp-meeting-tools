@@ -13,8 +13,8 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
 
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.ui.components import HoverMenuButton
-from modules.specifications.ui.dialogs import SpecInfoDialog, AdvancedSyncDialog, TableFilterDialog
 from modules.specifications.ui.threads import SpecDownloadThread
+from modules.specifications.ui.dialogs import SpecInfoDialog, AdvancedSyncDialog, TableFilterDialog, TargetedSyncDialog
 
 
 class SpecificationsTab(QWidget):
@@ -92,6 +92,10 @@ class SpecificationsTab(QWidget):
         self.full_sync_btn = QPushButton("🔄 Full Sync")
         self.full_sync_btn.clicked.connect(lambda: self.update_db_requested.emit(self.force_meta_checkbox.isChecked()))
         sync_layout.addWidget(self.full_sync_btn)
+
+        self.target_sync_btn = QPushButton("🎯 Quick Fetch")
+        self.target_sync_btn.clicked.connect(self._open_targeted_sync)
+        sync_layout.addWidget(self.target_sync_btn)
 
         self.adv_sync_btn = QPushButton("⚙️ Filtered Sync")
         self.adv_sync_btn.clicked.connect(self._open_advanced_sync)
@@ -200,6 +204,15 @@ class SpecificationsTab(QWidget):
             if target_specs:
                 force_meta = self.force_meta_checkbox.isChecked()
                 self.update_specific_requested.emit(target_specs, force_meta)
+
+    def _open_targeted_sync(self):
+        dialog = TargetedSyncDialog(self)
+        if dialog.exec_():
+            targets = dialog.get_targets()
+            if targets:
+                force_meta = self.force_meta_checkbox.isChecked()
+                # Emits the exact same signal used by the right-click menu and Filtered Sync!
+                self.update_specific_requested.emit(targets, force_meta)
 
     def _show_context_menu(self, position):
         selected_rows = self.table.selectionModel().selectedRows()

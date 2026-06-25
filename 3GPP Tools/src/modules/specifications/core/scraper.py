@@ -171,18 +171,39 @@ class SpecsCrawlerThread(QThread):
             spec_tasks: List[Tuple[str, str, str, str, bool]] = []
 
             # --- 1. Gather all directories ---
+            # --- 1. Gather all directories ---
             if self.target_specs:
-                self.ui_log_msg.emit(f"⏳ Starting Targeted Update for {len(self.target_specs)} specifications...",
+                self.ui_log_msg.emit(f"⏳ Starting Targeted Update for: {', '.join(self.target_specs)}...",
                                      logging.INFO)
 
-                for spec_num in self.target_specs:
-                    series_number = spec_num.split('.')[0]
-                    series_folder = f"{series_number}_series"
-                    series_url = urljoin(self.root_url, f"{series_folder}/")
-                    spec_url = urljoin(series_url, f"{spec_num}/")
-                    needs_meta = self.force_metadata_update or self.db.needs_metadata(spec_num)
+                for target in self.target_specs:
+                    # Check if the user entered a series (e.g., "23") or a specific spec (e.g., "23.501")
+                    if '.' not in target:
+                        # --- SERIES FETCH LOGIC ---
+                        series_number = target
+                        series_folder = f"{series_number}_series"
+                        series_url = urljoin(self.root_url, f"{series_folder}/")
 
-                    spec_tasks.append((series_number, series_url, spec_num, spec_url, needs_meta))
+                        self.ui_log_msg.emit(f"⏳ Mapping entire {series_number} series directory...", logging.INFO)
+                        spec_links = self.fetch_links(series_url)
+
+                        for href, spec_url in spec_links:
+                            folder_name: str = [x for x in spec_url.split('/') if x][-1]
+                            match = self.spec_folder_pattern.search(folder_name)
+                            if match:
+                                clean_spec_number: str = match.group(1)
+                                if not spec_url.endswith('/'): spec_url += '/'
+                                needs_meta = self.force_metadata_update or self.db.needs_metadata(clean_spec_number)
+                                spec_tasks.append((series_number, series_url, clean_spec_number, spec_url, needs_meta))
+                    else:
+                        # --- SPECIFIC SPEC LOGIC ---
+                        series_number = target.split('.')[0]
+                        series_folder = f"{series_number}_series"
+                        series_url = urljoin(self.root_url, f"{series_folder}/")
+                        spec_url = urljoin(series_url, f"{target}/")
+                        needs_meta = self.force_metadata_update or self.db.needs_metadata(target)
+
+                        spec_tasks.append((series_number, series_url, target, spec_url, needs_meta))
             else:
                 self.ui_log_msg.emit("⏳ Mapping directories in parallel... (This is fast)", logging.INFO)
 
