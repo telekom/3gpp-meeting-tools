@@ -145,8 +145,9 @@ class TdocsByAgendaThread(QThread):
             clean_base_url = self.meeting_ftp_url.rstrip('/')
             agenda_url = f"{clean_base_url}/TdocsByAgenda.htm"
 
-            self.local_folder.mkdir(parents=True, exist_ok=True)
-            agenda_path = self.local_folder / "TdocsByAgenda.htm"
+            agenda_dir = self.local_folder / "Agenda"
+            agenda_dir.mkdir(parents=True, exist_ok=True)
+            agenda_path = agenda_dir / "TdocsByAgenda.htm"
 
             self.ui_log_msg.emit(f"⬇️ Downloading: {agenda_url}", logging.INFO)
             NetworkSession.download_file(agenda_url, agenda_path)

@@ -107,20 +107,23 @@ class TDocsWindow(QWidget):
         self.refresh_btn.setMenu(refresh_menu)
 
         # ---> FIXED: New Multi-Action Folders Menu!
-        self.folder_btn = QPushButton("📂 Folders")
+        self.folder_btn = QPushButton("🗂️ Resources")
         self.folder_btn.setCursor(Qt.PointingHandCursor)
         self.folder_btn.setStyleSheet("""
-            QPushButton {
-                font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold;
-                border-radius: 6px; padding: 5px 12px;
-                color: #005A9E; background-color: #E1F0FF; border: 1px solid #99C9FF;
-            }
-            QPushButton:hover, QPushButton::menu-indicator { background-color: #CCE4FF; border: 1px solid #005A9E; }
-        """)
+                    QPushButton {
+                        font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold;
+                        border-radius: 6px; padding: 5px 12px;
+                        color: #005A9E; background-color: #E1F0FF; border: 1px solid #99C9FF;
+                    }
+                    QPushButton:hover, QPushButton::menu-indicator { background-color: #CCE4FF; border: 1px solid #005A9E; }
+                """)
 
         folder_menu = QMenu(self)
         folder_menu.setStyleSheet("QMenu { font-size: 12px; }")
         folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
+        wg_name = str(self.mtg_info.get('wg_name', '')).upper()
+        if wg_name == "SA2":
+            folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
         folder_menu.addSeparator()
         if hasattr(self, 'main_ftp_url') and self.main_ftp_url:
             folder_menu.addAction("🌐 FTP: Main Folder", lambda: webbrowser.open(self.main_ftp_url))
@@ -450,6 +453,20 @@ class TDocsWindow(QWidget):
         else:
             QMessageBox.warning(self, "Not Found", "The root meeting folder has not been created yet.")
 
+    def _open_agenda_file(self):
+        """Safely opens the downloaded TdocsByAgenda.htm file."""
+        # self.meeting_dir points directly to the root meeting folder (e.g., C:/Temp/WG2_Arch_175)
+        agenda_path = self.meeting_dir / "Agenda" / "TdocsByAgenda.htm"
+
+        if agenda_path.exists():
+            if hasattr(os, 'startfile'):
+                os.startfile(str(agenda_path))
+            else:
+                webbrowser.open(f"file:///{agenda_path}")
+        else:
+            QMessageBox.information(self, "Not Found",
+                                    "TdocsByAgenda.htm has not been downloaded yet.\n\nPlease use the 'Refresh' menu to import it first!")
+
     def _open_specific_folder(self, folder_path: Path):
         """Safely opens a specific TDoc's local folder."""
         if folder_path.exists():
@@ -497,24 +514,11 @@ class TDocsWindow(QWidget):
 
         ftp_url = url_key if url_key.startswith("http") else f"https://www.3gpp.org/ftp/{url_key.lstrip('/')}"
 
-        # Setup paths using your project root
-        from core.utils.paths import get_project_root
-        import json
-        config_file = get_project_root() / "meetings_config.json"
-        cache_dir = "C:/Temp"  # Fallback
-        if config_file.exists():
-            try:
-                with open(config_file, 'r', encoding='utf-8') as f:
-                    cache_dir = json.load(f).get('download_dir', cache_dir)
-            except Exception:
-                pass
-
-        local_folder = Path(cache_dir) / (self.mtg_info.get("folder_name") or self.mtg_info.get("meeting_number"))
-
         self.refresh_btn.setText("⏳ Parsing HTML...")
 
-        # Launch Thread
-        self.agenda_thread = TdocsByAgendaThread(ftp_url, local_folder)
+        # ---> FIXED: We delete the manual JSON path reconstruction and just pass
+        # the guaranteed correct root directory (self.meeting_dir) directly to the thread!
+        self.agenda_thread = TdocsByAgendaThread(ftp_url, self.meeting_dir)
         self.agenda_thread.ui_log_msg.connect(self._handle_thread_log)
         self.agenda_thread.finished.connect(self._on_agenda_fetched)
         self.agenda_thread.start()
