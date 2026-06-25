@@ -1,5 +1,5 @@
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLabel, QPushButton, QHBoxLayout, QComboBox
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLabel, QPushButton, QHBoxLayout, QComboBox, QLineEdit
 
 from modules.specifications.core.database import SpecsDatabase
 
@@ -179,3 +179,45 @@ class TableFilterDialog(QDialog):
             'group': "" if self.group_combo.currentText() == "Any" else self.group_combo.currentText(),
             'spec_type': self.type_combo.currentText()
         }
+
+
+class TargetedSyncDialog(QDialog):
+    """Dialog for fetching brand new specifications directly by number or series."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🎯 Quick Fetch Specification")
+        self.setModal(True)
+        self.resize(350, 150)
+
+        layout = QVBoxLayout(self)
+
+        info_label = QLabel(
+            "Enter a specific specification (e.g., <b>23.801-01</b>) or an entire series (e.g., <b>23</b>) to fetch directly from 3GPP.<br><br><i>You can separate multiple targets with commas.</i>")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("e.g., 23, 38.331, 23.501")
+        layout.addWidget(self.input_field)
+
+        btn_layout = QHBoxLayout()
+        self.fetch_btn = QPushButton("🚀 Fetch Now")
+        self.fetch_btn.clicked.connect(self.accept)
+        self.fetch_btn.setEnabled(False)  # Disabled until they type something
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(self.fetch_btn)
+        layout.addLayout(btn_layout)
+
+        # Enable the button only if there is text
+        self.input_field.textChanged.connect(lambda t: self.fetch_btn.setEnabled(bool(t.strip())))
+
+    def get_targets(self) -> list:
+        raw_text = self.input_field.text()
+        # Split by comma, strip whitespace, and ignore empty strings
+        return [t.strip() for t in raw_text.split(',') if t.strip()]
