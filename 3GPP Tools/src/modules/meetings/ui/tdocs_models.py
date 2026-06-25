@@ -88,7 +88,8 @@ class TDocsTableModel(QAbstractTableModel):
             val = row.get(col_name, "")
             val_str = str(val).strip() if val is not None else ""
 
-            if col_name == "Abstract" and len(val_str) > 90:
+            # ---> UPDATE: Add "Secretary Remarks" to the truncation logic
+            if col_name in ["Abstract", "Secretary Remarks"] and len(val_str) > 90:
                 return val_str.replace('\n', ' ').replace('\r', '')[:87] + "..."
             return val_str
 
@@ -100,13 +101,13 @@ class TDocsTableModel(QAbstractTableModel):
         elif role == Qt.ToolTipRole:
             val = row.get(col_name, "")
             val_str = str(val).strip() if val is not None else ""
-            if col_name == "Abstract" and val_str:
+
+            # ---> UPDATE: Group "Secretary Remarks" with Abstract for the nice, wrapped tooltip box!
+            if col_name in ["Abstract", "Secretary Remarks"] and val_str:
                 return f"<div style='width: 400px; white-space: pre-wrap;'>{val_str}</div>"
-            elif col_name in ["Title", "Source", "Secretary Remarks"] and len(val_str) > 30:
+            elif col_name in ["Title", "Source"] and len(val_str) > 30:
                 return val_str
             return None
-
-
 
         elif role == Qt.TextAlignmentRole:
             if col_name in ["TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related TDocs"]:

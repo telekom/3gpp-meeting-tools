@@ -250,6 +250,10 @@ class TDocsWindow(QWidget):
         header.resizeSection(2, 200)
         header.resizeSection(3, 100)
         header.setSectionResizeMode(6, QHeaderView.Stretch)
+
+        # ---> NEW: Make the Secretary Remarks column specifically wider (e.g., 250px)
+        header.resizeSection(7, 250)
+
         header.resizeSection(10, 160)
 
         main_layout.addWidget(self.table)
