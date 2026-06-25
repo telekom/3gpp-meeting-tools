@@ -84,7 +84,9 @@ class TDocsCacherThread(QThread):
                             logging.info(f"✅ [{processed}/{total_files}] Downloaded: {filename}")
                         else:
                             skipped += 1
-                            logging.info(f"⏭️ [{processed}/{total_files}] Skipped (Already exists): {filename}")
+                            # ---> OPTIMIZATION: Throttle skip logs so we don't crash the UI Event Loop!
+                            if skipped % 50 == 0:
+                                logging.info(f"⏭️ Skipped {skipped} existing files so far...")
 
                     except Exception as e:
                         processed += 1
@@ -115,7 +117,8 @@ class TDocsCacherThread(QThread):
         response.raise_for_status()
 
         with open(target_file, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=16384):
+            # ---> OPTIMIZATION: Increased chunk size from 16KB to 64KB
+            for chunk in response.iter_content(chunk_size=65536):
                 if chunk:
                     f.write(chunk)
 
