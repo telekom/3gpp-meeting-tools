@@ -23,15 +23,18 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Asynchronous Three-Phase Syncing Engine:** * **Phase 1 (FTP Directory Mapping):** Scrapes the 3GPP FTP archives in parallel to instantly populate your database with all available meeting numbers, gracefully handling hidden RAN Ad-Hoc (`TSGR_AHs`) subdirectories.
   * **Phase 2 (Deep Document Scrape):** Crawls the `Docs/` folder of every meeting. Uses smart Regex stripping to ignore file extensions and revisions, mathematically sorting the files to determine the first and last TDocs of the meeting.
   * **Phase 3 (DynaReport Upserting):** Injects metadata (Location, Start/End Dates, Ad-Hoc/Electronic status) by fetching the legacy 3GPP Portal HTML tables.
+* **Targeted Quick Fetch:** Instantly sync individual specifications (e.g., `23.801-01`) or entire specification series (e.g., `23`) directly from the FTP server without needing to run a lengthy full database sync.
 * **Intelligent TDocs Manager:**
   * **Natural Sorting & Smart Filtering:** Bulletproof multi-select dropdowns and natural numerical sorting for complex multi-level Agenda Items (e.g., AI 20.6.2 sorts correctly before 20.6.11).
-  * **SA2 Electronic Revisions:** Automatically scrapes `INBOX/Revisions/` for electronic meetings, seamlessly mapping `rXX` versions to their base TDocs via an intuitive cascading context menu.
-  * **Multi-Action Folder Integration:** Instantly jump to local cache directories, Main FTP folders, Docs/ folders, or Revisions/ folders directly from the UI.
-* **3GPP FTP Session Manager:** Automatically injects randomized User-Agents and HTTP Keep-Alive headers to bypass aggressive 3GPP server throttling and "Too Many Requests" blocks.
+  * **SA2 Electronic Revisions & Agenda Parsing:** Automatically scrapes `INBOX/Revisions/` for electronic meetings. Parses messy Word-exported `TdocsByAgenda.htm` files to extract comments, inject on-the-fly revisions directly into your table, and provides a "No Comments Only" filter.
+  * **Multi-Action Resources Menu:** Instantly jump to local cache directories, fetched HTML Agenda files, Main FTP folders, Docs/ folders, or Revisions/ folders directly from the UI.
+  * **Quick Launch History:** Remembers your exact active working group session, allowing you to bypass the database table and instantly jump back into your last opened meeting with a single click.
+* **3GPP FTP Session Manager:** Automatically injects randomized User-Agents and HTTP Keep-Alive headers. Features a configurable **Humanness Delay** engine to bypass aggressive 3GPP server throttling and "Too Many Requests" blocks, which can be dialed down to 0.0 for maximum scraping speed.
 
 ### 📝 Word Document Manipulation
-* **Global Comparison Cart:** A persistent state dashboard that bridges multiple meeting windows. Push any Base TDoc or specific Revision into "Slot A" and "Slot B", then launch a native Word comparison instantly.
-* **Isolated Word Diff Engine:** Uses COM `DispatchEx` to spawn an invisible, isolated instance of Microsoft Word. It safely opens files as Read-Only, auto-accepts tracked changes purely in RAM, and generates a visual comparison without freezing your active Word sessions or locking local files.
+* **Global Comparison Cart:** A persistent, round-robin state dashboard that bridges multiple meeting windows. Intelligently push any Base TDoc or specific Revision into alternating slots, then launch a native Word comparison instantly.
+* **Isolated Word Diff Engine:** Uses COM `DispatchEx` to spawn an invisible, isolated instance of Microsoft Word. It safely opens files as Read-Only, auto-accepts tracked changes purely in RAM, assigns proper document names for the comparison pane, and generates a visual diff without freezing your active Word sessions or locking local files.
+* **Corporate IT Bypass (Sensitivity Labels):** Automatically injects configurable Microsoft Purview Sensitivity Labels (e.g., "OFFEN") directly into COM objects to bypass blocking corporate IT popup dialogs during automated saves.
 * **Intelligent DocxSplitter:** Safely slices massive 3GPP TS/TR specifications (often hundreds of pages long) into individual Word documents based on Heading 1 or Heading 2 boundaries, perfectly preserving styles, images, and Visio objects.
 * **Background Word-to-PDF Converter:** A headless Word automation thread that silently converts generated files to PDFs or XPS without interrupting your workflow.
 * **Native Visio Extractor:** Parses the raw XML (`document.xml`) of a `.docx` file, identifies embedded `OLEObject` bins, and extracts raw `.vsdx` Visio diagrams straight out of the Word document to your local disk.
@@ -50,7 +53,7 @@ This application strictly adheres to the **Model-View-Controller (MVC)** and **E
 1. **The UI Layer (`modules/*/ui/`):** Contains only dumb Qt Widgets and standard `QAbstractTableModel` proxies. It never blocks the main thread.
 2. **The Core Layer (`modules/*/core/`):** Contains the heavy lifting. All database transactions (`sqlite3`), FTP network scraping (`requests`), COM object automation (`win32com`), and XML manipulation (`python-docx`) are isolated here.
 3. **The Threading Bridge:** Every Core module inherits from `QThread`. The UI sends data to the Thread, and the Thread emits `pyqtSignals` back to the UI to update progress bars or logs.
-4. **The Singleton Managers:** The Network Configuration (proxies) and Comparison Cart states are managed by robust Singletons to ensure cross-tab synchronization.
+4. **The Singleton Managers:** The Network Configuration (proxies), Word Configuration (Sensitivity Labels), and Comparison Cart states are managed by robust Singletons and dynamic JSON config loaders to ensure cross-tab synchronization.
 
 ---
 
@@ -69,7 +72,7 @@ To run this application natively or build it from source, you must have the foll
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-repo/3GPP-Delegate-Helper.git
+git clone [https://github.com/your-repo/3GPP-Delegate-Helper.git](https://github.com/your-repo/3GPP-Delegate-Helper.git)
 cd 3GPP-Delegate-Helper
 ```
 
@@ -91,13 +94,16 @@ python src/main_puml2visio.py
 
 ### 📊 3GPP Meetings & Specifications
 1. Navigate to the **Meetings** tab.
-2. Click **Sync All Meetings** to trigger the 3-Phase scraper. 
+2. Click **Sync All Meetings** to trigger the 3-Phase scraper. You can also use **Open Last Meeting** to instantly resume your previous working group session.
 3. Right-click any meeting to access its FTP folders, view its info, or open its cached **TDocs List**.
-4. In the TDocs Window, use the **Search** bar or dropdown filters to find specific documents. Click the Action column to automatically download, unzip, and open the `.doc` files, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
+4. In the TDocs Window, use the **Search** bar or dropdown filters to find specific documents. 
+5. For SA2 electronic meetings, use the **Refresh** menu to import `TdocsByAgenda.htm` and automatically merge secretary remarks and on-the-fly revisions into your list.
+6. Click the Action column to automatically download, unzip, and open the `.doc` files, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
+7. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
 
 ### 📝 Slicing & Comparing Word Documents
-1. In the **Comparison Cart** at the bottom of the Meetings Tab, populate Slot A and Slot B with local files or fetched 3GPP Revisions.
-2. Click **Compare in Word**. The tool will spawn a background process and present you with a native Word redline document.
+1. In the **Comparison Cart** at the bottom of the Meetings Tab, sequentially select documents. The round-robin queue will automatically populate Slot A and Slot B with local files or fetched 3GPP Revisions.
+2. Click **Compare in Word**. The tool will spawn a background process, temporarily remove file locks and OS restrictions, and present you with a native Word redline document.
 3. For large specs, navigate to the **Spec Splitter** tab, drag a `.docx` file, choose a Heading depth (e.g., "Level 2" for clauses like `6.1`, `6.2`), and click Split.
 
 ### 🎨 PlantUML Editor
@@ -105,10 +111,11 @@ python src/main_puml2visio.py
 2. The Live Preview will automatically update the image on the right.
 3. Click **Export Visio** to generate a native `.vsdx` file, or **Copy to Clipboard** to paste the image directly into PowerPoint.
 
-### ⚙️ Configuring Corporate Proxies
+### ⚙️ Configuring Corporate Proxies & Networking
 If you are behind a corporate firewall:
-1. Click the **Network Config (Proxy)** button in the top right.
+1. Click the **Network Config** button.
 2. Enter your HTTP/HTTPS proxies into the global session without restarting the app.
+3. Adjust the **Humanness Delays** to throttle network requests (to mimic human behavior) or set them to 0.0 for maximum download speed.
 
 ---
 
