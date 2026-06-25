@@ -125,6 +125,57 @@ class TDocsTableModel(QAbstractTableModel):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole: return self._headers[section]
         return None
 
+    def merge_agenda_data(self, agenda_data: dict, ui_logger=None):
+        """Merges parsed HTML data into the existing Excel data set."""
+        import logging
+        self.beginResetModel()
+
+        # FIXED: Use self._data instead of self._all_data
+        existing_tdocs = {row.get('TDoc', ''): idx for idx, row in enumerate(self._data)}
+        new_rows = []
+
+        for tdoc_id, info in agenda_data.items():
+            comments = info.get('Comments', '')
+            email = info.get('e-mail_Discussion', '')
+
+            # Resolve Conflict Rules
+            remarks = ""
+            if comments and email:
+                remarks = f"{comments}\n\n[e-mail_Discussion]: {email}"
+            elif comments:
+                remarks = comments
+            elif email:
+                remarks = email
+
+            if not remarks:
+                continue
+
+            if tdoc_id in existing_tdocs:
+                # Update existing row. Notice we use your exact dictionary keys!
+                idx = existing_tdocs[tdoc_id]
+                self._data[idx]['Secretary Remarks'] = remarks
+            else:
+                # Inject a revision created on the fly!
+                if ui_logger: ui_logger.emit(f"✨ Injecting new on-the-fly TDoc: {tdoc_id}", logging.INFO)
+                new_row = {
+                    'TDoc': tdoc_id,
+                    'Title': info.get('Title', 'Unknown (Parsed from Agenda)'),
+                    'Source': info.get('Source', ''),
+                    'Secretary Remarks': remarks,
+                    'Agenda Item': 'N/A',
+                    'Type': 'Revision',
+                    'TDoc Status': 'Unknown'
+                }
+                new_rows.append(new_row)
+
+        if new_rows:
+            self._data.extend(new_rows)
+            # Re-sort to put the on-the-fly revisions in chronological order
+            self._data.sort(key=lambda x: x.get('TDoc', ''))
+
+        self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
+        self.endResetModel()
+
 
 class TDocsFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, *args, **kwargs):
@@ -133,6 +184,11 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.type_filters = set()
         self.status_filters = set()
         self.ai_filters = set()
+        self.filter_no_comments = False
+
+    def setNoCommentsFilter(self, enabled: bool):
+        self.filter_no_comments = enabled
+        self.invalidateFilter()
 
     def setGlobalFilter(self, text):
         self.global_filter = str(text).lower().strip()
@@ -150,12 +206,32 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.ai_filters = set(ais)
         self.invalidateFilter()
 
+    def lessThan(self, left, right):
+        left_data = self.sourceModel().data(left, Qt.UserRole + 2)
+        right_data = self.sourceModel().data(right, Qt.UserRole + 2)
+
+        # Only apply natural sort to Agenda Items
+        if self.sourceModel()._headers[left.column()] == "Agenda Item":
+            return natural_sort_key(left_data) < natural_sort_key(right_data)
+
+        return super().lessThan(left, right)
+
     def filterAcceptsRow(self, source_row, source_parent):
         model = self.sourceModel()
+
+        # ---> 1. Apply the 'No Comments' logic first for speed
+        if self.filter_no_comments:
+            # Column 7 is "Secretary Remarks" in your headers list
+            remarks = model.data(model.index(source_row, 7, source_parent), Qt.UserRole)
+            if remarks and str(remarks).strip():
+                return False  # Exclude this row because it HAS comments
+
+        # ---> 2. Standard categorical filters
         if model.data(model.index(source_row, 4, source_parent), Qt.UserRole) not in self.type_filters: return False
         if model.data(model.index(source_row, 8, source_parent), Qt.UserRole) not in self.ai_filters: return False
         if model.data(model.index(source_row, 9, source_parent), Qt.UserRole) not in self.status_filters: return False
 
+        # ---> 3. Global Text Search
         if self.global_filter:
             match_found = False
             for col in [1, 2, 3, 6, 10]:
@@ -166,13 +242,3 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             if not match_found: return False
 
         return True
-
-    def lessThan(self, left, right):
-        left_data = self.sourceModel().data(left, Qt.UserRole + 2)
-        right_data = self.sourceModel().data(right, Qt.UserRole + 2)
-
-        # Only apply natural sort to Agenda Items
-        if self.sourceModel()._headers[left.column()] == "Agenda Item":
-            return natural_sort_key(left_data) < natural_sort_key(right_data)
-
-        return super().lessThan(left, right)

@@ -8,11 +8,11 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QFrame,
-                             QPushButton, QMessageBox, QMenu, QApplication, QToolTip)
+                             QPushButton, QMessageBox, QMenu, QApplication, QToolTip, QCheckBox)
 
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
-from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDocActionThread
+from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDocActionThread, TdocsByAgendaThread
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
@@ -97,9 +97,13 @@ class TDocsWindow(QWidget):
         refresh_menu = QMenu(self)
         refresh_menu.setStyleSheet("QMenu { font-size: 12px; }")
         refresh_menu.addAction("Refresh Excel List", self._refresh_excel)
+        wg_name = str(self.mtg_info.get('wg_name', '')).upper()
+        if wg_name == "SA2":
+            refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
+
         if self.is_sa2_electronic:
             refresh_menu.addAction("Refresh Revisions", lambda: self._refresh_revisions(silent=False))
-            refresh_menu.addAction("Refresh Both", self._refresh_both)
+            refresh_menu.addAction("Refresh Excel && Revisions", self._refresh_both)
         self.refresh_btn.setMenu(refresh_menu)
 
         # ---> FIXED: New Multi-Action Folders Menu!
@@ -192,6 +196,12 @@ class TDocsWindow(QWidget):
         self.status_combo.addItems(unique_statuses)
         self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
+
+        if self.is_sa2_electronic:
+            self.chk_no_comments = QCheckBox("No Comments Only")
+            self.chk_no_comments.setStyleSheet("margin-left: 10px;")
+            self.chk_no_comments.toggled.connect(self._on_no_comments_toggled)
+            filter_layout.addWidget(self.chk_no_comments)
 
         main_layout.addWidget(filter_frame)
 
@@ -472,7 +482,54 @@ class TDocsWindow(QWidget):
     def _on_status_changed(self, statuses):
         self.proxy.setStatusFilters(statuses)
 
+    def _on_no_comments_toggled(self, checked):
+        self.proxy.setNoCommentsFilter(checked)
+
     def _update_count_label(self):
         visible = self.proxy.rowCount()
         total = self.model.rowCount()
         self.count_lbl.setText(f"Showing {visible} of {total} TDocs")
+
+    def _fetch_tdocs_by_agenda(self):
+        url_key = self.mtg_info.get("url_key", "")
+        if not url_key:
+            return
+
+        ftp_url = url_key if url_key.startswith("http") else f"https://www.3gpp.org/ftp/{url_key.lstrip('/')}"
+
+        # Setup paths using your project root
+        from core.utils.paths import get_project_root
+        import json
+        config_file = get_project_root() / "meetings_config.json"
+        cache_dir = "C:/Temp"  # Fallback
+        if config_file.exists():
+            try:
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    cache_dir = json.load(f).get('download_dir', cache_dir)
+            except Exception:
+                pass
+
+        local_folder = Path(cache_dir) / (self.mtg_info.get("folder_name") or self.mtg_info.get("meeting_number"))
+
+        self.refresh_btn.setText("⏳ Parsing HTML...")
+
+        # Launch Thread
+        self.agenda_thread = TdocsByAgendaThread(ftp_url, local_folder)
+        self.agenda_thread.ui_log_msg.connect(self._handle_thread_log)
+        self.agenda_thread.finished.connect(self._on_agenda_fetched)
+        self.agenda_thread.start()
+
+    def _on_agenda_fetched(self, success: bool, agenda_data: dict):
+        self.refresh_btn.setText("🔄 Refresh")
+
+        if success and agenda_data:
+            self.model.merge_agenda_data(agenda_data)
+            QMessageBox.information(self, "Success",
+                                    f"Successfully extracted and merged {len(agenda_data)} items from TdocsByAgenda.htm.")
+        else:
+            QMessageBox.warning(self, "Extraction Error",
+                                "Failed to download or parse TdocsByAgenda.htm. It might not exist on the FTP server yet.")
+
+    def _handle_thread_log(self, msg: str, level: int):
+        # A simple print catcher so the thread's logs don't crash the UI window
+        print(f"Agenda Sync: {msg}")

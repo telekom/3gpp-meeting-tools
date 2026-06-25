@@ -1,13 +1,12 @@
-import os
+import logging
 import re
-import webbrowser
-import zipfile
 from pathlib import Path
 
 import requests
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.network.session import NetworkSession
+from modules.meetings.core.tdocs_parser import TDocsParser
 
 
 class TDocsRevisionsFetcherThread(QThread):
@@ -127,3 +126,34 @@ class TDocActionThread(QThread):
 
         except Exception as e:
             self.finished_action.emit(self.base_tdoc, False, str(e))
+
+
+class TdocsByAgendaThread(QThread):
+    ui_log_msg = pyqtSignal(str, int)
+    finished = pyqtSignal(bool, dict)
+
+    def __init__(self, meeting_ftp_url: str, local_folder: Path):
+        super().__init__()
+        self.meeting_ftp_url = meeting_ftp_url
+        self.local_folder = local_folder
+
+    def run(self):
+        try:
+            self.ui_log_msg.emit("⏳ Initiating TdocsByAgenda Sync...", logging.INFO)
+
+            # Ensure URL format is clean
+            clean_base_url = self.meeting_ftp_url.rstrip('/')
+            agenda_url = f"{clean_base_url}/TdocsByAgenda.htm"
+
+            self.local_folder.mkdir(parents=True, exist_ok=True)
+            agenda_path = self.local_folder / "TdocsByAgenda.htm"
+
+            self.ui_log_msg.emit(f"⬇️ Downloading: {agenda_url}", logging.INFO)
+            NetworkSession.download_file(agenda_url, agenda_path)
+
+            agenda_data = TDocsParser.parse_tdocs_by_agenda(str(agenda_path), self.ui_log_msg)
+            self.finished.emit(True, agenda_data)
+
+        except Exception as e:
+            self.ui_log_msg.emit(f"❌ Failed to sync TdocsByAgenda: {str(e)}", logging.ERROR)
+            self.finished.emit(False, {})
