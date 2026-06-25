@@ -234,29 +234,47 @@ class MeetingsTab(QWidget):
         self.search_input.textChanged.connect(self.refresh_table)
         right_layout.addWidget(self.search_input)
 
-        # --- NEW: GLOBAL TDOC SEARCH ---
+        # --- NEW: SMART GLOBAL TDOC SEARCH ---
         right_layout.addWidget(QLabel("Global TDoc Search:"))
         global_search_layout = QHBoxLayout()
         self.global_tdoc_input = QLineEdit()
         self.global_tdoc_input.setPlaceholderText("e.g., S2-2605740")
-        self.global_tdoc_input.returnPressed.connect(self._on_global_tdoc_search)
+        self.global_tdoc_input.setMinimumWidth(130)  # <-- Prevents the box from squishing!
+        self.global_tdoc_input.setToolTip("Type a valid TDoc. Press Enter to instantly download and open it.")
 
-        self.global_tdoc_btn = QPushButton("🔍 Find TDoc")
-        self.global_tdoc_btn.setCursor(Qt.PointingHandCursor)
-        self.global_tdoc_btn.setStyleSheet("""
-                    QPushButton { 
-                        font-weight: bold; background-color: #0078D7; color: white; 
-                        padding: 6px 15px; border-radius: 4px; 
-                    } 
+        # Primary Action: Minimalist Doc Button
+        self.btn_open_tdoc = QPushButton("📄 Doc")
+        self.btn_open_tdoc.setCursor(Qt.PointingHandCursor)
+        self.btn_open_tdoc.setFixedHeight(24)
+        self.btn_open_tdoc.setStyleSheet("""
+                    QPushButton { font-size: 11px; font-weight: bold; background-color: #0078D7; color: white; padding: 2px 8px; border-radius: 4px; } 
                     QPushButton:hover { background-color: #005A9E; }
-                    QPushButton:pressed { background-color: #004578; }
                     QPushButton:disabled { background-color: #A0C0E0; }
                 """)
-        self.global_tdoc_btn.clicked.connect(self._on_global_tdoc_search)
+        self.btn_open_tdoc.setVisible(False)
+
+        # Secondary Action: Minimalist Meeting Button
+        self.btn_open_meeting = QPushButton("🗓️ Mtg")
+        self.btn_open_meeting.setCursor(Qt.PointingHandCursor)
+        self.btn_open_meeting.setFixedHeight(24)
+        self.btn_open_meeting.setStyleSheet("""
+                    QPushButton { font-size: 11px; font-weight: bold; background-color: #E1F0FF; color: #005A9E; border: 1px solid #99C9FF; padding: 2px 8px; border-radius: 4px; }
+                    QPushButton:hover { background-color: #CCE4FF; border: 1px solid #005A9E; }
+                    QPushButton:disabled { color: #A0C0E0; border: 1px solid #E0E0E0; background-color: #F9F9F9; }
+                """)
+        self.btn_open_meeting.setVisible(False)
 
         global_search_layout.addWidget(self.global_tdoc_input)
-        global_search_layout.addWidget(self.global_tdoc_btn)
+        global_search_layout.addWidget(self.btn_open_tdoc)
+        global_search_layout.addWidget(self.btn_open_meeting)
         right_layout.addLayout(global_search_layout)
+
+        # --- Connections for the Smart Input ---
+        self.global_tdoc_input.textChanged.connect(self._on_tdoc_input_changed)
+        self.global_tdoc_input.returnPressed.connect(self._action_open_tdoc_only)
+        self.btn_open_tdoc.clicked.connect(self._action_open_tdoc_only)
+        self.btn_open_meeting.clicked.connect(self._action_open_meeting_list)
+        # --------------------------------------------
 
         self.enable_dates_cb = QCheckBox("Filter by Date Range")
         self.enable_dates_cb.toggled.connect(self._toggle_date_inputs)
@@ -871,9 +889,92 @@ class MeetingsTab(QWidget):
         )
         thread.start()
 
+    # ==========================================
+    # --- SMART GLOBAL TDOC SEARCH LOGIC ---
+    # ==========================================
+    def _on_tdoc_input_changed(self, text):
+        """Validates input as you type. Shows buttons if a matching meeting is found."""
+        text = text.strip()
+        # Strict regex ensures we only hit the DB when the user types a full TDoc format
+        match = re.match(r'^([A-Za-z0-9]+-\d+)(r\d+[a-zA-Z]?)?$', text, re.IGNORECASE)
+
+        if not match:
+            self.btn_open_tdoc.setVisible(False)
+            self.btn_open_meeting.setVisible(False)
+            self.current_found_meeting = None
+            return
+
+        # Query the DB silently
+        meeting = self.db.find_meeting_by_tdoc(text)
+
+        if meeting:
+            self.current_found_meeting = meeting
+            self.btn_open_tdoc.setVisible(True)
+            self.btn_open_meeting.setVisible(True)
+
+            # Add helpful hover tooltips
+            mtg_name = f"{meeting.get('wg_name', '')} {meeting.get('meeting_number', '')}"
+            self.btn_open_meeting.setToolTip(f"Open the full TDocs table for {mtg_name}")
+            self.btn_open_tdoc.setToolTip(f"Instantly download {text.upper()} from {mtg_name}")
+        else:
+            self.btn_open_tdoc.setVisible(False)
+            self.btn_open_meeting.setVisible(False)
+            self.current_found_meeting = None
+
+    def _action_open_tdoc_only(self):
+        """Fired by clicking 'Open TDoc' or pressing Enter. Downloads and opens the file directly."""
+        if not self.btn_open_tdoc.isVisible() or not getattr(self, 'current_found_meeting', None):
+            return
+
+        tdoc_str = self.global_tdoc_input.text().strip()
+        match = re.match(r'^([A-Za-z0-9]+-\d+)(r\d+[a-zA-Z]?)?$', tdoc_str, re.IGNORECASE)
+        if not match: return
+
+        base_tdoc = match.group(1).upper()
+        target_filename = (base_tdoc + (match.group(2) or "")).upper()
+
+        if target_filename in self._active_dl_threads:
+            return
+
+        self.btn_open_tdoc.setText("⏳ Get...")
+        self.btn_open_tdoc.setEnabled(False)
+        self.global_tdoc_input.setEnabled(False)
+        QApplication.processEvents()
+
+        # Fire the background download
+        self._download_global_tdoc(self.current_found_meeting, base_tdoc, target_filename,
+                                   has_rev=bool(match.group(2)))
+
+    def _action_open_meeting_list(self):
+        """Fired by clicking 'Open Meeting'. Loads the Excel file and opens the TDocsWindow."""
+        if not getattr(self, 'current_found_meeting', None):
+            return
+
+        meeting = self.current_found_meeting
+        self.btn_open_meeting.setText("⏳ Load...")
+        self.btn_open_meeting.setEnabled(False)
+        QApplication.processEvents()
+
+        filepath = self._get_tdoc_list_path(meeting)
+        if filepath and filepath.exists():
+            self._open_tdocs_window(meeting, str(filepath))
+        else:
+            # Need to download the Excel list first
+            dummy_btn = QPushButton()
+            self._download_and_open_tdocs(meeting, dummy_btn)
+
+        self.btn_open_meeting.setText("🗓️ Mtg")
+        self.btn_open_meeting.setEnabled(True)
+
     def _on_global_tdoc_download_finished(self, tdoc_name: str, success: bool, msg: str, thread: TDocActionThread):
         if tdoc_name in self._active_dl_threads:
             del self._active_dl_threads[tdoc_name]
+
+        # ---> NEW: Restore the UI state
+        self.btn_open_tdoc.setText("📄 Doc")
+        self.btn_open_tdoc.setEnabled(True)
+        self.global_tdoc_input.setEnabled(True)
+        # ------------------------------
 
         if not success:
             QMessageBox.warning(self, f"Download Failed: {tdoc_name}", msg)
