@@ -17,18 +17,21 @@ class ComparisonManager(QObject):
         super().__init__()
         self.slot_a = {}
         self.slot_b = {}
+        self._next_slot = 'A'  # ---> NEW: Keeps track of alternating slots
 
     def add_to_cart(self, tdoc_name: str, file_path: str):
-        """Intelligently pushes the document into the next available slot."""
-        if not self.slot_a:
+        """Intelligently pushes the document into the next available slot, alternating A and B."""
+        if self._next_slot == 'A':
             self.slot_a = {"name": tdoc_name, "path": file_path}
+            self._next_slot = 'B'  # Next time, overwrite B
         else:
-            # If A is full, put it in B (overwriting B if it was already full)
             self.slot_b = {"name": tdoc_name, "path": file_path}
+            self._next_slot = 'A'  # Next time, overwrite A
 
         self.cart_updated.emit(self.slot_a, self.slot_b)
 
     def clear_cart(self):
         self.slot_a = {}
         self.slot_b = {}
+        self._next_slot = 'A'  # ---> NEW: Reset the toggle to start fresh
         self.cart_updated.emit(self.slot_a, self.slot_b)
