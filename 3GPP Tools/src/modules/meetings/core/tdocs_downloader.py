@@ -47,7 +47,8 @@ class TDocsDownloaderThread(QThread):
 
             # 5. Save the Excel file in chunks
             with open(filepath, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
+                # ---> OPTIMIZATION: Increased chunk size from 8KB to 64KB
+                for chunk in response.iter_content(chunk_size=65536):
                     if chunk:
                         f.write(chunk)
 

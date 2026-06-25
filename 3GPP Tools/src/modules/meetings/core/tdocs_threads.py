@@ -82,6 +82,7 @@ class TDocActionThread(QThread):
 
             extracted_files = []
             import zipfile
+            import shutil
             with zipfile.ZipFile(self.zip_path, 'r') as z:
                 for info in z.infolist():
                     if '__MACOSX' in info.filename or info.filename.startswith('._'):
@@ -101,8 +102,8 @@ class TDocActionThread(QThread):
                         out_path = self.tdoc_dir / safe_name
 
                         if not out_path.exists():
-                            with open(out_path, 'wb') as f:
-                                f.write(z.read(info.filename))
+                            with z.open(info.filename) as source, open(out_path, 'wb') as target:
+                                shutil.copyfileobj(source, target)
 
                         extracted_files.append(out_path)
 
