@@ -4,7 +4,7 @@ import os
 import webbrowser
 from pathlib import Path
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QFrame,
@@ -96,14 +96,14 @@ class TDocsWindow(QWidget):
 
         refresh_menu = QMenu(self)
         refresh_menu.setStyleSheet("QMenu { font-size: 12px; }")
-        refresh_menu.addAction("Refresh Excel List", self._refresh_excel)
+        refresh_menu.addAction("📗 Refresh Excel List", self._refresh_excel)
         wg_name = str(self.mtg_info.get('wg_name', '')).upper()
         if wg_name == "SA2":
             refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
 
         if self.is_sa2_electronic:
-            refresh_menu.addAction("Refresh Revisions", lambda: self._refresh_revisions(silent=False))
-            refresh_menu.addAction("Refresh Excel && Revisions", self._refresh_both)
+            refresh_menu.addAction("📝 Refresh Revisions", lambda: self._refresh_revisions(silent=False))
+            refresh_menu.addAction("🔄 Refresh Excel && Revisions", self._refresh_both)
         self.refresh_btn.setMenu(refresh_menu)
 
         # ---> FIXED: New Multi-Action Folders Menu!
@@ -292,11 +292,13 @@ class TDocsWindow(QWidget):
             self.model.dataChanged.emit(topLeft, bottomRight)
 
             if not silent:
-                QMessageBox.information(self, "Revisions Sync",
-                                        f"Successfully synced available revisions for {len(data)} TDocs.")
+                # ---> OPTIMIZATION: Non-blocking success notification!
+                self.refresh_btn.setText(f"✅ {len(data)} Revs")
+                QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
         else:
             if not silent:
                 QMessageBox.warning(self, "Revisions Error", f"Failed to sync revisions:\n{msg}")
+                self.refresh_btn.setText("🔄 Refresh")
 
     def _refresh_excel(self):
         mtg_id = self.mtg_info.get("mtg_id")
@@ -532,13 +534,14 @@ class TDocsWindow(QWidget):
         self.agenda_thread.start()
 
     def _on_agenda_fetched(self, success: bool, agenda_data: dict):
-        self.refresh_btn.setText("🔄 Refresh")
-
         if success and agenda_data:
             self.model.merge_agenda_data(agenda_data)
-            QMessageBox.information(self, "Success",
-                                    f"Successfully extracted and merged {len(agenda_data)} items from TdocsByAgenda.htm.")
+            # ---> OPTIMIZATION: Non-blocking success notification!
+            self.refresh_btn.setText(f"✅ {len(agenda_data)} Merged")
+            QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
         else:
+            self.refresh_btn.setText("🔄 Refresh")
+            # We keep the popup for errors so you know if 3GPP hasn't uploaded the file yet
             QMessageBox.warning(self, "Extraction Error",
                                 "Failed to download or parse TdocsByAgenda.htm. It might not exist on the FTP server yet.")
 
