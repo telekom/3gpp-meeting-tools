@@ -7,14 +7,19 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.network.session import NetworkSession
 from modules.meetings.core.tdocs_parser import TDocsParser
+import json
+
+import json  # <--- Make sure this is added to your imports!
 
 
 class TDocsRevisionsFetcherThread(QThread):
     finished = pyqtSignal(bool, dict, str)
 
-    def __init__(self, url: str):
+    # ---> UPDATE: Added meeting_dir to the parameters
+    def __init__(self, url: str, meeting_dir: Path = None):
         super().__init__()
         self.url = url
+        self.meeting_dir = meeting_dir
 
     def run(self):
         try:
@@ -41,7 +46,19 @@ class TDocsRevisionsFetcherThread(QThread):
             for k in revisions:
                 revisions[k].sort()
 
+            # ---> NEW: Save revisions locally to the Agenda folder!
+            if self.meeting_dir:
+                try:
+                    agenda_dir = self.meeting_dir / "Agenda"
+                    agenda_dir.mkdir(parents=True, exist_ok=True)
+                    rev_file = agenda_dir / "revisions.json"
+                    with open(rev_file, "w", encoding="utf-8") as f:
+                        json.dump(revisions, f, indent=4)
+                except Exception as e:
+                    logging.warning(f"Failed to cache revisions locally: {e}")
+
             self.finished.emit(True, revisions, "Success")
+
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 self.finished.emit(True, {}, "No Revisions folder found.")
