@@ -569,36 +569,40 @@ class SpecificationsTab(QWidget):
                     c_data = c.currentData()
                     if not c_data: return
 
-                    stem = Path(c_data['fname']).stem
-                    zip_exists = (spec_target_dir / c_data['fname']).exists()
+                    # ---> FIX: Resolve the directory dynamically from the combo box data!
+                    # This prevents Python loop closures from pointing to the wrong folder.
+                    current_dir = Path(self.dl_dir_input.text().strip()) / c_data['spec_num']
 
-                    word_exists = any(spec_target_dir.glob(f"{stem}*.doc*"))
-                    pdf_exists = any(spec_target_dir.glob(f"{stem}*.pdf"))
-                    html_exists = any(spec_target_dir.glob(f"{stem}*.html"))
+                    stem = Path(c_data['fname']).stem
+                    zip_exists = (current_dir / c_data['fname']).exists()
+
+                    word_exists = any(current_dir.glob(f"{stem}*.doc*"))
+                    pdf_exists = any(current_dir.glob(f"{stem}*.pdf"))
+                    html_exists = any(current_dir.glob(f"{stem}*.html"))
 
                     def style_btn(btn, exists, icon, name):
                         if exists:
                             # State 1: File is ready locally
                             btn.setText(f"{icon} {name} ✅")
                             btn.setStyleSheet("""
-                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
-                                QPushButton:hover { background-color: #C8E6C9; }
-                            """)
+                                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
+                                                QPushButton:hover { background-color: #C8E6C9; }
+                                            """)
                         elif word_exists or zip_exists:
                             # State 2: Can be processed entirely offline (Zip->Extract, or Word->Convert)
                             action = "Extract" if name == "Word" else "Convert"
                             btn.setText(f"⚙️ {action}")
                             btn.setStyleSheet("""
-                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; } 
-                                QPushButton:hover { background-color: #FFE0B2; }
-                            """)
+                                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; } 
+                                                QPushButton:hover { background-color: #FFE0B2; }
+                                            """)
                         else:
                             # State 3: Requires Network Download
                             btn.setText(f"⬇️ Get {name}")
                             btn.setStyleSheet("""
-                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
-                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
-                            """)
+                                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
+                                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
+                                            """)
 
                     style_btn(wb, word_exists, "📝", "Word")
                     style_btn(pb, pdf_exists, "📕", "PDF")
