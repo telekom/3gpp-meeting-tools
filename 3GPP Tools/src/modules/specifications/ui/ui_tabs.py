@@ -455,9 +455,11 @@ class SpecificationsTab(QWidget):
                 series, spec_num, title, spec_type, filename, version, url = row
 
                 # --- NEW LOGIC: Extract part number from filename ---
-                # This safely corrects multipart specs like 23.801-01 missing their suffix in the DB
+                # This safely corrects multipart specs like 23.801-01 missing their suffix in the DB.
+                # Strictly requires exactly 2 digits followed by another hyphen to avoid
+                # capturing old 3-character version suffixes (e.g., 33501-000.zip).
                 if filename:
-                    part_match = re.search(r'^\d{4,5}-(\d{2,3})(?:[-_.]|$)', filename)
+                    part_match = re.search(r'^\d{4,5}-(\d{2})-[a-zA-Z0-9]{3}(?:\.zip|[-_.]|$)', filename, re.IGNORECASE)
                     if part_match and "-" not in spec_num:
                         spec_num = f"{spec_num}-{part_match.group(1)}"
                 # ----------------------------------------------------
