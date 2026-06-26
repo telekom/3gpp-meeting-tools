@@ -262,8 +262,34 @@ class TDocsWindow(QWidget):
 
         main_layout.addWidget(self.table)
 
-        if hasattr(self, 'revisions_url') and self.revisions_url:
-            self._refresh_revisions(silent=True)
+        # --- LOCAL CACHE AUTO-LOAD ---
+        agenda_dir = self.meeting_dir / "Agenda"
+
+        if self.is_sa2_electronic:
+            # 1. Auto-load TdocsByAgenda.htm if it exists locally
+            local_agenda = agenda_dir / "TdocsByAgenda.htm"
+            if local_agenda.exists():
+                agenda_data = TDocsParser.parse_tdocs_by_agenda(str(local_agenda))
+                if agenda_data:
+                    self.model.merge_agenda_data(agenda_data)
+
+            # 2. Auto-load Revisions if they exist, otherwise fetch them
+            local_revs = agenda_dir / "revisions.json"
+            if local_revs.exists():
+                try:
+                    with open(local_revs, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        self.model.revisions = data
+                        self.model.dataChanged.emit(self.model.index(0, 0),
+                                                    self.model.index(self.model.rowCount() - 1, 0))
+                except Exception as e:
+                    print(f"Failed to load cached revisions: {e}")
+                    if hasattr(self, 'revisions_url') and self.revisions_url:
+                        self._refresh_revisions(silent=True)
+            else:
+                # If there's no cache, fall back to fetching them dynamically
+                if hasattr(self, 'revisions_url') and self.revisions_url:
+                    self._refresh_revisions(silent=True)
 
     # --- ACTIONS & TRIGGERS ---
     def _get_mod_date_str(self):
@@ -280,7 +306,9 @@ class TDocsWindow(QWidget):
     def _refresh_revisions(self, silent=False):
         if not hasattr(self, 'revisions_url'): return
 
-        self.rev_thread = TDocsRevisionsFetcherThread(self.revisions_url)
+        # ---> UPDATE: Pass self.meeting_dir so the thread knows where to save the json!
+        self.rev_thread = TDocsRevisionsFetcherThread(self.revisions_url, self.meeting_dir)
+
         self.rev_thread.finished.connect(lambda s, d, m: self._on_revisions_fetched(s, d, m, silent))
         self.rev_thread.start()
 
