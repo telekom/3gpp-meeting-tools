@@ -1,10 +1,12 @@
-from PyQt5.QtCore import pyqtSignal, QRectF, QSize, QEvent, Qt
+# --- File: modules/meetings/ui/tdoc_delegates.py ---
+from PyQt5.QtCore import pyqtSignal, QRectF, QSize, QEvent, Qt, QPoint
 from PyQt5.QtGui import QTextDocument, QPainter, QColor, QPen
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem, QStyle
 
 
 class HtmlDelegate(QStyledItemDelegate):
     linkClicked = pyqtSignal(str)
+    linkRightClicked = pyqtSignal(str, QPoint)  # <--- NEW: Signal for Right-Clicks
 
     def paint(self, painter, option, index):
         options = QStyleOptionViewItem(option)
@@ -44,7 +46,11 @@ class HtmlDelegate(QStyledItemDelegate):
             pos = event.pos() - option.rect.topLeft()
             anchor = doc.documentLayout().anchorAt(pos)
             if anchor:
-                self.linkClicked.emit(anchor)
+                # ---> THE FIX: Distinguish between Left and Right Clicks
+                if event.button() == Qt.RightButton:
+                    self.linkRightClicked.emit(anchor, event.globalPos())
+                else:
+                    self.linkClicked.emit(anchor)
                 return True
         return super().editorEvent(event, model, option, index)
 

@@ -47,11 +47,14 @@ class TDocsTableModel(QAbstractTableModel):
         def repl(match):
             tdoc = match.group(0)
             if tdoc in self.valid_tdocs:
+                # ---> Local TDoc: Bold Blue
                 return f'<a href="{tdoc}" style="color: #005A9E; font-weight: bold; text-decoration: underline;">{tdoc}</a>'
             else:
-                return f'<span style="color: #999999;">{tdoc}</span>'
+                # ---> External TDoc: Dark Orange (Now fully clickable!)
+                return f'<a href="{tdoc}" style="color: #D83B01; text-decoration: underline;">{tdoc}</a>'
 
-        linked_text = re.sub(r'[a-zA-Z0-9]+-\d+', repl, text)
+        # ---> FIX: Updated regex to also capture optional revision suffixes (e.g., r01)
+        linked_text = re.sub(r'[a-zA-Z0-9]+-\d+(?:r\d+[a-zA-Z]?)?', repl, text, flags=re.IGNORECASE)
         return f"<span style='color: #444;'><b>{prefix}:</b></span> {linked_text}"
 
     def _format_related_tdocs(self, row_data: dict, html=False) -> str:
