@@ -235,8 +235,10 @@ class TDocsWindow(QWidget):
         """)
 
         self.table.setWordWrap(True)
-        # ---> DEFINITIVE FIX: Force native dynamic row heights!
-        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        # ---> OPTIMIZATION 2: ResizeToContents forces PyQt to calculate the height of 3,000+ rows,
+        # which severely freezes the UI. We lock it to a comfortable fixed height and rely on ToolTips!
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
+        self.table.verticalHeader().setDefaultSectionSize(48)
 
         self.action_delegate = TDocActionDelegate(self.table)
         self.action_delegate.actionClicked.connect(self._handle_tdoc_action)

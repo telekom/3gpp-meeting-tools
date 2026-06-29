@@ -3,11 +3,23 @@ import io
 import re
 import openpyxl
 import logging
+import json
+import os
 
 
 class TDocsParser:
     @staticmethod
     def parse_tdocs_excel(filepath: str) -> list:
+        # ---> OPTIMIZATION 1: Lightning-fast JSON Caching
+        # If we already parsed this exact Excel file previously, load the JSON instantly.
+        json_cache = filepath + ".json"
+        try:
+            if os.path.exists(json_cache) and os.path.getmtime(json_cache) >= os.path.getmtime(filepath):
+                with open(json_cache, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as e:
+            logging.warning(f"Could not read JSON cache: {e}")
+
         data = []
         try:
             # Load file entirely into RAM to instantly release the OS file lock
@@ -42,9 +54,8 @@ class TDocsParser:
                         val_clean = re.sub(r'\s+', ' ', val).strip()
                         val_up = val_clean.upper()
 
-                        # Safely isolate the true "Agenda Item" column (Ignores 'Agenda item sort order')
-                        if ("AGENDA ITEM" in val_up or val_up in ["AI", "AI#",
-                                                                  "AI #"]) and "SORT" not in val_up and "DESCRIPTION" not in val_up:
+                        # Safely isolate the true "Agenda Item" column
+                        if ("AGENDA ITEM" in val_up or val_up in ["AI", "AI#", "AI #"]) and "SORT" not in val_up and "DESCRIPTION" not in val_up:
                             val = "Agenda Item"
                         elif val_up in ["TD#", "TDOC#", "TDOC"]:
                             val = "TDoc"
@@ -71,6 +82,14 @@ class TDocsParser:
                     data.append(row_dict)
 
             wb.close()
+
+            # ---> OPTIMIZATION 1: Save the cache for the next time!
+            try:
+                with open(json_cache, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+            except Exception as e:
+                logging.warning(f"Could not save JSON cache: {e}")
+
             return data
 
         except Exception as e:
@@ -96,7 +115,6 @@ class TDocsParser:
 
             target_table = None
             for table in tables:
-                # Inspect the first few rows to find the headers
                 headers = [th.get_text(strip=True).lower() for th in table.find_all(['th', 'td'])[:20]]
                 if any('td#' in h or 'td #' in h for h in headers):
                     target_table = table
@@ -109,7 +127,6 @@ class TDocsParser:
             rows = target_table.find_all('tr')
             if not rows: return data
 
-            # Extract dynamic column indices
             header_row = rows[0].find_all(['th', 'td'])
             headers = [h.get_text(separator=' ', strip=True).lower() for h in header_row]
 
@@ -128,7 +145,6 @@ class TDocsParser:
                 if len(cols) <= td_idx: continue
 
                 tdoc_id = cols[td_idx].get_text(separator=' ', strip=True)
-                # Ignore empty rows or AI separator rows that don't look like TDocs
                 if not tdoc_id or not tdoc_id.startswith(('S2-', 'R', 'C', 'S')):
                     continue
 
