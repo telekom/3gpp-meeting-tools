@@ -60,3 +60,27 @@ class MeetingsSettings:
             return data.get("last_mtg_id"), data.get("last_mtg_number")
         except Exception:
             return None, None
+
+    def save_filters(self, filters: dict):
+        try:
+            data = {}
+            if self.config_file.exists():
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+            data['filters'] = filters
+
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+        except Exception as e:
+            print(f"Error saving filters: {e}")
+
+    def get_filters(self) -> dict:
+        if not self.config_file.exists():
+            return {}
+        try:
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data.get("filters", {})
+        except Exception:
+            return {}

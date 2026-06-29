@@ -3,7 +3,7 @@ import os
 import webbrowser
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint
+from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint, QTimer
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
                              QMenu, QLabel, QCheckBox, QDateEdit, QSplitter,
@@ -41,9 +41,80 @@ class MeetingsTab(QWidget):
         self.tdoc_windows = {}
         self._active_dl_threads = {}
 
+        # ---> THE REAL FIX: Setup the Timer BEFORE _setup_ui()!
+        # PyQt fires signals while building the UI, so the timer
+        # must exist before the widgets are even created.
+        self.save_filters_timer = QTimer()
+        self.save_filters_timer.setSingleShot(True)
+        self.save_filters_timer.setInterval(1000)
+        self.save_filters_timer.timeout.connect(self._save_filters)
+
         self._setup_ui()
         self.search_controller.connect_signals()  # Wires up the global search box
+
+        self._load_filters()  # Load previous state!
         self.refresh_table()
+
+    def _save_filters(self):
+        filters = {
+            "wg": self.wg_filter.currentText(),
+            "adhoc": self.adhoc_filter.currentText(),
+            "type": self.type_filter.currentText(),
+            "search": self.search_input.text().strip(),
+            "enable_dates": self.enable_dates_cb.isChecked(),
+            "date_from": self.date_from.date().toString("yyyy-MM-dd"),
+            "date_to": self.date_to.date().toString("yyyy-MM-dd")
+        }
+        self.settings.save_filters(filters)
+
+    def _load_filters(self):
+        filters = self.settings.get_filters()
+        if not filters: return
+
+        # Block signals temporarily so we don't trigger a dozen table refreshes while setting values
+        self.wg_filter.blockSignals(True)
+        self.adhoc_filter.blockSignals(True)
+        self.type_filter.blockSignals(True)
+        self.search_input.blockSignals(True)
+        self.enable_dates_cb.blockSignals(True)
+        self.date_from.blockSignals(True)
+        self.date_to.blockSignals(True)
+
+        if "wg" in filters:
+            idx = self.wg_filter.findText(filters["wg"])
+            if idx >= 0: self.wg_filter.setCurrentIndex(idx)
+
+        if "adhoc" in filters:
+            idx = self.adhoc_filter.findText(filters["adhoc"])
+            if idx >= 0: self.adhoc_filter.setCurrentIndex(idx)
+
+        if "type" in filters:
+            idx = self.type_filter.findText(filters["type"])
+            if idx >= 0: self.type_filter.setCurrentIndex(idx)
+
+        if "search" in filters:
+            self.search_input.setText(filters["search"])
+
+        if "enable_dates" in filters:
+            self.enable_dates_cb.setChecked(filters["enable_dates"])
+            self._toggle_date_inputs(filters["enable_dates"])
+
+        if "date_from" in filters:
+            d = QDate.fromString(filters["date_from"], "yyyy-MM-dd")
+            if d.isValid(): self.date_from.setDate(d)
+
+        if "date_to" in filters:
+            d = QDate.fromString(filters["date_to"], "yyyy-MM-dd")
+            if d.isValid(): self.date_to.setDate(d)
+
+        # Unblock signals
+        self.wg_filter.blockSignals(False)
+        self.adhoc_filter.blockSignals(False)
+        self.type_filter.blockSignals(False)
+        self.search_input.blockSignals(False)
+        self.enable_dates_cb.blockSignals(False)
+        self.date_from.blockSignals(False)
+        self.date_to.blockSignals(False)
 
     def _browse_cache_dir(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Cache Directory", self.dl_dir_input.text())
@@ -373,6 +444,11 @@ class MeetingsTab(QWidget):
         self.wg_filter.blockSignals(False)
 
     def refresh_table(self):
+        self.save_filters_timer.start()  # ---> NEW: Trigger the auto-save countdown
+
+        wg = self.wg_filter.currentText()
+        date_from = self.date_from.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
+
         wg = self.wg_filter.currentText()
         date_from = self.date_from.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
         date_to = self.date_to.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
