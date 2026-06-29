@@ -61,6 +61,22 @@ class GlobalSearchController:
 
         self._download_global_tdoc(self.current_found_meeting, base_tdoc, target_filename, has_rev=bool(match.group(2)))
 
+    def action_add_to_cart(self):
+        """Silently downloads a document and adds it to the Word Comparison Cart."""
+        if not self.current_found_meeting: return
+
+        tdoc_str = self.tab.global_tdoc_input.text().strip()
+        match = re.match(r'^([A-Za-z0-9]+-\d+)(r\d+[a-zA-Z]?)?$', tdoc_str, re.IGNORECASE)
+        if not match: return
+
+        base_tdoc = match.group(1).upper()
+        target_filename = (base_tdoc + (match.group(2) or "")).upper()
+
+        if target_filename in self.tab._active_dl_threads: return
+
+        self._download_global_tdoc(self.current_found_meeting, base_tdoc, target_filename, has_rev=bool(match.group(2)),
+                                   silent_cart=True)
+
     def action_open_meeting_list(self):
         if not self.current_found_meeting: return
         meeting = self.current_found_meeting
@@ -79,7 +95,8 @@ class GlobalSearchController:
         self.tab.btn_open_meeting.setText("🗓️ Mtg")
         self.tab.btn_open_meeting.setEnabled(True)
 
-    def _download_global_tdoc(self, meeting: dict, base_tdoc: str, target_filename: str, has_rev: bool):
+    def _download_global_tdoc(self, meeting: dict, base_tdoc: str, target_filename: str, has_rev: bool,
+                              silent_cart: bool = False):
         docs_url = meeting.get("docs_folder_url")
         if not docs_url: return
         if not docs_url.startswith("http"): docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip('/')
@@ -95,7 +112,13 @@ class GlobalSearchController:
             main_ftp = raw_url if raw_url.startswith("http") else f"https://www.3gpp.org/ftp/{raw_url.lstrip('/')}"
             dl_url = main_ftp.rstrip('/') + '/INBOX/Revisions/'
 
-        thread = TDocActionThread(base_tdoc, target_filename, dl_url, meeting_dir, open_file=True)
+        # Trigger background thread. Do NOT auto-open Word if it's a silent cart operation.
+        thread = TDocActionThread(base_tdoc, target_filename, dl_url, meeting_dir, open_file=not silent_cart)
+
+        # Tag the thread so the callback knows what to do
+        thread.is_silent_compare = silent_cart
+        thread.target_filename = target_filename
+
         self.tab._active_dl_threads[target_filename] = thread
         thread.finished_action.connect(
             lambda t, s, m, th=thread: self._on_global_tdoc_download_finished(target_filename, s, m, th)
@@ -111,4 +134,14 @@ class GlobalSearchController:
         self.tab.global_tdoc_input.setEnabled(True)
 
         if not success:
-            QMessageBox.warning(self.tab, f"Download Failed: {tdoc_name}", msg)
+            QMessageBox.warning(self.tab, f"Action Failed: {tdoc_name}", msg)
+            return
+
+        # Automatically push to the comparison cart if it was a silent request
+        if getattr(thread, "is_silent_compare", False):
+            from modules.meetings.core.compare_manager import ComparisonManager
+            extracted_files = getattr(thread, "extracted_doc_paths", [])
+            if extracted_files:
+                ComparisonManager.get_instance().add_to_cart(thread.target_filename, str(extracted_files[0]))
+            else:
+                QMessageBox.warning(self.tab, "Compare Failed", "No Word document found inside this TDoc ZIP.")

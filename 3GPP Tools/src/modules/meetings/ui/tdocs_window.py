@@ -1,22 +1,23 @@
 # --- File: modules/meetings/ui/tdocs_window.py ---
 import datetime
+import json
 import os
 import webbrowser
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QFrame,
                              QPushButton, QMessageBox, QMenu, QApplication, QToolTip, QCheckBox)
 
+from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDocActionThread, TdocsByAgendaThread
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
-from modules.meetings.core.compare_manager import ComparisonManager
 
 
 # ==========================================
@@ -41,6 +42,9 @@ class TDocActionMenu(QMenu):
         super().mouseReleaseEvent(event)
 
 class TDocsWindow(QWidget):
+    # ---> NEW: Bridge to ask the main application to handle global searches
+    global_action_requested = pyqtSignal(str, str)
+
     def __init__(self, mtg_info: dict, tdocs_data: list, filepath: str):
         super().__init__()
         self.mtg_info = mtg_info
@@ -240,6 +244,9 @@ class TDocsWindow(QWidget):
 
         self.html_delegate = HtmlDelegate(self.table)
         self.html_delegate.linkClicked.connect(self._scroll_to_tdoc)
+        self.html_delegate.linkRightClicked.connect(self._show_related_menu)
+        self.table.setItemDelegateForColumn(10, self.html_delegate)
+
         self.table.setItemDelegateForColumn(10, self.html_delegate)
         self.table.viewport().setMouseTracking(True)
 
@@ -475,12 +482,51 @@ class TDocsWindow(QWidget):
                 QMessageBox.warning(self, "Compare Failed", "No Word document found inside this TDoc ZIP.")
 
     def _scroll_to_tdoc(self, target_tdoc: str):
-        for row in range(self.proxy.rowCount()):
-            idx = self.proxy.index(row, 1)
-            if self.proxy.data(idx, Qt.UserRole) == target_tdoc:
-                self.table.scrollTo(idx, QTableView.PositionAtCenter)
-                return
-        QMessageBox.information(self, "Hidden", f"TDoc '{target_tdoc}' is currently hidden by your filters.")
+        """Handles Left-Clicks on Related TDocs."""
+        if target_tdoc in self.model.valid_tdocs:
+            for row in range(self.proxy.rowCount()):
+                idx = self.proxy.index(row, 1)
+                if self.proxy.data(idx, Qt.UserRole) == target_tdoc:
+                    self.table.scrollTo(idx, QTableView.PositionAtCenter)
+                    self.table.selectRow(row)  # Highlight it for the user
+                    return
+            QMessageBox.information(self, "Hidden", f"TDoc '{target_tdoc}' is currently hidden by your active filters.")
+        else:
+            # ---> NEW: It's from a different meeting! Ask to jump globally.
+            reply = QMessageBox.question(
+                self, "External TDoc",
+                f"{target_tdoc} is not from this meeting.\n\nWould you like to search the global database and open its parent meeting?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.global_action_requested.emit(target_tdoc, 'open_meeting')
+
+    def _show_related_menu(self, target_tdoc: str, pos: QPoint):
+        """Handles Right-Clicks on Related TDocs."""
+        menu = QMenu(self)
+        menu.setStyleSheet("QMenu { font-size: 13px; }")
+        is_local = target_tdoc in self.model.valid_tdocs
+
+        if is_local:
+            menu.addAction("⬇️ Go to Row").triggered.connect(lambda: self._scroll_to_tdoc(target_tdoc))
+            menu.addAction("📄 Open Document").triggered.connect(
+                lambda: self._trigger_download_thread(target_tdoc, target_tdoc, self.docs_ftp_url, False)
+            )
+            menu.addAction("⚖️ Add to Comparison Cart").triggered.connect(
+                lambda: self._trigger_download_thread(target_tdoc, target_tdoc, self.docs_ftp_url, True)
+            )
+        else:
+            menu.addAction("🌐 Search && Open Meeting").triggered.connect(
+                lambda: self.global_action_requested.emit(target_tdoc, 'open_meeting')
+            )
+            menu.addAction("📄 Search && Open Document").triggered.connect(
+                lambda: self.global_action_requested.emit(target_tdoc, 'open_doc')
+            )
+            menu.addAction("⚖️ Search && Add to Comparison Cart").triggered.connect(
+                lambda: self.global_action_requested.emit(target_tdoc, 'add_to_cart')
+            )
+
+        menu.exec_(pos)
 
     def _open_meeting_folder(self):
         if self.meeting_dir.exists():

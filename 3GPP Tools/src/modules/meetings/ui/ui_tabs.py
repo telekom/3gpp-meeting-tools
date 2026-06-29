@@ -642,6 +642,8 @@ class MeetingsTab(QWidget):
             return
 
         window = TDocsWindow(mtg_info, tdocs_data, filepath)
+        window.global_action_requested.connect(self._handle_global_action_from_window)
+
         self.tdoc_windows[mtg_id] = window
         window.show()
 
@@ -699,3 +701,21 @@ class MeetingsTab(QWidget):
             QMessageBox.information(self, "Caching Complete", msg)
         else:
             QMessageBox.warning(self, "Caching Failed", msg)
+
+    def _handle_global_action_from_window(self, tdoc_str: str, action: str):
+        """Programmatically triggers the global search controller based on window requests."""
+        # Force the UI to update the search text so the user sees what's happening
+        self.global_tdoc_input.setText(tdoc_str)
+        self.search_controller.on_tdoc_input_changed(tdoc_str)
+
+        if not self.search_controller.current_found_meeting:
+            QMessageBox.warning(self, "Not Found", f"Could not find '{tdoc_str}' in the global database.")
+            return
+
+        # Route the request to the correct controller method
+        if action == 'open_meeting':
+            self.search_controller.action_open_meeting_list()
+        elif action == 'open_doc':
+            self.search_controller.action_open_tdoc_only()
+        elif action == 'add_to_cart':
+            self.search_controller.action_add_to_cart()
