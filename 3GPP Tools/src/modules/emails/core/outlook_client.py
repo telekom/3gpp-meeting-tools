@@ -107,3 +107,37 @@ class OutlookClient:
         except Exception as e:
             logging.error(f"Failed to move email: {e}")
             return False
+
+    @staticmethod
+    def move_email_to_target(entry_id: str, base_target_path: str, ai_folder_name: str) -> bool:
+        """Moves a specific email to [Target Folder]/[AI]. Creates the AI folder if missing."""
+        namespace = OutlookClient.get_namespace()
+        if not namespace or not base_target_path: return False
+
+        try:
+            # 1. Fetch the exact email
+            mail_item = namespace.GetItemFromID(entry_id)
+
+            # 2. Fetch the Base Target Folder
+            base_folder = OutlookClient.get_folder_by_path(base_target_path)
+            if not base_folder: return False
+
+            # 3. Clean the AI name to make it a valid Outlook folder name
+            clean_ai = "".join(c for c in ai_folder_name if c.isalnum() or c in " ._-").strip() or "General"
+
+            # 4. Find or Create the Subfolder
+            target_folder = None
+            for folder in base_folder.Folders:
+                if folder.Name.lower() == clean_ai.lower():
+                    target_folder = folder
+                    break
+
+            if not target_folder:
+                target_folder = base_folder.Folders.Add(clean_ai)
+
+            # 5. Execute Move
+            mail_item.Move(target_folder)
+            return True
+        except Exception as e:
+            logging.error(f"Explicit move failed for {entry_id}: {e}")
+            return False

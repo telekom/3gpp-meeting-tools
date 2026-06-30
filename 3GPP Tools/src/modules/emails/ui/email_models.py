@@ -2,11 +2,14 @@
 from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel
 
 
+import os # Add this import at the top
+from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel
+
 class EmailTableModel(QAbstractTableModel):
     def __init__(self, data=None):
         super().__init__()
         self._data = data or []
-        self._headers = ["Date", "TDoc", "Rev", "AI", "Company", "Sender", "Short Text"]
+        self._headers = ["Status", "Local", "Date", "TDoc", "Rev", "AI", "Company", "Sender", "Short Text"]
 
     def update_data(self, new_data):
         self.beginResetModel()
@@ -19,7 +22,13 @@ class EmailTableModel(QAbstractTableModel):
         col_name = self._headers[index.column()]
 
         if role == Qt.DisplayRole or role == Qt.UserRole:
-            if col_name == "Date": return row.get("date_received", "")[:16]  # Truncate to YYYY-MM-DD HH:MM
+            if col_name == "Status":
+                loc = row.get("outlook_location", "Source")
+                return "📁 Target" if loc == "Target" else "📥 Source"
+            if col_name == "Local":
+                path = row.get("msg_path", "")
+                return "✅ Disk" if path and os.path.exists(path) else "❌ Missing"
+            if col_name == "Date": return row.get("date_received", "")[:16]
             if col_name == "TDoc": return row.get("tdoc_id", "")
             if col_name == "Rev": return row.get("revisions_mentioned", "")
             if col_name == "AI": return row.get("agenda_item", "")
@@ -30,11 +39,16 @@ class EmailTableModel(QAbstractTableModel):
                 return text.replace('\n', ' ')[:80] + "..." if len(text) > 80 else text
 
         elif role == Qt.TextAlignmentRole:
-            if col_name in ["Date", "TDoc", "Rev", "AI", "Company"]:
+            if col_name in ["Status", "Local", "Date", "TDoc", "Rev", "AI", "Company"]:
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
+        # Store the raw EntryID in the Status column so the UI can retrieve it for moving
+        if role == Qt.UserRole + 1 and col_name == "Status":
+            return row.get("id", "")
+
         return None
+
 
     def get_row_data(self, row_idx: int) -> dict:
         if 0 <= row_idx < len(self._data):
