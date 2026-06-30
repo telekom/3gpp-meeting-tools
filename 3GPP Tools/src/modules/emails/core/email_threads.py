@@ -5,6 +5,7 @@ from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.core.email_parser import EmailParser
 from modules.emails.core.email_db import EmailDatabase
 import logging
+import pythoncom
 
 
 class EmailSyncThread(QThread):
@@ -21,6 +22,8 @@ class EmailSyncThread(QThread):
         self.db = db
 
     def run(self):
+        # ---> NEU: Initialisiert das Windows COM-System für diesen Hintergrund-Thread
+        pythoncom.CoInitialize()
         try:
             self.log_msg.emit(f"Connecting to Outlook folder: {self.source_path}...", logging.INFO)
             source_folder = OutlookClient.get_folder_by_path(self.source_path)
@@ -64,6 +67,7 @@ class EmailSyncThread(QThread):
                     parsed_data['msg_path'] = msg_path
 
                     # 3. Save metadata to SQLite
+                    parsed_data['outlook_location'] = 'Source'
                     self.db.save_email(parsed_data)
                     valid_count += 1
 
@@ -76,3 +80,43 @@ class EmailSyncThread(QThread):
         except Exception as e:
             self.log_msg.emit(f"Fatal error during sync: {str(e)}", logging.ERROR)
             self.finished.emit(False, str(e))
+        finally:
+            # ---> NEU: Gibt die COM-Ressourcen sauber wieder frei
+            pythoncom.CoUninitialize()
+
+
+class EmailMoveThread(QThread):
+    progress_update = pyqtSignal(int, int)
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, items_to_move: list, target_base_path: str, db: EmailDatabase):
+        super().__init__()
+        # items_to_move is a list of tuples: [(entry_id, agenda_item), ...]
+        self.items_to_move = items_to_move
+        self.target_base_path = target_base_path
+        self.db = db
+
+    def run(self):
+        # ---> NEU: Initialisiert das Windows COM-System auch für den Move-Thread
+        pythoncom.CoInitialize()
+        try:
+            total = len(self.items_to_move)
+            success_count = 0
+
+            for i, (entry_id, ai) in enumerate(self.items_to_move, 1):
+                # Execute the Outlook COM move
+                moved = OutlookClient.move_email_to_target(entry_id, self.target_base_path, ai)
+
+                if moved:
+                    # Update our SQLite tracker to reflect the new reality
+                    self.db.update_location(entry_id, 'Target')
+                    success_count += 1
+
+                self.progress_update.emit(i, total)
+
+            self.finished.emit(True, f"✅ Successfully moved {success_count}/{total} emails to Target.")
+        except Exception as e:
+            self.finished.emit(False, str(e))
+        finally:
+            # ---> NEU: Ressourcen freigeben
+            pythoncom.CoUninitialize()

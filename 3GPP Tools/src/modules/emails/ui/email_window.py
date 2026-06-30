@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                              QMessageBox, QInputDialog, QDialog)
 
 from modules.emails.core.email_db import EmailDatabase
-from modules.emails.core.email_threads import EmailSyncThread
+from modules.emails.core.email_threads import EmailSyncThread, EmailMoveThread
 from modules.emails.ui.email_models import EmailTableModel, EmailProxyModel
 from modules.meetings.ui.tdocs_components import CheckableComboBox  # Reusing your awesome combo box!
 
@@ -62,18 +62,25 @@ class EmailManagerWindow(QWidget):
 
         # --- TOOLBAR ---
         toolbar = QHBoxLayout()
-        self.btn_sync = QPushButton("🔄 Sync from Outlook")
+        self.btn_sync = QPushButton("🔄 Sync from Source")
         self.btn_sync.setStyleSheet(
             "padding: 6px 12px; font-weight: bold; background-color: #0078D7; color: white; border-radius: 4px;")
         self.btn_sync.clicked.connect(self._run_sync)
 
-        self.btn_config = QPushButton("⚙️ Set Folder")
+        # ---> NEW MOVE BUTTON
+        self.btn_move = QPushButton("➡️ Move Selected to Target")
+        self.btn_move.setStyleSheet(
+            "padding: 6px 12px; font-weight: bold; background-color: #0C6B0C; color: white; border-radius: 4px;")
+        self.btn_move.clicked.connect(self._run_move)
+
+        self.btn_config = QPushButton("⚙️ Folders")
         self.btn_config.clicked.connect(self._configure_folders)
 
         self.lbl_status = QLabel("Ready.")
         self.lbl_status.setStyleSheet("color: #666; font-style: italic;")
 
         toolbar.addWidget(self.btn_sync)
+        toolbar.addWidget(self.btn_move)
         toolbar.addWidget(self.btn_config)
         toolbar.addWidget(self.lbl_status)
         toolbar.addStretch()
@@ -111,7 +118,7 @@ class EmailManagerWindow(QWidget):
         self.table.setModel(self.proxy)
 
         self.table.setSelectionBehavior(QTableView.SelectRows)
-        self.table.setSelectionMode(QTableView.SingleSelection)
+        self.table.setSelectionMode(QTableView.ExtendedSelection) # <--- Change to ExtendedSelection
         self.table.verticalHeader().setVisible(False)
         self.table.setStyleSheet("QTableView { background: white; gridline-color: #EEE; }")
 
@@ -223,3 +230,43 @@ class EmailManagerWindow(QWidget):
                 os.startfile(self.current_msg_path)
             except Exception as e:
                 QMessageBox.warning(self, "Error", f"Could not open file: {e}")
+
+    def _run_move(self):
+        if not self.target_folder:
+            QMessageBox.warning(self, "Setup Required", "Please configure the Outlook Target Folder first.")
+            return
+
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
+            QMessageBox.information(self, "Selection Required", "Please select at least one email to move.")
+            return
+
+        # Extract (EntryID, AI) from selected rows
+        items_to_move = []
+        for idx in indexes:
+            source_idx = self.proxy.mapToSource(idx)
+            row_data = self.model.get_row_data(source_idx.row())
+
+            # Only move items that are currently in the Source folder
+            if row_data.get("outlook_location") == "Source":
+                items_to_move.append((row_data.get("id"), row_data.get("agenda_item")))
+
+        if not items_to_move:
+            QMessageBox.information(self, "Notice", "Selected emails have already been moved to the Target.")
+            return
+
+        self.btn_move.setEnabled(False)
+        self.btn_sync.setEnabled(False)
+        self.btn_move.setText("⏳ Moving...")
+
+        self.move_thread = EmailMoveThread(items_to_move, self.target_folder, self.db)
+        self.move_thread.progress_update.connect(lambda c, t: self.lbl_status.setText(f"Moving {c}/{t}..."))
+        self.move_thread.finished.connect(self._on_move_finished)
+        self.move_thread.start()
+
+    def _on_move_finished(self, success: bool, msg: str):
+        self.btn_move.setEnabled(True)
+        self.btn_sync.setEnabled(True)
+        self.btn_move.setText("➡️ Move Selected to Target")
+        self.lbl_status.setText(msg)
+        self._refresh_table()
