@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QLineEdit, QTableView, QHeaderView, QSplitter, QTextBrowser,
-                             QMessageBox, QInputDialog)
+                             QMessageBox, QInputDialog, QDialog)
 
 from modules.emails.core.email_db import EmailDatabase
 from modules.emails.core.email_threads import EmailSyncThread
@@ -21,7 +21,12 @@ class EmailManagerWindow(QWidget):
 
         self.db = EmailDatabase(self.meeting_dir / "Agenda" / "emails.db")
         self.config_path = self.meeting_dir / "Agenda" / "email_config.json"
-        self.source_folder = self._load_config()
+
+        config_data = self._load_config()
+        self.source_folder = config_data.get("source_folder", "")
+        self.target_folder = config_data.get("target_folder", "")
+
+        self.setWindowTitle("📧 eMeeting Email Manager")
 
         self.setWindowTitle("📧 eMeeting Email Manager")
         self.resize(1200, 800)
@@ -30,19 +35,27 @@ class EmailManagerWindow(QWidget):
         self._setup_ui()
         self._refresh_table()
 
-    def _load_config(self) -> str:
+    def _load_config(self) -> dict:
         if self.config_path.exists():
             try:
                 with open(self.config_path, 'r') as f:
-                    return json.load(f).get("source_folder", "")
+                    return json.load(f)
             except:
                 pass
-        return ""
+        return {"source_folder": "", "target_folder": ""}
 
-    def _save_config(self, source_folder: str):
+    def _save_config(self, source_folder: str, target_folder: str):
         self.source_folder = source_folder
+        self.target_folder = target_folder
         with open(self.config_path, 'w') as f:
-            json.dump({"source_folder": source_folder}, f)
+            json.dump({"source_folder": source_folder, "target_folder": target_folder}, f)
+
+    def _configure_folders(self):
+        from modules.emails.ui.config_dialog import EmailConfigDialog
+        dialog = EmailConfigDialog(self.source_folder, self.target_folder, self)
+        if dialog.exec_() == QDialog.Accepted:
+            src, tgt = dialog.get_paths()
+            self._save_config(src, tgt)
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -133,13 +146,6 @@ class EmailManagerWindow(QWidget):
 
         splitter.setSizes([400, 300])
         main_layout.addWidget(splitter)
-
-    def _configure_folders(self):
-        folder, ok = QInputDialog.getText(self, "Outlook Configuration",
-                                          "Enter Source Folder path:\n(e.g., 'johndoe@company.com/Inbox' or just 'Inbox')",
-                                          text=self.source_folder)
-        if ok and folder:
-            self._save_config(folder.strip())
 
     def _run_sync(self):
         if not self.source_folder:
