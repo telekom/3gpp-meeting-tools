@@ -53,6 +53,7 @@ class MeetingsTab(QWidget):
         self.search_controller.connect_signals()  # Wires up the global search box
 
         self._load_filters()  # Load previous state!
+        self._update_last_meeting_btn()  # ---> NEW: Set the button text on startup
         self.refresh_table()
 
     def _save_filters(self):
@@ -705,6 +706,7 @@ class MeetingsTab(QWidget):
 
     def _open_tdocs_window(self, mtg_info: dict, filepath: str):
         self.settings.save_last_meeting(mtg_info)
+        self._update_last_meeting_btn()  # ---> NEW: Refresh the button text instantly!
         mtg_id = mtg_info.get("mtg_id")
 
         if mtg_id in self.tdoc_windows and self.tdoc_windows[mtg_id].isVisible():
@@ -733,6 +735,16 @@ class MeetingsTab(QWidget):
             self._open_tdocs_window(row_data, result)
         else:
             QMessageBox.critical(self, "Download Error", f"Failed to download TDocs List:\n{result}")
+
+    def _update_last_meeting_btn(self):
+        """Dynamically updates the 'Open Last Meeting' button text and tooltip."""
+        last_id, last_num = self.settings.get_last_meeting()
+        if last_num:
+            self.btn_open_last.setText(f"🚀 Open Last Meeting ({last_num})")
+            self.btn_open_last.setToolTip(f"Instantly resume working on meeting {last_num}")
+        else:
+            self.btn_open_last.setText("🚀 Open Last Meeting")
+            self.btn_open_last.setToolTip("No recent meeting history found. Please open a meeting first.")
 
     def _open_last_meeting(self):
         try:
