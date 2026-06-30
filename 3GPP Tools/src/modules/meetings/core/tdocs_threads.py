@@ -161,10 +161,32 @@ class TdocsByAgendaThread(QThread):
 
             # Ensure URL format is clean
             clean_base_url = self.meeting_ftp_url.rstrip('/')
-            agenda_url = f"{clean_base_url}/TdocsByAgenda.htm"
+
+            # ---> NEW: Scrape the directory to find the dynamic filename
+            session = NetworkSession.get_instance()
+            NetworkSession.apply_humanness(session)
+
+            self.ui_log_msg.emit("🔍 Searching FTP for TdocsByAgenda file...", logging.INFO)
+            response = session.get(clean_base_url, timeout=30)
+            response.raise_for_status()
+
+            # Matches any href containing "tdocsbyagenda" and ending in .htm or .html
+            pattern = re.compile(r'href=["\']?([^"\'>]*tdocsbyagenda[^"\'>]*\.html?)["\']?', re.IGNORECASE)
+            matches = pattern.findall(response.text)
+
+            if not matches:
+                self.ui_log_msg.emit("❌ Could not find any TdocsByAgenda file on the FTP server.", logging.ERROR)
+                self.finished.emit(False, {})
+                return
+
+            # If there are multiple versions (e.g. older backups), grab the last one
+            target_filename = matches[-1].split('/')[-1]
+            agenda_url = f"{clean_base_url}/{target_filename}"
 
             agenda_dir = self.local_folder / "Agenda"
             agenda_dir.mkdir(parents=True, exist_ok=True)
+
+            # ---> SMART FIX: Save it locally under the standard name so cache logic remains unbroken!
             agenda_path = agenda_dir / "TdocsByAgenda.htm"
 
             self.ui_log_msg.emit(f"⬇️ Downloading: {agenda_url}", logging.INFO)
