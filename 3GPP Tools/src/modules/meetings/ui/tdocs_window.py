@@ -18,6 +18,7 @@ from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDo
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
+from modules.emails.ui.email_window import EmailManagerWindow
 
 
 # ==========================================
@@ -149,6 +150,20 @@ class TDocsWindow(QWidget):
         """)
         self.excel_btn.clicked.connect(self._open_excel)
 
+        # ---> NEW: eMeeting Email Manager Button
+        self.email_btn = QPushButton("📧 Emails")
+        self.email_btn.setCursor(Qt.PointingHandCursor)
+        self.email_btn.setStyleSheet("""
+                 QPushButton {
+                     font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold;
+                     border-radius: 6px; padding: 5px 12px;
+                     color: #B85C00; background-color: #FFF4CE; border: 1px solid #F3C74C;
+                 }
+                 QPushButton:hover { background-color: #FFE0B2; }
+             """)
+        self.email_btn.clicked.connect(self._open_email_manager)
+        self.email_btn.setVisible(self.is_sa2_electronic)  # Only show for SA2 eMeetings!
+
         self.count_lbl = QLabel(f"Showing {len(tdocs_data)} of {len(tdocs_data)} TDocs")
         self.count_lbl.setStyleSheet("font-size: 13px; color: #666;")
 
@@ -158,6 +173,7 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.refresh_btn)
         header_layout.addWidget(self.folder_btn)
         header_layout.addWidget(self.excel_btn)
+        header_layout.addWidget(self.email_btn)  # <--- Add it here
         header_layout.addSpacing(15)
         header_layout.addWidget(self.count_lbl)
         main_layout.addLayout(header_layout)
@@ -624,3 +640,14 @@ class TDocsWindow(QWidget):
     def _handle_thread_log(self, msg: str, level: int):
         # A simple print catcher so the thread's logs don't crash the UI window
         print(f"Agenda Sync: {msg}")
+
+    def _open_email_manager(self):
+        # Dynamically build the AI lookup dictionary directly from the TDocs table data
+        ai_lookup = {
+            str(r.get("TDoc")).upper(): str(r.get("Agenda Item", "N/A"))
+            for r in self.model._data if r.get("TDoc")
+        }
+
+        # Keep a reference so it doesn't get garbage collected
+        self.email_window = EmailManagerWindow(self.meeting_dir, ai_lookup)
+        self.email_window.show()
