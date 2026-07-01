@@ -28,6 +28,8 @@ class EmailDatabase:
                 )
             ''')
             cursor.execute('CREATE TABLE IF NOT EXISTS starred_tdocs (tdoc_id TEXT PRIMARY KEY)')
+            cursor.execute('CREATE TABLE IF NOT EXISTS followed_ais (agenda_item TEXT PRIMARY KEY)')
+
             # Safe Schema Upgrade: Add outlook_location if it doesn't exist
             cursor.execute("PRAGMA table_info(emails)")
             columns = [info[1] for info in cursor.fetchall()]
@@ -147,4 +149,21 @@ class EmailDatabase:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT tdoc_id FROM starred_tdocs')
+            return {row[0] for row in cursor.fetchall()}
+
+    def toggle_ai_follow(self, agenda_item: str, follow: bool):
+        """Marks or unmarks an AI as followed."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            if follow:
+                cursor.execute('INSERT OR IGNORE INTO followed_ais (agenda_item) VALUES (?)', (agenda_item,))
+            else:
+                cursor.execute('DELETE FROM followed_ais WHERE agenda_item = ?', (agenda_item,))
+            conn.commit()
+
+    def get_followed_ais(self) -> set:
+        """Returns a set of all currently followed Agenda Items."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT agenda_item FROM followed_ais')
             return {row[0] for row in cursor.fetchall()}
