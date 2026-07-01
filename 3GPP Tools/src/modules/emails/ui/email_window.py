@@ -1,4 +1,5 @@
 # --- File: modules/emails/ui/email_window.py ---
+import datetime
 import json
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox  # Reusing yo
 
 
 class EmailManagerWindow(QWidget):
-    def __init__(self, meeting_dir: Path, ai_lookup: dict):
+    def __init__(self, meeting_dir: Path, ai_lookup: dict, meeting_start: str = "", meeting_end: str = ""):
         super().__init__()
         self.meeting_dir = meeting_dir
         self.ai_lookup = ai_lookup
@@ -25,6 +26,29 @@ class EmailManagerWindow(QWidget):
         config_data = self._load_config()
         self.source_folder = config_data.get("source_folder", "")
         self.target_folder = config_data.get("target_folder", "")
+
+        # ---> NEW: Intelligent Date Pre-filling
+        saved_start = config_data.get("start_date", "")
+        saved_end = config_data.get("end_date", "")
+
+        # If the user previously saved custom dates to JSON, use them.
+        if saved_start and saved_end:
+            self.start_date = saved_start
+            self.end_date = saved_end
+        else:
+            # Otherwise, calculate the default +/- 3 day buffer from the exact meeting dates!
+            try:
+                if meeting_start and meeting_end:
+                    s_dt = datetime.datetime.strptime(meeting_start, "%Y-%m-%d") - datetime.timedelta(days=3)
+                    e_dt = datetime.datetime.strptime(meeting_end, "%Y-%m-%d") + datetime.timedelta(days=3)
+                    self.start_date = s_dt.strftime("%Y-%m-%d")
+                    self.end_date = e_dt.strftime("%Y-%m-%d")
+                else:
+                    self.start_date = ""
+                    self.end_date = ""
+            except Exception:
+                self.start_date = ""
+                self.end_date = ""
 
         self.setWindowTitle("📧 eMeeting Email Manager")
         self.resize(1200, 800)
@@ -210,7 +234,7 @@ class EmailManagerWindow(QWidget):
         self._set_buttons_enabled(False)  # <--- Disables all buttons!
         self.btn_sync.setText("⏳ Syncing...")
 
-        self.sync_thread = EmailSyncThread(self.source_folder, self.meeting_dir, self.ai_lookup, self.db)
+        self.sync_thread = EmailSyncThread(self.source_folder, self.meeting_dir, self.ai_lookup, self.db, self.start_date, self.end_date)
         self.sync_thread.log_msg.connect(lambda m, _: self.lbl_status.setText(m))
 
         self.sync_thread.progress_update.connect(
@@ -432,7 +456,7 @@ class EmailManagerWindow(QWidget):
         self._set_buttons_enabled(False)  # <--- Disables all buttons!
         self.btn_rescan.setText("⏳ Scanning...")
 
-        self.rescan_thread = EmailTargetRescanThread(self.target_folder, self.meeting_dir, self.ai_lookup, self.db)
+        self.rescan_thread = EmailTargetRescanThread(self.target_folder, self.meeting_dir, self.ai_lookup, self.db, self.start_date, self.end_date)
         self.rescan_thread.log_msg.connect(lambda m, _: self.lbl_status.setText(m))
 
         self.rescan_thread.progress_update.connect(

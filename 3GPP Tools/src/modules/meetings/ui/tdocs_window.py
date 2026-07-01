@@ -642,12 +642,18 @@ class TDocsWindow(QWidget):
         print(f"Agenda Sync: {msg}")
 
     def _open_email_manager(self):
-        # Dynamically build the AI lookup dictionary directly from the TDocs table data
+        # Aggressively strip spaces to prevent dictionary misses
         ai_lookup = {
-            str(r.get("TDoc")).upper(): str(r.get("Agenda Item", "N/A"))
+            str(r.get("TDoc", "")).strip().upper(): str(r.get("Agenda Item", "N/A")).strip()
             for r in self.model._data if r.get("TDoc")
         }
 
-        # Keep a reference so it doesn't get garbage collected
-        self.email_window = EmailManagerWindow(self.meeting_dir, ai_lookup)
+        # ---> NEW: Extract the meeting dates from your current TDocs context
+        # Note: If your variables are named differently in TDocsWindow
+        # (e.g., self.meeting_start_date), simply update the names below!
+        m_start = getattr(self, "start_date", "")
+        m_end = getattr(self, "end_date", "")
+
+        # Pass the dates into the new initialization parameters
+        self.email_window = EmailManagerWindow(self.meeting_dir, ai_lookup, m_start, m_end)
         self.email_window.show()
