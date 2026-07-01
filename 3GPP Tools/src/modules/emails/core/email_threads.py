@@ -149,30 +149,40 @@ class EmailTargetRescanThread(QThread):
                 self.finished.emit(False, "Could not find the specified Target folder in Outlook.")
                 return
 
-            # We must scan the base target folder AND all the AI subfolders inside it!
+            # 1. Collect all folders to scan
             folders_to_scan = [target_base]
             for sub in target_base.Folders:
                 folders_to_scan.append(sub)
 
-            total_found = 0
+            # ---> NEW: Pre-calculate the grand total of items so the progress bar is accurate!
+            total_items_to_scan = 0
+            for folder in folders_to_scan:
+                total_items_to_scan += len(folder.Items)
+
+            self.log_msg.emit(f"Found {total_items_to_scan} total items. Scanning...", logging.INFO)
+
+            processed_count = 0
             valid_count = 0
             batch_data = []
 
             for folder in folders_to_scan:
                 items = folder.Items
                 items.Sort("[ReceivedTime]", True)
-                total_items = len(items)
-                total_found += total_items
+                total_in_folder = len(items)
 
-                for i in range(1, total_items + 1):
+                for i in range(1, total_in_folder + 1):
+                    processed_count += 1
+
+                    # Update progress smoothly across all folders
+                    if processed_count % 10 == 0:
+                        self.progress_update.emit(processed_count, total_items_to_scan)
+
                     mail_item = items.Item(i)
-                    if i % 10 == 0: self.progress_update.emit(i, total_found)
                     if mail_item.Class != 43: continue
 
                     parsed_data = EmailParser.parse_outlook_item(mail_item, self.ai_lookup)
 
                     if parsed_data and parsed_data.get('tdoc_id'):
-                        # ---> DUPLICATE PREVENTION: Check if we already have the .msg file!
                         existing = self.db.get_email(parsed_data['id'])
 
                         if existing and existing.get('msg_path') and Path(existing['msg_path']).exists():
@@ -182,20 +192,18 @@ class EmailTargetRescanThread(QThread):
                                 mail_item, parsed_data['tdoc_id'], self.meeting_dir
                             )
 
-                        # Hardcode the location to Target since we found it here
                         parsed_data['outlook_location'] = 'Target'
                         batch_data.append(parsed_data)
                         valid_count += 1
 
-                        # Flush batch
                         if len(batch_data) >= 50:
                             self.db.save_emails_batch(batch_data)
                             batch_data.clear()
 
-            # Flush remainder
             if batch_data:
                 self.db.save_emails_batch(batch_data)
 
+            self.progress_update.emit(total_items_to_scan, total_items_to_scan)  # Lock to 100%
             self.log_msg.emit(f"✅ Rescan complete! Updated {valid_count} emails.", logging.INFO)
             self.finished.emit(True, f"Successfully rescanned {valid_count} Target emails.")
 
