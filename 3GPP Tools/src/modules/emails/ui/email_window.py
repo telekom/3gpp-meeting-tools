@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                              QMessageBox, QInputDialog, QDialog)
 
 from modules.emails.core.email_db import EmailDatabase
-from modules.emails.core.email_threads import EmailSyncThread, EmailMoveThread
+from modules.emails.core.email_threads import EmailSyncThread, EmailMoveThread, EmailTargetRescanThread
 from modules.emails.ui.email_models import EmailTableModel, EmailProxyModel
 from modules.meetings.ui.tdocs_components import CheckableComboBox  # Reusing your awesome combo box!
 
@@ -62,16 +62,21 @@ class EmailManagerWindow(QWidget):
 
         # --- TOOLBAR ---
         toolbar = QHBoxLayout()
-        self.btn_sync = QPushButton("🔄 Sync from Source")
+        self.btn_sync = QPushButton("🔄 Sync Source")
         self.btn_sync.setStyleSheet(
             "padding: 6px 12px; font-weight: bold; background-color: #0078D7; color: white; border-radius: 4px;")
         self.btn_sync.clicked.connect(self._run_sync)
 
-        # ---> NEW MOVE BUTTON
-        self.btn_move = QPushButton("➡️ Move Selected to Target")
+        self.btn_move = QPushButton("➡️ Move Selected")
         self.btn_move.setStyleSheet(
             "padding: 6px 12px; font-weight: bold; background-color: #0C6B0C; color: white; border-radius: 4px;")
         self.btn_move.clicked.connect(self._run_move)
+
+        # ---> NEW: RESCAN TARGET BUTTON
+        self.btn_rescan = QPushButton("🔁 Scan Target")
+        self.btn_rescan.setStyleSheet(
+            "padding: 6px 12px; font-weight: bold; background-color: #E1F0FF; color: #005A9E; border: 1px solid #99C9FF; border-radius: 4px;")
+        self.btn_rescan.clicked.connect(self._run_target_rescan)
 
         self.btn_config = QPushButton("⚙️ Folders")
         self.btn_config.clicked.connect(self._configure_folders)
@@ -81,6 +86,7 @@ class EmailManagerWindow(QWidget):
 
         toolbar.addWidget(self.btn_sync)
         toolbar.addWidget(self.btn_move)
+        toolbar.addWidget(self.btn_rescan)  # Add it to the layout here!
         toolbar.addWidget(self.btn_config)
         toolbar.addWidget(self.lbl_status)
         toolbar.addStretch()
@@ -122,15 +128,18 @@ class EmailManagerWindow(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setStyleSheet("QTableView { background: white; gridline-color: #EEE; }")
 
+        # ---> FIX: Updated column widths for the 9 new columns
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.resizeSection(0, 130)
-        header.resizeSection(1, 90)
-        header.resizeSection(2, 70)
-        header.resizeSection(3, 70)
-        header.resizeSection(4, 110)
-        header.resizeSection(5, 140)
-        header.setSectionResizeMode(6, QHeaderView.Stretch)
+        header.resizeSection(0, 85)  # Status
+        header.resizeSection(1, 75)  # Local Disk
+        header.resizeSection(2, 120)  # Date
+        header.resizeSection(3, 90)  # TDoc
+        header.resizeSection(4, 60)  # Rev
+        header.resizeSection(5, 70)  # AI
+        header.resizeSection(6, 110)  # Company
+        header.resizeSection(7, 140)  # Sender
+        header.setSectionResizeMode(8, QHeaderView.Stretch)  # Short Text gets remaining space
 
         self.table.selectionModel().selectionChanged.connect(self._on_email_selected)
         splitter.addWidget(self.table)
@@ -268,5 +277,30 @@ class EmailManagerWindow(QWidget):
         self.btn_move.setEnabled(True)
         self.btn_sync.setEnabled(True)
         self.btn_move.setText("➡️ Move Selected to Target")
+        self.lbl_status.setText(msg)
+        self._refresh_table()
+
+    def _run_target_rescan(self):
+        if not self.target_folder:
+            QMessageBox.warning(self, "Setup Required", "Please configure the Outlook Target Folder first.")
+            return
+
+        self.btn_sync.setEnabled(False)
+        self.btn_move.setEnabled(False)
+        self.btn_rescan.setEnabled(False)
+        self.btn_rescan.setText("⏳ Scanning...")
+
+        self.rescan_thread = EmailTargetRescanThread(self.target_folder, self.meeting_dir, self.ai_lookup, self.db)
+        self.rescan_thread.log_msg.connect(lambda m, _: self.lbl_status.setText(m))
+        self.rescan_thread.progress_update.connect(
+            lambda c, t: self.lbl_status.setText(f"Scanning Target... ({c} items)"))
+        self.rescan_thread.finished.connect(self._on_rescan_finished)
+        self.rescan_thread.start()
+
+    def _on_rescan_finished(self, success: bool, msg: str):
+        self.btn_sync.setEnabled(True)
+        self.btn_move.setEnabled(True)
+        self.btn_rescan.setEnabled(True)
+        self.btn_rescan.setText("🔁 Scan Target")
         self.lbl_status.setText(msg)
         self._refresh_table()

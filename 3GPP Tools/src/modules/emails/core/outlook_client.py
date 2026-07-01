@@ -23,10 +23,10 @@ class OutlookClient:
             return None
 
     @staticmethod
-    def get_folder_by_path(folder_path: str):
+    def get_folder_by_path(folder_path: str, create_if_missing: bool = False):
         """
-        Navigates the Outlook folder tree using a string path (e.g., 'johndoe@company.com/Inbox/SA2').
-        If no email root is provided, it defaults to the primary Inbox.
+        Navigates the Outlook folder tree using a string path.
+        If create_if_missing is True, it will dynamically create missing folders in the path.
         """
         namespace = OutlookClient.get_namespace()
         if not namespace or not folder_path:
@@ -45,7 +45,6 @@ class OutlookClient:
             # If root wasn't found, assume the first part is a subfolder of the default Inbox
             if not current_folder:
                 current_folder = namespace.GetDefaultFolder(6)  # 6 = olFolderInbox
-                # Don't pop the first part if we are starting from default inbox and it didn't match an account
             else:
                 parts.pop(0)
 
@@ -57,9 +56,14 @@ class OutlookClient:
                         current_folder = subfolder
                         found = True
                         break
+
+                # ---> THE FIX: Automatically create the folder if it doesn't exist!
                 if not found:
-                    logging.error(f"Outlook folder not found: {part}")
-                    return None
+                    if create_if_missing:
+                        current_folder = current_folder.Folders.Add(part)
+                    else:
+                        logging.error(f"Outlook folder not found: {part}")
+                        return None
 
             return current_folder
         except Exception as e:
@@ -110,7 +114,7 @@ class OutlookClient:
 
     @staticmethod
     def move_email_to_target(entry_id: str, base_target_path: str, ai_folder_name: str) -> bool:
-        """Moves a specific email to [Target Folder]/[AI]. Creates the AI folder if missing."""
+        """Moves a specific email to [Target Folder]/[AI]. Creates folders if missing."""
         namespace = OutlookClient.get_namespace()
         if not namespace or not base_target_path: return False
 
@@ -118,14 +122,14 @@ class OutlookClient:
             # 1. Fetch the exact email
             mail_item = namespace.GetItemFromID(entry_id)
 
-            # 2. Fetch the Base Target Folder
-            base_folder = OutlookClient.get_folder_by_path(base_target_path)
+            # 2. Fetch the Base Target Folder (and create it if it doesn't exist!)
+            base_folder = OutlookClient.get_folder_by_path(base_target_path, create_if_missing=True)
             if not base_folder: return False
 
             # 3. Clean the AI name to make it a valid Outlook folder name
             clean_ai = "".join(c for c in ai_folder_name if c.isalnum() or c in " ._-").strip() or "General"
 
-            # 4. Find or Create the Subfolder
+            # 4. Find or Create the AI Subfolder
             target_folder = None
             for folder in base_folder.Folders:
                 if folder.Name.lower() == clean_ai.lower():

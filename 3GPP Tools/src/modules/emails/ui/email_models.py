@@ -85,12 +85,13 @@ class EmailProxyModel(QSortFilterProxyModel):
     def filterAcceptsRow(self, source_row, source_parent):
         model = self.sourceModel()
 
-        # 1. Combobox Filters
-        if self.ai_filters and model.data(model.index(source_row, 3, source_parent),
+        # ---> FIX: The column indices shifted +2 when we added Status and Local!
+        # AI is now 5, Company is 6, Sender is 7
+        if self.ai_filters and model.data(model.index(source_row, 5, source_parent),
                                           Qt.UserRole) not in self.ai_filters: return False
-        if self.company_filters and model.data(model.index(source_row, 4, source_parent),
+        if self.company_filters and model.data(model.index(source_row, 6, source_parent),
                                                Qt.UserRole) not in self.company_filters: return False
-        if self.sender_filters and model.data(model.index(source_row, 5, source_parent),
+        if self.sender_filters and model.data(model.index(source_row, 7, source_parent),
                                               Qt.UserRole) not in self.sender_filters: return False
 
         # 2. Global Text Search
