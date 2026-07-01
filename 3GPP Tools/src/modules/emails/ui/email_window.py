@@ -70,6 +70,11 @@ class EmailManagerWindow(QWidget):
             "padding: 6px 12px; font-weight: bold; background-color: #0C6B0C; color: white; border-radius: 4px;")
         self.btn_move.clicked.connect(self._run_move)
 
+        self.btn_move_all = QPushButton("⏭️ Move All")
+        self.btn_move_all.setStyleSheet(
+            "padding: 6px 12px; font-weight: bold; background-color: #084D08; color: white; border-radius: 4px;")
+        self.btn_move_all.clicked.connect(self._run_move_all)
+
         # ---> NEW: RESCAN TARGET BUTTON
         self.btn_rescan = QPushButton("🔁 Scan Target")
         self.btn_rescan.setStyleSheet(
@@ -84,7 +89,8 @@ class EmailManagerWindow(QWidget):
 
         toolbar.addWidget(self.btn_sync)
         toolbar.addWidget(self.btn_move)
-        toolbar.addWidget(self.btn_rescan)  # Add it to the layout here!
+        toolbar.addWidget(self.btn_move_all)
+        toolbar.addWidget(self.btn_rescan)
         toolbar.addWidget(self.btn_config)
         toolbar.addWidget(self.lbl_status)
         toolbar.addStretch()
@@ -201,17 +207,21 @@ class EmailManagerWindow(QWidget):
             QMessageBox.warning(self, "Setup Required", "Please configure the Outlook Source Folder first.")
             return
 
-        self.btn_sync.setEnabled(False)
+        self._set_buttons_enabled(False)  # <--- Disables all buttons!
         self.btn_sync.setText("⏳ Syncing...")
 
         self.sync_thread = EmailSyncThread(self.source_folder, self.meeting_dir, self.ai_lookup, self.db)
         self.sync_thread.log_msg.connect(lambda m, _: self.lbl_status.setText(m))
+
+        self.sync_thread.progress_update.connect(
+            lambda c, t: self.lbl_status.setText(f"Scanning Source: {c} / {t} items..."))
+
         self.sync_thread.finished.connect(self._on_sync_finished)
         self.sync_thread.start()
 
     def _on_sync_finished(self, success: bool, msg: str):
-        self.btn_sync.setEnabled(True)
-        self.btn_sync.setText("🔄 Sync from Outlook")
+        self._set_buttons_enabled(True)  # <--- Enables all buttons!
+        self.btn_sync.setText("🔄 Sync Source")
         self.lbl_status.setText(msg)
         self._refresh_table()
 
@@ -364,8 +374,7 @@ class EmailManagerWindow(QWidget):
             QMessageBox.information(self, "Notice", "Selected emails have already been moved to the Target.")
             return
 
-        self.btn_move.setEnabled(False)
-        self.btn_sync.setEnabled(False)
+        self._set_buttons_enabled(False)  # <--- Disables all buttons!
         self.btn_move.setText("⏳ Moving...")
 
         self.move_thread = EmailMoveThread(items_to_move, self.target_folder, self.db)
@@ -373,10 +382,45 @@ class EmailManagerWindow(QWidget):
         self.move_thread.finished.connect(self._on_move_finished)
         self.move_thread.start()
 
+    def _run_move_all(self):
+        if not self.target_folder:
+            QMessageBox.warning(self, "Setup Required", "Please configure the Outlook Target Folder first.")
+            return
+
+        # Extract (EntryID, AI) from ALL rows that are currently in the Source folder
+        items_to_move = []
+        for row_data in self.model._data:
+            if row_data.get("outlook_location") == "Source":
+                items_to_move.append((row_data.get("id"), row_data.get("agenda_item")))
+
+        if not items_to_move:
+            QMessageBox.information(self, "Notice", "There are no emails in the Source folder to move.")
+            return
+
+        # Add a safety confirmation so you don't accidentally click it!
+        reply = QMessageBox.question(self, 'Confirm Move All',
+                                     f"Are you sure you want to move ALL {len(items_to_move)} source emails to the target folder?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.No:
+            return
+
+        self._set_buttons_enabled(False)  # <--- Disables all buttons!
+        self.btn_move_all.setText("⏳ Moving All...")
+
+        self.move_thread = EmailMoveThread(items_to_move, self.target_folder, self.db)
+        self.move_thread.progress_update.connect(lambda c, t: self.lbl_status.setText(f"Moving {c}/{t}..."))
+        self.move_thread.finished.connect(self._on_move_all_finished)
+        self.move_thread.start()
+
+    def _on_move_all_finished(self, success: bool, msg: str):
+        self._set_buttons_enabled(True)  # <--- Enables all buttons!
+        self.btn_move_all.setText("⏭️ Move All")
+        self.lbl_status.setText(msg)
+        self._refresh_table()
+
     def _on_move_finished(self, success: bool, msg: str):
-        self.btn_move.setEnabled(True)
-        self.btn_sync.setEnabled(True)
-        self.btn_move.setText("➡️ Move Selected to Target")
+        self._set_buttons_enabled(True)  # <--- Enables all buttons!
+        self.btn_move.setText("➡️ Move Selected")
         self.lbl_status.setText(msg)
         self._refresh_table()
 
@@ -385,22 +429,27 @@ class EmailManagerWindow(QWidget):
             QMessageBox.warning(self, "Setup Required", "Please configure the Outlook Target Folder first.")
             return
 
-        self.btn_sync.setEnabled(False)
-        self.btn_move.setEnabled(False)
-        self.btn_rescan.setEnabled(False)
+        self._set_buttons_enabled(False)  # <--- Disables all buttons!
         self.btn_rescan.setText("⏳ Scanning...")
 
         self.rescan_thread = EmailTargetRescanThread(self.target_folder, self.meeting_dir, self.ai_lookup, self.db)
         self.rescan_thread.log_msg.connect(lambda m, _: self.lbl_status.setText(m))
+
         self.rescan_thread.progress_update.connect(
-            lambda c, t: self.lbl_status.setText(f"Scanning Target... ({c} items)"))
+            lambda c, t: self.lbl_status.setText(f"Scanning Target: {c} / {t} items..."))
+
         self.rescan_thread.finished.connect(self._on_rescan_finished)
         self.rescan_thread.start()
 
     def _on_rescan_finished(self, success: bool, msg: str):
-        self.btn_sync.setEnabled(True)
-        self.btn_move.setEnabled(True)
-        self.btn_rescan.setEnabled(True)
+        self._set_buttons_enabled(True)  # <--- Enables all buttons!
         self.btn_rescan.setText("🔁 Scan Target")
         self.lbl_status.setText(msg)
         self._refresh_table()
+
+    def _set_buttons_enabled(self, state: bool):
+        """Helper to cleanly disable/enable all action buttons during background tasks."""
+        self.btn_sync.setEnabled(state)
+        self.btn_move.setEnabled(state)
+        self.btn_move_all.setEnabled(state)
+        self.btn_rescan.setEnabled(state)
