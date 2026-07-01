@@ -27,8 +27,6 @@ class EmailManagerWindow(QWidget):
         self.target_folder = config_data.get("target_folder", "")
 
         self.setWindowTitle("📧 eMeeting Email Manager")
-
-        self.setWindowTitle("📧 eMeeting Email Manager")
         self.resize(1200, 800)
         self.setStyleSheet("QWidget { background-color: #FAFAFA; }")
 
