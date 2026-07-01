@@ -241,14 +241,22 @@ class TDocsWindow(QWidget):
         self.proxy.setStatusFilters(unique_statuses)
 
         self.table.setModel(self.proxy)
-        self.table.setSelectionMode(QTableView.NoSelection)
-        self.table.setFocusPolicy(Qt.NoFocus)
+        self.table.setSelectionBehavior(QTableView.SelectItems)  # <--- Behavior!
+        self.table.setSelectionMode(QTableView.ExtendedSelection)  # <--- Mode!
+        self.table.setFocusPolicy(Qt.WheelFocus)
+
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
         self.table.setStyleSheet("""
-            QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; }
-            QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }
-        """)
+                    QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; }
+                    QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }
+                """)
+
+        # ---> FIX: Add Ctrl+C Support to the Table
+        from PyQt5.QtWidgets import QShortcut
+        from PyQt5.QtGui import QKeySequence
+        self.copy_shortcut = QShortcut(QKeySequence.Copy, self.table)
+        self.copy_shortcut.activated.connect(self._copy_table_selection)
 
         self.table.setWordWrap(True)
         # ---> OPTIMIZATION 2: ResizeToContents forces PyQt to calculate the height of 3,000+ rows,
@@ -628,12 +636,33 @@ class TDocsWindow(QWidget):
     def _on_agenda_fetched(self, success: bool, agenda_data: dict):
         if success and agenda_data:
             self.model.merge_agenda_data(agenda_data)
-            # ---> OPTIMIZATION: Non-blocking success notification!
+
+            # ---> THE FIX: Refresh comboboxes to include new on-the-fly injected values!
+            def sanitize(val):
+                return str(val).strip() if val is not None else ""
+
+            unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in self.model._data)))
+            unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in self.model._data)),
+                                key=natural_sort_key)
+            unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in self.model._data)))
+
+            # Push the updated lists to the dropdown menus
+            self.type_combo.updateItems(unique_types)
+            self.ai_combo.updateItems(unique_ais)
+            self.status_combo.updateItems(unique_statuses)
+
+            # Ensure the proxy recognizes the newly added data types so they aren't hidden
+            self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
+            self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
+            self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
+
+            self._update_count_label()
+
+            # OPTIMIZATION: Non-blocking success notification!
             self.refresh_btn.setText(f"✅ {len(agenda_data)} Merged")
             QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
         else:
             self.refresh_btn.setText("🔄 Refresh")
-            # We keep the popup for errors so you know if 3GPP hasn't uploaded the file yet
             QMessageBox.warning(self, "Extraction Error",
                                 "Failed to download or parse TdocsByAgenda.htm. It might not exist on the FTP server yet.")
 
@@ -657,3 +686,40 @@ class TDocsWindow(QWidget):
         # Pass the dates into the new initialization parameters
         self.email_window = EmailManagerWindow(self.meeting_dir, ai_lookup, m_start, m_end)
         self.email_window.show()
+
+    def _copy_table_selection(self):
+        indexes = self.table.selectionModel().selectedIndexes()
+        if not indexes:
+            return
+
+        # Sort indexes by row and then column to maintain the visual grid structure
+        indexes = sorted(indexes, key=lambda x: (x.row(), x.column()))
+
+        text_lines = []
+        current_row = indexes[0].row()
+        current_line = []
+
+        for idx in indexes:
+            # If we've moved to a new row, save the current line and start a new one
+            if idx.row() != current_row:
+                text_lines.append("\t".join(current_line))
+                current_line = []
+                current_row = idx.row()
+
+            # Extract plain text safely (Using UserRole automatically bypasses the HTML tags in your Related TDocs column!)
+            cell_text = str(idx.data(Qt.UserRole) or "").strip()
+
+            # Fallback to standard DisplayRole if UserRole is empty
+            if not cell_text:
+                cell_text = str(idx.data(Qt.DisplayRole) or "").strip()
+
+            current_line.append(cell_text)
+
+        # Append the final row
+        text_lines.append("\t".join(current_line))
+
+        # Push to the Windows Clipboard
+        QApplication.clipboard().setText("\n".join(text_lines))
+
+        # Show a quick tooltip confirming the copy at the mouse cursor
+        QToolTip.showText(QCursor.pos(), "📋 Copied to clipboard!", self.table)
