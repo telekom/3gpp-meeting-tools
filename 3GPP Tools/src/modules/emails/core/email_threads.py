@@ -14,16 +14,30 @@ class EmailSyncThread(QThread):
     progress_update = pyqtSignal(int, int)  # (current, total)
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, source_path: str, meeting_dir: Path, ai_lookup: dict, db: EmailDatabase):
+    # ---> FIX: Added start_date and end_date to the parameters!
+    def __init__(self, source_path: str, meeting_dir: Path, ai_lookup: dict, db: EmailDatabase, start_date: str = "",
+                 end_date: str = ""):
         super().__init__()
         self.source_path = source_path
         self.meeting_dir = meeting_dir
         self.ai_lookup = ai_lookup
         self.db = db
+        self.start_date = start_date
+        self.end_date = end_date
 
     def run(self):
+        import pythoncom
+        import datetime
         pythoncom.CoInitialize()
         try:
+            # ---> NEW: Parse Dates and apply +/- 3 day buffer
+            filter_start, filter_end = None, None
+            if self.start_date and self.end_date:
+                start_dt = datetime.datetime.strptime(self.start_date, "%Y-%m-%d")
+                end_dt = datetime.datetime.strptime(self.end_date, "%Y-%m-%d")
+                filter_start = start_dt - datetime.timedelta(days=3)
+                filter_end = end_dt + datetime.timedelta(days=4)  # +4 ensures we cover the end of the final day
+
             self.log_msg.emit(f"Connecting to Outlook folder: {self.source_path}...", logging.INFO)
             source_folder = OutlookClient.get_folder_by_path(self.source_path)
 
@@ -39,12 +53,28 @@ class EmailSyncThread(QThread):
 
             processed_count = 0
             valid_count = 0
-
-            # ---> THE FIX: Our memory buffer for batching
             batch_data = []
 
             for i in range(1, total_items + 1):
                 mail_item = items.Item(i)
+
+                # ---> NEW: Date Range Enforcement logic
+                if filter_start and filter_end:
+                    mail_date = getattr(mail_item, "ReceivedTime", None)
+                    if mail_date:
+                        try:
+                            # Strip out pywintypes timezone data to create a naive comparable datetime
+                            dt = datetime.datetime(mail_date.year, mail_date.month, mail_date.day,
+                                                   mail_date.hour, mail_date.minute, mail_date.second)
+                            if dt > filter_end:
+                                continue  # Email arrived after the meeting ended, skip to next.
+                            if dt < filter_start:
+                                # FAST EXIT: Because we sorted Newest->Oldest, if this email is older
+                                # than our start buffer, ALL remaining emails are even older! Terminate loop!
+                                break
+                        except Exception:
+                            pass
+
                 if i % 10 == 0: self.progress_update.emit(i, total_items)
                 if mail_item.Class != 43: continue
 
@@ -59,7 +89,7 @@ class EmailSyncThread(QThread):
                     batch_data.append(parsed_data)
                     valid_count += 1
 
-                # ---> THE FIX: Flush the batch to SQLite every 50 valid emails
+                # Flush the batch to SQLite every 50 valid emails
                 if len(batch_data) >= 50:
                     self.db.save_emails_batch(batch_data)
                     batch_data.clear()
@@ -131,17 +161,30 @@ class EmailTargetRescanThread(QThread):
     progress_update = pyqtSignal(int, int)
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, target_path: str, meeting_dir: Path, ai_lookup: dict, db: EmailDatabase):
+    # ---> FIX: Added start_date and end_date to the parameters!
+    def __init__(self, target_path: str, meeting_dir: Path, ai_lookup: dict, db: EmailDatabase, start_date: str = "",
+                 end_date: str = ""):
         super().__init__()
         self.target_path = target_path
         self.meeting_dir = meeting_dir
         self.ai_lookup = ai_lookup
         self.db = db
+        self.start_date = start_date
+        self.end_date = end_date
 
     def run(self):
         import pythoncom
         pythoncom.CoInitialize()
         try:
+            # ---> NEW: Parse Dates and apply +/- 3 day buffer
+            filter_start, filter_end = None, None
+            if self.start_date and self.end_date:
+                import datetime
+                start_dt = datetime.datetime.strptime(self.start_date, "%Y-%m-%d")
+                end_dt = datetime.datetime.strptime(self.end_date, "%Y-%m-%d")
+                filter_start = start_dt - datetime.timedelta(days=3)
+                filter_end = end_dt + datetime.timedelta(days=4)  # +4 ensures we cover the end of the final day
+
             self.log_msg.emit(f"Scanning Target folder: {self.target_path}...", logging.INFO)
             target_base = OutlookClient.get_folder_by_path(self.target_path)
 
@@ -149,12 +192,10 @@ class EmailTargetRescanThread(QThread):
                 self.finished.emit(False, "Could not find the specified Target folder in Outlook.")
                 return
 
-            # 1. Collect all folders to scan
             folders_to_scan = [target_base]
             for sub in target_base.Folders:
                 folders_to_scan.append(sub)
 
-            # ---> NEW: Pre-calculate the grand total of items so the progress bar is accurate!
             total_items_to_scan = 0
             for folder in folders_to_scan:
                 total_items_to_scan += len(folder.Items)
@@ -167,17 +208,31 @@ class EmailTargetRescanThread(QThread):
 
             for folder in folders_to_scan:
                 items = folder.Items
-                items.Sort("[ReceivedTime]", True)
+                items.Sort("[ReceivedTime]", True)  # Sort newest first!
                 total_in_folder = len(items)
 
                 for i in range(1, total_in_folder + 1):
                     processed_count += 1
 
-                    # Update progress smoothly across all folders
                     if processed_count % 10 == 0:
                         self.progress_update.emit(processed_count, total_items_to_scan)
 
                     mail_item = items.Item(i)
+
+                    # ---> NEW: Date Range Enforcement logic
+                    if filter_start and filter_end:
+                        mail_date = getattr(mail_item, "ReceivedTime", None)
+                        if mail_date:
+                            try:
+                                dt = datetime.datetime(mail_date.year, mail_date.month, mail_date.day,
+                                                       mail_date.hour, mail_date.minute, mail_date.second)
+                                if dt > filter_end:
+                                    continue  # Skip future/newer emails
+                                if dt < filter_start:
+                                    break  # FAST EXIT: Stop scanning this specific subfolder!
+                            except Exception:
+                                pass
+
                     if mail_item.Class != 43: continue
 
                     parsed_data = EmailParser.parse_outlook_item(mail_item, self.ai_lookup)
@@ -203,7 +258,7 @@ class EmailTargetRescanThread(QThread):
             if batch_data:
                 self.db.save_emails_batch(batch_data)
 
-            self.progress_update.emit(total_items_to_scan, total_items_to_scan)  # Lock to 100%
+            self.progress_update.emit(total_items_to_scan, total_items_to_scan)
             self.log_msg.emit(f"✅ Rescan complete! Updated {valid_count} emails.", logging.INFO)
             self.finished.emit(True, f"Successfully rescanned {valid_count} Target emails.")
 
