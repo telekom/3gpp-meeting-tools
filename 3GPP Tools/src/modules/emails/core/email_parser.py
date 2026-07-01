@@ -7,7 +7,7 @@ from modules.emails.core.contributor_names import get_matching_contributors
 
 class EmailParser:
     # Captures standard TDocs (e.g., S2-260123) regardless of year
-    TDOC_REGEX = re.compile(r'(S2-\d{6})', re.IGNORECASE)
+    TDOC_REGEX = re.compile(r'(S2-\d{6,8})', re.IGNORECASE)
 
     # Captures <<START>> ... <<END>> block safely across multiple lines
     START_END_REGEX = re.compile(r'<<START>>(.*?)<<END>>', re.DOTALL | re.IGNORECASE)

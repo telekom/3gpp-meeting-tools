@@ -94,37 +94,6 @@ class EmailDatabase:
             cursor.executemany('UPDATE emails SET outlook_location = ? WHERE id = ?', location_updates)
             conn.commit()
 
-    def save_emails_batch(self, emails_data: list):
-        """Mass inserts/updates a list of emails in a single blazing-fast transaction."""
-        if not emails_data: return
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-
-            # Convert the list of dictionaries into a list of tuples for executemany
-            tuples = [
-                (e.get('id'), e.get('tdoc_id'), e.get('agenda_item'),
-                 e.get('sender_name'), e.get('company'), e.get('date_received'),
-                 e.get('subject'), e.get('revisions_mentioned'), e.get('short_text'),
-                 e.get('free_text'), e.get('msg_path'), e.get('outlook_location', 'Source'))
-                for e in emails_data
-            ]
-
-            cursor.executemany('''
-                INSERT OR REPLACE INTO emails 
-                (id, tdoc_id, agenda_item, sender_name, company, date_received, subject, 
-                 revisions_mentioned, short_text, free_text, msg_path, outlook_location)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', tuples)
-            conn.commit()
-
-    def update_locations_batch(self, location_updates: list):
-        """Mass updates Outlook locations. Expects a list of tuples: [('Target', 'entryID_123'), ...]"""
-        if not location_updates: return
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.executemany('UPDATE emails SET outlook_location = ? WHERE id = ?', location_updates)
-            conn.commit()
-
     def get_email(self, entry_id: str) -> dict:
         """Fetches a single email by its Outlook EntryID."""
         with sqlite3.connect(self.db_path) as conn:
