@@ -146,17 +146,17 @@ class TDocsTableModel(QAbstractTableModel):
     def merge_agenda_data(self, agenda_data: dict, ui_logger=None):
         """Merges parsed HTML data into the existing Excel data set."""
         import logging
+        import re
         self.beginResetModel()
 
-        # FIXED: Use self._data instead of self._all_data
         existing_tdocs = {row.get('TDoc', ''): idx for idx, row in enumerate(self._data)}
+        tdoc_dict = {row.get('TDoc', ''): row for row in self._data}  # Build lookup early
         new_rows = []
 
         for tdoc_id, info in agenda_data.items():
             comments = info.get('Comments', '')
             email = info.get('e-mail_Discussion', '')
 
-            # Resolve Conflict Rules
             remarks = ""
             if comments and email:
                 remarks = f"{comments}\n\n[e-mail_Discussion]: {email}"
@@ -165,31 +165,92 @@ class TDocsTableModel(QAbstractTableModel):
             elif email:
                 remarks = email
 
-            if not remarks:
-                continue
-
             if tdoc_id in existing_tdocs:
-                # Update existing row. Notice we use your exact dictionary keys!
-                idx = existing_tdocs[tdoc_id]
-                self._data[idx]['Secretary Remarks'] = remarks
+                if remarks:
+                    idx = existing_tdocs[tdoc_id]
+                    self._data[idx]['Secretary Remarks'] = remarks
             else:
-                # Inject a revision created on the fly!
                 if ui_logger: ui_logger.emit(f"✨ Injecting new on-the-fly TDoc: {tdoc_id}", logging.INFO)
+
+                agenda_item = 'N/A'
+                doc_type = 'Revision'  # Temporary default
+                predecessor = None
+                base_tdoc = None
+
+                # ---> CHECK 1: Explicit comment "Revision of S2-XXXXXXr11"
+                comment_match = re.search(r'(?:revision of|rev of)\s*(S2-\d{6,8}(?:r\d{1,2}[a-zA-Z]?)?)', remarks,
+                                          re.IGNORECASE)
+
+                # ---> CHECK 2: Standard suffix (e.g. S2-260123r01)
+                id_match = re.search(r'^(.*?)-?(?:r|rev)(\d{1,2}[a-zA-Z]?)$', tdoc_id, re.IGNORECASE)
+
+                if comment_match:
+                    predecessor = comment_match.group(1).upper()
+                    base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', predecessor, re.IGNORECASE)
+                    base_tdoc = base_match.group(1).upper() if base_match else predecessor
+
+                elif id_match:
+                    base_tdoc = id_match.group(1).upper()
+                    predecessor = base_tdoc
+                    try:
+                        rev_num = int(re.match(r'\d+', id_match.group(2)).group())
+                        if rev_num > 1:
+                            prev_rev = f"{base_tdoc}r{rev_num - 1:02d}"
+                            if prev_rev in tdoc_dict:
+                                predecessor = prev_rev
+                    except Exception:
+                        pass
+
+                # If we found a base document, inherit its exact Agenda Item and Type!
+                if base_tdoc and base_tdoc in tdoc_dict:
+                    agenda_item = tdoc_dict[base_tdoc].get('Agenda Item', 'N/A')
+                    doc_type = tdoc_dict[base_tdoc].get('Type', 'TDoc')
+
                 new_row = {
                     'TDoc': tdoc_id,
                     'Title': info.get('Title', 'Unknown (Parsed from Agenda)'),
                     'Source': info.get('Source', ''),
                     'Secretary Remarks': remarks,
-                    'Agenda Item': 'N/A',
-                    'Type': 'Revision',
-                    'TDoc Status': 'Unknown'
+                    'Agenda Item': agenda_item,
+                    'Type': doc_type,
+                    'TDoc Status': 'Unknown',
+                    'Is revision of': predecessor if predecessor else '',
+                    'Revised to': '',
+                    'Original LS': '',
+                    'Reply in': ''
                 }
                 new_rows.append(new_row)
 
         if new_rows:
             self._data.extend(new_rows)
-            # Re-sort to put the on-the-fly revisions in chronological order
-            self._data.sort(key=lambda x: x.get('TDoc', ''))
+            # Re-sort chronologically
+            self._data.sort(key=lambda x: str(x.get('TDoc', '')))
+
+            # ---> UPDATE PREDECESSORS: Build relationships for the newly injected rows
+            tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
+
+            for new_row in new_rows:
+                tdoc_id = new_row['TDoc']
+                predecessor = new_row['Is revision of']
+
+                if predecessor:
+                    # ---> THE PHANTOM FIX: If the predecessor (e.g. S2-2606287r11) isn't a standalone row,
+                    # strip the 'r11' and link it to the BASE TDoc (S2-2606287) instead!
+                    if predecessor not in tdoc_dict:
+                        base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', predecessor, re.IGNORECASE)
+                        if base_match:
+                            base_tdoc = base_match.group(1).upper()
+                            if base_tdoc in tdoc_dict:
+                                predecessor = base_tdoc
+
+                                # Update the predecessor bi-directionally
+                    if predecessor in tdoc_dict:
+                        curr_revs = str(tdoc_dict[predecessor].get('Revised to', '')).strip()
+                        if tdoc_id not in curr_revs:
+                            if curr_revs and curr_revs != 'None':
+                                tdoc_dict[predecessor]['Revised to'] = f"{curr_revs}, {tdoc_id}"
+                            else:
+                                tdoc_dict[predecessor]['Revised to'] = tdoc_id
 
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
         self.endResetModel()
