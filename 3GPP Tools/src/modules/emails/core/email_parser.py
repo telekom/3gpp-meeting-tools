@@ -6,6 +6,7 @@ from modules.emails.core.contributor_names import get_matching_contributors
 
 
 class EmailParser:
+    # Accommodates 6, 7, or 8 digit TDocs correctly
     TDOC_REGEX = re.compile(r'(S2-\d{6,8})', re.IGNORECASE)
     START_END_REGEX = re.compile(r'<<START>>(.*?)<<END>>', re.DOTALL | re.IGNORECASE)
     REVISION_REGEX = re.compile(r'\b(?:r|rev\s*)0?([1-9])\b', re.IGNORECASE)
@@ -22,27 +23,31 @@ class EmailParser:
             except Exception:
                 sender_email = ""
 
-            # 1. TDoc Extraction & Meeting Enforcement
+            # 1. TDoc Extraction & Strict Meeting Enforcement
             tdoc_match = cls.TDOC_REGEX.search(subject)
             if not tdoc_match:
                 return {}
 
             base_tdoc = tdoc_match.group(1).upper()
 
-            # ---> STRICT MEETING FILTER: Ignore TDocs not in this meeting
+            # ---> STRICT MEETING FILTER: Ignore TDocs not in this meeting's Excel list
             if base_tdoc not in ai_lookup_dict:
                 return {}
             agenda_item = ai_lookup_dict.get(base_tdoc, "Unknown AI")
 
-            # ---> DMARC BYPASS: Extract actual sender from body if listserv rewritten
+            # ---> IMPROVED DMARC BYPASS: Extract actual sender from body if listserv rewritten
             sender_name_lower = sender_name.lower()
             if "3gpp" in sender_name_lower or "list" in sender_name_lower or "emeet" in sender_name_lower or not sender_email:
-                body_head = body[:500]  # Check just the top of the email
-                # Matches: From: Real Name <real.email@domain.com> OR From: Real Name [mailto:real.email@domain.com]
-                dmarc_match = re.search(r'^From:\s*"?([^<\["\n]+)"?\s*[<\[](?:mailto:)?([^>\]\n]+)[>\]]', body_head,
-                                        re.MULTILINE | re.IGNORECASE)
+                body_head = body[:1500]  # Check a larger chunk at the top of the email
+
+                # Removed the strict `^` anchor because Outlook often adds indents/spaces.
+                # Looks for: From: Real Name <email@domain.com> OR From: Real Name [mailto:email@domain.com]
+                dmarc_match = re.search(
+                    r'From:\s*([^\n<\[]+?)\s*[<\[](?:mailto:)?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})[>\]]',
+                    body_head, re.IGNORECASE)
+
                 if dmarc_match:
-                    sender_name = dmarc_match.group(1).strip()
+                    sender_name = dmarc_match.group(1).strip(' \t"\'')
                     sender_email = dmarc_match.group(2).strip()
 
             # 2. Company Extraction
