@@ -46,14 +46,29 @@ class TDocsTableModel(QAbstractTableModel):
 
         def repl(match):
             tdoc = match.group(0)
-            if tdoc in self.valid_tdocs:
-                # ---> Local TDoc: Bold Blue
+            tdoc_upper = tdoc.upper()
+
+            # 1. Check if the exact string is in the meeting
+            is_local = (tdoc in self.valid_tdocs) or (tdoc_upper in self.valid_tdocs)
+
+            # 2. If it's not, check if it's a revision string (e.g., S2-2606287R11)
+            # whose BASE TDoc (S2-2606287) belongs to this meeting!
+            if not is_local:
+                import re
+                base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_upper)
+                if base_match:
+                    base_tdoc = base_match.group(1)
+                    if base_tdoc in self.valid_tdocs:
+                        is_local = True
+
+            if is_local:
+                # ---> Local TDoc (or local revision): Bold Blue
                 return f'<a href="{tdoc}" style="color: #005A9E; font-weight: bold; text-decoration: underline;">{tdoc}</a>'
             else:
-                # ---> External TDoc: Dark Orange (Now fully clickable!)
+                # ---> External TDoc: Dark Orange
                 return f'<a href="{tdoc}" style="color: #D83B01; text-decoration: underline;">{tdoc}</a>'
 
-        # ---> FIX: Updated regex to also capture optional revision suffixes (e.g., r01)
+        # Safely capture TDocs and optional revision suffixes
         linked_text = re.sub(r'[a-zA-Z0-9]+-\d+(?:r\d+[a-zA-Z]?)?', repl, text, flags=re.IGNORECASE)
         return f"<span style='color: #444;'><b>{prefix}:</b></span> {linked_text}"
 
