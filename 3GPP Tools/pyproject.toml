@@ -17,9 +17,10 @@ dependencies = [
     "python-docx>=1.1.0",
     "requests>=2.25.1",
     "beautifulsoup4>=4.15.0",
-    "openpyxl>=3.1.0"
+    "openpyxl>=3.1.0",
+    "pandas>=1.3.0"
 ]
 
 [project.scripts]
-# This magical line lets you type 'puml2visio' in your terminal anywhere to launch the app!
+# This magical line lets you type '3gpp-tools' in your terminal anywhere to launch the app!
 3gpp-tools = "main_puml2visio:main"

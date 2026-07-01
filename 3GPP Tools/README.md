@@ -13,7 +13,6 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 4. [🚀 Installation](#installation)
 5. [📖 How to Use the GUI](#usage)
 6. [🛠️ Known Quirks / Troubleshooting](#troubleshooting)
-7. [📜 License](#license)
 
 ---
 
@@ -31,6 +30,15 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Multi-Action Resources Menu:** Instantly jump to local cache directories, fetched HTML Agenda files, Main FTP folders, Docs/ folders, or Revisions/ folders directly from the UI.
   * **Quick Launch History:** Remembers your exact active working group session, allowing you to bypass the database table and instantly jump back into your last opened meeting with a single click.
 * **3GPP FTP Session Manager:** Automatically injects randomized User-Agents and HTTP Keep-Alive headers. Features a configurable **Humanness Delay** engine to bypass aggressive 3GPP server throttling and "Too Many Requests" blocks, which can be dialed down to 0.0 for maximum scraping speed.
+
+### 📧 eMeeting Email Manager (Native Outlook Integration)
+* **High-Performance Sync Engine:** Connects directly to your local Microsoft Outlook via COM automation. Pulls, parses, and indexes thousands of eMeeting mailing list emails in milliseconds using SQLite chunked batching (`executemany`) with zero memory spikes.
+* **Intelligent 3GPP Parser:** Bypasses broken Outlook email threads by using smart regex to extract TDoc numbers (6-8 digits), Agenda Items, Revisions, and free text directly from standard 3GPP bracketed subject lines and email bodies.
+* **DMARC Listserv Bypass:** Automatically detects when 3GPP mailing lists rewrite the sender address to `LIST.ETSI.ORG`. It parses the actual sender's name and email address from the email body and maps them to known telecommunication companies.
+* **Smart Tracking & Focus Filters:** * **Star TDocs (⭐):** Highlight a specific TDoc to instantly group and track all past and future emails discussing it, neutralizing chaotic and broken reply chains.
+  * **Follow AIs (👀):** Monitor entire Agenda Items (e.g., `9.1.1`) to easily filter topics of interest.
+  * **Date Fencing:** Automatically restricts email scanning to the precise start and end dates of the meeting, jumping out of background loops early to drastically optimize sync speeds and prevent inbox pollution.
+* **Automated Archiving:** Safely extracts physical `.msg` files to your hard drive and dynamically builds a clean target folder hierarchy in Outlook (e.g., `Archive/SA2_175/9.1.1/`) to permanently organize your inbox.
 
 ### 📝 Word Document Manipulation
 * **Global Comparison Cart:** A persistent, round-robin state dashboard that bridges multiple meeting windows. Intelligently push any Base TDoc or specific Revision into alternating slots, then launch a native Word comparison instantly.
@@ -52,7 +60,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 This application strictly adheres to the **Model-View-Controller (MVC)** and **Event-Driven Architecture (EDA)** paradigms using `PyQt5`. 
 
 1. **The UI Layer (`modules/*/ui/`):** Contains only dumb Qt Widgets and standard `QAbstractTableModel` proxies. It never blocks the main thread.
-2. **The Core Layer (`modules/*/core/`):** Contains the heavy lifting. All database transactions (`sqlite3`), FTP network scraping (`requests`), COM object automation (`win32com`), and XML manipulation (`python-docx`) are isolated here.
+2. **The Core Layer (`modules/*/core/`):** Contains the heavy lifting. All database transactions (`sqlite3`), FTP network scraping (`requests`), COM object automation (`win32com` & `pythoncom`), and XML manipulation (`python-docx`) are isolated here.
 3. **The Threading Bridge:** Every Core module inherits from `QThread`. The UI sends data to the Thread, and the Thread emits `pyqtSignals` back to the UI to update progress bars or logs.
 4. **The Singleton Managers:** The Network Configuration (proxies), Word Configuration (Sensitivity Labels), and Comparison Cart states are managed by robust Singletons and dynamic JSON config loaders to ensure cross-tab synchronization.
 
@@ -64,8 +72,9 @@ To run this application natively or build it from source, you must have the foll
 
 1. **Python 3.10+**
 2. **Microsoft Word (Desktop App)** (Required for the COM Automation Splitter, Converter, and Diff Engine)
-3. **Java Runtime Environment (JRE) 11+** (Required for the local PlantUML generation engine)
-4. *(Optional but Recommended)* **Microsoft Visio** (To view the generated outputs)
+3. **Microsoft Outlook (Desktop App)** (Required for the eMeeting Email Manager)
+4. **Java Runtime Environment (JRE) 11+** (Required for the local PlantUML generation engine)
+5. *(Optional but Recommended)* **Microsoft Visio** (To view the generated outputs)
 
 ---
 
@@ -103,6 +112,14 @@ python src/main_puml2visio.py
 7. Click the Action column to automatically download, unzip, and open the `.doc` files, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
 8. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
 
+### 📧 eMeeting Email Manager
+1. Open a specific meeting from the main database and click the yellow **📧 Emails** button.
+2. Click **⚙️ Folders** to browse your Outlook directory and safely map your Source (Inbox) and Target (Archive) folders.
+3. Click **🔄 Sync Source** to download and index all emails for this meeting.
+4. Select rows and click **➡️ Move Selected** (or **⏭️ Move All**) to permanently organize the emails into dynamic Agenda Item subfolders inside your Outlook archive.
+5. Use the **⭐ Star** and **👀 Follow** buttons in the reading pane to surgically track specific documents or entire topics, and use the top filter bar to instantly isolate them during chaotic sessions.
+6. Click any blue Sender Name in the grid to open a new email window directly to them, or click a blue Revision number to automatically download and open that document in Word.
+
 ### 📝 Slicing & Comparing Word Documents
 1. In the **Comparison Cart** at the bottom of the Meetings Tab, sequentially select documents. The round-robin queue will automatically populate Slot A and Slot B with local files or fetched 3GPP Revisions.
 2. Click **Compare in Word**. The tool will spawn a background process, temporarily remove file locks and OS restrictions, and present you with a native Word redline document.
@@ -125,6 +142,6 @@ If you are behind a corporate firewall:
 
 * **Missing / Ghost Meetings in DB:** If 3GPP deletes an old folder from their FTP server, Phase 1 cannot find it. However, the Phase 3 Upsert Engine will find the historical record on the DynaReport page and *force* it into your database anyway. These meetings will have a valid 3GPP Portal link, but their FTP links will lead to a 404.
 * **The "3GPP Empty String" Crash:** The scraper uses advanced unicode normalization to handle 3GPP's notorious formatting errors (like using non-breaking hyphens in dates or completely omitting table columns). If a meeting appears with blank dates, try clicking "Sync this Meeting" via the right-click menu to run the heuristic parser again.
-* **COM Errors & File Locks:** If Visio or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory and lock your files. Click the **🖥️ Task Manager** button in the app console and click **Kill Ghosts** to instantly clear them out without losing your active work.
+* **COM Errors & File Locks:** If Visio, Outlook, or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory and lock your files. Click the **🖥️ Task Manager** button in the app console and click **Kill Ghosts** to instantly clear them out without losing your active work.
 * **The Table Resizing "Amnesia":** If a dropdown menu is open while filtering TDocs, the row heights might appear squished. Qt inherently suspends geometry calculations while popups are active to save memory. 
 * **Word Splitter Memory Throttling:** Slicing a heavy `.docx` file unzips a massive XML tree into your RAM. To prevent memory crashes and disk thrashing, the parallel processing is hard-capped at 3 maximum threads. You will see the chapters output in batches of 3 in the console.
