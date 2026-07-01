@@ -106,6 +106,26 @@ class EmailManagerWindow(QWidget):
             cb.setMinimumWidth(150)
             cb.selectionChanged.connect(self._apply_filters)
 
+        # Starred Toggle Filter
+        self.btn_filter_star = QPushButton("⭐ Starred")
+        self.btn_filter_star.setCheckable(True)
+        self.btn_filter_star.setStyleSheet("""
+                    QPushButton { padding: 4px 10px; border-radius: 4px; border: 1px solid #CCC; background: white; }
+                    QPushButton:checked { background-color: #FFF4CE; border: 1px solid #F3C74C; font-weight: bold; }
+                """)
+        self.btn_filter_star.clicked.connect(self._apply_filters)
+
+        # Followed AI Toggle Filter
+        self.btn_filter_follow = QPushButton("👀 Followed AIs")
+        self.btn_filter_follow.setCheckable(True)
+        self.btn_filter_follow.setStyleSheet("""
+                    QPushButton { padding: 4px 10px; border-radius: 4px; border: 1px solid #CCC; background: white; }
+                    QPushButton:checked { background-color: #E6F4E6; border: 1px solid #A3DDA3; font-weight: bold; color: #0C6B0C; }
+                """)
+        self.btn_filter_follow.clicked.connect(self._apply_filters)
+
+        filter_layout.addWidget(self.btn_filter_star)
+        filter_layout.addWidget(self.btn_filter_follow)  # <--- ADD HERE
         filter_layout.addWidget(QLabel("🔍:"))
         filter_layout.addWidget(self.search_input)
         filter_layout.addWidget(self.cb_ai)
@@ -128,18 +148,18 @@ class EmailManagerWindow(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setStyleSheet("QTableView { background: white; gridline-color: #EEE; }")
 
-        # ---> FIX: Updated column widths for the 9 new columns
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.resizeSection(0, 85)  # Status
-        header.resizeSection(1, 75)  # Local Disk
-        header.resizeSection(2, 120)  # Date
-        header.resizeSection(3, 90)  # TDoc
-        header.resizeSection(4, 60)  # Rev
-        header.resizeSection(5, 70)  # AI
-        header.resizeSection(6, 110)  # Company
-        header.resizeSection(7, 140)  # Sender
-        header.setSectionResizeMode(8, QHeaderView.Stretch)  # Short Text gets remaining space
+        header.resizeSection(0, 30)  # ⭐
+        header.resizeSection(1, 85)  # Status
+        header.resizeSection(2, 75)  # Local
+        header.resizeSection(3, 120)  # Date
+        header.resizeSection(4, 90)  # TDoc
+        header.resizeSection(5, 60)  # Rev
+        header.resizeSection(6, 70)  # AI
+        header.resizeSection(7, 110)  # Company
+        header.resizeSection(8, 140)  # Sender
+        header.setSectionResizeMode(9, QHeaderView.Stretch)
 
         self.table.selectionModel().selectionChanged.connect(self._on_email_selected)
         splitter.addWidget(self.table)
@@ -153,11 +173,26 @@ class EmailManagerWindow(QWidget):
         self.btn_open_msg.setEnabled(False)
         self.btn_open_msg.clicked.connect(self._open_current_msg)
 
+        self.btn_toggle_star = QPushButton("⭐ Star TDoc")
+        self.btn_toggle_star.setEnabled(False)
+        self.btn_toggle_star.clicked.connect(self._toggle_current_star)
+
+        self.btn_toggle_follow = QPushButton("👀 Follow AI")
+        self.btn_toggle_follow.setEnabled(False)
+        self.btn_toggle_follow.clicked.connect(self._toggle_current_ai_follow)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(self.btn_open_msg)
+        btn_layout.addWidget(self.btn_toggle_star)
+        btn_layout.addWidget(self.btn_toggle_follow)
+        btn_layout.addStretch()
+
         self.reading_pane = QTextBrowser()
         self.reading_pane.setStyleSheet("background: white; border: 1px solid #CCC; border-radius: 4px; padding: 10px;")
 
-        pane_layout.addWidget(self.btn_open_msg)
+        pane_layout.addLayout(btn_layout)
         pane_layout.addWidget(self.reading_pane)
+
         splitter.addWidget(pane_widget)
 
         splitter.setSizes([400, 300])
@@ -183,15 +218,16 @@ class EmailManagerWindow(QWidget):
         self._refresh_table()
 
     def _refresh_table(self):
-        # Fetch all emails from the DB (TDoc isolation guarantees this isn't too heavy)
         import sqlite3
         with sqlite3.connect(self.db.db_path) as conn:
             conn.row_factory = sqlite3.Row
             data = [dict(row) for row in conn.execute('SELECT * FROM emails ORDER BY date_received DESC').fetchall()]
 
-        self.model.update_data(data)
+        # Fetch both state sets
+        starred_tdocs = self.db.get_starred_tdocs()
+        followed_ais = self.db.get_followed_ais()
+        self.model.update_data(data, starred_tdocs, followed_ais)
 
-        # Populate Comboboxes
         def clean(val): return str(val).strip() if val else ""
 
         self.cb_ai.updateItems(sorted(set(clean(r.get("agenda_item")) for r in data)))
@@ -205,7 +241,9 @@ class EmailManagerWindow(QWidget):
             self.search_input.text(),
             self.cb_ai.getCheckedItems(),
             self.cb_company.getCheckedItems(),
-            self.cb_sender.getCheckedItems()
+            self.cb_sender.getCheckedItems(),
+            self.btn_filter_star.isChecked(),
+            self.btn_filter_follow.isChecked()  # <--- Pass the Follow filter state!
         )
 
     def _on_email_selected(self, selected, deselected):
@@ -213,13 +251,28 @@ class EmailManagerWindow(QWidget):
         if not indexes:
             self.reading_pane.clear()
             self.btn_open_msg.setEnabled(False)
+            self.btn_toggle_star.setEnabled(False)
+            self.btn_toggle_follow.setEnabled(False)
             return
 
         source_idx = self.proxy.mapToSource(indexes[0])
         row_data = self.model.get_row_data(source_idx.row())
 
+        self.current_tdoc_id = row_data.get("tdoc_id", "")
+        self.current_agenda_item = row_data.get("agenda_item", "")
         self.current_msg_path = row_data.get("msg_path", "")
+
         self.btn_open_msg.setEnabled(bool(self.current_msg_path))
+        self.btn_toggle_star.setEnabled(bool(self.current_tdoc_id))
+        self.btn_toggle_follow.setEnabled(bool(self.current_agenda_item))
+
+        # Update the Star & Follow button text dynamically
+        is_starred = self.current_tdoc_id in self.model.starred_tdocs
+        self.btn_toggle_star.setText("❌ Unstar TDoc" if is_starred else "⭐ Star TDoc")
+
+        is_followed = self.current_agenda_item in self.model.followed_ais
+        ai_display = self.current_agenda_item or "Unknown AI"
+        self.btn_toggle_follow.setText(f"❌ Unfollow AI: {ai_display}" if is_followed else f"👀 Follow AI: {ai_display}")
 
         # Format Reading Pane
         html = f"""
@@ -232,6 +285,55 @@ class EmailManagerWindow(QWidget):
         <p style='color:#333;'>{row_data.get('free_text', '').replace(chr(10), '<br>')}</p>
         """
         self.reading_pane.setHtml(html)
+
+    # ---> NEW: Toggle Follow Method
+    def _toggle_current_ai_follow(self):
+        if not getattr(self, "current_agenda_item", ""): return
+
+        selected_indexes = self.table.selectionModel().selectedRows()
+        selected_id = None
+        if selected_indexes:
+            source_idx = self.proxy.mapToSource(selected_indexes[0])
+            selected_id = self.model.get_row_data(source_idx.row()).get("id")
+
+        is_followed = self.current_agenda_item in self.model.followed_ais
+        self.db.toggle_ai_follow(self.current_agenda_item, not is_followed)
+
+        self._refresh_table()
+
+        # Restore selection
+        if selected_id:
+            for i, row in enumerate(self.model._data):
+                if row.get("id") == selected_id:
+                    proxy_idx = self.proxy.mapFromSource(self.model.index(i, 0))
+                    if proxy_idx.isValid():
+                        self.table.selectRow(proxy_idx.row())
+                    break
+
+    def _toggle_current_star(self):
+        if not getattr(self, "current_tdoc_id", ""): return
+
+        # Save current selection to restore it after table refresh
+        selected_indexes = self.table.selectionModel().selectedRows()
+        selected_id = None
+        if selected_indexes:
+            source_idx = self.proxy.mapToSource(selected_indexes[0])
+            selected_id = self.model.get_row_data(source_idx.row()).get("id")
+
+        # Toggle DB
+        is_starred = self.current_tdoc_id in self.model.starred_tdocs
+        self.db.toggle_tdoc_star(self.current_tdoc_id, not is_starred)
+
+        self._refresh_table()
+
+        # Safely restore selection so your reading pane doesn't vanish!
+        if selected_id:
+            for i, row in enumerate(self.model._data):
+                if row.get("id") == selected_id:
+                    proxy_idx = self.proxy.mapFromSource(self.model.index(i, 0))
+                    if proxy_idx.isValid():
+                        self.table.selectRow(proxy_idx.row())
+                    break
 
     def _open_current_msg(self):
         if self.current_msg_path and Path(self.current_msg_path).exists():
