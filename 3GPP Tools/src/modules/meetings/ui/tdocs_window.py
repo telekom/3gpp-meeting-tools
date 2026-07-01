@@ -509,46 +509,64 @@ class TDocsWindow(QWidget):
 
     def _scroll_to_tdoc(self, target_tdoc: str):
         """Handles Left-Clicks on Related TDocs."""
-        if target_tdoc in self.model.valid_tdocs:
+        import re
+
+        # 1. Strip the revision suffix (e.g., S2-2606287r11 -> S2-2606287)
+        match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', target_tdoc, re.IGNORECASE)
+        base_tdoc = match.group(1).upper() if match else target_tdoc.upper()
+
+        if base_tdoc in self.model.valid_tdocs:
             for row in range(self.proxy.rowCount()):
                 idx = self.proxy.index(row, 1)
-                if self.proxy.data(idx, Qt.UserRole) == target_tdoc:
+                if self.proxy.data(idx, Qt.UserRole) == base_tdoc:
                     self.table.scrollTo(idx, QTableView.PositionAtCenter)
                     self.table.selectRow(row)  # Highlight it for the user
                     return
-            QMessageBox.information(self, "Hidden", f"TDoc '{target_tdoc}' is currently hidden by your active filters.")
+            QMessageBox.information(self, "Hidden", f"TDoc '{base_tdoc}' is currently hidden by your active filters.")
         else:
             # ---> NEW: It's from a different meeting! Ask to jump globally.
             reply = QMessageBox.question(
                 self, "External TDoc",
-                f"{target_tdoc} is not from this meeting.\n\nWould you like to search the global database and open its parent meeting?",
+                f"{base_tdoc} is not from this meeting.\n\nWould you like to search the global database and open its parent meeting?",
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
-                self.global_action_requested.emit(target_tdoc, 'open_meeting')
+                self.global_action_requested.emit(base_tdoc, 'open_meeting')
 
     def _show_related_menu(self, target_tdoc: str, pos: QPoint):
         """Handles Right-Clicks on Related TDocs."""
+        import re
+
         menu = QMenu(self)
         menu.setStyleSheet("QMenu { font-size: 13px; }")
-        is_local = target_tdoc in self.model.valid_tdocs
+
+        # Strip the revision to check if the BASE TDoc is in this meeting
+        match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', target_tdoc, re.IGNORECASE)
+        base_tdoc = match.group(1).upper() if match else target_tdoc.upper()
+
+        is_local = base_tdoc in self.model.valid_tdocs
+
+        # Smart FTP Routing: If it has a revision suffix, pull from Revisions URL; otherwise pull from Docs URL
+        dl_url = self.revisions_url if (match and hasattr(self, 'revisions_url')) else self.docs_ftp_url
 
         if is_local:
             menu.addAction("⬇️ Go to Row").triggered.connect(lambda: self._scroll_to_tdoc(target_tdoc))
-            menu.addAction("📄 Open Document").triggered.connect(
-                lambda: self._trigger_download_thread(target_tdoc, target_tdoc, self.docs_ftp_url, False)
+
+            # ---> Notice how we pass the FULL target_tdoc (e.g. S2-2606287R11) into the download thread!
+            menu.addAction(f"📄 Open Document: {target_tdoc}").triggered.connect(
+                lambda: self._trigger_download_thread(base_tdoc, target_tdoc, dl_url, False)
             )
-            menu.addAction("⚖️ Add to Comparison Cart").triggered.connect(
-                lambda: self._trigger_download_thread(target_tdoc, target_tdoc, self.docs_ftp_url, True)
+            menu.addAction(f"⚖️ Add to Comparison Cart: {target_tdoc}").triggered.connect(
+                lambda: self._trigger_download_thread(base_tdoc, target_tdoc, dl_url, True)
             )
         else:
             menu.addAction("🌐 Search && Open Meeting").triggered.connect(
-                lambda: self.global_action_requested.emit(target_tdoc, 'open_meeting')
+                lambda: self.global_action_requested.emit(base_tdoc, 'open_meeting')
             )
-            menu.addAction("📄 Search && Open Document").triggered.connect(
+            menu.addAction(f"📄 Search && Open Document: {target_tdoc}").triggered.connect(
                 lambda: self.global_action_requested.emit(target_tdoc, 'open_doc')
             )
-            menu.addAction("⚖️ Search && Add to Comparison Cart").triggered.connect(
+            menu.addAction(f"⚖️ Search && Add to Comparison Cart: {target_tdoc}").triggered.connect(
                 lambda: self.global_action_requested.emit(target_tdoc, 'add_to_cart')
             )
 
