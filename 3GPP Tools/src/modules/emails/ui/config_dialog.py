@@ -117,7 +117,6 @@ class EmailConfigDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
 
-        # Source Folder UI
         layout.addWidget(QLabel("<b>Source Folder</b> (Where new eMeeting list emails arrive):"))
         src_layout = QHBoxLayout()
         self.txt_source = QLineEdit(current_source)
@@ -128,7 +127,6 @@ class EmailConfigDialog(QDialog):
         src_layout.addWidget(btn_src_browse)
         layout.addLayout(src_layout)
 
-        # Target Folder UI
         layout.addWidget(QLabel("<b>Target Folder</b> (Base folder where processed emails will be moved):"))
         tgt_layout = QHBoxLayout()
         self.txt_target = QLineEdit(current_target)
@@ -141,11 +139,9 @@ class EmailConfigDialog(QDialog):
 
         layout.addStretch()
 
-        # Save / Cancel Buttons
         btn_layout = QHBoxLayout()
         btn_save = QPushButton("Save Configuration")
-        btn_save.setStyleSheet(
-            "font-weight: bold; background-color: #0C6B0C; color: white; padding: 6px 15px; border-radius: 4px;")
+        btn_save.setStyleSheet("font-weight: bold; background-color: #0C6B0C; color: white; padding: 6px 15px; border-radius: 4px;")
         btn_cancel = QPushButton("Cancel")
 
         btn_save.clicked.connect(self.accept)
@@ -157,6 +153,7 @@ class EmailConfigDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def _browse_folder(self, target_line_edit):
+        from modules.emails.ui.config_dialog import OutlookFolderPickerDialog
         dialog = OutlookFolderPickerDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             path = dialog.get_selected_path()

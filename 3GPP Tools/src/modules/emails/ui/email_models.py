@@ -33,13 +33,21 @@ class EmailTableModel(QAbstractTableModel):
                 return "✅ Disk" if path and os.path.exists(path) else "❌ Missing"
             if col_name == "Date": return row.get("date_received", "")[:16]
             if col_name == "TDoc": return row.get("tdoc_id", "")
-            if col_name == "Rev": return row.get("revisions_mentioned", "")
             if col_name == "AI":
-                # ---> NEW: Add the Eyes icon if the AI is followed
                 ai = row.get("agenda_item", "")
                 return f"👀 {ai}" if ai in self.followed_ais else ai
             if col_name == "Company": return row.get("company", "")
             if col_name == "Sender": return row.get("sender_name", "")
+
+            # ---> NEW: Revision Shortening
+            if col_name == "Rev":
+                revs = row.get("revisions_mentioned", "")
+                base_tdoc = row.get("tdoc_id", "")
+                if revs and base_tdoc:
+                    import re
+                    return re.sub(re.escape(base_tdoc), "", revs).strip()
+                return revs
+
             if col_name == "Short Text":
                 text = str(row.get("short_text", ""))
                 return text.replace('\n', ' ')[:80] + "..." if len(text) > 80 else text
@@ -49,13 +57,22 @@ class EmailTableModel(QAbstractTableModel):
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
-        # Hidden data roles for filtering/logic
-        if role == Qt.UserRole + 1 and col_name == "Status":
-            return row.get("id", "")
-        if role == Qt.UserRole + 2 and col_name == "⭐":
-            return row.get("tdoc_id") in self.starred_tdocs
-        if role == Qt.UserRole + 3 and col_name == "AI":
-            return row.get("agenda_item") in self.followed_ais  # <--- NEW
+        # ---> NEW: Hyperlink Styling (Blue text + Underline)
+        elif role == Qt.ForegroundRole:
+            if col_name in ["Sender", "Rev"]:
+                from PyQt5.QtGui import QColor
+                return QColor("#005A9E")
+        elif role == Qt.FontRole:
+            if col_name in ["Sender", "Rev"]:
+                from PyQt5.QtGui import QFont
+                font = QFont()
+                font.setUnderline(True)
+                return font
+
+        # Hidden data roles
+        if role == Qt.UserRole + 1 and col_name == "Status": return row.get("id", "")
+        if role == Qt.UserRole + 2 and col_name == "⭐": return row.get("tdoc_id") in self.starred_tdocs
+        if role == Qt.UserRole + 3 and col_name == "AI": return row.get("agenda_item") in self.followed_ais
 
         return None
 

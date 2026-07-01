@@ -651,8 +651,8 @@ class TDocsWindow(QWidget):
         # ---> NEW: Extract the meeting dates from your current TDocs context
         # Note: If your variables are named differently in TDocsWindow
         # (e.g., self.meeting_start_date), simply update the names below!
-        m_start = getattr(self, "start_date", "")
-        m_end = getattr(self, "end_date", "")
+        m_start = self.mtg_info.get("start_date", "")
+        m_end = self.mtg_info.get("end_date", "")
 
         # Pass the dates into the new initialization parameters
         self.email_window = EmailManagerWindow(self.meeting_dir, ai_lookup, m_start, m_end)
