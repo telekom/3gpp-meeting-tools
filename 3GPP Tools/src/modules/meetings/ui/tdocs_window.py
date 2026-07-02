@@ -54,9 +54,10 @@ class TDocsWindow(QWidget):
 
         wg_name = str(self.mtg_info.get('wg_name', '')).upper()
 
-        # ---> THE FIX: Split logic between general SA2 features and Electronic-only features
+        # Evaluate meeting types
         self.is_sa2 = ('SA2' in wg_name)
-        self.is_sa2_electronic = self.is_sa2 and bool(self.mtg_info.get('is_electronic', 0))
+        is_electronic = bool(self.mtg_info.get('is_electronic', 0))
+        self.is_sa2_electronic = self.is_sa2 and is_electronic
 
         main_ftp = self.mtg_info.get("url_key", "")
         if main_ftp and not main_ftp.startswith("http"):
@@ -71,7 +72,11 @@ class TDocsWindow(QWidget):
         if self.is_sa2_electronic and self.main_ftp_url:
             self.revisions_url = self.main_ftp_url.rstrip('/') + '/INBOX/Revisions/'
 
-        title = f"TDocs: {mtg_info.get('wg_name', '')} {mtg_info.get('meeting_number', '')}"
+        # ---> THE FIX: Determine Meeting Icon and Tooltip
+        mtg_icon = "💻" if is_electronic else "🤝"
+        mtg_tooltip = "Electronic Meeting (eMeeting)" if is_electronic else "In-Person Meeting (Face-to-Face)"
+
+        title = f"TDocs: {mtg_info.get('wg_name', '')} {mtg_info.get('meeting_number', '')} {mtg_icon}"
         self.setWindowTitle(title)
         self.resize(1400, 750)
         self.setStyleSheet("QWidget { background-color: #FAFAFA; }")
@@ -83,6 +88,10 @@ class TDocsWindow(QWidget):
         header_layout = QHBoxLayout()
         title_lbl = QLabel(f"<b>{title}</b>")
         title_lbl.setStyleSheet("font-size: 18px; color: #333;")
+
+        # ---> Attach Tooltip and Help Cursor to the Label
+        title_lbl.setToolTip(mtg_tooltip)
+        title_lbl.setCursor(Qt.WhatsThisCursor)
 
         self.last_mod_lbl = QLabel(self._get_mod_date_str())
         self.last_mod_lbl.setStyleSheet("font-size: 11px; color: #999999; margin-right: 15px; font-style: italic;")
@@ -102,7 +111,6 @@ class TDocsWindow(QWidget):
         refresh_menu.setStyleSheet("QMenu { font-size: 12px; }")
         refresh_menu.addAction("📗 Refresh Excel List", self._refresh_excel)
 
-        # Split menu features based on meeting type
         if self.is_sa2:
             refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
         if self.is_sa2_electronic:
@@ -207,7 +215,6 @@ class TDocsWindow(QWidget):
         self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
 
-        # All SA2 meetings get secretary comments via the Agenda file
         if self.is_sa2:
             self.chk_no_comments = QCheckBox("No Comments Only")
             self.chk_no_comments.setStyleSheet("margin-left: 10px;")
@@ -287,7 +294,6 @@ class TDocsWindow(QWidget):
         # --- LOCAL CACHE AUTO-LOAD ---
         agenda_dir = self.meeting_dir / "Agenda"
 
-        # 1. Load Agenda (For all SA2 meetings)
         if self.is_sa2:
             agenda_loaded = False
             local_agenda = agenda_dir / "TdocsByAgenda.htm"
@@ -298,11 +304,9 @@ class TDocsWindow(QWidget):
                     self.model.merge_agenda_data(agenda_data)
                     agenda_loaded = True
 
-            # Refresh the filters so auto-loaded documents become visible immediately
             if agenda_loaded:
                 self._refresh_comboboxes()
 
-        # 2. Load Revisions (Only for Electronic meetings)
         if self.is_sa2_electronic:
             local_revs = agenda_dir / "revisions.json"
             if local_revs.exists():
@@ -664,7 +668,24 @@ class TDocsWindow(QWidget):
     def _on_agenda_fetched(self, success: bool, agenda_data: dict):
         if success and agenda_data:
             self.model.merge_agenda_data(agenda_data)
-            self._refresh_comboboxes()
+
+            def sanitize(val):
+                return str(val).strip() if val is not None else ""
+
+            unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in self.model._data)))
+            unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in self.model._data)),
+                                key=natural_sort_key)
+            unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in self.model._data)))
+
+            self.type_combo.updateItems(unique_types)
+            self.ai_combo.updateItems(unique_ais)
+            self.status_combo.updateItems(unique_statuses)
+
+            self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
+            self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
+            self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
+
+            self._update_count_label()
 
             self.refresh_btn.setText(f"✅ {len(agenda_data)} Merged")
             QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
