@@ -54,8 +54,9 @@ class TDocsWindow(QWidget):
 
         wg_name = str(self.mtg_info.get('wg_name', '')).upper()
 
-        # ---> THE FIX: SA2 uses these features for ALL meetings now, not just electronic ones!
+        # ---> THE FIX: Split logic between general SA2 features and Electronic-only features
         self.is_sa2 = ('SA2' in wg_name)
+        self.is_sa2_electronic = self.is_sa2 and bool(self.mtg_info.get('is_electronic', 0))
 
         main_ftp = self.mtg_info.get("url_key", "")
         if main_ftp and not main_ftp.startswith("http"):
@@ -67,7 +68,7 @@ class TDocsWindow(QWidget):
             docs_ftp = "https://www.3gpp.org/ftp/" + docs_ftp.lstrip('/')
         self.docs_ftp_url = docs_ftp
 
-        if self.is_sa2 and self.main_ftp_url:
+        if self.is_sa2_electronic and self.main_ftp_url:
             self.revisions_url = self.main_ftp_url.rstrip('/') + '/INBOX/Revisions/'
 
         title = f"TDocs: {mtg_info.get('wg_name', '')} {mtg_info.get('meeting_number', '')}"
@@ -101,8 +102,10 @@ class TDocsWindow(QWidget):
         refresh_menu.setStyleSheet("QMenu { font-size: 12px; }")
         refresh_menu.addAction("📗 Refresh Excel List", self._refresh_excel)
 
+        # Split menu features based on meeting type
         if self.is_sa2:
             refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
+        if self.is_sa2_electronic:
             refresh_menu.addAction("📝 Refresh Revisions", lambda: self._refresh_revisions(silent=False))
             refresh_menu.addAction("🔄 Refresh Excel && Revisions", self._refresh_both)
 
@@ -156,7 +159,7 @@ class TDocsWindow(QWidget):
                  QPushButton:hover { background-color: #FFE0B2; }
              """)
         self.email_btn.clicked.connect(self._open_email_manager)
-        self.email_btn.setVisible(self.is_sa2)
+        self.email_btn.setVisible(self.is_sa2_electronic)
 
         self.count_lbl = QLabel(f"Showing {len(tdocs_data)} of {len(tdocs_data)} TDocs")
         self.count_lbl.setStyleSheet("font-size: 13px; color: #666;")
@@ -204,6 +207,7 @@ class TDocsWindow(QWidget):
         self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
 
+        # All SA2 meetings get secretary comments via the Agenda file
         if self.is_sa2:
             self.chk_no_comments = QCheckBox("No Comments Only")
             self.chk_no_comments.setStyleSheet("margin-left: 10px;")
@@ -283,6 +287,7 @@ class TDocsWindow(QWidget):
         # --- LOCAL CACHE AUTO-LOAD ---
         agenda_dir = self.meeting_dir / "Agenda"
 
+        # 1. Load Agenda (For all SA2 meetings)
         if self.is_sa2:
             agenda_loaded = False
             local_agenda = agenda_dir / "TdocsByAgenda.htm"
@@ -293,6 +298,12 @@ class TDocsWindow(QWidget):
                     self.model.merge_agenda_data(agenda_data)
                     agenda_loaded = True
 
+            # Refresh the filters so auto-loaded documents become visible immediately
+            if agenda_loaded:
+                self._refresh_comboboxes()
+
+        # 2. Load Revisions (Only for Electronic meetings)
+        if self.is_sa2_electronic:
             local_revs = agenda_dir / "revisions.json"
             if local_revs.exists():
                 try:
@@ -308,10 +319,6 @@ class TDocsWindow(QWidget):
             else:
                 if hasattr(self, 'revisions_url') and self.revisions_url:
                     self._refresh_revisions(silent=True)
-
-            # ---> THE FIX: Refresh the filters so auto-loaded documents become visible immediately
-            if agenda_loaded:
-                self._refresh_comboboxes()
 
     def _get_mod_date_str(self):
         try:
