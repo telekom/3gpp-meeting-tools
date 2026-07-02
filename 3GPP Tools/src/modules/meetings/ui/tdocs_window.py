@@ -17,7 +17,7 @@ from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDocActionThread, TdocsByAgendaThread
 from modules.meetings.core.tdocs_db import TDocsDatabase
-from modules.meetings.core.markdown_exporter import MarkdownExporterThread  # <--- NEW IMPORT
+from modules.meetings.core.markdown_exporter import MarkdownExporterThread
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
@@ -346,12 +346,12 @@ class TDocsWindow(QWidget):
         except Exception:
             return "List last updated: Unknown"
 
-    # ---> NEW: Pass self.mtg_info to the exporter!
     def _export_reports(self):
         self.export_btn.setText("⏳ Exporting...")
         self.export_btn.setEnabled(False)
 
-        self.export_thread = MarkdownExporterThread(self.meeting_dir, self.model._data, self.docs_ftp_url, self.mtg_info)
+        self.export_thread = MarkdownExporterThread(self.meeting_dir, self.model._data, self.docs_ftp_url,
+                                                    self.mtg_info)
         self.export_thread.finished.connect(self._on_export_finished)
         self.export_thread.start()
 
@@ -764,6 +764,45 @@ class TDocsWindow(QWidget):
         row_data = self.model._data[source_idx.row()]
         tdoc_id = row_data.get("TDoc", "")
 
+        # ---> NEW: Split logic! Show generic text viewer for Title/Source/Abstract
+        if col_name in ["Title", "Source", "Abstract"]:
+            val = ""
+            for k, v in row_data.items():
+                if str(k).strip().lower() == col_name.lower():
+                    val = str(v) if v is not None else ""
+                    break
+
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"📄 Viewing: {col_name} ({tdoc_id})")
+            dialog.resize(600, 450)
+            dialog.setStyleSheet("QDialog { background-color: #FAFAFA; }")
+            layout = QVBoxLayout(dialog)
+
+            text_edit = QTextEdit()
+            text_edit.setPlainText(val)
+            text_edit.setReadOnly(True)
+            text_edit.setStyleSheet("font-size: 13px; padding: 10px; background-color: white; border: 1px solid #CCC;")
+            layout.addWidget(text_edit)
+
+            btn_layout = QHBoxLayout()
+            copy_btn = QPushButton("📋 Copy All")
+            copy_btn.setStyleSheet(
+                "padding: 6px 15px; font-weight: bold; background-color: #0078D7; color: white; border-radius: 4px;")
+            copy_btn.clicked.connect(lambda: [QApplication.clipboard().setText(val), dialog.accept()])
+
+            close_btn = QPushButton("Close")
+            close_btn.setStyleSheet("padding: 6px 15px;")
+            close_btn.clicked.connect(dialog.accept)
+
+            btn_layout.addStretch()
+            btn_layout.addWidget(close_btn)
+            btn_layout.addWidget(copy_btn)
+            layout.addLayout(btn_layout)
+
+            dialog.exec_()
+            return
+
+        # ---> ORIGINAL LOGIC: Interactive Notes & Status Editor
         dialog = QDialog(self)
         dialog.setWindowTitle(f"📝 Notes & Status: {tdoc_id}")
         dialog.resize(600, 500)
