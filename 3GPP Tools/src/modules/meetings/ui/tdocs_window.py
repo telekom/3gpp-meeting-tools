@@ -16,7 +16,7 @@ from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDocActionThread, TdocsByAgendaThread
-from modules.meetings.core.tdocs_db import TDocsDatabase  # <--- NEW DATABASE IMPORT
+from modules.meetings.core.tdocs_db import TDocsDatabase
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
@@ -49,7 +49,6 @@ class TDocsWindow(QWidget):
         self.meeting_dir = Path(filepath).parent.parent
         self.active_threads = {}
 
-        # ---> Initialize the Database
         self.db = TDocsDatabase(self.meeting_dir / "Agenda" / "user_tdocs.db")
         user_data = self.db.get_all()
 
@@ -205,7 +204,7 @@ class TDocsWindow(QWidget):
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
-        self.status_combo = CheckableComboBox("TDoc Status") # <--- Renamed to TDoc Status
+        self.status_combo = CheckableComboBox("TDoc Status")
         self.status_combo.setMinimumWidth(150)
         unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in tdocs_data)))
         self.status_combo.addItems(unique_statuses)
@@ -263,7 +262,7 @@ class TDocsWindow(QWidget):
         self.html_delegate.linkClicked.connect(self._scroll_to_tdoc)
         self.html_delegate.linkRightClicked.connect(self._show_related_menu)
 
-        self.table.setItemDelegateForColumn(7, self.html_delegate)  # <--- NEW! Apply to Secretary Remarks
+        self.table.setItemDelegateForColumn(7, self.html_delegate)
         self.table.setItemDelegateForColumn(12, self.html_delegate)
 
         self.table.viewport().setMouseTracking(True)
@@ -320,6 +319,32 @@ class TDocsWindow(QWidget):
             return f"List last updated: {datetime.datetime.fromtimestamp(mod_time).strftime('%Y-%m-%d %H:%M')}"
         except Exception:
             return "List last updated: Unknown"
+
+    # ---> NEW HELPER: Instantly wipes search/dropdowns so jumps can succeed
+    def _clear_all_filters(self):
+        """Resets all UI filters and proxy filters to their default states."""
+        self.search_input.blockSignals(True)
+        self.search_input.clear()
+        self.search_input.blockSignals(False)
+        self.proxy.setGlobalFilter("")
+
+        if self.is_sa2_electronic:
+            self.chk_no_comments.blockSignals(True)
+            self.chk_no_comments.setChecked(False)
+            self.chk_no_comments.blockSignals(False)
+            self.proxy.setNoCommentsFilter(False)
+
+        for combo in [self.type_combo, self.ai_combo, self.status_combo]:
+            combo.blockSignals(True)
+            combo.model().item(0).setCheckState(Qt.Checked)
+            for i in range(1, combo.model().rowCount()):
+                combo.model().item(i).setCheckState(Qt.Checked)
+            combo.updateText()
+            combo.blockSignals(False)
+
+        self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
+        self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
+        self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
 
     def _refresh_both(self):
         self._refresh_excel()
@@ -490,13 +515,25 @@ class TDocsWindow(QWidget):
         base_tdoc = match.group(1).upper() if match else target_tdoc.upper()
 
         if base_tdoc in self.model.valid_tdocs:
-            for row in range(self.proxy.rowCount()):
-                idx = self.proxy.index(row, 1)
-                if self.proxy.data(idx, Qt.UserRole) == base_tdoc:
-                    self.table.scrollTo(idx, QTableView.PositionAtCenter)
-                    self.table.selectRow(row)
-                    return
-            QMessageBox.information(self, "Hidden", f"TDoc '{base_tdoc}' is currently hidden by your active filters.")
+            # ---> THE FIX: Try jumping first. If it fails, prompt to wipe filters!
+            def attempt_jump():
+                for row in range(self.proxy.rowCount()):
+                    idx = self.proxy.index(row, 1)
+                    if self.proxy.data(idx, Qt.UserRole) == base_tdoc:
+                        self.table.scrollTo(idx, QTableView.PositionAtCenter)
+                        self.table.selectRow(row)
+                        return True
+                return False
+
+            if not attempt_jump():
+                reply = QMessageBox.question(
+                    self, "Hidden TDoc",
+                    f"TDoc '{base_tdoc}' is currently hidden by your active filters.\n\nWould you like to clear the filters and jump to it?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    self._clear_all_filters()
+                    attempt_jump()
         else:
             reply = QMessageBox.question(
                 self, "External TDoc",

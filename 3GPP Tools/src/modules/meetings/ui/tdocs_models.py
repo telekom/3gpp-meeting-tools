@@ -5,6 +5,7 @@ from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyM
 
 
 def natural_sort_key(s):
+    """Splits string into chunks of digits and non-digits for natural sorting."""
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
 
 
@@ -25,6 +26,7 @@ class TDocsTableModel(QAbstractTableModel):
         self._apply_user_data_logic()
 
     def _apply_user_data_logic(self):
+        """The 2-Pass Overlay Engine for User Notes and Status"""
         tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
 
         for row in self._data:
@@ -79,7 +81,8 @@ class TDocsTableModel(QAbstractTableModel):
             is_local = (tdoc in self.valid_tdocs) or (tdoc_upper in self.valid_tdocs)
 
             if not is_local:
-                base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_upper)
+                # ---> THE FIX: Added re.IGNORECASE so it successfully matches 'R11' instead of just 'r11'
+                base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_upper, re.IGNORECASE)
                 if base_match:
                     base_tdoc = base_match.group(1)
                     if base_tdoc in self.valid_tdocs:
