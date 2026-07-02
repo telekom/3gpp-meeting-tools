@@ -30,7 +30,7 @@ class StatisticsExporterThread(QThread):
         # Harmonize Global Color Theme
         self.THEME_COLOR = '#005A9E'
         self.PALETTE = px.colors.qualitative.Plotly
-        self.CLUSTER_PALETTE = px.colors.qualitative.Alphabet  # Palette for clusters
+        self.CLUSTER_PALETTE = px.colors.qualitative.Alphabet
 
     def _get_cluster_letter(self, index: int) -> str:
         alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -110,12 +110,11 @@ class StatisticsExporterThread(QThread):
                 community_map = {}
                 cluster_names = {}
                 faction_members_dict = {}
-                cluster_color_map = {}  # --- NEW: Strict Color Mapping ---
+                cluster_color_map = {}
 
                 for i, comm in enumerate(communities):
                     cluster_name = f"Cluster {self._get_cluster_letter(i)}"
                     cluster_names[i] = cluster_name
-                    # Map this specific cluster name to a permanent color
                     cluster_color_map[cluster_name] = self.CLUSTER_PALETTE[i % len(self.CLUSTER_PALETTE)]
                     faction_members_dict[cluster_name] = sorted(list(comm))
                     for node in comm:
@@ -124,7 +123,6 @@ class StatisticsExporterThread(QThread):
                 html_faction_list = "<h3 style='margin-bottom: 10px; color: #333;'>Faction Membership Roster</h3><div class='factions-container'>"
                 for c_name, members in faction_members_dict.items():
                     member_str = ", ".join(members)
-                    # Use the mapped color for the border of the faction box!
                     box_color = cluster_color_map[c_name]
                     html_faction_list += f"<div class='faction-box' style='border-left: 4px solid {box_color};'><h4>{c_name} ({len(members)} Members)</h4><p>{member_str}</p></div>"
                 html_faction_list += "</div>"
@@ -132,6 +130,7 @@ class StatisticsExporterThread(QThread):
                 pos = nx.spring_layout(G, k=0.5, seed=42)
                 traces = []
 
+                # Trace 1: Visual Edges
                 max_weight = max([data['weight'] for u, v, data in G.edges(data=True)]) if G.edges else 1
                 edge_weights = set([data['weight'] for u, v, data in G.edges(data=True)])
 
@@ -143,11 +142,26 @@ class StatisticsExporterThread(QThread):
                             edge_y.extend([pos[u][1], pos[v][1], None])
 
                     calc_width = 0.5 + (weight / max_weight) * 4.0
-                    hover_label = f"Co-signed {weight} docs"
-
                     traces.append(go.Scatter(x=edge_x, y=edge_y, line=dict(width=calc_width, color='#999'),
-                                             hoverinfo='name', name=hover_label, mode='lines', opacity=0.6))
+                                             hoverinfo='none', mode='lines', opacity=0.6))
 
+                # --- NEW: Trace 2 - Invisible Midpoint Markers for Edge Hovering ---
+                mid_x, mid_y, mid_text = [], [], []
+                for u, v, data in G.edges(data=True):
+                    x0, y0 = pos[u]
+                    x1, y1 = pos[v]
+                    mid_x.append((x0 + x1) / 2)
+                    mid_y.append((y0 + y1) / 2)
+                    mid_text.append(f"<b>{u}</b> 🤝 <b>{v}</b><br>Shared TDocs: {data['weight']}")
+
+                traces.append(go.Scatter(
+                    x=mid_x, y=mid_y, mode='markers',
+                    hoverinfo='text', hovertext=mid_text,
+                    marker=dict(size=0.1, color='rgba(0,0,0,0)'),  # Invisible marker
+                    showlegend=False, name="Connections"
+                ))
+
+                # Trace 3: Visual Nodes (MUST remain last for the JS engine to target it!)
                 node_x, node_y, node_text, node_size, node_color, custom_data = [], [], [], [], [], []
                 for node in G.nodes():
                     x, y = pos[node]
@@ -157,7 +171,6 @@ class StatisticsExporterThread(QThread):
                     adj_size = len(list(G.neighbors(node))) * 3
                     node_size.append(max(10, min(adj_size, 50)))
 
-                    # Ensure node uses exactly the same color assigned to its cluster
                     c_name = cluster_names[community_map[node]]
                     node_color.append(cluster_color_map[c_name])
 
@@ -198,7 +211,6 @@ class StatisticsExporterThread(QThread):
                     [cluster_names[community_map[n]] for n in G.nodes()]).value_counts().reset_index()
                 comm_sizes.columns = ['Faction', 'Members']
 
-                # Pass the exact same dictionary here so the bar chart matches the network graph colors perfectly
                 fig_cluster = px.bar(comm_sizes.sort_values('Members', ascending=True),
                                      x='Members', y='Faction', orientation='h',
                                      title="Detected Co-Signing Factions (Louvain Algorithm)", color='Faction',
