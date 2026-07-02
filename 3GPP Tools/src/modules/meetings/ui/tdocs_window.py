@@ -53,7 +53,9 @@ class TDocsWindow(QWidget):
         user_data = self.db.get_all()
 
         wg_name = str(self.mtg_info.get('wg_name', '')).upper()
-        self.is_sa2_electronic = ('SA2' in wg_name) and bool(self.mtg_info.get('is_electronic', 0))
+
+        # ---> THE FIX: SA2 uses these features for ALL meetings now, not just electronic ones!
+        self.is_sa2 = ('SA2' in wg_name)
 
         main_ftp = self.mtg_info.get("url_key", "")
         if main_ftp and not main_ftp.startswith("http"):
@@ -65,7 +67,7 @@ class TDocsWindow(QWidget):
             docs_ftp = "https://www.3gpp.org/ftp/" + docs_ftp.lstrip('/')
         self.docs_ftp_url = docs_ftp
 
-        if self.is_sa2_electronic and self.main_ftp_url:
+        if self.is_sa2 and self.main_ftp_url:
             self.revisions_url = self.main_ftp_url.rstrip('/') + '/INBOX/Revisions/'
 
         title = f"TDocs: {mtg_info.get('wg_name', '')} {mtg_info.get('meeting_number', '')}"
@@ -98,12 +100,12 @@ class TDocsWindow(QWidget):
         refresh_menu = QMenu(self)
         refresh_menu.setStyleSheet("QMenu { font-size: 12px; }")
         refresh_menu.addAction("📗 Refresh Excel List", self._refresh_excel)
-        if wg_name == "SA2":
-            refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
 
-        if self.is_sa2_electronic:
+        if self.is_sa2:
+            refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
             refresh_menu.addAction("📝 Refresh Revisions", lambda: self._refresh_revisions(silent=False))
             refresh_menu.addAction("🔄 Refresh Excel && Revisions", self._refresh_both)
+
         self.refresh_btn.setMenu(refresh_menu)
 
         self.folder_btn = QPushButton("🗂️ Resources")
@@ -120,7 +122,7 @@ class TDocsWindow(QWidget):
         folder_menu = QMenu(self)
         folder_menu.setStyleSheet("QMenu { font-size: 12px; }")
         folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
-        if wg_name == "SA2":
+        if self.is_sa2:
             folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
         folder_menu.addSeparator()
         if hasattr(self, 'main_ftp_url') and self.main_ftp_url:
@@ -154,7 +156,7 @@ class TDocsWindow(QWidget):
                  QPushButton:hover { background-color: #FFE0B2; }
              """)
         self.email_btn.clicked.connect(self._open_email_manager)
-        self.email_btn.setVisible(self.is_sa2_electronic)
+        self.email_btn.setVisible(self.is_sa2)
 
         self.count_lbl = QLabel(f"Showing {len(tdocs_data)} of {len(tdocs_data)} TDocs")
         self.count_lbl.setStyleSheet("font-size: 13px; color: #666;")
@@ -187,31 +189,22 @@ class TDocsWindow(QWidget):
         self.search_input.textChanged.connect(self._on_search_changed)
         filter_layout.addWidget(self.search_input)
 
-        def sanitize(val):
-            return str(val).strip() if val is not None else ""
-
         self.type_combo = CheckableComboBox("Type")
         self.type_combo.setMinimumWidth(150)
-        unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in tdocs_data)))
-        self.type_combo.addItems(unique_types)
         self.type_combo.selectionChanged.connect(self._on_type_changed)
         filter_layout.addWidget(self.type_combo)
 
         self.ai_combo = CheckableComboBox("AI")
         self.ai_combo.setMinimumWidth(150)
-        unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in tdocs_data)), key=natural_sort_key)
-        self.ai_combo.addItems(unique_ais)
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
         self.status_combo = CheckableComboBox("TDoc Status")
         self.status_combo.setMinimumWidth(150)
-        unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in tdocs_data)))
-        self.status_combo.addItems(unique_statuses)
         self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
 
-        if self.is_sa2_electronic:
+        if self.is_sa2:
             self.chk_no_comments = QCheckBox("No Comments Only")
             self.chk_no_comments.setStyleSheet("margin-left: 10px;")
             self.chk_no_comments.toggled.connect(self._on_no_comments_toggled)
@@ -226,10 +219,6 @@ class TDocsWindow(QWidget):
         self.proxy = TDocsFilterProxyModel()
         self.proxy.setSourceModel(self.model)
         self.proxy.layoutChanged.connect(self._update_count_label)
-
-        self.proxy.setTypeFilters(unique_types)
-        self.proxy.setAIFilters(unique_ais)
-        self.proxy.setStatusFilters(unique_statuses)
 
         self.table.setModel(self.proxy)
         self.table.setSelectionBehavior(QTableView.SelectItems)
@@ -288,14 +277,21 @@ class TDocsWindow(QWidget):
 
         main_layout.addWidget(self.table)
 
+        # Build initial filters from raw excel data
+        self._refresh_comboboxes()
+
+        # --- LOCAL CACHE AUTO-LOAD ---
         agenda_dir = self.meeting_dir / "Agenda"
 
-        if self.is_sa2_electronic:
+        if self.is_sa2:
+            agenda_loaded = False
             local_agenda = agenda_dir / "TdocsByAgenda.htm"
+
             if local_agenda.exists():
                 agenda_data = TDocsParser.parse_tdocs_by_agenda(str(local_agenda))
                 if agenda_data:
                     self.model.merge_agenda_data(agenda_data)
+                    agenda_loaded = True
 
             local_revs = agenda_dir / "revisions.json"
             if local_revs.exists():
@@ -313,6 +309,10 @@ class TDocsWindow(QWidget):
                 if hasattr(self, 'revisions_url') and self.revisions_url:
                     self._refresh_revisions(silent=True)
 
+            # ---> THE FIX: Refresh the filters so auto-loaded documents become visible immediately
+            if agenda_loaded:
+                self._refresh_comboboxes()
+
     def _get_mod_date_str(self):
         try:
             mod_time = os.path.getmtime(self.filepath)
@@ -320,7 +320,6 @@ class TDocsWindow(QWidget):
         except Exception:
             return "List last updated: Unknown"
 
-    # ---> NEW HELPER: Instantly wipes search/dropdowns so jumps can succeed
     def _clear_all_filters(self):
         """Resets all UI filters and proxy filters to their default states."""
         self.search_input.blockSignals(True)
@@ -328,7 +327,7 @@ class TDocsWindow(QWidget):
         self.search_input.blockSignals(False)
         self.proxy.setGlobalFilter("")
 
-        if self.is_sa2_electronic:
+        if self.is_sa2:
             self.chk_no_comments.blockSignals(True)
             self.chk_no_comments.setChecked(False)
             self.chk_no_comments.blockSignals(False)
@@ -345,6 +344,26 @@ class TDocsWindow(QWidget):
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
+
+    def _refresh_comboboxes(self):
+        """Centralized helper to perfectly sync dropdowns with the active Model data."""
+
+        def sanitize(val): return str(val).strip() if val is not None else ""
+
+        unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in self.model._data)))
+        unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in self.model._data)),
+                            key=natural_sort_key)
+        unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in self.model._data)))
+
+        self.type_combo.updateItems(unique_types)
+        self.ai_combo.updateItems(unique_ais)
+        self.status_combo.updateItems(unique_statuses)
+
+        self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
+        self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
+        self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
+
+        self._update_count_label()
 
     def _refresh_both(self):
         self._refresh_excel()
@@ -397,24 +416,8 @@ class TDocsWindow(QWidget):
                 return
 
             self.model.update_data(new_data)
-
-            def sanitize(val):
-                return str(val).strip() if val is not None else ""
-
-            unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in new_data)))
-            unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in new_data)), key=natural_sort_key)
-            unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in new_data)))
-
-            self.type_combo.updateItems(unique_types)
-            self.ai_combo.updateItems(unique_ais)
-            self.status_combo.updateItems(unique_statuses)
-
-            self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
-            self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
-            self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
-
+            self._refresh_comboboxes()
             self.last_mod_lbl.setText(self._get_mod_date_str())
-            self._update_count_label()
         else:
             QMessageBox.critical(self, "Download Error", f"Failed to refresh TDocs List:\n{result}")
 
@@ -515,7 +518,6 @@ class TDocsWindow(QWidget):
         base_tdoc = match.group(1).upper() if match else target_tdoc.upper()
 
         if base_tdoc in self.model.valid_tdocs:
-            # ---> THE FIX: Try jumping first. If it fails, prompt to wipe filters!
             def attempt_jump():
                 for row in range(self.proxy.rowCount()):
                     idx = self.proxy.index(row, 1)
@@ -655,24 +657,7 @@ class TDocsWindow(QWidget):
     def _on_agenda_fetched(self, success: bool, agenda_data: dict):
         if success and agenda_data:
             self.model.merge_agenda_data(agenda_data)
-
-            def sanitize(val):
-                return str(val).strip() if val is not None else ""
-
-            unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in self.model._data)))
-            unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in self.model._data)),
-                                key=natural_sort_key)
-            unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in self.model._data)))
-
-            self.type_combo.updateItems(unique_types)
-            self.ai_combo.updateItems(unique_ais)
-            self.status_combo.updateItems(unique_statuses)
-
-            self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
-            self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
-            self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
-
-            self._update_count_label()
+            self._refresh_comboboxes()
 
             self.refresh_btn.setText(f"✅ {len(agenda_data)} Merged")
             QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
@@ -727,7 +712,6 @@ class TDocsWindow(QWidget):
         QToolTip.showText(QCursor.pos(), "📋 Copied to clipboard!", self.table)
 
     def _show_cell_popup(self, index):
-        """Shows the interactive Notes & Status Editor."""
         if not index.isValid(): return
 
         col_name = self.model._headers[index.column()]
@@ -744,7 +728,6 @@ class TDocsWindow(QWidget):
         dialog.setStyleSheet("QDialog { background-color: #FAFAFA; }")
         layout = QVBoxLayout(dialog)
 
-        # 1. Read-Only Secretary Remarks (Top Half)
         layout.addWidget(QLabel("<b>Secretary Remarks:</b>"))
         sec_remarks = QTextEdit()
         sec_remarks.setPlainText(row_data.get("Secretary Remarks", ""))
@@ -753,14 +736,12 @@ class TDocsWindow(QWidget):
         sec_remarks.setStyleSheet("background-color: #F5F5F5; border: 1px solid #CCC;")
         layout.addWidget(sec_remarks)
 
-        # 2. Editable Status Dropdown
         status_layout = QHBoxLayout()
         status_layout.addWidget(QLabel("<b>My Status:</b>"))
         status_combo = QComboBox()
         status_combo.addItems(["⚪ Neutral", "🟢 Support", "🔴 Object", "🟡 Monitor"])
         status_combo.setStyleSheet("padding: 4px; border: 1px solid #CCC; background: white;")
 
-        # Strip away the Ghost prefix if it's inherited so the dropdown selects cleanly
         curr_status = row_data.get("My Status", "⚪ Neutral").replace("🔄 ", "").strip()
         status_combo.setCurrentText(
             curr_status if curr_status in ["⚪ Neutral", "🟢 Support", "🔴 Object", "🟡 Monitor"] else "⚪ Neutral")
@@ -769,7 +750,6 @@ class TDocsWindow(QWidget):
         status_layout.addStretch()
         layout.addLayout(status_layout)
 
-        # 3. Editable Personal Notes (Bottom Half)
         layout.addWidget(QLabel("<b>My Notes:</b>"))
         my_notes = QTextEdit()
         clean_notes = row_data.get("My Notes", "").replace("🔄 [From Base]: ", "").replace("🔄 [From Base]", "").strip()
@@ -777,7 +757,6 @@ class TDocsWindow(QWidget):
         my_notes.setStyleSheet("font-size: 13px; padding: 10px; background-color: white; border: 1px solid #0078D7;")
         layout.addWidget(my_notes)
 
-        # 4. Save Button
         btn_layout = QHBoxLayout()
         save_btn = QPushButton("💾 Save Notes")
         save_btn.setStyleSheet(
@@ -793,7 +772,6 @@ class TDocsWindow(QWidget):
         dialog.exec_()
 
     def _save_user_data(self, tdoc_id: str, status: str, notes: str, dialog: QDialog):
-        """Saves to SQLite and instantly repaints the UI!"""
         self.db.upsert(tdoc_id, status, notes)
         self.model.user_data = self.db.get_all()
         self.model.apply_user_data_refresh()
