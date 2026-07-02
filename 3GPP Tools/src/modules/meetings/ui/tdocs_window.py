@@ -132,7 +132,6 @@ class TDocsWindow(QWidget):
         folder_menu.setStyleSheet("QMenu { font-size: 12px; }")
         folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
 
-        # Add the Export Reports button directly inside the resources menu
         folder_menu.addSeparator()
         folder_menu.addAction("📝 Export Markdown Reports", self._export_reports)
         folder_menu.addSeparator()
@@ -160,7 +159,6 @@ class TDocsWindow(QWidget):
         """)
         self.excel_btn.clicked.connect(self._open_excel)
 
-        # ---> NEW: The Export Reports Button
         self.export_btn = QPushButton("📝 Export Reports")
         self.export_btn.setCursor(Qt.PointingHandCursor)
         self.export_btn.setStyleSheet("""
@@ -195,7 +193,7 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.refresh_btn)
         header_layout.addWidget(self.folder_btn)
         header_layout.addWidget(self.excel_btn)
-        header_layout.addWidget(self.export_btn)  # <--- Added to Layout
+        header_layout.addWidget(self.export_btn)
         header_layout.addWidget(self.email_btn)
         header_layout.addSpacing(15)
         header_layout.addWidget(self.count_lbl)
@@ -306,7 +304,6 @@ class TDocsWindow(QWidget):
 
         main_layout.addWidget(self.table)
 
-        # Build initial filters from raw excel data
         self._refresh_comboboxes()
 
         # --- LOCAL CACHE AUTO-LOAD ---
@@ -349,14 +346,12 @@ class TDocsWindow(QWidget):
         except Exception:
             return "List last updated: Unknown"
 
-    # ---> NEW: Exporter methods
+    # ---> NEW: Pass self.mtg_info to the exporter!
     def _export_reports(self):
-        """Spawns the background thread to safely generate the Markdown files."""
         self.export_btn.setText("⏳ Exporting...")
         self.export_btn.setEnabled(False)
 
-        # We pass the full, unfiltered _data directly to the exporter
-        self.export_thread = MarkdownExporterThread(self.meeting_dir, self.model._data, self.docs_ftp_url)
+        self.export_thread = MarkdownExporterThread(self.meeting_dir, self.model._data, self.docs_ftp_url, self.mtg_info)
         self.export_thread.finished.connect(self._on_export_finished)
         self.export_thread.start()
 
@@ -365,7 +360,6 @@ class TDocsWindow(QWidget):
         self.export_btn.setEnabled(True)
         if success:
             QMessageBox.information(self, "Export Complete", msg)
-            # Automatically open the export directory when finished!
             if hasattr(os, 'startfile'):
                 os.startfile(str(self.meeting_dir / "Export"))
         else:
