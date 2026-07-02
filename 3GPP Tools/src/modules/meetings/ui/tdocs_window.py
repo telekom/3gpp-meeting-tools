@@ -17,6 +17,7 @@ from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDocActionThread, TdocsByAgendaThread
 from modules.meetings.core.tdocs_db import TDocsDatabase
+from modules.meetings.core.markdown_exporter import MarkdownExporterThread  # <--- NEW IMPORT
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
@@ -54,7 +55,6 @@ class TDocsWindow(QWidget):
 
         wg_name = str(self.mtg_info.get('wg_name', '')).upper()
 
-        # Evaluate meeting types
         self.is_sa2 = ('SA2' in wg_name)
         is_electronic = bool(self.mtg_info.get('is_electronic', 0))
         self.is_sa2_electronic = self.is_sa2 and is_electronic
@@ -72,7 +72,6 @@ class TDocsWindow(QWidget):
         if self.is_sa2_electronic and self.main_ftp_url:
             self.revisions_url = self.main_ftp_url.rstrip('/') + '/INBOX/Revisions/'
 
-        # ---> THE FIX: Determine Meeting Icon and Tooltip
         mtg_icon = "💻" if is_electronic else "🤝"
         mtg_tooltip = "Electronic Meeting (eMeeting)" if is_electronic else "In-Person Meeting (Face-to-Face)"
 
@@ -89,7 +88,6 @@ class TDocsWindow(QWidget):
         title_lbl = QLabel(f"<b>{title}</b>")
         title_lbl.setStyleSheet("font-size: 18px; color: #333;")
 
-        # ---> Attach Tooltip and Help Cursor to the Label
         title_lbl.setToolTip(mtg_tooltip)
         title_lbl.setCursor(Qt.WhatsThisCursor)
 
@@ -133,6 +131,12 @@ class TDocsWindow(QWidget):
         folder_menu = QMenu(self)
         folder_menu.setStyleSheet("QMenu { font-size: 12px; }")
         folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
+
+        # Add the Export Reports button directly inside the resources menu
+        folder_menu.addSeparator()
+        folder_menu.addAction("📝 Export Markdown Reports", self._export_reports)
+        folder_menu.addSeparator()
+
         if self.is_sa2:
             folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
         folder_menu.addSeparator()
@@ -156,6 +160,19 @@ class TDocsWindow(QWidget):
         """)
         self.excel_btn.clicked.connect(self._open_excel)
 
+        # ---> NEW: The Export Reports Button
+        self.export_btn = QPushButton("📝 Export Reports")
+        self.export_btn.setCursor(Qt.PointingHandCursor)
+        self.export_btn.setStyleSheet("""
+            QPushButton {
+                font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold;
+                border-radius: 6px; padding: 5px 12px;
+                color: #4B0082; background-color: #E6E6FA; border: 1px solid #DDA0DD;
+            }
+            QPushButton:hover { background-color: #D8BFD8; border: 1px solid #4B0082; }
+        """)
+        self.export_btn.clicked.connect(self._export_reports)
+
         self.email_btn = QPushButton("📧 Emails")
         self.email_btn.setCursor(Qt.PointingHandCursor)
         self.email_btn.setStyleSheet("""
@@ -178,6 +195,7 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.refresh_btn)
         header_layout.addWidget(self.folder_btn)
         header_layout.addWidget(self.excel_btn)
+        header_layout.addWidget(self.export_btn)  # <--- Added to Layout
         header_layout.addWidget(self.email_btn)
         header_layout.addSpacing(15)
         header_layout.addWidget(self.count_lbl)
@@ -331,8 +349,29 @@ class TDocsWindow(QWidget):
         except Exception:
             return "List last updated: Unknown"
 
+    # ---> NEW: Exporter methods
+    def _export_reports(self):
+        """Spawns the background thread to safely generate the Markdown files."""
+        self.export_btn.setText("⏳ Exporting...")
+        self.export_btn.setEnabled(False)
+
+        # We pass the full, unfiltered _data directly to the exporter
+        self.export_thread = MarkdownExporterThread(self.meeting_dir, self.model._data, self.docs_ftp_url)
+        self.export_thread.finished.connect(self._on_export_finished)
+        self.export_thread.start()
+
+    def _on_export_finished(self, success: bool, msg: str):
+        self.export_btn.setText("📝 Export Reports")
+        self.export_btn.setEnabled(True)
+        if success:
+            QMessageBox.information(self, "Export Complete", msg)
+            # Automatically open the export directory when finished!
+            if hasattr(os, 'startfile'):
+                os.startfile(str(self.meeting_dir / "Export"))
+        else:
+            QMessageBox.warning(self, "Export Failed", msg)
+
     def _clear_all_filters(self):
-        """Resets all UI filters and proxy filters to their default states."""
         self.search_input.blockSignals(True)
         self.search_input.clear()
         self.search_input.blockSignals(False)
@@ -357,8 +396,6 @@ class TDocsWindow(QWidget):
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
 
     def _refresh_comboboxes(self):
-        """Centralized helper to perfectly sync dropdowns with the active Model data."""
-
         def sanitize(val): return str(val).strip() if val is not None else ""
 
         unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in self.model._data)))
@@ -668,24 +705,7 @@ class TDocsWindow(QWidget):
     def _on_agenda_fetched(self, success: bool, agenda_data: dict):
         if success and agenda_data:
             self.model.merge_agenda_data(agenda_data)
-
-            def sanitize(val):
-                return str(val).strip() if val is not None else ""
-
-            unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in self.model._data)))
-            unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in self.model._data)),
-                                key=natural_sort_key)
-            unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in self.model._data)))
-
-            self.type_combo.updateItems(unique_types)
-            self.ai_combo.updateItems(unique_ais)
-            self.status_combo.updateItems(unique_statuses)
-
-            self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
-            self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
-            self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
-
-            self._update_count_label()
+            self._refresh_comboboxes()
 
             self.refresh_btn.setText(f"✅ {len(agenda_data)} Merged")
             QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
