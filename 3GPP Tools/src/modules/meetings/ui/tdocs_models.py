@@ -16,9 +16,10 @@ class TDocsTableModel(QAbstractTableModel):
         self.user_data = user_data or {}
         self._data = data or []
 
+        # ---> FIX: Renamed 'Status' to 'My Status' to avoid confusion!
         self._headers = [
             "", "TDoc", "Title", "Source", "Type", "For",
-            "Abstract", "Secretary Remarks", "Status", "My Notes", "Agenda Item", "TDoc Status", "Related TDocs"
+            "Abstract", "Secretary Remarks", "My Status", "My Notes", "Agenda Item", "TDoc Status", "Related TDocs"
         ]
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
         self.loading_tdocs = set()
@@ -29,24 +30,22 @@ class TDocsTableModel(QAbstractTableModel):
         """The 2-Pass Overlay Engine for User Notes and Status"""
         tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
 
-        # PASS 1: Direct DB Overlay
         for row in self._data:
             tdoc = row.get('TDoc', '')
             meta = self.user_data.get(tdoc, {})
-            row['Status'] = meta.get('status', '⚪ Neutral')
+            row['My Status'] = meta.get('status', '⚪ Neutral')
             row['My Notes'] = meta.get('notes', '')
 
-        # PASS 2: Inheritance (Ghosting Parent data to Children)
         for row in self._data:
-            if not row.get('My Notes') and row.get('Status') == '⚪ Neutral':
+            if not row.get('My Notes') and row.get('My Status') == '⚪ Neutral':
                 parent = row.get('Is revision of', '')
                 if parent and parent in tdoc_dict:
                     parent_row = tdoc_dict[parent]
-                    p_status = parent_row.get('Status', '⚪ Neutral')
+                    p_status = parent_row.get('My Status', '⚪ Neutral')
                     p_notes = parent_row.get('My Notes', '')
 
                     if p_status != '⚪ Neutral' or p_notes:
-                        row['Status'] = p_status
+                        row['My Status'] = p_status
                         row['My Notes'] = f"🔄 [From Base]: {p_notes}" if p_notes else "🔄 [From Base]"
 
     def apply_user_data_refresh(self):
@@ -73,9 +72,10 @@ class TDocsTableModel(QAbstractTableModel):
                 self.dataChanged.emit(idx, idx)
                 break
 
+    # ---> FIX: Made prefix optional so we can reuse this logic for Secretary Remarks
     def _linkify(self, prefix: str, text: str, html: bool) -> str:
         if not text: return ""
-        if not html: return f"{prefix}: {text}"
+        if not html: return f"{prefix}: {text}" if prefix else text
 
         def repl(match):
             tdoc = match.group(0)
@@ -95,7 +95,10 @@ class TDocsTableModel(QAbstractTableModel):
                 return f'<a href="{tdoc}" style="color: #D83B01; text-decoration: underline;">{tdoc}</a>'
 
         linked_text = re.sub(r'[a-zA-Z0-9]+-\d+(?:r\d+[a-zA-Z]?)?', repl, text, flags=re.IGNORECASE)
-        return f"<span style='color: #444;'><b>{prefix}:</b></span> {linked_text}"
+
+        if prefix:
+            return f"<span style='color: #444;'><b>{prefix}:</b></span> {linked_text}"
+        return linked_text
 
     def _format_related_tdocs(self, row_data: dict, html=False) -> str:
         parts = []
@@ -131,11 +134,14 @@ class TDocsTableModel(QAbstractTableModel):
             val_str = str(val).strip() if val is not None else ""
 
             if col_name == "Abstract": return "📝" if val_str else ""
-            if col_name == "Status" and val_str == "⚪ Neutral": return ""
+            if col_name == "My Status" and val_str == "⚪ Neutral": return ""
             if col_name == "My Notes" and val_str: return "📓 Note"
 
-            if col_name == "Secretary Remarks" and len(val_str) > 90:
-                return val_str.replace('\n', ' ').replace('\r', '')[:87] + "..."
+            if col_name == "Secretary Remarks":
+                # ---> FIX: Render the remarks as HTML so the links become clickable!
+                linked = self._linkify("", val_str, html=True)
+                return linked.replace('\n', '<br>')
+
             return val_str
 
         elif role == Qt.UserRole:
@@ -154,7 +160,7 @@ class TDocsTableModel(QAbstractTableModel):
             return None
 
         elif role == Qt.TextAlignmentRole:
-            if col_name in ["TDoc", "Type", "For", "Abstract", "Status", "My Notes", "Agenda Item", "TDoc Status",
+            if col_name in ["TDoc", "Type", "For", "Abstract", "My Status", "My Notes", "Agenda Item", "TDoc Status",
                             "Related TDocs"]:
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
@@ -199,9 +205,21 @@ class TDocsTableModel(QAbstractTableModel):
                 remarks = email
 
             if tdoc_id in existing_tdocs:
+                idx = existing_tdocs[tdoc_id]
                 if remarks:
-                    idx = existing_tdocs[tdoc_id]
                     self._data[idx]['Secretary Remarks'] = remarks
+
+                # ---> FIX: Inject missing Title, Source, For, and Result if Excel was blank
+                if info.get('Title') and not self._data[idx].get('Title'):
+                    self._data[idx]['Title'] = info.get('Title')
+                if info.get('Source') and not self._data[idx].get('Source'):
+                    self._data[idx]['Source'] = info.get('Source')
+                if info.get('For') and not self._data[idx].get('For'):
+                    self._data[idx]['For'] = info.get('For')
+                # Overwrite 'TDoc Status' if Agenda 'Result' exists (Agenda is usually more up-to-date)
+                if info.get('Result') and self._data[idx].get('TDoc Status', 'Unknown') in ['Unknown', '']:
+                    self._data[idx]['TDoc Status'] = info.get('Result')
+
             else:
                 if ui_logger: ui_logger.emit(f"✨ Injecting new on-the-fly TDoc: {tdoc_id}", logging.INFO)
 
@@ -241,7 +259,8 @@ class TDocsTableModel(QAbstractTableModel):
                     'Secretary Remarks': remarks,
                     'Agenda Item': agenda_item,
                     'Type': doc_type,
-                    'TDoc Status': 'Unknown',
+                    'For': info.get('For', ''),  # Added
+                    'TDoc Status': info.get('Result', 'Unknown'),  # Added 'Result' mapping
                     'Is revision of': predecessor if predecessor else '',
                     'Revised to': '',
                     'Original LS': '',
@@ -323,14 +342,12 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             if remarks and str(remarks).strip():
                 return False
 
-                # Adjusted Column Indexes for Filters
         if model.data(model.index(source_row, 4, source_parent), Qt.UserRole) not in self.type_filters: return False
         if model.data(model.index(source_row, 10, source_parent), Qt.UserRole) not in self.ai_filters: return False
         if model.data(model.index(source_row, 11, source_parent), Qt.UserRole) not in self.status_filters: return False
 
         if self.global_filter:
             match_found = False
-            # Search TDoc, Title, Source, Abstract, Secretary Remarks, My Notes, Related TDocs
             for col in [1, 2, 3, 6, 7, 9, 12]:
                 data = model.data(model.index(source_row, col, source_parent), Qt.UserRole)
                 if data and self.global_filter in str(data).lower():
