@@ -2,7 +2,6 @@
 import datetime
 import json
 import os
-import re
 import webbrowser
 from pathlib import Path
 
@@ -19,13 +18,13 @@ from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDocActionThread, TdocsByAgendaThread
 from modules.meetings.core.tdocs_db import TDocsDatabase
 from modules.meetings.core.markdown_exporter import MarkdownExporterThread
-from modules.meetings.core.statistics_exporter import StatisticsExporterThread  # <--- NEW IMPORT
+from modules.meetings.core.statistics_exporter import StatisticsExporterThread
 
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
-from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu  # <--- NEW IMPORTS
-from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog, InteractiveNotesDialog  # <--- NEW IMPORTS
+from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu
+from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog, InteractiveNotesDialog, StatisticsSettingsDialog
 from modules.emails.ui.email_window import EmailManagerWindow
 
 
@@ -83,9 +82,21 @@ class TDocsWindow(QWidget):
         self.last_mod_lbl = QLabel(self._get_mod_date_str())
         self.last_mod_lbl.setStyleSheet("font-size: 11px; color: #999999; margin-right: 15px; font-style: italic;")
 
+        # --- UNIFIED CLEAN BUTTON STYLING ---
+        def style_btn():
+            return """
+            QPushButton { 
+                font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold; 
+                border-radius: 6px; padding: 6px 12px; 
+                color: #333333; background-color: #FFFFFF; border: 1px solid #CCCCCC; 
+            }
+            QPushButton:hover, QPushButton::menu-indicator { 
+                background-color: #F0F4F8; border: 1px solid #005A9E; color: #005A9E;
+            }
+            """
+
         self.refresh_btn = QPushButton("🔄 Refresh")
-        self.refresh_btn.setStyleSheet(
-            "QPushButton { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 5px 12px; color: #555555; background-color: #F0F0F0; border: 1px solid #CCCCCC; }")
+        self.refresh_btn.setStyleSheet(style_btn())
 
         refresh_menu = QMenu(self)
         refresh_menu.addAction("📗 Refresh Excel List", self._refresh_excel)
@@ -96,8 +107,7 @@ class TDocsWindow(QWidget):
         self.refresh_btn.setMenu(refresh_menu)
 
         self.folder_btn = QPushButton("🗂️ Resources")
-        self.folder_btn.setStyleSheet(
-            "QPushButton { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 5px 12px; color: #005A9E; background-color: #E1F0FF; border: 1px solid #99C9FF; }")
+        self.folder_btn.setStyleSheet(style_btn())
 
         folder_menu = QMenu(self)
         folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
@@ -112,20 +122,26 @@ class TDocsWindow(QWidget):
                                                      lambda: webbrowser.open(self.revisions_url))
         self.folder_btn.setMenu(folder_menu)
 
-        self.excel_btn = QPushButton("📗 Open in Excel")
-        self.excel_btn.setStyleSheet(
-            "QPushButton { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 5px 12px; color: #0C6B0C; background-color: #E6F4E6; border: 1px solid #A3DDA3; }")
+        self.excel_btn = QPushButton("📗 Excel")
+        self.excel_btn.setStyleSheet(style_btn())
         self.excel_btn.clicked.connect(self._open_excel)
 
-        # ---> NEW: Statistics Button
-        self.stats_btn = QPushButton("📊 Generate Statistics")
-        self.stats_btn.setStyleSheet(
-            "QPushButton { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 5px 12px; color: #D83B01; background-color: #FDE7E9; border: 1px solid #F3C4C8; }")
+        self.export_btn = QPushButton("📝 Export")
+        self.export_btn.setStyleSheet(style_btn())
+        self.export_btn.clicked.connect(self._export_reports)
+
+        self.stats_btn = QPushButton("📊 Statistics")
+        self.stats_btn.setStyleSheet(style_btn())
         self.stats_btn.clicked.connect(self._generate_statistics)
 
+        self.stats_cfg_btn = QPushButton("⚙️")
+        self.stats_cfg_btn.setStyleSheet(style_btn())
+        self.stats_cfg_btn.setFixedWidth(35)
+        self.stats_cfg_btn.setToolTip("Configure Statistics Parameters")
+        self.stats_cfg_btn.clicked.connect(self._open_stats_config)
+
         self.email_btn = QPushButton("📧 Emails")
-        self.email_btn.setStyleSheet(
-            "QPushButton { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 5px 12px; color: #B85C00; background-color: #FFF4CE; border: 1px solid #F3C74C; }")
+        self.email_btn.setStyleSheet(style_btn())
         self.email_btn.clicked.connect(self._open_email_manager)
         self.email_btn.setVisible(self.is_sa2_electronic)
 
@@ -138,7 +154,9 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.refresh_btn)
         header_layout.addWidget(self.folder_btn)
         header_layout.addWidget(self.excel_btn)
-        header_layout.addWidget(self.stats_btn)  # Add Stats button
+        header_layout.addWidget(self.export_btn)
+        header_layout.addWidget(self.stats_btn)
+        header_layout.addWidget(self.stats_cfg_btn)
         header_layout.addWidget(self.email_btn)
         header_layout.addSpacing(15)
         header_layout.addWidget(self.count_lbl)
@@ -193,7 +211,6 @@ class TDocsWindow(QWidget):
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
         self.table.verticalHeader().setDefaultSectionSize(48)
 
-        # Set Delegates
         self.action_delegate = TDocActionDelegate(self.table)
         self.action_delegate.actionClicked.connect(self._handle_tdoc_action)
         self.table.setItemDelegateForColumn(0, self.action_delegate)
@@ -204,7 +221,6 @@ class TDocsWindow(QWidget):
         self.table.setItemDelegateForColumn(7, self.html_delegate)
         self.table.setItemDelegateForColumn(12, self.html_delegate)
 
-        # Resize columns
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.resizeSection(0, 110)
@@ -257,7 +273,6 @@ class TDocsWindow(QWidget):
         except:
             return "List last updated: Unknown"
 
-    # --- UI Event Callbacks ---
     def _on_search_changed(self, text):
         self.proxy.setGlobalFilter(text)
 
@@ -312,7 +327,6 @@ class TDocsWindow(QWidget):
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
 
-    # --- Delegated Menu Generators ---
     def _handle_tdoc_action(self, base_tdoc: str):
         if base_tdoc in self.model.loading_tdocs or not self.docs_ftp_url: return
         revisions = self.model.revisions.get(base_tdoc, [])
@@ -342,31 +356,34 @@ class TDocsWindow(QWidget):
         self.model.user_data = self.db.get_all()
         self.model.apply_user_data_refresh()
 
-    # --- Feature Triggers ---
     def _export_reports(self):
         self.export_thread = MarkdownExporterThread(self.meeting_dir, self.model._data, self.docs_ftp_url,
                                                     self.mtg_info)
         self.export_thread.finished.connect(lambda s, m: self._on_export_finished(s, m, False))
         self.export_thread.start()
 
+    def _open_stats_config(self):
+        StatisticsSettingsDialog(self).exec_()
+
     def _generate_statistics(self):
         self.stats_btn.setText("⏳ Generating...")
         self.stats_btn.setEnabled(False)
-        self.stats_thread = StatisticsExporterThread(self.meeting_dir, self.model._data, self.mtg_info)
+
+        config = StatisticsSettingsDialog().load_config()
+        self.stats_thread = StatisticsExporterThread(self.meeting_dir, self.model._data, self.mtg_info, config)
         self.stats_thread.finished.connect(lambda s, m: self._on_export_finished(s, m, True))
         self.stats_thread.start()
 
     def _on_export_finished(self, success: bool, msg: str, is_stats: bool):
         if is_stats:
-            self.stats_btn.setText("📊 Generate Statistics")
+            self.stats_btn.setText("📊 Statistics")
             self.stats_btn.setEnabled(True)
         if success:
             QMessageBox.information(self, "Export Complete", f"Successfully generated:\n{msg}")
-            if hasattr(os, 'startfile'): os.startfile(str(msg))  # Opens file or folder automatically
+            if hasattr(os, 'startfile'): os.startfile(str(msg))
         else:
             QMessageBox.warning(self, "Export Failed", msg)
 
-    # --- Utilities and Background Threads ---
     def _scroll_to_tdoc(self, target_tdoc: str):
         match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', target_tdoc, re.IGNORECASE)
         base_tdoc = match.group(1).upper() if match else target_tdoc.upper()
@@ -380,7 +397,7 @@ class TDocsWindow(QWidget):
                                     f"TDoc '{base_tdoc}' is hidden by active filters.\nClear filters to view?",
                                     QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
                 self._clear_all_filters()
-                self._scroll_to_tdoc(target_tdoc)  # Recursive jump after clear
+                self._scroll_to_tdoc(target_tdoc)
         else:
             if QMessageBox.question(self, "External TDoc",
                                     f"{base_tdoc} is not from this meeting.\nSearch global database?",
