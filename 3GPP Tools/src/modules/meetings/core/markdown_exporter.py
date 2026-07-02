@@ -5,36 +5,37 @@ import re
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from core.utils.paths import get_project_root
-
 
 class MarkdownExporterThread(QThread):
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, meeting_dir: Path, tdocs_data: list, docs_url: str):
+    def __init__(self, meeting_dir: Path, tdocs_data: list, docs_url: str, mtg_info: dict):
         super().__init__()
         self.meeting_dir = meeting_dir
         self.tdocs_data = tdocs_data
         self.docs_url = docs_url
+        self.mtg_info = mtg_info
         self.export_dir = self.meeting_dir / "Export"
 
-        config_path = get_project_root() / "export_config.json"
+        # Reliably resolve the root `src/` directory
+        src_dir = Path(__file__).resolve().parents[3]
+        config_path = src_dir / "export_config.json"
 
-        # Define the exact default configuration you provided
+        # Define the exact default configuration provided
         default_config = {
             "columns_for_3gu_tdoc_export": ["TDoc", "Agenda Item", "Type", "For", "Title", "Source", "Abstract"],
             "columns_for_3gu_tdoc_export_ls": ["TDoc", "Agenda Item", "Type", "For", "Title", "Source", "Abstract"],
             "columns_for_3gu_tdoc_export_ls_out": ["Abstract", "TDoc", "Title", "Agenda Item", "Reply to"],
             "columns_for_3gu_tdoc_export_pcr": ["TDoc", "Agenda Item", "Type", "For", "Title", "Source", "Abstract"],
             "columns_for_3gu_tdoc_export_cr": ["TDoc", "Agenda Item", "Type", "For", "Title", "Source", "Abstract"],
-            "columns_for_3gu_tdoc_export_contributor": ["TDoc", "Title", "Source", "Agenda Item", "TDoc Status", "Spec",
-                                                        "CR category"],
+            "columns_for_3gu_tdoc_export_contributor": ["TDoc", "Type", "Title", "Source", "Agenda Item", "TDoc Status",
+                                                        "Spec", "CR category"],
             "company_name_regex_for_report": "Deutsche Telekom"
         }
 
         self.config = {}
 
-        # Check if the file exists. If not, create it with the defaults.
+        # Check if the config exists. If not, generate it so it works out-of-the-box!
         if not config_path.exists():
             try:
                 with open(config_path, "w", encoding="utf-8") as f:
@@ -69,6 +70,12 @@ class MarkdownExporterThread(QThread):
                                             "CR category"])
             company_regex = self.config.get("company_name_regex_for_report", "Deutsche Telekom")
 
+            # Extract Meeting info for the Markdown Header
+            wg_name = str(self.mtg_info.get('wg_name', 'WG'))
+            mtg_num = str(self.mtg_info.get('meeting_number', ''))
+            mtg_url = self.docs_url.replace('/Docs', '').replace('/docs', '').rstrip('/') if self.docs_url else ""
+            header_comment = f"<!--- [{wg_name}#{mtg_num}]({mtg_url}) --->\n\n"
+
             ai_groups = {}
             company_docs = []
 
@@ -81,7 +88,6 @@ class MarkdownExporterThread(QThread):
                 is_withdrawn = 'withdrawn' in status
                 is_agreed = any(x in status for x in ['agreed', 'approved'])
 
-                # Identify Document Types
                 is_ls_in = 'ls in' in doc_type or doc_type == 'ls'
                 is_ls_out = 'ls out' in doc_type or 'ls_out' in doc_type
                 is_pcr = 'pcr' in doc_type or 'p-cr' in doc_type
@@ -111,28 +117,25 @@ class MarkdownExporterThread(QThread):
             # 2. Write the Agenda Item Markdown Files
             for ai, groups in ai_groups.items():
                 if not any(groups.values()):
-                    continue  # Skip empty AIs
+                    continue
 
-                # Sanitize filename
                 safe_ai = re.sub(r'[\\/*?:"<>|]', "_", ai)
                 filepath = self.export_dir / f"{safe_ai}.md"
 
                 with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(f"<!--- Exported Agenda Item: {ai} --->\n\n")
-                    f.write(f"# Agenda Item {ai}\n\n")
+                    f.write(header_comment)
 
-                    self._write_table(f, "Received LS INs", groups['ls_in'], cols_ls_in)
-                    self._write_table(f, "Agreed/Approved LS OUTs", groups['ls_out'], cols_ls_out)
-                    self._write_table(f, "Agreed/Approved pCRs", groups['pcr'], cols_pcr)
-                    self._write_table(f, "Agreed/Approved CRs", groups['cr'], cols_cr)
+                    self._write_table(f, "Following LS were received:", groups['ls_in'], cols_ls_in)
+                    self._write_table(f, "Following LS OUTs were agreed:", groups['ls_out'], cols_ls_out)
+                    self._write_table(f, "Following pCRs were agreed:", groups['pcr'], cols_pcr)
+                    self._write_table(f, "Following CRs were agreed:", groups['cr'], cols_cr)
 
             # 3. Write the Company Markdown File
             if company_docs:
                 company_path = self.export_dir / "Company.md"
                 with open(company_path, "w", encoding="utf-8") as f:
-                    f.write(f"<!--- Exported Contributions for: {company_regex} --->\n\n")
-                    f.write(f"# Following Company Contributions:\n\n")
-                    self._write_table(f, "", company_docs, cols_company)
+                    f.write(header_comment)
+                    self._write_table(f, "Following Company Contributions:", company_docs, cols_company)
 
             self.finished.emit(True, f"Successfully exported Markdown reports to:\n{self.export_dir}")
 
@@ -144,16 +147,18 @@ class MarkdownExporterThread(QThread):
             return
 
         if title:
-            f.write(f"### {title}\n\n")
+            f.write(f"{title}\n\n")
 
         # Write headers
         f.write("| " + " | ".join(columns) + " |\n")
-        f.write("|" + "|".join(["---"] * len(columns)) + "|\n")
+        # Ensure left-aligned markdown columns matching your examples
+        f.write("|" + "|".join([":---"] * len(columns)) + "|\n")
 
         # Write rows
         for d in docs:
             row_data = []
             for col in columns:
+                # Catch empty values and safely escape newlines and markdown pipes
                 val = str(d.get(col, '')).replace('\n', ' ').replace('\r', '').replace('|', '\\|')
 
                 # Render the TDoc URL hyperlink natively
