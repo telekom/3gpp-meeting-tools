@@ -1,4 +1,4 @@
-# --- File: modules/meetings/core/tdocs_parser.py ---
+# --- File: src/modules/meetings/core/tdocs_parser.py ---
 import io
 import re
 import openpyxl
@@ -10,8 +10,6 @@ import os
 class TDocsParser:
     @staticmethod
     def parse_tdocs_excel(filepath: str) -> list:
-        # ---> OPTIMIZATION 1: Lightning-fast JSON Caching
-        # If we already parsed this exact Excel file previously, load the JSON instantly.
         json_cache = filepath + ".json"
         try:
             if os.path.exists(json_cache) and os.path.getmtime(json_cache) >= os.path.getmtime(filepath):
@@ -22,7 +20,6 @@ class TDocsParser:
 
         data = []
         try:
-            # Load file entirely into RAM to instantly release the OS file lock
             with open(filepath, "rb") as f:
                 in_mem_file = io.BytesIO(f.read())
 
@@ -32,8 +29,6 @@ class TDocsParser:
             headers = []
             header_row_idx = 1
 
-            # FIXED: Bulletproof header hunting.
-            # We require at least 3 matching 3GPP columns to prove this is the real header row.
             for row_idx, row in enumerate(sheet.iter_rows(min_row=1, max_row=15, values_only=True), start=1):
                 row_strs = [str(c).strip() if c is not None else "" for c in row]
 
@@ -54,11 +49,14 @@ class TDocsParser:
                         val_clean = re.sub(r'\s+', ' ', val).strip()
                         val_up = val_clean.upper()
 
-                        # Safely isolate the true "Agenda Item" column
-                        if ("AGENDA ITEM" in val_up or val_up in ["AI", "AI#", "AI #"]) and "SORT" not in val_up and "DESCRIPTION" not in val_up:
+                        if ("AGENDA ITEM" in val_up or val_up in ["AI", "AI#",
+                                                                  "AI #"]) and "SORT" not in val_up and "DESCRIPTION" not in val_up:
                             val = "Agenda Item"
                         elif val_up in ["TD#", "TDOC#", "TDOC"]:
                             val = "TDoc"
+                        # ---> THE FIX: Force the Excel column to map to "TDoc Status"
+                        elif "STATUS" in val_up or "RESULT" in val_up:
+                            val = "TDoc Status"
 
                         headers.append(val)
                     break
@@ -68,7 +66,6 @@ class TDocsParser:
                 wb.close()
                 return []
 
-            # Parse the actual data starting exactly one row beneath the verified headers
             for row in sheet.iter_rows(min_row=header_row_idx + 1, values_only=True):
                 row_dict = {}
                 is_empty = True
@@ -83,7 +80,6 @@ class TDocsParser:
 
             wb.close()
 
-            # ---> OPTIMIZATION 1: Save the cache for the next time!
             try:
                 with open(json_cache, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)
@@ -133,12 +129,13 @@ class TDocsParser:
             td_idx = next((i for i, h in enumerate(headers) if 'td#' in h or 'td #' in h), -1)
             comments_idx = next((i for i, h in enumerate(headers) if 'comments' in h), -1)
             email_idx = next((i for i, h in enumerate(headers) if 'e-mail_discussion' in h), -1)
-            title_idx = next((i for i, h in enumerate(headers) if 'title' in h), -1)
             source_idx = next((i for i, h in enumerate(headers) if 'source' in h), -1)
 
-            # ---> NEW: Find the "For" and "Result" columns
+            # ---> THE FIX: Smarter hunting for HTML columns
+            title_idx = next((i for i, h in enumerate(headers) if 'title' in h or 'subject' in h), -1)
             for_idx = next((i for i, h in enumerate(headers) if h == 'for' or 'doc for' in h), -1)
             result_idx = next((i for i, h in enumerate(headers) if 'result' in h or 'status' in h), -1)
+            type_idx = next((i for i, h in enumerate(headers) if 'type' in h), -1)
 
             if td_idx == -1:
                 if ui_logger: ui_logger.emit("❌ 'TD#' column missing in HTML table.", logging.ERROR)
@@ -160,12 +157,12 @@ class TDocsParser:
                     cols) > title_idx else ""
                 source = cols[source_idx].get_text(separator='\n', strip=True) if source_idx != -1 and len(
                     cols) > source_idx else ""
-
-                # ---> NEW: Extract data
                 doc_for = cols[for_idx].get_text(separator='\n', strip=True) if for_idx != -1 and len(
                     cols) > for_idx else ""
                 result = cols[result_idx].get_text(separator='\n', strip=True) if result_idx != -1 and len(
                     cols) > result_idx else ""
+                doc_type = cols[type_idx].get_text(separator='\n', strip=True) if type_idx != -1 and len(
+                    cols) > type_idx else ""
 
                 if ui_logger and (comments or email_disc):
                     ui_logger.emit(f"   ➔ Extracted agenda remarks for {tdoc_id}", logging.DEBUG)
@@ -175,8 +172,9 @@ class TDocsParser:
                     'e-mail_Discussion': email_disc,
                     'Title': title,
                     'Source': source,
-                    'For': doc_for,  # Added
-                    'Result': result  # Added
+                    'For': doc_for,
+                    'Result': result,
+                    'Type': doc_type
                 }
 
             if ui_logger: ui_logger.emit(f"✅ Successfully parsed {len(data)} TDocs from Agenda HTML.", logging.INFO)

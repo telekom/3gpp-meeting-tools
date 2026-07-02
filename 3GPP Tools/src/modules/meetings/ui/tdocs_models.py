@@ -5,7 +5,6 @@ from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyM
 
 
 def natural_sort_key(s):
-    """Splits string into chunks of digits and non-digits for natural sorting."""
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
 
 
@@ -16,7 +15,6 @@ class TDocsTableModel(QAbstractTableModel):
         self.user_data = user_data or {}
         self._data = data or []
 
-        # ---> FIX: Renamed 'Status' to 'My Status' to avoid confusion!
         self._headers = [
             "", "TDoc", "Title", "Source", "Type", "For",
             "Abstract", "Secretary Remarks", "My Status", "My Notes", "Agenda Item", "TDoc Status", "Related TDocs"
@@ -27,7 +25,6 @@ class TDocsTableModel(QAbstractTableModel):
         self._apply_user_data_logic()
 
     def _apply_user_data_logic(self):
-        """The 2-Pass Overlay Engine for User Notes and Status"""
         tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
 
         for row in self._data:
@@ -72,7 +69,6 @@ class TDocsTableModel(QAbstractTableModel):
                 self.dataChanged.emit(idx, idx)
                 break
 
-    # ---> FIX: Made prefix optional so we can reuse this logic for Secretary Remarks
     def _linkify(self, prefix: str, text: str, html: bool) -> str:
         if not text: return ""
         if not html: return f"{prefix}: {text}" if prefix else text
@@ -138,7 +134,6 @@ class TDocsTableModel(QAbstractTableModel):
             if col_name == "My Notes" and val_str: return "📓 Note"
 
             if col_name == "Secretary Remarks":
-                # ---> FIX: Render the remarks as HTML so the links become clickable!
                 linked = self._linkify("", val_str, html=True)
                 return linked.replace('\n', '<br>')
 
@@ -209,15 +204,13 @@ class TDocsTableModel(QAbstractTableModel):
                 if remarks:
                     self._data[idx]['Secretary Remarks'] = remarks
 
-                # ---> FIX: Inject missing Title, Source, For, and Result if Excel was blank
                 if info.get('Title') and not self._data[idx].get('Title'):
                     self._data[idx]['Title'] = info.get('Title')
                 if info.get('Source') and not self._data[idx].get('Source'):
                     self._data[idx]['Source'] = info.get('Source')
                 if info.get('For') and not self._data[idx].get('For'):
                     self._data[idx]['For'] = info.get('For')
-                # Overwrite 'TDoc Status' if Agenda 'Result' exists (Agenda is usually more up-to-date)
-                if info.get('Result') and self._data[idx].get('TDoc Status', 'Unknown') in ['Unknown', '']:
+                if info.get('Result') and self._data[idx].get('TDoc Status', 'Unknown') in ['Unknown', '', '-', 'Not Handled']:
                     self._data[idx]['TDoc Status'] = info.get('Result')
 
             else:
@@ -254,13 +247,13 @@ class TDocsTableModel(QAbstractTableModel):
 
                 new_row = {
                     'TDoc': tdoc_id,
-                    'Title': info.get('Title', 'Unknown (Parsed from Agenda)'),
+                    'Title': info.get('Title') or 'Unknown (Parsed from Agenda)',
                     'Source': info.get('Source', ''),
                     'Secretary Remarks': remarks,
                     'Agenda Item': agenda_item,
-                    'Type': doc_type,
-                    'For': info.get('For', ''),  # Added
-                    'TDoc Status': info.get('Result', 'Unknown'),  # Added 'Result' mapping
+                    'Type': info.get('Type') or doc_type,
+                    'For': info.get('For', ''),
+                    'TDoc Status': info.get('Result', 'Unknown'),
                     'Is revision of': predecessor if predecessor else '',
                     'Revised to': '',
                     'Original LS': '',
