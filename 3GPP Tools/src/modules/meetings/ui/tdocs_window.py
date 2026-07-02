@@ -2,6 +2,7 @@
 import datetime
 import json
 import os
+import re
 import webbrowser
 from pathlib import Path
 
@@ -26,6 +27,13 @@ from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyMo
 from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu
 from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog, InteractiveNotesDialog, StatisticsSettingsDialog
 from modules.emails.ui.email_window import EmailManagerWindow
+
+
+def _open_folder(p: Path):
+    if p.exists():
+        os.startfile(str(p)) if hasattr(os, 'startfile') else webbrowser.open(f"file:///{p}")
+    else:
+        QMessageBox.warning(None, "Not Found", "Target file/folder does not exist yet.")
 
 
 class TDocsWindow(QWidget):
@@ -489,13 +497,13 @@ class TDocsWindow(QWidget):
             QMessageBox.warning(self, "Error", "Failed to parse TdocsByAgenda.htm.")
 
     def _open_meeting_folder(self):
-        __open_folder(self.meeting_dir)
+        _open_folder(self.meeting_dir)
 
     def _open_agenda_file(self):
-        __open_folder(self.meeting_dir / "Agenda" / "TdocsByAgenda.htm")
+        _open_folder(self.meeting_dir / "Agenda" / "TdocsByAgenda.htm")
 
     def _open_excel(self):
-        __open_folder(Path(self.filepath))
+        _open_folder(Path(self.filepath))
 
     def _open_email_manager(self):
         self.email_window = EmailManagerWindow(self.meeting_dir, {
@@ -519,9 +527,3 @@ class TDocsWindow(QWidget):
         QApplication.clipboard().setText("\n".join(lines));
         QToolTip.showText(QCursor.pos(), "📋 Copied to clipboard!", self.table)
 
-
-def __open_folder(p: Path):
-    if p.exists():
-        os.startfile(str(p)) if hasattr(os, 'startfile') else webbrowser.open(f"file:///{p}")
-    else:
-        QMessageBox.warning(None, "Not Found", "Target file/folder does not exist yet.")
