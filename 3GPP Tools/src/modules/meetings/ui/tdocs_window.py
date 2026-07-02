@@ -205,7 +205,7 @@ class TDocsWindow(QWidget):
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
-        self.status_combo = CheckableComboBox("Status")
+        self.status_combo = CheckableComboBox("TDoc Status") # <--- Renamed to TDoc Status
         self.status_combo.setMinimumWidth(150)
         unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in tdocs_data)))
         self.status_combo.addItems(unique_statuses)
@@ -262,6 +262,8 @@ class TDocsWindow(QWidget):
         self.html_delegate = HtmlDelegate(self.table)
         self.html_delegate.linkClicked.connect(self._scroll_to_tdoc)
         self.html_delegate.linkRightClicked.connect(self._show_related_menu)
+
+        self.table.setItemDelegateForColumn(7, self.html_delegate)  # <--- NEW! Apply to Secretary Remarks
         self.table.setItemDelegateForColumn(12, self.html_delegate)
 
         self.table.viewport().setMouseTracking(True)
@@ -692,7 +694,7 @@ class TDocsWindow(QWidget):
         if not index.isValid(): return
 
         col_name = self.model._headers[index.column()]
-        if col_name not in ["Secretary Remarks", "Title", "Source", "Abstract", "My Notes", "Status"]:
+        if col_name not in ["Secretary Remarks", "Title", "Source", "Abstract", "My Notes", "My Status"]:
             return
 
         source_idx = self.proxy.mapToSource(index)
@@ -721,7 +723,8 @@ class TDocsWindow(QWidget):
         status_combo.addItems(["⚪ Neutral", "🟢 Support", "🔴 Object", "🟡 Monitor"])
         status_combo.setStyleSheet("padding: 4px; border: 1px solid #CCC; background: white;")
 
-        curr_status = row_data.get("Status", "⚪ Neutral").replace("🔄 ", "").strip()
+        # Strip away the Ghost prefix if it's inherited so the dropdown selects cleanly
+        curr_status = row_data.get("My Status", "⚪ Neutral").replace("🔄 ", "").strip()
         status_combo.setCurrentText(
             curr_status if curr_status in ["⚪ Neutral", "🟢 Support", "🔴 Object", "🟡 Monitor"] else "⚪ Neutral")
 

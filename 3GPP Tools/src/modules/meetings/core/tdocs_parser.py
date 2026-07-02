@@ -136,6 +136,10 @@ class TDocsParser:
             title_idx = next((i for i, h in enumerate(headers) if 'title' in h), -1)
             source_idx = next((i for i, h in enumerate(headers) if 'source' in h), -1)
 
+            # ---> NEW: Find the "For" and "Result" columns
+            for_idx = next((i for i, h in enumerate(headers) if h == 'for' or 'doc for' in h), -1)
+            result_idx = next((i for i, h in enumerate(headers) if 'result' in h or 'status' in h), -1)
+
             if td_idx == -1:
                 if ui_logger: ui_logger.emit("❌ 'TD#' column missing in HTML table.", logging.ERROR)
                 return data
@@ -148,7 +152,6 @@ class TDocsParser:
                 if not tdoc_id or not tdoc_id.startswith(('S2-', 'R', 'C', 'S')):
                     continue
 
-                # ---> THE FIX: Change separator=' ' to separator='\\n' on these 4 lines
                 comments = cols[comments_idx].get_text(separator='\n', strip=True) if comments_idx != -1 and len(
                     cols) > comments_idx else ""
                 email_disc = cols[email_idx].get_text(separator='\n', strip=True) if email_idx != -1 and len(
@@ -158,6 +161,12 @@ class TDocsParser:
                 source = cols[source_idx].get_text(separator='\n', strip=True) if source_idx != -1 and len(
                     cols) > source_idx else ""
 
+                # ---> NEW: Extract data
+                doc_for = cols[for_idx].get_text(separator='\n', strip=True) if for_idx != -1 and len(
+                    cols) > for_idx else ""
+                result = cols[result_idx].get_text(separator='\n', strip=True) if result_idx != -1 and len(
+                    cols) > result_idx else ""
+
                 if ui_logger and (comments or email_disc):
                     ui_logger.emit(f"   ➔ Extracted agenda remarks for {tdoc_id}", logging.DEBUG)
 
@@ -165,7 +174,9 @@ class TDocsParser:
                     'Comments': comments,
                     'e-mail_Discussion': email_disc,
                     'Title': title,
-                    'Source': source
+                    'Source': source,
+                    'For': doc_for,  # Added
+                    'Result': result  # Added
                 }
 
             if ui_logger: ui_logger.emit(f"✅ Successfully parsed {len(data)} TDocs from Agenda HTML.", logging.INFO)
