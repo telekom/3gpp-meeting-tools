@@ -98,13 +98,26 @@ class StatisticsExporterThread(QThread):
                     x, y = pos[node]
                     node_x.append(x)
                     node_y.append(y)
-                    # Node size scales with the number of connections (degree)
+
+                    # Node size scales with the total number of unique partners
                     adj_size = len(list(G.neighbors(node))) * 3
                     node_size.append(max(10, min(adj_size, 50)))
-                    node_text.append(f"{node} (Connections: {len(list(G.neighbors(node)))})")
 
-                node_trace = go.Scatter(x=node_x, y=node_y, mode='markers+text', text=list(G.nodes()),
-                                        textposition="top center", hovertext=node_text, hoverinfo='text',
+                    # --- THE FIX: Detailed HTML Hover Tooltip with Connection Weights ---
+                    neighbors = list(G.neighbors(node))
+                    hover_info = f"<b>{node}</b><br>Total Co-signing Partners: {len(neighbors)}<br>---<br>"
+
+                    # Sort neighbors by weight descending so strongest alliances appear at the top
+                    neighbor_weights = [(n, G[node][n]['weight']) for n in neighbors]
+                    neighbor_weights.sort(key=lambda item: item[1], reverse=True)
+
+                    for neighbor, weight in neighbor_weights:
+                        hover_info += f"• {neighbor} ({weight} shared TDocs)<br>"
+
+                    node_text.append(hover_info)
+
+                node_trace = go.Scatter(x=node_x, y=node_y, mode='markers',
+                                        hovertext=node_text, hoverinfo='text',
                                         marker=dict(showscale=True, colorscale='YlGnBu', size=node_size,
                                                     color=node_size, line_width=2))
 
@@ -127,6 +140,7 @@ class StatisticsExporterThread(QThread):
             <!DOCTYPE html>
             <html>
             <head>
+                <meta charset="utf-8">
                 <title>3GPP Statistics - {meeting_name}</title>
                 <style>
                     body {{ font-family: 'Segoe UI', Arial, sans-serif; background-color: #FAFAFA; margin: 0; padding: 20px; }}
