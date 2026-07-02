@@ -148,13 +148,14 @@ class TDocsParser:
                 if not tdoc_id or not tdoc_id.startswith(('S2-', 'R', 'C', 'S')):
                     continue
 
-                comments = cols[comments_idx].get_text(separator=' ', strip=True) if comments_idx != -1 and len(
+                # ---> THE FIX: Change separator=' ' to separator='\\n' on these 4 lines
+                comments = cols[comments_idx].get_text(separator='\n', strip=True) if comments_idx != -1 and len(
                     cols) > comments_idx else ""
-                email_disc = cols[email_idx].get_text(separator=' ', strip=True) if email_idx != -1 and len(
+                email_disc = cols[email_idx].get_text(separator='\n', strip=True) if email_idx != -1 and len(
                     cols) > email_idx else ""
-                title = cols[title_idx].get_text(separator=' ', strip=True) if title_idx != -1 and len(
+                title = cols[title_idx].get_text(separator='\n', strip=True) if title_idx != -1 and len(
                     cols) > title_idx else ""
-                source = cols[source_idx].get_text(separator=' ', strip=True) if source_idx != -1 and len(
+                source = cols[source_idx].get_text(separator='\n', strip=True) if source_idx != -1 and len(
                     cols) > source_idx else ""
 
                 if ui_logger and (comments or email_disc):

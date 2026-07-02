@@ -9,7 +9,7 @@ from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QFrame,
-                             QPushButton, QMessageBox, QMenu, QApplication, QToolTip, QCheckBox)
+                             QPushButton, QMessageBox, QMenu, QApplication, QToolTip, QCheckBox, QTextEdit, QDialog)
 
 from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
@@ -241,9 +241,12 @@ class TDocsWindow(QWidget):
         self.proxy.setStatusFilters(unique_statuses)
 
         self.table.setModel(self.proxy)
-        self.table.setSelectionBehavior(QTableView.SelectItems)  # <--- Behavior!
-        self.table.setSelectionMode(QTableView.ExtendedSelection)  # <--- Mode!
+        self.table.setSelectionBehavior(QTableView.SelectItems)
+        self.table.setSelectionMode(QTableView.ExtendedSelection)
         self.table.setFocusPolicy(Qt.WheelFocus)
+
+        # ---> NEW: Trigger our popup when a cell is double-clicked
+        self.table.doubleClicked.connect(self._show_cell_popup)
 
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
@@ -741,3 +744,56 @@ class TDocsWindow(QWidget):
 
         # Show a quick tooltip confirming the copy at the mouse cursor
         QToolTip.showText(QCursor.pos(), "📋 Copied to clipboard!", self.table)
+
+    def _show_cell_popup(self, index):
+        """Shows a popup with the full text of the double-clicked cell."""
+        if not index.isValid(): return
+
+        # Extract the exact column name
+        col_name = self.model._headers[index.column()]
+
+        # We only want popups for columns that hold long text
+        if col_name not in ["Secretary Remarks", "Title", "Source", "Abstract"]:
+            return
+
+        # Use the hidden UserRole to grab the pristine, un-truncated text
+        full_text = str(index.data(Qt.UserRole) or "").strip()
+        if not full_text: return
+
+        # Build the Dialog window
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"📄 Viewing: {col_name}")
+        dialog.resize(600, 450)
+        dialog.setStyleSheet("QDialog { background-color: #FAFAFA; }")
+
+        layout = QVBoxLayout(dialog)
+
+        # A Read-Only Text editor so you can easily highlight/select specific words
+        text_edit = QTextEdit()
+        text_edit.setPlainText(full_text)
+        text_edit.setReadOnly(True)
+        text_edit.setStyleSheet("""
+            font-size: 13px; font-family: 'Segoe UI', Arial; 
+            padding: 10px; background-color: white; border: 1px solid #CCC;
+        """)
+        layout.addWidget(text_edit)
+
+        # Bottom Action Buttons
+        btn_layout = QHBoxLayout()
+
+        copy_btn = QPushButton("📋 Copy All")
+        copy_btn.setStyleSheet(
+            "padding: 6px 15px; font-weight: bold; background-color: #0078D7; color: white; border-radius: 4px;")
+        # Copies the text and gracefully closes the window so you can immediately paste it elsewhere
+        copy_btn.clicked.connect(lambda: [QApplication.clipboard().setText(full_text), dialog.accept()])
+
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet("padding: 6px 15px;")
+        close_btn.clicked.connect(dialog.accept)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        btn_layout.addWidget(copy_btn)
+        layout.addLayout(btn_layout)
+
+        dialog.exec_()
