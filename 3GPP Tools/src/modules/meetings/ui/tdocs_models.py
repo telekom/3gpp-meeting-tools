@@ -5,7 +5,6 @@ from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyM
 
 
 def natural_sort_key(s):
-    """Splits string into chunks of digits and non-digits for natural sorting."""
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
 
 
@@ -26,7 +25,6 @@ class TDocsTableModel(QAbstractTableModel):
         self._apply_user_data_logic()
 
     def _apply_user_data_logic(self):
-        """The 2-Pass Overlay Engine for User Notes and Status"""
         tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
 
         for row in self._data:
@@ -81,7 +79,6 @@ class TDocsTableModel(QAbstractTableModel):
             is_local = (tdoc in self.valid_tdocs) or (tdoc_upper in self.valid_tdocs)
 
             if not is_local:
-                # ---> THE FIX: Added re.IGNORECASE so it successfully matches 'R11' instead of just 'r11'
                 base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_upper, re.IGNORECASE)
                 if base_match:
                     base_tdoc = base_match.group(1)
@@ -213,7 +210,8 @@ class TDocsTableModel(QAbstractTableModel):
                     self._data[idx]['Source'] = info.get('Source')
                 if info.get('For') and not self._data[idx].get('For'):
                     self._data[idx]['For'] = info.get('For')
-                if info.get('Result') and self._data[idx].get('TDoc Status', 'Unknown') in ['Unknown', '', '-', 'Not Handled']:
+                if info.get('Result') and self._data[idx].get('TDoc Status', 'Unknown') in ['Unknown', '', '-',
+                                                                                            'Not Handled']:
                     self._data[idx]['TDoc Status'] = info.get('Result')
 
             else:
@@ -223,6 +221,10 @@ class TDocsTableModel(QAbstractTableModel):
                 doc_type = 'Revision'
                 predecessor = None
                 base_tdoc = None
+
+                abstract = ''
+                source = info.get('Source', '')
+                title = info.get('Title', '')
 
                 comment_match = re.search(r'(?:revision of|rev of)\s*(S2-\d{6,8}(?:r\d{1,2}[a-zA-Z]?)?)', remarks,
                                           re.IGNORECASE)
@@ -244,18 +246,33 @@ class TDocsTableModel(QAbstractTableModel):
                     except Exception:
                         pass
 
+                # ---> THE FIX: Robust, case-insensitive inheritance using a fuzzy lookup helper
                 if base_tdoc and base_tdoc in tdoc_dict:
-                    agenda_item = tdoc_dict[base_tdoc].get('Agenda Item', 'N/A')
-                    doc_type = tdoc_dict[base_tdoc].get('Type', 'TDoc')
+                    base_row = tdoc_dict[base_tdoc]
+
+                    def fuzzy_get(key):
+                        for k, v in base_row.items():
+                            if str(k).strip().lower() == key.lower():
+                                return str(v).strip() if v is not None else ''
+                        return ''
+
+                    agenda_item = fuzzy_get('Agenda Item') or 'N/A'
+                    doc_type = fuzzy_get('Type') or 'TDoc'
+                    abstract = fuzzy_get('Abstract')
+                    if not source:
+                        source = fuzzy_get('Source')
+                    if not title:
+                        title = fuzzy_get('Title')
 
                 new_row = {
                     'TDoc': tdoc_id,
-                    'Title': info.get('Title') or 'Unknown (Parsed from Agenda)',
-                    'Source': info.get('Source', ''),
+                    'Title': title if title else 'Unknown (Parsed from Agenda)',
+                    'Source': source,
                     'Secretary Remarks': remarks,
                     'Agenda Item': agenda_item,
                     'Type': info.get('Type') or doc_type,
                     'For': info.get('For', ''),
+                    'Abstract': abstract,
                     'TDoc Status': info.get('Result', 'Unknown'),
                     'Is revision of': predecessor if predecessor else '',
                     'Revised to': '',
