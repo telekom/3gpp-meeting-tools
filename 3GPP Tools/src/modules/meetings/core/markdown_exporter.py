@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.paths import get_project_root
+
 
 class MarkdownExporterThread(QThread):
     finished = pyqtSignal(bool, str)
@@ -16,25 +18,55 @@ class MarkdownExporterThread(QThread):
         self.docs_url = docs_url
         self.export_dir = self.meeting_dir / "Export"
 
-        # Load config
-        config_path = meeting_dir.parent.parent / "export_config.json"
+        config_path = get_project_root() / "export_config.json"
+
+        # Define the exact default configuration you provided
+        default_config = {
+            "columns_for_3gu_tdoc_export": ["TDoc", "Agenda Item", "Type", "For", "Title", "Source", "Abstract"],
+            "columns_for_3gu_tdoc_export_ls": ["TDoc", "Agenda Item", "Type", "For", "Title", "Source", "Abstract"],
+            "columns_for_3gu_tdoc_export_ls_out": ["Abstract", "TDoc", "Title", "Agenda Item", "Reply to"],
+            "columns_for_3gu_tdoc_export_pcr": ["TDoc", "Agenda Item", "Type", "For", "Title", "Source", "Abstract"],
+            "columns_for_3gu_tdoc_export_cr": ["TDoc", "Agenda Item", "Type", "For", "Title", "Source", "Abstract"],
+            "columns_for_3gu_tdoc_export_contributor": ["TDoc", "Title", "Source", "Agenda Item", "TDoc Status", "Spec",
+                                                        "CR category"],
+            "company_name_regex_for_report": "Deutsche Telekom"
+        }
+
         self.config = {}
-        if config_path.exists():
-            with open(config_path, "r", encoding="utf-8") as f:
-                self.config = json.load(f)
+
+        # Check if the file exists. If not, create it with the defaults.
+        if not config_path.exists():
+            try:
+                with open(config_path, "w", encoding="utf-8") as f:
+                    json.dump(default_config, f, indent=4)
+                self.config = default_config
+            except Exception as e:
+                print(f"Failed to create default config file: {e}")
+                self.config = default_config
+        else:
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    self.config = json.load(f)
+            except Exception as e:
+                print(f"Failed to load config, falling back to defaults: {e}")
+                self.config = default_config
 
     def run(self):
         try:
             self.export_dir.mkdir(parents=True, exist_ok=True)
 
-            # Load column configurations
-            cols_default = self.config.get("columns_for_3gu_tdoc_export",
-                                           ["TDoc", "Agenda Item", "Type", "Title", "Source"])
-            cols_ls_in = self.config.get("columns_for_3gu_tdoc_export_ls", cols_default)
-            cols_ls_out = self.config.get("columns_for_3gu_tdoc_export_ls_out", cols_default)
-            cols_pcr = self.config.get("columns_for_3gu_tdoc_export_pcr", cols_default)
-            cols_cr = self.config.get("columns_for_3gu_tdoc_export_cr", cols_default)
-            cols_company = self.config.get("columns_for_3gu_tdoc_export_contributor", cols_default)
+            # Load column configurations with fallbacks to the defaults
+            cols_ls_in = self.config.get("columns_for_3gu_tdoc_export_ls",
+                                         ["TDoc", "Agenda Item", "Type", "For", "Title", "Source", "Abstract"])
+            cols_ls_out = self.config.get("columns_for_3gu_tdoc_export_ls_out",
+                                          ["Abstract", "TDoc", "Title", "Agenda Item", "Reply to"])
+            cols_pcr = self.config.get("columns_for_3gu_tdoc_export_pcr",
+                                       ["TDoc", "Agenda Item", "Type", "For", "Title", "Source", "Abstract"])
+            cols_cr = self.config.get("columns_for_3gu_tdoc_export_cr",
+                                      ["TDoc", "Agenda Item", "Type", "For", "Title", "Source", "Abstract"])
+            cols_company = self.config.get("columns_for_3gu_tdoc_export_contributor",
+                                           ["TDoc", "Title", "Source", "Agenda Item", "TDoc Status", "Spec",
+                                            "CR category"])
             company_regex = self.config.get("company_name_regex_for_report", "Deutsche Telekom")
 
             ai_groups = {}
@@ -124,7 +156,7 @@ class MarkdownExporterThread(QThread):
             for col in columns:
                 val = str(d.get(col, '')).replace('\n', ' ').replace('\r', '').replace('|', '\\|')
 
-                # Render the TDoc URL hyperlink natively just like your example
+                # Render the TDoc URL hyperlink natively
                 if col == "TDoc" and val and self.docs_url:
                     base_url = self.docs_url.rstrip('/')
                     val = f"[{val}]({base_url}/{val}.zip)"
