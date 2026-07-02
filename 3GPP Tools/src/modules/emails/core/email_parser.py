@@ -2,8 +2,7 @@
 import re
 import logging
 from typing import Dict
-
-from core.config.source_companies import get_matching_contributors
+from modules.emails.core.contributor_names import get_matching_contributors
 
 
 class EmailParser:
