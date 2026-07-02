@@ -1,6 +1,6 @@
+# --- File: src/modules/meetings/ui/tdocs_models.py ---
 import re
 from pathlib import Path
-
 from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyModel
 
 
@@ -8,25 +8,58 @@ def natural_sort_key(s):
     """Splits string into chunks of digits and non-digits for natural sorting."""
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
 
+
 class TDocsTableModel(QAbstractTableModel):
-    def __init__(self, meeting_dir: Path, data=None):
+    def __init__(self, meeting_dir: Path, data=None, user_data=None):
         super().__init__()
         self.meeting_dir = meeting_dir
+        self.user_data = user_data or {}
         self._data = data or []
+
         self._headers = [
             "", "TDoc", "Title", "Source", "Type", "For",
-            "Abstract", "Secretary Remarks", "Agenda Item", "TDoc Status", "Related TDocs"
+            "Abstract", "Secretary Remarks", "Status", "My Notes", "Agenda Item", "TDoc Status", "Related TDocs"
         ]
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
         self.loading_tdocs = set()
-        self.revisions = {}  # Stores {base_tdoc: ["r01", "r02"]}
+        self.revisions = {}
+        self._apply_user_data_logic()
+
+    def _apply_user_data_logic(self):
+        """The 2-Pass Overlay Engine for User Notes and Status"""
+        tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
+
+        # PASS 1: Direct DB Overlay
+        for row in self._data:
+            tdoc = row.get('TDoc', '')
+            meta = self.user_data.get(tdoc, {})
+            row['Status'] = meta.get('status', '⚪ Neutral')
+            row['My Notes'] = meta.get('notes', '')
+
+        # PASS 2: Inheritance (Ghosting Parent data to Children)
+        for row in self._data:
+            if not row.get('My Notes') and row.get('Status') == '⚪ Neutral':
+                parent = row.get('Is revision of', '')
+                if parent and parent in tdoc_dict:
+                    parent_row = tdoc_dict[parent]
+                    p_status = parent_row.get('Status', '⚪ Neutral')
+                    p_notes = parent_row.get('My Notes', '')
+
+                    if p_status != '⚪ Neutral' or p_notes:
+                        row['Status'] = p_status
+                        row['My Notes'] = f"🔄 [From Base]: {p_notes}" if p_notes else "🔄 [From Base]"
+
+    def apply_user_data_refresh(self):
+        self.beginResetModel()
+        self._apply_user_data_logic()
+        self.endResetModel()
 
     def update_data(self, new_data):
         self.beginResetModel()
         self._data = new_data
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
         self.loading_tdocs.clear()
-        # Note: We specifically DO NOT clear self.revisions here so they persist during updates
+        self._apply_user_data_logic()
         self.endResetModel()
 
     def set_loading(self, tdoc: str, is_loading: bool):
@@ -47,14 +80,9 @@ class TDocsTableModel(QAbstractTableModel):
         def repl(match):
             tdoc = match.group(0)
             tdoc_upper = tdoc.upper()
-
-            # 1. Check if the exact string is in the meeting
             is_local = (tdoc in self.valid_tdocs) or (tdoc_upper in self.valid_tdocs)
 
-            # 2. If it's not, check if it's a revision string (e.g., S2-2606287R11)
-            # whose BASE TDoc (S2-2606287) belongs to this meeting!
             if not is_local:
-                import re
                 base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_upper)
                 if base_match:
                     base_tdoc = base_match.group(1)
@@ -62,13 +90,10 @@ class TDocsTableModel(QAbstractTableModel):
                         is_local = True
 
             if is_local:
-                # ---> Local TDoc (or local revision): Bold Blue
                 return f'<a href="{tdoc}" style="color: #005A9E; font-weight: bold; text-decoration: underline;">{tdoc}</a>'
             else:
-                # ---> External TDoc: Dark Orange
                 return f'<a href="{tdoc}" style="color: #D83B01; text-decoration: underline;">{tdoc}</a>'
 
-        # Safely capture TDocs and optional revision suffixes
         linked_text = re.sub(r'[a-zA-Z0-9]+-\d+(?:r\d+[a-zA-Z]?)?', repl, text, flags=re.IGNORECASE)
         return f"<span style='color: #444;'><b>{prefix}:</b></span> {linked_text}"
 
@@ -93,7 +118,6 @@ class TDocsTableModel(QAbstractTableModel):
                 zip_path = self.meeting_dir / tdoc / f"{tdoc}.zip"
                 return "EXISTS" if zip_path.exists() else "MISSING"
             if role == Qt.UserRole + 2:
-                # Indicates if revisions exist in memory for this TDoc
                 return len(self.revisions.get(row.get("TDoc", ""), [])) > 0
             return None
 
@@ -106,11 +130,10 @@ class TDocsTableModel(QAbstractTableModel):
             val = row.get(col_name, "")
             val_str = str(val).strip() if val is not None else ""
 
-            # ---> NEW: Replace Abstract text with an icon
-            if col_name == "Abstract":
-                return "📝" if val_str else ""
+            if col_name == "Abstract": return "📝" if val_str else ""
+            if col_name == "Status" and val_str == "⚪ Neutral": return ""
+            if col_name == "My Notes" and val_str: return "📓 Note"
 
-            # Keep the truncation logic for Secretary Remarks
             if col_name == "Secretary Remarks" and len(val_str) > 90:
                 return val_str.replace('\n', ' ').replace('\r', '')[:87] + "..."
             return val_str
@@ -124,18 +147,16 @@ class TDocsTableModel(QAbstractTableModel):
             val = row.get(col_name, "")
             val_str = str(val).strip() if val is not None else ""
 
-            if col_name in ["Abstract", "Secretary Remarks"] and val_str:
+            if col_name in ["Abstract", "Secretary Remarks", "My Notes"] and val_str:
                 return f"<div style='width: 400px; white-space: pre-wrap;'>{val_str}</div>"
             elif col_name in ["Title", "Source"] and len(val_str) > 30:
                 return val_str
             return None
 
         elif role == Qt.TextAlignmentRole:
-            # ---> UPDATE: Added "Abstract" to the list of centered columns
-            if col_name in ["TDoc", "Type", "For", "Abstract", "Agenda Item", "TDoc Status", "Related TDocs"]:
+            if col_name in ["TDoc", "Type", "For", "Abstract", "Status", "My Notes", "Agenda Item", "TDoc Status",
+                            "Related TDocs"]:
                 return Qt.AlignCenter
-
-            # Everything else stays left-aligned and vertically centered
             return Qt.AlignLeft | Qt.AlignVCenter
 
     def rowCount(self, index=QModelIndex()):
@@ -147,25 +168,22 @@ class TDocsTableModel(QAbstractTableModel):
     def headerData(self, section, orientation, role):
         if orientation == Qt.Horizontal:
             col_name = self._headers[section]
-
             if role == Qt.DisplayRole:
-                # Replace the wide word with a compact icon
-                return "📝" if col_name == "Abstract" else col_name
-
+                if col_name == "Abstract": return "📝"
+                if col_name == "My Notes": return "📓"
+                return col_name
             elif role == Qt.ToolTipRole:
-                # Add a tooltip to the header so users know what the icon means
-                return "Abstract" if col_name == "Abstract" else col_name
-
+                if col_name == "Abstract": return "Abstract"
+                if col_name == "My Notes": return "My Notes"
+                return col_name
         return None
 
     def merge_agenda_data(self, agenda_data: dict, ui_logger=None):
-        """Merges parsed HTML data into the existing Excel data set."""
         import logging
-        import re
         self.beginResetModel()
 
         existing_tdocs = {row.get('TDoc', ''): idx for idx, row in enumerate(self._data)}
-        tdoc_dict = {row.get('TDoc', ''): row for row in self._data}  # Build lookup early
+        tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
         new_rows = []
 
         for tdoc_id, info in agenda_data.items():
@@ -188,22 +206,18 @@ class TDocsTableModel(QAbstractTableModel):
                 if ui_logger: ui_logger.emit(f"✨ Injecting new on-the-fly TDoc: {tdoc_id}", logging.INFO)
 
                 agenda_item = 'N/A'
-                doc_type = 'Revision'  # Temporary default
+                doc_type = 'Revision'
                 predecessor = None
                 base_tdoc = None
 
-                # ---> CHECK 1: Explicit comment "Revision of S2-XXXXXXr11"
                 comment_match = re.search(r'(?:revision of|rev of)\s*(S2-\d{6,8}(?:r\d{1,2}[a-zA-Z]?)?)', remarks,
                                           re.IGNORECASE)
-
-                # ---> CHECK 2: Standard suffix (e.g. S2-260123r01)
                 id_match = re.search(r'^(.*?)-?(?:r|rev)(\d{1,2}[a-zA-Z]?)$', tdoc_id, re.IGNORECASE)
 
                 if comment_match:
                     predecessor = comment_match.group(1).upper()
                     base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', predecessor, re.IGNORECASE)
                     base_tdoc = base_match.group(1).upper() if base_match else predecessor
-
                 elif id_match:
                     base_tdoc = id_match.group(1).upper()
                     predecessor = base_tdoc
@@ -216,7 +230,6 @@ class TDocsTableModel(QAbstractTableModel):
                     except Exception:
                         pass
 
-                # If we found a base document, inherit its exact Agenda Item and Type!
                 if base_tdoc and base_tdoc in tdoc_dict:
                     agenda_item = tdoc_dict[base_tdoc].get('Agenda Item', 'N/A')
                     doc_type = tdoc_dict[base_tdoc].get('Type', 'TDoc')
@@ -238,10 +251,7 @@ class TDocsTableModel(QAbstractTableModel):
 
         if new_rows:
             self._data.extend(new_rows)
-            # Re-sort chronologically
             self._data.sort(key=lambda x: str(x.get('TDoc', '')))
-
-            # ---> UPDATE PREDECESSORS: Build relationships for the newly injected rows
             tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
 
             for new_row in new_rows:
@@ -249,8 +259,6 @@ class TDocsTableModel(QAbstractTableModel):
                 predecessor = new_row['Is revision of']
 
                 if predecessor:
-                    # ---> THE PHANTOM FIX: If the predecessor (e.g. S2-2606287r11) isn't a standalone row,
-                    # strip the 'r11' and link it to the BASE TDoc (S2-2606287) instead!
                     if predecessor not in tdoc_dict:
                         base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', predecessor, re.IGNORECASE)
                         if base_match:
@@ -258,7 +266,6 @@ class TDocsTableModel(QAbstractTableModel):
                             if base_tdoc in tdoc_dict:
                                 predecessor = base_tdoc
 
-                                # Update the predecessor bi-directionally
                     if predecessor in tdoc_dict:
                         curr_revs = str(tdoc_dict[predecessor].get('Revised to', '')).strip()
                         if tdoc_id not in curr_revs:
@@ -268,6 +275,7 @@ class TDocsTableModel(QAbstractTableModel):
                                 tdoc_dict[predecessor]['Revised to'] = tdoc_id
 
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
+        self._apply_user_data_logic()
         self.endResetModel()
 
 
@@ -303,32 +311,27 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
     def lessThan(self, left, right):
         left_data = self.sourceModel().data(left, Qt.UserRole + 2)
         right_data = self.sourceModel().data(right, Qt.UserRole + 2)
-
-        # Only apply natural sort to Agenda Items
         if self.sourceModel()._headers[left.column()] == "Agenda Item":
             return natural_sort_key(left_data) < natural_sort_key(right_data)
-
         return super().lessThan(left, right)
 
     def filterAcceptsRow(self, source_row, source_parent):
         model = self.sourceModel()
 
-        # ---> 1. Apply the 'No Comments' logic first for speed
         if self.filter_no_comments:
-            # Column 7 is "Secretary Remarks" in your headers list
             remarks = model.data(model.index(source_row, 7, source_parent), Qt.UserRole)
             if remarks and str(remarks).strip():
-                return False  # Exclude this row because it HAS comments
+                return False
 
-        # ---> 2. Standard categorical filters
+                # Adjusted Column Indexes for Filters
         if model.data(model.index(source_row, 4, source_parent), Qt.UserRole) not in self.type_filters: return False
-        if model.data(model.index(source_row, 8, source_parent), Qt.UserRole) not in self.ai_filters: return False
-        if model.data(model.index(source_row, 9, source_parent), Qt.UserRole) not in self.status_filters: return False
+        if model.data(model.index(source_row, 10, source_parent), Qt.UserRole) not in self.ai_filters: return False
+        if model.data(model.index(source_row, 11, source_parent), Qt.UserRole) not in self.status_filters: return False
 
-        # ---> 3. Global Text Search
         if self.global_filter:
             match_found = False
-            for col in [1, 2, 3, 6, 10]:
+            # Search TDoc, Title, Source, Abstract, Secretary Remarks, My Notes, Related TDocs
+            for col in [1, 2, 3, 6, 7, 9, 12]:
                 data = model.data(model.index(source_row, col, source_parent), Qt.UserRole)
                 if data and self.global_filter in str(data).lower():
                     match_found = True
