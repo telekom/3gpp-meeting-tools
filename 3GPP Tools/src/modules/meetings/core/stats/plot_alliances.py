@@ -1,6 +1,5 @@
 # --- File: src/modules/meetings/core/stats/plot_alliances.py ---
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import networkx as nx
 import textwrap
@@ -88,13 +87,13 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         traces.append(go.Scatter(
             x=mid_x, y=mid_y, mode='markers',
             hovertext=mid_text,
-            hovertemplate="%{hovertext}<extra></extra>", # Explicitly enforce template
-            marker=dict(size=14, color='rgba(0,0,0,0)', line=dict(width=0)), 
+            hovertemplate="%{hovertext}<extra></extra>",
+            marker=dict(size=14, color='rgba(255,255,255,0.01)', line=dict(width=0)),
             showlegend=False, name="Connections"
         ))
 
         # Visual Nodes
-        node_x, node_y, node_text, node_size, node_color, custom_data = [], [], [], [], [], []
+        node_x, node_y, node_text, node_size, node_color = [], [], [], [], []
         for node in G.nodes():
             x, y = pos[node]
             node_x.append(x)
@@ -107,7 +106,6 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
             node_color.append(cluster_color_map[c_name])
 
             neighbors = list(G.neighbors(node))
-            custom_data.append(neighbors)
 
             hover_info = f"<b>{node}</b><br>Faction: {c_name}<br>Partners: {len(neighbors)}<br><br><b>Top Partners:</b><br>"
             neighbor_weights = [(n, G[node][n]['weight']) for n in neighbors]
@@ -119,14 +117,15 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
 
             node_text.append(hover_info)
 
-        node_trace = go.Scatter(x=node_x, y=node_y, mode='markers+text', text=list(G.nodes()),
-                                textposition="top center",
-                                hovertext=node_text,
-                                hovertemplate="%{hovertext}<extra></extra>", # Explicitly enforce template
-                                customdata=custom_data, name="Companies",
-                                marker=dict(showscale=False, size=node_size, color=node_color,
-                                            line_width=1, line_color='#fff'))
-        traces.append(node_trace)
+        traces.append(go.Scatter(
+            x=node_x, y=node_y, mode='markers+text', text=list(G.nodes()),
+            textposition="top center",
+            hovertext=node_text,
+            hovertemplate="%{hovertext}<extra></extra>",
+            name="Companies",
+            marker=dict(showscale=False, size=node_size, color=node_color,
+                        line_width=1, line_color='#fff')
+        ))
 
         fig_net = go.Figure(data=traces,
                             layout=go.Layout(title=f'Strategic Co-Signing Alliances (Threshold >= {threshold})',
@@ -136,7 +135,9 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
                                              yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
 
         fig_net.write_html(str(export_dir / "Stat_Network_Alliances.html"))
-        html_net = fig_net.to_html(full_html=False, include_plotlyjs=False, div_id="network_graph",
+
+        # FIXED: Changed div_id to automatically detach the broken Javascript
+        html_net = fig_net.to_html(full_html=False, include_plotlyjs=False, div_id="alliance_network_graph",
                                    default_height="100%", default_width="100%")
 
         # --- 2. Calculate Cohesion & Contributions ---
@@ -163,45 +164,57 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
             plot_data.append({
                 'Faction': c_name,
                 'Contributions': count,
-                'Members': members_str, 
+                'Members': members_str,
                 'Member Count': len(members_list),
                 'Cohesion Score': round(cohesion_score, 2)
             })
 
         contribs_df = pd.DataFrame(plot_data)
 
-        # --- 3. Contributions Bar Chart ---
-        # FIXED: Pass custom_data natively so Plotly Express maps the dimensions correctly
-        fig_contribs = px.bar(contribs_df.sort_values('Contributions', ascending=True),
-                              x='Contributions', y='Faction', orientation='h',
-                              title="Total TDoc Contributions per Faction (Louvain method)", color='Faction',
-                              color_discrete_map=cluster_color_map,
-                              custom_data=['Members']) 
+        # --- 3. Contributions Bar Chart (Direct go.Bar) ---
+        contribs_df = contribs_df.sort_values('Contributions', ascending=True)
+        bar_colors = [cluster_color_map[f] for f in contribs_df['Faction']]
 
-        fig_contribs.update_traces(
-            hovertemplate="<b>%{y}</b><br>Contributions: %{x}<br><br><b>Members:</b><br>%{customdata[0]}<extra></extra>"
-        )
-        fig_contribs.update_layout(showlegend=False)
+        fig_contribs = go.Figure(go.Bar(
+            x=contribs_df['Contributions'],
+            y=contribs_df['Faction'],
+            orientation='h',
+            marker=dict(color=bar_colors),
+            hovertext=contribs_df['Members'],
+            hovertemplate="<b>%{y}</b><br>Contributions: %{x}<br><br><b>Members:</b><br>%{hovertext}<extra></extra>"
+        ))
+
+        fig_contribs.update_layout(title="Total TDoc Contributions per Faction (Louvain method)", showlegend=False)
         fig_contribs.write_html(str(export_dir / "Stat_Faction_Contributions.html"))
         html_cluster_contribs = fig_contribs.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
                                                      default_width="100%")
 
-        # --- 4. Cohesion Bubble Chart ---
+        # --- 4. Cohesion Bubble Chart (Direct go.Scatter) ---
         bubble_df = contribs_df[contribs_df['Contributions'] > 0].copy()
+        bubble_colors = [cluster_color_map[f] for f in bubble_df['Faction']]
+        max_contrib = bubble_df['Contributions'].max() if not bubble_df.empty else 1
 
-        # FIXED: Pass custom_data natively so Plotly Express maps the dimensions correctly
-        fig_cohesion = px.scatter(bubble_df, x='Member Count', y='Cohesion Score', size='Contributions',
-                                  color='Faction', hover_name='Faction',
-                                  title="Faction Cohesion vs. Size (Bubble = Output Volume)",
-                                  color_discrete_map=cluster_color_map,
-                                  custom_data=['Members'])
+        fig_cohesion = go.Figure(go.Scatter(
+            x=bubble_df['Member Count'],
+            y=bubble_df['Cohesion Score'],
+            mode='markers',
+            text=bubble_df['Faction'],
+            hovertext=bubble_df['Members'],
+            marker=dict(
+                size=bubble_df['Contributions'],
+                sizemode='area',
+                sizeref=2.0 * max_contrib / (50.0 ** 2) if max_contrib > 0 else 1,
+                sizemin=8,
+                color=bubble_colors,
+                line=dict(width=1, color='#fff')
+            ),
+            hovertemplate="<b>%{text}</b><br>Faction Size: %{x} Companies<br>Internal Cohesion Density: %{y}<br><br><b>Members:</b><br>%{hovertext}<extra></extra>"
+        ))
 
-        fig_cohesion.update_traces(
-            hovertemplate="<b>%{hovertext}</b><br>Faction Size: %{x} Companies<br>Internal Cohesion Density: %{y}<br><br><b>Members:</b><br>%{customdata[0]}<extra></extra>"
-        )
-        fig_cohesion.update_layout(showlegend=False)
+        fig_cohesion.update_layout(title="Faction Cohesion vs. Size (Bubble = Output Volume)", showlegend=False)
         fig_cohesion.write_html(str(export_dir / "Stat_Faction_Cohesion.html"))
         html_cohesion_plot = fig_cohesion.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
                                                   default_width="100%")
 
     return html_net, html_cluster_contribs, html_cohesion_plot, html_faction_list
+
