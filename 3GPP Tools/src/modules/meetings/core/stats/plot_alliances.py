@@ -167,8 +167,10 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
                 'Cohesion Score': round(cohesion_score, 2)
             })
 
+        contribs_df = pd.DataFrame(plot_data)
+
         # --- 3. Contributions Bar Chart (Direct go.Bar) ---
-        contribs_df = pd.DataFrame(plot_data).sort_values('Contributions', ascending=True)
+        contribs_df = contribs_df.sort_values('Contributions', ascending=True)
         bar_colors = [cluster_color_map[f] for f in contribs_df['Faction']]
 
         fig_contribs = go.Figure(go.Bar(
@@ -218,3 +220,4 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
                                                   default_width="100%")
 
     return html_net, html_cluster_contribs, html_cohesion_plot, html_faction_list
+

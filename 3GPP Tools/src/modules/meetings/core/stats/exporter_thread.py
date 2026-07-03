@@ -64,6 +64,8 @@ class StatisticsExporterThread(QThread):
             <head>
                 <meta charset="utf-8">
                 <title>3GPP Statistics - __MEETING_NAME__</title>
+                <!-- LOAD PLOTLY GLOBALLY TO PREVENT TIMING ISSUES -->
+                <script src="[https://cdn.plot.ly/plotly-2.27.0.min.js](https://cdn.plot.ly/plotly-2.27.0.min.js)"></script>
                 <style>
                     body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #FAFAFA; margin: 0; padding: 20px; }
                     h1 { color: #333; text-align: center; margin-bottom: 30px; }
@@ -94,19 +96,20 @@ class StatisticsExporterThread(QThread):
                     .faction-box h4 { margin: 0 0 8px 0; color: #333; font-size: 15px; }
                     .faction-box p { margin: 0; font-size: 13px; color: #555; line-height: 1.5; }
 
-                    .info-title-container { position: absolute; top: 15px; left: 15px; z-index: 50; }
-                    .tooltip { position: relative; display: inline-block; cursor: help; color: #005A9E; font-size: 16px; margin-left: 8px; }
-                    .tooltip .tooltip-text {
+                    /* FIXED: Renamed classes to prevent Plotly collisions & added pointer-events filtering */
+                    .info-title-container { position: absolute; top: 15px; left: 15px; z-index: 50; pointer-events: none; }
+                    .custom-tooltip { pointer-events: auto; position: relative; display: inline-block; cursor: help; color: #005A9E; font-size: 16px; margin-left: 8px; }
+                    .custom-tooltip .custom-tooltip-text {
                         visibility: hidden; width: 320px; background-color: #333; color: #fff; 
                         text-align: left; border-radius: 6px; padding: 15px; font-size: 13px; font-weight: normal;
                         position: absolute; z-index: 1000; bottom: 125%; left: -10px; 
                         opacity: 0; transition: opacity 0.3s; box-shadow: 0 4px 8px rgba(0,0,0,0.2); line-height: 1.4;
                     }
-                    .tooltip .tooltip-text::after {
+                    .custom-tooltip .custom-tooltip-text::after {
                         content: ""; position: absolute; top: 100%; left: 15px; 
                         border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent;
                     }
-                    .tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+                    .custom-tooltip:hover .custom-tooltip-text { visibility: visible; opacity: 1; }
                 </style>
                 <script>
                     function toggleFullscreen(btn) {
@@ -132,8 +135,8 @@ class StatisticsExporterThread(QThread):
                 <div class="grid-container">
                     <div class="chart-card">
                         <div class="info-title-container">
-                            <span class="tooltip">ⓘ
-                                <span class="tooltip-text">
+                            <span class="custom-tooltip">ⓘ
+                                <span class="custom-tooltip-text">
                                     <b>Agenda Items by Volume:</b> Displays the top topics based on the sheer number of submitted documents. This helps identify where the majority of the working group's effort and debate is currently focused.
                                 </span>
                             </span>
@@ -144,8 +147,8 @@ class StatisticsExporterThread(QThread):
 
                     <div class="chart-card">
                         <div class="info-title-container">
-                            <span class="tooltip">ⓘ
-                                <span class="tooltip-text">
+                            <span class="custom-tooltip">ⓘ
+                                <span class="custom-tooltip-text">
                                     <b>TDoc Outcomes:</b> A breakdown of the final decisions made on the submitted documents (e.g., Agreed, Revised, Noted). Note that 'Withdrawn' documents are explicitly excluded from this dataset.
                                 </span>
                             </span>
@@ -156,8 +159,8 @@ class StatisticsExporterThread(QThread):
 
                     <div class="chart-card" style="grid-column: 1 / -1; height: 600px;">
                         <div class="info-title-container">
-                            <span class="tooltip">ⓘ
-                                <span class="tooltip-text">
+                            <span class="custom-tooltip">ⓘ
+                                <span class="custom-tooltip-text">
                                     <b>Top Contributors:</b> Ranks the most active companies based on the total number of documents they have either authored or co-signed in this meeting.
                                 </span>
                             </span>
@@ -168,8 +171,8 @@ class StatisticsExporterThread(QThread):
 
                     <div class="chart-card" style="grid-column: 1 / -1; height: 750px;">
                         <div class="info-title-container">
-                            <span class="tooltip">ⓘ
-                                <span class="tooltip-text">
+                            <span class="custom-tooltip">ⓘ
+                                <span class="custom-tooltip-text">
                                     <b>Strategic Alliances:</b> Visualizes the collaboration network. Each node represents a company. The lines connecting them represent co-signed documents. Thicker lines indicate a stronger alliance with a higher volume of shared documents.
                                 </span>
                             </span>
@@ -180,8 +183,8 @@ class StatisticsExporterThread(QThread):
 
                     <div class="chart-card" style="height: 450px;">
                         <div class="info-title-container">
-                            <span class="tooltip">ⓘ
-                                <span class="tooltip-text">
+                            <span class="custom-tooltip">ⓘ
+                                <span class="custom-tooltip-text">
                                     <b>Louvain Method:</b> A mathematical algorithm that automatically discovers distinct "communities" or "factions" within a network by finding groups of companies that co-sign with each other significantly more often than they co-sign with outsiders.
                                 </span>
                             </span>
@@ -192,8 +195,8 @@ class StatisticsExporterThread(QThread):
 
                     <div class="chart-card" style="height: 450px;">
                         <div class="info-title-container">
-                            <span class="tooltip">ⓘ
-                                <span class="tooltip-text">
+                            <span class="custom-tooltip">ⓘ
+                                <span class="custom-tooltip-text">
                                     <b>Cohesion Score (Network Density):</b> Measures how tightly-knit a faction is on a scale of 0 to 1.<br><br>It is calculated by dividing the actual number of co-signs within the faction by the maximum possible number of co-signs (if every single member explicitly partnered with every other member). A higher score means strong, uniform coordination.
                                 </span>
                             </span>
@@ -206,7 +209,6 @@ class StatisticsExporterThread(QThread):
                         __HTML_FACTION_LIST__
                     </div>
                 </div>
-
             </body>
             </html>
             """
