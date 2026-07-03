@@ -94,17 +94,17 @@ class StatisticsExporterThread(QThread):
                     .faction-box h4 { margin: 0 0 8px 0; color: #333; font-size: 15px; }
                     .faction-box p { margin: 0; font-size: 13px; color: #555; line-height: 1.5; }
 
-                    /* NEW: CSS Tooltip Styling */
+                    /* FIXED: CSS Tooltip Styling */
                     .info-title-container { position: absolute; top: 15px; left: 15px; z-index: 50; }
                     .tooltip { position: relative; display: inline-block; cursor: help; color: #005A9E; font-size: 16px; margin-left: 8px; }
                     .tooltip .tooltip-text {
                         visibility: hidden; width: 320px; background-color: #333; color: #fff; 
                         text-align: left; border-radius: 6px; padding: 15px; font-size: 13px; font-weight: normal;
-                        position: absolute; z-index: 1000; bottom: 125%; left: 50%; margin-left: -160px;
+                        position: absolute; z-index: 1000; bottom: 125%; left: -10px; /* Anchors the box to the left */
                         opacity: 0; transition: opacity 0.3s; box-shadow: 0 4px 8px rgba(0,0,0,0.2); line-height: 1.4;
                     }
                     .tooltip .tooltip-text::after {
-                        content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px;
+                        content: ""; position: absolute; top: 100%; left: 15px; /* Moves arrow left to point at icon */
                         border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent;
                     }
                     .tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
