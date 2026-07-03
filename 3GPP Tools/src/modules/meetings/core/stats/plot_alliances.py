@@ -64,7 +64,7 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         max_weight = max([data['weight'] for u, v, data in G.edges(data=True)]) if G.edges else 1
         edge_weights = set([data['weight'] for u, v, data in G.edges(data=True)])
 
-        # Visual Lines (No hovers on the lines themselves to prevent jitter)
+        # Visual Lines
         for weight in edge_weights:
             edge_x, edge_y = [], []
             for u, v, data in G.edges(data=True):
@@ -88,8 +88,8 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         traces.append(go.Scatter(
             x=mid_x, y=mid_y, mode='markers',
             hovertext=mid_text,
-            hovertemplate="%{hovertext}<extra></extra>",
-            marker=dict(size=12, color='rgba(0,0,0,0)'),  # Invisible but large enough to hit
+            hovertemplate="%{hovertext}<extra></extra>", # Explicitly enforce template
+            marker=dict(size=14, color='rgba(0,0,0,0)', line=dict(width=0)), 
             showlegend=False, name="Connections"
         ))
 
@@ -122,7 +122,7 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         node_trace = go.Scatter(x=node_x, y=node_y, mode='markers+text', text=list(G.nodes()),
                                 textposition="top center",
                                 hovertext=node_text,
-                                hovertemplate="%{hovertext}<extra></extra>",
+                                hovertemplate="%{hovertext}<extra></extra>", # Explicitly enforce template
                                 customdata=custom_data, name="Companies",
                                 marker=dict(showscale=False, size=node_size, color=node_color,
                                             line_width=1, line_color='#fff'))
@@ -163,7 +163,7 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
             plot_data.append({
                 'Faction': c_name,
                 'Contributions': count,
-                'Members String': members_str,
+                'Members': members_str, 
                 'Member Count': len(members_list),
                 'Cohesion Score': round(cohesion_score, 2)
             })
@@ -171,14 +171,13 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         contribs_df = pd.DataFrame(plot_data)
 
         # --- 3. Contributions Bar Chart ---
-        # FIXED: custom_data explicitly defined in the constructor so Plotly Express splits it correctly
+        # FIXED: Pass custom_data natively so Plotly Express maps the dimensions correctly
         fig_contribs = px.bar(contribs_df.sort_values('Contributions', ascending=True),
                               x='Contributions', y='Faction', orientation='h',
                               title="Total TDoc Contributions per Faction (Louvain method)", color='Faction',
                               color_discrete_map=cluster_color_map,
-                              custom_data=['Members String'])
+                              custom_data=['Members']) 
 
-        # FIXED: Removed the customdata overwrite to avoid length mismatch
         fig_contribs.update_traces(
             hovertemplate="<b>%{y}</b><br>Contributions: %{x}<br><br><b>Members:</b><br>%{customdata[0]}<extra></extra>"
         )
@@ -190,14 +189,13 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         # --- 4. Cohesion Bubble Chart ---
         bubble_df = contribs_df[contribs_df['Contributions'] > 0].copy()
 
-        # FIXED: custom_data explicitly defined in the constructor so Plotly Express splits it correctly
+        # FIXED: Pass custom_data natively so Plotly Express maps the dimensions correctly
         fig_cohesion = px.scatter(bubble_df, x='Member Count', y='Cohesion Score', size='Contributions',
                                   color='Faction', hover_name='Faction',
                                   title="Faction Cohesion vs. Size (Bubble = Output Volume)",
                                   color_discrete_map=cluster_color_map,
-                                  custom_data=['Members String'])
+                                  custom_data=['Members'])
 
-        # FIXED: Removed the customdata overwrite to avoid length mismatch
         fig_cohesion.update_traces(
             hovertemplate="<b>%{hovertext}</b><br>Faction Size: %{x} Companies<br>Internal Cohesion Density: %{y}<br><br><b>Members:</b><br>%{customdata[0]}<extra></extra>"
         )

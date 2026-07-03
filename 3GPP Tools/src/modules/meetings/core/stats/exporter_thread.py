@@ -207,43 +207,6 @@ class StatisticsExporterThread(QThread):
                     </div>
                 </div>
 
-                <script>
-                    setTimeout(() => {
-                        const myPlot = document.getElementById('network_graph');
-                        if(!myPlot) return;
-
-                        myPlot.on('plotly_hover', function(data){
-                            const nodeTraceNum = myPlot.data.length - 1; 
-                            const hoverCurve = data.points[0].curveNumber;
-
-                            if(hoverCurve === nodeTraceNum) {
-                                const pointIndex = data.points[0].pointIndex;
-                                const neighbors = data.points[0].customdata; 
-                                const nodeNames = myPlot.data[nodeTraceNum].text; 
-
-                                let nodeOpacities = new Array(nodeNames.length).fill(0.1);
-                                nodeOpacities[pointIndex] = 1.0; 
-
-                                if(neighbors) {
-                                    neighbors.forEach(neighbor => {
-                                        const nIdx = nodeNames.indexOf(neighbor);
-                                        if(nIdx > -1) nodeOpacities[nIdx] = 1.0;
-                                    });
-                                }
-
-                                Plotly.restyle(myPlot, {'marker.opacity': [nodeOpacities]}, [nodeTraceNum]);
-                            }
-                        });
-
-                        myPlot.on('plotly_unhover', function(data){
-                            const nodeTraceNum = myPlot.data.length - 1;
-                            const hoverCurve = data.points[0].curveNumber;
-                            if(hoverCurve === nodeTraceNum) {
-                                Plotly.restyle(myPlot, {'marker.opacity': 1.0}, [nodeTraceNum]);
-                            }
-                        });
-                    }, 2000);
-                </script>
             </body>
             </html>
             """
