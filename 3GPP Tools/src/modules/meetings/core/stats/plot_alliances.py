@@ -64,6 +64,7 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         max_weight = max([data['weight'] for u, v, data in G.edges(data=True)]) if G.edges else 1
         edge_weights = set([data['weight'] for u, v, data in G.edges(data=True)])
 
+        # Visual Lines
         for weight in edge_weights:
             edge_x, edge_y = [], []
             for u, v, data in G.edges(data=True):
@@ -75,6 +76,7 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
             traces.append(go.Scatter(x=edge_x, y=edge_y, line=dict(width=calc_width, color='#999'),
                                      hoverinfo='none', mode='lines', opacity=0.6))
 
+        # Invisible Midpoints (Hitboxes for Edge Hovertext)
         mid_x, mid_y, mid_text = [], [], []
         for u, v, data in G.edges(data=True):
             x0, y0 = pos[u]
@@ -83,10 +85,15 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
             mid_y.append((y0 + y1) / 2)
             mid_text.append(f"<b>{u}</b> 🤝 <b>{v}</b><br>Shared TDocs: {data['weight']}")
 
-        traces.append(go.Scatter(x=mid_x, y=mid_y, mode='markers', hoverinfo='text', hovertext=mid_text,
-                                 marker=dict(size=0.1, color='rgba(0,0,0,0)'), showlegend=False, name="Connections"
-                                 ))
+        traces.append(go.Scatter(
+            x=mid_x, y=mid_y, mode='markers',
+            hoverinfo='text', hovertext=mid_text,
+            # FIXED: Increased size to 12 for a better mouse hitbox, but kept opacity at 0
+            marker=dict(size=12, color='rgba(0,0,0,0)'),
+            showlegend=False, name="Connections"
+        ))
 
+        # Visual Nodes
         node_x, node_y, node_text, node_size, node_color, custom_data = [], [], [], [], [], []
         for node in G.nodes():
             x, y = pos[node]
@@ -102,7 +109,7 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
             neighbors = list(G.neighbors(node))
             custom_data.append(neighbors)
 
-            hover_info = f"<b>{node}</b><br>Faction: {c_name}<br>Partners: {len(neighbors)}<br>---<br>"
+            hover_info = f"<b>{node}</b><br>Faction: {c_name}<br>Partners: {len(neighbors)}<br><br><b>Top Partners:</b><br>"
             neighbor_weights = [(n, G[node][n]['weight']) for n in neighbors]
             neighbor_weights.sort(key=lambda item: item[1], reverse=True)
 
@@ -113,7 +120,8 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
             node_text.append(hover_info)
 
         node_trace = go.Scatter(x=node_x, y=node_y, mode='markers+text', text=list(G.nodes()),
-                                textposition="top center", hovertext=node_text, hoverinfo='text',
+                                textposition="top center",
+                                hoverinfo='text', hovertext=node_text,  # FIXED: Enforced text hover
                                 customdata=custom_data, name="Companies",
                                 marker=dict(showscale=False, size=node_size, color=node_color,
                                             line_width=1, line_color='#fff'))
@@ -144,12 +152,8 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         for c_name, count in cluster_tdoc_counts.items():
             members_list = faction_members_dict.get(c_name, [])
 
-            # --- COHESION MATH ---
-            # Isolate the graph strictly to members of this faction
             subgraph = G.subgraph(members_list)
-            # Sum up all internal co-sign weights
             internal_weight = sum([data['weight'] for u, v, data in subgraph.edges(data=True)])
-            # Calculate total possible connections
             possible_edges = (len(members_list) * (len(members_list) - 1)) / 2
 
             cohesion_score = internal_weight / possible_edges if possible_edges > 0 else 0
@@ -169,9 +173,11 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         fig_contribs = px.bar(contribs_df.sort_values('Contributions', ascending=True),
                               x='Contributions', y='Faction', orientation='h',
                               title="Total TDoc Contributions per Faction (Louvain method)", color='Faction',
-                              color_discrete_map=cluster_color_map,
-                              custom_data=['Members String'])
+                              color_discrete_map=cluster_color_map)
+
+        # FIXED: Explicitly bind the customdata array
         fig_contribs.update_traces(
+            customdata=contribs_df.sort_values('Contributions', ascending=True)[['Members String']],
             hovertemplate="<b>%{y}</b><br>Contributions: %{x}<br><br><b>Members:</b><br>%{customdata[0]}<extra></extra>"
         )
         fig_contribs.update_layout(showlegend=False)
@@ -179,16 +185,16 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         html_cluster_contribs = fig_contribs.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
                                                      default_width="100%")
 
-        # --- 4. NEW: Cohesion Bubble Chart ---
-        # Ensure we filter out clusters with 0 contributions for cleaner sizing
-        bubble_df = contribs_df[contribs_df['Contributions'] > 0]
+        # --- 4. Cohesion Bubble Chart ---
+        bubble_df = contribs_df[contribs_df['Contributions'] > 0].copy()
         fig_cohesion = px.scatter(bubble_df, x='Member Count', y='Cohesion Score', size='Contributions',
                                   color='Faction', hover_name='Faction',
                                   title="Faction Cohesion vs. Size (Bubble = Output Volume)",
-                                  color_discrete_map=cluster_color_map,
-                                  custom_data=['Members String'])
+                                  color_discrete_map=cluster_color_map)
 
+        # FIXED: Explicitly bind the customdata array
         fig_cohesion.update_traces(
+            customdata=bubble_df[['Members String']],
             hovertemplate="<b>%{hovertext}</b><br>Faction Size: %{x} Companies<br>Internal Cohesion Density: %{y}<br><br><b>Members:</b><br>%{customdata[0]}<extra></extra>"
         )
         fig_cohesion.update_layout(showlegend=False)
