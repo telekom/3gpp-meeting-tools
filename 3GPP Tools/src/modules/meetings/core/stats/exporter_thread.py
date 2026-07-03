@@ -94,17 +94,16 @@ class StatisticsExporterThread(QThread):
                     .faction-box h4 { margin: 0 0 8px 0; color: #333; font-size: 15px; }
                     .faction-box p { margin: 0; font-size: 13px; color: #555; line-height: 1.5; }
 
-                    /* FIXED: CSS Tooltip Styling */
                     .info-title-container { position: absolute; top: 15px; left: 15px; z-index: 50; }
                     .tooltip { position: relative; display: inline-block; cursor: help; color: #005A9E; font-size: 16px; margin-left: 8px; }
                     .tooltip .tooltip-text {
                         visibility: hidden; width: 320px; background-color: #333; color: #fff; 
                         text-align: left; border-radius: 6px; padding: 15px; font-size: 13px; font-weight: normal;
-                        position: absolute; z-index: 1000; bottom: 125%; left: -10px; /* Anchors the box to the left */
+                        position: absolute; z-index: 1000; bottom: 125%; left: -10px; 
                         opacity: 0; transition: opacity 0.3s; box-shadow: 0 4px 8px rgba(0,0,0,0.2); line-height: 1.4;
                     }
                     .tooltip .tooltip-text::after {
-                        content: ""; position: absolute; top: 100%; left: 15px; /* Moves arrow left to point at icon */
+                        content: ""; position: absolute; top: 100%; left: 15px; 
                         border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent;
                     }
                     .tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
@@ -132,23 +131,53 @@ class StatisticsExporterThread(QThread):
 
                 <div class="grid-container">
                     <div class="chart-card">
+                        <div class="info-title-container">
+                            <span class="tooltip">ⓘ
+                                <span class="tooltip-text">
+                                    <b>Agenda Items by Volume:</b> Displays the top topics based on the sheer number of submitted documents. This helps identify where the majority of the working group's effort and debate is currently focused.
+                                </span>
+                            </span>
+                        </div>
                         <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
                         __HTML_AI__
                     </div>
+
                     <div class="chart-card">
+                        <div class="info-title-container">
+                            <span class="tooltip">ⓘ
+                                <span class="tooltip-text">
+                                    <b>TDoc Outcomes:</b> A breakdown of the final decisions made on the submitted documents (e.g., Agreed, Revised, Noted). Note that 'Withdrawn' documents are explicitly excluded from this dataset.
+                                </span>
+                            </span>
+                        </div>
                         <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
                         __HTML_STATUS__
                     </div>
+
                     <div class="chart-card" style="grid-column: 1 / -1; height: 600px;">
+                        <div class="info-title-container">
+                            <span class="tooltip">ⓘ
+                                <span class="tooltip-text">
+                                    <b>Top Contributors:</b> Ranks the most active companies based on the total number of documents they have either authored or co-signed in this meeting.
+                                </span>
+                            </span>
+                        </div>
                         <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
                         __HTML_COMP__
                     </div>
+
                     <div class="chart-card" style="grid-column: 1 / -1; height: 750px;">
+                        <div class="info-title-container">
+                            <span class="tooltip">ⓘ
+                                <span class="tooltip-text">
+                                    <b>Strategic Alliances:</b> Visualizes the collaboration network. Each node represents a company. The lines connecting them represent co-signed documents. Thicker lines indicate a stronger alliance with a higher volume of shared documents.
+                                </span>
+                            </span>
+                        </div>
                         <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
                         __HTML_NET__
                     </div>
 
-                    <!-- Chart Cards with injected Info Tooltips -->
                     <div class="chart-card" style="height: 450px;">
                         <div class="info-title-container">
                             <span class="tooltip">ⓘ
