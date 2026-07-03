@@ -135,9 +135,7 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
                                              yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
 
         fig_net.write_html(str(export_dir / "Stat_Network_Alliances.html"))
-
-        # FIXED: Changed div_id to automatically detach the broken Javascript
-        html_net = fig_net.to_html(full_html=False, include_plotlyjs=False, div_id="alliance_network_graph",
+        html_net = fig_net.to_html(full_html=False, include_plotlyjs=False, div_id="network_graph",
                                    default_height="100%", default_width="100%")
 
         # --- 2. Calculate Cohesion & Contributions ---
@@ -169,10 +167,8 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
                 'Cohesion Score': round(cohesion_score, 2)
             })
 
-        contribs_df = pd.DataFrame(plot_data)
-
         # --- 3. Contributions Bar Chart (Direct go.Bar) ---
-        contribs_df = contribs_df.sort_values('Contributions', ascending=True)
+        contribs_df = pd.DataFrame(plot_data).sort_values('Contributions', ascending=True)
         bar_colors = [cluster_color_map[f] for f in contribs_df['Faction']]
 
         fig_contribs = go.Figure(go.Bar(
@@ -211,10 +207,14 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
             hovertemplate="<b>%{text}</b><br>Faction Size: %{x} Companies<br>Internal Cohesion Density: %{y}<br><br><b>Members:</b><br>%{hovertext}<extra></extra>"
         ))
 
-        fig_cohesion.update_layout(title="Faction Cohesion vs. Size (Bubble = Output Volume)", showlegend=False)
+        fig_cohesion.update_layout(
+            title="Faction Cohesion vs. Size (Bubble = Output Volume)",
+            showlegend=False,
+            xaxis_title="Faction Size (Number of Companies)",
+            yaxis_title="Cohesion Score (Network Density)"
+        )
         fig_cohesion.write_html(str(export_dir / "Stat_Faction_Cohesion.html"))
         html_cohesion_plot = fig_cohesion.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
                                                   default_width="100%")
 
     return html_net, html_cluster_contribs, html_cohesion_plot, html_faction_list
-
