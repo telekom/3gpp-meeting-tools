@@ -2,8 +2,7 @@
 import re
 import logging
 from typing import Dict
-from modules.emails.core.contributor_names import get_matching_contributors
-
+from core.utils.company_sanitizer import CompanySanitizer
 
 class EmailParser:
     # Accommodates 6, 7, or 8 digit TDocs correctly
@@ -52,7 +51,8 @@ class EmailParser:
 
             # 2. Company Extraction
             raw_sender_str = f"{sender_name} <{sender_email}>"
-            companies = get_matching_contributors(raw_sender_str, set(), set())
+            # ---> UPDATE: Simplified function call utilizing the central sanitizer
+            companies = CompanySanitizer.get_matching_contributors(raw_sender_str)
             company = companies[0] if companies else cls._fallback_domain_extract(sender_email)
 
             # 3. Body Slicing

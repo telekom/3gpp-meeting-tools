@@ -1,4 +1,4 @@
-# --- File: src/modules/meetings/core/company_sanitizer.py ---
+# --- File: src/core/utils/company_sanitizer.py ---
 import re
 
 
@@ -44,7 +44,9 @@ class CompanySanitizer:
         'Sprint': re.compile(r'sprint'),
         'Sony': re.compile(r'sony'),
         'CableLabs': re.compile(r'cablelabs'),
-        'AT&T': re.compile(r'at[&]?t'),
+
+        # Word boundaries prevent collision with CATT
+        'AT&T': re.compile(r'\bat[&]?t\b'),
         'Charter': re.compile(r'charter'),
         'Lenovo': re.compile(r'(motorola mobility)|(lenovo)'),
         'SK Telecom': re.compile(r'sk telecom'),
@@ -59,12 +61,31 @@ class CompanySanitizer:
         'Broadcom': re.compile(r'broadcom'),
         'CAICT': re.compile(r'caict'),
         'CATR': re.compile(r'catr'),
-        'CATT': re.compile(r'catt'),
+        'CATT': re.compile(r'\bcatt\b'),  # Word boundary prevents matching partial strings
         'CMCC': re.compile(r'cmcc'),
         'UK HO': re.compile(r'uk ho'),
         'Affirmed': re.compile(r'affirmed'),
         'Expway': re.compile(r'expway'),
         'HPE': re.compile(r'hewlett packard'),
+
+        # ---> Imported from old contributor_names.py
+        'RAN WG1': re.compile(r'ran wg1'),
+        'RAN WG2': re.compile(r'ran wg2'),
+        'RAN WG3': re.compile(r'ran wg3'),
+        'SA WG1': re.compile(r'sa wg1'),
+        'SA WG2': re.compile(r'sa wg2'),
+        'SA WG3': re.compile(r'sa wg3'),
+        'SA WG4': re.compile(r'sa wg4'),
+        'SA WG5': re.compile(r'sa wg5'),
+        'SA WG6': re.compile(r'sa wg6'),
+        'TSG SA': re.compile(r'tsg sa'),
+        'TSG CT': re.compile(r'tsg ct'),
+        'TSG RAN': re.compile(r'tsg ran'),
+        'CT WG1': re.compile(r'ct wg1'),
+        'CT WG2': re.compile(r'ct wg2'),
+        'CT WG3': re.compile(r'ct wg3'),
+        'CT WG4': re.compile(r'ct wg4'),
+
         'IETF': re.compile(r'ietf'),
         'IEEE': re.compile(r'ieee'),
         'BBF': re.compile(r'bbf'),
@@ -108,14 +129,8 @@ class CompanySanitizer:
             return []
 
         sources_clean = cls.SOURCE_REPLACE_REGEX.sub('', str(original_source)).strip().lower()
-        cosigners = [item.strip() for item in sources_clean.split(',')]
 
+        # Thanks to the \b word boundaries, we no longer need the hardcoded hack!
         found_cosigners = [key for key, regex in cls.SIGNATURE_SYNONYMS_REGEX.items() if regex.search(sources_clean)]
-
-        # Fix for cases where AT&T and CATT are double-counted
-        if 'CATT' in found_cosigners and 'AT&T' in found_cosigners:
-            # Only keep AT&T if it was explicitly parsed separated from CATT
-            if not any('at&t' in c or 'att' in c for c in cosigners):
-                found_cosigners.remove('AT&T')
 
         return found_cosigners
