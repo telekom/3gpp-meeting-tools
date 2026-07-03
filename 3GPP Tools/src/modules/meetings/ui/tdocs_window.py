@@ -19,7 +19,7 @@ from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDocActionThread, TdocsByAgendaThread
 from modules.meetings.core.tdocs_db import TDocsDatabase
 from modules.meetings.core.markdown_exporter import MarkdownExporterThread
-from modules.meetings.core.statistics_exporter import StatisticsExporterThread
+from modules.meetings.core.stats.exporter_thread import StatisticsExporterThread
 
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox

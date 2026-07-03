@@ -1,0 +1,165 @@
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import networkx as nx
+
+
+def _get_cluster_letter(index: int) -> str:
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    if index < 26: return alphabet[index]
+    return f"{alphabet[index // 26 - 1]}{alphabet[index % 26]}"
+
+
+def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palette):
+    G = nx.Graph()
+    for companies in df['Clean_Companies']:
+        if len(companies) > 1:
+            for i in range(len(companies)):
+                for j in range(i + 1, len(companies)):
+                    c1, c2 = companies[i], companies[j]
+                    if G.has_edge(c1, c2):
+                        G[c1][c2]['weight'] += 1
+                    else:
+                        G.add_edge(c1, c2, weight=1)
+
+    edges_to_remove = [(u, v) for u, v, data in G.edges(data=True) if data['weight'] < threshold]
+    G.remove_edges_from(edges_to_remove)
+    G.remove_nodes_from(list(nx.isolates(G)))
+
+    html_net = "<p style='padding:20px; color:#666;'>Not enough co-signed documents to generate network graph.</p>"
+    html_cluster = ""
+    html_cluster_contribs = ""
+    html_faction_list = ""
+
+    if len(G.nodes) > 0:
+        communities = list(nx.community.louvain_communities(G, seed=42, resolution=resolution))
+        communities.sort(key=len, reverse=True)
+
+        community_map = {}
+        cluster_names = {}
+        faction_members_dict = {}
+        cluster_color_map = {}
+
+        for i, comm in enumerate(communities):
+            cluster_name = f"Cluster {_get_cluster_letter(i)}"
+            cluster_names[i] = cluster_name
+            cluster_color_map[cluster_name] = cluster_palette[i % len(cluster_palette)]
+            faction_members_dict[cluster_name] = sorted(list(comm))
+            for node in comm:
+                community_map[node] = i
+
+        html_faction_list = "<h3 style='margin-bottom: 10px; color: #333;'>Faction Membership Roster</h3><div class='factions-container'>"
+        for c_name, members in faction_members_dict.items():
+            member_str = ", ".join(members)
+            box_color = cluster_color_map[c_name]
+            html_faction_list += f"<div class='faction-box' style='border-left: 4px solid {box_color};'><h4>{c_name} ({len(members)} Members)</h4><p>{member_str}</p></div>"
+        html_faction_list += "</div>"
+
+        # --- 1. Network Graph ---
+        pos = nx.spring_layout(G, k=0.5, seed=42)
+        traces = []
+
+        max_weight = max([data['weight'] for u, v, data in G.edges(data=True)]) if G.edges else 1
+        edge_weights = set([data['weight'] for u, v, data in G.edges(data=True)])
+
+        for weight in edge_weights:
+            edge_x, edge_y = [], []
+            for u, v, data in G.edges(data=True):
+                if data['weight'] == weight:
+                    edge_x.extend([pos[u][0], pos[v][0], None])
+                    edge_y.extend([pos[u][1], pos[v][1], None])
+
+            calc_width = 0.5 + (weight / max_weight) * 4.0
+            traces.append(go.Scatter(x=edge_x, y=edge_y, line=dict(width=calc_width, color='#999'),
+                                     hoverinfo='none', mode='lines', opacity=0.6))
+
+        mid_x, mid_y, mid_text = [], [], []
+        for u, v, data in G.edges(data=True):
+            x0, y0 = pos[u]
+            x1, y1 = pos[v]
+            mid_x.append((x0 + x1) / 2)
+            mid_y.append((y0 + y1) / 2)
+            mid_text.append(f"<b>{u}</b> 🤝 <b>{v}</b><br>Shared TDocs: {data['weight']}")
+
+        traces.append(go.Scatter(x=mid_x, y=mid_y, mode='markers', hoverinfo='text', hovertext=mid_text,
+                                 marker=dict(size=0.1, color='rgba(0,0,0,0)'), showlegend=False, name="Connections"
+                                 ))
+
+        node_x, node_y, node_text, node_size, node_color, custom_data = [], [], [], [], [], []
+        for node in G.nodes():
+            x, y = pos[node]
+            node_x.append(x)
+            node_y.append(y)
+
+            adj_size = len(list(G.neighbors(node))) * 3
+            node_size.append(max(10, min(adj_size, 50)))
+
+            c_name = cluster_names[community_map[node]]
+            node_color.append(cluster_color_map[c_name])
+
+            neighbors = list(G.neighbors(node))
+            custom_data.append(neighbors)
+
+            hover_info = f"<b>{node}</b><br>Faction: {c_name}<br>Partners: {len(neighbors)}<br>---<br>"
+            neighbor_weights = [(n, G[node][n]['weight']) for n in neighbors]
+            neighbor_weights.sort(key=lambda item: item[1], reverse=True)
+
+            for neighbor, weight in neighbor_weights[:15]:
+                hover_info += f"• {neighbor} ({weight} shared)<br>"
+            if len(neighbors) > 15: hover_info += f"<i>...and {len(neighbors) - 15} more</i>"
+
+            node_text.append(hover_info)
+
+        node_trace = go.Scatter(x=node_x, y=node_y, mode='markers+text', text=list(G.nodes()),
+                                textposition="top center", hovertext=node_text, hoverinfo='text',
+                                customdata=custom_data, name="Companies",
+                                marker=dict(showscale=False, size=node_size, color=node_color,
+                                            line_width=1, line_color='#fff'))
+        traces.append(node_trace)
+
+        fig_net = go.Figure(data=traces,
+                            layout=go.Layout(title=f'Strategic Co-Signing Alliances (Threshold >= {threshold})',
+                                             showlegend=False, hovermode='closest',
+                                             margin=dict(b=20, l=5, r=5, t=40),
+                                             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
+
+        fig_net.write_html(str(export_dir / "Stat_Network_Alliances.html"))
+        html_net = fig_net.to_html(full_html=False, include_plotlyjs=False, div_id="network_graph",
+                                   default_height="100%", default_width="100%")
+
+        # --- 2. Faction Sizes (Members) ---
+        comm_sizes = pd.Series([cluster_names[community_map[n]] for n in G.nodes()]).value_counts().reset_index()
+        comm_sizes.columns = ['Faction', 'Members']
+
+        fig_cluster = px.bar(comm_sizes.sort_values('Members', ascending=True),
+                             x='Members', y='Faction', orientation='h',
+                             title="Detected Factions by Member Count (Louvain)", color='Faction',
+                             color_discrete_map=cluster_color_map)
+        fig_cluster.update_layout(showlegend=False)
+        fig_cluster.write_html(str(export_dir / "Stat_Factions.html"))
+        html_cluster = fig_cluster.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
+                                           default_width="100%")
+
+        # --- 3. NEW: Contributions per Cluster ---
+        cluster_tdoc_counts = {c_name: 0 for c_name in cluster_names.values()}
+        for companies in df['Clean_Companies']:
+            tdoc_clusters = set()
+            for comp in companies:
+                if comp in community_map:
+                    tdoc_clusters.add(cluster_names[community_map[comp]])
+            for c_name in tdoc_clusters:
+                cluster_tdoc_counts[c_name] += 1
+
+        contribs_df = pd.DataFrame(list(cluster_tdoc_counts.items()), columns=['Faction', 'Contributions'])
+
+        fig_contribs = px.bar(contribs_df.sort_values('Contributions', ascending=True),
+                              x='Contributions', y='Faction', orientation='h',
+                              title="Total TDoc Contributions per Faction", color='Faction',
+                              color_discrete_map=cluster_color_map)
+        fig_contribs.update_layout(showlegend=False)
+        fig_contribs.write_html(str(export_dir / "Stat_Faction_Contributions.html"))
+        html_cluster_contribs = fig_contribs.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
+                                                     default_width="100%")
+
+    return html_net, html_cluster, html_cluster_contribs, html_faction_list
