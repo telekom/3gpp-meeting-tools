@@ -87,9 +87,10 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
 
         traces.append(go.Scatter(
             x=mid_x, y=mid_y, mode='markers',
-            hoverinfo='text', hovertext=mid_text,
-            # FIXED: Increased size to 12 for a better mouse hitbox, but kept opacity at 0
-            marker=dict(size=12, color='rgba(0,0,0,0)'),
+            hovertext=mid_text,
+            hovertemplate="%{hovertext}<extra></extra>", # FIXED: Uses strict hovertemplate
+            # FIXED: 1% opacity so the browser mouse registers the hit, but eyes can't see it!
+            marker=dict(size=12, color='rgba(255,255,255,0.01)'),
             showlegend=False, name="Connections"
         ))
 
@@ -121,7 +122,8 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
 
         node_trace = go.Scatter(x=node_x, y=node_y, mode='markers+text', text=list(G.nodes()),
                                 textposition="top center",
-                                hoverinfo='text', hovertext=node_text,  # FIXED: Enforced text hover
+                                hovertext=node_text,
+                                hovertemplate="%{hovertext}<extra></extra>", # FIXED: Uses strict hovertemplate
                                 customdata=custom_data, name="Companies",
                                 marker=dict(showscale=False, size=node_size, color=node_color,
                                             line_width=1, line_color='#fff'))
@@ -173,11 +175,11 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         fig_contribs = px.bar(contribs_df.sort_values('Contributions', ascending=True),
                               x='Contributions', y='Faction', orientation='h',
                               title="Total TDoc Contributions per Faction (Louvain method)", color='Faction',
-                              color_discrete_map=cluster_color_map)
+                              color_discrete_map=cluster_color_map,
+                              custom_data=['Members String'])
 
-        # FIXED: Explicitly bind the customdata array
+        # FIXED: Removed the buggy customdata override!
         fig_contribs.update_traces(
-            customdata=contribs_df.sort_values('Contributions', ascending=True)[['Members String']],
             hovertemplate="<b>%{y}</b><br>Contributions: %{x}<br><br><b>Members:</b><br>%{customdata[0]}<extra></extra>"
         )
         fig_contribs.update_layout(showlegend=False)
@@ -190,11 +192,11 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         fig_cohesion = px.scatter(bubble_df, x='Member Count', y='Cohesion Score', size='Contributions',
                                   color='Faction', hover_name='Faction',
                                   title="Faction Cohesion vs. Size (Bubble = Output Volume)",
-                                  color_discrete_map=cluster_color_map)
+                                  color_discrete_map=cluster_color_map,
+                                  custom_data=['Members String'])
 
-        # FIXED: Explicitly bind the customdata array
+        # FIXED: Removed the buggy customdata override!
         fig_cohesion.update_traces(
-            customdata=bubble_df[['Members String']],
             hovertemplate="<b>%{hovertext}</b><br>Faction Size: %{x} Companies<br>Internal Cohesion Density: %{y}<br><br><b>Members:</b><br>%{customdata[0]}<extra></extra>"
         )
         fig_cohesion.update_layout(showlegend=False)
