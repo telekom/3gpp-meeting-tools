@@ -1,7 +1,9 @@
+# --- File: src/modules/meetings/core/stats/plot_alliances.py ---
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import networkx as nx
+import textwrap
 
 
 def _get_cluster_letter(index: int) -> str:
@@ -27,7 +29,6 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
     G.remove_nodes_from(list(nx.isolates(G)))
 
     html_net = "<p style='padding:20px; color:#666;'>Not enough co-signed documents to generate network graph.</p>"
-    html_cluster = ""
     html_cluster_contribs = ""
     html_faction_list = ""
 
@@ -128,20 +129,7 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         html_net = fig_net.to_html(full_html=False, include_plotlyjs=False, div_id="network_graph",
                                    default_height="100%", default_width="100%")
 
-        # --- 2. Faction Sizes (Members) ---
-        comm_sizes = pd.Series([cluster_names[community_map[n]] for n in G.nodes()]).value_counts().reset_index()
-        comm_sizes.columns = ['Faction', 'Members']
-
-        fig_cluster = px.bar(comm_sizes.sort_values('Members', ascending=True),
-                             x='Members', y='Faction', orientation='h',
-                             title="Detected Factions by Member Count (Louvain)", color='Faction',
-                             color_discrete_map=cluster_color_map)
-        fig_cluster.update_layout(showlegend=False)
-        fig_cluster.write_html(str(export_dir / "Stat_Factions.html"))
-        html_cluster = fig_cluster.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
-                                           default_width="100%")
-
-        # --- 3. NEW: Contributions per Cluster ---
+        # --- 2. Contributions per Cluster (Updated) ---
         cluster_tdoc_counts = {c_name: 0 for c_name in cluster_names.values()}
         for companies in df['Clean_Companies']:
             tdoc_clusters = set()
@@ -151,15 +139,34 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
             for c_name in tdoc_clusters:
                 cluster_tdoc_counts[c_name] += 1
 
-        contribs_df = pd.DataFrame(list(cluster_tdoc_counts.items()), columns=['Faction', 'Contributions'])
+        plot_data = []
+        for c_name, count in cluster_tdoc_counts.items():
+            members_list = faction_members_dict.get(c_name, [])
+            # Neatly wrap the list of members so the tooltip box doesn't run off the screen
+            members_str = "<br>".join(textwrap.wrap(", ".join(members_list), width=60))
+            plot_data.append({
+                'Faction': c_name,
+                'Contributions': count,
+                'Members': members_str
+            })
+
+        contribs_df = pd.DataFrame(plot_data)
 
         fig_contribs = px.bar(contribs_df.sort_values('Contributions', ascending=True),
                               x='Contributions', y='Faction', orientation='h',
-                              title="Total TDoc Contributions per Faction", color='Faction',
-                              color_discrete_map=cluster_color_map)
+                              title="Total TDoc Contributions per Faction (Louvain method)", color='Faction',
+                              color_discrete_map=cluster_color_map,
+                              custom_data=['Members'])
+
+        # Inject the neatly wrapped 'Members' string into the tooltip
+        fig_contribs.update_traces(
+            hovertemplate="<b>%{y}</b><br>Contributions: %{x}<br><br><b>Members:</b><br>%{customdata[0]}<extra></extra>"
+        )
+
         fig_contribs.update_layout(showlegend=False)
         fig_contribs.write_html(str(export_dir / "Stat_Faction_Contributions.html"))
         html_cluster_contribs = fig_contribs.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
                                                      default_width="100%")
 
-    return html_net, html_cluster, html_cluster_contribs, html_faction_list
+    # Notice we now only return 3 items (html_cluster was removed)
+    return html_net, html_cluster_contribs, html_faction_list
