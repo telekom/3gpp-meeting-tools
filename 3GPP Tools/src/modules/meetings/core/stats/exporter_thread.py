@@ -50,8 +50,8 @@ class StatisticsExporterThread(QThread):
             html_comp, total_companies = generate_top_contributors_plot(df, self.export_dir, self.THEME_COLOR,
                                                                         self.cfg_top_count)
 
-            # Removed html_cluster unpacking
-            html_net, html_cluster_contribs, html_faction_list = generate_alliance_plots(
+            # --- NEW: Added html_cohesion_plot variable unpacking ---
+            html_net, html_cluster_contribs, html_cohesion_plot, html_faction_list = generate_alliance_plots(
                 df, self.export_dir, self.cfg_threshold, self.cfg_resolution, self.CLUSTER_PALETTE
             )
 
@@ -134,10 +134,14 @@ class StatisticsExporterThread(QThread):
                         __HTML_NET__
                     </div>
 
-                    <!-- REFACTORED: The member count plot was removed. The contribs plot spans the full width. -->
-                    <div class="chart-card" style="grid-column: 1 / -1; height: 450px;">
+                    <!-- NEW: Side-by-side Layout for Contributions and Cohesion -->
+                    <div class="chart-card" style="height: 450px;">
                         <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
                         __HTML_CLUSTER_CONTRIBS__
+                    </div>
+                    <div class="chart-card" style="height: 450px;">
+                        <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                        __HTML_COHESION_PLOT__
                     </div>
 
                     <div class="chart-card" style="grid-column: 1 / -1; height: auto; padding: 20px;">
@@ -193,8 +197,8 @@ class StatisticsExporterThread(QThread):
             dashboard_html = dashboard_html.replace("__HTML_STATUS__", html_status)
             dashboard_html = dashboard_html.replace("__HTML_COMP__", html_comp)
             dashboard_html = dashboard_html.replace("__HTML_NET__", html_net)
-            # Removed the __HTML_CLUSTER__ replace call
             dashboard_html = dashboard_html.replace("__HTML_CLUSTER_CONTRIBS__", html_cluster_contribs)
+            dashboard_html = dashboard_html.replace("__HTML_COHESION_PLOT__", html_cohesion_plot)  # Injected here!
             dashboard_html = dashboard_html.replace("__HTML_FACTION_LIST__", html_faction_list)
 
             out_file = self.export_dir / "Statistics_Report.html"

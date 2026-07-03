@@ -30,6 +30,7 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
 
     html_net = "<p style='padding:20px; color:#666;'>Not enough co-signed documents to generate network graph.</p>"
     html_cluster_contribs = ""
+    html_cohesion_plot = ""
     html_faction_list = ""
 
     if len(G.nodes) > 0:
@@ -129,7 +130,7 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         html_net = fig_net.to_html(full_html=False, include_plotlyjs=False, div_id="network_graph",
                                    default_height="100%", default_width="100%")
 
-        # --- 2. Contributions per Cluster (Updated) ---
+        # --- 2. Calculate Cohesion & Contributions ---
         cluster_tdoc_counts = {c_name: 0 for c_name in cluster_names.values()}
         for companies in df['Clean_Companies']:
             tdoc_clusters = set()
@@ -142,31 +143,57 @@ def generate_alliance_plots(df, export_dir, threshold, resolution, cluster_palet
         plot_data = []
         for c_name, count in cluster_tdoc_counts.items():
             members_list = faction_members_dict.get(c_name, [])
-            # Neatly wrap the list of members so the tooltip box doesn't run off the screen
+
+            # --- COHESION MATH ---
+            # Isolate the graph strictly to members of this faction
+            subgraph = G.subgraph(members_list)
+            # Sum up all internal co-sign weights
+            internal_weight = sum([data['weight'] for u, v, data in subgraph.edges(data=True)])
+            # Calculate total possible connections
+            possible_edges = (len(members_list) * (len(members_list) - 1)) / 2
+
+            cohesion_score = internal_weight / possible_edges if possible_edges > 0 else 0
+
             members_str = "<br>".join(textwrap.wrap(", ".join(members_list), width=60))
             plot_data.append({
                 'Faction': c_name,
                 'Contributions': count,
-                'Members': members_str
+                'Members String': members_str,
+                'Member Count': len(members_list),
+                'Cohesion Score': round(cohesion_score, 2)
             })
 
         contribs_df = pd.DataFrame(plot_data)
 
+        # --- 3. Contributions Bar Chart ---
         fig_contribs = px.bar(contribs_df.sort_values('Contributions', ascending=True),
                               x='Contributions', y='Faction', orientation='h',
                               title="Total TDoc Contributions per Faction (Louvain method)", color='Faction',
                               color_discrete_map=cluster_color_map,
-                              custom_data=['Members'])
-
-        # Inject the neatly wrapped 'Members' string into the tooltip
+                              custom_data=['Members String'])
         fig_contribs.update_traces(
             hovertemplate="<b>%{y}</b><br>Contributions: %{x}<br><br><b>Members:</b><br>%{customdata[0]}<extra></extra>"
         )
-
         fig_contribs.update_layout(showlegend=False)
         fig_contribs.write_html(str(export_dir / "Stat_Faction_Contributions.html"))
         html_cluster_contribs = fig_contribs.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
                                                      default_width="100%")
 
-    # Notice we now only return 3 items (html_cluster was removed)
-    return html_net, html_cluster_contribs, html_faction_list
+        # --- 4. NEW: Cohesion Bubble Chart ---
+        # Ensure we filter out clusters with 0 contributions for cleaner sizing
+        bubble_df = contribs_df[contribs_df['Contributions'] > 0]
+        fig_cohesion = px.scatter(bubble_df, x='Member Count', y='Cohesion Score', size='Contributions',
+                                  color='Faction', hover_name='Faction',
+                                  title="Faction Cohesion vs. Size (Bubble = Output Volume)",
+                                  color_discrete_map=cluster_color_map,
+                                  custom_data=['Members String'])
+
+        fig_cohesion.update_traces(
+            hovertemplate="<b>%{hovertext}</b><br>Faction Size: %{x} Companies<br>Internal Cohesion Density: %{y}<br><br><b>Members:</b><br>%{customdata[0]}<extra></extra>"
+        )
+        fig_cohesion.update_layout(showlegend=False)
+        fig_cohesion.write_html(str(export_dir / "Stat_Faction_Cohesion.html"))
+        html_cohesion_plot = fig_cohesion.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
+                                                  default_width="100%")
+
+    return html_net, html_cluster_contribs, html_cohesion_plot, html_faction_list
