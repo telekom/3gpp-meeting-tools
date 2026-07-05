@@ -22,7 +22,7 @@ class TDocActionMenu(QMenu):
 
 
 def build_action_menu(parent_widget, base_tdoc, docs_ftp_url, revisions_url, revisions_list, meeting_dir,
-                      download_callback, global_pos):
+                      download_callback, llm_export_callback, global_pos):
     menu = TDocActionMenu(parent_widget)
     menu.setStyleSheet("QMenu { font-size: 13px; }")
     menu.setToolTipsVisible(True)
@@ -70,11 +70,16 @@ def build_action_menu(parent_widget, base_tdoc, docs_ftp_url, revisions_url, rev
         act_cmp_rev.setToolTip("Right-click to copy FTP link.")
         act_cmp_rev.triggered.connect(lambda _, t=target_filename: download_callback(base_tdoc, t, revisions_url, True))
 
+    menu.addSeparator()
+    act_llm = menu.addAction("🤖 Export for LLM Analysis")
+    act_llm.setToolTip("Extract Track Changes and prepare Markdown for Gemini")
+    act_llm.triggered.connect(lambda _, t=base_tdoc: llm_export_callback(t))
+
     menu.exec_(global_pos)
 
 
 def build_related_menu(parent_widget, target_tdoc, valid_tdocs, docs_ftp_url, revisions_url, scroll_callback,
-                       download_callback, global_req_callback, global_pos):
+                       download_callback, llm_export_callback, global_req_callback, global_pos):
     menu = QMenu(parent_widget)
     menu.setStyleSheet("QMenu { font-size: 13px; }")
 
@@ -90,6 +95,10 @@ def build_related_menu(parent_widget, target_tdoc, valid_tdocs, docs_ftp_url, re
             lambda: download_callback(base_tdoc, target_tdoc, dl_url, False))
         menu.addAction(f"⚖️ Add to Comparison Cart: {target_tdoc}").triggered.connect(
             lambda: download_callback(base_tdoc, target_tdoc, dl_url, True))
+
+        menu.addSeparator()
+        menu.addAction("🤖 Export for LLM Analysis").triggered.connect(
+            lambda: llm_export_callback(base_tdoc))
     else:
         menu.addAction("🌐 Search && Open Meeting").triggered.connect(
             lambda: global_req_callback(base_tdoc, 'open_meeting'))

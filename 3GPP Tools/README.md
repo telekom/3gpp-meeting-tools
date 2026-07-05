@@ -47,7 +47,11 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Date Fencing:** Automatically restricts email scanning to the precise start and end dates of the meeting, jumping out of background loops early to drastically optimize sync speeds and prevent inbox pollution.
 * **Automated Archiving:** Safely extracts physical `.msg` files to your hard drive and dynamically builds a clean target folder hierarchy in Outlook (e.g., `Archive/SA2_175/9.1.1/`) to permanently organize your inbox.
 
-### 📝 Word Document Manipulation
+### 📝 Word Document Manipulation & AI Integration
+* **🤖 AI/LLM Corpus Exporter:**
+  * **Smart Automation:** Automatically downloads missing TDocs from the 3GPP FTP and extracts the underlying Word documents in the background.
+  * **Intelligent Parsing:** Uses a custom Regex State Machine to handle complex 3GPP formatting, including extracting Track Changes and parsing tricky "all new text" placeholder clauses (e.g., `6.4.5.X`).
+  * **Mega-File Compilation:** Compiles and groups the extracted text into clean, Agenda Item-specific Markdown files tailored specifically for LLM context windows (Gemini, Claude, GPT).
 * **Global Comparison Cart:** A persistent, round-robin state dashboard that bridges multiple meeting windows. Intelligently push any Base TDoc or specific Revision into alternating slots, then launch a native Word comparison instantly.
 * **Isolated Word Diff Engine:** Uses COM `DispatchEx` to spawn an invisible, isolated instance of Microsoft Word. It safely opens files as Read-Only, auto-accepts tracked changes purely in RAM, assigns proper document names for the comparison pane, and generates a visual diff without freezing your active Word sessions or locking local files.
 * **Corporate IT Bypass (Sensitivity Labels):** Automatically injects configurable Microsoft Purview Sensitivity Labels (e.g., "OFFEN") directly into COM objects to bypass blocking corporate IT popup dialogs during automated saves.
@@ -142,13 +146,3 @@ If you are behind a corporate firewall:
 1. Click the **Network Config** button.
 2. Enter your HTTP/HTTPS proxies into the global session without restarting the app.
 3. Adjust the **Humanness Delays** to throttle network requests (to mimic human behavior) or set them to 0.0 for maximum download speed.
-
----
-
-## <a id="troubleshooting"></a>🛠️ Known Quirks / Troubleshooting
-
-* **Missing / Ghost Meetings in DB:** If 3GPP deletes an old folder from their FTP server, Phase 1 cannot find it. However, the Phase 3 Upsert Engine will find the historical record on the DynaReport page and *force* it into your database anyway. These meetings will have a valid 3GPP Portal link, but their FTP links will lead to a 404.
-* **The "3GPP Empty String" Crash:** The scraper uses advanced unicode normalization to handle 3GPP's notorious formatting errors (like using non-breaking hyphens in dates or completely omitting table columns). If a meeting appears with blank dates, try clicking "Sync this Meeting" via the right-click menu to run the heuristic parser again.
-* **COM Errors & File Locks:** If Visio, Outlook, or PowerPoint crash in the background, invisible instances of the programs might get stuck in your system's memory and lock your files. Click the **🖥️ Task Manager** button in the app console and click **Kill Ghosts** to instantly clear them out without losing your active work.
-* **The Table Resizing "Amnesia":** If a dropdown menu is open while filtering TDocs, the row heights might appear squished. Qt inherently suspends geometry calculations while popups are active to save memory. 
-* **Word Splitter Memory Throttling:** Slicing a heavy `.docx` file unzips a massive XML tree into your RAM. To prevent memory crashes and disk thrashing, the parallel processing is hard-capped at 3 maximum threads. You will see the chapters output in batches of 3 in the console.
