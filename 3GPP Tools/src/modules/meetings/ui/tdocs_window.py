@@ -27,6 +27,7 @@ from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyMo
 from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu
 from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog, InteractiveNotesDialog, StatisticsSettingsDialog
 from modules.emails.ui.email_window import EmailManagerWindow
+from modules.meetings.core.llm_exporter import LLMExporterThread
 
 
 def _open_folder(p: Path):
@@ -134,6 +135,11 @@ class TDocsWindow(QWidget):
         self.excel_btn.setStyleSheet(style_btn())
         self.excel_btn.clicked.connect(self._open_excel)
 
+        self.llm_btn = QPushButton("🤖 Export Visible to LLM")
+        self.llm_btn.setStyleSheet(style_btn())
+        self.llm_btn.setToolTip("Compiles all currently filtered TDocs into AI-grouped Mega-Files for Gemini")
+        self.llm_btn.clicked.connect(self._export_llm_visible)
+
         self.export_btn = QPushButton("📝 Export")
         self.export_btn.setStyleSheet(style_btn())
         self.export_btn.clicked.connect(self._export_reports)
@@ -162,6 +168,7 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.refresh_btn)
         header_layout.addWidget(self.folder_btn)
         header_layout.addWidget(self.excel_btn)
+        header_layout.addWidget(self.llm_btn)  # <--- Add it to the layout here
         header_layout.addWidget(self.export_btn)
         header_layout.addWidget(self.stats_btn)
         header_layout.addWidget(self.stats_cfg_btn)
@@ -339,11 +346,11 @@ class TDocsWindow(QWidget):
         if base_tdoc in self.model.loading_tdocs or not self.docs_ftp_url: return
         revisions = self.model.revisions.get(base_tdoc, [])
         build_action_menu(self.table, base_tdoc, self.docs_ftp_url, self.revisions_url, revisions, self.meeting_dir,
-                          self._trigger_download_thread, QCursor.pos())
+                          self._trigger_download_thread, self._export_llm_single, QCursor.pos())
 
     def _show_related_menu(self, target_tdoc: str, pos: QPoint):
         build_related_menu(self, target_tdoc, self.model.valid_tdocs, self.docs_ftp_url, self.revisions_url,
-                           self._scroll_to_tdoc, self._trigger_download_thread, self.global_action_requested.emit, pos)
+                           self._scroll_to_tdoc, self._trigger_download_thread, self._export_llm_single, self.global_action_requested.emit, pos)
 
     def _show_cell_popup(self, index):
         if not index.isValid(): return
@@ -527,3 +534,56 @@ class TDocsWindow(QWidget):
         QApplication.clipboard().setText("\n".join(lines));
         QToolTip.showText(QCursor.pos(), "📋 Copied to clipboard!", self.table)
 
+    def _export_llm_visible(self):
+        visible_tdocs = []
+        for r in range(self.proxy.rowCount()):
+            idx = self.proxy.index(r, 0)
+            source_idx = self.proxy.mapToSource(idx)
+            visible_tdocs.append(self.model._data[source_idx.row()])
+
+        if not visible_tdocs:
+            return QMessageBox.warning(self, "Empty View", "No TDocs currently visible in the table to export.")
+
+        self.llm_btn.setText("⏳ Compiling Corpus...")
+        self.llm_btn.setEnabled(False)
+
+        self.llm_thread = LLMExporterThread(
+            self.meeting_dir,
+            visible_tdocs,
+            self.docs_ftp_url,
+            self.revisions_url,
+            is_bulk=True
+        )
+        # ---> THE FIX: Connect the progress signal!
+        self.llm_thread.progress.connect(self._on_llm_progress)
+        self.llm_thread.finished.connect(self._on_llm_export_finished)
+        self.llm_thread.start()
+
+    def _export_llm_single(self, tdoc_id: str):
+        row_data = next((r for r in self.model._data if r.get("TDoc") == tdoc_id), None)
+        if not row_data: return
+
+        self.llm_thread = LLMExporterThread(
+            self.meeting_dir,
+            [row_data],
+            self.docs_ftp_url,
+            self.revisions_url,
+            is_bulk=False
+        )
+        # ---> THE FIX: Connect the progress signal!
+        self.llm_thread.progress.connect(self._on_llm_progress)
+        self.llm_thread.finished.connect(lambda s, m: QMessageBox.information(self, "LLM Export", m))
+        self.llm_thread.start()
+
+    # ---> THE FIX: New callback method to display logs
+    def _on_llm_progress(self, msg: str):
+        self.llm_btn.setText(f"⏳ {msg}"[:35])
+
+    def _on_llm_export_finished(self, success: bool, msg: str):
+        self.llm_btn.setText("🤖 Export Visible to LLM")
+        self.llm_btn.setEnabled(True)
+        if success:
+            QMessageBox.information(self, "LLM Export Complete", msg)
+            _open_folder(self.meeting_dir / "Export" / "LLM_Corpus")
+        else:
+            QMessageBox.warning(self, "Export Failed", msg)

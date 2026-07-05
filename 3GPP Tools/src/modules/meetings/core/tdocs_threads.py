@@ -1,5 +1,7 @@
+# --- File: src/modules/meetings/core/tdocs_threads.py ---
 import logging
 import re
+import json
 from pathlib import Path
 
 import requests
@@ -7,15 +9,12 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.network.session import NetworkSession
 from modules.meetings.core.tdocs_parser import TDocsParser
-import json
-
-import json  # <--- Make sure this is added to your imports!
+from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 
 
 class TDocsRevisionsFetcherThread(QThread):
     finished = pyqtSignal(bool, dict, str)
 
-    # ---> UPDATE: Added meeting_dir to the parameters
     def __init__(self, url: str, meeting_dir: Path = None):
         super().__init__()
         self.url = url
@@ -29,7 +28,6 @@ class TDocsRevisionsFetcherThread(QThread):
             response.raise_for_status()
 
             html = response.text
-            # Safely capture full filename, base TDoc, and revision string (e.g., S2-2605740r01)
             pattern = re.compile(r'href=["\']?(?:[^"\'>]*/)?(([A-Za-z0-9\-]+)(r\d+[a-zA-Z]?)\.zip)["\']?',
                                  re.IGNORECASE)
             matches = pattern.findall(html)
@@ -46,7 +44,6 @@ class TDocsRevisionsFetcherThread(QThread):
             for k in revisions:
                 revisions[k].sort()
 
-            # ---> NEW: Save revisions locally to the Agenda folder!
             if self.meeting_dir:
                 try:
                     agenda_dir = self.meeting_dir / "Agenda"
@@ -71,69 +68,30 @@ class TDocsRevisionsFetcherThread(QThread):
 class TDocActionThread(QThread):
     finished_action = pyqtSignal(str, bool, str)
 
-    # ---> FIX 2: Added 'open_file' parameter
     def __init__(self, base_tdoc: str, target_filename: str, base_url: str, meeting_dir: Path, open_file: bool = True):
         super().__init__()
         self.base_tdoc = base_tdoc
         self.target_filename = target_filename
         self.base_url = base_url
         self.tdoc_dir = meeting_dir / base_tdoc
-        self.zip_path = self.tdoc_dir / f"{target_filename}.zip"
         self.open_file = open_file
+        self.extracted_doc_paths = []
 
     def run(self):
         try:
-            if not self.zip_path.exists():
-                self.tdoc_dir.mkdir(parents=True, exist_ok=True)
-                dl_url = self.base_url.rstrip('/') + f"/{self.target_filename}.zip"
+            self.extracted_doc_paths = TDocFileHandler.download_and_extract_tdoc(
+                self.target_filename,
+                self.base_url,
+                self.tdoc_dir
+            )
 
-                from core.network.session import NetworkSession
-                session = NetworkSession.get_instance()
-                NetworkSession.apply_humanness(session)
-                response = session.get(dl_url, stream=True, timeout=30)
-                response.raise_for_status()
-
-                with open(self.zip_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=16384):
-                        if chunk: f.write(chunk)
-
-            extracted_files = []
-            import zipfile
-            import shutil
-            with zipfile.ZipFile(self.zip_path, 'r') as z:
-                for info in z.infolist():
-                    if '__MACOSX' in info.filename or info.filename.startswith('._'):
-                        continue
-                    if info.filename.lower().endswith(('.doc', '.docx', '.pdf', '.ppt', '.pptx')):
-                        original_name = Path(info.filename).name
-
-                        # ---> THE FIX: Smart Rename instead of Subfolders!
-                        # If the inner file is missing the revision marker (e.g. S2-2603332r01),
-                        # we prepend it so it doesn't collide with the base document in the folder.
-                        if self.target_filename.lower() not in original_name.lower():
-                            safe_name = f"{self.target_filename}_{original_name}"
-                        else:
-                            safe_name = original_name
-
-                        # Extract directly into the root tdoc_dir (restoring your existing functionality)
-                        out_path = self.tdoc_dir / safe_name
-
-                        if not out_path.exists():
-                            with z.open(info.filename) as source, open(out_path, 'wb') as target:
-                                shutil.copyfileobj(source, target)
-
-                        extracted_files.append(out_path)
-
-            if not extracted_files:
+            if not self.extracted_doc_paths:
                 self.finished_action.emit(self.base_tdoc, False, "No viewable documents found inside the ZIP.")
                 return
 
-            # Keep the exact paths stored for the UI Comparison Cart
-            self.extracted_doc_paths = extracted_files
-
             if self.open_file:
                 import os, webbrowser
-                for doc in extracted_files:
+                for doc in self.extracted_doc_paths:
                     if hasattr(os, 'startfile'):
                         os.startfile(str(doc))
                     else:
@@ -158,11 +116,8 @@ class TdocsByAgendaThread(QThread):
     def run(self):
         try:
             self.ui_log_msg.emit("⏳ Initiating TdocsByAgenda Sync...", logging.INFO)
-
-            # Ensure URL format is clean
             clean_base_url = self.meeting_ftp_url.rstrip('/')
 
-            # ---> NEW: Scrape the directory to find the dynamic filename
             session = NetworkSession.get_instance()
             NetworkSession.apply_humanness(session)
 
@@ -170,7 +125,6 @@ class TdocsByAgendaThread(QThread):
             response = session.get(clean_base_url, timeout=30)
             response.raise_for_status()
 
-            # Matches any href containing "tdocsbyagenda" and ending in .htm or .html
             pattern = re.compile(r'href=["\']?([^"\'>]*tdocsbyagenda[^"\'>]*\.html?)["\']?', re.IGNORECASE)
             matches = pattern.findall(response.text)
 
@@ -179,14 +133,11 @@ class TdocsByAgendaThread(QThread):
                 self.finished.emit(False, {})
                 return
 
-            # If there are multiple versions (e.g. older backups), grab the last one
             target_filename = matches[-1].split('/')[-1]
             agenda_url = f"{clean_base_url}/{target_filename}"
 
             agenda_dir = self.local_folder / "Agenda"
             agenda_dir.mkdir(parents=True, exist_ok=True)
-
-            # ---> SMART FIX: Save it locally under the standard name so cache logic remains unbroken!
             agenda_path = agenda_dir / "TdocsByAgenda.htm"
 
             self.ui_log_msg.emit(f"⬇️ Downloading: {agenda_url}", logging.INFO)
