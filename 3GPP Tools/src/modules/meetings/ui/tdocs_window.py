@@ -91,7 +91,6 @@ class TDocsWindow(QWidget):
         self.last_mod_lbl = QLabel(self._get_mod_date_str())
         self.last_mod_lbl.setStyleSheet("font-size: 11px; color: #999999; margin-right: 15px; font-style: italic;")
 
-        # --- UNIFIED CLEAN BUTTON STYLING ---
         def style_btn():
             return """
             QPushButton { 
@@ -288,7 +287,6 @@ class TDocsWindow(QWidget):
         except:
             return "List last updated: Unknown"
 
-    # ---> THE FIX: Using QTimer.singleShot forces the label to update *after* the Qt proxy filter completes
     def _on_search_changed(self, text):
         self.proxy.setGlobalFilter(text)
         QTimer.singleShot(0, self._update_count_label)
@@ -329,13 +327,13 @@ class TDocsWindow(QWidget):
         QTimer.singleShot(0, self._update_count_label)
 
     def _clear_all_filters(self):
-        self.search_input.blockSignals(True);
-        self.search_input.clear();
+        self.search_input.blockSignals(True)
+        self.search_input.clear()
         self.search_input.blockSignals(False)
         self.proxy.setGlobalFilter("")
         if self.is_sa2:
-            self.chk_no_comments.blockSignals(True);
-            self.chk_no_comments.setChecked(False);
+            self.chk_no_comments.blockSignals(True)
+            self.chk_no_comments.setChecked(False)
             self.chk_no_comments.blockSignals(False)
             self.proxy.setNoCommentsFilter(False)
         for combo in [self.type_combo, self.ai_combo, self.status_combo]:
@@ -555,9 +553,10 @@ class TDocsWindow(QWidget):
         self.llm_btn.setText("⏳ Compiling Corpus...")
         self.llm_btn.setEnabled(False)
 
-        # ---> THE FIX: Fetch the configured max character limit and pass it to the thread
+        # ---> THE FIX: Fetch both the max_chars and the system_prompt to pass them to the exporter!
         config = StatisticsSettingsDialog().load_config()
         max_chars = config.get("llm_max_chars", 200000)
+        system_prompt = config.get("llm_system_prompt", "")
 
         self.llm_thread = LLMExporterThread(
             self.meeting_dir,
@@ -565,7 +564,8 @@ class TDocsWindow(QWidget):
             self.docs_ftp_url,
             self.revisions_url,
             is_bulk=True,
-            max_chars=max_chars
+            max_chars=max_chars,
+            system_prompt=system_prompt
         )
         self.llm_thread.progress.connect(self._on_llm_progress)
         self.llm_thread.finished.connect(self._on_llm_export_finished)
@@ -575,9 +575,10 @@ class TDocsWindow(QWidget):
         row_data = next((r for r in self.model._data if r.get("TDoc") == tdoc_id), None)
         if not row_data: return
 
-        # ---> THE FIX: Apply the same max_chars limit to single exports for consistency
+        # Fetch config for single exports as well
         config = StatisticsSettingsDialog().load_config()
         max_chars = config.get("llm_max_chars", 200000)
+        system_prompt = config.get("llm_system_prompt", "")
 
         self.llm_thread = LLMExporterThread(
             self.meeting_dir,
@@ -585,7 +586,8 @@ class TDocsWindow(QWidget):
             self.docs_ftp_url,
             self.revisions_url,
             is_bulk=False,
-            max_chars=max_chars
+            max_chars=max_chars,
+            system_prompt=system_prompt
         )
         self.llm_thread.progress.connect(self._on_llm_progress)
         self.llm_thread.finished.connect(lambda s, m: QMessageBox.information(self, "LLM Export", m))
