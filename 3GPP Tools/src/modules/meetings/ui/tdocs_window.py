@@ -168,7 +168,7 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.refresh_btn)
         header_layout.addWidget(self.folder_btn)
         header_layout.addWidget(self.excel_btn)
-        header_layout.addWidget(self.llm_btn)  # <--- Add it to the layout here
+        header_layout.addWidget(self.llm_btn)
         header_layout.addWidget(self.export_btn)
         header_layout.addWidget(self.stats_btn)
         header_layout.addWidget(self.stats_cfg_btn)
@@ -288,25 +288,26 @@ class TDocsWindow(QWidget):
         except:
             return "List last updated: Unknown"
 
+    # ---> THE FIX: Using QTimer.singleShot forces the label to update *after* the Qt proxy filter completes
     def _on_search_changed(self, text):
         self.proxy.setGlobalFilter(text)
-        self._update_count_label()  # ---> Force immediate UI update
+        QTimer.singleShot(0, self._update_count_label)
 
     def _on_type_changed(self, types):
         self.proxy.setTypeFilters(types)
-        self._update_count_label()  # ---> Force immediate UI update
+        QTimer.singleShot(0, self._update_count_label)
 
     def _on_ai_changed(self, ais):
         self.proxy.setAIFilters(ais)
-        self._update_count_label()  # ---> Force immediate UI update
+        QTimer.singleShot(0, self._update_count_label)
 
     def _on_status_changed(self, statuses):
         self.proxy.setStatusFilters(statuses)
-        self._update_count_label()  # ---> Force immediate UI update
+        QTimer.singleShot(0, self._update_count_label)
 
     def _on_no_comments_toggled(self, checked):
         self.proxy.setNoCommentsFilter(checked)
-        self._update_count_label()  # ---> Force immediate UI update
+        QTimer.singleShot(0, self._update_count_label)
 
     def _update_count_label(self):
         self.count_lbl.setText(f"Showing {self.proxy.rowCount()} of {self.model.rowCount()} TDocs")
@@ -325,7 +326,7 @@ class TDocsWindow(QWidget):
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
-        self._update_count_label()
+        QTimer.singleShot(0, self._update_count_label)
 
     def _clear_all_filters(self):
         self.search_input.blockSignals(True);
@@ -346,6 +347,7 @@ class TDocsWindow(QWidget):
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
+        QTimer.singleShot(0, self._update_count_label)
 
     def _handle_tdoc_action(self, base_tdoc: str):
         if base_tdoc in self.model.loading_tdocs or not self.docs_ftp_url: return
@@ -541,10 +543,8 @@ class TDocsWindow(QWidget):
 
     def _export_llm_visible(self):
         visible_tdocs = []
-        # Use the proxy model to get currently visible items
         for r in range(self.proxy.rowCount()):
             index = self.proxy.index(r, 0)
-            # THIS IS CRITICAL: Map to source model to get the correct data object
             source_index = self.proxy.mapToSource(index)
             row_data = self.model._data[source_index.row()]
             visible_tdocs.append(row_data)
@@ -555,14 +555,18 @@ class TDocsWindow(QWidget):
         self.llm_btn.setText("⏳ Compiling Corpus...")
         self.llm_btn.setEnabled(False)
 
+        # ---> THE FIX: Fetch the configured max character limit and pass it to the thread
+        config = StatisticsSettingsDialog().load_config()
+        max_chars = config.get("llm_max_chars", 200000)
+
         self.llm_thread = LLMExporterThread(
             self.meeting_dir,
             visible_tdocs,
             self.docs_ftp_url,
             self.revisions_url,
-            is_bulk=True
+            is_bulk=True,
+            max_chars=max_chars
         )
-        # ---> THE FIX: Connect the progress signal!
         self.llm_thread.progress.connect(self._on_llm_progress)
         self.llm_thread.finished.connect(self._on_llm_export_finished)
         self.llm_thread.start()
@@ -571,19 +575,22 @@ class TDocsWindow(QWidget):
         row_data = next((r for r in self.model._data if r.get("TDoc") == tdoc_id), None)
         if not row_data: return
 
+        # ---> THE FIX: Apply the same max_chars limit to single exports for consistency
+        config = StatisticsSettingsDialog().load_config()
+        max_chars = config.get("llm_max_chars", 200000)
+
         self.llm_thread = LLMExporterThread(
             self.meeting_dir,
             [row_data],
             self.docs_ftp_url,
             self.revisions_url,
-            is_bulk=False
+            is_bulk=False,
+            max_chars=max_chars
         )
-        # ---> THE FIX: Connect the progress signal!
         self.llm_thread.progress.connect(self._on_llm_progress)
         self.llm_thread.finished.connect(lambda s, m: QMessageBox.information(self, "LLM Export", m))
         self.llm_thread.start()
 
-    # ---> THE FIX: New callback method to display logs
     def _on_llm_progress(self, msg: str):
         self.llm_btn.setText(f"⏳ {msg}"[:35])
 

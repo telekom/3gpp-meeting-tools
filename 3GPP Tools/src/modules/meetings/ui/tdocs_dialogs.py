@@ -153,6 +153,28 @@ class StatisticsSettingsDialog(QDialog):
         top_layout.addWidget(self.top_spin)
         layout.addLayout(top_layout)
 
+        layout.addSpacing(20)
+
+        # --- LLM Configuration ---
+        layout.addWidget(QLabel("<b>🤖 LLM Export Configuration</b>"))
+
+        llm_desc = QLabel(
+            "<i>Large meeting corpora will be split into multiple chunked files to prevent overflowing the AI's context limits.</i>")
+        llm_desc.setWordWrap(True)
+        llm_desc.setStyleSheet("color: #666; font-size: 11px;")
+        layout.addWidget(llm_desc)
+
+        llm_layout = QHBoxLayout()
+        llm_layout.addWidget(QLabel("Max Characters per File (Chunk Limit):"))
+        llm_layout.addStretch()
+        self.llm_spin = QSpinBox()
+        self.llm_spin.setRange(10000, 5000000)
+        self.llm_spin.setSingleStep(10000)
+        self.llm_spin.setValue(self.config.get("llm_max_chars", 200000))
+        self.llm_spin.setStyleSheet("padding: 4px; border: 1px solid #CCC; background: white; width: 80px;")
+        llm_layout.addWidget(self.llm_spin)
+        layout.addLayout(llm_layout)
+
         layout.addStretch()
 
         # --- Buttons ---
@@ -173,11 +195,18 @@ class StatisticsSettingsDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def load_config(self):
-        default = {"resolution": 1.5, "threshold": 1, "top_count": 30}
+        default = {
+            "resolution": 1.5,
+            "threshold": 1,
+            "top_count": 30,
+            "llm_max_chars": 200000
+        }
         if self.config_path.exists():
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    default.update(data)
+                    return default
             except Exception:
                 pass
         return default
@@ -186,11 +215,12 @@ class StatisticsSettingsDialog(QDialog):
         self.config["resolution"] = self.slider.value() / 10.0
         self.config["threshold"] = self.thresh_spin.value()
         self.config["top_count"] = self.top_spin.value()
+        self.config["llm_max_chars"] = self.llm_spin.value()
 
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4)
         except Exception as e:
-            print(f"Failed to save statistics config: {e}")
+            print(f"Failed to save configuration: {e}")
 
         self.accept()
