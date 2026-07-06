@@ -1,5 +1,6 @@
 # --- File: src/modules/meetings/core/stats/exporter_thread.py ---
 import os
+import re
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 import pandas as pd
@@ -9,7 +10,7 @@ from core.utils.company_sanitizer import CompanySanitizer
 from .plot_agenda import generate_ai_volume_plot
 from .plot_status import generate_outcomes_plot
 from .plot_contributors import generate_top_contributors_plot
-from .plot_alliances import generate_alliance_plots
+from .plot_alliances import compute_global_communities, generate_alliance_plots
 
 
 class StatisticsExporterThread(QThread):
@@ -40,195 +41,229 @@ class StatisticsExporterThread(QThread):
                 self.finished.emit(False, "No TDoc data available to generate statistics.")
                 return
 
-            # Data Sanitization
             df = df[~df['TDoc Status'].str.lower().str.contains('withdrawn', na=False)].copy()
             df['Clean_Companies'] = df['Source'].apply(CompanySanitizer.get_matching_contributors)
 
-            # --- Generate Modular Plots ---
-            html_ai = generate_ai_volume_plot(df, self.export_dir, self.THEME_COLOR)
-            html_status = generate_outcomes_plot(df, self.export_dir, self.PALETTE)
-            html_comp, total_companies = generate_top_contributors_plot(df, self.export_dir, self.THEME_COLOR,
-                                                                        self.cfg_top_count)
+            # ---> COMPUTE FACTIONS ONCE GLOBALLY TO IMMUTABLY PRESERVE ROSTERS ACROSS TABS
+            global_factions = compute_global_communities(df, self.cfg_resolution)
 
-            html_net, html_cluster_contribs, html_cohesion_plot, html_faction_list = generate_alliance_plots(
-                df, self.export_dir, self.cfg_threshold, self.cfg_resolution, self.CLUSTER_PALETTE
+            # Generate Core Global Layout Blocks
+            g_html_ai = generate_ai_volume_plot(df, self.export_dir, self.THEME_COLOR)
+            g_html_status = generate_outcomes_plot(df, self.export_dir, self.PALETTE)
+            g_html_comp, total_companies = generate_top_contributors_plot(df, self.export_dir, self.THEME_COLOR,
+                                                                          self.cfg_top_count)
+            g_html_net, g_html_cluster, g_html_cohesion, g_html_list = generate_alliance_plots(
+                df, self.export_dir, self.cfg_threshold, self.CLUSTER_PALETTE, global_factions, "global"
             )
 
-            # --- Compile Dashboard HTML ---
-            meeting_name = f"{self.mtg_info.get('wg_name', 'WG')} {self.mtg_info.get('meeting_number', '')}"
-            total_tdocs = len(df)
+            # Collect unique sorted Agenda Items for Sub-Page configurations
+            raw_ais = df['Agenda Item'].dropna().unique()
 
-            dashboard_html = """
+            def natural_sort_key(s):
+                return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
+
+            unique_ais = sorted([str(ai).strip() for ai in raw_ais if str(ai).strip()], key=natural_sort_key)
+
+            # Render overall page structure template
+            meeting_name = f"{self.mtg_info.get('wg_name', 'WG')} {self.mtg_info.get('meeting_number', '')}"
+
+            # Start gathering all dynamic HTML blocks for the loop injection
+            views_html_buffer = []
+            dropdown_options = ['<option value="global">🌐 Overall Meeting View</option>']
+
+            # Inject the Global Dashboard Block
+            views_html_buffer.append(
+                self._compile_view_block("global", len(df), total_companies, g_html_ai, g_html_status, g_html_comp,
+                                         g_html_net, g_html_cluster, g_html_cohesion, g_html_list, is_visible=True))
+
+            # Iterate through individual agenda items to construct sub-views
+            for idx, ai_name in enumerate(unique_ais):
+                ai_df = df[df['Agenda Item'].str.strip() == ai_name].copy()
+                if ai_df.empty: continue
+
+                safe_id = f"ai_{idx}"
+                dropdown_options.append(
+                    f'<option value="{safe_id}">📌 Agenda Item {ai_name} ({len(ai_df)} TDocs)</option>')
+
+                # Generate charts specific to this AI, reusing global community tracking
+                ai_html_status = generate_outcomes_plot(ai_df, self.export_dir, self.PALETTE)
+                ai_html_comp, ai_companies = generate_top_contributors_plot(ai_df, self.export_dir, self.THEME_COLOR,
+                                                                            self.cfg_top_count)
+                ai_html_net, ai_html_cluster, ai_html_cohesion, ai_html_list = generate_alliance_plots(
+                    ai_df, self.export_dir, self.cfg_threshold, self.CLUSTER_PALETTE, global_factions, safe_id
+                )
+
+                views_html_buffer.append(self._compile_view_block(
+                    safe_id, len(ai_df), ai_companies,
+                    ai_volume_html=None, status_html=ai_html_status, comp_html=ai_html_comp,
+                    net_html=ai_html_net, cluster_html=ai_html_cluster, cohesion_html=ai_html_cohesion,
+                    list_html=ai_html_list,
+                    is_visible=False
+                ))
+
+            dashboard_template = f"""
             <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="utf-8">
-                <title>3GPP Statistics - __MEETING_NAME__</title>
-                <!-- LOAD PLOTLY GLOBALLY TO PREVENT TIMING ISSUES -->
-                <script src="[https://cdn.plot.ly/plotly-2.27.0.min.js](https://cdn.plot.ly/plotly-2.27.0.min.js)"></script>
+                <title>3GPP Multi-Scope Statistics - {meeting_name}</title>
+                <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
                 <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #FAFAFA; margin: 0; padding: 20px; }
-                    h1 { color: #333; text-align: center; margin-bottom: 30px; }
-                    .kpi-container { display: flex; justify-content: center; gap: 20px; margin-bottom: 40px; }
-                    .kpi-card { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; text-align: center; width: 200px; border-top: 4px solid #005A9E; }
-                    .kpi-card h3 { margin: 0; font-size: 32px; color: #005A9E; }
-                    .kpi-card p { margin: 5px 0 0; color: #666; font-size: 14px; text-transform: uppercase; font-weight: bold; }
-                    .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-
-                    .chart-card { 
-                        position: relative; background: white; border-radius: 8px; 
-                        box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 40px 15px 15px 15px; 
-                        height: 500px; display: flex; flex-direction: column; transition: all 0.3s ease; 
-                    }
-                    .chart-card > div { flex-grow: 1; width: 100%; height: 100%; }
-
-                    .fs-btn { position: absolute; top: 10px; right: 10px; z-index: 100; cursor: pointer; background: #E1F0FF; color: #005A9E; border: 1px solid #99C9FF; border-radius: 4px; padding: 5px 10px; font-weight: bold; font-size: 12px; transition: background 0.2s; }
-                    .fs-btn:hover { background: #CCE4FF; }
-
-                    .chart-card.fullscreen { 
-                        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; 
-                        z-index: 9999; margin: 0; border-radius: 0; 
-                        padding: 50px 20px 20px 20px; box-sizing: border-box; 
-                    }
-
-                    .factions-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; }
-                    .faction-box { background: #F9F9F9; border: 1px solid #E0E0E0; padding: 12px 15px; border-radius: 4px; }
-                    .faction-box h4 { margin: 0 0 8px 0; color: #333; font-size: 15px; }
-                    .faction-box p { margin: 0; font-size: 13px; color: #555; line-height: 1.5; }
-
-                    /* FIXED: Renamed classes to prevent Plotly collisions & added pointer-events filtering */
-                    .info-title-container { position: absolute; top: 15px; left: 15px; z-index: 50; pointer-events: none; }
-                    .custom-tooltip { pointer-events: auto; position: relative; display: inline-block; cursor: help; color: #005A9E; font-size: 16px; margin-left: 8px; }
-                    .custom-tooltip .custom-tooltip-text {
-                        visibility: hidden; width: 320px; background-color: #333; color: #fff; 
-                        text-align: left; border-radius: 6px; padding: 15px; font-size: 13px; font-weight: normal;
-                        position: absolute; z-index: 1000; bottom: 125%; left: -10px; 
-                        opacity: 0; transition: opacity 0.3s; box-shadow: 0 4px 8px rgba(0,0,0,0.2); line-height: 1.4;
-                    }
-                    .custom-tooltip .custom-tooltip-text::after {
-                        content: ""; position: absolute; top: 100%; left: 15px; 
-                        border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent;
-                    }
-                    .custom-tooltip:hover .custom-tooltip-text { visibility: visible; opacity: 1; }
+                    body {{ font-family: 'Segoe UI', Arial, sans-serif; background-color: #FAFAFA; margin: 0; padding: 20px; }}
+                    h1 {{ color: #333; text-align: center; margin-bottom: 10px; }}
+                    .selector-container {{ display: flex; justify-content: center; margin-bottom: 30px; background: #FFF; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid #E0E0E0; }}
+                    .selector-container label {{ font-weight: bold; margin-right: 12px; align-self: center; color: #444; }}
+                    select {{ padding: 8px 16px; border-radius: 6px; border: 1px solid #CCCCCC; font-size: 14px; font-weight: bold; color: #005A9E; outline: none; background: #F4F8FC; cursor: pointer; }}
+                    select:hover {{ border-color: #005A9E; background: #EBF3FC; }}
+                    .kpi-container {{ display: flex; justify-content: center; gap: 20px; margin-bottom: 40px; }}
+                    .kpi-card {{ background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; text-align: center; width: 220px; border-top: 4px solid #005A9E; }}
+                    .kpi-card h3 {{ margin: 0; font-size: 32px; color: #005A9E; }}
+                    .kpi-card p {{ margin: 5px 0 0; color: #666; font-size: 14px; text-transform: uppercase; font-weight: bold; }}
+                    .grid-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }}
+                    .chart-card {{ position: relative; background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 40px 15px 15px 15px; height: 500px; display: flex; flex-direction: column; transition: all 0.3s ease; }}
+                    .chart-card > div {{ flex-grow: 1; width: 100%; height: 100%; }}
+                    .fs-btn {{ position: absolute; top: 10px; right: 10px; z-index: 100; cursor: pointer; background: #E1F0FF; color: #005A9E; border: 1px solid #99C9FF; border-radius: 4px; padding: 5px 10px; font-weight: bold; font-size: 12px; }}
+                    .fs-btn:hover {{ background: #CCE4FF; }}
+                    .chart-card.fullscreen {{ position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; margin: 0; border-radius: 0; padding: 50px 20px 20px 20px; box-sizing: border-box; }}
+                    .factions-container {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; }}
+                    .faction-box {{ background: #F9F9F9; border: 1px solid #E0E0E0; padding: 12px 15px; border-radius: 4px; }}
+                    .faction-box h4 {{ margin: 0 0 8px 0; color: #333; font-size: 15px; }}
+                    .faction-box p {{ margin: 0; font-size: 13px; color: #555; line-height: 1.5; }}
+                    .info-title-container {{ position: absolute; top: 15px; left: 15px; z-index: 50; pointer-events: none; }}
+                    .custom-tooltip {{ pointer-events: auto; position: relative; display: inline-block; cursor: help; color: #005A9E; font-size: 16px; margin-left: 8px; }}
+                    .custom-tooltip .custom-tooltip-text {{ visibility: hidden; width: 320px; background-color: #333; color: #fff; text-align: left; border-radius: 6px; padding: 15px; font-size: 13px; position: absolute; z-index: 1000; bottom: 125%; left: -10px; opacity: 0; transition: opacity 0.3s; box-shadow: 0 4px 8px rgba(0,0,0,0.2); line-height: 1.4; }}
+                    .custom-tooltip:hover .custom-tooltip-text {{ visibility: visible; opacity: 1; }}
                 </style>
                 <script>
-                    function toggleFullscreen(btn) {
+                    function switchAI(selectedId) {{
+                        // ---> THE FIX: Correctly target the .dashboard-view-panel class
+                        const sections = document.querySelectorAll('.dashboard-view-panel');
+                        sections.forEach(sec => {{ sec.style.display = 'none'; }});
+
+                        const activeSec = document.getElementById(selectedId);
+                        if(activeSec) {{
+                            activeSec.style.display = 'block';
+                            window.dispatchEvent(new Event('resize'));
+                        }}
+                    }}
+                    function toggleFullscreen(btn) {{
                         const card = btn.parentElement;
                         card.classList.toggle('fullscreen');
-                        if (card.classList.contains('fullscreen')) {
-                            btn.innerHTML = '✖ Close';
-                        } else {
-                            btn.innerHTML = '⛶ Expand';
-                        }
-                        setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 50);
-                    }
+                        btn.innerHTML = card.classList.contains('fullscreen') ? '✖ Close' : '⛶ Expand';
+                        setTimeout(() => {{ window.dispatchEvent(new Event('resize')); }}, 50);
+                    }}
                 </script>
             </head>
             <body>
-                <h1>📊 __MEETING_NAME__ - TDoc Statistics Dashboard</h1>
+                <h1>📊 {meeting_name} - TDoc Analytics Dashboard</h1>
 
-                <div class="kpi-container">
-                    <div class="kpi-card"><h3>__TOTAL_TDOCS__</h3><p>Total TDocs</p></div>
-                    <div class="kpi-card"><h3>__TOTAL_COMPANIES__</h3><p>Participating Companies</p></div>
+                <div class="selector-container">
+                    <label for="scope-select">🎯 Analytics Scope / Agenda Item:</label>
+                    <select id="scope-select" onchange="switchAI(this.value)">
+                        {" ".join(dropdown_options)}
+                    </select>
                 </div>
 
-                <div class="grid-container">
-                    <div class="chart-card">
-                        <div class="info-title-container">
-                            <span class="custom-tooltip">ⓘ
-                                <span class="custom-tooltip-text">
-                                    <b>Agenda Items by Volume:</b> Displays the top topics based on the sheer number of submitted documents. This helps identify where the majority of the working group's effort and debate is currently focused.
-                                </span>
-                            </span>
-                        </div>
-                        <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
-                        __HTML_AI__
-                    </div>
-
-                    <div class="chart-card">
-                        <div class="info-title-container">
-                            <span class="custom-tooltip">ⓘ
-                                <span class="custom-tooltip-text">
-                                    <b>TDoc Outcomes:</b> A breakdown of the final decisions made on the submitted documents (e.g., Agreed, Revised, Noted). Note that 'Withdrawn' documents are explicitly excluded from this dataset.
-                                </span>
-                            </span>
-                        </div>
-                        <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
-                        __HTML_STATUS__
-                    </div>
-
-                    <div class="chart-card" style="grid-column: 1 / -1; height: 600px;">
-                        <div class="info-title-container">
-                            <span class="custom-tooltip">ⓘ
-                                <span class="custom-tooltip-text">
-                                    <b>Top Contributors:</b> Ranks the most active companies based on the total number of documents they have either authored or co-signed in this meeting.
-                                </span>
-                            </span>
-                        </div>
-                        <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
-                        __HTML_COMP__
-                    </div>
-
-                    <div class="chart-card" style="grid-column: 1 / -1; height: 750px;">
-                        <div class="info-title-container">
-                            <span class="custom-tooltip">ⓘ
-                                <span class="custom-tooltip-text">
-                                    <b>Strategic Alliances:</b> Visualizes the collaboration network. Each node represents a company. The lines connecting them represent co-signed documents. Thicker lines indicate a stronger alliance with a higher volume of shared documents.
-                                </span>
-                            </span>
-                        </div>
-                        <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
-                        __HTML_NET__
-                    </div>
-
-                    <div class="chart-card" style="height: 450px;">
-                        <div class="info-title-container">
-                            <span class="custom-tooltip">ⓘ
-                                <span class="custom-tooltip-text">
-                                    <b>Louvain Method:</b> A mathematical algorithm that automatically discovers distinct "communities" or "factions" within a network by finding groups of companies that co-sign with each other significantly more often than they co-sign with outsiders.
-                                </span>
-                            </span>
-                        </div>
-                        <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
-                        __HTML_CLUSTER_CONTRIBS__
-                    </div>
-
-                    <div class="chart-card" style="height: 450px;">
-                        <div class="info-title-container">
-                            <span class="custom-tooltip">ⓘ
-                                <span class="custom-tooltip-text">
-                                    <b>Cohesion Score (Network Density):</b> Measures how tightly-knit a faction is on a scale of 0 to 1.<br><br>It is calculated by dividing the actual number of co-signs within the faction by the maximum possible number of co-signs (if every single member explicitly partnered with every other member). A higher score means strong, uniform coordination.
-                                </span>
-                            </span>
-                        </div>
-                        <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
-                        __HTML_COHESION_PLOT__
-                    </div>
-
-                    <div class="chart-card" style="grid-column: 1 / -1; height: auto; padding: 20px;">
-                        __HTML_FACTION_LIST__
-                    </div>
-                </div>
+                {" ".join(views_html_buffer)}
             </body>
             </html>
             """
 
-            dashboard_html = dashboard_html.replace("__MEETING_NAME__", str(meeting_name))
-            dashboard_html = dashboard_html.replace("__TOTAL_TDOCS__", str(total_tdocs))
-            dashboard_html = dashboard_html.replace("__TOTAL_COMPANIES__", str(total_companies))
-            dashboard_html = dashboard_html.replace("__HTML_AI__", html_ai)
-            dashboard_html = dashboard_html.replace("__HTML_STATUS__", html_status)
-            dashboard_html = dashboard_html.replace("__HTML_COMP__", html_comp)
-            dashboard_html = dashboard_html.replace("__HTML_NET__", html_net)
-            dashboard_html = dashboard_html.replace("__HTML_CLUSTER_CONTRIBS__", html_cluster_contribs)
-            dashboard_html = dashboard_html.replace("__HTML_COHESION_PLOT__", html_cohesion_plot)
-            dashboard_html = dashboard_html.replace("__HTML_FACTION_LIST__", html_faction_list)
-
             out_file = self.export_dir / "Statistics_Report.html"
             with open(out_file, "w", encoding="utf-8") as f:
-                f.write(dashboard_html)
+                f.write(dashboard_template)
 
             self.finished.emit(True, str(out_file))
 
         except Exception as e:
             self.finished.emit(False, str(e))
+
+    def _compile_view_block(self, scope_id, total_tdocs, total_companies, ai_volume_html, status_html, comp_html,
+                            net_html, cluster_html, cohesion_html, list_html, is_visible=False):
+        """Compiles standard charting grid blocks into separate toggleable layout wraps using safe string replacements."""
+        display_style = "block" if is_visible else "none"
+
+        volume_card = ""
+        if ai_volume_html:
+            volume_card = """
+            <div class="chart-card">
+                <div class="info-title-container">
+                    <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Agenda Items by Volume:</b> Displays top topics based on submitted document frequency.</span></span>
+                </div>
+                <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                __AI_VOLUME_HTML__
+            </div>
+            """.replace("__AI_VOLUME_HTML__", str(ai_volume_html))
+
+        grid_col_span = "" if scope_id != "global" else "grid-column: span 1;"
+
+        html_template = """
+        <div id="__SCOPE_ID__" class="dashboard-view-panel" style="display: __DISPLAY_STYLE__;">
+            <div class="kpi-container">
+                <div class="kpi-card"><h3>__TOTAL_TDOCS__</h3><p>View TDocs</p></div>
+                <div class="kpi-card"><h3>__TOTAL_COMPANIES__</h3><p>Active Companies</p></div>
+            </div>
+
+            <div class="grid-container">
+                __VOLUME_CARD__
+                <div class="chart-card" style="__GRID_COL_SPAN__">
+                    <div class="info-title-container">
+                        <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>TDoc Outcomes:</b> Breakdown of actions applied across this data selection.</span></span>
+                    </div>
+                    <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                    __STATUS_HTML__
+                </div>
+
+                <div class="chart-card" style="grid-column: 1 / -1; height: 550px;">
+                    <div class="info-title-container">
+                        <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Top Contributors:</b> Active entities in the scope subset.</span></span>
+                    </div>
+                    <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                    __COMP_HTML__
+                </div>
+
+                <div class="chart-card" style="grid-column: 1 / -1; height: 750px;">
+                    <div class="info-title-container">
+                        <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Strategic Alliances:</b> Subset collaboration mappings under fixed global configurations.</span></span>
+                    </div>
+                    <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                    __NET_HTML__
+                </div>
+
+                <div class="chart-card" style="height: 450px;">
+                    <div class="info-title-container">
+                        <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Faction Output Volume:</b> Quantifies documents matching this view scope authored by the tracked alliance clusters.</span></span>
+                    </div>
+                    <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                    __CLUSTER_HTML__
+                </div>
+
+                <div class="chart-card" style="height: 450px;">
+                    <div class="info-title-container">
+                        <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Cohesion Tracker:</b> Displays the interaction density of factions under this specific subset.</span></span>
+                    </div>
+                    <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                    __COHESION_HTML__
+                </div>
+
+                <div class="chart-card" style="grid-column: 1 / -1; height: auto; padding: 20px;">
+                    __LIST_HTML__
+                </div>
+            </div>
+        </div>
+        """
+
+        html_template = html_template.replace("__SCOPE_ID__", str(scope_id))
+        html_template = html_template.replace("__DISPLAY_STYLE__", str(display_style))
+        html_template = html_template.replace("__TOTAL_TDOCS__", str(total_tdocs))
+        html_template = html_template.replace("__TOTAL_COMPANIES__", str(total_companies))
+        html_template = html_template.replace("__VOLUME_CARD__", str(volume_card))
+        html_template = html_template.replace("__GRID_COL_SPAN__", str(grid_col_span))
+        html_template = html_template.replace("__STATUS_HTML__", str(status_html))
+        html_template = html_template.replace("__COMP_HTML__", str(comp_html))
+        html_template = html_template.replace("__NET_HTML__", str(net_html))
+        html_template = html_template.replace("__CLUSTER_HTML__", str(cluster_html))
+        html_template = html_template.replace("__COHESION_HTML__", str(cohesion_html))
+        html_template = html_template.replace("__LIST_HTML__", str(list_html))
+
+        return html_template
