@@ -16,8 +16,9 @@ class LLMExporterThread(QThread):
     finished = pyqtSignal(bool, str)
     progress = pyqtSignal(str)
 
+    # ---> THE FIX: Add system_prompt parameter to the initialization
     def __init__(self, meeting_dir: Path, tdocs_list: list, docs_ftp_url: str, revisions_url: str,
-                 is_bulk: bool = True, max_chars: int = 200000):
+                 is_bulk: bool = True, max_chars: int = 200000, system_prompt: str = ""):
         super().__init__()
         self.meeting_dir = meeting_dir
         self.tdocs_list = tdocs_list
@@ -25,7 +26,23 @@ class LLMExporterThread(QThread):
         self.revisions_url = revisions_url
         self.is_bulk = is_bulk
         self.max_chars = max_chars
+
+        # Determine the prompt, or fallback to default if empty string is passed
+        self.system_prompt = system_prompt or self._get_default_prompt()
+
         self.export_dir = self.meeting_dir / "Export" / "LLM_Corpus"
+
+    def _get_default_prompt(self):
+        """Fallback prompt just in case the configuration fails to load."""
+        return (
+            "This file contains a programmatic compilation of 3GPP Technical Documents (TDocs). "
+            "These documents represent telecommunications standards proposals, revisions, and working group agreements.\n\n"
+            "**Structural Rules for parsing this text:**\n"
+            "- `[ADDED BLOCK]:` Denotes entirely new text inserted into the specification where tracking wasn't explicitly isolated.\n"
+            "- `[INSERTED: <text>]`: Denotes specific inline text additions explicitly marked via Word Track Changes.\n"
+            "- `[DELETED: <text>]`: Denotes specific inline text removals explicitly marked via Word Track Changes.\n\n"
+            "**Your Task:** Please use this corpus to analyze technical agreements, architectural changes, or contradictions within this specific Agenda Item."
+        )
 
     def run(self):
         word_app = None
@@ -98,27 +115,20 @@ class LLMExporterThread(QThread):
 
                 header = f"# TDoc: {tdoc_id}\n**Title:** {tdoc_data.get('Title', '')}\n**Source:** {tdoc_data.get('Source', '')}\n\n"
 
-                # ---> THE FIX: Store as a tuple (text_content, tdoc_id) to accurately report skipped files later
                 full_tdoc_text = header + md_content + "\n\n---\n"
                 corpus[ai][category].append((full_tdoc_text, tdoc_id))
 
-            # --- SMART CHUNKING LOGIC ---
             if self.is_bulk:
                 for ai, categories in corpus.items():
                     for category, contents in categories.items():
 
+                        # ---> THE FIX: Dynamically inject the user-configured system prompt
                         context_header = (
                             f"# 3GPP LLM Corpus\n"
                             f"**Agenda Item:** {ai}\n"
                             f"**Document Category:** {category}\n\n"
                             f"## Context Guide for LLM\n"
-                            f"This file contains a programmatic compilation of 3GPP Technical Documents (TDocs). "
-                            f"These documents represent telecommunications standards proposals, revisions, and working group agreements.\n\n"
-                            f"**Structural Rules for parsing this text:**\n"
-                            f"- `[ADDED BLOCK]:` Denotes entirely new text inserted into the specification where tracking wasn't explicitly isolated.\n"
-                            f"- `[INSERTED: <text>]`: Denotes specific inline text additions explicitly marked via Word Track Changes.\n"
-                            f"- `[DELETED: <text>]`: Denotes specific inline text removals explicitly marked via Word Track Changes.\n\n"
-                            f"**Your Task:** Please use this corpus to analyze technical agreements, architectural changes, or contradictions within this specific Agenda Item.\n\n"
+                            f"{self.system_prompt}\n\n"
                             f"---\n\n"
                         )
 
@@ -127,14 +137,12 @@ class LLMExporterThread(QThread):
                         has_content = False
 
                         for tdoc_text, tdoc_id in contents:
-                            # 1. Skip documents that individually exceed the limit
                             if len(tdoc_text) > self.max_chars:
                                 warn_msg = f"⚠️ Skipped {tdoc_id}: Size ({len(tdoc_text)} chars) exceeds configured limit of {self.max_chars}."
                                 logging.warning(f"[LLM Exporter] {warn_msg}")
                                 self.progress.emit(warn_msg)
                                 continue
 
-                            # 2. If appending this document pushes us over the limit, save the chunk and start a new one
                             if len(current_text) + len(tdoc_text) > self.max_chars and has_content:
                                 suffix = f"_Part{chunk_idx}"
                                 mega_file = self.export_dir / f"AI_{ai}_Agreed_{category}{suffix}.md"
@@ -142,16 +150,13 @@ class LLMExporterThread(QThread):
                                     f.write(current_text)
                                 saved_files.append(mega_file.name)
 
-                                # Reset variables for the next chunk
                                 chunk_idx += 1
                                 current_text = context_header + tdoc_text
                                 has_content = True
                             else:
-                                # Safe to append
                                 current_text += tdoc_text
                                 has_content = True
 
-                        # 3. Write whatever is remaining in the buffer
                         if has_content:
                             suffix = f"_Part{chunk_idx}" if chunk_idx > 1 else ""
                             mega_file = self.export_dir / f"AI_{ai}_Agreed_{category}{suffix}.md"

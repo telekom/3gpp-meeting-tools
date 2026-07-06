@@ -97,8 +97,9 @@ class InteractiveNotesDialog(QDialog):
 class StatisticsSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("⚙️ Statistics Configuration")
-        self.resize(450, 250)
+        self.setWindowTitle("⚙️ Global Tools Configuration")
+        # Increased window height to accommodate the multi-line prompt box
+        self.resize(550, 550)
         self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; color: #333; }")
 
         # Resolve the root src/ directory to ensure the config applies globally to all meetings
@@ -107,8 +108,8 @@ class StatisticsSettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # --- Granularity Slider ---
-        layout.addWidget(QLabel("<b>Faction Granularity (Algorithm Sensitivity)</b>"))
+        # --- Statistics Configuration ---
+        layout.addWidget(QLabel("<b>📊 Faction Granularity (Algorithm Sensitivity)</b>"))
         desc_lbl = QLabel(
             "<i>Controls how the math groups co-signers. Slide left for a few massive alliances, slide right to detect many small, strict factions.</i>")
         desc_lbl.setWordWrap(True)
@@ -116,8 +117,8 @@ class StatisticsSettingsDialog(QDialog):
         layout.addWidget(desc_lbl)
 
         self.slider = QSlider(Qt.Horizontal)
-        self.slider.setMinimum(5)  # Represents 0.5 (Low resolution, large communities)
-        self.slider.setMaximum(25)  # Represents 2.5 (High resolution, small communities)
+        self.slider.setMinimum(5)  # Represents 0.5
+        self.slider.setMaximum(25)  # Represents 2.5
         self.slider.setSingleStep(1)
         self.slider.setValue(int(self.config.get("resolution", 1.5) * 10))
         layout.addWidget(self.slider)
@@ -127,12 +128,10 @@ class StatisticsSettingsDialog(QDialog):
         slider_labels.addStretch()
         slider_labels.addWidget(QLabel("Many / Small Factions"))
         layout.addLayout(slider_labels)
+        layout.addSpacing(10)
 
-        layout.addSpacing(15)
-
-        # --- Threshold Spinbox ---
         thresh_layout = QHBoxLayout()
-        thresh_layout.addWidget(QLabel("<b>Minimum Shared Documents (Graph Filter):</b>"))
+        thresh_layout.addWidget(QLabel("Minimum Shared Documents (Graph Filter):"))
         thresh_layout.addStretch()
         self.thresh_spin = QSpinBox()
         self.thresh_spin.setRange(1, 20)
@@ -141,9 +140,8 @@ class StatisticsSettingsDialog(QDialog):
         thresh_layout.addWidget(self.thresh_spin)
         layout.addLayout(thresh_layout)
 
-        # --- Top Contributors Spinbox ---
         top_layout = QHBoxLayout()
-        top_layout.addWidget(QLabel("<b>Top Contributors to Display in Chart:</b>"))
+        top_layout.addWidget(QLabel("Top Contributors to Display in Chart:"))
         top_layout.addStretch()
         self.top_spin = QSpinBox()
         self.top_spin.setRange(10, 100)
@@ -159,7 +157,7 @@ class StatisticsSettingsDialog(QDialog):
         layout.addWidget(QLabel("<b>🤖 LLM Export Configuration</b>"))
 
         llm_desc = QLabel(
-            "<i>Large meeting corpora will be split into multiple chunked files to prevent overflowing the AI's context limits.</i>")
+            "<i>Large meeting corpora will be split into multiple chunked files to prevent overflowing the AI's context limits. Customize the System Prompt to guide the LLM's analysis.</i>")
         llm_desc.setWordWrap(True)
         llm_desc.setStyleSheet("color: #666; font-size: 11px;")
         layout.addWidget(llm_desc)
@@ -174,6 +172,15 @@ class StatisticsSettingsDialog(QDialog):
         self.llm_spin.setStyleSheet("padding: 4px; border: 1px solid #CCC; background: white; width: 80px;")
         llm_layout.addWidget(self.llm_spin)
         layout.addLayout(llm_layout)
+
+        # ---> THE FIX: Add the new System Prompt Text Editor
+        layout.addSpacing(10)
+        layout.addWidget(QLabel("<b>System Prompt / Context Guide:</b>"))
+        self.prompt_edit = QTextEdit()
+        self.prompt_edit.setPlainText(self.config.get("llm_system_prompt", self._get_default_prompt()))
+        self.prompt_edit.setStyleSheet(
+            "padding: 8px; border: 1px solid #CCC; background: white; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px;")
+        layout.addWidget(self.prompt_edit)
 
         layout.addStretch()
 
@@ -194,12 +201,25 @@ class StatisticsSettingsDialog(QDialog):
         btn_layout.addWidget(save_btn)
         layout.addLayout(btn_layout)
 
+    def _get_default_prompt(self):
+        """Returns the fallback structural rules for the LLM."""
+        return (
+            "This file contains a programmatic compilation of 3GPP Technical Documents (TDocs). "
+            "These documents represent telecommunications standards proposals, revisions, and working group agreements.\n\n"
+            "**Structural Rules for parsing this text:**\n"
+            "- `[ADDED BLOCK]:` Denotes entirely new text inserted into the specification where tracking wasn't explicitly isolated.\n"
+            "- `[INSERTED: <text>]`: Denotes specific inline text additions explicitly marked via Word Track Changes.\n"
+            "- `[DELETED: <text>]`: Denotes specific inline text removals explicitly marked via Word Track Changes.\n\n"
+            "**Your Task:** Please use this corpus to analyze technical agreements, architectural changes, or contradictions within this specific Agenda Item."
+        )
+
     def load_config(self):
         default = {
             "resolution": 1.5,
             "threshold": 1,
             "top_count": 30,
-            "llm_max_chars": 200000
+            "llm_max_chars": 200000,
+            "llm_system_prompt": self._get_default_prompt()
         }
         if self.config_path.exists():
             try:
@@ -216,6 +236,7 @@ class StatisticsSettingsDialog(QDialog):
         self.config["threshold"] = self.thresh_spin.value()
         self.config["top_count"] = self.top_spin.value()
         self.config["llm_max_chars"] = self.llm_spin.value()
+        self.config["llm_system_prompt"] = self.prompt_edit.toPlainText().strip()
 
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
