@@ -12,8 +12,7 @@ class CheckableComboBox(QComboBox):
         super().__init__(parent)
         self.title = title
 
-        # ---> THE SYSTEMATIC FIX: Remove the LineEdit completely!
-        # The combobox will behave natively, ensuring clicks always open the popup.
+        # Native, non-editable combobox behavior
         self.setEditable(False)
 
         self.setView(QListView(self))
@@ -53,37 +52,43 @@ class CheckableComboBox(QComboBox):
 
     def eventFilter(self, obj, event):
         try:
-            # Handle toggling checkboxes without closing the menu
-            if obj == self.view().viewport() and event.type() == QEvent.MouseButtonRelease:
-                index = self.view().indexAt(event.pos())
-                if index.isValid():
-                    item = self.model().itemFromIndex(index)
-                    if item:
-                        state = item.checkState()
-                        new_state = Qt.Unchecked if (state == Qt.Checked or state == 2) else Qt.Checked
+            if obj == self.view().viewport():
+                # ---> THE FIX 1: Consume the release event so the menu doesn't close natively,
+                # and it prevents the initial "click release" from toggling the first item.
+                if event.type() == QEvent.MouseButtonRelease:
+                    return True
 
-                        self._updating = True
-                        if index.row() == 0:
-                            item.setCheckState(new_state)
-                            for i in range(1, self.model().rowCount()):
-                                child = self.model().item(i)
-                                if child: child.setCheckState(new_state)
-                        else:
-                            item.setCheckState(new_state)
-                            all_checked = True
-                            for i in range(1, self.model().rowCount()):
-                                child = self.model().item(i)
-                                if child and child.checkState() not in (Qt.Checked, 2):
-                                    all_checked = False
-                                    break
+                # ---> THE FIX 2: Handle toggling checkboxes explicitly on PRESS instead!
+                elif event.type() == QEvent.MouseButtonPress:
+                    index = self.view().indexAt(event.pos())
+                    if index.isValid():
+                        item = self.model().itemFromIndex(index)
+                        if item:
+                            state = item.checkState()
+                            new_state = Qt.Unchecked if (state == Qt.Checked or state == 2) else Qt.Checked
 
-                            root_item = self.model().item(0)
-                            if root_item: root_item.setCheckState(Qt.Checked if all_checked else Qt.Unchecked)
+                            self._updating = True
+                            if index.row() == 0:
+                                item.setCheckState(new_state)
+                                for i in range(1, self.model().rowCount()):
+                                    child = self.model().item(i)
+                                    if child: child.setCheckState(new_state)
+                            else:
+                                item.setCheckState(new_state)
+                                all_checked = True
+                                for i in range(1, self.model().rowCount()):
+                                    child = self.model().item(i)
+                                    if child and child.checkState() not in (Qt.Checked, 2):
+                                        all_checked = False
+                                        break
 
-                        self._updating = False
-                        self.update()  # Trigger paintEvent to update the button text
-                        self.selectionChanged.emit(self.getCheckedItems())
-                return True
+                                root_item = self.model().item(0)
+                                if root_item: root_item.setCheckState(Qt.Checked if all_checked else Qt.Unchecked)
+
+                            self._updating = False
+                            self.update()  # Trigger paintEvent to update the button text
+                            self.selectionChanged.emit(self.getCheckedItems())
+                    return True
 
         except Exception as e:
             logging.error(f"[CheckableComboBox] Event filter error: {e}", exc_info=True)
@@ -107,7 +112,6 @@ class CheckableComboBox(QComboBox):
         self.update()
 
     def updateItems(self, items):
-        logging.info(f"[CheckableComboBox] Updating items for '{self.title}'...")
         previously_checked = set(self.getCheckedItems())
 
         was_all_checked = True
