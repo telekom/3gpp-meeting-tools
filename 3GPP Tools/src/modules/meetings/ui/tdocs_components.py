@@ -1,6 +1,8 @@
+# --- File: src/modules/meetings/ui/tdocs_components.py ---
+import logging
 from PyQt5.QtCore import pyqtSignal, QEvent, Qt
-from PyQt5.QtGui import QStandardItemModel, QStandardItem
-from PyQt5.QtWidgets import QComboBox
+from PyQt5.QtGui import QStandardItemModel, QStandardItem, QPalette
+from PyQt5.QtWidgets import QComboBox, QListView, QStylePainter, QStyleOptionComboBox, QStyle
 
 
 class CheckableComboBox(QComboBox):
@@ -9,45 +11,83 @@ class CheckableComboBox(QComboBox):
     def __init__(self, title, parent=None):
         super().__init__(parent)
         self.title = title
-        self.setEditable(True)
-        self.lineEdit().setReadOnly(True)
+
+        # ---> THE SYSTEMATIC FIX: Remove the LineEdit completely!
+        # The combobox will behave natively, ensuring clicks always open the popup.
+        self.setEditable(False)
+
+        self.setView(QListView(self))
+        self.setModel(QStandardItemModel(self))
+
         self._updating = False
 
-        self.lineEdit().installEventFilter(self)
-        self.setModel(QStandardItemModel(self))
+        # Install filter ONLY to catch clicks on the dropdown list (viewport)
         self.view().viewport().installEventFilter(self)
 
+    def paintEvent(self, event):
+        """Overrides the default rendering to display custom summary text natively."""
+        painter = QStylePainter(self)
+        painter.setPen(self.palette().color(QPalette.Text))
+
+        opt = QStyleOptionComboBox()
+        self.initStyleOption(opt)
+
+        # Calculate custom text based on checked items
+        checked = self.getCheckedItems()
+        total = max(0, self.model().rowCount() - 1)
+
+        if total == 0:
+            text = f"{self.title}: None"
+        elif len(checked) == total:
+            text = f"{self.title}: All"
+        elif len(checked) == 1:
+            text = f"{self.title}: {checked[0] if checked[0] else '(Empty)'}"
+        else:
+            text = f"{self.title}: {len(checked)} selected"
+
+        opt.currentText = text
+
+        # Draw the combobox natively with the custom text
+        self.style().drawComplexControl(QStyle.CC_ComboBox, opt, painter, self)
+        self.style().drawControl(QStyle.CE_ComboBoxLabel, opt, painter, self)
+
     def eventFilter(self, obj, event):
-        if obj == self.lineEdit() and event.type() == QEvent.MouseButtonPress:
-            self.showPopup()
-            return True
+        try:
+            # Handle toggling checkboxes without closing the menu
+            if obj == self.view().viewport() and event.type() == QEvent.MouseButtonRelease:
+                index = self.view().indexAt(event.pos())
+                if index.isValid():
+                    item = self.model().itemFromIndex(index)
+                    if item:
+                        state = item.checkState()
+                        new_state = Qt.Unchecked if (state == Qt.Checked or state == 2) else Qt.Checked
 
-        if obj == self.view().viewport() and event.type() == QEvent.MouseButtonRelease:
-            index = self.view().indexAt(event.pos())
-            if index.isValid():
-                item = self.model().itemFromIndex(index)
-                if item:
-                    state = item.checkState()
-                    new_state = Qt.Unchecked if (state == Qt.Checked or state == 2) else Qt.Checked
+                        self._updating = True
+                        if index.row() == 0:
+                            item.setCheckState(new_state)
+                            for i in range(1, self.model().rowCount()):
+                                child = self.model().item(i)
+                                if child: child.setCheckState(new_state)
+                        else:
+                            item.setCheckState(new_state)
+                            all_checked = True
+                            for i in range(1, self.model().rowCount()):
+                                child = self.model().item(i)
+                                if child and child.checkState() not in (Qt.Checked, 2):
+                                    all_checked = False
+                                    break
 
-                    self._updating = True
-                    if index.row() == 0:
-                        item.setCheckState(new_state)
-                        for i in range(1, self.model().rowCount()):
-                            self.model().item(i).setCheckState(new_state)
-                    else:
-                        item.setCheckState(new_state)
-                        all_checked = True
-                        for i in range(1, self.model().rowCount()):
-                            if self.model().item(i).checkState() not in (Qt.Checked, 2):
-                                all_checked = False
-                                break
-                        self.model().item(0).setCheckState(Qt.Checked if all_checked else Qt.Unchecked)
+                            root_item = self.model().item(0)
+                            if root_item: root_item.setCheckState(Qt.Checked if all_checked else Qt.Unchecked)
 
-                    self._updating = False
-                    self.updateText()
-                    self.selectionChanged.emit(self.getCheckedItems())
-            return True
+                        self._updating = False
+                        self.update()  # Trigger paintEvent to update the button text
+                        self.selectionChanged.emit(self.getCheckedItems())
+                return True
+
+        except Exception as e:
+            logging.error(f"[CheckableComboBox] Event filter error: {e}", exc_info=True)
+
         return super().eventFilter(obj, event)
 
     def addItems(self, items):
@@ -64,14 +104,23 @@ class CheckableComboBox(QComboBox):
             item.setCheckState(Qt.Checked)
             item.setData(str(text), Qt.UserRole)
             self.model().appendRow(item)
-        self.updateText()
+        self.update()
 
     def updateItems(self, items):
+        logging.info(f"[CheckableComboBox] Updating items for '{self.title}'...")
         previously_checked = set(self.getCheckedItems())
-        was_all_checked = (self.model().item(0).checkState() == Qt.Checked) if self.model().rowCount() > 0 else True
+
+        was_all_checked = True
+        if self.model().rowCount() > 0:
+            root_item = self.model().item(0)
+            if root_item:
+                was_all_checked = (root_item.checkState() == Qt.Checked)
 
         self.model().blockSignals(True)
-        self.model().clear()
+
+        # Safely remove rows to keep viewport intact
+        if self.model().rowCount() > 0:
+            self.model().removeRows(0, self.model().rowCount())
 
         item_all = QStandardItem("(Select All)")
         item_all.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
@@ -83,6 +132,7 @@ class CheckableComboBox(QComboBox):
             display_text = str(text) if text else "(Empty)"
             item = QStandardItem(display_text)
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+
             if was_all_checked or text in previously_checked:
                 item.setCheckState(Qt.Checked)
             else:
@@ -92,29 +142,23 @@ class CheckableComboBox(QComboBox):
             item.setData(str(text), Qt.UserRole)
             self.model().appendRow(item)
 
-        self.model().item(0).setCheckState(Qt.Checked if all_checked_now else Qt.Unchecked)
+        root_item = self.model().item(0)
+        if root_item:
+            root_item.setCheckState(Qt.Checked if all_checked_now else Qt.Unchecked)
+
         self.model().blockSignals(False)
-        self.updateText()
+        self.update()  # Trigger paintEvent to update the button text
 
     def getCheckedItems(self):
         checked = []
         for i in range(1, self.model().rowCount()):
             item = self.model().item(i)
-            state = item.checkState()
-            if state == Qt.Checked or state == 2:
-                checked.append(item.data(Qt.UserRole))
+            if item:
+                state = item.checkState()
+                if state == Qt.Checked or state == 2:
+                    checked.append(item.data(Qt.UserRole))
         return checked
 
     def updateText(self):
-        if self._updating: return
-        checked = self.getCheckedItems()
-        total = self.model().rowCount() - 1
-
-        if total == 0:
-            self.lineEdit().setText(f"{self.title}: None")
-        elif len(checked) == total:
-            self.lineEdit().setText(f"{self.title}: All")
-        elif len(checked) == 1:
-            self.lineEdit().setText(f"{self.title}: {checked[0] if checked[0] else '(Empty)'}")
-        else:
-            self.lineEdit().setText(f"{self.title}: {len(checked)} selected")
+        # Deprecated: Legacy support for external calls. Rendering is now automatic.
+        self.update()

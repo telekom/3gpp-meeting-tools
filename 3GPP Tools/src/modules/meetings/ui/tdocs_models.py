@@ -246,7 +246,6 @@ class TDocsTableModel(QAbstractTableModel):
                     except Exception:
                         pass
 
-                # ---> THE FIX: Robust, case-insensitive inheritance using a fuzzy lookup helper
                 if base_tdoc and base_tdoc in tdoc_dict:
                     base_row = tdoc_dict[base_tdoc]
 
@@ -349,6 +348,9 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 
     def filterAcceptsRow(self, source_row, source_parent):
         model = self.sourceModel()
+
+        if not model:
+            return False
 
         if self.filter_no_comments:
             remarks = model.data(model.index(source_row, 7, source_parent), Qt.UserRole)

@@ -536,10 +536,13 @@ class TDocsWindow(QWidget):
 
     def _export_llm_visible(self):
         visible_tdocs = []
+        # Use the proxy model to get currently visible items
         for r in range(self.proxy.rowCount()):
-            idx = self.proxy.index(r, 0)
-            source_idx = self.proxy.mapToSource(idx)
-            visible_tdocs.append(self.model._data[source_idx.row()])
+            index = self.proxy.index(r, 0)
+            # THIS IS CRITICAL: Map to source model to get the correct data object
+            source_index = self.proxy.mapToSource(index)
+            row_data = self.model._data[source_index.row()]
+            visible_tdocs.append(row_data)
 
         if not visible_tdocs:
             return QMessageBox.warning(self, "Empty View", "No TDocs currently visible in the table to export.")
