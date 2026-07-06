@@ -36,7 +36,6 @@ class LLMExporterThread(QThread):
             saved_files = []
 
             for tdoc_data in self.tdocs_list:
-                # ---> THE FIX: Aggressively strip whitespace so the FTP URL is valid
                 tdoc_id = str(tdoc_data.get("TDoc", "")).strip()
                 if not tdoc_id: continue
 
@@ -104,7 +103,22 @@ class LLMExporterThread(QThread):
                     for category, contents in categories.items():
                         mega_file = self.export_dir / f"AI_{ai}_Agreed_{category}.md"
                         with open(mega_file, "w", encoding="utf-8") as f:
-                            f.write(f"# LLM Corpus: Agenda Item {ai} - {category}\n\n")
+                            # ---> THE FIX: Inject rich instructions for the LLM at the top of the file
+                            context_header = (
+                                f"# 3GPP LLM Corpus\n"
+                                f"**Agenda Item:** {ai}\n"
+                                f"**Document Category:** {category}\n\n"
+                                f"## Context Guide for LLM\n"
+                                f"This file contains a programmatic compilation of 3GPP Technical Documents (TDocs). "
+                                f"These documents represent telecommunications standards proposals, revisions, and working group agreements.\n\n"
+                                f"**Structural Rules for parsing this text:**\n"
+                                f"- `[ADDED BLOCK]:` Denotes entirely new text inserted into the specification where tracking wasn't explicitly isolated.\n"
+                                f"- `[INSERTED: <text>]`: Denotes specific inline text additions explicitly marked via Word Track Changes.\n"
+                                f"- `[DELETED: <text>]`: Denotes specific inline text removals explicitly marked via Word Track Changes.\n\n"
+                                f"**Your Task:** Please use this corpus to analyze technical agreements, architectural changes, or contradictions within this specific Agenda Item.\n\n"
+                                f"---\n\n"
+                            )
+                            f.write(context_header)
                             f.write("\n".join(contents))
                         saved_files.append(mega_file.name)
 

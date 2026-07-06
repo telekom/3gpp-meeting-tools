@@ -290,18 +290,23 @@ class TDocsWindow(QWidget):
 
     def _on_search_changed(self, text):
         self.proxy.setGlobalFilter(text)
+        self._update_count_label()  # ---> Force immediate UI update
 
     def _on_type_changed(self, types):
         self.proxy.setTypeFilters(types)
+        self._update_count_label()  # ---> Force immediate UI update
 
     def _on_ai_changed(self, ais):
         self.proxy.setAIFilters(ais)
+        self._update_count_label()  # ---> Force immediate UI update
 
     def _on_status_changed(self, statuses):
         self.proxy.setStatusFilters(statuses)
+        self._update_count_label()  # ---> Force immediate UI update
 
     def _on_no_comments_toggled(self, checked):
         self.proxy.setNoCommentsFilter(checked)
+        self._update_count_label()  # ---> Force immediate UI update
 
     def _update_count_label(self):
         self.count_lbl.setText(f"Showing {self.proxy.rowCount()} of {self.model.rowCount()} TDocs")
