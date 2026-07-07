@@ -27,6 +27,7 @@ class StatisticsExporterThread(QThread):
         self.cfg_resolution = self.config.get("resolution", 1.5)
         self.cfg_threshold = self.config.get("threshold", 1)
         self.cfg_top_count = self.config.get("top_count", 30)
+        self.cfg_export_html = self.config.get("export_html_plots", False)  # ---> Retrieve the new boolean toggle
 
         self.THEME_COLOR = '#005A9E'
         self.PALETTE = px.colors.qualitative.Plotly
@@ -36,9 +37,9 @@ class StatisticsExporterThread(QThread):
         try:
             self.export_dir.mkdir(parents=True, exist_ok=True)
 
-            # ---> THE FIX: Safely route all individual plot exports to a sub-directory
             plots_dir = self.export_dir / "Interactive_Plots"
-            plots_dir.mkdir(parents=True, exist_ok=True)
+            if self.cfg_export_html:
+                plots_dir.mkdir(parents=True, exist_ok=True)
 
             df = pd.DataFrame(self.tdocs_data)
             if df.empty:
@@ -50,16 +51,20 @@ class StatisticsExporterThread(QThread):
 
             global_factions = compute_global_communities(df, self.cfg_resolution)
 
-            # Pass the "Global" prefix explicitly
-            g_html_ai = generate_ai_volume_plot(df, plots_dir, self.THEME_COLOR, prefix_id="Global")
-            g_html_status = generate_outcomes_plot(df, plots_dir, self.PALETTE, prefix_id="Global")
+            # Pass the toggle into the global layout blocks
+            g_html_ai = generate_ai_volume_plot(df, plots_dir, self.THEME_COLOR, prefix_id="Global",
+                                                save_html=self.cfg_export_html)
+            g_html_status = generate_outcomes_plot(df, plots_dir, self.PALETTE, prefix_id="Global",
+                                                   save_html=self.cfg_export_html)
             g_html_comp, total_companies = generate_top_contributors_plot(df, plots_dir, self.THEME_COLOR,
-                                                                          self.cfg_top_count, prefix_id="Global")
+                                                                          self.cfg_top_count, prefix_id="Global",
+                                                                          save_html=self.cfg_export_html)
             g_html_net, g_html_cluster, g_html_cohesion, g_html_list = generate_alliance_plots(df, plots_dir,
                                                                                                self.cfg_threshold,
                                                                                                self.CLUSTER_PALETTE,
                                                                                                global_factions,
-                                                                                               prefix_id="Global")
+                                                                                               prefix_id="Global",
+                                                                                               save_html=self.cfg_export_html)
 
             raw_ais = df['Agenda Item'].dropna().unique()
 
@@ -77,29 +82,29 @@ class StatisticsExporterThread(QThread):
                 self._compile_view_block("global", len(df), total_companies, g_html_ai, g_html_status, g_html_comp,
                                          g_html_net, g_html_cluster, g_html_cohesion, g_html_list, is_visible=True))
 
-            # Iterate through individual agenda items to construct sub-views
             for idx, ai_name in enumerate(unique_ais):
                 ai_df = df[df['Agenda Item'].str.strip() == ai_name].copy()
                 if ai_df.empty: continue
 
                 safe_id = f"ai_{idx}"
-
-                # ---> THE FIX: Sanitize the AI name without using complex nested f-strings
-                # This ensures no special chars break the path or the string parser
                 clean_ai_name = re.sub(r'[\\/*?:\"<>|]', '_', str(ai_name))
                 safe_ai_prefix = "AI_" + clean_ai_name
 
                 dropdown_options.append(
                     f'<option value="{safe_id}">📌 Agenda Item {ai_name} ({len(ai_df)} TDocs)</option>')
 
-                # Generate charts specific to this AI, reusing global community tracking
-                # We use the sanitized safe_ai_prefix here
-                ai_html_status = generate_outcomes_plot(ai_df, plots_dir, self.PALETTE, safe_ai_prefix)
+                # Pass the toggle into the iterative blocks
+                ai_html_status = generate_outcomes_plot(ai_df, plots_dir, self.PALETTE, safe_ai_prefix,
+                                                        save_html=self.cfg_export_html)
                 ai_html_comp, ai_companies = generate_top_contributors_plot(ai_df, plots_dir, self.THEME_COLOR,
-                                                                            self.cfg_top_count, safe_ai_prefix)
-                ai_html_net, ai_html_cluster, ai_html_cohesion, ai_html_list = generate_alliance_plots(
-                    ai_df, plots_dir, self.cfg_threshold, self.CLUSTER_PALETTE, global_factions, safe_ai_prefix
-                )
+                                                                            self.cfg_top_count, safe_ai_prefix,
+                                                                            save_html=self.cfg_export_html)
+                ai_html_net, ai_html_cluster, ai_html_cohesion, ai_html_list = generate_alliance_plots(ai_df, plots_dir,
+                                                                                                       self.cfg_threshold,
+                                                                                                       self.CLUSTER_PALETTE,
+                                                                                                       global_factions,
+                                                                                                       safe_ai_prefix,
+                                                                                                       save_html=self.cfg_export_html)
 
                 views_html_buffer.append(self._compile_view_block(
                     safe_id, len(ai_df), ai_companies,
@@ -187,7 +192,7 @@ class StatisticsExporterThread(QThread):
 
     def _compile_view_block(self, scope_id, total_tdocs, total_companies, ai_volume_html, status_html, comp_html,
                             net_html, cluster_html, cohesion_html, list_html, is_visible=False):
-        """Compiles standard charting grid blocks into separate toggleable layout wraps using safe string replacements."""
+        # (This method remains exactly the same as your current functioning version)
         display_style = "block" if is_visible else "none"
 
         volume_card = ""

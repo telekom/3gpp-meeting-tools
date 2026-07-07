@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTextEdit,
                              QPushButton, QLabel, QComboBox, QApplication,
-                             QSlider, QSpinBox)
+                             QSlider, QSpinBox, QCheckBox)
 from PyQt5.QtCore import Qt
 
 
@@ -89,20 +89,14 @@ class InteractiveNotesDialog(QDialog):
         btn_layout.addWidget(save_btn)
         layout.addLayout(btn_layout)
 
-    def _on_save_clicked(self):
-        self.db_save_callback(self.tdoc_id, self.status_combo.currentText(), self.my_notes.toPlainText())
-        self.accept()
-
 
 class StatisticsSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("⚙️ Global Tools Configuration")
-        # Increased window height to accommodate the multi-line prompt box
-        self.resize(550, 550)
+        self.resize(550, 580)
         self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; color: #333; }")
 
-        # Resolve the root src/ directory to ensure the config applies globally to all meetings
         self.config_path = Path(__file__).resolve().parents[4] / "stats_config.json"
         self.config = self.load_config()
 
@@ -117,8 +111,8 @@ class StatisticsSettingsDialog(QDialog):
         layout.addWidget(desc_lbl)
 
         self.slider = QSlider(Qt.Horizontal)
-        self.slider.setMinimum(5)  # Represents 0.5
-        self.slider.setMaximum(25)  # Represents 2.5
+        self.slider.setMinimum(5)
+        self.slider.setMaximum(25)
         self.slider.setSingleStep(1)
         self.slider.setValue(int(self.config.get("resolution", 1.5) * 10))
         layout.addWidget(self.slider)
@@ -151,6 +145,12 @@ class StatisticsSettingsDialog(QDialog):
         top_layout.addWidget(self.top_spin)
         layout.addLayout(top_layout)
 
+        # ---> THE FIX: Add checkbox to toggle the large HTML file exports
+        self.export_html_chk = QCheckBox("Export standalone HTML plots (Warning: Creates hundreds of MBs of files)")
+        self.export_html_chk.setChecked(self.config.get("export_html_plots", False))  # Default to False
+        self.export_html_chk.setStyleSheet("font-weight: bold; color: #D83B01; margin-top: 5px;")
+        layout.addWidget(self.export_html_chk)
+
         layout.addSpacing(20)
 
         # --- LLM Configuration ---
@@ -173,7 +173,6 @@ class StatisticsSettingsDialog(QDialog):
         llm_layout.addWidget(self.llm_spin)
         layout.addLayout(llm_layout)
 
-        # ---> THE FIX: Add the new System Prompt Text Editor
         layout.addSpacing(10)
         layout.addWidget(QLabel("<b>System Prompt / Context Guide:</b>"))
         self.prompt_edit = QTextEdit()
@@ -202,7 +201,6 @@ class StatisticsSettingsDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def _get_default_prompt(self):
-        """Returns the fallback structural rules for the LLM."""
         return (
             "This file contains a programmatic compilation of 3GPP Technical Documents (TDocs). "
             "These documents represent telecommunications standards proposals, revisions, and working group agreements.\n\n"
@@ -218,6 +216,7 @@ class StatisticsSettingsDialog(QDialog):
             "resolution": 1.5,
             "threshold": 1,
             "top_count": 30,
+            "export_html_plots": False,  # Default disabled!
             "llm_max_chars": 200000,
             "llm_system_prompt": self._get_default_prompt()
         }
@@ -235,6 +234,7 @@ class StatisticsSettingsDialog(QDialog):
         self.config["resolution"] = self.slider.value() / 10.0
         self.config["threshold"] = self.thresh_spin.value()
         self.config["top_count"] = self.top_spin.value()
+        self.config["export_html_plots"] = self.export_html_chk.isChecked()
         self.config["llm_max_chars"] = self.llm_spin.value()
         self.config["llm_system_prompt"] = self.prompt_edit.toPlainText().strip()
 

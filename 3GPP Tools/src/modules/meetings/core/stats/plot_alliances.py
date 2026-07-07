@@ -43,7 +43,8 @@ def compute_global_communities(df, resolution):
     return community_map, cluster_names, faction_members_dict, G
 
 
-def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_factions, prefix_id="Global"):
+def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_factions, prefix_id="Global",
+                            save_html=False):
     community_map, cluster_names, faction_members_dict, master_G = global_factions
 
     G = nx.Graph()
@@ -142,8 +143,8 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
         ))
 
-        # Save individual HTML
-        fig_net.write_html(str(export_dir / f"{prefix_id}_Network_Alliances.html"))
+        if save_html:
+            fig_net.write_html(str(export_dir / f"{prefix_id}_Network_Alliances.html"))
 
         safe_div_id = f"net_{prefix_id}".replace(" ", "_").replace(".", "_")
         html_net = fig_net.to_html(full_html=False, include_plotlyjs=False, div_id=safe_div_id, default_height="100%",
@@ -189,7 +190,9 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
             ))
             fig_contribs.update_layout(title="Total TDoc Contributions per Faction", showlegend=False)
 
-            fig_contribs.write_html(str(export_dir / f"{prefix_id}_Faction_Contributions.html"))
+            if save_html:
+                fig_contribs.write_html(str(export_dir / f"{prefix_id}_Faction_Contributions.html"))
+
             html_cluster_contribs = fig_contribs.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
                                                          default_width="100%")
 
@@ -198,7 +201,6 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
                 bubble_colors = [cluster_color_map[f] for f in bubble_df['Faction']]
                 max_contrib = float(bubble_df['Contributions'].max())
 
-                # ---> THE FIX: sizeref is strictly formatted, and data is parsed with .tolist() to dodge NumPy KeyErrors!
                 fig_cohesion = go.Figure(go.Scatter(
                     x=bubble_df['Member Count'].tolist(), y=bubble_df['Cohesion Score'].tolist(), mode='markers',
                     text=bubble_df['Faction'].tolist(), hovertext=bubble_df['Members'].tolist(),
@@ -212,7 +214,9 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
                 fig_cohesion.update_layout(title="Faction Cohesion vs. Size", showlegend=False,
                                            xaxis_title="Active Faction Size", yaxis_title="Cohesion Density")
 
-                fig_cohesion.write_html(str(export_dir / f"{prefix_id}_Faction_Cohesion.html"))
+                if save_html:
+                    fig_cohesion.write_html(str(export_dir / f"{prefix_id}_Faction_Cohesion.html"))
+
                 html_cohesion_plot = fig_cohesion.to_html(full_html=False, include_plotlyjs=False,
                                                           default_height="100%", default_width="100%")
 

@@ -2,7 +2,7 @@
 import plotly.express as px
 
 
-def generate_outcomes_plot(df, export_dir, palette, prefix_id="Global"):
+def generate_outcomes_plot(df, export_dir, palette, prefix_id="Global", save_html=False):
     status_counts = df['TDoc Status'].value_counts().reset_index()
     status_counts.columns = ['Status', 'Count']
     status_counts = status_counts[status_counts['Status'].str.strip() != '']
@@ -11,6 +11,7 @@ def generate_outcomes_plot(df, export_dir, palette, prefix_id="Global"):
                         title="TDoc Outcomes", color_discrete_sequence=palette)
     fig_status.update_traces(textposition='inside', textinfo='percent+label')
 
-    # Save with unique prefix
-    fig_status.write_html(str(export_dir / f"{prefix_id}_Outcomes.html"))
+    if save_html:
+        fig_status.write_html(str(export_dir / f"{prefix_id}_Outcomes.html"))
+
     return fig_status.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
