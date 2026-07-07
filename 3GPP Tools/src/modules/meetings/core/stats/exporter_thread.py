@@ -36,6 +36,10 @@ class StatisticsExporterThread(QThread):
         try:
             self.export_dir.mkdir(parents=True, exist_ok=True)
 
+            # ---> THE FIX: Safely route all individual plot exports to a sub-directory
+            plots_dir = self.export_dir / "Interactive_Plots"
+            plots_dir.mkdir(parents=True, exist_ok=True)
+
             df = pd.DataFrame(self.tdocs_data)
             if df.empty:
                 self.finished.emit(False, "No TDoc data available to generate statistics.")
@@ -44,19 +48,19 @@ class StatisticsExporterThread(QThread):
             df = df[~df['TDoc Status'].str.lower().str.contains('withdrawn', na=False)].copy()
             df['Clean_Companies'] = df['Source'].apply(CompanySanitizer.get_matching_contributors)
 
-            # ---> COMPUTE FACTIONS ONCE GLOBALLY TO IMMUTABLY PRESERVE ROSTERS ACROSS TABS
             global_factions = compute_global_communities(df, self.cfg_resolution)
 
-            # Generate Core Global Layout Blocks
-            g_html_ai = generate_ai_volume_plot(df, self.export_dir, self.THEME_COLOR)
-            g_html_status = generate_outcomes_plot(df, self.export_dir, self.PALETTE)
-            g_html_comp, total_companies = generate_top_contributors_plot(df, self.export_dir, self.THEME_COLOR,
-                                                                          self.cfg_top_count)
-            g_html_net, g_html_cluster, g_html_cohesion, g_html_list = generate_alliance_plots(
-                df, self.export_dir, self.cfg_threshold, self.CLUSTER_PALETTE, global_factions, "global"
-            )
+            # Pass the "Global" prefix explicitly
+            g_html_ai = generate_ai_volume_plot(df, plots_dir, self.THEME_COLOR, prefix_id="Global")
+            g_html_status = generate_outcomes_plot(df, plots_dir, self.PALETTE, prefix_id="Global")
+            g_html_comp, total_companies = generate_top_contributors_plot(df, plots_dir, self.THEME_COLOR,
+                                                                          self.cfg_top_count, prefix_id="Global")
+            g_html_net, g_html_cluster, g_html_cohesion, g_html_list = generate_alliance_plots(df, plots_dir,
+                                                                                               self.cfg_threshold,
+                                                                                               self.CLUSTER_PALETTE,
+                                                                                               global_factions,
+                                                                                               prefix_id="Global")
 
-            # Collect unique sorted Agenda Items for Sub-Page configurations
             raw_ais = df['Agenda Item'].dropna().unique()
 
             def natural_sort_key(s):
@@ -64,14 +68,11 @@ class StatisticsExporterThread(QThread):
 
             unique_ais = sorted([str(ai).strip() for ai in raw_ais if str(ai).strip()], key=natural_sort_key)
 
-            # Render overall page structure template
             meeting_name = f"{self.mtg_info.get('wg_name', 'WG')} {self.mtg_info.get('meeting_number', '')}"
 
-            # Start gathering all dynamic HTML blocks for the loop injection
             views_html_buffer = []
             dropdown_options = ['<option value="global">🌐 Overall Meeting View</option>']
 
-            # Inject the Global Dashboard Block
             views_html_buffer.append(
                 self._compile_view_block("global", len(df), total_companies, g_html_ai, g_html_status, g_html_comp,
                                          g_html_net, g_html_cluster, g_html_cohesion, g_html_list, is_visible=True))
@@ -82,15 +83,22 @@ class StatisticsExporterThread(QThread):
                 if ai_df.empty: continue
 
                 safe_id = f"ai_{idx}"
+
+                # ---> THE FIX: Sanitize the AI name without using complex nested f-strings
+                # This ensures no special chars break the path or the string parser
+                clean_ai_name = re.sub(r'[\\/*?:\"<>|]', '_', str(ai_name))
+                safe_ai_prefix = "AI_" + clean_ai_name
+
                 dropdown_options.append(
                     f'<option value="{safe_id}">📌 Agenda Item {ai_name} ({len(ai_df)} TDocs)</option>')
 
                 # Generate charts specific to this AI, reusing global community tracking
-                ai_html_status = generate_outcomes_plot(ai_df, self.export_dir, self.PALETTE)
-                ai_html_comp, ai_companies = generate_top_contributors_plot(ai_df, self.export_dir, self.THEME_COLOR,
-                                                                            self.cfg_top_count)
+                # We use the sanitized safe_ai_prefix here
+                ai_html_status = generate_outcomes_plot(ai_df, plots_dir, self.PALETTE, safe_ai_prefix)
+                ai_html_comp, ai_companies = generate_top_contributors_plot(ai_df, plots_dir, self.THEME_COLOR,
+                                                                            self.cfg_top_count, safe_ai_prefix)
                 ai_html_net, ai_html_cluster, ai_html_cohesion, ai_html_list = generate_alliance_plots(
-                    ai_df, self.export_dir, self.cfg_threshold, self.CLUSTER_PALETTE, global_factions, safe_id
+                    ai_df, plots_dir, self.cfg_threshold, self.CLUSTER_PALETTE, global_factions, safe_ai_prefix
                 )
 
                 views_html_buffer.append(self._compile_view_block(
@@ -136,7 +144,6 @@ class StatisticsExporterThread(QThread):
                 </style>
                 <script>
                     function switchAI(selectedId) {{
-                        // ---> THE FIX: Correctly target the .dashboard-view-panel class
                         const sections = document.querySelectorAll('.dashboard-view-panel');
                         sections.forEach(sec => {{ sec.style.display = 'none'; }});
 

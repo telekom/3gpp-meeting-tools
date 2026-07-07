@@ -12,7 +12,6 @@ def _get_cluster_letter(index: int) -> str:
 
 
 def compute_global_communities(df, resolution):
-    """Computes Louvain communities once over the entire meeting dataset."""
     G = nx.Graph()
     for companies in df['Clean_Companies']:
         if len(companies) > 1:
@@ -44,11 +43,9 @@ def compute_global_communities(df, resolution):
     return community_map, cluster_names, faction_members_dict, G
 
 
-def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_factions, prefix_id="global"):
-    """Generates alliance networks and stats using an immutable global faction map."""
+def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_factions, prefix_id="Global"):
     community_map, cluster_names, faction_members_dict, master_G = global_factions
 
-    # Build local graph for the current dataframe slice
     G = nx.Graph()
     for companies in df['Clean_Companies']:
         if len(companies) > 1:
@@ -72,7 +69,6 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
     cluster_color_map = {name: cluster_palette[i % len(cluster_palette)] for i, name in cluster_names.items()}
 
     if len(G.nodes) > 0 and community_map:
-        # --- Roster Renders ---
         html_faction_list = "<h3 style='margin-bottom: 10px; color: #333;'>Faction Membership Roster</h3><div class='factions-container'>"
         for c_idx, c_name in cluster_names.items():
             members = faction_members_dict.get(c_name, [])
@@ -83,9 +79,7 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
             html_faction_list += f"<div class='faction-box' style='border-left: 4px solid {box_color};'><h4>{c_name} ({len(local_members)} Active)</h4><p>{member_str}</p></div>"
         html_faction_list += "</div>"
 
-        # --- 1. Network Layout Graph ---
-        pos = nx.spring_layout(master_G, k=0.5, seed=42)  # Use master positions to keep node positioning stable!
-        # Fallback position calculation for any edge anomalies
+        pos = nx.spring_layout(master_G, k=0.5, seed=42)
         for node in G.nodes:
             if node not in pos: pos[node] = [0, 0]
 
@@ -147,10 +141,14 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
         ))
-        html_net = fig_net.to_html(full_html=False, include_plotlyjs=False, div_id=f"net_{prefix_id}",
-                                   default_height="100%", default_width="100%")
 
-        # --- 2. Calculate Cohesion scores ---
+        # Save individual HTML
+        fig_net.write_html(str(export_dir / f"{prefix_id}_Network_Alliances.html"))
+
+        safe_div_id = f"net_{prefix_id}".replace(" ", "_").replace(".", "_")
+        html_net = fig_net.to_html(full_html=False, include_plotlyjs=False, div_id=safe_div_id, default_height="100%",
+                                   default_width="100%")
+
         cluster_tdoc_counts = {name: 0 for name in cluster_names.values()}
         for companies in df['Clean_Companies']:
             tdoc_clusters = set()
@@ -185,30 +183,36 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
             bar_colors = [cluster_color_map[f] for f in contribs_df['Faction']]
 
             fig_contribs = go.Figure(go.Bar(
-                x=contribs_df['Contributions'], y=contribs_df['Faction'], orientation='h',
-                marker=dict(color=bar_colors), hovertext=contribs_df['Members'],
+                x=contribs_df['Contributions'].tolist(), y=contribs_df['Faction'].tolist(), orientation='h',
+                marker=dict(color=bar_colors), hovertext=contribs_df['Members'].tolist(),
                 hovertemplate="<b>%{y}</b><br>Contributions: %{x}<br><br><b>Members:</b><br>%{hovertext}<extra></extra>"
             ))
             fig_contribs.update_layout(title="Total TDoc Contributions per Faction", showlegend=False)
+
+            fig_contribs.write_html(str(export_dir / f"{prefix_id}_Faction_Contributions.html"))
             html_cluster_contribs = fig_contribs.to_html(full_html=False, include_plotlyjs=False, default_height="100%",
                                                          default_width="100%")
 
             bubble_df = contribs_df[contribs_df['Contributions'] > 0].copy()
             if not bubble_df.empty:
                 bubble_colors = [cluster_color_map[f] for f in bubble_df['Faction']]
-                max_contrib = bubble_df['Contributions'].max()
+                max_contrib = float(bubble_df['Contributions'].max())
+
+                # ---> THE FIX: sizeref is strictly formatted, and data is parsed with .tolist() to dodge NumPy KeyErrors!
                 fig_cohesion = go.Figure(go.Scatter(
-                    x=bubble_df['Member Count'], y=bubble_df['Cohesion Score'], mode='markers',
-                    text=bubble_df['Faction'], hovertext=bubble_df['Members'],
+                    x=bubble_df['Member Count'].tolist(), y=bubble_df['Cohesion Score'].tolist(), mode='markers',
+                    text=bubble_df['Faction'].tolist(), hovertext=bubble_df['Members'].tolist(),
                     marker=dict(
-                        size=bubble_df['Contributions'], sizemode='area',
-                        sizeref=2.0 * max_contrib / (50.0 ** 2) if max_contrib > 0 else 1, sizemin=8,
+                        size=bubble_df['Contributions'].tolist(), sizemode='area',
+                        sizeref=2.0 * max_contrib / (50.0 ** 2) if max_contrib > 0 else 1.0, sizemin=8,
                         color=bubble_colors, line=dict(width=1, color='#fff')
                     ),
                     hovertemplate="<b>%{text}</b><br>Faction Size: %{x} Companies<br>Internal Density: %{y}<br><br><b>Members:</b><br>%{hovertext}<extra></extra>"
                 ))
                 fig_cohesion.update_layout(title="Faction Cohesion vs. Size", showlegend=False,
                                            xaxis_title="Active Faction Size", yaxis_title="Cohesion Density")
+
+                fig_cohesion.write_html(str(export_dir / f"{prefix_id}_Faction_Cohesion.html"))
                 html_cohesion_plot = fig_cohesion.to_html(full_html=False, include_plotlyjs=False,
                                                           default_height="100%", default_width="100%")
 
