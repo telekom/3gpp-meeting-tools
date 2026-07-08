@@ -1,3 +1,4 @@
+# --- File: src/modules/emails/core/stats/statistics_threads.py ---
 import re
 from pathlib import Path
 
@@ -15,7 +16,6 @@ from modules.emails.core.stats.plot_timeline import _generate_timeline
 class EmailStatsExporterThread(QThread):
     finished = pyqtSignal(bool, str)
 
-    # ---> THE FIX: Added 'config: dict' to the signature
     def __init__(self, meeting_dir: Path, email_data: list, meeting_name: str, config: dict):
         super().__init__()
         self.meeting_dir = meeting_dir
@@ -25,7 +25,6 @@ class EmailStatsExporterThread(QThread):
         self.export_dir = self.meeting_dir / "Export"
         self.THEME_COLOR = THEME_COLOR
 
-        # Extract dynamic settings loaded from email_config.json
         self.cfg_top_comps = self.config.get("email_top_companies", 25)
         self.cfg_top_dels = self.config.get("email_top_delegates", 25)
         self.cfg_hm_comps = self.config.get("email_heatmap_top_comps", 25)
@@ -83,15 +82,12 @@ class EmailStatsExporterThread(QThread):
             # 📊 GENERATE GLOBAL VIEW
             # =================================================================
             g_html_ai = _generate_ai_volume(self.THEME_COLOR, self.svg_config, df, "Global", include_plotlyjs='cdn')
-
-            # Pass configurations to the functions
             g_html_comp = _generate_company_volume(self.THEME_COLOR, self.svg_config, df, "Global", False,
                                                    self.cfg_top_comps)
             g_html_dels = _generate_delegates_plot(self.THEME_COLOR, self.svg_config, df, "Global", False,
                                                    self.cfg_top_dels)
             g_html_hm = _generate_company_ai_heatmap(self.svg_config, df, "Global", False, self.cfg_hm_comps,
                                                      self.cfg_hm_ais)
-
             g_html_time = _generate_timeline(self.THEME_COLOR, self.svg_config, df, "Global", False)
             g_html_table = _generate_delegate_table(df, "Global")
 
@@ -135,6 +131,7 @@ class EmailStatsExporterThread(QThread):
             <head>
                 <meta charset="utf-8">
                 <title>📧 Email Analytics - __MEETING_NAME__</title>
+                <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
                 <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
                 <script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
                 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
@@ -144,12 +141,23 @@ class EmailStatsExporterThread(QThread):
                     .selector-container { display: flex; justify-content: center; margin-bottom: 30px; background: #FFF; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid #E0E0E0; }
                     .selector-container label { font-weight: bold; margin-right: 12px; align-self: center; color: #444; }
                     select { padding: 8px 16px; border-radius: 6px; border: 1px solid #CCCCCC; font-size: 14px; font-weight: bold; color: #005A9E; outline: none; background: #F4F8FC; cursor: pointer; }
+                    select:hover { border-color: #005A9E; background: #EBF3FC; }
                     .kpi-container { display: flex; justify-content: center; gap: 20px; margin-bottom: 40px; }
                     .kpi-card { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; text-align: center; width: 220px; border-top: 4px solid #0078D7; }
                     .kpi-card h3 { margin: 0; font-size: 32px; color: #0078D7; }
                     .kpi-card p { margin: 5px 0 0; color: #666; font-size: 14px; text-transform: uppercase; font-weight: bold; }
                     .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-                    .chart-card { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; display: flex; flex-direction: column; height: 100%; min-height: 400px; }
+
+                    /* ---> THE FIX: Transplanted CSS classes from exporter_thread.py <--- */
+                    .chart-card { position: relative; background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 40px 15px 15px 15px; height: 500px; display: flex; flex-direction: column; transition: all 0.3s ease; }
+                    .chart-card > div { flex-grow: 1; width: 100%; height: 100%; }
+                    .fs-btn { position: absolute; top: 10px; right: 10px; z-index: 100; cursor: pointer; background: #E1F0FF; color: #005A9E; border: 1px solid #99C9FF; border-radius: 4px; padding: 5px 10px; font-weight: bold; font-size: 12px; }
+                    .fs-btn:hover { background: #CCE4FF; }
+                    .chart-card.fullscreen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; margin: 0; border-radius: 0; padding: 50px 20px 20px 20px; box-sizing: border-box; }
+                    .info-title-container { position: absolute; top: 15px; left: 15px; z-index: 50; pointer-events: none; }
+                    .custom-tooltip { pointer-events: auto; position: relative; display: inline-block; cursor: help; color: #005A9E; font-size: 16px; margin-left: 8px; }
+                    .custom-tooltip .custom-tooltip-text { visibility: hidden; width: 320px; background-color: #333; color: #fff; text-align: left; border-radius: 6px; padding: 15px; font-size: 13px; position: absolute; z-index: 1000; bottom: 125%; left: -10px; opacity: 0; transition: opacity 0.3s; box-shadow: 0 4px 8px rgba(0,0,0,0.2); line-height: 1.4; }
+                    .custom-tooltip:hover .custom-tooltip-text { visibility: visible; opacity: 1; }
                     table.dataTable thead th { background-color: #F0F4F8; color: #333; }
                 </style>
                 <script>
@@ -162,6 +170,15 @@ class EmailStatsExporterThread(QThread):
                             window.dispatchEvent(new Event('resize')); 
                         }
                     }
+
+                    /* ---> THE FIX: Transplanted Fullscreen Toggle JS <--- */
+                    function toggleFullscreen(btn) {
+                        const card = btn.parentElement;
+                        card.classList.toggle('fullscreen');
+                        btn.innerHTML = card.classList.contains('fullscreen') ? '✖ Close' : '⛶ Expand';
+                        setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 50);
+                    }
+
                     $(document).ready(function() {
                         $('.delegate-table').DataTable({ "order": [[ 3, "desc" ]], "pageLength": 10 });
                     });
@@ -192,14 +209,47 @@ class EmailStatsExporterThread(QThread):
         except Exception as e:
             self.finished.emit(False, str(e))
 
-    def _compile_view_block(self, scope_id, total_emails, total_delegates, ai_html, comp_html, dels_html, hm_html, time_html, table_html, is_visible=False):
+    def _compile_view_block(self, scope_id, total_emails, total_delegates, ai_html, comp_html, dels_html, hm_html,
+                            time_html, table_html, is_visible=False):
         display_style = "block" if is_visible else "none"
 
+        # ---> THE FIX: Wrap every generated plot block into a consistent chart-card with an expand button and tooltips
         ai_card = ""
         if ai_html:
-            ai_card = f'<div class="chart-card" style="grid-column: 1 / -1;">{ai_html}</div>'
+            ai_card = f"""
+            <div class="chart-card" style="grid-column: 1 / -1;">
+                <div class="info-title-container">
+                    <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Agenda Items by Volume:</b> Displays top topics based on email frequency.</span></span>
+                </div>
+                <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                {ai_html}
+            </div>
+            """
 
-        # ---> THE FIX 3: Increased container height to 850px and added the Expansion button/Tooltip
+        comp_card = ""
+        if comp_html:
+            comp_card = f"""
+            <div class="chart-card" style="grid-column: span 1;">
+                <div class="info-title-container">
+                    <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Top Active Companies:</b> Most active companies by sent emails.</span></span>
+                </div>
+                <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                {comp_html}
+            </div>
+            """
+
+        dels_card = ""
+        if dels_html:
+            dels_card = f"""
+            <div class="chart-card" style="grid-column: span 1;">
+                <div class="info-title-container">
+                    <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Active Delegates:</b> Companies with the highest number of unique active delegates.</span></span>
+                </div>
+                <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                {dels_html}
+            </div>
+            """
+
         hm_card = ""
         if hm_html:
             hm_card = f"""
@@ -212,6 +262,26 @@ class EmailStatsExporterThread(QThread):
             </div>
             """
 
+        time_card = ""
+        if time_html:
+            time_card = f"""
+            <div class="chart-card" style="grid-column: 1 / -1;">
+                <div class="info-title-container">
+                    <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Timeline:</b> Email traffic volume over time (1-hour bins).</span></span>
+                </div>
+                <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                {time_html}
+            </div>
+            """
+
+        table_card = ""
+        if table_html:
+            table_card = f"""
+            <div class="chart-card" style="grid-column: 1 / -1; height: auto; padding: 20px;">
+                {table_html}
+            </div>
+            """
+
         html_template = """
         <div id="__SCOPE_ID__" class="dashboard-view-panel" style="display: __DISPLAY_STYLE__;">
             <div class="kpi-container">
@@ -220,19 +290,11 @@ class EmailStatsExporterThread(QThread):
             </div>
             <div class="grid-container">
                 __AI_CARD__
-                <div class="chart-card" style="grid-column: span 1;">
-                    __COMP_HTML__
-                </div>
-                <div class="chart-card" style="grid-column: span 1;">
-                    __DELS_HTML__
-                </div>
+                __COMP_CARD__
+                __DELS_CARD__
                 __HM_CARD__
-                <div class="chart-card" style="grid-column: 1 / -1;">
-                    __TIME_HTML__
-                </div>
-                <div class="chart-card" style="grid-column: 1 / -1; overflow-x: auto;">
-                    __TABLE_HTML__
-                </div>
+                __TIME_CARD__
+                __TABLE_CARD__
             </div>
         </div>
         """
@@ -242,10 +304,10 @@ class EmailStatsExporterThread(QThread):
         html_template = html_template.replace("__TOTAL_EMAILS__", str(total_emails))
         html_template = html_template.replace("__TOTAL_DELEGATES__", str(total_delegates))
         html_template = html_template.replace("__AI_CARD__", str(ai_card))
-        html_template = html_template.replace("__COMP_HTML__", str(comp_html))
-        html_template = html_template.replace("__DELS_HTML__", str(dels_html))
+        html_template = html_template.replace("__COMP_CARD__", str(comp_card))
+        html_template = html_template.replace("__DELS_CARD__", str(dels_card))
         html_template = html_template.replace("__HM_CARD__", str(hm_card))
-        html_template = html_template.replace("__TIME_HTML__", str(time_html))
-        html_template = html_template.replace("__TABLE_HTML__", str(table_html))
+        html_template = html_template.replace("__TIME_CARD__", str(time_card))
+        html_template = html_template.replace("__TABLE_CARD__", str(table_card))
 
         return html_template
