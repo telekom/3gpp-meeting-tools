@@ -109,6 +109,12 @@ class EmailManagerWindow(QWidget):
             "padding: 6px 12px; font-weight: bold; background-color: #E1F0FF; color: #005A9E; border: 1px solid #99C9FF; border-radius: 4px;")
         self.btn_rescan.clicked.connect(self._run_target_rescan)
 
+        # ---> NEW: Email Statistics Button
+        self.btn_stats = QPushButton("📊 Statistics")
+        self.btn_stats.setStyleSheet(
+            "padding: 6px 12px; font-weight: bold; background-color: #F3E5F5; color: #6A1B9A; border: 1px solid #CE93D8; border-radius: 4px;")
+        self.btn_stats.clicked.connect(self._generate_statistics)
+
         self.btn_config = QPushButton("⚙️ Folders")
         self.btn_config.clicked.connect(self._configure_folders)
 
@@ -119,6 +125,7 @@ class EmailManagerWindow(QWidget):
         toolbar.addWidget(self.btn_move)
         toolbar.addWidget(self.btn_move_all)
         toolbar.addWidget(self.btn_rescan)
+        toolbar.addWidget(self.btn_stats)  # <--- Added to UI
         toolbar.addWidget(self.btn_config)
         toolbar.addWidget(self.lbl_status)
         toolbar.addStretch()
@@ -530,3 +537,42 @@ class EmailManagerWindow(QWidget):
         self.btn_move.setEnabled(state)
         self.btn_move_all.setEnabled(state)
         self.btn_rescan.setEnabled(state)
+
+    def _generate_statistics(self):
+        # Fetch fresh data straight from the grid model (respects global DB state)
+        if not self.model._data:
+            QMessageBox.warning(self, "No Data", "There are no emails loaded to analyze.")
+            return
+
+        self._set_buttons_enabled(False)
+        self.btn_stats.setText("⏳ Generating...")
+
+        # We pass the meeting dir and the raw email dictionaries to the thread
+        from modules.emails.core.email_threads import EmailStatsExporterThread
+        meeting_name = self.meeting_dir.name if self.meeting_dir else "Meeting"
+
+        self.stats_thread = EmailStatsExporterThread(self.meeting_dir, self.model._data, meeting_name)
+        self.stats_thread.finished.connect(self._on_stats_finished)
+        self.stats_thread.start()
+
+    def _on_stats_finished(self, success: bool, msg: str):
+        self._set_buttons_enabled(True)
+        self.btn_stats.setText("📊 Statistics")
+
+        if success:
+            self.lbl_status.setText("✅ Analytics Report Generated.")
+            if hasattr(os, 'startfile'):
+                os.startfile(msg)
+            else:
+                webbrowser.open(f"file:///{msg}")
+        else:
+            self.lbl_status.setText("❌ Analytics Generation Failed.")
+            QMessageBox.warning(self, "Error", f"Could not generate statistics:\n{msg}")
+
+    # Don't forget to update _set_buttons_enabled to include the new button!
+    def _set_buttons_enabled(self, state: bool):
+        self.btn_sync.setEnabled(state)
+        self.btn_move.setEnabled(state)
+        self.btn_move_all.setEnabled(state)
+        self.btn_rescan.setEnabled(state)
+        self.btn_stats.setEnabled(state)  # <--- Added
