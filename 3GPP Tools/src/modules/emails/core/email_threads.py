@@ -123,20 +123,29 @@ class EmailMoveThread(QThread):
         self.db = db
 
     def run(self):
+        import pythoncom
+        import sqlite3  # <--- Ensure sqlite3 is imported for the cleanup query
         pythoncom.CoInitialize()
         try:
             total = len(self.items_to_move)
             success_count = 0
+            ghost_count = 0
 
-            # ---> THE FIX: Buffer for DB updates
+            # Buffer for DB updates
             batch_updates = []
 
             for i, (entry_id, ai) in enumerate(self.items_to_move, 1):
-                moved = OutlookClient.move_email_to_target(entry_id, self.target_base_path, ai)
+                status = OutlookClient.move_email_to_target(entry_id, self.target_base_path, ai)
 
-                if moved:
+                if status == "SUCCESS" or status is True:
                     batch_updates.append(('Target', entry_id))
                     success_count += 1
+                elif status == "DELETED":
+                    # ---> SELF-HEALING: Purge the deleted email from the local database
+                    with sqlite3.connect(self.db.db_path) as conn:
+                        conn.execute('DELETE FROM emails WHERE id = ?', (entry_id,))
+                        conn.commit()
+                    ghost_count += 1
 
                 # Flush to DB every 20 moves
                 if len(batch_updates) >= 20:
@@ -149,7 +158,11 @@ class EmailMoveThread(QThread):
             if batch_updates:
                 self.db.update_locations_batch(batch_updates)
 
-            self.finished.emit(True, f"✅ Successfully moved {success_count}/{total} emails to Target.")
+            msg = f"✅ Successfully moved {success_count}/{total} emails to Target."
+            if ghost_count > 0:
+                msg += f" (Cleaned up {ghost_count} deleted emails from database)."
+
+            self.finished.emit(True, msg)
         except Exception as e:
             self.finished.emit(False, str(e))
         finally:
