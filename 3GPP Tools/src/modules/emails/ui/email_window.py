@@ -356,9 +356,22 @@ class EmailManagerWindow(QWidget):
 
         def clean(val): return str(val).strip() if val else ""
 
-        self.cb_ai.updateItems(sorted(set(clean(r.get("agenda_item")) for r in data)))
-        self.cb_company.updateItems(sorted(set(clean(r.get("company")) for r in data)))
-        self.cb_sender.updateItems(sorted(set(clean(r.get("sender_name")) for r in data)))
+        # ---> FIX 4: Regex-powered Natural Sorting Key
+        import re
+        def natural_sort_key(s):
+            # Splits the string by numbers, allowing 20.6.2 to correctly sort before 20.6.19
+            return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
+
+        # Extract unique, cleaned values
+        unique_ais = set(clean(r.get("agenda_item")) for r in data)
+        unique_companies = set(clean(r.get("company")) for r in data)
+        unique_senders = set(clean(r.get("sender_name")) for r in data)
+
+        # Apply the natural sort key to the Agenda Items
+        self.cb_ai.updateItems(sorted(unique_ais, key=natural_sort_key))
+        self.cb_company.updateItems(sorted(unique_companies))
+        self.cb_sender.updateItems(sorted(unique_senders))
+
         self._apply_filters()
 
     def _apply_filters(self):
