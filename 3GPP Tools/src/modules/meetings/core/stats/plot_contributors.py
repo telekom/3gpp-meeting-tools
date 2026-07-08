@@ -57,6 +57,10 @@ def generate_company_ai_heatmap(df, export_dir, prefix_id="Global", save_html=Fa
                     title=f"Company Focus Matrix (Top {top_comps_count} Companies vs Top {top_ais_count} Topics)",
                     color_continuous_scale="Blues")
 
+    fig.update_yaxes(tickmode='linear', dtick=1, tickfont=dict(size=12))
+    fig.update_xaxes(side="bottom", tickmode='linear', dtick=1, tickfont=dict(size=12))
+    fig.update_traces(textfont=dict(size=13, weight='bold'))  # Forces the cell numbers to be larger and bold
+
     fig.update_xaxes(side="bottom")
     fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
 
