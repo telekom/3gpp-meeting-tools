@@ -12,6 +12,7 @@ def generate_ai_volume_plot(df, export_dir, theme_color, prefix_id="Global", sav
                     color_discrete_sequence=[theme_color])
 
     fig_ai.update_xaxes(type='category', categoryorder='total descending')
+    fig_ai.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
 
     if save_html:
         fig_ai.write_html(str(export_dir / f"{prefix_id}_AI_Volume.html"))

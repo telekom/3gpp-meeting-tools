@@ -11,6 +11,7 @@ def generate_outcomes_plot(df, export_dir, palette, prefix_id="Global", save_htm
                         title="TDoc Outcomes", color_discrete_sequence=palette)
     fig_status.update_traces(textposition='inside', textinfo='percent+label')
 
+    fig_status.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     if save_html:
         fig_status.write_html(str(export_dir / f"{prefix_id}_Outcomes.html"))
 

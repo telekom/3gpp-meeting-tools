@@ -143,6 +143,7 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
         ))
 
+        fig_net.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         if save_html:
             fig_net.write_html(str(export_dir / f"{prefix_id}_Network_Alliances.html"))
 
@@ -191,6 +192,7 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
             ))
             fig_contribs.update_layout(title="Total TDoc Contributions per Faction", showlegend=False)
 
+            fig_contribs.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
             if save_html:
                 fig_contribs.write_html(str(export_dir / f"{prefix_id}_Faction_Contributions.html"))
 

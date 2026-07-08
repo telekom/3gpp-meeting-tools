@@ -239,6 +239,7 @@ class EmailStatsExporterThread(QThread):
         fig.update_xaxes(type='category', categoryorder='total descending')
 
         # Matches plot_agenda.py flawlessly and assigns SVG as default export
+        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig.to_html(full_html=False, include_plotlyjs=include_plotlyjs,
                            default_height="100%", default_width="100%", config=self.svg_config)
 
@@ -256,6 +257,7 @@ class EmailStatsExporterThread(QThread):
 
         fig.update_yaxes(type='category', categoryorder='total ascending', tickmode='linear', dtick=1, title=None)
 
+        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig.to_html(full_html=False, include_plotlyjs=include_plotlyjs,
                            default_height="100%", default_width="100%", config=self.svg_config)
 
@@ -273,6 +275,7 @@ class EmailStatsExporterThread(QThread):
                          ticklabelmode="period")
         fig.update_yaxes(title="Email Volume")
 
+        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig.to_html(full_html=False, include_plotlyjs=include_plotlyjs,
                            default_height="100%", default_width="100%", config=self.svg_config)
 
