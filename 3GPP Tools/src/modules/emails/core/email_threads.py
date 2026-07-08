@@ -313,11 +313,11 @@ class EmailStatsExporterThread(QThread):
                 self.finished.emit(False, "No email data available to generate statistics.")
                 return
 
-            # Clean and prepare datetime data
+            # ---> FIX 1: Parse dates, but DO NOT drop missing rows from the main dataframe!
+            # This ensures emails with weird dates still count towards AI and Company totals.
             df['date_received'] = pd.to_datetime(df['date_received'], utc=True, errors='coerce').dt.tz_localize(None)
-            df = df.dropna(subset=['date_received'])
 
-            # ---> THE FIX: Aggressively strip whitespace from AIs and Companies to prevent fragmentation
+            # Strip whitespace to prevent fragmentation
             df['agenda_item'] = df['agenda_item'].astype(str).str.strip()
             df['company'] = df['company'].astype(str).str.strip()
 
@@ -459,26 +459,27 @@ class EmailStatsExporterThread(QThread):
         return fig.to_html(full_html=False, include_plotlyjs=False)
 
     def _generate_timeline(self, df, prefix):
-        # 1. Drop missing dates and ensure the dataframe is sorted chronologically
+        # ---> FIX 2: Only drop missing dates locally for the timeline chart
         valid_df = df.dropna(subset=['date_received']).sort_values('date_received').copy()
 
-        # 2. Use Plotly's native histogram for bulletproof time-series binning
-        # (This avoids the Pandas resample quirks that caused the monotonic stacking)
+        if valid_df.empty:
+            return "<p style='padding:20px; color:#666;'>No valid temporal data available for this view.</p>"
+
         fig = px.histogram(
             valid_df,
             x='date_received',
-            title="Email Traffic Over Time (6-Hour Bins)",
+            title="Email Traffic Over Time (1-Hour Bins)",
             color_discrete_sequence=[self.THEME_COLOR]
         )
 
-        # Force the bins to be exactly 6 hours (21.6 million milliseconds)
-        fig.update_traces(xbins=dict(size=21600000))
+        # ---> FIX 3: Force the bins to exactly 1 hour (3,600,000 milliseconds)
+        fig.update_traces(xbins=dict(size=3600000))
 
-        # 3. Add the Day of the Week (%a) to the x-axis ticks
+        # Add the Day of the Week (%a) to the x-axis ticks
         fig.update_xaxes(
             rangeslider_visible=True,
             title="Timeline",
-            tickformat="%a, %b %d<br>%H:%M",  # e.g., "Mon, Jun 20 \n 14:00"
+            tickformat="%a, %b %d<br>%H:%M",
             ticklabelmode="period"
         )
 
