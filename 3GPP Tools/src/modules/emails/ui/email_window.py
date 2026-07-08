@@ -8,7 +8,8 @@ from pathlib import Path
 from PyQt5.QtCore import Qt, pyqtSignal, QDate
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QLineEdit, QTableView, QHeaderView, QSplitter, QTextBrowser,
-                             QMessageBox, QInputDialog, QDialog, QDateEdit, QMenu, QApplication, QAbstractItemView)
+                             QMessageBox, QInputDialog, QDialog, QDateEdit, QMenu, QApplication,
+                             QAbstractItemView, QSizePolicy)
 
 from modules.emails.core.email_db import EmailDatabase
 from modules.emails.core.email_threads import EmailSyncThread, EmailMoveThread, EmailTargetRescanThread
@@ -86,31 +87,38 @@ class EmailManagerWindow(QWidget):
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(8)
+
+        # ---> POLISH: Extremely tight outer margins to maximize grid space
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setSpacing(4)
 
         def get_btn_style(primary=False):
             if primary:
                 return """
-                QPushButton { font-weight: bold; background-color: #0078D7; color: white; padding: 6px 12px; border-radius: 4px; border: 1px solid #005A9E; }
+                QPushButton { font-weight: bold; background-color: #0078D7; color: white; padding: 4px 8px; border-radius: 4px; border: 1px solid #005A9E; }
                 QPushButton:hover { background-color: #005A9E; }
                 """
             return """
-                QPushButton { font-weight: bold; background-color: #FFFFFF; color: #333333; padding: 6px 12px; border-radius: 4px; border: 1px solid #CCCCCC; }
+                QPushButton { font-weight: bold; background-color: #FFFFFF; color: #333333; padding: 4px 8px; border-radius: 4px; border: 1px solid #CCCCCC; }
                 QPushButton:hover { background-color: #F0F4F8; border-color: #005A9E; color: #005A9E; }
                 """
 
         # =====================================================================
-        # TOP CONTAINER: Squeezing Toolbar and Filters to stop vertical waste!
+        # TOP CONTAINER: Ultra-Compressed Toolbars & Filters
         # =====================================================================
         top_controls_widget = QWidget()
+
+        # ---> NEW: Force the top container to NEVER expand vertically past its exact minimum size
+        top_controls_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+
         top_controls_layout = QVBoxLayout(top_controls_widget)
-        top_controls_layout.setContentsMargins(0, 0, 0, 5)  # Zero margins, just 5px padding at the bottom
-        top_controls_layout.setSpacing(8)  # Tight gap between buttons and filters
+        top_controls_layout.setContentsMargins(0, 0, 0, 2)  # Barely any bottom margin
+        top_controls_layout.setSpacing(2)  # Squish the two rows together
 
         # --- TOOLBAR ---
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(0, 0, 0, 0)
+        toolbar.setSpacing(6)
 
         self.btn_sync = QPushButton("🔄 Sync Source")
         self.btn_sync.setStyleSheet(get_btn_style(primary=True))
@@ -148,6 +156,7 @@ class EmailManagerWindow(QWidget):
         # --- GLOBAL FILTERS ---
         filter_layout = QHBoxLayout()
         filter_layout.setContentsMargins(0, 0, 0, 0)
+        filter_layout.setSpacing(6)
 
         self.dt_start = QDateEdit()
         self.dt_start.setCalendarPopup(True)
@@ -176,14 +185,16 @@ class EmailManagerWindow(QWidget):
 
         self.btn_filter_star = QPushButton("⭐ Starred")
         self.btn_filter_star.setCheckable(True)
+        # ---> POLISH: Compressed padding to make filter buttons tighter
         self.btn_filter_star.setStyleSheet(
-            "QPushButton { padding: 4px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #FFF4CE; font-weight: bold; border-color: #E2C08D; }")
+            "QPushButton { padding: 3px 6px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #FFF4CE; font-weight: bold; border-color: #E2C08D; }")
         self.btn_filter_star.clicked.connect(self._apply_filters)
 
         self.btn_filter_follow = QPushButton("👀 Followed AIs")
         self.btn_filter_follow.setCheckable(True)
+        # ---> POLISH: Compressed padding to make filter buttons tighter
         self.btn_filter_follow.setStyleSheet(
-            "QPushButton { padding: 4px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }")
+            "QPushButton { padding: 3px 6px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }")
         self.btn_filter_follow.clicked.connect(self._apply_filters)
 
         self.lbl_count = QLabel("Showing 0 Threads | 0 Emails")
@@ -193,7 +204,7 @@ class EmailManagerWindow(QWidget):
         filter_layout.addWidget(self.dt_start)
         filter_layout.addWidget(QLabel("-"))
         filter_layout.addWidget(self.dt_end)
-        filter_layout.addSpacing(15)
+        filter_layout.addSpacing(10)
         filter_layout.addWidget(self.btn_filter_star)
         filter_layout.addWidget(self.btn_filter_follow)
         filter_layout.addWidget(self.cb_ai)
@@ -201,7 +212,6 @@ class EmailManagerWindow(QWidget):
         filter_layout.addWidget(self.lbl_count)
         top_controls_layout.addLayout(filter_layout)
 
-        # Add the tight container to the main window
         main_layout.addWidget(top_controls_widget)
 
         # =====================================================================
@@ -211,7 +221,7 @@ class EmailManagerWindow(QWidget):
 
         # --- LEFT PANEL: TDOC THREADS ---
         self.left_panel = QWidget()
-        self.left_panel.setMinimumWidth(350)  # Maintain good width
+        self.left_panel.setMinimumWidth(350)
 
         left_layout = QVBoxLayout(self.left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -270,7 +280,7 @@ class EmailManagerWindow(QWidget):
         right_splitter = QSplitter(Qt.Vertical)
 
         self.email_view = QTableView()
-        self.email_view.setMinimumHeight(200)  # Grid won't collapse to 0
+        self.email_view.setMinimumHeight(200)
         self.email_view.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.email_view.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.email_view.verticalHeader().setVisible(False)
@@ -281,9 +291,9 @@ class EmailManagerWindow(QWidget):
         self.email_view.customContextMenuRequested.connect(self._show_context_menu)
         right_splitter.addWidget(self.email_view)
 
-        # --- RESTORED: Usable Reading Pane ---
+        # Reading Pane
         pane_widget = QWidget()
-        pane_widget.setMinimumHeight(150)  # Gives you plenty of room to read the text
+        pane_widget.setMinimumHeight(150)
 
         pane_layout = QVBoxLayout(pane_widget)
         pane_layout.setContentsMargins(0, 10, 0, 0)
@@ -312,7 +322,6 @@ class EmailManagerWindow(QWidget):
         pane_layout.addWidget(self.reading_pane)
 
         right_splitter.addWidget(pane_widget)
-        # Give the Email Grid roughly 75% of the space, and the Reading Pane 25% by default
         right_splitter.setStretchFactor(0, 3)
         right_splitter.setStretchFactor(1, 1)
         right_splitter.setSizes([700, 250])
@@ -531,8 +540,6 @@ class EmailManagerWindow(QWidget):
         if not getattr(self, "current_tdoc_id", ""): return
         is_starred = self.current_tdoc_id in self.email_model.starred_tdocs
         new_status = not is_starred
-
-        # ---> FIX: Hardcode the button label flip before the database saves so it's instant!
         self.btn_toggle_star.setText(
             f"❌ Unstar {self.current_tdoc_id}" if new_status else f"⭐ Star {self.current_tdoc_id}")
 
@@ -543,8 +550,6 @@ class EmailManagerWindow(QWidget):
         if not getattr(self, "current_agenda_item", ""): return
         is_followed = self.current_agenda_item in self.email_model.followed_ais
         new_status = not is_followed
-
-        # ---> FIX: Hardcode the button label flip before the database saves so it's instant!
         ai_display = self.current_agenda_item or "Unknown AI"
         self.btn_toggle_follow.setText(f"❌ Unfollow {ai_display}" if new_status else f"👀 Follow {ai_display}")
 
