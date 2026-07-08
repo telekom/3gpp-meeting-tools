@@ -128,3 +128,29 @@ class EmailDatabase:
             cursor = conn.cursor()
             cursor.execute('SELECT agenda_item FROM followed_ais')
             return {row[0] for row in cursor.fetchall()}
+
+    def update_email(self, email_id: str, updated_data: dict):
+        """Surgically updates specific fields of an existing email to fix parsing errors."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE emails 
+                SET tdoc_id = ?, 
+                    agenda_item = ?, 
+                    sender_name = ?, 
+                    sender_email = ?, 
+                    company = ?, 
+                    subject = ?, 
+                    short_text = ?
+                WHERE id = ?
+            ''', (
+                updated_data.get('tdoc_id'),
+                updated_data.get('agenda_item'),
+                updated_data.get('sender_name'),
+                updated_data.get('sender_email'),
+                updated_data.get('company'),
+                updated_data.get('subject'),
+                updated_data.get('short_text'),
+                email_id
+            ))
+            conn.commit()
