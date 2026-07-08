@@ -2,21 +2,21 @@
 import datetime
 import json
 import os
+import re
 import webbrowser
 from pathlib import Path
 from PyQt5.QtCore import Qt, pyqtSignal, QDate
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QLineEdit, QTableView, QHeaderView, QSplitter, QTextBrowser,
-                             QMessageBox, QInputDialog, QDialog, QDateEdit, QMenu, QApplication)
+                             QMessageBox, QInputDialog, QDialog, QDateEdit, QMenu, QApplication, QAbstractItemView)
 
 from modules.emails.core.email_db import EmailDatabase
 from modules.emails.core.email_threads import EmailSyncThread, EmailMoveThread, EmailTargetRescanThread
-from modules.emails.ui.email_models import EmailTableModel, EmailProxyModel
+from modules.emails.ui.email_models import EmailTableModel, EmailProxyModel, TDocSummaryModel, TDocProxyModel
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 
 
 class EmailManagerWindow(QWidget):
-    # Emit this signal to open the TDoc in your main window
     tdoc_open_requested = pyqtSignal(str)
 
     def __init__(self, meeting_dir: Path, ai_lookup: dict, meeting_start: str = "", meeting_end: str = ""):
@@ -51,7 +51,7 @@ class EmailManagerWindow(QWidget):
                 self.start_date, self.end_date = "", ""
 
         self.setWindowTitle("📧 eMeeting Email Manager")
-        self.resize(1200, 800)
+        self.resize(1300, 800)
         self.setStyleSheet("QWidget { background-color: #FAFAFA; }")
 
         self._setup_ui()
@@ -87,7 +87,6 @@ class EmailManagerWindow(QWidget):
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
 
-        # ---> NEW: Cohesive, Professional Button Styling Helper
         def get_btn_style(primary=False):
             if primary:
                 return """
@@ -102,7 +101,7 @@ class EmailManagerWindow(QWidget):
         # --- TOOLBAR ---
         toolbar = QHBoxLayout()
         self.btn_sync = QPushButton("🔄 Sync Source")
-        self.btn_sync.setStyleSheet(get_btn_style(primary=True))  # Only Sync gets the bold primary blue
+        self.btn_sync.setStyleSheet(get_btn_style(primary=True))
         self.btn_sync.clicked.connect(self._run_sync)
 
         self.btn_move = QPushButton("➡️ Move Selected")
@@ -128,20 +127,15 @@ class EmailManagerWindow(QWidget):
         self.lbl_status = QLabel("Ready.")
         self.lbl_status.setStyleSheet("color: #666; font-style: italic; margin-left: 10px;")
 
-        toolbar.addWidget(self.btn_sync)
-        toolbar.addWidget(self.btn_move)
-        toolbar.addWidget(self.btn_move_all)
-        toolbar.addWidget(self.btn_rescan)
-        toolbar.addWidget(self.btn_stats)
-        toolbar.addWidget(self.btn_config)
+        for btn in [self.btn_sync, self.btn_move, self.btn_move_all, self.btn_rescan, self.btn_stats, self.btn_config]:
+            toolbar.addWidget(btn)
         toolbar.addWidget(self.lbl_status)
         toolbar.addStretch()
         main_layout.addLayout(toolbar)
 
-        # --- FILTERS & DATES ---
+        # --- GLOBAL FILTERS (Left Panel Controls) ---
         filter_layout = QHBoxLayout()
 
-        # Date Pickers
         self.dt_start = QDateEdit()
         self.dt_start.setCalendarPopup(True)
         if getattr(self, 'start_date', None):
@@ -163,17 +157,9 @@ class EmailManagerWindow(QWidget):
         self.dt_end.dateChanged.connect(
             lambda: self._save_config(self.source_folder, self.target_folder, self.start_date, self.end_date))
 
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search...")
-        self.search_input.textChanged.connect(self._apply_filters)
-
-        self.cb_ai = CheckableComboBox("AI")
-        self.cb_company = CheckableComboBox("Company")
-        self.cb_sender = CheckableComboBox("Sender")
-
-        for cb in [self.cb_ai, self.cb_company, self.cb_sender]:
-            cb.setMinimumWidth(120)
-            cb.selectionChanged.connect(self._apply_filters)
+        self.cb_ai = CheckableComboBox("Filter by AI")
+        self.cb_ai.setMinimumWidth(150)
+        self.cb_ai.selectionChanged.connect(self._apply_filters)
 
         self.btn_filter_star = QPushButton("⭐ Starred")
         self.btn_filter_star.setCheckable(True)
@@ -187,8 +173,7 @@ class EmailManagerWindow(QWidget):
             "QPushButton { padding: 4px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }")
         self.btn_filter_follow.clicked.connect(self._apply_filters)
 
-        # ---> NEW: The Live Email Count Label
-        self.lbl_count = QLabel("Showing 0 of 0 Emails")
+        self.lbl_count = QLabel("Showing 0 Threads | 0 Emails")
         self.lbl_count.setStyleSheet("font-size: 13px; color: #555; font-weight: bold; padding-left: 10px;")
 
         filter_layout.addWidget(QLabel("📅 Filter:"))
@@ -196,66 +181,85 @@ class EmailManagerWindow(QWidget):
         filter_layout.addWidget(QLabel("-"))
         filter_layout.addWidget(self.dt_end)
         filter_layout.addSpacing(15)
-
         filter_layout.addWidget(self.btn_filter_star)
         filter_layout.addWidget(self.btn_filter_follow)
-        filter_layout.addWidget(QLabel("🔍:"))
-        filter_layout.addWidget(self.search_input)
         filter_layout.addWidget(self.cb_ai)
-        filter_layout.addWidget(self.cb_company)
-        filter_layout.addWidget(self.cb_sender)
-        filter_layout.addWidget(self.lbl_count)  # Added to the end of the filter bar
+        filter_layout.addStretch()
+        filter_layout.addWidget(self.lbl_count)
         main_layout.addLayout(filter_layout)
 
-        # --- SPLITTER ---
-        splitter = QSplitter(Qt.Vertical)
+        # =====================================================================
+        # MASTER-DETAIL SPLITTER
+        # =====================================================================
+        self.main_splitter = QSplitter(Qt.Horizontal)
 
-        # Table
-        self.table = QTableView()
-        self.model = EmailTableModel()
-        self.proxy = EmailProxyModel()
-        self.proxy.setSourceModel(self.model)
-        self.table.setModel(self.proxy)
+        # --- LEFT PANEL: TDOC THREADS ---
+        self.left_panel = QWidget()
+        left_layout = QVBoxLayout(self.left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
 
-        # ---> NEW: Connect the proxy filter and model resets to our dynamic count updater
-        self.proxy.layoutChanged.connect(self._update_count_label)
-        self.model.modelReset.connect(self._update_count_label)
+        self.lbl_left_title = QLabel("📄 Active Threads")
+        self.lbl_left_title.setStyleSheet("font-weight: bold; color: #555;")
 
-        self.table.setSelectionBehavior(QTableView.SelectRows)
-        self.table.setSelectionMode(QTableView.ExtendedSelection)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setStyleSheet("QTableView { background: white; gridline-color: #EEE; }")
+        self.tdoc_view = QTableView()
+        self.tdoc_view.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tdoc_view.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tdoc_view.verticalHeader().setVisible(False)
+        self.tdoc_view.setAlternatingRowColors(True)
+        self.tdoc_view.setStyleSheet("QTableView { background: white; gridline-color: #EEE; }")
 
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Interactive)
-        header.resizeSection(0, 30)
-        header.resizeSection(1, 85)
-        header.resizeSection(2, 75)
-        header.resizeSection(3, 120)
-        header.resizeSection(4, 90)
-        header.resizeSection(5, 60)
-        header.resizeSection(6, 70)
-        header.resizeSection(7, 110)
-        header.resizeSection(8, 140)
-        header.setSectionResizeMode(9, QHeaderView.Stretch)
+        left_layout.addWidget(self.lbl_left_title)
+        left_layout.addWidget(self.tdoc_view)
 
-        self.table.selectionModel().selectionChanged.connect(self._on_email_selected)
+        # --- RIGHT PANEL: EMAILS ---
+        self.right_panel = QWidget()
+        right_layout = QVBoxLayout(self.right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
 
-        # ---> NEW: Click handling for Hyperlinks & Right-click Context Menu
-        self.table.setCursor(Qt.PointingHandCursor)
-        self.table.clicked.connect(self._on_table_clicked)
+        right_header_layout = QHBoxLayout()
+        self.lbl_right_title = QLabel("📧 Thread History (Select a TDoc from the left)")
+        self.lbl_right_title.setStyleSheet("font-weight: bold; color: #0078D7;")
 
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self._show_context_menu)
+        # ---> RESTORED: Micro Filters for the specific thread
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("🔍 Search...")
+        self.search_input.setMaximumWidth(200)
+        self.search_input.textChanged.connect(self._apply_filters)
 
-        splitter.addWidget(self.table)
+        self.cb_company = CheckableComboBox("Company")
+        self.cb_company.setMinimumWidth(110)
+        self.cb_company.selectionChanged.connect(self._apply_filters)
+
+        self.cb_sender = CheckableComboBox("Sender")
+        self.cb_sender.setMinimumWidth(110)
+        self.cb_sender.selectionChanged.connect(self._apply_filters)
+
+        right_header_layout.addWidget(self.lbl_right_title)
+        right_header_layout.addStretch()
+        right_header_layout.addWidget(self.cb_company)
+        right_header_layout.addWidget(self.cb_sender)
+        right_header_layout.addWidget(self.search_input)
+        right_layout.addLayout(right_header_layout)
+
+        right_splitter = QSplitter(Qt.Vertical)
+
+        self.email_view = QTableView()
+        self.email_view.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.email_view.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.email_view.verticalHeader().setVisible(False)
+        self.email_view.setStyleSheet("QTableView { background: white; gridline-color: #EEE; }")
+        self.email_view.setCursor(Qt.PointingHandCursor)
+        self.email_view.clicked.connect(self._on_table_clicked)
+        self.email_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.email_view.customContextMenuRequested.connect(self._show_context_menu)
+        right_splitter.addWidget(self.email_view)
 
         # Reading Pane
         pane_widget = QWidget()
         pane_layout = QVBoxLayout(pane_widget)
         pane_layout.setContentsMargins(0, 10, 0, 0)
 
-        self.btn_open_msg = QPushButton("📄 Open .msg File in Outlook")
+        self.btn_open_msg = QPushButton("📄 Open .msg File")
         self.btn_open_msg.setEnabled(False)
         self.btn_open_msg.clicked.connect(self._open_current_msg)
 
@@ -277,60 +281,236 @@ class EmailManagerWindow(QWidget):
         self.reading_pane.setStyleSheet("background: white; border: 1px solid #CCC; border-radius: 4px; padding: 10px;")
         pane_layout.addLayout(btn_layout)
         pane_layout.addWidget(self.reading_pane)
-        splitter.addWidget(pane_widget)
 
-        splitter.setSizes([400, 300])
-        main_layout.addWidget(splitter)
+        right_splitter.addWidget(pane_widget)
+        right_splitter.setSizes([400, 300])
+        right_layout.addWidget(right_splitter)
 
-    # ---> NEW: Click Logic
+        self.main_splitter.addWidget(self.left_panel)
+        self.main_splitter.addWidget(self.right_panel)
+        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.setStretchFactor(1, 3)
+        main_layout.addWidget(self.main_splitter)
+
+        # =====================================================================
+        # MODEL SETUP
+        # =====================================================================
+        self.tdoc_model = TDocSummaryModel()
+        self.tdoc_proxy = TDocProxyModel()
+        self.tdoc_proxy.setSourceModel(self.tdoc_model)
+        self.tdoc_view.setModel(self.tdoc_proxy)
+
+        self.email_model = EmailTableModel()
+        self.email_proxy = EmailProxyModel()
+        self.email_proxy.setSourceModel(self.email_model)
+        self.email_view.setModel(self.email_proxy)
+
+        self.tdoc_view.selectionModel().selectionChanged.connect(self._on_tdoc_selected)
+        self.email_view.selectionModel().selectionChanged.connect(self._on_email_selected)
+
+        self.tdoc_proxy.layoutChanged.connect(self._update_count_label)
+        self.email_proxy.layoutChanged.connect(self._update_count_label)
+
+        # Sizing Headers
+        tdoc_header = self.tdoc_view.horizontalHeader()
+        tdoc_header.setSectionResizeMode(QHeaderView.Interactive)
+        tdoc_header.resizeSection(0, 25)
+        tdoc_header.setSectionResizeMode(1, QHeaderView.Stretch)
+        tdoc_header.resizeSection(2, 60)
+        tdoc_header.resizeSection(3, 45)
+
+        email_header = self.email_view.horizontalHeader()
+        email_header.setSectionResizeMode(QHeaderView.Interactive)
+        email_header.resizeSection(0, 30)
+        email_header.resizeSection(1, 85)
+        email_header.resizeSection(2, 75)
+        email_header.resizeSection(3, 120)
+        email_header.resizeSection(4, 90)
+        email_header.resizeSection(5, 60)
+        email_header.resizeSection(6, 70)
+        email_header.resizeSection(7, 110)
+        email_header.resizeSection(8, 140)
+        email_header.setSectionResizeMode(9, QHeaderView.Stretch)
+
+    # -------------------------------------------------------------------------
+    # CORE LOGIC & EVENT HANDLERS
+    # -------------------------------------------------------------------------
+    def _refresh_table(self):
+        old_tdoc = self.email_proxy.target_tdoc
+
+        import sqlite3
+        with sqlite3.connect(self.db.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            data = [dict(row) for row in conn.execute('SELECT * FROM emails ORDER BY date_received DESC').fetchall()]
+
+        starred_tdocs = self.db.get_starred_tdocs()
+        followed_ais = self.db.get_followed_ais()
+
+        self.tdoc_model.update_data(data, starred_tdocs, followed_ais)
+        self.email_model.update_data(data, starred_tdocs, followed_ais)
+
+        def clean(val):
+            return str(val).strip() if val else ""
+
+        def natural_sort_key(s):
+            return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
+
+        # ---> RESTORED: Unique population of Companies and Senders
+        unique_ais = set(clean(r.get("agenda_item")) for r in data)
+        unique_companies = set(clean(r.get("company")) for r in data)
+        unique_senders = set(clean(r.get("sender_name")) for r in data)
+
+        self.cb_ai.updateItems(sorted(unique_ais, key=natural_sort_key))
+        self.cb_company.updateItems(sorted(unique_companies))
+        self.cb_sender.updateItems(sorted(unique_senders))
+
+        self._apply_filters()
+
+        if old_tdoc:
+            for r in range(self.tdoc_proxy.rowCount()):
+                idx = self.tdoc_proxy.index(r, 0)
+                if self.tdoc_proxy.data(idx, Qt.UserRole) == old_tdoc:
+                    self.tdoc_view.selectRow(r)
+                    break
+
+    def _apply_filters(self):
+        # Apply Macro filters to the Left Panel
+        self.tdoc_proxy.set_filters(
+            self.btn_filter_star.isChecked(),
+            self.btn_filter_follow.isChecked(),
+            self.cb_ai.getCheckedItems()
+        )
+
+        # ---> RESTORED: Apply Micro filters to the Right Panel
+        self.email_proxy.set_filters(
+            self.search_input.text(),
+            self.cb_company.getCheckedItems(),
+            self.cb_sender.getCheckedItems()
+        )
+        self._update_count_label()
+
+    def _on_tdoc_selected(self, selected, deselected):
+        indexes = self.tdoc_view.selectionModel().selectedRows()
+        if not indexes:
+            self.email_proxy.set_target_tdoc(None)
+            self.lbl_right_title.setText("📧 Thread History (Select a TDoc from the left)")
+            return
+
+        proxy_index = indexes[0]
+        tdoc_id = self.tdoc_proxy.data(proxy_index, Qt.UserRole)
+
+        self.email_proxy.set_target_tdoc(tdoc_id)
+
+        count = self.email_proxy.rowCount()
+        self.lbl_right_title.setText(f"📧 Thread History: {tdoc_id} ({count} Emails)")
+        self._update_count_label()
+
+    def _on_email_selected(self, selected, deselected):
+        indexes = self.email_view.selectionModel().selectedRows()
+        if not indexes:
+            self.reading_pane.clear()
+            self.btn_open_msg.setEnabled(False)
+            self.btn_toggle_star.setEnabled(False)
+            self.btn_toggle_follow.setEnabled(False)
+            return
+
+        source_idx = self.email_proxy.mapToSource(indexes[0])
+        row_data = self.email_model.get_row_data(source_idx.row())
+
+        self.current_tdoc_id = row_data.get("tdoc_id", "")
+        self.current_agenda_item = row_data.get("agenda_item", "")
+        self.current_msg_path = row_data.get("msg_path", "")
+
+        self.btn_open_msg.setEnabled(bool(self.current_msg_path))
+        self.btn_toggle_star.setEnabled(bool(self.current_tdoc_id))
+        self.btn_toggle_follow.setEnabled(bool(self.current_agenda_item))
+
+        is_starred = self.current_tdoc_id in self.email_model.starred_tdocs
+        self.btn_toggle_star.setText("❌ Unstar TDoc" if is_starred else "⭐ Star TDoc")
+
+        is_followed = self.current_agenda_item in self.email_model.followed_ais
+        ai_display = self.current_agenda_item or "Unknown AI"
+        self.btn_toggle_follow.setText(f"❌ Unfollow AI: {ai_display}" if is_followed else f"👀 Follow AI: {ai_display}")
+
+        real_email = row_data.get('sender_email', '')
+        html = f"""
+        <h2 style='color:#005A9E; margin-bottom: 2px;'>{row_data.get('subject', '')}</h2>
+        <p style='color:#555; margin-top:0px;'><b>From:</b> {row_data.get('sender_name')} &lt;{real_email}&gt; ({row_data.get('company')}) | <b>TDoc:</b> {row_data.get('tdoc_id')} | <b>Rev:</b> {row_data.get('revisions_mentioned')}</p>
+        <hr>
+        <h3 style='color:#D83B01;'>Short Text / Comments</h3>
+        <p style='background-color:#FFF3E0; padding:10px; border-left: 4px solid #FFB74D;'>{row_data.get('short_text', '').replace(chr(10), '<br>')}</p>
+        <h3>Free Text</h3>
+        <p style='color:#333;'>{row_data.get('free_text', '').replace(chr(10), '<br>')}</p>
+        """
+        self.reading_pane.setHtml(html)
+
+    def _update_count_label(self):
+        self.lbl_count.setText(f"Showing {self.tdoc_proxy.rowCount()} Threads | {self.email_proxy.rowCount()} Emails")
+
+    # -------------------------------------------------------------------------
+    # INTERACTIONS (Clicks, Syncs, Stars)
+    # -------------------------------------------------------------------------
     def _on_table_clicked(self, index):
         if not index.isValid(): return
-        source_idx = self.proxy.mapToSource(index)
-        col_name = self.model._headers[index.column()]
-        row_data = self.model.get_row_data(source_idx.row())
+        source_idx = self.email_proxy.mapToSource(index)
+        col_name = self.email_model._headers[index.column()]
+        row_data = self.email_model.get_row_data(source_idx.row())
 
         if col_name == "Sender":
             email = row_data.get("sender_email", "")
-            if email:
-                webbrowser.open(f"mailto:{email}")
+            if email: webbrowser.open(f"mailto:{email}")
 
         elif col_name == "Rev":
             revs = row_data.get("revisions_mentioned", "")
             if revs:
-                # The DB stores the FULL TDoc string internally (S2-261234r05), even though we shortened it for display.
                 first_rev = revs.split(',')[0].strip()
-                # Broadcast signal so TDocsWindow can catch it!
                 self.tdoc_open_requested.emit(first_rev)
                 self.lbl_status.setText(f"Requesting open for: {first_rev}")
 
     def _show_context_menu(self, pos):
-        index = self.table.indexAt(pos)
+        index = self.email_view.indexAt(pos)
         if not index.isValid(): return
-
-        col_name = self.model._headers[index.column()]
+        col_name = self.email_model._headers[index.column()]
         if col_name == "Sender":
-            row_data = self.model.get_row_data(self.proxy.mapToSource(index).row())
+            row_data = self.email_model.get_row_data(self.email_proxy.mapToSource(index).row())
             email = row_data.get("sender_email", "")
-
             menu = QMenu(self)
             copy_action = menu.addAction("📋 Copy Email Address")
-            action = menu.exec_(self.table.viewport().mapToGlobal(pos))
-
+            action = menu.exec_(self.email_view.viewport().mapToGlobal(pos))
             if action == copy_action and email:
                 QApplication.clipboard().setText(email)
                 self.lbl_status.setText(f"Copied {email} to clipboard.")
 
+    def _toggle_current_star(self):
+        if not getattr(self, "current_tdoc_id", ""): return
+        is_starred = self.current_tdoc_id in self.email_model.starred_tdocs
+        self.db.toggle_tdoc_star(self.current_tdoc_id, not is_starred)
+        self._refresh_table()
+
+    def _toggle_current_ai_follow(self):
+        if not getattr(self, "current_agenda_item", ""): return
+        is_followed = self.current_agenda_item in self.email_model.followed_ais
+        self.db.toggle_ai_follow(self.current_agenda_item, not is_followed)
+        self._refresh_table()
+
+    def _open_current_msg(self):
+        if self.current_msg_path and Path(self.current_msg_path).exists():
+            try:
+                os.startfile(self.current_msg_path)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not open file: {e}")
+
+    # -------------------------------------------------------------------------
+    # THREADING (Sync, Move, Scan, Stats)
+    # -------------------------------------------------------------------------
     def _run_sync(self):
         if not self.source_folder:
             QMessageBox.warning(self, "Setup Required", "Please configure the Outlook Source Folder first.")
             return
-
         self._set_buttons_enabled(False)
         self.btn_sync.setText("⏳ Syncing...")
-
         sd = self.dt_start.date().toString(Qt.ISODate)
         ed = self.dt_end.date().toString(Qt.ISODate)
-
         self.sync_thread = EmailSyncThread(self.source_folder, self.meeting_dir, self.ai_lookup, self.db, sd, ed)
         self.sync_thread.log_msg.connect(lambda m, _: self.lbl_status.setText(m))
         self.sync_thread.progress_update.connect(
@@ -344,154 +524,23 @@ class EmailManagerWindow(QWidget):
         self.lbl_status.setText(msg)
         self._refresh_table()
 
-    def _refresh_table(self):
-        import sqlite3
-        with sqlite3.connect(self.db.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            data = [dict(row) for row in conn.execute('SELECT * FROM emails ORDER BY date_received DESC').fetchall()]
-
-        starred_tdocs = self.db.get_starred_tdocs()
-        followed_ais = self.db.get_followed_ais()
-        self.model.update_data(data, starred_tdocs, followed_ais)
-
-        def clean(val): return str(val).strip() if val else ""
-
-        # ---> FIX 4: Regex-powered Natural Sorting Key
-        import re
-        def natural_sort_key(s):
-            # Splits the string by numbers, allowing 20.6.2 to correctly sort before 20.6.19
-            return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
-
-        # Extract unique, cleaned values
-        unique_ais = set(clean(r.get("agenda_item")) for r in data)
-        unique_companies = set(clean(r.get("company")) for r in data)
-        unique_senders = set(clean(r.get("sender_name")) for r in data)
-
-        # Apply the natural sort key to the Agenda Items
-        self.cb_ai.updateItems(sorted(unique_ais, key=natural_sort_key))
-        self.cb_company.updateItems(sorted(unique_companies))
-        self.cb_sender.updateItems(sorted(unique_senders))
-
-        self._apply_filters()
-
-    def _apply_filters(self):
-        self.proxy.set_filters(
-            self.search_input.text(),
-            self.cb_ai.getCheckedItems(),
-            self.cb_company.getCheckedItems(),
-            self.cb_sender.getCheckedItems(),
-            self.btn_filter_star.isChecked(),
-            self.btn_filter_follow.isChecked()
-        )
-
-        self._update_count_label()
-
-    def _on_email_selected(self, selected, deselected):
-        indexes = self.table.selectionModel().selectedRows()
-        if not indexes:
-            self.reading_pane.clear()
-            self.btn_open_msg.setEnabled(False)
-            self.btn_toggle_star.setEnabled(False)
-            self.btn_toggle_follow.setEnabled(False)
-            return
-
-        source_idx = self.proxy.mapToSource(indexes[0])
-        row_data = self.model.get_row_data(source_idx.row())
-
-        self.current_tdoc_id = row_data.get("tdoc_id", "")
-        self.current_agenda_item = row_data.get("agenda_item", "")
-        self.current_msg_path = row_data.get("msg_path", "")
-
-        self.btn_open_msg.setEnabled(bool(self.current_msg_path))
-        self.btn_toggle_star.setEnabled(bool(self.current_tdoc_id))
-        self.btn_toggle_follow.setEnabled(bool(self.current_agenda_item))
-
-        is_starred = self.current_tdoc_id in self.model.starred_tdocs
-        self.btn_toggle_star.setText("❌ Unstar TDoc" if is_starred else "⭐ Star TDoc")
-
-        is_followed = self.current_agenda_item in self.model.followed_ais
-        ai_display = self.current_agenda_item or "Unknown AI"
-        self.btn_toggle_follow.setText(f"❌ Unfollow AI: {ai_display}" if is_followed else f"👀 Follow AI: {ai_display}")
-
-        # Display rich text
-        real_email = row_data.get('sender_email', '')
-        html = f"""
-        <h2 style='color:#005A9E; margin-bottom: 2px;'>{row_data.get('subject', '')}</h2>
-        <p style='color:#555; margin-top:0px;'><b>From:</b> {row_data.get('sender_name')} &lt;{real_email}&gt; ({row_data.get('company')}) | <b>TDoc:</b> {row_data.get('tdoc_id')} | <b>Rev:</b> {row_data.get('revisions_mentioned')}</p>
-        <hr>
-        <h3 style='color:#D83B01;'>Short Text / Comments</h3>
-        <p style='background-color:#FFF3E0; padding:10px; border-left: 4px solid #FFB74D;'>{row_data.get('short_text', '').replace(chr(10), '<br>')}</p>
-        <h3>Free Text</h3>
-        <p style='color:#333;'>{row_data.get('free_text', '').replace(chr(10), '<br>')}</p>
-        """
-        self.reading_pane.setHtml(html)
-
-    def _toggle_current_ai_follow(self):
-        if not getattr(self, "current_agenda_item", ""): return
-        selected_indexes = self.table.selectionModel().selectedRows()
-        selected_id = None
-        if selected_indexes:
-            source_idx = self.proxy.mapToSource(selected_indexes[0])
-            selected_id = self.model.get_row_data(source_idx.row()).get("id")
-
-        is_followed = self.current_agenda_item in self.model.followed_ais
-        self.db.toggle_ai_follow(self.current_agenda_item, not is_followed)
-        self._refresh_table()
-
-        if selected_id:
-            for i, row in enumerate(self.model._data):
-                if row.get("id") == selected_id:
-                    proxy_idx = self.proxy.mapFromSource(self.model.index(i, 0))
-                    if proxy_idx.isValid(): self.table.selectRow(proxy_idx.row())
-                    break
-
-    def _toggle_current_star(self):
-        if not getattr(self, "current_tdoc_id", ""): return
-        selected_indexes = self.table.selectionModel().selectedRows()
-        selected_id = None
-        if selected_indexes:
-            source_idx = self.proxy.mapToSource(selected_indexes[0])
-            selected_id = self.model.get_row_data(source_idx.row()).get("id")
-
-        is_starred = self.current_tdoc_id in self.model.starred_tdocs
-        self.db.toggle_tdoc_star(self.current_tdoc_id, not is_starred)
-        self._refresh_table()
-
-        if selected_id:
-            for i, row in enumerate(self.model._data):
-                if row.get("id") == selected_id:
-                    proxy_idx = self.proxy.mapFromSource(self.model.index(i, 0))
-                    if proxy_idx.isValid(): self.table.selectRow(proxy_idx.row())
-                    break
-
-    def _open_current_msg(self):
-        if self.current_msg_path and Path(self.current_msg_path).exists():
-            try:
-                os.startfile(self.current_msg_path)
-            except Exception as e:
-                QMessageBox.warning(self, "Error", f"Could not open file: {e}")
-
     def _run_move(self):
         if not self.target_folder:
             QMessageBox.warning(self, "Setup Required", "Please configure the Outlook Target Folder first.")
             return
-
-        indexes = self.table.selectionModel().selectedRows()
+        indexes = self.email_view.selectionModel().selectedRows()
         if not indexes:
             QMessageBox.information(self, "Selection Required", "Please select at least one email to move.")
             return
-
         items_to_move = []
         for idx in indexes:
-            source_idx = self.proxy.mapToSource(idx)
-            row_data = self.model.get_row_data(source_idx.row())
+            source_idx = self.email_proxy.mapToSource(idx)
+            row_data = self.email_model.get_row_data(source_idx.row())
             if row_data.get("outlook_location") == "Source":
                 items_to_move.append((row_data.get("id"), row_data.get("agenda_item")))
-
         if not items_to_move:
             QMessageBox.information(self, "Notice", "Selected emails have already been moved to the Target.")
             return
-
         self._set_buttons_enabled(False)
         self.btn_move.setText("⏳ Moving...")
         self.move_thread = EmailMoveThread(items_to_move, self.target_folder, self.db)
@@ -503,21 +552,17 @@ class EmailManagerWindow(QWidget):
         if not self.target_folder:
             QMessageBox.warning(self, "Setup Required", "Please configure the Outlook Target Folder first.")
             return
-
         items_to_move = []
-        for row_data in self.model._data:
+        for row_data in self.email_model._data:
             if row_data.get("outlook_location") == "Source":
                 items_to_move.append((row_data.get("id"), row_data.get("agenda_item")))
-
         if not items_to_move:
             QMessageBox.information(self, "Notice", "There are no emails in the Source folder to move.")
             return
-
         reply = QMessageBox.question(self, 'Confirm Move All',
                                      f"Move ALL {len(items_to_move)} source emails to the target?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.No: return
-
         self._set_buttons_enabled(False)
         self.btn_move_all.setText("⏳ Moving All...")
         self.move_thread = EmailMoveThread(items_to_move, self.target_folder, self.db)
@@ -541,13 +586,10 @@ class EmailManagerWindow(QWidget):
         if not self.target_folder:
             QMessageBox.warning(self, "Setup Required", "Please configure the Outlook Target Folder first.")
             return
-
         self._set_buttons_enabled(False)
         self.btn_rescan.setText("⏳ Scanning...")
-
         sd = self.dt_start.date().toString(Qt.ISODate)
         ed = self.dt_end.date().toString(Qt.ISODate)
-
         self.rescan_thread = EmailTargetRescanThread(self.target_folder, self.meeting_dir, self.ai_lookup, self.db, sd,
                                                      ed)
         self.rescan_thread.log_msg.connect(lambda m, _: self.lbl_status.setText(m))
@@ -562,26 +604,15 @@ class EmailManagerWindow(QWidget):
         self.lbl_status.setText(msg)
         self._refresh_table()
 
-    def _set_buttons_enabled(self, state: bool):
-        self.btn_sync.setEnabled(state)
-        self.btn_move.setEnabled(state)
-        self.btn_move_all.setEnabled(state)
-        self.btn_rescan.setEnabled(state)
-
     def _generate_statistics(self):
-        # ---> REVERTED: The statistics engine now analyzes ALL emails in the DB, ignoring UI filters.
-        all_emails = self.model._data
-
+        all_emails = self.email_model._data
         if not all_emails:
             QMessageBox.warning(self, "No Data", "There are no emails loaded to analyze.")
             return
-
         self._set_buttons_enabled(False)
         self.btn_stats.setText("⏳ Generating...")
-
         from modules.emails.core.statistics_threads import EmailStatsExporterThread
         meeting_name = self.meeting_dir.name if self.meeting_dir else "Meeting"
-
         self.stats_thread = EmailStatsExporterThread(self.meeting_dir, all_emails, meeting_name)
         self.stats_thread.finished.connect(self._on_stats_finished)
         self.stats_thread.start()
@@ -589,7 +620,6 @@ class EmailManagerWindow(QWidget):
     def _on_stats_finished(self, success: bool, msg: str):
         self._set_buttons_enabled(True)
         self.btn_stats.setText("📊 Statistics")
-
         if success:
             self.lbl_status.setText("✅ Analytics Report Generated.")
             if hasattr(os, 'startfile'):
@@ -600,14 +630,9 @@ class EmailManagerWindow(QWidget):
             self.lbl_status.setText("❌ Analytics Generation Failed.")
             QMessageBox.warning(self, "Error", f"Could not generate statistics:\n{msg}")
 
-    # Don't forget to update _set_buttons_enabled to include the new button!
     def _set_buttons_enabled(self, state: bool):
         self.btn_sync.setEnabled(state)
         self.btn_move.setEnabled(state)
         self.btn_move_all.setEnabled(state)
         self.btn_rescan.setEnabled(state)
-        self.btn_stats.setEnabled(state)  # <--- Added
-
-    def _update_count_label(self):
-        """Dynamically updates the UI label based on active grid filters."""
-        self.lbl_count.setText(f"Showing {self.proxy.rowCount()} of {self.model.rowCount()} Emails")
+        self.btn_stats.setEnabled(state)
