@@ -14,4 +14,8 @@ def generate_outcomes_plot(df, export_dir, palette, prefix_id="Global", save_htm
     if save_html:
         fig_status.write_html(str(export_dir / f"{prefix_id}_Outcomes.html"))
 
-    return fig_status.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
+    # ---> THE FIX: Force SVG and dynamic filename
+    svg_config = {'toImageButtonOptions': {'format': 'svg', 'filename': f'{prefix_id}_Outcomes'}}
+
+    return fig_status.to_html(full_html=False, include_plotlyjs=False,
+                              default_height="100%", default_width="100%", config=svg_config)
