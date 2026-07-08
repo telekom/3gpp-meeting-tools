@@ -1,3 +1,4 @@
+# --- File: src/modules/emails/core/stats/plot_companies.py ---
 import pandas as pd
 from plotly import express as px
 
@@ -46,17 +47,13 @@ def _generate_company_ai_heatmap(svg_config, df, prefix, include_plotlyjs, top_c
                     title=f"Company Focus Matrix (Top {top_comps_count} Companies vs Top {top_ais_count} Topics)",
                     color_continuous_scale="Blues")
 
-    # ---> THE FIX: Force readable font sizes for the axes and the numbers inside the cells
+    # Force readable font sizes for the axes and the numbers inside the cells
     fig.update_yaxes(tickmode='linear', dtick=1, tickfont=dict(size=12))
     fig.update_xaxes(side="bottom", tickmode='linear', dtick=1, tickfont=dict(size=12))
-    fig.update_traces(textfont=dict(size=13, weight='bold'))  # Forces the cell numbers to be larger and bold
+    fig.update_traces(textfont=dict(size=13, weight='bold'))
 
-    # Give the chart a bit more margin space so the larger labels don't get clipped off the edges
-    fig.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        margin=dict(l=150, r=20, t=60, b=100)
-    )
+    # ---> THE FIX: Removed the hardcoded margin=dict(...) so Plotly's auto-spacing kicks in!
+    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
 
     return fig.to_html(full_html=False, include_plotlyjs=include_plotlyjs,
                        default_height="100%", default_width="100%", config=svg_config)
