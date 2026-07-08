@@ -113,20 +113,27 @@ class OutlookClient:
             return False
 
     @staticmethod
-    def move_email_to_target(entry_id: str, base_target_path: str, ai_folder_name: str) -> bool:
-        """Moves a specific email to [Target Folder]/[AI]. Creates folders if missing."""
+    def move_email_to_target(entry_id: str, base_target_path: str, ai_folder_name: str) -> str:
+        """Moves a specific email to [Target Folder]/[AI]. Returns 'SUCCESS', 'DELETED', or 'ERROR'."""
         namespace = OutlookClient.get_namespace()
-        if not namespace or not base_target_path: return False
+        if not namespace or not base_target_path: return "ERROR"
 
         try:
             # 1. Fetch the exact email
-            mail_item = namespace.GetItemFromID(entry_id)
+            try:
+                mail_item = namespace.GetItemFromID(entry_id)
+            except Exception as e:
+                # ---> CHANGED: Made this a friendly INFO log instead of a WARNING
+                # Also truncated the massive 150-character EntryID so it doesn't spam your console
+                short_id = entry_id[-10:] if entry_id else "Unknown"
+                logging.info(f"Ghost email detected (ID ends in ...{short_id}). Triggering auto-cleanup.")
+                return "DELETED"
 
-            # 2. Fetch the Base Target Folder (and create it if it doesn't exist!)
+            # 2. Fetch the Base Target Folder
             base_folder = OutlookClient.get_folder_by_path(base_target_path, create_if_missing=True)
-            if not base_folder: return False
+            if not base_folder: return "ERROR"
 
-            # 3. Clean the AI name to make it a valid Outlook folder name
+            # 3. Clean the AI name
             clean_ai = "".join(c for c in ai_folder_name if c.isalnum() or c in " ._-").strip() or "General"
 
             # 4. Find or Create the AI Subfolder
@@ -139,9 +146,19 @@ class OutlookClient:
             if not target_folder:
                 target_folder = base_folder.Folders.Add(clean_ai)
 
+            # Prevent Outlook from crashing if the item is already there
+            if getattr(mail_item.Parent, "FolderPath", "") == target_folder.FolderPath:
+                return "SUCCESS"
+
             # 5. Execute Move
             mail_item.Move(target_folder)
-            return True
+            return "SUCCESS"
+
         except Exception as e:
-            logging.error(f"Explicit move failed for {entry_id}: {e}")
-            return False
+            error_msg = str(e)
+            if "Cannot move the items" in error_msg or "-2147352567" in error_msg:
+                logging.error(
+                    f"Outlook locked the file and refused to move it (Is the email currently open?): {entry_id}")
+            else:
+                logging.error(f"Explicit move failed for {entry_id}: {e}")
+            return "ERROR"
