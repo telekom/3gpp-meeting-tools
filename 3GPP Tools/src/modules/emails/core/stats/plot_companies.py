@@ -1,4 +1,3 @@
-# --- File: src/modules/emails/core/stats/plot_companies.py ---
 import pandas as pd
 from plotly import express as px
 
@@ -42,17 +41,20 @@ def _generate_company_ai_heatmap(svg_config, df, prefix, include_plotlyjs, top_c
     matrix = matrix.loc[matrix.sum(axis=1).sort_values(ascending=False).index]
     matrix = matrix[matrix.sum(axis=0).sort_values(ascending=False).index]
 
+    # ---> THE FIX 1: Explicitly set height=800 so the internal canvas has massive vertical room
     fig = px.imshow(matrix, labels=dict(x="Agenda Item", y="Company", color="Emails"),
                     x=matrix.columns, y=matrix.index, text_auto=True, aspect="auto",
+                    height=800,
                     title=f"Company Focus Matrix (Top {top_comps_count} Companies vs Top {top_ais_count} Topics)",
                     color_continuous_scale="Blues")
 
-    # Force readable font sizes for the axes and the numbers inside the cells
     fig.update_yaxes(tickmode='linear', dtick=1, tickfont=dict(size=12))
     fig.update_xaxes(side="bottom", tickmode='linear', dtick=1, tickfont=dict(size=12))
-    fig.update_traces(textfont=dict(size=13, weight='bold'))
 
-    # ---> THE FIX: Removed the hardcoded margin=dict(...) so Plotly's auto-spacing kicks in!
+    # ---> THE FIX 2: Shrink text to 11. 3-digit email volumes (e.g. "124") take up way more
+    # horizontal space than 1-digit TDoc volumes. This prevents overlap!
+    fig.update_traces(textfont=dict(size=11, weight='bold'))
+
     fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
 
     return fig.to_html(full_html=False, include_plotlyjs=include_plotlyjs,
