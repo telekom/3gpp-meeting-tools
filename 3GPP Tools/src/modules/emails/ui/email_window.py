@@ -86,6 +86,9 @@ class EmailManagerWindow(QWidget):
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
+        # ---> POLISH: Radically tighten the main layout borders to stop vertical waste
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(8)
 
         def get_btn_style(primary=False):
             if primary:
@@ -100,6 +103,8 @@ class EmailManagerWindow(QWidget):
 
         # --- TOOLBAR ---
         toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+
         self.btn_sync = QPushButton("🔄 Sync Source")
         self.btn_sync.setStyleSheet(get_btn_style(primary=True))
         self.btn_sync.clicked.connect(self._run_sync)
@@ -133,8 +138,9 @@ class EmailManagerWindow(QWidget):
         toolbar.addStretch()
         main_layout.addLayout(toolbar)
 
-        # --- GLOBAL FILTERS (Left Panel Controls) ---
+        # --- GLOBAL FILTERS ---
         filter_layout = QHBoxLayout()
+        filter_layout.setContentsMargins(0, 0, 0, 0)
 
         self.dt_start = QDateEdit()
         self.dt_start.setCalendarPopup(True)
@@ -195,11 +201,23 @@ class EmailManagerWindow(QWidget):
 
         # --- LEFT PANEL: TDOC THREADS ---
         self.left_panel = QWidget()
+        self.left_panel.setMinimumWidth(350)  # <--- NEW: Forces Qt to make the left panel wider
         left_layout = QVBoxLayout(self.left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
 
+        left_header_layout = QHBoxLayout()
         self.lbl_left_title = QLabel("📄 Active Threads")
         self.lbl_left_title.setStyleSheet("font-weight: bold; color: #555;")
+
+        # ---> REINSTATED: Global TDoc / Thread Search Input!
+        self.tdoc_search_input = QLineEdit()
+        self.tdoc_search_input.setPlaceholderText("🔍 Search threads (TDoc, AI)...")
+        self.tdoc_search_input.textChanged.connect(self._apply_filters)
+
+        left_header_layout.addWidget(self.lbl_left_title)
+        left_header_layout.addStretch()
+        left_header_layout.addWidget(self.tdoc_search_input)
+        left_layout.addLayout(left_header_layout)
 
         self.tdoc_view = QTableView()
         self.tdoc_view.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -208,7 +226,6 @@ class EmailManagerWindow(QWidget):
         self.tdoc_view.setAlternatingRowColors(True)
         self.tdoc_view.setStyleSheet("QTableView { background: white; gridline-color: #EEE; }")
 
-        left_layout.addWidget(self.lbl_left_title)
         left_layout.addWidget(self.tdoc_view)
 
         # --- RIGHT PANEL: EMAILS ---
@@ -220,9 +237,8 @@ class EmailManagerWindow(QWidget):
         self.lbl_right_title = QLabel("📧 Thread History (Select a TDoc from the left)")
         self.lbl_right_title.setStyleSheet("font-weight: bold; color: #0078D7;")
 
-        # ---> RESTORED: Micro Filters for the specific thread
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍 Search...")
+        self.search_input.setPlaceholderText("🔍 Search this thread...")
         self.search_input.setMaximumWidth(200)
         self.search_input.textChanged.connect(self._apply_filters)
 
@@ -244,6 +260,7 @@ class EmailManagerWindow(QWidget):
         right_splitter = QSplitter(Qt.Vertical)
 
         self.email_view = QTableView()
+        self.email_view.setMinimumHeight(400)  # <--- NEW: Forces Qt to prioritize the email grid's height
         self.email_view.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.email_view.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.email_view.verticalHeader().setVisible(False)
@@ -256,6 +273,7 @@ class EmailManagerWindow(QWidget):
 
         # Reading Pane
         pane_widget = QWidget()
+        pane_widget.setMinimumHeight(80)  # <--- NEW: Tells Qt it is safe to squish the reading pane
         pane_layout = QVBoxLayout(pane_widget)
         pane_layout.setContentsMargins(0, 10, 0, 0)
 
@@ -283,13 +301,30 @@ class EmailManagerWindow(QWidget):
         pane_layout.addWidget(self.reading_pane)
 
         right_splitter.addWidget(pane_widget)
-        right_splitter.setSizes([400, 300])
+
+        # ==========================================================
+        # AGGRESSIVE SIZING: Force the reading pane to stay extremely small!
+        # ==========================================================
+        # 1. Give the grid 10x the growth priority of the reading pane
+        right_splitter.setStretchFactor(0, 10)
+        right_splitter.setStretchFactor(1, 1)
+        # 2. Force the initial pixel allocation (1200px to grid, 80px to pane)
+        right_splitter.setSizes([1200, 80])
+
         right_layout.addWidget(right_splitter)
 
         self.main_splitter.addWidget(self.left_panel)
         self.main_splitter.addWidget(self.right_panel)
+
+        # ==========================================================
+        # AGGRESSIVE SIZING: Keep the left panel narrow!
+        # ==========================================================
+        # 1. Give the right panel 3x the growth priority of the left panel
         self.main_splitter.setStretchFactor(0, 1)
         self.main_splitter.setStretchFactor(1, 3)
+        # 2. Force the initial pixel allocation (300px to list, 1000px to emails)
+        self.main_splitter.setSizes([300, 1000])
+
         main_layout.addWidget(self.main_splitter)
 
         # =====================================================================
@@ -338,6 +373,14 @@ class EmailManagerWindow(QWidget):
     def _refresh_table(self):
         old_tdoc = self.email_proxy.target_tdoc
 
+        # ---> FIX: Save the exact email ID selected before the DB refresh
+        # so we can re-select it and force the buttons to update!
+        old_email_id = None
+        indexes = self.email_view.selectionModel().selectedRows()
+        if indexes:
+            source_idx = self.email_proxy.mapToSource(indexes[0])
+            old_email_id = self.email_model.get_row_data(source_idx.row()).get("id")
+
         import sqlite3
         with sqlite3.connect(self.db.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -355,7 +398,6 @@ class EmailManagerWindow(QWidget):
         def natural_sort_key(s):
             return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
 
-        # ---> RESTORED: Unique population of Companies and Senders
         unique_ais = set(clean(r.get("agenda_item")) for r in data)
         unique_companies = set(clean(r.get("company")) for r in data)
         unique_senders = set(clean(r.get("sender_name")) for r in data)
@@ -366,6 +408,7 @@ class EmailManagerWindow(QWidget):
 
         self._apply_filters()
 
+        # Restore Left Panel Selection
         if old_tdoc:
             for r in range(self.tdoc_proxy.rowCount()):
                 idx = self.tdoc_proxy.index(r, 0)
@@ -373,15 +416,25 @@ class EmailManagerWindow(QWidget):
                     self.tdoc_view.selectRow(r)
                     break
 
+        # Restore Right Panel Email Selection
+        if old_email_id:
+            for r in range(self.email_proxy.rowCount()):
+                idx = self.email_proxy.index(r, 0)
+                src_idx = self.email_proxy.mapToSource(idx)
+                if self.email_model.get_row_data(src_idx.row()).get("id") == old_email_id:
+                    self.email_view.selectRow(r)
+                    break
+
     def _apply_filters(self):
         # Apply Macro filters to the Left Panel
         self.tdoc_proxy.set_filters(
             self.btn_filter_star.isChecked(),
             self.btn_filter_follow.isChecked(),
-            self.cb_ai.getCheckedItems()
+            self.cb_ai.getCheckedItems(),
+            self.tdoc_search_input.text()  # <--- Puts the new Thread Search to work
         )
 
-        # ---> RESTORED: Apply Micro filters to the Right Panel
+        # Apply Micro filters to the Right Panel
         self.email_proxy.set_filters(
             self.search_input.text(),
             self.cb_company.getCheckedItems(),
@@ -425,12 +478,15 @@ class EmailManagerWindow(QWidget):
         self.btn_toggle_star.setEnabled(bool(self.current_tdoc_id))
         self.btn_toggle_follow.setEnabled(bool(self.current_agenda_item))
 
+        # ---> FIX: The text dynamically sets here. Because we restore the email selection
+        # during refresh, this will trigger instantly after clicking the button!
         is_starred = self.current_tdoc_id in self.email_model.starred_tdocs
-        self.btn_toggle_star.setText("❌ Unstar TDoc" if is_starred else "⭐ Star TDoc")
+        self.btn_toggle_star.setText(
+            f"❌ Unstar {self.current_tdoc_id}" if is_starred else f"⭐ Star {self.current_tdoc_id}")
 
         is_followed = self.current_agenda_item in self.email_model.followed_ais
         ai_display = self.current_agenda_item or "Unknown AI"
-        self.btn_toggle_follow.setText(f"❌ Unfollow AI: {ai_display}" if is_followed else f"👀 Follow AI: {ai_display}")
+        self.btn_toggle_follow.setText(f"❌ Unfollow {ai_display}" if is_followed else f"👀 Follow {ai_display}")
 
         real_email = row_data.get('sender_email', '')
         html = f"""
