@@ -165,11 +165,13 @@ class TDocProxyModel(QSortFilterProxyModel):
         self.show_starred_only = False
         self.show_followed_only = False
         self.ai_filters = set()
+        self.search_text = ""
 
-    def set_filters(self, starred, followed, ais):
+    def set_filters(self, starred, followed, ais, search_text=""):
         self.show_starred_only = starred
         self.show_followed_only = followed
         self.ai_filters = set(ais)
+        self.search_text = search_text.lower()
         self.invalidateFilter()
 
     def filterAcceptsRow(self, source_row, source_parent):
@@ -177,21 +179,30 @@ class TDocProxyModel(QSortFilterProxyModel):
         tdoc_id = model.data(model.index(source_row, 1, source_parent))
         ai = model.data(model.index(source_row, 2, source_parent))
 
-        # Always show General/Unlinked unless strictly filtering by a specific AI
-        if tdoc_id == "General / Unlinked" and not self.ai_filters:
-            return True
+        tdoc_str = str(tdoc_id) if tdoc_id else ""
+        ai_str = str(ai) if ai else ""
 
-        if self.show_starred_only and tdoc_id not in model.starred_tdocs:
+        # Always show General/Unlinked unless strictly filtering by a specific AI or Searching
+        if tdoc_str == "General / Unlinked" and not self.ai_filters and not self.search_text:
+            pass
+        elif tdoc_str == "General / Unlinked" and (self.ai_filters or self.search_text):
             return False
 
-        if self.show_followed_only and ai not in model.followed_ais:
+        if self.show_starred_only and tdoc_str not in model.starred_tdocs:
             return False
 
-        if self.ai_filters and ai not in self.ai_filters:
+        if self.show_followed_only and ai_str not in model.followed_ais:
             return False
+
+        if self.ai_filters and ai_str not in self.ai_filters:
+            return False
+
+        # ---> NEW: Global Thread Search logic
+        if self.search_text:
+            if self.search_text not in tdoc_str.lower() and self.search_text not in ai_str.lower():
+                return False
 
         return True
-
 
 # ==========================================
 # RIGHT PANEL MODELS (Email Thread)
