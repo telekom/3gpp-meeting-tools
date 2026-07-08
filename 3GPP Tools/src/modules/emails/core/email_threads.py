@@ -238,16 +238,22 @@ class EmailTargetRescanThread(QThread):
                     parsed_data = EmailParser.parse_outlook_item(mail_item, self.ai_lookup)
 
                     if parsed_data and parsed_data.get('tdoc_id'):
+                        # ---> NEW: Check if email is already in the database
                         existing = self.db.get_email(parsed_data['id'])
 
                         if existing and existing.get('msg_path') and Path(existing['msg_path']).exists():
+                            # Skip saving to disk, reuse existing path
                             parsed_data['msg_path'] = existing['msg_path']
                         else:
-                            parsed_data['msg_path'] = OutlookClient.save_email_to_disk(
-                                mail_item, parsed_data['tdoc_id'], self.meeting_dir
-                            )
+                            # Save new .msg file to disk
+                            msg_path = OutlookClient.save_email_to_disk(mail_item, parsed_data['tdoc_id'],
+                                                                        self.meeting_dir)
+                            parsed_data['msg_path'] = msg_path
 
-                        parsed_data['outlook_location'] = 'Target'
+                        parsed_data['outlook_location'] = 'Source'
+
+                        # Add to our buffer. The DB's "INSERT OR REPLACE" will seamlessly
+                        # update the sender and company fields for existing emails!
                         batch_data.append(parsed_data)
                         valid_count += 1
 

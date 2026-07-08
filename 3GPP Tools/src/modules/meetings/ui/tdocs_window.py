@@ -521,7 +521,32 @@ class TDocsWindow(QWidget):
         self.email_window = EmailManagerWindow(self.meeting_dir, {
             str(r.get("TDoc", "")).strip().upper(): str(r.get("Agenda Item", "N/A")).strip() for r in self.model._data
             if r.get("TDoc")}, self.mtg_info.get("start_date", ""), self.mtg_info.get("end_date", ""))
+
+        self.email_window.tdoc_open_requested.connect(self._open_tdoc_from_signal)
         self.email_window.show()
+
+    def _open_tdoc_from_signal(self, tdoc_id: str):
+        # 1. Bring the main TDocs window back to the front
+        self.raise_()
+        self.activateWindow()
+
+        # 2. Visually scroll to the base TDoc in the table
+        self._scroll_to_tdoc(tdoc_id)
+
+        # 3. Determine if this is a Revision or a Base TDoc to pick the right FTP folder
+        is_rev = re.search(r'(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
+        target_url = self.revisions_url if is_rev and self.revisions_url else self.docs_ftp_url
+
+        if not target_url:
+            QMessageBox.warning(self, "Missing URL", "No FTP URL available to download this document.")
+            return
+
+        # 4. Extract the base TDoc name (e.g., S2-261234) for thread tracking
+        match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
+        base_tdoc = match.group(1).upper() if match else tdoc_id.upper()
+
+        # 5. Trigger the download!
+        self._trigger_download_thread(base_tdoc, tdoc_id, target_url, is_silent_compare=False)
 
     def _copy_table_selection(self):
         indexes = sorted(self.table.selectionModel().selectedIndexes(), key=lambda x: (x.row(), x.column()))
