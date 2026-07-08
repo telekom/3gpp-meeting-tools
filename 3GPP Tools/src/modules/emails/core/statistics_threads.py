@@ -234,7 +234,7 @@ class EmailStatsExporterThread(QThread):
         counts = valid_df['ai_list'].value_counts().reset_index()
         counts.columns = ['Agenda Item', 'Emails']
 
-        fig = px.bar(counts.head(20), x='Agenda Item', y='Emails', title="Top 20 Agenda Items by Email Volume",
+        fig = px.bar(counts, x='Agenda Item', y='Emails', title="Agenda Items by Email Volume",
                      color_discrete_sequence=[self.THEME_COLOR])
 
         fig.update_xaxes(type='category', categoryorder='total descending')
@@ -251,9 +251,9 @@ class EmailStatsExporterThread(QThread):
         comp_counts = pd.Series(all_companies).value_counts().reset_index()
         comp_counts.columns = ['Company', 'Emails']
 
-        plot_df = comp_counts.head(20).sort_values('Emails', ascending=True)
+        plot_df = comp_counts.head(25).sort_values('Emails', ascending=True)
 
-        fig = px.bar(plot_df, x='Emails', y='Company', orientation='h', title="Top 20 Active Companies",
+        fig = px.bar(plot_df, x='Emails', y='Company', orientation='h', title="Top 25 Active Companies",
                      color_discrete_sequence=[self.THEME_COLOR])
 
         fig.update_yaxes(type='category', categoryorder='total ascending', tickmode='linear', dtick=1, title=None)

@@ -27,16 +27,16 @@ def generate_top_contributors_plot(df, export_dir, theme_color, top_count, prefi
                             default_height="100%", default_width="100%", config=svg_config), len(comp_counts)
 
 
-def generate_company_ai_heatmap(df, export_dir, prefix_id="Global", save_html=False):
+def generate_company_ai_heatmap(df, export_dir, prefix_id="Global", save_html=False, top_comps_count=25, top_ais_count=25):
     # Explode companies so co-signers get properly mapped to the matrix
     exploded_df = df.explode('Clean_Companies')
     exploded_df = exploded_df.dropna(subset=['Clean_Companies', 'Agenda Item'])
     exploded_df = exploded_df[(exploded_df['Clean_Companies'].str.strip() != '') &
                               (exploded_df['Agenda Item'].str.strip() != '')]
 
-    # Target Top 20 Companies and Top 20 AIs to prevent an illegible massive matrix
-    top_comps = exploded_df['Clean_Companies'].value_counts().head(25).index
-    top_ais = exploded_df['Agenda Item'].value_counts().head(25).index
+    # Target Top N Companies and Top N AIs via dynamic variables
+    top_comps = exploded_df['Clean_Companies'].value_counts().head(top_comps_count).index
+    top_ais = exploded_df['Agenda Item'].value_counts().head(top_ais_count).index
 
     plot_df = exploded_df[exploded_df['Clean_Companies'].isin(top_comps) &
                           exploded_df['Agenda Item'].isin(top_ais)]
@@ -54,7 +54,7 @@ def generate_company_ai_heatmap(df, export_dir, prefix_id="Global", save_html=Fa
                     y=matrix.index,
                     text_auto=True,
                     aspect="auto",
-                    title="Company Focus Matrix (Top 25 Companies vs Top 25 Topics)",
+                    title=f"Company Focus Matrix (Top {top_comps_count} Companies vs Top {top_ais_count} Topics)",
                     color_continuous_scale="Blues")
 
     fig.update_xaxes(side="bottom")
