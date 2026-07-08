@@ -1,5 +1,4 @@
-from plotly import express
-
+from plotly import express as px
 
 def _generate_timeline(THEME_COLOR, svg_config, df, prefix, include_plotlyjs):
     valid_df = df.dropna(subset=['date_received']).sort_values('date_received').copy()

@@ -1,3 +1,6 @@
+from plotly import express as px
+
+
 def _generate_ai_volume(THEME_COLOR, svg_config, df, prefix, include_plotlyjs):
     exploded_df = df.explode('ai_list')
     valid_df = exploded_df.dropna(subset=['ai_list'])
