@@ -3,11 +3,14 @@ from pathlib import Path
 
 import pandas as pd
 from PyQt5.QtCore import QThread, pyqtSignal
-from plotly import express as px
 
 from core.config.plot_styles import THEME_COLOR
 # ---> REQUIRED: Mimicking exporter_thread.py by using the actual CompanySanitizer
 from core.utils.company_sanitizer import CompanySanitizer
+from modules.emails.core.stats.plot_agenda import _generate_ai_volume
+from modules.emails.core.stats.plot_companies import _generate_company_volume
+from modules.emails.core.stats.plot_delegates import _generate_delegate_table
+from modules.emails.core.stats.plot_timeline import _generate_timeline
 
 
 class EmailStatsExporterThread(QThread):
@@ -79,11 +82,12 @@ class EmailStatsExporterThread(QThread):
             # =================================================================
 
             # The FIRST plot injects the CDN script (exactly like plot_agenda.py)
-            g_html_ai = self._generate_ai_volume(df, "Global", include_plotlyjs='cdn')
+            g_html_ai = _generate_ai_volume(self.THEME_COLOR, self.svg_config, df, "Global", include_plotlyjs='cdn')
             # Subsequent plots suppress the script to prevent duplication
-            g_html_comp = self._generate_company_volume(df, "Global", include_plotlyjs=False)
-            g_html_time = self._generate_timeline(df, "Global", include_plotlyjs=False)
-            g_html_table = self._generate_delegate_table(df, "Global")
+            g_html_comp = _generate_company_volume(self.THEME_COLOR, self.svg_config, df, "Global",
+                                                   include_plotlyjs=False)
+            g_html_time = _generate_timeline(self.THEME_COLOR, self.svg_config, df, "Global", include_plotlyjs=False)
+            g_html_table = _generate_delegate_table(df, "Global")
 
             views_html_buffer = []
             dropdown_options = ['<option value="global">🌐 Overall Email Analytics</option>']
@@ -104,9 +108,11 @@ class EmailStatsExporterThread(QThread):
                 dropdown_options.append(
                     f'<option value="{safe_id}">📌 Agenda Item {ai_name} ({len(ai_df)} Emails)</option>')
 
-                ai_html_comp = self._generate_company_volume(ai_df, safe_id, include_plotlyjs=False)
-                ai_html_time = self._generate_timeline(ai_df, safe_id, include_plotlyjs=False)
-                ai_html_table = self._generate_delegate_table(ai_df, safe_id)
+                ai_html_comp = _generate_company_volume(self.THEME_COLOR, self.svg_config, ai_df, safe_id,
+                                                        include_plotlyjs=False)
+                ai_html_time = _generate_timeline(self.THEME_COLOR, self.svg_config, ai_df, safe_id,
+                                                  include_plotlyjs=False)
+                ai_html_table = _generate_delegate_table(ai_df, safe_id)
 
                 views_html_buffer.append(self._compile_view_block(
                     safe_id, len(ai_df), ai_df['sender_email'].nunique(),
@@ -226,81 +232,3 @@ class EmailStatsExporterThread(QThread):
 
         return html_template
 
-    def _generate_ai_volume(self, df, prefix, include_plotlyjs):
-        exploded_df = df.explode('ai_list')
-        valid_df = exploded_df.dropna(subset=['ai_list'])
-        if valid_df.empty: return ""
-
-        counts = valid_df['ai_list'].value_counts().reset_index()
-        counts.columns = ['Agenda Item', 'Emails']
-
-        fig = px.bar(counts, x='Agenda Item', y='Emails', title="Agenda Items by Email Volume",
-                     color_discrete_sequence=[self.THEME_COLOR])
-
-        fig.update_xaxes(type='category', categoryorder='total descending')
-
-        # Matches plot_agenda.py flawlessly and assigns SVG as default export
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        return fig.to_html(full_html=False, include_plotlyjs=include_plotlyjs,
-                           default_height="100%", default_width="100%", config=self.svg_config)
-
-    def _generate_company_volume(self, df, prefix, include_plotlyjs):
-        all_companies = [comp for sublist in df['Clean_Companies'] for comp in sublist]
-        if not all_companies: return ""
-
-        comp_counts = pd.Series(all_companies).value_counts().reset_index()
-        comp_counts.columns = ['Company', 'Emails']
-
-        plot_df = comp_counts.head(25).sort_values('Emails', ascending=True)
-
-        fig = px.bar(plot_df, x='Emails', y='Company', orientation='h', title="Top 25 Active Companies",
-                     color_discrete_sequence=[self.THEME_COLOR])
-
-        fig.update_yaxes(type='category', categoryorder='total ascending', tickmode='linear', dtick=1, title=None)
-
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        return fig.to_html(full_html=False, include_plotlyjs=include_plotlyjs,
-                           default_height="100%", default_width="100%", config=self.svg_config)
-
-    def _generate_timeline(self, df, prefix, include_plotlyjs):
-        valid_df = df.dropna(subset=['date_received']).sort_values('date_received').copy()
-        if valid_df.empty: return "<p style='padding:20px; color:#666;'>No valid temporal data available.</p>"
-
-        fig = px.histogram(
-            valid_df, x='date_received', title="Email Traffic Over Time (1-Hour Bins)",
-            color_discrete_sequence=[self.THEME_COLOR]
-        )
-
-        fig.update_traces(xbins=dict(size=3600000))
-        fig.update_xaxes(rangeslider_visible=True, title="Timeline", tickformat="%a, %b %d<br>%H:%M",
-                         ticklabelmode="period")
-        fig.update_yaxes(title="Email Volume")
-
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        return fig.to_html(full_html=False, include_plotlyjs=include_plotlyjs,
-                           default_height="100%", default_width="100%", config=self.svg_config)
-
-    def _generate_delegate_table(self, df, prefix):
-        delegates = df.groupby('sender_email').agg(
-            Name=('sender_name', lambda x: x.value_counts().index[0] if not x.empty else "Unknown"),
-            Company=('Clean_Companies', lambda x: x.iloc[0][0] if len(x.iloc[0]) > 0 else "Unknown"),
-            Emails=('id', 'count')
-        ).reset_index().sort_values('Emails', ascending=False)
-
-        rows = ""
-        for _, row in delegates.iterrows():
-            rows += f"<tr><td>{row['Name']}</td><td>{row['sender_email']}</td><td>{row['Company']}</td><td>{row['Emails']}</td></tr>"
-
-        safe_id = f"table_{prefix}".replace(" ", "_").replace(".", "_")
-
-        table_template = """
-        <h3 style="color:#333; text-align:center;">Top Active Delegates</h3>
-        <table id="__SAFE_ID__" class="display delegate-table" style="width:100%">
-            <thead><tr><th>Name</th><th>Email Address</th><th>Company</th><th>Sent Emails</th></tr></thead>
-            <tbody>__ROWS__</tbody>
-        </table>
-        """
-        table_template = table_template.replace("__SAFE_ID__", str(safe_id))
-        table_template = table_template.replace("__ROWS__", str(rows))
-
-        return table_template
