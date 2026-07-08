@@ -569,7 +569,7 @@ class EmailManagerWindow(QWidget):
         self.btn_rescan.setEnabled(state)
 
     def _generate_statistics(self):
-        # ---> REVERTED: Using ALL emails in the database, ignoring UI filters
+        # ---> REVERTED: The statistics engine now analyzes ALL emails in the DB, ignoring UI filters.
         all_emails = self.model._data
 
         if not all_emails:
