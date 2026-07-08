@@ -317,6 +317,10 @@ class EmailStatsExporterThread(QThread):
             df['date_received'] = pd.to_datetime(df['date_received'], utc=True, errors='coerce').dt.tz_localize(None)
             df = df.dropna(subset=['date_received'])
 
+            # ---> THE FIX: Aggressively strip whitespace from AIs and Companies to prevent fragmentation
+            df['agenda_item'] = df['agenda_item'].astype(str).str.strip()
+            df['company'] = df['company'].astype(str).str.strip()
+
             # Generate Global View
             g_html_ai = self._generate_ai_volume(df, "Global")
             g_html_comp = self._generate_company_volume(df, "Global")
@@ -437,8 +441,11 @@ class EmailStatsExporterThread(QThread):
         """
 
     def _generate_ai_volume(self, df, prefix):
-        counts = df['agenda_item'].value_counts().reset_index().head(20)
+        # ---> THE FIX: Explicitly exclude 'Unknown AI' and blanks from the Top 20 ranking
+        valid_df = df[~df['agenda_item'].isin(['Unknown AI', 'Unknown', '', 'nan', 'None'])]
+        counts = valid_df['agenda_item'].value_counts().reset_index().head(20)
         counts.columns = ['Agenda Item', 'Emails']
+
         fig = px.bar(counts, x='Agenda Item', y='Emails', title="Top 20 Agenda Items by Email Volume",
                      color_discrete_sequence=[self.THEME_COLOR])
         return fig.to_html(full_html=False, include_plotlyjs=False)
@@ -452,14 +459,31 @@ class EmailStatsExporterThread(QThread):
         return fig.to_html(full_html=False, include_plotlyjs=False)
 
     def _generate_timeline(self, df, prefix):
-        # ---> FIX: Changed '6H' to lowercase '6h' to comply with Pandas 2.2.0+
-        time_counts = df.set_index('date_received').resample('6h').size().reset_index(name='Emails')
+        # 1. Drop missing dates and ensure the dataframe is sorted chronologically
+        valid_df = df.dropna(subset=['date_received']).sort_values('date_received').copy()
 
-        fig = px.bar(time_counts, x='date_received', y='Emails', title="Email Traffic Over Time (6-Hour Bins)",
-                     color_discrete_sequence=[self.THEME_COLOR])
-        # Interactive Plotly Range Slider
-        fig.update_xaxes(rangeslider_visible=True, title="Timeline")
-        fig.update_yaxes(title="Volume")
+        # 2. Use Plotly's native histogram for bulletproof time-series binning
+        # (This avoids the Pandas resample quirks that caused the monotonic stacking)
+        fig = px.histogram(
+            valid_df,
+            x='date_received',
+            title="Email Traffic Over Time (6-Hour Bins)",
+            color_discrete_sequence=[self.THEME_COLOR]
+        )
+
+        # Force the bins to be exactly 6 hours (21.6 million milliseconds)
+        fig.update_traces(xbins=dict(size=21600000))
+
+        # 3. Add the Day of the Week (%a) to the x-axis ticks
+        fig.update_xaxes(
+            rangeslider_visible=True,
+            title="Timeline",
+            tickformat="%a, %b %d<br>%H:%M",  # e.g., "Mon, Jun 20 \n 14:00"
+            ticklabelmode="period"
+        )
+
+        fig.update_yaxes(title="Email Volume")
+
         return fig.to_html(full_html=False, include_plotlyjs=False)
 
     def _generate_delegate_table(self, df, prefix):

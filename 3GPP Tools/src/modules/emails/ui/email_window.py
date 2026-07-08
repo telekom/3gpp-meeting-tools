@@ -87,45 +87,52 @@ class EmailManagerWindow(QWidget):
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
 
+        # ---> NEW: Cohesive, Professional Button Styling Helper
+        def get_btn_style(primary=False):
+            if primary:
+                return """
+                QPushButton { font-weight: bold; background-color: #0078D7; color: white; padding: 6px 12px; border-radius: 4px; border: 1px solid #005A9E; }
+                QPushButton:hover { background-color: #005A9E; }
+                """
+            return """
+                QPushButton { font-weight: bold; background-color: #FFFFFF; color: #333333; padding: 6px 12px; border-radius: 4px; border: 1px solid #CCCCCC; }
+                QPushButton:hover { background-color: #F0F4F8; border-color: #005A9E; color: #005A9E; }
+                """
+
         # --- TOOLBAR ---
         toolbar = QHBoxLayout()
         self.btn_sync = QPushButton("🔄 Sync Source")
-        self.btn_sync.setStyleSheet(
-            "padding: 6px 12px; font-weight: bold; background-color: #0078D7; color: white; border-radius: 4px;")
+        self.btn_sync.setStyleSheet(get_btn_style(primary=True))  # Only Sync gets the bold primary blue
         self.btn_sync.clicked.connect(self._run_sync)
 
         self.btn_move = QPushButton("➡️ Move Selected")
-        self.btn_move.setStyleSheet(
-            "padding: 6px 12px; font-weight: bold; background-color: #0C6B0C; color: white; border-radius: 4px;")
+        self.btn_move.setStyleSheet(get_btn_style())
         self.btn_move.clicked.connect(self._run_move)
 
         self.btn_move_all = QPushButton("⏭️ Move All")
-        self.btn_move_all.setStyleSheet(
-            "padding: 6px 12px; font-weight: bold; background-color: #084D08; color: white; border-radius: 4px;")
+        self.btn_move_all.setStyleSheet(get_btn_style())
         self.btn_move_all.clicked.connect(self._run_move_all)
 
         self.btn_rescan = QPushButton("🔁 Scan Target")
-        self.btn_rescan.setStyleSheet(
-            "padding: 6px 12px; font-weight: bold; background-color: #E1F0FF; color: #005A9E; border: 1px solid #99C9FF; border-radius: 4px;")
+        self.btn_rescan.setStyleSheet(get_btn_style())
         self.btn_rescan.clicked.connect(self._run_target_rescan)
 
-        # ---> NEW: Email Statistics Button
         self.btn_stats = QPushButton("📊 Statistics")
-        self.btn_stats.setStyleSheet(
-            "padding: 6px 12px; font-weight: bold; background-color: #F3E5F5; color: #6A1B9A; border: 1px solid #CE93D8; border-radius: 4px;")
+        self.btn_stats.setStyleSheet(get_btn_style())
         self.btn_stats.clicked.connect(self._generate_statistics)
 
         self.btn_config = QPushButton("⚙️ Folders")
+        self.btn_config.setStyleSheet(get_btn_style())
         self.btn_config.clicked.connect(self._configure_folders)
 
         self.lbl_status = QLabel("Ready.")
-        self.lbl_status.setStyleSheet("color: #666; font-style: italic;")
+        self.lbl_status.setStyleSheet("color: #666; font-style: italic; margin-left: 10px;")
 
         toolbar.addWidget(self.btn_sync)
         toolbar.addWidget(self.btn_move)
         toolbar.addWidget(self.btn_move_all)
         toolbar.addWidget(self.btn_rescan)
-        toolbar.addWidget(self.btn_stats)  # <--- Added to UI
+        toolbar.addWidget(self.btn_stats)
         toolbar.addWidget(self.btn_config)
         toolbar.addWidget(self.lbl_status)
         toolbar.addStretch()
@@ -137,21 +144,20 @@ class EmailManagerWindow(QWidget):
         # Date Pickers
         self.dt_start = QDateEdit()
         self.dt_start.setCalendarPopup(True)
-        if self.start_date:
+        if getattr(self, 'start_date', None):
             self.dt_start.setDate(QDate.fromString(self.start_date, Qt.ISODate))
         else:
-            self.dt_start.setDate(QDate.currentDate().addDays(-7))  # <--- Sane Fallback
+            self.dt_start.setDate(QDate.currentDate().addDays(-7))
 
         self.dt_end = QDateEdit()
         self.dt_end.setCalendarPopup(True)
-        if self.end_date:
+        if getattr(self, 'end_date', None):
             self.dt_end.setDate(QDate.fromString(self.end_date, Qt.ISODate))
         else:
-            self.dt_end.setDate(QDate.currentDate().addDays(7))  # <--- Sane Fallback
+            self.dt_end.setDate(QDate.currentDate().addDays(7))
 
         self.dt_start.dateChanged.connect(lambda d: setattr(self, 'start_date', d.toString(Qt.ISODate)))
         self.dt_end.dateChanged.connect(lambda d: setattr(self, 'end_date', d.toString(Qt.ISODate)))
-        # Save to JSON config when changed
         self.dt_start.dateChanged.connect(
             lambda: self._save_config(self.source_folder, self.target_folder, self.start_date, self.end_date))
         self.dt_end.dateChanged.connect(
@@ -172,14 +178,18 @@ class EmailManagerWindow(QWidget):
         self.btn_filter_star = QPushButton("⭐ Starred")
         self.btn_filter_star.setCheckable(True)
         self.btn_filter_star.setStyleSheet(
-            "QPushButton { padding: 4px; border: 1px solid #CCC; background: white; } QPushButton:checked { background-color: #FFF4CE; font-weight: bold; }")
+            "QPushButton { padding: 4px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #FFF4CE; font-weight: bold; border-color: #E2C08D; }")
         self.btn_filter_star.clicked.connect(self._apply_filters)
 
         self.btn_filter_follow = QPushButton("👀 Followed AIs")
         self.btn_filter_follow.setCheckable(True)
         self.btn_filter_follow.setStyleSheet(
-            "QPushButton { padding: 4px; border: 1px solid #CCC; background: white; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; }")
+            "QPushButton { padding: 4px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }")
         self.btn_filter_follow.clicked.connect(self._apply_filters)
+
+        # ---> NEW: The Live Email Count Label
+        self.lbl_count = QLabel("Showing 0 of 0 Emails")
+        self.lbl_count.setStyleSheet("font-size: 13px; color: #555; font-weight: bold; padding-left: 10px;")
 
         filter_layout.addWidget(QLabel("📅 Filter:"))
         filter_layout.addWidget(self.dt_start)
@@ -194,6 +204,7 @@ class EmailManagerWindow(QWidget):
         filter_layout.addWidget(self.cb_ai)
         filter_layout.addWidget(self.cb_company)
         filter_layout.addWidget(self.cb_sender)
+        filter_layout.addWidget(self.lbl_count)  # Added to the end of the filter bar
         main_layout.addLayout(filter_layout)
 
         # --- SPLITTER ---
@@ -205,6 +216,10 @@ class EmailManagerWindow(QWidget):
         self.proxy = EmailProxyModel()
         self.proxy.setSourceModel(self.model)
         self.table.setModel(self.proxy)
+
+        # ---> NEW: Connect the proxy filter and model resets to our dynamic count updater
+        self.proxy.layoutChanged.connect(self._update_count_label)
+        self.model.modelReset.connect(self._update_count_label)
 
         self.table.setSelectionBehavior(QTableView.SelectRows)
         self.table.setSelectionMode(QTableView.ExtendedSelection)
@@ -355,6 +370,8 @@ class EmailManagerWindow(QWidget):
             self.btn_filter_star.isChecked(),
             self.btn_filter_follow.isChecked()
         )
+
+        self._update_count_label()
 
     def _on_email_selected(self, selected, deselected):
         indexes = self.table.selectionModel().selectedRows()
@@ -576,3 +593,7 @@ class EmailManagerWindow(QWidget):
         self.btn_move_all.setEnabled(state)
         self.btn_rescan.setEnabled(state)
         self.btn_stats.setEnabled(state)  # <--- Added
+
+    def _update_count_label(self):
+        """Dynamically updates the UI label based on active grid filters."""
+        self.lbl_count.setText(f"Showing {self.proxy.rowCount()} of {self.model.rowCount()} Emails")
