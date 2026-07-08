@@ -11,6 +11,8 @@ def generate_ai_volume_plot(df, export_dir, theme_color, prefix_id="Global", sav
                     title="Top 20 Agenda Items by TDoc Volume",
                     color_discrete_sequence=[theme_color])
 
+    fig_ai.update_xaxes(type='category', categoryorder='total descending')
+
     if save_html:
         fig_ai.write_html(str(export_dir / f"{prefix_id}_AI_Volume.html"))
 

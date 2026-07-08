@@ -15,6 +15,7 @@ def generate_top_contributors_plot(df, export_dir, theme_color, top_count, prefi
                       color_discrete_sequence=[theme_color])
 
     fig_comp.update_yaxes(tickmode='linear', dtick=1, title=None)
+    fig_comp.update_yaxes(type='category', categoryorder='total ascending', tickmode='linear', dtick=1, title=None)
 
     if save_html:
         fig_comp.write_html(str(export_dir / f"{prefix_id}_Top_Contributors.html"))
