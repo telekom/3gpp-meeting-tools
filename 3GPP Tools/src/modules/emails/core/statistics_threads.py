@@ -155,7 +155,6 @@ class EmailStatsExporterThread(QThread):
         valid_df = df[~df['agenda_item'].isin(['UNKNOWN AI', 'UNKNOWN', '', 'NAN', 'NONE'])]
         if valid_df.empty: return ""
 
-        # ---> THE FIX: Groupby is 100% immune to Pandas column-ordering bugs
         counts = valid_df.groupby('agenda_item').size().reset_index(name='Emails')
         counts.rename(columns={'agenda_item': 'Agenda Item'}, inplace=True)
         counts = counts.sort_values('Emails', ascending=False)
@@ -164,13 +163,15 @@ class EmailStatsExporterThread(QThread):
                      color_discrete_sequence=[self.THEME_COLOR])
 
         fig.update_xaxes(type='category', categoryorder='total descending')
-        return fig.to_html(full_html=False, include_plotlyjs=False)
+
+        # ---> THE FIX: Force a unique div_id so Plotly JS doesn't overwrite earlier charts!
+        safe_id = f"ai_vol_{prefix}".replace(" ", "_").replace(".", "_")
+        return fig.to_html(full_html=False, include_plotlyjs=False, div_id=safe_id)
 
     def _generate_company_volume(self, df, prefix):
         valid_df = df[~df['company'].isin(['Unknown', '', 'Nan', 'None'])]
         if valid_df.empty: return ""
 
-        # ---> THE FIX: Groupby ensures the counts and categories are never swapped
         counts = valid_df.groupby('company').size().reset_index(name='Emails')
         counts.rename(columns={'company': 'Company'}, inplace=True)
         counts = counts.sort_values('Emails', ascending=False).head(20)
@@ -179,10 +180,12 @@ class EmailStatsExporterThread(QThread):
                      color_discrete_sequence=[self.THEME_COLOR])
 
         fig.update_yaxes(type='category', categoryorder='total ascending', tickmode='linear', dtick=1)
-        return fig.to_html(full_html=False, include_plotlyjs=False)
+
+        # ---> THE FIX: Unique ID for Company volume
+        safe_id = f"comp_vol_{prefix}".replace(" ", "_").replace(".", "_")
+        return fig.to_html(full_html=False, include_plotlyjs=False, div_id=safe_id)
 
     def _generate_timeline(self, df, prefix):
-        # ---> FIX 2: Only drop missing dates locally for the timeline chart
         valid_df = df.dropna(subset=['date_received']).sort_values('date_received').copy()
 
         if valid_df.empty:
@@ -195,10 +198,8 @@ class EmailStatsExporterThread(QThread):
             color_discrete_sequence=[self.THEME_COLOR]
         )
 
-        # ---> FIX 3: Force the bins to exactly 1 hour (3,600,000 milliseconds)
         fig.update_traces(xbins=dict(size=3600000))
 
-        # Add the Day of the Week (%a) to the x-axis ticks
         fig.update_xaxes(
             rangeslider_visible=True,
             title="Timeline",
@@ -208,23 +209,26 @@ class EmailStatsExporterThread(QThread):
 
         fig.update_yaxes(title="Email Volume")
 
-        return fig.to_html(full_html=False, include_plotlyjs=False)
+        # ---> THE FIX: Unique ID for the Timeline
+        safe_id = f"time_vol_{prefix}".replace(" ", "_").replace(".", "_")
+        return fig.to_html(full_html=False, include_plotlyjs=False, div_id=safe_id)
 
     def _generate_delegate_table(self, df, prefix):
-        # Get the most common display name per email address to bypass listserv aliases
         delegates = df.groupby('sender_email').agg(
             Name=('sender_name', lambda x: x.value_counts().index[0] if not x.empty else "Unknown"),
             Company=('company', 'first'),
             Emails=('id', 'count')
-        ).reset_index().sort_values('Emails', ascending=False).head(100)  # Top 100 for performance
+        ).reset_index().sort_values('Emails', ascending=False).head(100)
 
         rows = ""
         for _, row in delegates.iterrows():
             rows += f"<tr><td>{row['Name']}</td><td>{row['sender_email']}</td><td>{row['Company']}</td><td>{row['Emails']}</td></tr>"
 
+        # ---> BEST PRACTICE: Give the table a unique HTML ID as well
+        safe_id = f"table_{prefix}".replace(" ", "_").replace(".", "_")
         return f"""
         <h3 style="color:#333; text-align:center;">Top Active Delegates</h3>
-        <table class="display delegate-table" style="width:100%">
+        <table id="{safe_id}" class="display delegate-table" style="width:100%">
             <thead><tr><th>Name</th><th>Email Address</th><th>Company</th><th>Sent Emails</th></tr></thead>
             <tbody>{rows}</tbody>
         </table>
