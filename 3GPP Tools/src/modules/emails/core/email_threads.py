@@ -313,13 +313,11 @@ class EmailStatsExporterThread(QThread):
                 self.finished.emit(False, "No email data available to generate statistics.")
                 return
 
-            # ---> FIX 1: Parse dates, but DO NOT drop missing rows from the main dataframe!
-            # This ensures emails with weird dates still count towards AI and Company totals.
             df['date_received'] = pd.to_datetime(df['date_received'], utc=True, errors='coerce').dt.tz_localize(None)
 
-            # Strip whitespace to prevent fragmentation
-            df['agenda_item'] = df['agenda_item'].astype(str).str.strip()
-            df['company'] = df['company'].astype(str).str.strip()
+            # ---> THE FIX: Force Title and Upper casing to completely eliminate string fragmentation
+            df['agenda_item'] = df['agenda_item'].astype(str).str.strip().str.upper()
+            df['company'] = df['company'].astype(str).str.strip().str.title()
 
             # Generate Global View
             g_html_ai = self._generate_ai_volume(df, "Global")
@@ -441,36 +439,33 @@ class EmailStatsExporterThread(QThread):
         """
 
     def _generate_ai_volume(self, df, prefix):
-        # Explicitly exclude 'Unknown AI' and blanks
-        valid_df = df[~df['agenda_item'].isin(['Unknown AI', 'Unknown', '', 'nan', 'None'])]
-        counts = valid_df['agenda_item'].value_counts().reset_index().head(20)
-        counts.columns = ['Agenda Item', 'Emails']
+        valid_df = df[~df['agenda_item'].isin(['UNKNOWN AI', 'UNKNOWN', '', 'NAN', 'NONE'])]
+        if valid_df.empty: return ""
+
+        # ---> THE FIX: Groupby is 100% immune to Pandas column-ordering bugs
+        counts = valid_df.groupby('agenda_item').size().reset_index(name='Emails')
+        counts.rename(columns={'agenda_item': 'Agenda Item'}, inplace=True)
+        counts = counts.sort_values('Emails', ascending=False).head(20)
 
         fig = px.bar(counts, x='Agenda Item', y='Emails', title="Top 20 Agenda Items by Email Volume",
                      color_discrete_sequence=[self.THEME_COLOR])
 
-        # ---> THE MAGIC FIX: Force Plotly to treat AIs as text, preventing the "Date" conversion bug!
         fig.update_xaxes(type='category', categoryorder='total descending')
-
         return fig.to_html(full_html=False, include_plotlyjs=False)
 
     def _generate_company_volume(self, df, prefix):
-        # Exclude blanks or 'Unknown' companies
-        valid_df = df[~df['company'].isin(['Unknown', '', 'nan', 'None'])]
-        counts = valid_df['company'].value_counts().reset_index().head(20)
-        counts.columns = ['Company', 'Emails']
+        valid_df = df[~df['company'].isin(['Unknown', '', 'Nan', 'None'])]
+        if valid_df.empty: return ""
+
+        # ---> THE FIX: Groupby ensures the counts and categories are never swapped
+        counts = valid_df.groupby('company').size().reset_index(name='Emails')
+        counts.rename(columns={'company': 'Company'}, inplace=True)
+        counts = counts.sort_values('Emails', ascending=False).head(20)
 
         fig = px.bar(counts, x='Emails', y='Company', orientation='h', title="Top 20 Active Companies",
                      color_discrete_sequence=[self.THEME_COLOR])
 
-        # ---> BEST PRACTICE: Force categorical type on the Y-axis and let Plotly handle the sorting!
-        fig.update_yaxes(
-            type='category',
-            categoryorder='total ascending',  # 'ascending' puts the biggest bar at the top for horizontal charts
-            tickmode='linear',
-            dtick=1
-        )
-
+        fig.update_yaxes(type='category', categoryorder='total ascending', tickmode='linear', dtick=1)
         return fig.to_html(full_html=False, include_plotlyjs=False)
 
     def _generate_timeline(self, df, prefix):
