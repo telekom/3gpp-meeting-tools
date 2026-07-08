@@ -5,6 +5,7 @@ import pandas as pd
 from PyQt5.QtCore import QThread, pyqtSignal
 from plotly import express as px
 
+from core.config.plot_styles import THEME_COLOR
 # ---> REQUIRED: Mimicking exporter_thread.py by using the actual CompanySanitizer
 from core.utils.company_sanitizer import CompanySanitizer
 
@@ -18,7 +19,7 @@ class EmailStatsExporterThread(QThread):
         self.email_data = email_data
         self.meeting_name = meeting_name
         self.export_dir = self.meeting_dir / "Export"
-        self.THEME_COLOR = '#0078D7'
+        self.THEME_COLOR = THEME_COLOR
 
         # ---> FEATURE ADDED: Force SVG as the default download format for the Plotly camera icon
         self.svg_config = {
