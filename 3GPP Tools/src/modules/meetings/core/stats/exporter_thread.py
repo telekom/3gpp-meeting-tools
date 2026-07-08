@@ -30,6 +30,10 @@ class StatisticsExporterThread(QThread):
         self.cfg_top_count = self.config.get("top_count", 30)
         self.cfg_export_html = self.config.get("export_html_plots", False)
 
+        # ---> RETRIEVE NEW SETTINGS
+        self.cfg_hm_companies = self.config.get("heatmap_top_companies", 25)
+        self.cfg_hm_ais = self.config.get("heatmap_top_ais", 25)
+
         self.THEME_COLOR = THEME_COLOR
         self.PALETTE = PALETTE
         self.CLUSTER_PALETTE = CLUSTER_PALETTE
@@ -62,8 +66,13 @@ class StatisticsExporterThread(QThread):
             g_html_comp, total_companies = generate_top_contributors_plot(df, plots_dir, self.THEME_COLOR,
                                                                           self.cfg_top_count, prefix_id="Global",
                                                                           save_html=self.cfg_export_html)
+
+            # ---> PASS DYNAMIC LIMITS TO HEATMAP
             g_html_heatmap = generate_company_ai_heatmap(df, plots_dir, prefix_id="Global",
-                                                         save_html=self.cfg_export_html)
+                                                         save_html=self.cfg_export_html,
+                                                         top_comps_count=self.cfg_hm_companies,
+                                                         top_ais_count=self.cfg_hm_ais)
+
             g_html_net, g_html_cluster, g_html_cohesion, g_html_list = generate_alliance_plots(df, plots_dir,
                                                                                                self.cfg_threshold,
                                                                                                self.CLUSTER_PALETTE,

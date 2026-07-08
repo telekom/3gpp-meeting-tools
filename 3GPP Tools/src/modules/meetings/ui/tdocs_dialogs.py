@@ -94,7 +94,7 @@ class StatisticsSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("⚙️ Global Tools Configuration")
-        self.resize(550, 580)
+        self.resize(550, 620)  # Made slightly taller to fit the new settings
         self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; color: #333; }")
 
         self.config_path = Path(__file__).resolve().parents[4] / "stats_config.json"
@@ -145,9 +145,31 @@ class StatisticsSettingsDialog(QDialog):
         top_layout.addWidget(self.top_spin)
         layout.addLayout(top_layout)
 
-        # ---> THE FIX: Add checkbox to toggle the large HTML file exports
+        # ---> NEW: Heatmap Dynamic Configurations
+        hm_comp_layout = QHBoxLayout()
+        hm_comp_layout.addWidget(QLabel("Heatmap: Top Companies to Display:"))
+        hm_comp_layout.addStretch()
+        self.hm_comp_spin = QSpinBox()
+        self.hm_comp_spin.setRange(5, 200)
+        self.hm_comp_spin.setSingleStep(5)
+        self.hm_comp_spin.setValue(self.config.get("heatmap_top_companies", 25))
+        self.hm_comp_spin.setStyleSheet("padding: 4px; border: 1px solid #CCC; background: white; width: 60px;")
+        hm_comp_layout.addWidget(self.hm_comp_spin)
+        layout.addLayout(hm_comp_layout)
+
+        hm_ai_layout = QHBoxLayout()
+        hm_ai_layout.addWidget(QLabel("Heatmap: Top Agenda Items to Display:"))
+        hm_ai_layout.addStretch()
+        self.hm_ai_spin = QSpinBox()
+        self.hm_ai_spin.setRange(5, 200)
+        self.hm_ai_spin.setSingleStep(5)
+        self.hm_ai_spin.setValue(self.config.get("heatmap_top_ais", 25))
+        self.hm_ai_spin.setStyleSheet("padding: 4px; border: 1px solid #CCC; background: white; width: 60px;")
+        hm_ai_layout.addWidget(self.hm_ai_spin)
+        layout.addLayout(hm_ai_layout)
+
         self.export_html_chk = QCheckBox("Export standalone HTML plots (Warning: Creates hundreds of MBs of files)")
-        self.export_html_chk.setChecked(self.config.get("export_html_plots", False))  # Default to False
+        self.export_html_chk.setChecked(self.config.get("export_html_plots", False))
         self.export_html_chk.setStyleSheet("font-weight: bold; color: #D83B01; margin-top: 5px;")
         layout.addWidget(self.export_html_chk)
 
@@ -216,7 +238,9 @@ class StatisticsSettingsDialog(QDialog):
             "resolution": 1.5,
             "threshold": 1,
             "top_count": 30,
-            "export_html_plots": False,  # Default disabled!
+            "heatmap_top_companies": 25,  # <--- NEW DEFAULT
+            "heatmap_top_ais": 25,  # <--- NEW DEFAULT
+            "export_html_plots": False,
             "llm_max_chars": 200000,
             "llm_system_prompt": self._get_default_prompt()
         }
@@ -234,6 +258,8 @@ class StatisticsSettingsDialog(QDialog):
         self.config["resolution"] = self.slider.value() / 10.0
         self.config["threshold"] = self.thresh_spin.value()
         self.config["top_count"] = self.top_spin.value()
+        self.config["heatmap_top_companies"] = self.hm_comp_spin.value()  # <--- SAVES VALUE
+        self.config["heatmap_top_ais"] = self.hm_ai_spin.value()  # <--- SAVES VALUE
         self.config["export_html_plots"] = self.export_html_chk.isChecked()
         self.config["llm_max_chars"] = self.llm_spin.value()
         self.config["llm_system_prompt"] = self.prompt_edit.toPlainText().strip()
