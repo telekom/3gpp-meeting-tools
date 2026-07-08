@@ -192,17 +192,25 @@ class EmailStatsExporterThread(QThread):
         except Exception as e:
             self.finished.emit(False, str(e))
 
-    def _compile_view_block(self, scope_id, total_emails, total_delegates, ai_html, comp_html, dels_html, hm_html,
-                            time_html, table_html, is_visible=False):
+    def _compile_view_block(self, scope_id, total_emails, total_delegates, ai_html, comp_html, dels_html, hm_html, time_html, table_html, is_visible=False):
         display_style = "block" if is_visible else "none"
 
         ai_card = ""
         if ai_html:
             ai_card = f'<div class="chart-card" style="grid-column: 1 / -1;">{ai_html}</div>'
 
+        # ---> THE FIX 3: Increased container height to 850px and added the Expansion button/Tooltip
         hm_card = ""
         if hm_html:
-            hm_card = f'<div class="chart-card" style="grid-column: 1 / -1; height: 650px;">{hm_html}</div>'
+            hm_card = f"""
+            <div class="chart-card" style="grid-column: 1 / -1; height: 850px;">
+                <div class="info-title-container">
+                    <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Company Focus Matrix:</b> Heatmap of email traffic by the top companies across top topics.</span></span>
+                </div>
+                <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                {hm_html}
+            </div>
+            """
 
         html_template = """
         <div id="__SCOPE_ID__" class="dashboard-view-panel" style="display: __DISPLAY_STYLE__;">
