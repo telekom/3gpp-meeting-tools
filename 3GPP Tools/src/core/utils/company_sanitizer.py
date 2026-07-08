@@ -4,12 +4,16 @@ import re
 
 class CompanySanitizer:
     SIGNATURE_SYNONYMS_REGEX = {
-        'Deutsche Telekom': re.compile(r'(\bdt\b)|(deutsche tele[kc]om)'),
+        # ---> UPDATED: Added explicit Austrian and Polish domains
+        'Deutsche Telekom': re.compile(r'(\bdt\b)|(deutsche tele[kc]om)|(@magenta\.at)|(@t-mobile\.pl)'),
         'KT': re.compile(r'(\bkt\b)'),
         'Nokia': re.compile(r'nokia'),
         'Qualcomm': re.compile(r'qualcom[m]?'),
         'Huawei': re.compile(r'(huawei)|(h[i]?s[i]?l[l]?icon)'),
-        'T-Mobile USA': re.compile(r't[-]?mobile'),
+
+        # ---> UPDATED: Match .com explicitly, but ignore .pl to prevent stealing DT's Polish subsidiary
+        'T-Mobile USA': re.compile(r'(t[-]?mobile(?!\.pl))|(@t-mobile\.com)'),
+
         'Verizon': re.compile(r'verizon'),
         'ZTE': re.compile(r'zte'),
         'NTT DoCoMo': re.compile(r'(ntt)|(docomo)'),
@@ -121,7 +125,7 @@ class CompanySanitizer:
         'INSPUR': re.compile(r'inspur')
     }
 
-    SOURCE_REPLACE_REGEX = re.compile(r'\(Rapporteur\)|\(\?\)|[\[\]\?\(\)]|(([\w\d]{2,3})-(\d\d)([\d]+))')
+    SOURCE_REPLACE_REGEX = re.compile(r'\(Rapporteur\)|\(\?\)|[\[\]\?\(\)]|(([\w\d]{2,3})-(\d\d)([\d]+))', re.IGNORECASE)
 
     @classmethod
     def get_matching_contributors(cls, original_source: str) -> list:

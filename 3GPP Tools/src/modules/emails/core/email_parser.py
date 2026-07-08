@@ -2,7 +2,9 @@
 import re
 import logging
 from typing import Dict
+
 from core.utils.company_sanitizer import CompanySanitizer
+
 
 class EmailParser:
     # Accommodates 6, 7, or 8 digit TDocs correctly
@@ -22,6 +24,28 @@ class EmailParser:
             except Exception:
                 sender_email = ""
 
+            sender_name_lower = sender_name.lower()
+            sender_email_lower = sender_email.lower()
+
+            # ---> UPDATED: Broadened Listserv / DMARC Intercept
+            # Catch standard DMARC, specific WG2_EMEET lists, and "on behalf of" wrappers
+            if "list.etsi.org" in sender_email_lower or "dmarc" in sender_name_lower or "on behalf of" in sender_name_lower:
+                try:
+                    # 1. Extract the clean email address
+                    reply_recipients = [recipient.Address for recipient in mail_item.ReplyRecipients]
+                    if len(reply_recipients) > 0:
+                        sender_email = reply_recipients[0]
+
+                    # 2. Extract the clean sender name
+                    reply_names = getattr(mail_item, "ReplyRecipientNames", "")
+                    if reply_names:
+                        # ReplyRecipientNames is a string, usually semicolon-separated if multiple.
+                        # We split by ';' and take the first one to isolate the primary sender's clean name.
+                        sender_name = reply_names.split(';')[0].strip()
+
+                except Exception as e:
+                    logging.warning(f"Could not extract ReplyRecipient for listserv bypass: {e}")
+
             # 1. TDoc Extraction & Strict Meeting Enforcement
             tdoc_match = cls.TDOC_REGEX.search(subject)
             if not tdoc_match:
@@ -34,24 +58,24 @@ class EmailParser:
                 return {}
             agenda_item = ai_lookup_dict.get(base_tdoc, "Unknown AI")
 
-            # ---> IMPROVED DMARC BYPASS: Extract actual sender from body if listserv rewritten
-            sender_name_lower = sender_name.lower()
-            if "3gpp" in sender_name_lower or "list" in sender_name_lower or "emeet" in sender_name_lower or not sender_email:
+            # ---> IMPROVED REGEX FALLBACK:
+            # If the name is still polluted with listserv artifacts, parse the body for the clean From: header
+            if any(keyword in sender_name.lower() for keyword in
+                   ["3gpp", "list", "emeet", "on behalf of", "dmarc"]) or not sender_email:
                 body_head = body[:1500]  # Check a larger chunk at the top of the email
 
-                # Removed the strict `^` anchor because Outlook often adds indents/spaces.
-                # Looks for: From: Real Name <email@domain.com> OR From: Real Name [mailto:email@domain.com]
                 dmarc_match = re.search(
                     r'From:\s*([^\n<\[]+?)\s*[<\[](?:mailto:)?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})[>\]]',
                     body_head, re.IGNORECASE)
 
                 if dmarc_match:
+                    # Only override the name/email if the regex found something clean
                     sender_name = dmarc_match.group(1).strip(' \t"\'')
-                    sender_email = dmarc_match.group(2).strip()
+                    if not sender_email or "list.etsi.org" in sender_email.lower():
+                        sender_email = dmarc_match.group(2).strip()
 
             # 2. Company Extraction
             raw_sender_str = f"{sender_name} <{sender_email}>"
-            # ---> UPDATE: Simplified function call utilizing the central sanitizer
             companies = CompanySanitizer.get_matching_contributors(raw_sender_str)
             company = companies[0] if companies else cls._fallback_domain_extract(sender_email)
 
