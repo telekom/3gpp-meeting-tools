@@ -62,7 +62,7 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
     G.remove_edges_from(edges_to_remove)
     G.remove_nodes_from(list(nx.isolates(G)))
 
-    html_net = "<p style='padding:20px; color:#666;'>Not enough co-signed documents to generate network graph for this view.</p>"
+    html_network = "<p style='padding:20px; color:#666;'>Not enough co-signed documents to generate network graph for this view.</p>"
     html_cluster_contribs = ""
     html_cohesion_plot = ""
     html_faction_list = ""
@@ -147,8 +147,9 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
             fig_net.write_html(str(export_dir / f"{prefix_id}_Network_Alliances.html"))
 
         safe_div_id = f"net_{prefix_id}".replace(" ", "_").replace(".", "_")
-        html_net = fig_net.to_html(full_html=False, include_plotlyjs=False, div_id=safe_div_id, default_height="100%",
-                                   default_width="100%")
+        svg_config_net = {'toImageButtonOptions': {'format': 'svg', 'filename': f'{prefix_id}_Faction_Network'}}
+        html_network = fig_net.to_html(full_html=False, include_plotlyjs=False,
+                                       default_height="100%", default_width="100%", config=svg_config_net)
 
         cluster_tdoc_counts = {name: 0 for name in cluster_names.values()}
         for companies in df['Clean_Companies']:
@@ -217,7 +218,11 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
                 if save_html:
                     fig_cohesion.write_html(str(export_dir / f"{prefix_id}_Faction_Cohesion.html"))
 
+                # ---> SVG CONFIG FOR COHESION PLOT
+                svg_config_coh = {
+                    'toImageButtonOptions': {'format': 'svg', 'filename': f'{prefix_id}_Faction_Cohesion'}}
                 html_cohesion_plot = fig_cohesion.to_html(full_html=False, include_plotlyjs=False,
-                                                          default_height="100%", default_width="100%")
+                                                          default_height="100%", default_width="100%",
+                                                          config=svg_config_coh)
 
-    return html_net, html_cluster_contribs, html_cohesion_plot, html_faction_list
+    return html_network, html_cluster_contribs, html_cohesion_plot, html_faction_list

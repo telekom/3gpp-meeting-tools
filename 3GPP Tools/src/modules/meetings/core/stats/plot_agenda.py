@@ -16,4 +16,8 @@ def generate_ai_volume_plot(df, export_dir, theme_color, prefix_id="Global", sav
     if save_html:
         fig_ai.write_html(str(export_dir / f"{prefix_id}_AI_Volume.html"))
 
-    return fig_ai.to_html(full_html=False, include_plotlyjs='cdn', default_height="100%", default_width="100%")
+    # ---> THE FIX: Force SVG and dynamic filename
+    svg_config = {'toImageButtonOptions': {'format': 'svg', 'filename': f'{prefix_id}_AI_Volume'}}
+
+    return fig_ai.to_html(full_html=False, include_plotlyjs='cdn',
+                          default_height="100%", default_width="100%", config=svg_config)

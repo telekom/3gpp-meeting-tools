@@ -22,4 +22,10 @@ def generate_top_contributors_plot(df, export_dir, theme_color, top_count, prefi
 
     html_comp = fig_comp.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
+    # ---> THE FIX: Force SVG and dynamic filename
+    svg_config = {'toImageButtonOptions': {'format': 'svg', 'filename': f'{prefix_id}_Top_Contributors'}}
+
+    html_comp = fig_comp.to_html(full_html=False, include_plotlyjs=False,
+                                 default_height="100%", default_width="100%", config=svg_config)
+
     return html_comp, len(comp_counts)
