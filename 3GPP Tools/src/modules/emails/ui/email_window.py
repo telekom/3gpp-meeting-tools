@@ -569,16 +569,11 @@ class EmailManagerWindow(QWidget):
         self.btn_rescan.setEnabled(state)
 
     def _generate_statistics(self):
-        # ---> THE FIX: Use VISIBLE emails based on active filters, not the entire DB!
-        visible_emails = []
-        for r in range(self.proxy.rowCount()):
-            index = self.proxy.index(r, 0)
-            source_index = self.proxy.mapToSource(index)
-            row_data = self.model._data[source_index.row()]
-            visible_emails.append(row_data)
+        # ---> REVERTED: Using ALL emails in the database, ignoring UI filters
+        all_emails = self.model._data
 
-        if not visible_emails:
-            QMessageBox.warning(self, "No Data", "There are no visible emails to analyze. Clear filters and try again.")
+        if not all_emails:
+            QMessageBox.warning(self, "No Data", "There are no emails loaded to analyze.")
             return
 
         self._set_buttons_enabled(False)
@@ -587,7 +582,7 @@ class EmailManagerWindow(QWidget):
         from modules.emails.core.statistics_threads import EmailStatsExporterThread
         meeting_name = self.meeting_dir.name if self.meeting_dir else "Meeting"
 
-        self.stats_thread = EmailStatsExporterThread(self.meeting_dir, visible_emails, meeting_name)
+        self.stats_thread = EmailStatsExporterThread(self.meeting_dir, all_emails, meeting_name)
         self.stats_thread.finished.connect(self._on_stats_finished)
         self.stats_thread.start()
 
