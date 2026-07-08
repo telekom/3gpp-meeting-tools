@@ -172,7 +172,7 @@ class EmailManagerWindow(QWidget):
         self.btn_stats.setStyleSheet(get_btn_style())
         self.btn_stats.clicked.connect(self._generate_statistics)
 
-        self.btn_config = QPushButton("⚙️ Folders")
+        self.btn_config = QPushButton("⚙️")
         self.btn_config.setStyleSheet(get_btn_style())
         self.btn_config.clicked.connect(self._configure_folders)
 

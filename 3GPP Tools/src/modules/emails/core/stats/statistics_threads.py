@@ -5,26 +5,32 @@ import pandas as pd
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.config.plot_styles import THEME_COLOR
-# ---> REQUIRED: Mimicking exporter_thread.py by using the actual CompanySanitizer
 from core.utils.company_sanitizer import CompanySanitizer
 from modules.emails.core.stats.plot_agenda import _generate_ai_volume
-from modules.emails.core.stats.plot_companies import _generate_company_volume
-from modules.emails.core.stats.plot_delegates import _generate_delegate_table
+from modules.emails.core.stats.plot_companies import _generate_company_volume, _generate_company_ai_heatmap
+from modules.emails.core.stats.plot_delegates import _generate_delegate_table, _generate_delegates_plot
 from modules.emails.core.stats.plot_timeline import _generate_timeline
 
 
 class EmailStatsExporterThread(QThread):
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, meeting_dir: Path, email_data: list, meeting_name: str = "Meeting"):
+    # ---> THE FIX: Added 'config: dict' to the signature
+    def __init__(self, meeting_dir: Path, email_data: list, meeting_name: str, config: dict):
         super().__init__()
         self.meeting_dir = meeting_dir
         self.email_data = email_data
         self.meeting_name = meeting_name
+        self.config = config
         self.export_dir = self.meeting_dir / "Export"
         self.THEME_COLOR = THEME_COLOR
 
-        # ---> FEATURE ADDED: Force SVG as the default download format for the Plotly camera icon
+        # Extract dynamic settings loaded from email_config.json
+        self.cfg_top_comps = self.config.get("email_top_companies", 25)
+        self.cfg_top_dels = self.config.get("email_top_delegates", 25)
+        self.cfg_hm_comps = self.config.get("email_heatmap_top_comps", 25)
+        self.cfg_hm_ais = self.config.get("email_heatmap_top_ais", 25)
+
         self.svg_config = {
             'toImageButtonOptions': {
                 'format': 'svg',
@@ -44,14 +50,10 @@ class EmailStatsExporterThread(QThread):
             df['date_received'] = pd.to_datetime(df['date_received'], utc=True, errors='coerce').dt.tz_localize(None)
 
             # =================================================================
-            # 🧹 DATA HEALING: Mirroring exporter_thread.py logic
+            # 🧹 DATA HEALING
             # =================================================================
-
-            # Force Title, Upper, and Lower casing to completely eliminate string fragmentation
             df['agenda_item'] = df['agenda_item'].astype(str).str.strip().str.upper()
             df['company'] = df['company'].astype(str).str.strip().str.title()
-
-            # ---> THE FIX: Normalize emails to lowercase so "USER@DOMAIN.COM" and "user@domain.com" merge!
             df['sender_email'] = df['sender_email'].astype(str).str.strip().str.lower()
 
             def unify_company(row):
@@ -80,13 +82,17 @@ class EmailStatsExporterThread(QThread):
             # =================================================================
             # 📊 GENERATE GLOBAL VIEW
             # =================================================================
-
-            # The FIRST plot injects the CDN script (exactly like plot_agenda.py)
             g_html_ai = _generate_ai_volume(self.THEME_COLOR, self.svg_config, df, "Global", include_plotlyjs='cdn')
-            # Subsequent plots suppress the script to prevent duplication
-            g_html_comp = _generate_company_volume(self.THEME_COLOR, self.svg_config, df, "Global",
-                                                   include_plotlyjs=False)
-            g_html_time = _generate_timeline(self.THEME_COLOR, self.svg_config, df, "Global", include_plotlyjs=False)
+
+            # Pass configurations to the functions
+            g_html_comp = _generate_company_volume(self.THEME_COLOR, self.svg_config, df, "Global", False,
+                                                   self.cfg_top_comps)
+            g_html_dels = _generate_delegates_plot(self.THEME_COLOR, self.svg_config, df, "Global", False,
+                                                   self.cfg_top_dels)
+            g_html_hm = _generate_company_ai_heatmap(self.svg_config, df, "Global", False, self.cfg_hm_comps,
+                                                     self.cfg_hm_ais)
+
+            g_html_time = _generate_timeline(self.THEME_COLOR, self.svg_config, df, "Global", False)
             g_html_table = _generate_delegate_table(df, "Global")
 
             views_html_buffer = []
@@ -94,7 +100,7 @@ class EmailStatsExporterThread(QThread):
 
             views_html_buffer.append(self._compile_view_block(
                 "global", len(df), df['sender_email'].nunique(),
-                g_html_ai, g_html_comp, g_html_time, g_html_table, is_visible=True
+                g_html_ai, g_html_comp, g_html_dels, g_html_hm, g_html_time, g_html_table, is_visible=True
             ))
 
             # =================================================================
@@ -108,19 +114,20 @@ class EmailStatsExporterThread(QThread):
                 dropdown_options.append(
                     f'<option value="{safe_id}">📌 Agenda Item {ai_name} ({len(ai_df)} Emails)</option>')
 
-                ai_html_comp = _generate_company_volume(self.THEME_COLOR, self.svg_config, ai_df, safe_id,
-                                                        include_plotlyjs=False)
-                ai_html_time = _generate_timeline(self.THEME_COLOR, self.svg_config, ai_df, safe_id,
-                                                  include_plotlyjs=False)
+                ai_html_comp = _generate_company_volume(self.THEME_COLOR, self.svg_config, ai_df, safe_id, False,
+                                                        self.cfg_top_comps)
+                ai_html_dels = _generate_delegates_plot(self.THEME_COLOR, self.svg_config, ai_df, safe_id, False,
+                                                        self.cfg_top_dels)
+                ai_html_time = _generate_timeline(self.THEME_COLOR, self.svg_config, ai_df, safe_id, False)
                 ai_html_table = _generate_delegate_table(ai_df, safe_id)
 
                 views_html_buffer.append(self._compile_view_block(
                     safe_id, len(ai_df), ai_df['sender_email'].nunique(),
-                    None, ai_html_comp, ai_html_time, ai_html_table, is_visible=False
+                    None, ai_html_comp, ai_html_dels, None, ai_html_time, ai_html_table, is_visible=False
                 ))
 
             # =================================================================
-            # 📄 ASSEMBLE HTML (Strict replace, no f-strings)
+            # 📄 ASSEMBLE HTML
             # =================================================================
             dashboard_template = """
             <!DOCTYPE html>
@@ -185,19 +192,17 @@ class EmailStatsExporterThread(QThread):
         except Exception as e:
             self.finished.emit(False, str(e))
 
-    def _compile_view_block(self, scope_id, total_emails, total_delegates, ai_html, comp_html, time_html, table_html,
-                            is_visible=False):
+    def _compile_view_block(self, scope_id, total_emails, total_delegates, ai_html, comp_html, dels_html, hm_html,
+                            time_html, table_html, is_visible=False):
         display_style = "block" if is_visible else "none"
 
         ai_card = ""
         if ai_html:
-            ai_card = """
-            <div class="chart-card">
-                __AI_HTML__
-            </div>
-            """.replace("__AI_HTML__", str(ai_html))
+            ai_card = f'<div class="chart-card" style="grid-column: 1 / -1;">{ai_html}</div>'
 
-        col_span = "" if ai_html else "grid-column: 1 / -1;"
+        hm_card = ""
+        if hm_html:
+            hm_card = f'<div class="chart-card" style="grid-column: 1 / -1; height: 650px;">{hm_html}</div>'
 
         html_template = """
         <div id="__SCOPE_ID__" class="dashboard-view-panel" style="display: __DISPLAY_STYLE__;">
@@ -207,9 +212,13 @@ class EmailStatsExporterThread(QThread):
             </div>
             <div class="grid-container">
                 __AI_CARD__
-                <div class="chart-card" style="__COL_SPAN__">
+                <div class="chart-card" style="grid-column: span 1;">
                     __COMP_HTML__
                 </div>
+                <div class="chart-card" style="grid-column: span 1;">
+                    __DELS_HTML__
+                </div>
+                __HM_CARD__
                 <div class="chart-card" style="grid-column: 1 / -1;">
                     __TIME_HTML__
                 </div>
@@ -225,10 +234,10 @@ class EmailStatsExporterThread(QThread):
         html_template = html_template.replace("__TOTAL_EMAILS__", str(total_emails))
         html_template = html_template.replace("__TOTAL_DELEGATES__", str(total_delegates))
         html_template = html_template.replace("__AI_CARD__", str(ai_card))
-        html_template = html_template.replace("__COL_SPAN__", str(col_span))
         html_template = html_template.replace("__COMP_HTML__", str(comp_html))
+        html_template = html_template.replace("__DELS_HTML__", str(dels_html))
+        html_template = html_template.replace("__HM_CARD__", str(hm_card))
         html_template = html_template.replace("__TIME_HTML__", str(time_html))
         html_template = html_template.replace("__TABLE_HTML__", str(table_html))
 
         return html_template
-
