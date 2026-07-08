@@ -9,13 +9,68 @@ from PyQt5.QtCore import Qt, pyqtSignal, QDate
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QLineEdit, QTableView, QHeaderView, QSplitter, QTextBrowser,
                              QMessageBox, QInputDialog, QDialog, QDateEdit, QMenu, QApplication,
-                             QAbstractItemView, QSizePolicy)
+                             QAbstractItemView, QSizePolicy, QFormLayout, QTextEdit)
 
 from modules.emails.core.email_db import EmailDatabase
 from modules.emails.core.email_threads import EmailSyncThread, EmailMoveThread, EmailTargetRescanThread
 from modules.emails.core.stats.statistics_threads import EmailStatsExporterThread
 from modules.emails.ui.email_models import EmailTableModel, EmailProxyModel, TDocSummaryModel, TDocProxyModel
 from modules.meetings.ui.tdocs_components import CheckableComboBox
+
+class EditEmailDialog(QDialog):
+    """A quick dialog to fix parser inaccuracies for a specific email."""
+    def __init__(self, current_data: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("✏️ Edit Email Metadata")
+        self.resize(500, 400)
+        self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
+
+        layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+
+        self.txt_tdoc = QLineEdit(current_data.get("tdoc_id", ""))
+        self.txt_ai = QLineEdit(current_data.get("agenda_item", ""))
+        self.txt_company = QLineEdit(current_data.get("company", ""))
+        self.txt_sender_name = QLineEdit(current_data.get("sender_name", ""))
+        self.txt_sender_email = QLineEdit(current_data.get("sender_email", ""))
+        self.txt_subject = QLineEdit(current_data.get("subject", ""))
+
+        self.txt_short_text = QTextEdit(current_data.get("short_text", ""))
+        self.txt_short_text.setMaximumHeight(100)
+
+        form_layout.addRow("TDoc ID:", self.txt_tdoc)
+        form_layout.addRow("Agenda Item:", self.txt_ai)
+        form_layout.addRow("Company:", self.txt_company)
+        form_layout.addRow("Sender Name:", self.txt_sender_name)
+        form_layout.addRow("Sender Email:", self.txt_sender_email)
+        form_layout.addRow("Subject:", self.txt_subject)
+        form_layout.addRow("Short Text:", self.txt_short_text)
+
+        layout.addLayout(form_layout)
+
+        btn_layout = QHBoxLayout()
+        btn_save = QPushButton("💾 Save Changes")
+        btn_save.setStyleSheet("font-weight: bold; background-color: #0078D7; color: white; padding: 6px 15px; border-radius: 4px;")
+        btn_cancel = QPushButton("Cancel")
+
+        btn_save.clicked.connect(self.accept)
+        btn_cancel.clicked.connect(self.reject)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn_cancel)
+        btn_layout.addWidget(btn_save)
+        layout.addLayout(btn_layout)
+
+    def get_data(self):
+        return {
+            "tdoc_id": self.txt_tdoc.text().strip(),
+            "agenda_item": self.txt_ai.text().strip(),
+            "company": self.txt_company.text().strip(),
+            "sender_name": self.txt_sender_name.text().strip(),
+            "sender_email": self.txt_sender_email.text().strip(),
+            "subject": self.txt_subject.text().strip(),
+            "short_text": self.txt_short_text.toPlainText().strip()
+        }
 
 class EmailManagerWindow(QWidget):
     tdoc_open_requested = pyqtSignal(str)
@@ -557,14 +612,33 @@ class EmailManagerWindow(QWidget):
     def _show_context_menu(self, pos):
         index = self.email_view.indexAt(pos)
         if not index.isValid(): return
+
+        # Grab the data for the right-clicked row
+        source_idx = self.email_proxy.mapToSource(index)
+        row_data = self.email_model.get_row_data(source_idx.row())
         col_name = self.email_model._headers[index.column()]
-        if col_name == "Sender":
-            row_data = self.email_model.get_row_data(self.email_proxy.mapToSource(index).row())
+
+        menu = QMenu(self)
+
+        # ---> NEW: Always offer the Edit option
+        edit_action = menu.addAction("✏️ Edit Email Details")
+
+        # Only offer the Copy Address option if they right-clicked the Sender column specifically
+        copy_action = menu.addAction("📋 Copy Email Address") if col_name == "Sender" else None
+
+        action = menu.exec_(self.email_view.viewport().mapToGlobal(pos))
+
+        if action == edit_action:
+            dialog = EditEmailDialog(row_data, self)
+            if dialog.exec_() == QDialog.Accepted:
+                updated_data = dialog.get_data()
+                self.db.update_email(row_data['id'], updated_data)
+                self.lbl_status.setText(f"✅ Updated email details.")
+                self._refresh_table()
+
+        elif copy_action and action == copy_action:
             email = row_data.get("sender_email", "")
-            menu = QMenu(self)
-            copy_action = menu.addAction("📋 Copy Email Address")
-            action = menu.exec_(self.email_view.viewport().mapToGlobal(pos))
-            if action == copy_action and email:
+            if email:
                 QApplication.clipboard().setText(email)
                 self.lbl_status.setText(f"Copied {email} to clipboard.")
 
