@@ -441,21 +441,36 @@ class EmailStatsExporterThread(QThread):
         """
 
     def _generate_ai_volume(self, df, prefix):
-        # ---> THE FIX: Explicitly exclude 'Unknown AI' and blanks from the Top 20 ranking
+        # Explicitly exclude 'Unknown AI' and blanks
         valid_df = df[~df['agenda_item'].isin(['Unknown AI', 'Unknown', '', 'nan', 'None'])]
         counts = valid_df['agenda_item'].value_counts().reset_index().head(20)
         counts.columns = ['Agenda Item', 'Emails']
 
         fig = px.bar(counts, x='Agenda Item', y='Emails', title="Top 20 Agenda Items by Email Volume",
                      color_discrete_sequence=[self.THEME_COLOR])
+
+        # ---> THE MAGIC FIX: Force Plotly to treat AIs as text, preventing the "Date" conversion bug!
+        fig.update_xaxes(type='category', categoryorder='total descending')
+
         return fig.to_html(full_html=False, include_plotlyjs=False)
 
     def _generate_company_volume(self, df, prefix):
-        counts = df['company'].value_counts().reset_index().head(20).sort_values('count', ascending=True)
+        # Exclude blanks or 'Unknown' companies
+        valid_df = df[~df['company'].isin(['Unknown', '', 'nan', 'None'])]
+        counts = valid_df['company'].value_counts().reset_index().head(20)
         counts.columns = ['Company', 'Emails']
+
         fig = px.bar(counts, x='Emails', y='Company', orientation='h', title="Top 20 Active Companies",
                      color_discrete_sequence=[self.THEME_COLOR])
-        fig.update_yaxes(tickmode='linear', dtick=1)
+
+        # ---> BEST PRACTICE: Force categorical type on the Y-axis and let Plotly handle the sorting!
+        fig.update_yaxes(
+            type='category',
+            categoryorder='total ascending',  # 'ascending' puts the biggest bar at the top for horizontal charts
+            tickmode='linear',
+            dtick=1
+        )
+
         return fig.to_html(full_html=False, include_plotlyjs=False)
 
     def _generate_timeline(self, df, prefix):
