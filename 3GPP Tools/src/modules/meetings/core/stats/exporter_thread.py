@@ -6,10 +6,11 @@ from PyQt5.QtCore import QThread, pyqtSignal
 import pandas as pd
 import plotly.express as px
 
+from core.config.plot_styles import PALETTE, THEME_COLOR, CLUSTER_PALETTE
 from core.utils.company_sanitizer import CompanySanitizer
-from .plot_agenda import generate_ai_volume_plot
+from .plot_agenda import generate_ai_volume_plot, generate_ai_status_plot
 from .plot_status import generate_outcomes_plot
-from .plot_contributors import generate_top_contributors_plot
+from .plot_contributors import generate_top_contributors_plot, generate_company_ai_heatmap
 from .plot_alliances import compute_global_communities, generate_alliance_plots
 
 
@@ -27,11 +28,11 @@ class StatisticsExporterThread(QThread):
         self.cfg_resolution = self.config.get("resolution", 1.5)
         self.cfg_threshold = self.config.get("threshold", 1)
         self.cfg_top_count = self.config.get("top_count", 30)
-        self.cfg_export_html = self.config.get("export_html_plots", False)  # ---> Retrieve the new boolean toggle
+        self.cfg_export_html = self.config.get("export_html_plots", False)
 
-        self.THEME_COLOR = '#005A9E'
-        self.PALETTE = px.colors.qualitative.Plotly
-        self.CLUSTER_PALETTE = px.colors.qualitative.Alphabet
+        self.THEME_COLOR = THEME_COLOR
+        self.PALETTE = PALETTE
+        self.CLUSTER_PALETTE = CLUSTER_PALETTE
 
     def run(self):
         try:
@@ -51,14 +52,18 @@ class StatisticsExporterThread(QThread):
 
             global_factions = compute_global_communities(df, self.cfg_resolution)
 
-            # Pass the toggle into the global layout blocks
+            # --- GENERATE GLOBAL PLOTS ---
             g_html_ai = generate_ai_volume_plot(df, plots_dir, self.THEME_COLOR, prefix_id="Global",
                                                 save_html=self.cfg_export_html)
+            g_html_ai_status = generate_ai_status_plot(df, plots_dir, self.PALETTE, prefix_id="Global",
+                                                       save_html=self.cfg_export_html)
             g_html_status = generate_outcomes_plot(df, plots_dir, self.PALETTE, prefix_id="Global",
                                                    save_html=self.cfg_export_html)
             g_html_comp, total_companies = generate_top_contributors_plot(df, plots_dir, self.THEME_COLOR,
                                                                           self.cfg_top_count, prefix_id="Global",
                                                                           save_html=self.cfg_export_html)
+            g_html_heatmap = generate_company_ai_heatmap(df, plots_dir, prefix_id="Global",
+                                                         save_html=self.cfg_export_html)
             g_html_net, g_html_cluster, g_html_cohesion, g_html_list = generate_alliance_plots(df, plots_dir,
                                                                                                self.cfg_threshold,
                                                                                                self.CLUSTER_PALETTE,
@@ -78,9 +83,13 @@ class StatisticsExporterThread(QThread):
             views_html_buffer = []
             dropdown_options = ['<option value="global">🌐 Overall Meeting View</option>']
 
+            # Inject the Global plots into the template
             views_html_buffer.append(
-                self._compile_view_block("global", len(df), total_companies, g_html_ai, g_html_status, g_html_comp,
-                                         g_html_net, g_html_cluster, g_html_cohesion, g_html_list, is_visible=True))
+                self._compile_view_block("global", len(df), total_companies,
+                                         g_html_ai, g_html_status, g_html_comp,
+                                         g_html_net, g_html_cluster, g_html_cohesion, g_html_list,
+                                         ai_status_html=g_html_ai_status, heatmap_html=g_html_heatmap,
+                                         is_visible=True))
 
             for idx, ai_name in enumerate(unique_ais):
                 ai_df = df[df['Agenda Item'].str.strip() == ai_name].copy()
@@ -93,7 +102,6 @@ class StatisticsExporterThread(QThread):
                 dropdown_options.append(
                     f'<option value="{safe_id}">📌 Agenda Item {ai_name} ({len(ai_df)} TDocs)</option>')
 
-                # Pass the toggle into the iterative blocks
                 ai_html_status = generate_outcomes_plot(ai_df, plots_dir, self.PALETTE, safe_ai_prefix,
                                                         save_html=self.cfg_export_html)
                 ai_html_comp, ai_companies = generate_top_contributors_plot(ai_df, plots_dir, self.THEME_COLOR,
@@ -106,11 +114,13 @@ class StatisticsExporterThread(QThread):
                                                                                                        safe_ai_prefix,
                                                                                                        save_html=self.cfg_export_html)
 
+                # Keep AI Status and Heatmap explicitly None for individual Agenda Items
                 views_html_buffer.append(self._compile_view_block(
                     safe_id, len(ai_df), ai_companies,
                     ai_volume_html=None, status_html=ai_html_status, comp_html=ai_html_comp,
                     net_html=ai_html_net, cluster_html=ai_html_cluster, cohesion_html=ai_html_cohesion,
                     list_html=ai_html_list,
+                    ai_status_html=None, heatmap_html=None,
                     is_visible=False
                 ))
 
@@ -191,8 +201,9 @@ class StatisticsExporterThread(QThread):
             self.finished.emit(False, str(e))
 
     def _compile_view_block(self, scope_id, total_tdocs, total_companies, ai_volume_html, status_html, comp_html,
-                            net_html, cluster_html, cohesion_html, list_html, is_visible=False):
-        # (This method remains exactly the same as your current functioning version)
+                            net_html, cluster_html, cohesion_html, list_html,
+                            ai_status_html=None, heatmap_html=None, is_visible=False):
+
         display_style = "block" if is_visible else "none"
 
         volume_card = ""
@@ -206,6 +217,30 @@ class StatisticsExporterThread(QThread):
                 __AI_VOLUME_HTML__
             </div>
             """.replace("__AI_VOLUME_HTML__", str(ai_volume_html))
+
+        ai_status_card = ""
+        if ai_status_html:
+            ai_status_card = """
+            <div class="chart-card" style="grid-column: 1 / -1; height: 500px;">
+                <div class="info-title-container">
+                    <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Agenda Items by Status:</b> Breakdown of outcomes across the top topics.</span></span>
+                </div>
+                <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                __AI_STATUS_HTML__
+            </div>
+            """.replace("__AI_STATUS_HTML__", str(ai_status_html))
+
+        heatmap_card = ""
+        if heatmap_html:
+            heatmap_card = """
+            <div class="chart-card" style="grid-column: 1 / -1; height: 650px;">
+                <div class="info-title-container">
+                    <span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Company Focus Matrix:</b> Heatmap of TDoc submissions by the top companies across top topics.</span></span>
+                </div>
+                <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                __HEATMAP_HTML__
+            </div>
+            """.replace("__HEATMAP_HTML__", str(heatmap_html))
 
         grid_col_span = "" if scope_id != "global" else "grid-column: span 1;"
 
@@ -225,6 +260,9 @@ class StatisticsExporterThread(QThread):
                     <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
                     __STATUS_HTML__
                 </div>
+
+                __AI_STATUS_CARD__
+                __HEATMAP_CARD__
 
                 <div class="chart-card" style="grid-column: 1 / -1; height: 550px;">
                     <div class="info-title-container">
@@ -272,6 +310,11 @@ class StatisticsExporterThread(QThread):
         html_template = html_template.replace("__VOLUME_CARD__", str(volume_card))
         html_template = html_template.replace("__GRID_COL_SPAN__", str(grid_col_span))
         html_template = html_template.replace("__STATUS_HTML__", str(status_html))
+
+        # Inject the new blocks
+        html_template = html_template.replace("__AI_STATUS_CARD__", str(ai_status_card))
+        html_template = html_template.replace("__HEATMAP_CARD__", str(heatmap_card))
+
         html_template = html_template.replace("__COMP_HTML__", str(comp_html))
         html_template = html_template.replace("__NET_HTML__", str(net_html))
         html_template = html_template.replace("__CLUSTER_HTML__", str(cluster_html))
