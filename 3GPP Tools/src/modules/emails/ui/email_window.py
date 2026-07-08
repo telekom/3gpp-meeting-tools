@@ -5,7 +5,7 @@ import os
 import re
 import webbrowser
 from pathlib import Path
-from PyQt5.QtCore import Qt, pyqtSignal, QDate
+from PyQt5.QtCore import Qt, pyqtSignal, QDate, QTimer
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QLineEdit, QTableView, QHeaderView, QSplitter, QTextBrowser,
                              QMessageBox, QInputDialog, QDialog, QDateEdit, QMenu, QApplication,
@@ -268,21 +268,21 @@ class EmailManagerWindow(QWidget):
 
         self.cb_ai = CheckableComboBox("Filter by AI")
         self.cb_ai.setMinimumWidth(150)
-        self.cb_ai.selectionChanged.connect(self._apply_filters)
+        self.cb_ai.selectionChanged.connect(self._on_ai_changed)
 
         self.btn_filter_star = QPushButton("⭐ Starred")
         self.btn_filter_star.setCheckable(True)
         # ---> POLISH: Compressed padding to make filter buttons tighter
         self.btn_filter_star.setStyleSheet(
             "QPushButton { padding: 3px 6px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #FFF4CE; font-weight: bold; border-color: #E2C08D; }")
-        self.btn_filter_star.clicked.connect(self._apply_filters)
+        self.btn_filter_star.toggled.connect(self._on_star_toggled)
 
         self.btn_filter_follow = QPushButton("👀 Followed AIs")
         self.btn_filter_follow.setCheckable(True)
         # ---> POLISH: Compressed padding to make filter buttons tighter
         self.btn_filter_follow.setStyleSheet(
             "QPushButton { padding: 3px 6px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }")
-        self.btn_filter_follow.clicked.connect(self._apply_filters)
+        self.btn_filter_follow.toggled.connect(self._on_follow_toggled)
 
         self.lbl_count = QLabel("Showing 0 Threads | 0 Emails")
         self.lbl_count.setStyleSheet("font-size: 13px; color: #555; font-weight: bold; padding-left: 10px;")
@@ -319,7 +319,7 @@ class EmailManagerWindow(QWidget):
 
         self.tdoc_search_input = QLineEdit()
         self.tdoc_search_input.setPlaceholderText("🔍 Search threads...")
-        self.tdoc_search_input.textChanged.connect(self._apply_filters)
+        self.tdoc_search_input.textChanged.connect(self._on_tdoc_search_changed)
 
         left_header_layout.addWidget(self.lbl_left_title)
         left_header_layout.addStretch()
@@ -347,15 +347,15 @@ class EmailManagerWindow(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("🔍 Search this thread...")
         self.search_input.setMaximumWidth(200)
-        self.search_input.textChanged.connect(self._apply_filters)
+        self.search_input.textChanged.connect(self._on_email_search_changed)
 
         self.cb_company = CheckableComboBox("Company")
         self.cb_company.setMinimumWidth(110)
-        self.cb_company.selectionChanged.connect(self._apply_filters)
+        self.cb_company.selectionChanged.connect(self._on_company_changed)
 
         self.cb_sender = CheckableComboBox("Sender")
         self.cb_sender.setMinimumWidth(110)
-        self.cb_sender.selectionChanged.connect(self._apply_filters)
+        self.cb_sender.selectionChanged.connect(self._on_sender_changed)
 
         right_header_layout.addWidget(self.lbl_right_title)
         right_header_layout.addStretch()
@@ -516,7 +516,68 @@ class EmailManagerWindow(QWidget):
                     self.email_view.selectRow(r)
                     break
 
+    def _on_tdoc_search_changed(self, text):
+        self.tdoc_proxy.set_filters(
+            self.btn_filter_star.isChecked(),
+            self.btn_filter_follow.isChecked(),
+            self.cb_ai.getCheckedItems(),
+            text
+        )
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _on_ai_changed(self, ais):
+        self.tdoc_proxy.set_filters(
+            self.btn_filter_star.isChecked(),
+            self.btn_filter_follow.isChecked(),
+            ais,  # Use the directly emitted list to prevent timing bugs!
+            self.tdoc_search_input.text()
+        )
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _on_star_toggled(self, checked):
+        self.tdoc_proxy.set_filters(
+            checked,
+            self.btn_filter_follow.isChecked(),
+            self.cb_ai.getCheckedItems(),
+            self.tdoc_search_input.text()
+        )
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _on_follow_toggled(self, checked):
+        self.tdoc_proxy.set_filters(
+            self.btn_filter_star.isChecked(),
+            checked,
+            self.cb_ai.getCheckedItems(),
+            self.tdoc_search_input.text()
+        )
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _on_email_search_changed(self, text):
+        self.email_proxy.set_filters(
+            text,
+            self.cb_company.getCheckedItems(),
+            self.cb_sender.getCheckedItems()
+        )
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _on_company_changed(self, companies):
+        self.email_proxy.set_filters(
+            self.search_input.text(),
+            companies,  # Use the directly emitted list
+            self.cb_sender.getCheckedItems()
+        )
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _on_sender_changed(self, senders):
+        self.email_proxy.set_filters(
+            self.search_input.text(),
+            self.cb_company.getCheckedItems(),
+            senders  # Use the directly emitted list
+        )
+        QTimer.singleShot(0, self._update_count_label)
+
     def _apply_filters(self):
+        # Used programmatically ONLY during full table refreshes/syncs
         self.tdoc_proxy.set_filters(
             self.btn_filter_star.isChecked(),
             self.btn_filter_follow.isChecked(),
