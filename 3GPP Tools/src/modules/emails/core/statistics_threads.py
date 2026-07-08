@@ -28,7 +28,7 @@ class EmailStatsExporterThread(QThread):
 
             df['date_received'] = pd.to_datetime(df['date_received'], utc=True, errors='coerce').dt.tz_localize(None)
 
-            # ---> THE FIX: Force Title and Upper casing to completely eliminate string fragmentation
+            # Force Title and Upper casing to completely eliminate string fragmentation
             df['agenda_item'] = df['agenda_item'].astype(str).str.strip().str.upper()
             df['company'] = df['company'].astype(str).str.strip().str.title()
 
@@ -44,7 +44,7 @@ class EmailStatsExporterThread(QThread):
 
             raw_ais = df['agenda_item'].dropna().unique()
             unique_ais = sorted(
-                [str(ai).strip() for ai in raw_ais if str(ai).strip() and str(ai).strip() != "Unknown AI"],
+                [str(ai).strip() for ai in raw_ais if str(ai).strip() and str(ai).strip() != "UNKNOWN AI"],
                 key=natural_sort_key)
 
             views_html_buffer = []
@@ -74,53 +74,60 @@ class EmailStatsExporterThread(QThread):
                     None, ai_html_comp, ai_html_time, ai_html_table, is_visible=False
                 ))
 
-            # 3. Assemble Final Dashboard
-            dashboard_template = f"""
+            # 3. Assemble Final Dashboard (Strict String Replacement - NO F-STRINGS)
+            dashboard_template = """
             <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="utf-8">
-                <title>📧 Email Analytics - {self.meeting_name}</title>
+                <title>📧 Email Analytics - __MEETING_NAME__</title>
                 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
                 <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
                 <script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
                 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
                 <style>
-                    body {{ font-family: 'Segoe UI', Arial, sans-serif; background-color: #FAFAFA; margin: 0; padding: 20px; }}
-                    h1 {{ color: #333; text-align: center; margin-bottom: 10px; }}
-                    .selector-container {{ display: flex; justify-content: center; margin-bottom: 30px; background: #FFF; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid #E0E0E0; }}
-                    .selector-container label {{ font-weight: bold; margin-right: 12px; align-self: center; color: #444; }}
-                    select {{ padding: 8px 16px; border-radius: 6px; border: 1px solid #CCCCCC; font-size: 14px; font-weight: bold; color: #005A9E; outline: none; background: #F4F8FC; cursor: pointer; }}
-                    .kpi-container {{ display: flex; justify-content: center; gap: 20px; margin-bottom: 40px; }}
-                    .kpi-card {{ background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; text-align: center; width: 220px; border-top: 4px solid #0078D7; }}
-                    .kpi-card h3 {{ margin: 0; font-size: 32px; color: #0078D7; }}
-                    .kpi-card p {{ margin: 5px 0 0; color: #666; font-size: 14px; text-transform: uppercase; font-weight: bold; }}
-                    .grid-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }}
-                    .chart-card {{ background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; display: flex; flex-direction: column; }}
-                    table.dataTable thead th {{ background-color: #F0F4F8; color: #333; }}
+                    body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #FAFAFA; margin: 0; padding: 20px; }
+                    h1 { color: #333; text-align: center; margin-bottom: 10px; }
+                    .selector-container { display: flex; justify-content: center; margin-bottom: 30px; background: #FFF; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid #E0E0E0; }
+                    .selector-container label { font-weight: bold; margin-right: 12px; align-self: center; color: #444; }
+                    select { padding: 8px 16px; border-radius: 6px; border: 1px solid #CCCCCC; font-size: 14px; font-weight: bold; color: #005A9E; outline: none; background: #F4F8FC; cursor: pointer; }
+                    .kpi-container { display: flex; justify-content: center; gap: 20px; margin-bottom: 40px; }
+                    .kpi-card { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; text-align: center; width: 220px; border-top: 4px solid #0078D7; }
+                    .kpi-card h3 { margin: 0; font-size: 32px; color: #0078D7; }
+                    .kpi-card p { margin: 5px 0 0; color: #666; font-size: 14px; text-transform: uppercase; font-weight: bold; }
+                    .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+                    .chart-card { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; display: flex; flex-direction: column; }
+                    table.dataTable thead th { background-color: #F0F4F8; color: #333; }
                 </style>
                 <script>
-                    function switchAI(selectedId) {{
+                    function switchAI(selectedId) {
                         const sections = document.querySelectorAll('.dashboard-view-panel');
-                        sections.forEach(sec => {{ sec.style.display = 'none'; }});
+                        sections.forEach(sec => { sec.style.display = 'none'; });
                         const activeSec = document.getElementById(selectedId);
-                        if(activeSec) {{ activeSec.style.display = 'block'; window.dispatchEvent(new Event('resize')); }}
-                    }}
-                    $(document).ready(function() {{
-                        $('.delegate-table').DataTable({{ "order": [[ 3, "desc" ]], "pageLength": 10 }});
-                    }});
+                        if(activeSec) { activeSec.style.display = 'block'; window.dispatchEvent(new Event('resize')); }
+                    }
+                    $(document).ready(function() {
+                        $('.delegate-table').DataTable({ "order": [[ 3, "desc" ]], "pageLength": 10 });
+                    });
                 </script>
             </head>
             <body>
-                <h1>📧 {self.meeting_name} - Mailing List Analytics</h1>
+                <h1>📧 __MEETING_NAME__ - Mailing List Analytics</h1>
                 <div class="selector-container">
                     <label>🎯 Scope / Agenda Item:</label>
-                    <select onchange="switchAI(this.value)">{" ".join(dropdown_options)}</select>
+                    <select onchange="switchAI(this.value)">
+                        __DROPDOWN_OPTIONS__
+                    </select>
                 </div>
-                {" ".join(views_html_buffer)}
+                __VIEWS_HTML__
             </body>
             </html>
             """
+
+            # Safely inject the blocks without triggering any Python JSON/Bracket parsing logic
+            dashboard_template = dashboard_template.replace("__MEETING_NAME__", str(self.meeting_name))
+            dashboard_template = dashboard_template.replace("__DROPDOWN_OPTIONS__", " ".join(dropdown_options))
+            dashboard_template = dashboard_template.replace("__VIEWS_HTML__", " ".join(views_html_buffer))
 
             out_file = self.export_dir / "Email_Statistics_Report.html"
             with open(out_file, "w", encoding="utf-8") as f:
@@ -132,24 +139,52 @@ class EmailStatsExporterThread(QThread):
 
     def _compile_view_block(self, scope_id, total_emails, total_delegates, ai_html, comp_html, time_html, table_html,
                             is_visible=False):
-        display = "block" if is_visible else "none"
-        ai_card = f'<div class="chart-card">{ai_html}</div>' if ai_html else ""
-        col_span = "" if scope_id != "global" else "grid-column: span 1;"
+        display_style = "block" if is_visible else "none"
 
-        return f"""
-        <div id="{scope_id}" class="dashboard-view-panel" style="display: {display};">
+        # Build the AI Card dynamically so it doesn't break the CSS grid if empty
+        ai_card = ""
+        if ai_html:
+            ai_card = """
+            <div class="chart-card">
+                __AI_HTML__
+            </div>
+            """.replace("__AI_HTML__", str(ai_html))
+
+        col_span = "" if ai_html else "grid-column: 1 / -1;"
+
+        # Use strict string replacement to prevent HTML/Javascript f-string corruption
+        html_template = """
+        <div id="__SCOPE_ID__" class="dashboard-view-panel" style="display: __DISPLAY_STYLE__;">
             <div class="kpi-container">
-                <div class="kpi-card"><h3>{total_emails}</h3><p>Total Emails</p></div>
-                <div class="kpi-card"><h3>{total_delegates}</h3><p>Active Delegates</p></div>
+                <div class="kpi-card"><h3>__TOTAL_EMAILS__</h3><p>Total Emails</p></div>
+                <div class="kpi-card"><h3>__TOTAL_DELEGATES__</h3><p>Active Delegates</p></div>
             </div>
             <div class="grid-container">
-                {ai_card}
-                <div class="chart-card" style="{col_span}">{comp_html}</div>
-                <div class="chart-card" style="grid-column: 1 / -1;">{time_html}</div>
-                <div class="chart-card" style="grid-column: 1 / -1; overflow-x: auto;">{table_html}</div>
+                __AI_CARD__
+                <div class="chart-card" style="__COL_SPAN__">
+                    __COMP_HTML__
+                </div>
+                <div class="chart-card" style="grid-column: 1 / -1;">
+                    __TIME_HTML__
+                </div>
+                <div class="chart-card" style="grid-column: 1 / -1; overflow-x: auto;">
+                    __TABLE_HTML__
+                </div>
             </div>
         </div>
         """
+
+        html_template = html_template.replace("__SCOPE_ID__", str(scope_id))
+        html_template = html_template.replace("__DISPLAY_STYLE__", str(display_style))
+        html_template = html_template.replace("__TOTAL_EMAILS__", str(total_emails))
+        html_template = html_template.replace("__TOTAL_DELEGATES__", str(total_delegates))
+        html_template = html_template.replace("__AI_CARD__", str(ai_card))
+        html_template = html_template.replace("__COL_SPAN__", str(col_span))
+        html_template = html_template.replace("__COMP_HTML__", str(comp_html))
+        html_template = html_template.replace("__TIME_HTML__", str(time_html))
+        html_template = html_template.replace("__TABLE_HTML__", str(table_html))
+
+        return html_template
 
     def _generate_ai_volume(self, df, prefix):
         valid_df = df[~df['agenda_item'].isin(['UNKNOWN AI', 'UNKNOWN', '', 'NAN', 'NONE'])]
@@ -164,7 +199,6 @@ class EmailStatsExporterThread(QThread):
 
         fig.update_xaxes(type='category', categoryorder='total descending')
 
-        # ---> THE FIX: Force a unique div_id so Plotly JS doesn't overwrite earlier charts!
         safe_id = f"ai_vol_{prefix}".replace(" ", "_").replace(".", "_")
         return fig.to_html(full_html=False, include_plotlyjs=False, div_id=safe_id)
 
@@ -181,7 +215,6 @@ class EmailStatsExporterThread(QThread):
 
         fig.update_yaxes(type='category', categoryorder='total ascending', tickmode='linear', dtick=1)
 
-        # ---> THE FIX: Unique ID for Company volume
         safe_id = f"comp_vol_{prefix}".replace(" ", "_").replace(".", "_")
         return fig.to_html(full_html=False, include_plotlyjs=False, div_id=safe_id)
 
@@ -209,7 +242,6 @@ class EmailStatsExporterThread(QThread):
 
         fig.update_yaxes(title="Email Volume")
 
-        # ---> THE FIX: Unique ID for the Timeline
         safe_id = f"time_vol_{prefix}".replace(" ", "_").replace(".", "_")
         return fig.to_html(full_html=False, include_plotlyjs=False, div_id=safe_id)
 
@@ -224,12 +256,16 @@ class EmailStatsExporterThread(QThread):
         for _, row in delegates.iterrows():
             rows += f"<tr><td>{row['Name']}</td><td>{row['sender_email']}</td><td>{row['Company']}</td><td>{row['Emails']}</td></tr>"
 
-        # ---> BEST PRACTICE: Give the table a unique HTML ID as well
         safe_id = f"table_{prefix}".replace(" ", "_").replace(".", "_")
-        return f"""
+
+        table_template = """
         <h3 style="color:#333; text-align:center;">Top Active Delegates</h3>
-        <table id="{safe_id}" class="display delegate-table" style="width:100%">
+        <table id="__SAFE_ID__" class="display delegate-table" style="width:100%">
             <thead><tr><th>Name</th><th>Email Address</th><th>Company</th><th>Sent Emails</th></tr></thead>
-            <tbody>{rows}</tbody>
+            <tbody>__ROWS__</tbody>
         </table>
         """
+        table_template = table_template.replace("__SAFE_ID__", str(safe_id))
+        table_template = table_template.replace("__ROWS__", str(rows))
+
+        return table_template
