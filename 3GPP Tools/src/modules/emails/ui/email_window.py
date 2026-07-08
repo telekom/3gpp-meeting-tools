@@ -584,7 +584,7 @@ class EmailManagerWindow(QWidget):
         self._set_buttons_enabled(False)
         self.btn_stats.setText("⏳ Generating...")
 
-        from modules.emails.core.email_threads import EmailStatsExporterThread
+        from modules.emails.core.statistics_threads import EmailStatsExporterThread
         meeting_name = self.meeting_dir.name if self.meeting_dir else "Meeting"
 
         self.stats_thread = EmailStatsExporterThread(self.meeting_dir, visible_emails, meeting_name)
