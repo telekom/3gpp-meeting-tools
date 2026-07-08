@@ -13,9 +13,9 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
 
 from modules.emails.core.email_db import EmailDatabase
 from modules.emails.core.email_threads import EmailSyncThread, EmailMoveThread, EmailTargetRescanThread
+from modules.emails.core.stats.statistics_threads import EmailStatsExporterThread
 from modules.emails.ui.email_models import EmailTableModel, EmailProxyModel, TDocSummaryModel, TDocProxyModel
 from modules.meetings.ui.tdocs_components import CheckableComboBox
-
 
 class EmailManagerWindow(QWidget):
     tdoc_open_requested = pyqtSignal(str)
@@ -31,6 +31,7 @@ class EmailManagerWindow(QWidget):
         config_data = self._load_config()
         self.source_folder = config_data.get("source_folder", "")
         self.target_folder = config_data.get("target_folder", "")
+        self.stats_config = config_data.get("stats_config", {})
 
         saved_start = config_data.get("start_date", "")
         saved_end = config_data.get("end_date", "")
@@ -65,25 +66,56 @@ class EmailManagerWindow(QWidget):
                     return json.load(f)
             except:
                 pass
-        return {"source_folder": "", "target_folder": ""}
+        return {
+            "source_folder": "",
+            "target_folder": "",
+            "stats_config": {
+                "email_top_companies": 25,
+                "email_top_delegates": 25,
+                "email_heatmap_top_comps": 25,
+                "email_heatmap_top_ais": 25
+            }
+        }
 
-    def _save_config(self, source_folder: str, target_folder: str, sd: str, ed: str):
+    def _save_config(self, source_folder: str, target_folder: str, sd: str, ed: str, stats_cfg: dict = None):
         self.source_folder = source_folder
         self.target_folder = target_folder
         self.start_date = sd
         self.end_date = ed
+
+        # Keep stats config in memory
+        if stats_cfg is not None:
+            self.stats_config = stats_cfg
+        elif not hasattr(self, 'stats_config'):
+            self.stats_config = self._load_config().get("stats_config", {})
+
         with open(self.config_path, 'w') as f:
-            json.dump(
-                {"source_folder": source_folder, "target_folder": target_folder, "start_date": sd, "end_date": ed}, f)
+            json.dump({
+                "source_folder": source_folder,
+                "target_folder": target_folder,
+                "start_date": sd,
+                "end_date": ed,
+                "stats_config": self.stats_config
+            }, f, indent=4)
 
     def _configure_folders(self):
         from modules.emails.ui.config_dialog import EmailConfigDialog
-        dialog = EmailConfigDialog(self.source_folder, self.target_folder, self)
+
+        current_stats = getattr(self, 'stats_config', self._load_config().get("stats_config", {}))
+
+        dialog = EmailConfigDialog(self.source_folder, self.target_folder, current_stats, self)
         if dialog.exec_() == QDialog.Accepted:
-            src, tgt = dialog.get_paths()
+            config_data = dialog.get_config_data()
+
+            src = config_data["source_folder"]
+            tgt = config_data["target_folder"]
+            new_stats = config_data["stats_config"]
+
             self.source_folder = src
             self.target_folder = tgt
-            self._save_config(src, tgt, self.start_date, self.end_date)
+            self.stats_config = new_stats
+
+            self._save_config(src, tgt, self.start_date, self.end_date, new_stats)
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -672,11 +704,17 @@ class EmailManagerWindow(QWidget):
         if not all_emails:
             QMessageBox.warning(self, "No Data", "There are no emails loaded to analyze.")
             return
+
         self._set_buttons_enabled(False)
         self.btn_stats.setText("⏳ Generating...")
-        from modules.emails.core.statistics_threads import EmailStatsExporterThread
+
+        # Load the stats parameters saved from the configuration dialog
+        current_stats = getattr(self, 'stats_config', self._load_config().get("stats_config", {}))
+
+        # Import the new Modularized Exporter Thread
         meeting_name = self.meeting_dir.name if self.meeting_dir else "Meeting"
-        self.stats_thread = EmailStatsExporterThread(self.meeting_dir, all_emails, meeting_name)
+
+        self.stats_thread = EmailStatsExporterThread(self.meeting_dir, all_emails, meeting_name, current_stats)
         self.stats_thread.finished.connect(self._on_stats_finished)
         self.stats_thread.start()
 
