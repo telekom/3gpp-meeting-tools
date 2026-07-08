@@ -19,8 +19,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ## <a id="features"></a>✨ Features
 
 ### 📡 3GPP Meeting & Specifications Database
-* **Asynchronous Three-Phase Syncing Engine:** 
-  * **Phase 1 (FTP Directory Mapping):** Scrapes the 3GPP FTP archives in parallel to instantly populate your database with all available meeting numbers, gracefully handling hidden RAN Ad-Hoc (`TSGR_AHs`) subdirectories.
+* **Asynchronous Three-Phase Syncing Engine:** * **Phase 1 (FTP Directory Mapping):** Scrapes the 3GPP FTP archives in parallel to instantly populate your database with all available meeting numbers, gracefully handling hidden RAN Ad-Hoc (`TSGR_AHs`) subdirectories.
   * **Phase 2 (Deep Document Scrape):** Crawls the `Docs/` folder of every meeting. Uses smart Regex stripping to ignore file extensions and revisions, mathematically sorting the files to determine the first and last TDocs of the meeting.
   * **Phase 3 (DynaReport Upserting):** Injects metadata (Location, Start/End Dates, Ad-Hoc/Electronic status) by fetching the legacy 3GPP Portal HTML tables.
 * **Targeted Quick Fetch:** Instantly sync individual specifications (e.g., `23.801-01`) or entire specification series (e.g., `23`) directly from the FTP server without needing to run a lengthy full database sync.
@@ -31,6 +30,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Smart Revision Inheritance:** When a TDoc gets a new revision during a meeting, the new child document automatically inherits a "Ghost" version of the personal notes and status you assigned to the base document!
   * **Interactive Secretary Remarks:** TDocs mentioned in the Secretary Remarks are automatically identified and converted into hyperlinks. Left-click a link to instantly jump to that row (intelligently wiping your active filters if necessary), or right-click to instantly download it or add it to your Comparison Cart.
   * **Natural Sorting & Smart Filtering:** Bulletproof multi-select dropdowns and natural numerical sorting for complex multi-level Agenda Items (e.g., AI 20.6.2 sorts correctly before 20.6.11).
+  * **Comprehensive Analytics Dashboards:** Generate interactive offline HTML Plotly reports detailing TDoc outcomes, top contributing companies, and complex strategic alliance network graphs (co-signing clusters) using Louvain community detection algorithms.
   * **SA2 Electronic Revisions & Agenda Parsing:** Automatically parses messy Word-exported `TdocsByAgenda.htm` files to extract comments, inject on-the-fly revisions directly into your table, and provides a "No Comments Only" filter. For eMeetings, it automatically scrapes the `INBOX/Revisions/` FTP folder.
   * **Multi-Action Resources Menu:** Instantly jump to local cache directories, fetched HTML Agenda files, Main FTP folders, Docs/ folders, or Revisions/ folders directly from the UI.
   * **Quick Launch History:** Remembers your exact active working group session, allowing you to bypass the database table and instantly jump back into your last opened meeting with a single click.
@@ -39,12 +39,12 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ### 📧 eMeeting Email Manager (Native Outlook Integration)
 * **High-Performance Sync Engine:** Connects directly to your local Microsoft Outlook via COM automation. Pulls, parses, and indexes thousands of eMeeting mailing list emails in milliseconds using SQLite chunked batching (`executemany`) with zero memory spikes.
-* **Intelligent 3GPP Parser:** Bypasses broken Outlook email threads by using smart regex to extract TDoc numbers (6-8 digits), Agenda Items, Revisions, and free text directly from standard 3GPP bracketed subject lines and email bodies.
+* **Master-Detail Thread Architecture:** Bypasses broken Outlook reply chains by logically grouping emails purely by parsed TDoc numbers. The UI features a split-screen design: a Left Panel displaying active TDoc threads and a Right Panel displaying the isolated, chronological conversation for the selected topic.
+* **Intelligent 3GPP Parser:** Uses smart regex to extract TDoc numbers (6-8 digits), Agenda Items, Revisions, and free text directly from standard 3GPP bracketed subject lines and email bodies.
 * **DMARC Listserv Bypass:** Automatically detects when 3GPP mailing lists rewrite the sender address to `LIST.ETSI.ORG`. It parses the actual sender's name and email address from the email body and maps them to known telecommunication companies.
-* **Smart Tracking & Focus Filters:** 
-  * **Star TDocs (⭐):** Highlight a specific TDoc to instantly group and track all past and future emails discussing it, neutralizing chaotic and broken reply chains.
-  * **Follow AIs (👀):** Monitor entire Agenda Items (e.g., `9.1.1`) to easily filter topics of interest.
-  * **Date Fencing:** Automatically restricts email scanning to the precise start and end dates of the meeting, jumping out of background loops early to drastically optimize sync speeds and prevent inbox pollution.
+* **Advanced Dual-Layer Filtering:** * **Macro-Filters (Thread Level):** Use Star (⭐) and Follow (👀) buttons, or the global search bar, to instantly filter the left-hand thread list down to specific topics or Agenda Items of interest.
+  * **Micro-Filters (Conversation Level):** Once a thread is selected, use the Company dropdown, Sender dropdown, or Text search boxes to isolate specific replies strictly within that single conversation.
+* **Interactive Email Analytics:** Click the **Statistics** button to instantly generate an interactive, offline HTML Plotly dashboard visualizing Agenda Item volumes, company activity rankings, timeline histograms, and top delegate leaderboards.
 * **Automated Archiving:** Safely extracts physical `.msg` files to your hard drive and dynamically builds a clean target folder hierarchy in Outlook (e.g., `Archive/SA2_175/9.1.1/`) to permanently organize your inbox.
 
 ### 📝 Word Document Manipulation & AI Integration
@@ -93,7 +93,7 @@ To run this application natively or build it from source, you must have the foll
 
 ### 1. Clone the Repository
 ```bash
-git clone [https://github.com/your-repo/3GPP-Delegate-Helper.git](https://github.com/your-repo/3GPP-Delegate-Helper.git)
+git clone https://github.com/your-repo/3GPP-Delegate-Helper.git
 cd 3GPP-Delegate-Helper
 ```
 
@@ -127,9 +127,11 @@ python src/main_puml2visio.py
 1. Open a specific meeting from the main database and click the yellow **📧 Emails** button.
 2. Click **⚙️ Folders** to browse your Outlook directory and safely map your Source (Inbox) and Target (Archive) folders.
 3. Click **🔄 Sync Source** to download and index all emails for this meeting.
-4. Select rows and click **➡️ Move Selected** (or **⏭️ Move All**) to permanently organize the emails into dynamic Agenda Item subfolders inside your Outlook archive.
-5. Use the **⭐ Star** and **👀 Follow** buttons in the reading pane to surgically track specific documents or entire topics, and use the top filter bar to instantly isolate them during chaotic sessions.
-6. Click any blue Sender Name in the grid to open a new email window directly to them, or click a blue Revision number to automatically download and open that document in Word.
+4. Select a TDoc thread from the **Left Panel** to view its chronological email history in the **Right Panel**.
+5. Use the **⭐ Star** and **👀 Follow** buttons in the reading pane to surgically track specific documents or entire topics. Use the left-side filters to isolate these threads, and the right-side dropdowns to filter by Company or Sender strictly within a thread.
+6. Select rows and click **➡️ Move Selected** (or **⏭️ Move All**) to permanently organize the emails into dynamic Agenda Item subfolders inside your Outlook archive.
+7. Click **📊 Statistics** to generate and open a comprehensive visual analytics dashboard of the meeting's email traffic.
+8. Click any blue Sender Name in the grid to open a new email window directly to them, or click a blue Revision number to automatically download and open that document in Word.
 
 ### 📝 Slicing & Comparing Word Documents
 1. In the **Comparison Cart** at the bottom of the Meetings Tab, sequentially select documents. The round-robin queue will automatically populate Slot A and Slot B with local files or fetched 3GPP Revisions.
