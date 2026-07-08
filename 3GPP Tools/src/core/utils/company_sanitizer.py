@@ -4,15 +4,17 @@ import re
 
 class CompanySanitizer:
     SIGNATURE_SYNONYMS_REGEX = {
-        # ---> UPDATED: Added explicit Austrian and Polish domains
         'Deutsche Telekom': re.compile(r'(\bdt\b)|(deutsche tele[kc]om)|(@magenta\.at)|(@t-mobile\.pl)'),
         'KT': re.compile(r'(\bkt\b)'),
         'Nokia': re.compile(r'nokia'),
         'Qualcomm': re.compile(r'qualcom[m]?'),
         'Huawei': re.compile(r'(huawei)|(h[i]?s[i]?l[l]?icon)'),
 
-        # ---> UPDATED: Match .com explicitly, but ignore .pl to prevent stealing DT's Polish subsidiary
-        'T-Mobile USA': re.compile(r'(t[-]?mobile(?!\.pl))|(@t-mobile\.com)'),
+        # ---> THE FIX: Added a \b (word boundary) so it won't trigger on cic[tmobile]
+        'T-Mobile USA': re.compile(r'(\bt[-]?mobile(?!\.pl))|(@t-mobile\.com)'),
+
+        # ---> NEW: Explicit entry for CICT
+        'CICT': re.compile(r'cict'),
 
         'Verizon': re.compile(r'verizon'),
         'ZTE': re.compile(r'zte'),
@@ -65,14 +67,13 @@ class CompanySanitizer:
         'Broadcom': re.compile(r'broadcom'),
         'CAICT': re.compile(r'caict'),
         'CATR': re.compile(r'catr'),
-        'CATT': re.compile(r'\bcatt\b'),  # Word boundary prevents matching partial strings
+        'CATT': re.compile(r'\bcatt\b'),
         'CMCC': re.compile(r'cmcc'),
         'UK HO': re.compile(r'uk ho'),
         'Affirmed': re.compile(r'affirmed'),
         'Expway': re.compile(r'expway'),
         'HPE': re.compile(r'hewlett packard'),
 
-        # ---> Imported from old contributor_names.py
         'RAN WG1': re.compile(r'ran wg1'),
         'RAN WG2': re.compile(r'ran wg2'),
         'RAN WG3': re.compile(r'ran wg3'),
@@ -125,7 +126,8 @@ class CompanySanitizer:
         'INSPUR': re.compile(r'inspur')
     }
 
-    SOURCE_REPLACE_REGEX = re.compile(r'\(Rapporteur\)|\(\?\)|[\[\]\?\(\)]|(([\w\d]{2,3})-(\d\d)([\d]+))', re.IGNORECASE)
+    SOURCE_REPLACE_REGEX = re.compile(r'\(Rapporteur\)|\(\?\)|[\[\]\?\(\)]|(([\w\d]{2,3})-(\d\d)([\d]+))',
+                                      re.IGNORECASE)
 
     @classmethod
     def get_matching_contributors(cls, original_source: str) -> list:
@@ -134,7 +136,6 @@ class CompanySanitizer:
 
         sources_clean = cls.SOURCE_REPLACE_REGEX.sub('', str(original_source)).strip().lower()
 
-        # Thanks to the \b word boundaries, we no longer need the hardcoded hack!
         found_cosigners = [key for key, regex in cls.SIGNATURE_SYNONYMS_REGEX.items() if regex.search(sources_clean)]
 
         return found_cosigners
