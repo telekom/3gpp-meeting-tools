@@ -82,6 +82,7 @@ class EditEmailDialog(QDialog):
 
 class EmailManagerWindow(QWidget):
     tdoc_open_requested = pyqtSignal(str)
+    tdoc_jump_requested = pyqtSignal(str)  # ---> NEW SIGNAL for Double Clicking
 
     def __init__(self, meeting_dir: Path, ai_lookup: dict, meeting_start: str = "", meeting_end: str = ""):
         super().__init__()
@@ -89,6 +90,12 @@ class EmailManagerWindow(QWidget):
 
         self.meeting_dir = meeting_dir
         self.ai_lookup = ai_lookup
+
+        # ---> SET UP DEBOUNCE TIMER
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(300)
+        self.search_timer.timeout.connect(self._apply_filters)
 
         self.db = EmailDatabase(self.meeting_dir / "Agenda" / "emails.db")
         self.config_path = self.meeting_dir / "Agenda" / "email_config.json"
@@ -189,7 +196,7 @@ class EmailManagerWindow(QWidget):
             return "QPushButton { font-weight: bold; background-color: #FFFFFF; color: #333333; padding: 5px 12px; border-radius: 4px; border: 1px solid #CCCCCC; } QPushButton:hover { background-color: #F0F4F8; border-color: #005A9E; color: #005A9E; }"
 
         # =====================================================================
-        # UNIFIED TOP CONTROL PANEL (Squeezed Vertically!)
+        # UNIFIED TOP CONTROL PANEL
         # =====================================================================
         top_frame = QFrame()
         top_frame.setStyleSheet(
@@ -198,8 +205,8 @@ class EmailManagerWindow(QWidget):
             "QLineEdit, QComboBox, QDateEdit { padding: 4px 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333; height: 22px; }"
         )
         top_layout = QVBoxLayout(top_frame)
-        top_layout.setContentsMargins(10, 8, 10, 8)  # Squeezed margins
-        top_layout.setSpacing(6)  # Squeezed spacing
+        top_layout.setContentsMargins(10, 8, 10, 8)
+        top_layout.setSpacing(6)
 
         # --- ROW 1: Buttons ---
         row1_layout = QHBoxLayout()
@@ -305,7 +312,6 @@ class EmailManagerWindow(QWidget):
         row2_layout.addStretch()
 
         top_layout.addLayout(row2_layout)
-
         main_layout.addWidget(top_frame, stretch=0)
 
         # =====================================================================
@@ -326,7 +332,8 @@ class EmailManagerWindow(QWidget):
         self.tdoc_search_input.setPlaceholderText("🔍 Search threads...")
         self.tdoc_search_input.setStyleSheet(
             "padding: 2px 4px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333;")
-        self.tdoc_search_input.textChanged.connect(self._apply_filters)
+        # ---> THE FIX: Hook up the Debounce Timer
+        self.tdoc_search_input.textChanged.connect(lambda _: self.search_timer.start())
 
         left_header_layout.addWidget(self.lbl_left_title)
         left_header_layout.addStretch()
@@ -356,7 +363,8 @@ class EmailManagerWindow(QWidget):
         self.search_input.setMaximumWidth(200)
         self.search_input.setStyleSheet(
             "padding: 2px 4px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333;")
-        self.search_input.textChanged.connect(self._apply_filters)
+        # ---> THE FIX: Hook up the Debounce Timer
+        self.search_input.textChanged.connect(lambda _: self.search_timer.start())
 
         right_header_layout.addWidget(self.lbl_right_title)
         right_header_layout.addStretch()
@@ -372,6 +380,8 @@ class EmailManagerWindow(QWidget):
         self.email_view.setAlternatingRowColors(True)
         self.email_view.setCursor(Qt.PointingHandCursor)
         self.email_view.clicked.connect(self._on_table_clicked)
+        # ---> THE FIX: Hook up Double Click
+        self.email_view.doubleClicked.connect(self._on_email_double_clicked)
         self.email_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.email_view.customContextMenuRequested.connect(self._show_context_menu)
         self.email_view.setStyleSheet(
@@ -609,6 +619,15 @@ class EmailManagerWindow(QWidget):
                 first_rev = revs.split(',')[0].strip()
                 self.tdoc_open_requested.emit(first_rev)
                 self.lbl_status.setText(f"Requesting open for: {first_rev}")
+
+    def _on_email_double_clicked(self, index):
+        if not index.isValid(): return
+        source_idx = self.email_proxy.mapToSource(index)
+        row_data = self.email_model.get_row_data(source_idx.row())
+        tdoc_id = row_data.get("tdoc_id", "")
+        if tdoc_id:
+            self.lbl_status.setText(f"Jumping to TDoc: {tdoc_id}")
+            self.tdoc_jump_requested.emit(tdoc_id)
 
     def _show_context_menu(self, pos):
         index = self.email_view.indexAt(pos)

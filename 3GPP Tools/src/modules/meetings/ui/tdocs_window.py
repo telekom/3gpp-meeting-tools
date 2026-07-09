@@ -64,7 +64,7 @@ class TDocsWindow(QWidget):
         self.docs_ftp_url = docs_ftp
 
         self.revisions_url = self.main_ftp_url.rstrip('/') + '/INBOX/Revisions/' if (
-                    self.is_sa2_electronic and self.main_ftp_url) else ""
+                self.is_sa2_electronic and self.main_ftp_url) else ""
 
         mtg_icon = "💻" if is_electronic else "🤝"
         title = f"TDocs: {mtg_info.get('wg_name', '')} {mtg_info.get('meeting_number', '')} {mtg_icon}"
@@ -177,6 +177,12 @@ class TDocsWindow(QWidget):
         layout.addLayout(header_layout)
 
     def _setup_filters(self, layout):
+        # ---> SETUP DEBOUNCE TIMER FOR SEARCH
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(300)
+        self.search_timer.timeout.connect(self._apply_search_filter)
+
         filter_frame = QFrame()
         filter_frame.setStyleSheet(
             "QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 8px; } QLabel { font-weight: bold; color: #555; border: none; } QLineEdit, QComboBox { padding: 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; }")
@@ -185,7 +191,9 @@ class TDocsWindow(QWidget):
         filter_layout.addWidget(QLabel("🔍 Search:"))
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search TDoc number, title, source, or abstract...")
-        self.search_input.textChanged.connect(self._on_search_changed)
+
+        # Route through the debounce timer!
+        self.search_input.textChanged.connect(lambda _: self.search_timer.start())
         filter_layout.addWidget(self.search_input)
 
         self.type_combo = CheckableComboBox("Type")
@@ -287,8 +295,8 @@ class TDocsWindow(QWidget):
         except:
             return "List last updated: Unknown"
 
-    def _on_search_changed(self, text):
-        self.proxy.setGlobalFilter(text)
+    def _apply_search_filter(self):
+        self.proxy.setGlobalFilter(self.search_input.text())
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_type_changed(self, types):
@@ -355,7 +363,8 @@ class TDocsWindow(QWidget):
 
     def _show_related_menu(self, target_tdoc: str, pos: QPoint):
         build_related_menu(self, target_tdoc, self.model.valid_tdocs, self.docs_ftp_url, self.revisions_url,
-                           self._scroll_to_tdoc, self._trigger_download_thread, self._export_llm_single, self.global_action_requested.emit, pos)
+                           self._scroll_to_tdoc, self._trigger_download_thread, self._export_llm_single,
+                           self.global_action_requested.emit, pos)
 
     def _show_cell_popup(self, index):
         if not index.isValid(): return
@@ -447,7 +456,8 @@ class TDocsWindow(QWidget):
                 QMessageBox.warning(self, "Compare Failed", "No Word document found in TDoc ZIP.")
 
     def _refresh_both(self):
-        self._refresh_excel(); self._refresh_revisions(silent=True)
+        self._refresh_excel();
+        self._refresh_revisions(silent=True)
 
     def _refresh_excel(self):
         if not self.mtg_info.get("mtg_id"): return QMessageBox.warning(self, "Missing ID",
@@ -523,6 +533,10 @@ class TDocsWindow(QWidget):
             if r.get("TDoc")}, self.mtg_info.get("start_date", ""), self.mtg_info.get("end_date", ""))
 
         self.email_window.tdoc_open_requested.connect(self._open_tdoc_from_signal)
+
+        # ---> THE FIX: Hook up the brand new Double Click Jump Signal!
+        self.email_window.tdoc_jump_requested.connect(self._jump_to_tdoc_from_signal)
+
         self.email_window.show()
 
     def _open_tdoc_from_signal(self, tdoc_id: str):
@@ -547,6 +561,12 @@ class TDocsWindow(QWidget):
 
         # 5. Trigger the download!
         self._trigger_download_thread(base_tdoc, tdoc_id, target_url, is_silent_compare=False)
+
+    def _jump_to_tdoc_from_signal(self, tdoc_id: str):
+        # Triggered by double-clicking in the Email Manager
+        self.raise_()
+        self.activateWindow()
+        self._scroll_to_tdoc(tdoc_id)
 
     def _copy_table_selection(self):
         indexes = sorted(self.table.selectionModel().selectedIndexes(), key=lambda x: (x.row(), x.column()))
@@ -578,7 +598,6 @@ class TDocsWindow(QWidget):
         self.llm_btn.setText("⏳ Compiling Corpus...")
         self.llm_btn.setEnabled(False)
 
-        # ---> THE FIX: Fetch both the max_chars and the system_prompt to pass them to the exporter!
         config = StatisticsSettingsDialog().load_config()
         max_chars = config.get("llm_max_chars", 200000)
         system_prompt = config.get("llm_system_prompt", "")
@@ -600,7 +619,6 @@ class TDocsWindow(QWidget):
         row_data = next((r for r in self.model._data if r.get("TDoc") == tdoc_id), None)
         if not row_data: return
 
-        # Fetch config for single exports as well
         config = StatisticsSettingsDialog().load_config()
         max_chars = config.get("llm_max_chars", 200000)
         system_prompt = config.get("llm_system_prompt", "")
