@@ -380,8 +380,19 @@ class SpecificationsTab(QWidget):
                 # Clean any formatting prefixes
                 clean_text = orig_text.replace('✅ ', '').replace('⚙️ ', '').replace('⬇️ ', '').strip()
                 combo.setItemText(idx, f"✅ {clean_text}")
+
+                c_data = combo.itemData(idx)
+                if c_data:
+                    c_data['is_downloaded'] = True
+                    combo.setItemData(idx, c_data)
+
                 combo.setEnabled(True)
+
+                # ---> FIX: Extract the files FIRST...
                 _process_and_open()
+
+                # ---> THEN force the UI to refresh, so it sees the new .doc files!
+                combo.currentIndexChanged.emit(idx)
 
             def _on_err(err):
                 combo.setItemText(idx, "❌ Error")
