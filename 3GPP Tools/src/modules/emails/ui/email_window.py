@@ -345,6 +345,8 @@ class EmailManagerWindow(QWidget):
         self.tdoc_view.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tdoc_view.verticalHeader().setVisible(False)
         self.tdoc_view.setAlternatingRowColors(True)
+        # ---> ADD THIS LINE:
+        self.tdoc_view.doubleClicked.connect(self._on_tdoc_double_clicked)
         self.tdoc_view.setStyleSheet(
             "QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; } QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }")
         left_layout.addWidget(self.tdoc_view)
@@ -619,6 +621,22 @@ class EmailManagerWindow(QWidget):
                 first_rev = revs.split(',')[0].strip()
                 self.tdoc_open_requested.emit(first_rev)
                 self.lbl_status.setText(f"Requesting open for: {first_rev}")
+
+    def _on_tdoc_double_clicked(self, index):
+        if not index.isValid(): return
+        tdoc_id = self.tdoc_proxy.data(index, Qt.UserRole)
+        if tdoc_id and tdoc_id != "General / Unlinked":
+            self.lbl_status.setText(f"Jumping to TDoc: {tdoc_id}")
+            self.tdoc_jump_requested.emit(tdoc_id)
+
+    def _on_email_double_clicked(self, index):
+        if not index.isValid(): return
+        source_idx = self.email_proxy.mapToSource(index)
+        row_data = self.email_model.get_row_data(source_idx.row())
+        tdoc_id = row_data.get("tdoc_id", "")
+        if tdoc_id:
+            self.lbl_status.setText(f"Jumping to TDoc: {tdoc_id}")
+            self.tdoc_jump_requested.emit(tdoc_id)
 
     def _on_email_double_clicked(self, index):
         if not index.isValid(): return

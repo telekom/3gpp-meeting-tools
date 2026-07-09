@@ -540,9 +540,11 @@ class TDocsWindow(QWidget):
         self.email_window.show()
 
     def _open_tdoc_from_signal(self, tdoc_id: str):
-        # 1. Bring the main TDocs window back to the front
-        self.raise_()
-        self.activateWindow()
+        # 1. Bring the TRUE main application window back to the front
+        main_app_window = self.window()
+        main_app_window.setWindowState(main_app_window.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+        main_app_window.raise_()
+        main_app_window.activateWindow()
 
         # 2. Visually scroll to the base TDoc in the table
         self._scroll_to_tdoc(tdoc_id)
@@ -563,9 +565,13 @@ class TDocsWindow(QWidget):
         self._trigger_download_thread(base_tdoc, tdoc_id, target_url, is_silent_compare=False)
 
     def _jump_to_tdoc_from_signal(self, tdoc_id: str):
-        # Triggered by double-clicking in the Email Manager
-        self.raise_()
-        self.activateWindow()
+        # 1. Bring the TRUE main application window back to the front
+        main_app_window = self.window()
+        main_app_window.setWindowState(main_app_window.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+        main_app_window.raise_()
+        main_app_window.activateWindow()
+
+        # 2. Visually scroll to the base TDoc in the table
         self._scroll_to_tdoc(tdoc_id)
 
     def _copy_table_selection(self):
