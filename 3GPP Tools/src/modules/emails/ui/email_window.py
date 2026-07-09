@@ -88,6 +88,9 @@ class EmailManagerWindow(QWidget):
         self.meeting_dir = meeting_dir
         self.ai_lookup = ai_lookup
 
+        # ---> THE FIX: Add the silent update flag so we don't need to break Qt's blockSignals
+        self._is_updating = False
+
         self.db = EmailDatabase(self.meeting_dir / "Agenda" / "emails.db")
         self.config_path = self.meeting_dir / "Agenda" / "email_config.json"
 
@@ -118,12 +121,13 @@ class EmailManagerWindow(QWidget):
         self.setWindowTitle("📧 eMeeting Email Manager")
         self.resize(1300, 800)
 
-        # ---> THE FIX: Prevent Combobox popups from being squashed by parent layout compression
+        # ---> THE FIX: Prevent Combobox popups from being squashed and guarantee text color
         self.setStyleSheet("""
             QWidget { background-color: #FAFAFA; }
             QComboBox QAbstractItemView { 
                 min-height: 200px; 
                 background-color: #FFFFFF; 
+                color: #333333;
                 border: 1px solid #CCCCCC;
             }
         """)
@@ -493,7 +497,7 @@ class EmailManagerWindow(QWidget):
         self.tdoc_model.update_data(data, starred_tdocs, followed_ais)
         self.email_model.update_data(data, starred_tdocs, followed_ais)
 
-        # ---> THE FIX: Safely rebuild the comboboxes separately
+        # ---> THE FIX: Safely rebuild the comboboxes using the silent update flag
         self._refresh_comboboxes()
 
         if old_tdoc:
@@ -514,47 +518,51 @@ class EmailManagerWindow(QWidget):
     def _refresh_comboboxes(self):
         logging.info("[EmailWindow] Updating Dropdown Filter Lists...")
 
-        def clean(val): return str(val).strip() if val else ""
+        # ---> THE FIX: Raise the flag to silently ignore UI signals while rebuilding the lists
+        self._is_updating = True
 
-        def natural_sort_key(s): return [int(text) if text.isdigit() else text.lower() for text in
-                                         re.split('([0-9]+)', str(s))]
+        try:
+            def clean(val):
+                return str(val).strip() if val else ""
 
-        data = self.email_model._data
-        unique_ais = sorted(list(set(clean(r.get("agenda_item")) for r in data)), key=natural_sort_key)
-        unique_companies = sorted(list(set(clean(r.get("company")) for r in data)))
-        unique_senders = sorted(list(set(clean(r.get("sender_name")) for r in data)))
+            def natural_sort_key(s):
+                return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
 
-        # Block signals to completely prevent "phantom clicks" during list rebuild
-        self.cb_ai.blockSignals(True)
-        self.cb_company.blockSignals(True)
-        self.cb_sender.blockSignals(True)
+            data = self.email_model._data
+            unique_ais = sorted(list(set(clean(r.get("agenda_item")) for r in data)), key=natural_sort_key)
+            unique_companies = sorted(list(set(clean(r.get("company")) for r in data)))
+            unique_senders = sorted(list(set(clean(r.get("sender_name")) for r in data)))
 
-        self.cb_ai.updateItems(unique_ais)
-        self.cb_company.updateItems(unique_companies)
-        self.cb_sender.updateItems(unique_senders)
+            # Populate the CheckableComboBoxes cleanly
+            self.cb_ai.updateItems(unique_ais)
+            self.cb_company.updateItems(unique_companies)
+            self.cb_sender.updateItems(unique_senders)
 
-        self.cb_ai.blockSignals(False)
-        self.cb_company.blockSignals(False)
-        self.cb_sender.blockSignals(False)
+            # Force models to recognize the freshly built items
+            self.tdoc_proxy.set_ai_filters(self.cb_ai.getCheckedItems())
+            self.email_proxy.set_company_filters(self.cb_company.getCheckedItems())
+            self.email_proxy.set_sender_filters(self.cb_sender.getCheckedItems())
+            QTimer.singleShot(0, self._update_count_label)
 
-        # Force models to recognize the checked items
-        self.tdoc_proxy.set_ai_filters(self.cb_ai.getCheckedItems())
-        self.email_proxy.set_company_filters(self.cb_company.getCheckedItems())
-        self.email_proxy.set_sender_filters(self.cb_sender.getCheckedItems())
-        QTimer.singleShot(0, self._update_count_label)
-        logging.info(f"[EmailWindow] Dropdowns Ready: {len(unique_ais)} AIs, {len(unique_companies)} Companies.")
+            logging.info(f"[EmailWindow] Dropdowns Ready: {len(unique_ais)} AIs, {len(unique_companies)} Companies.")
+        finally:
+            # Lower the flag so the UI responds to manual user clicks again!
+            self._is_updating = False
 
     def _on_ai_changed(self, ais):
+        if getattr(self, '_is_updating', False): return
         logging.info(f"[EmailWindow] Filter Triggered -> AI: {ais}")
         self.tdoc_proxy.set_ai_filters(ais)
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_star_toggled(self, checked):
+        if getattr(self, '_is_updating', False): return
         logging.info(f"[EmailWindow] Filter Triggered -> Starred: {checked}")
         self.tdoc_proxy.set_starred_filter(checked)
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_follow_toggled(self, checked):
+        if getattr(self, '_is_updating', False): return
         logging.info(f"[EmailWindow] Filter Triggered -> Followed: {checked}")
         self.tdoc_proxy.set_followed_filter(checked)
         QTimer.singleShot(0, self._update_count_label)
@@ -568,11 +576,13 @@ class EmailManagerWindow(QWidget):
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_company_changed(self, companies):
+        if getattr(self, '_is_updating', False): return
         logging.info(f"[EmailWindow] Filter Triggered -> Company: {companies}")
         self.email_proxy.set_company_filters(companies)
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_sender_changed(self, senders):
+        if getattr(self, '_is_updating', False): return
         logging.info(f"[EmailWindow] Filter Triggered -> Sender: {senders}")
         self.email_proxy.set_sender_filters(senders)
         QTimer.singleShot(0, self._update_count_label)
@@ -692,7 +702,6 @@ class EmailManagerWindow(QWidget):
         logging.info(f"[EmailWindow] Toggling Star for {self.current_tdoc_id} -> {new_status}")
         self.db.toggle_tdoc_star(self.current_tdoc_id, new_status)
 
-        # ---> THE FIX: Safely update memory without triggering a destructive full database reload!
         if new_status:
             self.email_model.starred_tdocs.add(self.current_tdoc_id)
             self.tdoc_model.starred_tdocs.add(self.current_tdoc_id)
@@ -719,7 +728,6 @@ class EmailManagerWindow(QWidget):
         logging.info(f"[EmailWindow] Toggling AI Follow for {self.current_agenda_item} -> {new_status}")
         self.db.toggle_ai_follow(self.current_agenda_item, new_status)
 
-        # ---> THE FIX: Safely update memory without triggering a destructive full database reload!
         if new_status:
             self.email_model.followed_ais.add(self.current_agenda_item)
             self.tdoc_model.followed_ais.add(self.current_agenda_item)
@@ -859,6 +867,7 @@ class EmailManagerWindow(QWidget):
         self.btn_stats.setText("⏳ Generating...")
 
         current_stats = getattr(self, 'stats_config', self._load_config().get("stats_config", {}))
+
         meeting_name = self.meeting_dir.name if self.meeting_dir else "Meeting"
 
         self.stats_thread = EmailStatsExporterThread(self.meeting_dir, all_emails, meeting_name, current_stats)
