@@ -11,7 +11,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QDate, QTimer
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QLineEdit, QTableView, QHeaderView, QSplitter, QTextBrowser,
                              QMessageBox, QInputDialog, QDialog, QDateEdit, QMenu, QApplication,
-                             QAbstractItemView, QSizePolicy, QFormLayout, QTextEdit)
+                             QAbstractItemView, QFormLayout, QTextEdit, QFrame)
 
 from modules.emails.core.email_db import EmailDatabase
 from modules.emails.core.email_threads import EmailSyncThread, EmailMoveThread, EmailTargetRescanThread
@@ -27,7 +27,7 @@ class EditEmailDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("✏️ Edit Email Metadata")
         self.resize(500, 400)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
+        self.setStyleSheet("QDialog { background-color: #FAFAFA; color: #333; }")
 
         layout = QVBoxLayout(self)
         form_layout = QFormLayout()
@@ -41,6 +41,10 @@ class EditEmailDialog(QDialog):
 
         self.txt_short_text = QTextEdit(current_data.get("short_text", ""))
         self.txt_short_text.setMaximumHeight(100)
+
+        for widget in [self.txt_tdoc, self.txt_ai, self.txt_company, self.txt_sender_name, self.txt_sender_email,
+                       self.txt_subject, self.txt_short_text]:
+            widget.setStyleSheet("background-color: #FFFFFF; border: 1px solid #CCC; color: #333;")
 
         form_layout.addRow("TDoc ID:", self.txt_tdoc)
         form_layout.addRow("Agenda Item:", self.txt_ai)
@@ -57,6 +61,7 @@ class EditEmailDialog(QDialog):
         btn_save.setStyleSheet(
             "font-weight: bold; background-color: #0078D7; color: white; padding: 6px 15px; border-radius: 4px;")
         btn_cancel = QPushButton("Cancel")
+        btn_cancel.setStyleSheet("color: #333;")
 
         btn_save.clicked.connect(self.accept)
         btn_cancel.clicked.connect(self.reject)
@@ -88,9 +93,6 @@ class EmailManagerWindow(QWidget):
         self.meeting_dir = meeting_dir
         self.ai_lookup = ai_lookup
 
-        # ---> THE FIX: Add the silent update flag so we don't need to break Qt's blockSignals
-        self._is_updating = False
-
         self.db = EmailDatabase(self.meeting_dir / "Agenda" / "emails.db")
         self.config_path = self.meeting_dir / "Agenda" / "email_config.json"
 
@@ -120,17 +122,7 @@ class EmailManagerWindow(QWidget):
 
         self.setWindowTitle("📧 eMeeting Email Manager")
         self.resize(1300, 800)
-
-        # ---> THE FIX: Prevent Combobox popups from being squashed and guarantee text color
-        self.setStyleSheet("""
-            QWidget { background-color: #FAFAFA; }
-            QComboBox QAbstractItemView { 
-                min-height: 200px; 
-                background-color: #FFFFFF; 
-                color: #333333;
-                border: 1px solid #CCCCCC;
-            }
-        """)
+        self.setStyleSheet("QWidget { background-color: #FAFAFA; }")
 
         self._setup_ui()
         self._refresh_table()
@@ -191,34 +183,24 @@ class EmailManagerWindow(QWidget):
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(4)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(10)
 
         def get_btn_style(primary=False):
             if primary:
                 return """
-                QPushButton { font-weight: bold; background-color: #0078D7; color: white; padding: 4px 8px; border-radius: 4px; border: 1px solid #005A9E; }
+                QPushButton { font-weight: bold; background-color: #0078D7; color: white; padding: 6px 12px; border-radius: 4px; border: 1px solid #005A9E; }
                 QPushButton:hover { background-color: #005A9E; }
                 """
             return """
-                QPushButton { font-weight: bold; background-color: #FFFFFF; color: #333333; padding: 4px 8px; border-radius: 4px; border: 1px solid #CCCCCC; }
+                QPushButton { font-weight: bold; background-color: #FFFFFF; color: #333333; padding: 6px 12px; border-radius: 4px; border: 1px solid #CCCCCC; }
                 QPushButton:hover { background-color: #F0F4F8; border-color: #005A9E; color: #005A9E; }
                 """
 
         # =====================================================================
-        # TOP CONTAINER
+        # HEADER TOOLBAR
         # =====================================================================
-        top_controls_widget = QWidget()
-        top_controls_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-
-        top_controls_layout = QVBoxLayout(top_controls_widget)
-        top_controls_layout.setContentsMargins(0, 0, 0, 2)
-        top_controls_layout.setSpacing(2)
-
-        # --- TOOLBAR ---
-        toolbar = QHBoxLayout()
-        toolbar.setContentsMargins(0, 0, 0, 0)
-        toolbar.setSpacing(6)
+        header_layout = QHBoxLayout()
 
         self.btn_sync = QPushButton("🔄 Sync Source")
         self.btn_sync.setStyleSheet(get_btn_style(primary=True))
@@ -248,15 +230,24 @@ class EmailManagerWindow(QWidget):
         self.lbl_status.setStyleSheet("color: #666; font-style: italic; margin-left: 10px;")
 
         for btn in [self.btn_sync, self.btn_move, self.btn_move_all, self.btn_rescan, self.btn_stats, self.btn_config]:
-            toolbar.addWidget(btn)
-        toolbar.addWidget(self.lbl_status)
-        toolbar.addStretch()
-        top_controls_layout.addLayout(toolbar)
+            header_layout.addWidget(btn)
+        header_layout.addWidget(self.lbl_status)
+        header_layout.addStretch()
 
-        # --- GLOBAL FILTERS ---
-        filter_layout = QHBoxLayout()
-        filter_layout.setContentsMargins(0, 0, 0, 0)
-        filter_layout.setSpacing(6)
+        main_layout.addLayout(header_layout)
+
+        # =====================================================================
+        # GLOBAL FILTERS (Everything unified here!)
+        # =====================================================================
+        filter_frame = QFrame()
+        filter_frame.setStyleSheet(
+            "QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 8px; } "
+            "QLabel { font-weight: bold; color: #555; border: none; } "
+            "QLineEdit, QComboBox { padding: 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; }"
+        )
+        filter_layout = QHBoxLayout(filter_frame)
+        filter_layout.setContentsMargins(10, 5, 10, 5)
+        filter_layout.setSpacing(10)
 
         self.dt_start = QDateEdit()
         self.dt_start.setCalendarPopup(True)
@@ -279,38 +270,47 @@ class EmailManagerWindow(QWidget):
         self.dt_end.dateChanged.connect(
             lambda: self._save_config(self.source_folder, self.target_folder, self.start_date, self.end_date))
 
-        self.cb_ai = CheckableComboBox("Filter by AI")
-        self.cb_ai.setMinimumWidth(150)
-        self.cb_ai.selectionChanged.connect(self._on_ai_changed)
-
         self.btn_filter_star = QPushButton("⭐ Starred")
         self.btn_filter_star.setCheckable(True)
         self.btn_filter_star.setStyleSheet(
-            "QPushButton { padding: 3px 6px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #FFF4CE; font-weight: bold; border-color: #E2C08D; }")
-        self.btn_filter_star.toggled.connect(self._on_star_toggled)
+            "QPushButton { padding: 4px 8px; background: white; border-radius: 3px; border: 1px solid #CCC; color: #333; } QPushButton:checked { background-color: #FFF4CE; font-weight: bold; border-color: #E2C08D; }")
+        self.btn_filter_star.toggled.connect(self._apply_filters)
 
         self.btn_filter_follow = QPushButton("👀 Followed AIs")
         self.btn_filter_follow.setCheckable(True)
         self.btn_filter_follow.setStyleSheet(
-            "QPushButton { padding: 3px 6px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }")
-        self.btn_filter_follow.toggled.connect(self._on_follow_toggled)
+            "QPushButton { padding: 4px 8px; background: white; border-radius: 3px; border: 1px solid #CCC; color: #333; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }")
+        self.btn_filter_follow.toggled.connect(self._apply_filters)
+
+        # ---> THE FIX: Moved all comboboxes here, safely inside the QFrame!
+        self.cb_ai = CheckableComboBox("Filter by AI")
+        self.cb_ai.selectionChanged.connect(self._apply_filters)
+
+        self.cb_company = CheckableComboBox("Company")
+        self.cb_company.setMinimumWidth(110)
+        self.cb_company.selectionChanged.connect(self._apply_filters)
+
+        self.cb_sender = CheckableComboBox("Sender")
+        self.cb_sender.setMinimumWidth(110)
+        self.cb_sender.selectionChanged.connect(self._apply_filters)
 
         self.lbl_count = QLabel("Showing 0 Threads | 0 Emails")
-        self.lbl_count.setStyleSheet("font-size: 13px; color: #555; font-weight: bold; padding-left: 10px;")
+        self.lbl_count.setStyleSheet(
+            "font-size: 13px; color: #555; font-weight: bold; padding-left: 10px; border: none;")
 
         filter_layout.addWidget(QLabel("📅 Filter:"))
         filter_layout.addWidget(self.dt_start)
         filter_layout.addWidget(QLabel("-"))
         filter_layout.addWidget(self.dt_end)
-        filter_layout.addSpacing(10)
         filter_layout.addWidget(self.btn_filter_star)
         filter_layout.addWidget(self.btn_filter_follow)
         filter_layout.addWidget(self.cb_ai)
+        filter_layout.addWidget(self.cb_company)  # <--- Moved here
+        filter_layout.addWidget(self.cb_sender)  # <--- Moved here
         filter_layout.addStretch()
         filter_layout.addWidget(self.lbl_count)
-        top_controls_layout.addLayout(filter_layout)
 
-        main_layout.addWidget(top_controls_widget)
+        main_layout.addWidget(filter_frame)
 
         # =====================================================================
         # MASTER-DETAIL SPLITTER
@@ -319,8 +319,6 @@ class EmailManagerWindow(QWidget):
 
         # --- LEFT PANEL: TDOC THREADS ---
         self.left_panel = QWidget()
-        self.left_panel.setMinimumWidth(350)
-
         left_layout = QVBoxLayout(self.left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -330,7 +328,9 @@ class EmailManagerWindow(QWidget):
 
         self.tdoc_search_input = QLineEdit()
         self.tdoc_search_input.setPlaceholderText("🔍 Search threads...")
-        self.tdoc_search_input.textChanged.connect(self._on_tdoc_search_changed)
+        self.tdoc_search_input.setStyleSheet(
+            "padding: 4px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333;")
+        self.tdoc_search_input.textChanged.connect(self._apply_filters)
 
         left_header_layout.addWidget(self.lbl_left_title)
         left_header_layout.addStretch()
@@ -342,8 +342,8 @@ class EmailManagerWindow(QWidget):
         self.tdoc_view.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tdoc_view.verticalHeader().setVisible(False)
         self.tdoc_view.setAlternatingRowColors(True)
-        self.tdoc_view.setStyleSheet("QTableView { background: white; gridline-color: #EEE; }")
-
+        self.tdoc_view.setStyleSheet(
+            "QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; } QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }")
         left_layout.addWidget(self.tdoc_view)
 
         # --- RIGHT PANEL: EMAILS ---
@@ -352,47 +352,40 @@ class EmailManagerWindow(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
 
         right_header_layout = QHBoxLayout()
-        self.lbl_right_title = QLabel("📧 Thread History (Select a TDoc from the left)")
+
+        self.lbl_right_title = QLabel("📧 Thread History")
         self.lbl_right_title.setStyleSheet("font-weight: bold; color: #0078D7;")
 
+        # ---> THE FIX: Greatly simplified since the comboboxes are gone!
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("🔍 Search this thread...")
         self.search_input.setMaximumWidth(200)
-        self.search_input.textChanged.connect(self._on_email_search_changed)
-
-        self.cb_company = CheckableComboBox("Company")
-        self.cb_company.setMinimumWidth(110)
-        self.cb_company.selectionChanged.connect(self._on_company_changed)
-
-        self.cb_sender = CheckableComboBox("Sender")
-        self.cb_sender.setMinimumWidth(110)
-        self.cb_sender.selectionChanged.connect(self._on_sender_changed)
+        self.search_input.setStyleSheet(
+            "padding: 4px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333;")
+        self.search_input.textChanged.connect(self._apply_filters)
 
         right_header_layout.addWidget(self.lbl_right_title)
         right_header_layout.addStretch()
-        right_header_layout.addWidget(self.cb_company)
-        right_header_layout.addWidget(self.cb_sender)
         right_header_layout.addWidget(self.search_input)
         right_layout.addLayout(right_header_layout)
 
         right_splitter = QSplitter(Qt.Vertical)
 
         self.email_view = QTableView()
-        self.email_view.setMinimumHeight(200)
         self.email_view.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.email_view.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.email_view.verticalHeader().setVisible(False)
-        self.email_view.setStyleSheet("QTableView { background: white; gridline-color: #EEE; }")
+        self.email_view.setAlternatingRowColors(True)
         self.email_view.setCursor(Qt.PointingHandCursor)
         self.email_view.clicked.connect(self._on_table_clicked)
         self.email_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.email_view.customContextMenuRequested.connect(self._show_context_menu)
+        self.email_view.setStyleSheet(
+            "QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; } QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }")
         right_splitter.addWidget(self.email_view)
 
         # Reading Pane
         pane_widget = QWidget()
-        pane_widget.setMinimumHeight(150)
-
         pane_layout = QVBoxLayout(pane_widget)
         pane_layout.setContentsMargins(0, 10, 0, 0)
 
@@ -415,21 +408,18 @@ class EmailManagerWindow(QWidget):
         btn_layout.addStretch()
 
         self.reading_pane = QTextBrowser()
-        self.reading_pane.setStyleSheet("background: white; border: 1px solid #CCC; border-radius: 4px; padding: 10px;")
+        self.reading_pane.setStyleSheet(
+            "background: white; border: 1px solid #CCC; border-radius: 4px; padding: 10px; color: #333;")
         pane_layout.addLayout(btn_layout)
         pane_layout.addWidget(self.reading_pane)
 
         right_splitter.addWidget(pane_widget)
-        right_splitter.setStretchFactor(0, 3)
-        right_splitter.setStretchFactor(1, 1)
-        right_splitter.setSizes([700, 250])
+        right_splitter.setSizes([500, 250])
 
         right_layout.addWidget(right_splitter)
 
         self.main_splitter.addWidget(self.left_panel)
         self.main_splitter.addWidget(self.right_panel)
-        self.main_splitter.setStretchFactor(0, 1)
-        self.main_splitter.setStretchFactor(1, 3)
         self.main_splitter.setSizes([350, 1000])
         main_layout.addWidget(self.main_splitter)
 
@@ -497,8 +487,7 @@ class EmailManagerWindow(QWidget):
         self.tdoc_model.update_data(data, starred_tdocs, followed_ais)
         self.email_model.update_data(data, starred_tdocs, followed_ais)
 
-        # ---> THE FIX: Safely rebuild the comboboxes using the silent update flag
-        self._refresh_comboboxes()
+        self._refresh_comboboxes(data)
 
         if old_tdoc:
             for r in range(self.tdoc_proxy.rowCount()):
@@ -515,77 +504,38 @@ class EmailManagerWindow(QWidget):
                     self.email_view.selectRow(r)
                     break
 
-    def _refresh_comboboxes(self):
+    def _refresh_comboboxes(self, data):
         logging.info("[EmailWindow] Updating Dropdown Filter Lists...")
 
-        # ---> THE FIX: Raise the flag to silently ignore UI signals while rebuilding the lists
-        self._is_updating = True
+        def clean(val): return str(val).strip() if val is not None else ""
 
-        try:
-            def clean(val):
-                return str(val).strip() if val else ""
+        def natural_sort_key(s): return [int(text) if text.isdigit() else text.lower() for text in
+                                         re.split('([0-9]+)', str(s))]
 
-            def natural_sort_key(s):
-                return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
+        unique_ais = sorted([ai for ai in set(clean(r.get("agenda_item")) for r in data) if ai], key=natural_sort_key)
+        unique_companies = sorted([c for c in set(clean(r.get("company")) for r in data) if c])
+        unique_senders = sorted([s for s in set(clean(r.get("sender_name")) for r in data) if s])
 
-            data = self.email_model._data
-            unique_ais = sorted(list(set(clean(r.get("agenda_item")) for r in data)), key=natural_sort_key)
-            unique_companies = sorted(list(set(clean(r.get("company")) for r in data)))
-            unique_senders = sorted(list(set(clean(r.get("sender_name")) for r in data)))
+        self.cb_ai.updateItems(unique_ais)
+        self.cb_company.updateItems(unique_companies)
+        self.cb_sender.updateItems(unique_senders)
 
-            # Populate the CheckableComboBoxes cleanly
-            self.cb_ai.updateItems(unique_ais)
-            self.cb_company.updateItems(unique_companies)
-            self.cb_sender.updateItems(unique_senders)
+        logging.info(f"[EmailWindow] Dropdowns Ready: {len(unique_ais)} AIs, {len(unique_companies)} Companies.")
+        self._apply_filters()
 
-            # Force models to recognize the freshly built items
-            self.tdoc_proxy.set_ai_filters(self.cb_ai.getCheckedItems())
-            self.email_proxy.set_company_filters(self.cb_company.getCheckedItems())
-            self.email_proxy.set_sender_filters(self.cb_sender.getCheckedItems())
-            QTimer.singleShot(0, self._update_count_label)
-
-            logging.info(f"[EmailWindow] Dropdowns Ready: {len(unique_ais)} AIs, {len(unique_companies)} Companies.")
-        finally:
-            # Lower the flag so the UI responds to manual user clicks again!
-            self._is_updating = False
-
-    def _on_ai_changed(self, ais):
-        if getattr(self, '_is_updating', False): return
-        logging.info(f"[EmailWindow] Filter Triggered -> AI: {ais}")
-        self.tdoc_proxy.set_ai_filters(ais)
-        QTimer.singleShot(0, self._update_count_label)
-
-    def _on_star_toggled(self, checked):
-        if getattr(self, '_is_updating', False): return
-        logging.info(f"[EmailWindow] Filter Triggered -> Starred: {checked}")
-        self.tdoc_proxy.set_starred_filter(checked)
-        QTimer.singleShot(0, self._update_count_label)
-
-    def _on_follow_toggled(self, checked):
-        if getattr(self, '_is_updating', False): return
-        logging.info(f"[EmailWindow] Filter Triggered -> Followed: {checked}")
-        self.tdoc_proxy.set_followed_filter(checked)
-        QTimer.singleShot(0, self._update_count_label)
-
-    def _on_tdoc_search_changed(self, text):
-        self.tdoc_proxy.set_search_filter(text)
-        QTimer.singleShot(0, self._update_count_label)
-
-    def _on_email_search_changed(self, text):
-        self.email_proxy.set_global_filter(text)
-        QTimer.singleShot(0, self._update_count_label)
-
-    def _on_company_changed(self, companies):
-        if getattr(self, '_is_updating', False): return
-        logging.info(f"[EmailWindow] Filter Triggered -> Company: {companies}")
-        self.email_proxy.set_company_filters(companies)
-        QTimer.singleShot(0, self._update_count_label)
-
-    def _on_sender_changed(self, senders):
-        if getattr(self, '_is_updating', False): return
-        logging.info(f"[EmailWindow] Filter Triggered -> Sender: {senders}")
-        self.email_proxy.set_sender_filters(senders)
-        QTimer.singleShot(0, self._update_count_label)
+    def _apply_filters(self, *args):
+        self.tdoc_proxy.set_filters(
+            self.btn_filter_star.isChecked(),
+            self.btn_filter_follow.isChecked(),
+            self.cb_ai.getCheckedItems(),
+            self.tdoc_search_input.text()
+        )
+        self.email_proxy.set_filters(
+            self.search_input.text(),
+            self.cb_company.getCheckedItems(),
+            self.cb_sender.getCheckedItems()
+        )
+        self._update_count_label()
 
     def _on_tdoc_selected(self, selected, deselected):
         indexes = self.tdoc_view.selectionModel().selectedRows()
@@ -867,7 +817,6 @@ class EmailManagerWindow(QWidget):
         self.btn_stats.setText("⏳ Generating...")
 
         current_stats = getattr(self, 'stats_config', self._load_config().get("stats_config", {}))
-
         meeting_name = self.meeting_dir.name if self.meeting_dir else "Meeting"
 
         self.stats_thread = EmailStatsExporterThread(self.meeting_dir, all_emails, meeting_name, current_stats)

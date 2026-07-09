@@ -1,3 +1,4 @@
+# --- File: src/modules/emails/ui/email_models.py ---
 import os
 from PyQt5.QtCore import Qt, QAbstractTableModel, QSortFilterProxyModel, QModelIndex
 
@@ -132,6 +133,7 @@ class TDocSummaryModel(QAbstractTableModel):
             if col in [0, 3]: return Qt.AlignCenter
         return None
 
+
 class TDocProxyModel(QSortFilterProxyModel):
     def __init__(self):
         super().__init__()
@@ -140,21 +142,12 @@ class TDocProxyModel(QSortFilterProxyModel):
         self.ai_filters = set()
         self.search_text = ""
 
-    # ---> THE FIX: Decoupled Setters exactly like TDocsFilterProxyModel!
-    def set_starred_filter(self, starred):
-        self.show_starred_only = starred
-        self.invalidateFilter()
-
-    def set_followed_filter(self, followed):
-        self.show_followed_only = followed
-        self.invalidateFilter()
-
-    def set_ai_filters(self, ais):
-        self.ai_filters = set(ais)
-        self.invalidateFilter()
-
-    def set_search_filter(self, text):
-        self.search_text = text.lower()
+    # ---> RESTORED: Unified Filter Setter matching your UI
+    def set_filters(self, starred_only, followed_only, ais, search_text):
+        self.show_starred_only = starred_only
+        self.show_followed_only = followed_only
+        self.ai_filters = set(ais) if ais else set()
+        self.search_text = search_text.lower().strip() if search_text else ""
         self.invalidateFilter()
 
     def filterAcceptsRow(self, source_row, source_parent):
@@ -180,6 +173,7 @@ class TDocProxyModel(QSortFilterProxyModel):
 
         return True
 
+
 # ==========================================
 # RIGHT PANEL MODELS (Email Thread)
 # ==========================================
@@ -191,21 +185,15 @@ class EmailProxyModel(QSortFilterProxyModel):
         self.company_filters = set()
         self.sender_filters = set()
 
-    # ---> THE FIX: Decoupled Setters exactly like TDocsFilterProxyModel!
     def set_target_tdoc(self, tdoc_id):
         self.target_tdoc = tdoc_id
         self.invalidateFilter()
 
-    def set_global_filter(self, text):
-        self.global_filter = text.lower()
-        self.invalidateFilter()
-
-    def set_company_filters(self, companies):
-        self.company_filters = set(companies)
-        self.invalidateFilter()
-
-    def set_sender_filters(self, senders):
-        self.sender_filters = set(senders)
+    # ---> RESTORED: Unified Filter Setter matching your UI
+    def set_filters(self, search_text, companies, senders):
+        self.global_filter = search_text.lower().strip() if search_text else ""
+        self.company_filters = set(companies) if companies else set()
+        self.sender_filters = set(senders) if senders else set()
         self.invalidateFilter()
 
     def filterAcceptsRow(self, source_row, source_parent):
