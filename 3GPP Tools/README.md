@@ -105,7 +105,7 @@ pip install -r requirements.txt
 
 ### 3. Launch the Application
 ```bash
-python src/main_puml2visio.py
+python src/main_tools.py
 ```
 *Upon first launch, the app will automatically attempt to download the latest `plantuml.jar` from GitHub if it is not present in your assets folder.*
 

@@ -35,7 +35,7 @@ from modules.word_tools.ui.word_tabs import WordExtractorTab
 class DragDropUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PlantUML to Visio Converter (3GPP)")
+        self.setWindowTitle("3GPP Tools")
         self.resize(950, 750)
 
         self.jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
@@ -185,8 +185,8 @@ class DragDropUI(QMainWindow):
             )
         )
 
-        self.tabs.addTab(self.code_tab, "📝 Code Editor")
-        self.tabs.addTab(self.batch_tab, "📂 Batch Convert")
+        self.tabs.addTab(self.code_tab, "📝 PlantUML Editor")
+        self.tabs.addTab(self.batch_tab, "📂 PlantUML2Visio")
         self.tabs.addTab(self.word_tab, "📄 Word Tools")
         self.tabs.addTab(self.specs_tab, "📚 3GPP Specifications")
         self.tabs.addTab(self.meetings_tab, "🗓️ 3GPP Meetings")
