@@ -5,6 +5,7 @@ import os
 import re
 import webbrowser
 from pathlib import Path
+# ---> THE FIX: Added QTimer
 from PyQt5.QtCore import Qt, pyqtSignal, QDate, QTimer
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QLineEdit, QTableView, QHeaderView, QSplitter, QTextBrowser,
@@ -17,8 +18,10 @@ from modules.emails.core.stats.statistics_threads import EmailStatsExporterThrea
 from modules.emails.ui.email_models import EmailTableModel, EmailProxyModel, TDocSummaryModel, TDocProxyModel
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 
+
 class EditEmailDialog(QDialog):
     """A quick dialog to fix parser inaccuracies for a specific email."""
+
     def __init__(self, current_data: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("✏️ Edit Email Metadata")
@@ -50,7 +53,8 @@ class EditEmailDialog(QDialog):
 
         btn_layout = QHBoxLayout()
         btn_save = QPushButton("💾 Save Changes")
-        btn_save.setStyleSheet("font-weight: bold; background-color: #0078D7; color: white; padding: 6px 15px; border-radius: 4px;")
+        btn_save.setStyleSheet(
+            "font-weight: bold; background-color: #0078D7; color: white; padding: 6px 15px; border-radius: 4px;")
         btn_cancel = QPushButton("Cancel")
 
         btn_save.clicked.connect(self.accept)
@@ -71,6 +75,7 @@ class EditEmailDialog(QDialog):
             "subject": self.txt_subject.text().strip(),
             "short_text": self.txt_short_text.toPlainText().strip()
         }
+
 
 class EmailManagerWindow(QWidget):
     tdoc_open_requested = pyqtSignal(str)
@@ -138,7 +143,6 @@ class EmailManagerWindow(QWidget):
         self.start_date = sd
         self.end_date = ed
 
-        # Keep stats config in memory
         if stats_cfg is not None:
             self.stats_config = stats_cfg
         elif not hasattr(self, 'stats_config'):
@@ -155,13 +159,11 @@ class EmailManagerWindow(QWidget):
 
     def _configure_folders(self):
         from modules.emails.ui.config_dialog import EmailConfigDialog
-
         current_stats = getattr(self, 'stats_config', self._load_config().get("stats_config", {}))
 
         dialog = EmailConfigDialog(self.source_folder, self.target_folder, current_stats, self)
         if dialog.exec_() == QDialog.Accepted:
             config_data = dialog.get_config_data()
-
             src = config_data["source_folder"]
             tgt = config_data["target_folder"]
             new_stats = config_data["stats_config"]
@@ -169,13 +171,10 @@ class EmailManagerWindow(QWidget):
             self.source_folder = src
             self.target_folder = tgt
             self.stats_config = new_stats
-
             self._save_config(src, tgt, self.start_date, self.end_date, new_stats)
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
-
-        # ---> POLISH: Extremely tight outer margins to maximize grid space
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(4)
 
@@ -194,13 +193,11 @@ class EmailManagerWindow(QWidget):
         # TOP CONTAINER: Ultra-Compressed Toolbars & Filters
         # =====================================================================
         top_controls_widget = QWidget()
-
-        # ---> NEW: Force the top container to NEVER expand vertically past its exact minimum size
         top_controls_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
 
         top_controls_layout = QVBoxLayout(top_controls_widget)
-        top_controls_layout.setContentsMargins(0, 0, 0, 2)  # Barely any bottom margin
-        top_controls_layout.setSpacing(2)  # Squish the two rows together
+        top_controls_layout.setContentsMargins(0, 0, 0, 2)
+        top_controls_layout.setSpacing(2)
 
         # --- TOOLBAR ---
         toolbar = QHBoxLayout()
@@ -227,7 +224,7 @@ class EmailManagerWindow(QWidget):
         self.btn_stats.setStyleSheet(get_btn_style())
         self.btn_stats.clicked.connect(self._generate_statistics)
 
-        self.btn_config = QPushButton("⚙️")
+        self.btn_config = QPushButton("⚙️ Folders")
         self.btn_config.setStyleSheet(get_btn_style())
         self.btn_config.clicked.connect(self._configure_folders)
 
@@ -268,20 +265,24 @@ class EmailManagerWindow(QWidget):
 
         self.cb_ai = CheckableComboBox("Filter by AI")
         self.cb_ai.setMinimumWidth(150)
+
+        # ---> THE FIX: Decoupled Signal Handler for Global Combobox
         self.cb_ai.selectionChanged.connect(self._on_ai_changed)
 
         self.btn_filter_star = QPushButton("⭐ Starred")
         self.btn_filter_star.setCheckable(True)
-        # ---> POLISH: Compressed padding to make filter buttons tighter
         self.btn_filter_star.setStyleSheet(
             "QPushButton { padding: 3px 6px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #FFF4CE; font-weight: bold; border-color: #E2C08D; }")
+
+        # ---> THE FIX: Decoupled Signal Handler for Star Filter
         self.btn_filter_star.toggled.connect(self._on_star_toggled)
 
         self.btn_filter_follow = QPushButton("👀 Followed AIs")
         self.btn_filter_follow.setCheckable(True)
-        # ---> POLISH: Compressed padding to make filter buttons tighter
         self.btn_filter_follow.setStyleSheet(
             "QPushButton { padding: 3px 6px; border: 1px solid #CCC; background: white; border-radius: 3px; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }")
+
+        # ---> THE FIX: Decoupled Signal Handler for Follow Filter
         self.btn_filter_follow.toggled.connect(self._on_follow_toggled)
 
         self.lbl_count = QLabel("Showing 0 Threads | 0 Emails")
@@ -319,6 +320,8 @@ class EmailManagerWindow(QWidget):
 
         self.tdoc_search_input = QLineEdit()
         self.tdoc_search_input.setPlaceholderText("🔍 Search threads...")
+
+        # ---> THE FIX: Decoupled Signal Handler for TDoc Search
         self.tdoc_search_input.textChanged.connect(self._on_tdoc_search_changed)
 
         left_header_layout.addWidget(self.lbl_left_title)
@@ -347,14 +350,20 @@ class EmailManagerWindow(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("🔍 Search this thread...")
         self.search_input.setMaximumWidth(200)
+
+        # ---> THE FIX: Decoupled Signal Handler for Email Text Search
         self.search_input.textChanged.connect(self._on_email_search_changed)
 
         self.cb_company = CheckableComboBox("Company")
         self.cb_company.setMinimumWidth(110)
+
+        # ---> THE FIX: Decoupled Signal Handler for Company Filter
         self.cb_company.selectionChanged.connect(self._on_company_changed)
 
         self.cb_sender = CheckableComboBox("Sender")
         self.cb_sender.setMinimumWidth(110)
+
+        # ---> THE FIX: Decoupled Signal Handler for Sender Filter
         self.cb_sender.selectionChanged.connect(self._on_sender_changed)
 
         right_header_layout.addWidget(self.lbl_right_title)
@@ -499,7 +508,15 @@ class EmailManagerWindow(QWidget):
         self.cb_company.updateItems(sorted(unique_companies))
         self.cb_sender.updateItems(sorted(unique_senders))
 
-        self._apply_filters()
+        # ---> THE FIX: Push explicit filter states down to the proxies instead of _apply_filters
+        self.tdoc_proxy.set_ai_filters(self.cb_ai.getCheckedItems())
+        self.email_proxy.set_company_filters(self.cb_company.getCheckedItems())
+        self.email_proxy.set_sender_filters(self.cb_sender.getCheckedItems())
+
+        self.tdoc_proxy.set_search_filter(self.tdoc_search_input.text())
+        self.tdoc_proxy.set_starred_filter(self.btn_filter_star.isChecked())
+        self.tdoc_proxy.set_followed_filter(self.btn_filter_follow.isChecked())
+        self.email_proxy.set_global_filter(self.search_input.text())
 
         if old_tdoc:
             for r in range(self.tdoc_proxy.rowCount()):
@@ -516,80 +533,34 @@ class EmailManagerWindow(QWidget):
                     self.email_view.selectRow(r)
                     break
 
-    def _on_tdoc_search_changed(self, text):
-        self.tdoc_proxy.set_filters(
-            self.btn_filter_star.isChecked(),
-            self.btn_filter_follow.isChecked(),
-            self.cb_ai.getCheckedItems(),
-            text
-        )
-        QTimer.singleShot(0, self._update_count_label)
-
+    # ---> THE FIX: Individual Handlers Exactly Like tdocs_window.py!
     def _on_ai_changed(self, ais):
-        self.tdoc_proxy.set_filters(
-            self.btn_filter_star.isChecked(),
-            self.btn_filter_follow.isChecked(),
-            ais,  # Use the directly emitted list to prevent timing bugs!
-            self.tdoc_search_input.text()
-        )
+        self.tdoc_proxy.set_ai_filters(ais)
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_star_toggled(self, checked):
-        self.tdoc_proxy.set_filters(
-            checked,
-            self.btn_filter_follow.isChecked(),
-            self.cb_ai.getCheckedItems(),
-            self.tdoc_search_input.text()
-        )
+        self.tdoc_proxy.set_starred_filter(checked)
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_follow_toggled(self, checked):
-        self.tdoc_proxy.set_filters(
-            self.btn_filter_star.isChecked(),
-            checked,
-            self.cb_ai.getCheckedItems(),
-            self.tdoc_search_input.text()
-        )
+        self.tdoc_proxy.set_followed_filter(checked)
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _on_tdoc_search_changed(self, text):
+        self.tdoc_proxy.set_search_filter(text)
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_email_search_changed(self, text):
-        self.email_proxy.set_filters(
-            text,
-            self.cb_company.getCheckedItems(),
-            self.cb_sender.getCheckedItems()
-        )
+        self.email_proxy.set_global_filter(text)
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_company_changed(self, companies):
-        self.email_proxy.set_filters(
-            self.search_input.text(),
-            companies,  # Use the directly emitted list
-            self.cb_sender.getCheckedItems()
-        )
+        self.email_proxy.set_company_filters(companies)
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_sender_changed(self, senders):
-        self.email_proxy.set_filters(
-            self.search_input.text(),
-            self.cb_company.getCheckedItems(),
-            senders  # Use the directly emitted list
-        )
+        self.email_proxy.set_sender_filters(senders)
         QTimer.singleShot(0, self._update_count_label)
-
-    def _apply_filters(self):
-        # Used programmatically ONLY during full table refreshes/syncs
-        self.tdoc_proxy.set_filters(
-            self.btn_filter_star.isChecked(),
-            self.btn_filter_follow.isChecked(),
-            self.cb_ai.getCheckedItems(),
-            self.tdoc_search_input.text()
-        )
-        self.email_proxy.set_filters(
-            self.search_input.text(),
-            self.cb_company.getCheckedItems(),
-            self.cb_sender.getCheckedItems()
-        )
-        self._update_count_label()
 
     def _on_tdoc_selected(self, selected, deselected):
         indexes = self.tdoc_view.selectionModel().selectedRows()
@@ -674,17 +645,12 @@ class EmailManagerWindow(QWidget):
         index = self.email_view.indexAt(pos)
         if not index.isValid(): return
 
-        # Grab the data for the right-clicked row
         source_idx = self.email_proxy.mapToSource(index)
         row_data = self.email_model.get_row_data(source_idx.row())
         col_name = self.email_model._headers[index.column()]
 
         menu = QMenu(self)
-
-        # ---> NEW: Always offer the Edit option
         edit_action = menu.addAction("✏️ Edit Email Details")
-
-        # Only offer the Copy Address option if they right-clicked the Sender column specifically
         copy_action = menu.addAction("📋 Copy Email Address") if col_name == "Sender" else None
 
         action = menu.exec_(self.email_view.viewport().mapToGlobal(pos))
@@ -843,10 +809,8 @@ class EmailManagerWindow(QWidget):
         self._set_buttons_enabled(False)
         self.btn_stats.setText("⏳ Generating...")
 
-        # Load the stats parameters saved from the configuration dialog
         current_stats = getattr(self, 'stats_config', self._load_config().get("stats_config", {}))
 
-        # Import the new Modularized Exporter Thread
         meeting_name = self.meeting_dir.name if self.meeting_dir else "Meeting"
 
         self.stats_thread = EmailStatsExporterThread(self.meeting_dir, all_emails, meeting_name, current_stats)
@@ -872,3 +836,4 @@ class EmailManagerWindow(QWidget):
         self.btn_move_all.setEnabled(state)
         self.btn_rescan.setEnabled(state)
         self.btn_stats.setEnabled(state)
+        self.btn_config.setEnabled(state)

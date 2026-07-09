@@ -1,5 +1,4 @@
 import os
-
 from PyQt5.QtCore import Qt, QAbstractTableModel, QSortFilterProxyModel, QModelIndex
 
 class EmailTableModel(QAbstractTableModel):
@@ -7,7 +6,7 @@ class EmailTableModel(QAbstractTableModel):
         super().__init__()
         self._data = data or []
         self.starred_tdocs = set()
-        self.followed_ais = set()  # <--- NEW
+        self.followed_ais = set()
         self._headers = ["⭐", "Status", "Local", "Date", "TDoc", "Rev", "AI", "Company", "Sender", "Short Text"]
 
     def update_data(self, new_data, starred_tdocs, followed_ais):
@@ -38,8 +37,6 @@ class EmailTableModel(QAbstractTableModel):
                 return f"👀 {ai}" if ai in self.followed_ais else ai
             if col_name == "Company": return row.get("company", "")
             if col_name == "Sender": return row.get("sender_name", "")
-
-            # ---> NEW: Revision Shortening
             if col_name == "Rev":
                 revs = row.get("revisions_mentioned", "")
                 base_tdoc = row.get("tdoc_id", "")
@@ -47,7 +44,6 @@ class EmailTableModel(QAbstractTableModel):
                     import re
                     return re.sub(re.escape(base_tdoc), "", revs).strip()
                 return revs
-
             if col_name == "Short Text":
                 text = str(row.get("short_text", ""))
                 return text.replace('\n', ' ')[:80] + "..." if len(text) > 80 else text
@@ -57,7 +53,6 @@ class EmailTableModel(QAbstractTableModel):
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
-        # ---> NEW: Hyperlink Styling (Blue text + Underline)
         elif role == Qt.ForegroundRole:
             if col_name in ["Sender", "Rev"]:
                 from PyQt5.QtGui import QColor
@@ -69,7 +64,6 @@ class EmailTableModel(QAbstractTableModel):
                 font.setUnderline(True)
                 return font
 
-        # Hidden data roles
         if role == Qt.UserRole + 1 and col_name == "Status": return row.get("id", "")
         if role == Qt.UserRole + 2 and col_name == "⭐": return row.get("tdoc_id") in self.starred_tdocs
         if role == Qt.UserRole + 3 and col_name == "AI": return row.get("agenda_item") in self.followed_ais
@@ -81,15 +75,10 @@ class EmailTableModel(QAbstractTableModel):
             return self._data[row_idx]
         return {}
 
-    def rowCount(self, index=QModelIndex()):
-        return len(self._data)
-
-    def columnCount(self, index=QModelIndex()):
-        return len(self._headers)
-
+    def rowCount(self, index=QModelIndex()): return len(self._data)
+    def columnCount(self, index=QModelIndex()): return len(self._headers)
     def headerData(self, section, orientation, role):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return self._headers[section]
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole: return self._headers[section]
         return None
 
 # ==========================================
@@ -108,35 +97,23 @@ class TDocSummaryModel(QAbstractTableModel):
         self.starred_tdocs = set(starred_tdocs)
         self.followed_ais = set(followed_ais)
 
-        # Aggregate raw emails into TDoc threads
         groups = {}
         for row in raw_email_data:
             tid = str(row.get("tdoc_id", "")).strip()
-            if not tid:
-                tid = "General / Unlinked"
+            if not tid: tid = "General / Unlinked"
 
             if tid not in groups:
-                groups[tid] = {
-                    'tdoc_id': tid,
-                    'ai': str(row.get('agenda_item', '')).strip(),
-                    'count': 0
-                }
+                groups[tid] = {'tdoc_id': tid, 'ai': str(row.get('agenda_item', '')).strip(), 'count': 0}
             groups[tid]['count'] += 1
 
-        # Sort so "General" is at the top, followed by alphanumerical TDocs
-        sorted_data = sorted(groups.values(), key=lambda x: (x['tdoc_id'] != "General / Unlinked", x['tdoc_id']))
-        self._data = sorted_data
+        self._data = sorted(groups.values(), key=lambda x: (x['tdoc_id'] != "General / Unlinked", x['tdoc_id']))
         self.endResetModel()
 
-    def rowCount(self, parent=None):
-        return len(self._data)
-
-    def columnCount(self, parent=None):
-        return len(self._headers)
+    def rowCount(self, parent=None): return len(self._data)
+    def columnCount(self, parent=None): return len(self._headers)
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return self._headers[section]
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole: return self._headers[section]
         return None
 
     def data(self, index, role=Qt.DisplayRole):
@@ -150,14 +127,10 @@ class TDocSummaryModel(QAbstractTableModel):
             if col == 2: return row['ai']
             if col == 3: return str(row['count'])
 
-        elif role == Qt.UserRole:
-            return row['tdoc_id']  # Store the TDoc ID in the UserRole so we can fetch it when clicked
-
+        elif role == Qt.UserRole: return row['tdoc_id']
         elif role == Qt.TextAlignmentRole:
             if col in [0, 3]: return Qt.AlignCenter
-
         return None
-
 
 class TDocProxyModel(QSortFilterProxyModel):
     def __init__(self):
@@ -167,11 +140,21 @@ class TDocProxyModel(QSortFilterProxyModel):
         self.ai_filters = set()
         self.search_text = ""
 
-    def set_filters(self, starred, followed, ais, search_text=""):
+    # ---> THE FIX: Decoupled Setters exactly like TDocsFilterProxyModel!
+    def set_starred_filter(self, starred):
         self.show_starred_only = starred
+        self.invalidateFilter()
+
+    def set_followed_filter(self, followed):
         self.show_followed_only = followed
+        self.invalidateFilter()
+
+    def set_ai_filters(self, ais):
         self.ai_filters = set(ais)
-        self.search_text = search_text.lower()
+        self.invalidateFilter()
+
+    def set_search_filter(self, text):
+        self.search_text = text.lower()
         self.invalidateFilter()
 
     def filterAcceptsRow(self, source_row, source_parent):
@@ -182,22 +165,15 @@ class TDocProxyModel(QSortFilterProxyModel):
         tdoc_str = str(tdoc_id) if tdoc_id else ""
         ai_str = str(ai) if ai else ""
 
-        # Always show General/Unlinked unless strictly filtering by a specific AI or Searching
         if tdoc_str == "General / Unlinked" and not self.ai_filters and not self.search_text:
             pass
         elif tdoc_str == "General / Unlinked" and (self.ai_filters or self.search_text):
             return False
 
-        if self.show_starred_only and tdoc_str not in model.starred_tdocs:
-            return False
+        if self.show_starred_only and tdoc_str not in model.starred_tdocs: return False
+        if self.show_followed_only and ai_str not in model.followed_ais: return False
+        if self.ai_filters and ai_str not in self.ai_filters: return False
 
-        if self.show_followed_only and ai_str not in model.followed_ais:
-            return False
-
-        if self.ai_filters and ai_str not in self.ai_filters:
-            return False
-
-        # ---> NEW: Global Thread Search logic
         if self.search_text:
             if self.search_text not in tdoc_str.lower() and self.search_text not in ai_str.lower():
                 return False
@@ -207,8 +183,6 @@ class TDocProxyModel(QSortFilterProxyModel):
 # ==========================================
 # RIGHT PANEL MODELS (Email Thread)
 # ==========================================
-# (Keep your existing EmailTableModel exactly as it is)
-
 class EmailProxyModel(QSortFilterProxyModel):
     def __init__(self):
         super().__init__()
@@ -217,44 +191,44 @@ class EmailProxyModel(QSortFilterProxyModel):
         self.company_filters = set()
         self.sender_filters = set()
 
+    # ---> THE FIX: Decoupled Setters exactly like TDocsFilterProxyModel!
     def set_target_tdoc(self, tdoc_id):
         self.target_tdoc = tdoc_id
         self.invalidateFilter()
 
-    def set_filters(self, text, companies, senders):
+    def set_global_filter(self, text):
         self.global_filter = text.lower()
+        self.invalidateFilter()
+
+    def set_company_filters(self, companies):
         self.company_filters = set(companies)
+        self.invalidateFilter()
+
+    def set_sender_filters(self, senders):
         self.sender_filters = set(senders)
         self.invalidateFilter()
 
     def filterAcceptsRow(self, source_row, source_parent):
         model = self.sourceModel()
 
-        # 1. Thread Filter: Only show emails belonging to the clicked TDoc
         if self.target_tdoc:
-            # ---> FIX: Explicitly pass Qt.DisplayRole to model.data()
             row_tdoc = str(model.data(model.index(source_row, 4, source_parent), Qt.DisplayRole)).strip()
             if not row_tdoc and self.target_tdoc == "General / Unlinked":
                 pass
             elif row_tdoc != self.target_tdoc:
                 return False
 
-        # 2. Company & Sender Dropdown Filters
         if self.company_filters:
-            # ---> FIX: Pass Qt.DisplayRole
             row_comp = str(model.data(model.index(source_row, 7, source_parent), Qt.DisplayRole)).strip()
             if row_comp not in self.company_filters:
                 return False
 
         if self.sender_filters:
-            # ---> FIX: Pass Qt.DisplayRole
             row_sender = str(model.data(model.index(source_row, 8, source_parent), Qt.DisplayRole)).strip()
             if row_sender not in self.sender_filters:
                 return False
 
-        # 3. Text Search Filter
         if self.global_filter:
-            # ---> FIX: Pass Qt.DisplayRole
             company = str(model.data(model.index(source_row, 7, source_parent), Qt.DisplayRole)).lower()
             sender = str(model.data(model.index(source_row, 8, source_parent), Qt.DisplayRole)).lower()
             short_text = str(model.data(model.index(source_row, 9, source_parent), Qt.DisplayRole)).lower()
