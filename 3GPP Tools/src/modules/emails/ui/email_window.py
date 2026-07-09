@@ -21,8 +21,6 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox
 
 
 class EditEmailDialog(QDialog):
-    """A quick dialog to fix parser inaccuracies for a specific email."""
-
     def __init__(self, current_data: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("✏️ Edit Email Metadata")
@@ -38,7 +36,6 @@ class EditEmailDialog(QDialog):
         self.txt_sender_name = QLineEdit(current_data.get("sender_name", ""))
         self.txt_sender_email = QLineEdit(current_data.get("sender_email", ""))
         self.txt_subject = QLineEdit(current_data.get("subject", ""))
-
         self.txt_short_text = QTextEdit(current_data.get("short_text", ""))
         self.txt_short_text.setMaximumHeight(100)
 
@@ -188,19 +185,25 @@ class EmailManagerWindow(QWidget):
 
         def get_btn_style(primary=False):
             if primary:
-                return """
-                QPushButton { font-weight: bold; background-color: #0078D7; color: white; padding: 6px 12px; border-radius: 4px; border: 1px solid #005A9E; }
-                QPushButton:hover { background-color: #005A9E; }
-                """
-            return """
-                QPushButton { font-weight: bold; background-color: #FFFFFF; color: #333333; padding: 6px 12px; border-radius: 4px; border: 1px solid #CCCCCC; }
-                QPushButton:hover { background-color: #F0F4F8; border-color: #005A9E; color: #005A9E; }
-                """
+                return "QPushButton { font-weight: bold; background-color: #0078D7; color: white; padding: 5px 12px; border-radius: 4px; border: 1px solid #005A9E; } QPushButton:hover { background-color: #005A9E; }"
+            return "QPushButton { font-weight: bold; background-color: #FFFFFF; color: #333333; padding: 5px 12px; border-radius: 4px; border: 1px solid #CCCCCC; } QPushButton:hover { background-color: #F0F4F8; border-color: #005A9E; color: #005A9E; }"
 
         # =====================================================================
-        # HEADER TOOLBAR
+        # UNIFIED TOP CONTROL PANEL (Squeezed Vertically!)
         # =====================================================================
-        header_layout = QHBoxLayout()
+        top_frame = QFrame()
+        top_frame.setStyleSheet(
+            "QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 8px; } "
+            "QLabel { font-weight: bold; color: #555; border: none; } "
+            "QLineEdit, QComboBox, QDateEdit { padding: 4px 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333; height: 22px; }"
+        )
+        top_layout = QVBoxLayout(top_frame)
+        top_layout.setContentsMargins(10, 8, 10, 8)  # Squeezed margins
+        top_layout.setSpacing(6)  # Squeezed spacing
+
+        # --- ROW 1: Buttons ---
+        row1_layout = QHBoxLayout()
+        row1_layout.setSpacing(6)
 
         self.btn_sync = QPushButton("🔄 Sync Source")
         self.btn_sync.setStyleSheet(get_btn_style(primary=True))
@@ -229,25 +232,21 @@ class EmailManagerWindow(QWidget):
         self.lbl_status = QLabel("Ready.")
         self.lbl_status.setStyleSheet("color: #666; font-style: italic; margin-left: 10px;")
 
+        self.lbl_count = QLabel("Showing 0 Threads | 0 Emails")
+        self.lbl_count.setStyleSheet(
+            "font-size: 13px; color: #0078D7; font-weight: bold; padding-left: 10px; border: none;")
+
         for btn in [self.btn_sync, self.btn_move, self.btn_move_all, self.btn_rescan, self.btn_stats, self.btn_config]:
-            header_layout.addWidget(btn)
-        header_layout.addWidget(self.lbl_status)
-        header_layout.addStretch()
+            row1_layout.addWidget(btn)
+        row1_layout.addWidget(self.lbl_status)
+        row1_layout.addStretch()
+        row1_layout.addWidget(self.lbl_count)
 
-        main_layout.addLayout(header_layout)
+        top_layout.addLayout(row1_layout)
 
-        # =====================================================================
-        # GLOBAL FILTERS (Everything unified here!)
-        # =====================================================================
-        filter_frame = QFrame()
-        filter_frame.setStyleSheet(
-            "QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 8px; } "
-            "QLabel { font-weight: bold; color: #555; border: none; } "
-            "QLineEdit, QComboBox { padding: 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; }"
-        )
-        filter_layout = QHBoxLayout(filter_frame)
-        filter_layout.setContentsMargins(10, 5, 10, 5)
-        filter_layout.setSpacing(10)
+        # --- ROW 2: Filters ---
+        row2_layout = QHBoxLayout()
+        row2_layout.setSpacing(8)
 
         self.dt_start = QDateEdit()
         self.dt_start.setCalendarPopup(True)
@@ -282,7 +281,6 @@ class EmailManagerWindow(QWidget):
             "QPushButton { padding: 4px 8px; background: white; border-radius: 3px; border: 1px solid #CCC; color: #333; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }")
         self.btn_filter_follow.toggled.connect(self._apply_filters)
 
-        # ---> THE FIX: Moved all comboboxes here, safely inside the QFrame!
         self.cb_ai = CheckableComboBox("Filter by AI")
         self.cb_ai.selectionChanged.connect(self._apply_filters)
 
@@ -294,23 +292,21 @@ class EmailManagerWindow(QWidget):
         self.cb_sender.setMinimumWidth(110)
         self.cb_sender.selectionChanged.connect(self._apply_filters)
 
-        self.lbl_count = QLabel("Showing 0 Threads | 0 Emails")
-        self.lbl_count.setStyleSheet(
-            "font-size: 13px; color: #555; font-weight: bold; padding-left: 10px; border: none;")
+        row2_layout.addWidget(QLabel("📅 Limit Data:"))
+        row2_layout.addWidget(self.dt_start)
+        row2_layout.addWidget(QLabel("-"))
+        row2_layout.addWidget(self.dt_end)
+        row2_layout.addSpacing(10)
+        row2_layout.addWidget(self.btn_filter_star)
+        row2_layout.addWidget(self.btn_filter_follow)
+        row2_layout.addWidget(self.cb_ai)
+        row2_layout.addWidget(self.cb_company)
+        row2_layout.addWidget(self.cb_sender)
+        row2_layout.addStretch()
 
-        filter_layout.addWidget(QLabel("📅 Filter:"))
-        filter_layout.addWidget(self.dt_start)
-        filter_layout.addWidget(QLabel("-"))
-        filter_layout.addWidget(self.dt_end)
-        filter_layout.addWidget(self.btn_filter_star)
-        filter_layout.addWidget(self.btn_filter_follow)
-        filter_layout.addWidget(self.cb_ai)
-        filter_layout.addWidget(self.cb_company)  # <--- Moved here
-        filter_layout.addWidget(self.cb_sender)  # <--- Moved here
-        filter_layout.addStretch()
-        filter_layout.addWidget(self.lbl_count)
+        top_layout.addLayout(row2_layout)
 
-        main_layout.addWidget(filter_frame)
+        main_layout.addWidget(top_frame, stretch=0)
 
         # =====================================================================
         # MASTER-DETAIL SPLITTER
@@ -329,7 +325,7 @@ class EmailManagerWindow(QWidget):
         self.tdoc_search_input = QLineEdit()
         self.tdoc_search_input.setPlaceholderText("🔍 Search threads...")
         self.tdoc_search_input.setStyleSheet(
-            "padding: 4px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333;")
+            "padding: 2px 4px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333;")
         self.tdoc_search_input.textChanged.connect(self._apply_filters)
 
         left_header_layout.addWidget(self.lbl_left_title)
@@ -352,16 +348,14 @@ class EmailManagerWindow(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
 
         right_header_layout = QHBoxLayout()
-
         self.lbl_right_title = QLabel("📧 Thread History")
         self.lbl_right_title.setStyleSheet("font-weight: bold; color: #0078D7;")
 
-        # ---> THE FIX: Greatly simplified since the comboboxes are gone!
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("🔍 Search this thread...")
         self.search_input.setMaximumWidth(200)
         self.search_input.setStyleSheet(
-            "padding: 4px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333;")
+            "padding: 2px 4px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333;")
         self.search_input.textChanged.connect(self._apply_filters)
 
         right_header_layout.addWidget(self.lbl_right_title)
@@ -421,7 +415,7 @@ class EmailManagerWindow(QWidget):
         self.main_splitter.addWidget(self.left_panel)
         self.main_splitter.addWidget(self.right_panel)
         self.main_splitter.setSizes([350, 1000])
-        main_layout.addWidget(self.main_splitter)
+        main_layout.addWidget(self.main_splitter, stretch=1)
 
         # =====================================================================
         # MODEL SETUP

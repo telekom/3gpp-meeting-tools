@@ -1,6 +1,8 @@
 # --- File: src/modules/emails/ui/email_models.py ---
 import os
+import re
 from PyQt5.QtCore import Qt, QAbstractTableModel, QSortFilterProxyModel, QModelIndex
+
 
 class EmailTableModel(QAbstractTableModel):
     def __init__(self, data=None):
@@ -42,7 +44,6 @@ class EmailTableModel(QAbstractTableModel):
                 revs = row.get("revisions_mentioned", "")
                 base_tdoc = row.get("tdoc_id", "")
                 if revs and base_tdoc:
-                    import re
                     return re.sub(re.escape(base_tdoc), "", revs).strip()
                 return revs
             if col_name == "Short Text":
@@ -76,11 +77,16 @@ class EmailTableModel(QAbstractTableModel):
             return self._data[row_idx]
         return {}
 
-    def rowCount(self, index=QModelIndex()): return len(self._data)
-    def columnCount(self, index=QModelIndex()): return len(self._headers)
+    def rowCount(self, index=QModelIndex()):
+        return len(self._data)
+
+    def columnCount(self, index=QModelIndex()):
+        return len(self._headers)
+
     def headerData(self, section, orientation, role):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole: return self._headers[section]
         return None
+
 
 # ==========================================
 # LEFT PANEL MODELS (TDoc Summary)
@@ -104,14 +110,35 @@ class TDocSummaryModel(QAbstractTableModel):
             if not tid: tid = "General / Unlinked"
 
             if tid not in groups:
-                groups[tid] = {'tdoc_id': tid, 'ai': str(row.get('agenda_item', '')).strip(), 'count': 0}
+                groups[tid] = {
+                    'tdoc_id': tid,
+                    'ai': str(row.get('agenda_item', '')).strip(),
+                    'count': 0,
+                    'companies': set(),
+                    'subject': str(row.get('subject', '')),
+                    'abstract': str(row.get('short_text', ''))
+                }
             groups[tid]['count'] += 1
+            comp = str(row.get('company', '')).strip()
+            if comp: groups[tid]['companies'].add(comp)
+
+        # Build clean strings for the Tooltips
+        for k, v in groups.items():
+            comps = sorted(list(v['companies']))
+            v['companies_str'] = ", ".join(comps)
+            if len(v['companies_str']) > 100: v['companies_str'] = v['companies_str'][:97] + "..."
+            if len(v['abstract']) > 250: v['abstract'] = v['abstract'][:247] + "..."
+            if not v['subject']: v['subject'] = "No Subject"
+            if not v['abstract']: v['abstract'] = "No text available."
 
         self._data = sorted(groups.values(), key=lambda x: (x['tdoc_id'] != "General / Unlinked", x['tdoc_id']))
         self.endResetModel()
 
-    def rowCount(self, parent=None): return len(self._data)
-    def columnCount(self, parent=None): return len(self._headers)
+    def rowCount(self, parent=None):
+        return len(self._data)
+
+    def columnCount(self, parent=None):
+        return len(self._headers)
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole: return self._headers[section]
@@ -128,9 +155,22 @@ class TDocSummaryModel(QAbstractTableModel):
             if col == 2: return row['ai']
             if col == 3: return str(row['count'])
 
-        elif role == Qt.UserRole: return row['tdoc_id']
+        elif role == Qt.UserRole:
+            return row['tdoc_id']
         elif role == Qt.TextAlignmentRole:
             if col in [0, 3]: return Qt.AlignCenter
+
+        # ---> NEW: Renders the beautiful Title/Source/Abstract hover tooltip!
+        elif role == Qt.ToolTipRole:
+            if row['tdoc_id'] == "General / Unlinked":
+                return "Emails not linked to any specific TDoc."
+
+            title = row['subject'].replace('<', '&lt;').replace('>', '&gt;')
+            sources = row['companies_str'].replace('<', '&lt;').replace('>', '&gt;')
+            abstract = row['abstract'].replace('<', '&lt;').replace('>', '&gt;')
+
+            return f"<div style='white-space: pre-wrap; max-width: 400px;'><b>Title (Latest):</b> {title}<br><br><b>Sources (Thread):</b> {sources}<br><br><b>Abstract / Snippet:</b><br>{abstract}</div>"
+
         return None
 
 
@@ -142,7 +182,6 @@ class TDocProxyModel(QSortFilterProxyModel):
         self.ai_filters = set()
         self.search_text = ""
 
-    # ---> RESTORED: Unified Filter Setter matching your UI
     def set_filters(self, starred_only, followed_only, ais, search_text):
         self.show_starred_only = starred_only
         self.show_followed_only = followed_only
@@ -189,7 +228,6 @@ class EmailProxyModel(QSortFilterProxyModel):
         self.target_tdoc = tdoc_id
         self.invalidateFilter()
 
-    # ---> RESTORED: Unified Filter Setter matching your UI
     def set_filters(self, search_text, companies, senders):
         self.global_filter = search_text.lower().strip() if search_text else ""
         self.company_filters = set(companies) if companies else set()
