@@ -151,7 +151,7 @@ GLOBAL_STYLE = """
     }
 """
 
-def create_app_icon(text="P2V"):
+def create_app_icon(text="3G\nPP"):
     """Generates a dynamic app icon. Pass different text for different tools."""
     pixmap = QPixmap(64, 64)
     pixmap.fill(Qt.transparent)
@@ -164,7 +164,7 @@ def create_app_icon(text="P2V"):
     painter.drawRoundedRect(4, 4, 56, 56, 12, 12)
 
     painter.setPen(QColor("#FFFFFF"))
-    font_size = 16 if len(text) <= 3 else 12
+    font_size = 16 if len(text) <= 3 else 16
     font = QFont("Segoe UI", font_size, QFont.Bold)
     painter.setFont(font)
     painter.drawText(pixmap.rect(), Qt.AlignCenter, text)

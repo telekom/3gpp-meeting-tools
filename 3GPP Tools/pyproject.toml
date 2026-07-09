@@ -24,4 +24,4 @@ dependencies = [
 ]
 
 [project.scripts]
-3gpp-tools = "main_puml2visio:main"
+3gpp-tools = "main_tools:main"
