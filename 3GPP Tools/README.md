@@ -35,6 +35,8 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Multi-Action Resources Menu:** Instantly jump to local cache directories, fetched HTML Agenda files, Main FTP folders, Docs/ folders, or Revisions/ folders directly from the UI.
   * **Quick Launch History:** Remembers your exact active working group session, allowing you to bypass the database table and instantly jump back into your last opened meeting with a single click.
 
+* **Smart Network Detection:** Automatically detects when you are connected to the official "3GPPWIFI" network during live meetings. It runs a lightweight background thread to ping the internal local server (e.g., `10.10.10.10`) and displays a persistent visual indicator in the status bar. This enables dynamic features like bypassing public internet firewalls and routing downloads directly through the high-speed local meeting network.
+
 * **3GPP FTP Session Manager:** Automatically injects randomized User-Agents and HTTP Keep-Alive headers. Features a configurable **Humanness Delay** engine to bypass aggressive 3GPP server throttling and "Too Many Requests" blocks, which can be dialed down to 0.0 for maximum scraping speed.
 
 ### 📧 eMeeting Email Manager (Native Outlook Integration)
@@ -93,7 +95,7 @@ To run this application natively or build it from source, you must have the foll
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-repo/3GPP-Delegate-Helper.git
+git clone [https://github.com/your-repo/3GPP-Delegate-Helper.git](https://github.com/your-repo/3GPP-Delegate-Helper.git)
 cd 3GPP-Delegate-Helper
 ```
 
@@ -145,6 +147,7 @@ python src/main_tools.py
 
 ### ⚙️ Configuring Corporate Proxies & Networking
 If you are behind a corporate firewall:
-1. Click the **Network Config** button.
-2. Enter your HTTP/HTTPS proxies into the global session without restarting the app.
-3. Adjust the **Humanness Delays** to throttle network requests (to mimic human behavior) or set them to 0.0 for maximum download speed.
+1. Glance at the **bottom right status bar** to instantly see your active network status (Public Internet vs. 3GPP Local Network).
+2. Click the **Network Config** button.
+3. Enter your HTTP/HTTPS proxies into the global session without restarting the app.
+4. Adjust the **Humanness Delays** to throttle network requests (to mimic human behavior) or set them to 0.0 for maximum download speed.
