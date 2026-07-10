@@ -5,8 +5,12 @@ import webbrowser
 import os
 from pathlib import Path
 
+# Add QLabel to your existing QtWidgets import list
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication, QDialog, QTabWidget, \
-    QPushButton, QShortcut
+    QPushButton, QShortcut, QLabel
+
+# Add the new thread underneath your other core imports
+from core.network.wifi_monitor import WifiMonitorThread
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor
@@ -30,6 +34,8 @@ from modules.puml2visio.utils.paths import get_puml2visio_asset_path
 from modules.specifications.ui.ui_tabs import SpecificationsTab
 
 from modules.word_tools.ui.word_tabs import WordExtractorTab
+
+from core.network.wifi_monitor import WifiMonitorThread
 
 
 class DragDropUI(QMainWindow):
@@ -77,6 +83,11 @@ class DragDropUI(QMainWindow):
         self.live_preview.log_msg.connect(self.log_message)
 
         self._launch_init_thread(check_updates=False)
+
+        # ---> NEW: Start the Background WiFi Monitor <---
+        self.wifi_monitor = WifiMonitorThread(self)
+        self.wifi_monitor.status_updated.connect(self._update_network_indicator)
+        self.wifi_monitor.start()
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -238,6 +249,12 @@ class DragDropUI(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("⏳ Initializing...")
 
+        # ---> NEW: Add the Network Indicator <---
+        self.network_indicator = QLabel("📶 Checking Network...")
+        self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
+        # A Permanent Widget anchors to the far right of the Status Bar
+        self.status_bar.addPermanentWidget(self.network_indicator)
+
     # --- THREAD MANAGEMENT ---
     def _launch_init_thread(self, check_updates=False):
         self.init_thread = InitializationThread(self.jar_path, check_updates=check_updates)
@@ -271,10 +288,6 @@ class DragDropUI(QMainWindow):
             self.cache_file.write_text(self.code_tab.get_text(), encoding="utf-8")
         except Exception:
             pass
-
-    def closeEvent(self, event):
-        self.save_cache()
-        super().closeEvent(event)
 
     # --- UI INTERACTION LOGIC ---
     def open_documentation(self):
@@ -480,3 +493,24 @@ class DragDropUI(QMainWindow):
 
     def log_message(self, message: str, level=logging.INFO):
         self.console_panel.log_message(message, level)
+
+    # ---> NEW: Add this method anywhere in the class <---
+    def _update_network_indicator(self, ssid, is_3gpp, server_reachable):
+        """Dynamically styles the network label based on the background thread state."""
+        if is_3gpp and server_reachable:
+            self.network_indicator.setText(f"🟢 {ssid} (Local Server Active)")
+            self.network_indicator.setStyleSheet("color: #2e7d32; font-weight: bold; padding: 0 10px;")
+        elif is_3gpp and not server_reachable:
+            self.network_indicator.setText(f"🟡 {ssid} (No Local Server)")
+            self.network_indicator.setStyleSheet("color: #b8860b; font-weight: bold; padding: 0 10px;")
+        else:
+            display_name = ssid if ssid else "Offline"
+            self.network_indicator.setText(f"🌐 {display_name}")
+            self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
+
+    # ---> MODIFIED: Update your existing closeEvent <---
+    def closeEvent(self, event):
+        self.save_cache()
+        if hasattr(self, 'wifi_monitor'):
+            self.wifi_monitor.stop()  # Safely terminate the background network checks
+        super().closeEvent(event)
