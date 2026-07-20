@@ -200,8 +200,8 @@ class DragDropUI(QMainWindow):
         )
 
         self.tabs.addTab(self.code_tab, "📝 PlantUML Editor")
-        self.tabs.addTab(self.batch_tab, "📂 Visio Tools")
-        self.tabs.addTab(self.word_tab, "📄 Word Tools")
+        self.tabs.addTab(self.batch_tab, "🔄 Visio Tools")
+        self.tabs.addTab(self.word_tab, "📘 Word Tools")
         self.tabs.addTab(self.specs_tab, "📚 3GPP Specifications")
         self.tabs.addTab(self.meetings_tab, "🗓️ 3GPP Meetings")
         self.tabs.setEnabled(False)
