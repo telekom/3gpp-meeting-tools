@@ -19,7 +19,8 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ## <a id="features"></a>✨ Features
 
 ### 📡 3GPP Meeting & Specifications Database
-* **Asynchronous Three-Phase Syncing Engine:** * **Phase 1 (FTP Directory Mapping):** Scrapes the 3GPP FTP archives in parallel to instantly populate your database with all available meeting numbers, gracefully handling hidden RAN Ad-Hoc (`TSGR_AHs`) subdirectories.
+* **Asynchronous Three-Phase Syncing Engine:** 
+  * **Phase 1 (FTP Directory Mapping):** Scrapes the 3GPP FTP archives in parallel to instantly populate your database with all available meeting numbers, gracefully handling hidden RAN Ad-Hoc (`TSGR_AHs`) subdirectories.
   * **Phase 2 (Deep Document Scrape):** Crawls the `Docs/` folder of every meeting. Uses smart Regex stripping to ignore file extensions and revisions, mathematically sorting the files to determine the first and last TDocs of the meeting.
   * **Phase 3 (DynaReport Upserting):** Injects metadata (Location, Start/End Dates, Ad-Hoc/Electronic status) by fetching the legacy 3GPP Portal HTML tables.
 * **Targeted Quick Fetch:** Instantly sync individual specifications (e.g., `23.801-01`) or entire specification series (e.g., `23`) directly from the FTP server without needing to run a lengthy full database sync.
@@ -44,7 +45,8 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Master-Detail Thread Architecture:** Bypasses broken Outlook reply chains by logically grouping emails purely by parsed TDoc numbers. The UI features a split-screen design: a Left Panel displaying active TDoc threads and a Right Panel displaying the isolated, chronological conversation for the selected topic.
 * **Intelligent 3GPP Parser:** Uses smart regex to extract TDoc numbers (6-8 digits), Agenda Items, Revisions, and free text directly from standard 3GPP bracketed subject lines and email bodies.
 * **DMARC Listserv Bypass:** Automatically detects when 3GPP mailing lists rewrite the sender address to `LIST.ETSI.ORG`. It parses the actual sender's name and email address from the email body and maps them to known telecommunication companies.
-* **Advanced Dual-Layer Filtering:** * **Macro-Filters (Thread Level):** Use Star (⭐) and Follow (👀) buttons, or the global search bar, to instantly filter the left-hand thread list down to specific topics or Agenda Items of interest.
+* **Advanced Dual-Layer Filtering:** 
+  * **Macro-Filters (Thread Level):** Use Star (⭐) and Follow (👀) buttons, or the global search bar, to instantly filter the left-hand thread list down to specific topics or Agenda Items of interest.
   * **Micro-Filters (Conversation Level):** Once a thread is selected, use the Company dropdown, Sender dropdown, or Text search boxes to isolate specific replies strictly within that single conversation.
 * **Interactive Email Analytics:** Click the **Statistics** button to instantly generate an interactive, offline HTML Plotly dashboard visualizing Agenda Item volumes, company activity rankings, timeline histograms, and top delegate leaderboards.
 * **Automated Archiving:** Safely extracts physical `.msg` files to your hard drive and dynamically builds a clean target folder hierarchy in Outlook (e.g., `Archive/SA2_175/9.1.1/`) to permanently organize your inbox.
@@ -61,9 +63,10 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Background Word-to-PDF Converter:** A headless Word automation thread that silently converts generated files to PDFs or XPS without interrupting your workflow.
 * **Native Visio Extractor:** Parses the raw XML (`document.xml`) of a `.docx` file, identifies embedded `OLEObject` bins, and extracts raw `.vsdx` Visio diagrams straight out of the Word document to your local disk.
 
-### 🎨 PlantUML to Visio Converter
-* **Live Preview IDE:** A code editor featuring syntax highlighting, line numbering, and a 500ms debounced live-rendering engine.
-* **Batch Conversion Engine:** Drag and drop hundreds of `.puml` or `.txt` files to queue them for multi-threaded background conversion.
+### 🎨 Visio Tools (PlantUML & PowerPoint Converter)
+* **Live Preview IDE:** A PlantUML code editor featuring syntax highlighting, line numbering, and a 500ms debounced live-rendering engine.
+* **Batch Conversion Engine:** Drag and drop hundreds of `.puml`, `.txt`, or `.pptx` files to queue them for multi-threaded background conversion.
+* **PowerPoint to Visio Pipeline:** Seamlessly convert entire PowerPoint presentations into multi-page Visio documents (`.vsdx`). Uses Enhanced Metafile (EMF) bridging to perfectly preserve editable native Office shapes, automatically aggressively ungroup them, and shrink wrap their text boundaries.
 * **Custom Visio Stencil Engine:** Converts standard PlantUML shapes into grouped Visio shapes (`.vsdx`) mapped directly to custom 3GPP node stencils.
 
 ---
@@ -88,6 +91,7 @@ To run this application natively or build it from source, you must have the foll
 3. **Microsoft Outlook (Desktop App)** (Required for the eMeeting Email Manager)
 4. **Java Runtime Environment (JRE) 11+** (Required for the local PlantUML generation engine)
 5. *(Optional but Recommended)* **Microsoft Visio** (To view the generated outputs)
+6. *(Optional but Recommended)* **Microsoft PowerPoint** (For .pptx conversions)
 
 ---
 
@@ -140,14 +144,14 @@ python src/main_tools.py
 2. Click **Compare in Word**. The tool will spawn a background process, temporarily remove file locks and OS restrictions, and present you with a native Word redline document.
 3. For large specs, navigate to the **Spec Splitter** tab, drag a `.docx` file, choose a Heading depth (e.g., "Level 2" for clauses like `6.1`, `6.2`), and click Split.
 
-### 🎨 PlantUML Editor
-1. Type standard PlantUML code into the left pane.
-2. The Live Preview will automatically update the image on the right.
-3. Click **Export Visio** to generate a native `.vsdx` file, or **Copy to Clipboard** to paste the image directly into PowerPoint.
+### 🎨 Visio Tools
+1. **PlantUML Editor:** Type standard PlantUML code into the left pane. The Live Preview will automatically update the image on the right.
+2. Click **Export Diagram ▼** and select **To Visio (.vsdx)** to generate a native Visio file, or use other options like PowerPoint, SVG, or ASCII.
+3. **Batch Process & PowerPoint Conversion:** Navigate to the **📂 Visio Tools** tab and drag-and-drop `.puml`, `.txt`, or `.pptx` (PowerPoint) files into the drop zone. The system will automatically detect the file type and process it into a clean, editable Visio file in the background!
 
 ### ⚙️ Configuring Corporate Proxies & Networking
 If you are behind a corporate firewall:
 1. Glance at the **bottom right status bar** to instantly see your active network status (Public Internet vs. 3GPP Local Network).
-2. Click the **Network Config** button.
+2. Click the **Network Config** button in the Console Panel.
 3. Enter your HTTP/HTTPS proxies into the global session without restarting the app.
 4. Adjust the **Humanness Delays** to throttle network requests (to mimic human behavior) or set them to 0.0 for maximum download speed.

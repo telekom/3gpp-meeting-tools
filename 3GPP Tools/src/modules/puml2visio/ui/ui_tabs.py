@@ -147,16 +147,30 @@ class CodeEditorTab(QWidget):
 
 
 class BatchConvertTab(QWidget):
-    files_dropped = pyqtSignal(list)
+    files_dropped = pyqtSignal(list, str)
 
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
-        self.drop_label = InteractiveDropLabel("⏳ Initializing system checks... Please wait.", ['.puml', '.txt'])
-        self.drop_label.file_dropped.connect(self.files_dropped.emit)
+
+        # ---> NEW: Added '.pptx' to the allowed extensions list
+        self.drop_label = InteractiveDropLabel(
+            "⏳ Initializing system checks... Please wait.",
+            ['.puml', '.txt', '.pptx']
+        )
+
+        self.drop_label.file_dropped.connect(self._handle_files_dropped)
         layout.addWidget(self.drop_label)
         self.setLayout(layout)
+
+    def _handle_files_dropped(self, paths):
+        """Determines the correct Queue task target format based on the file extension."""
+        for path in paths:
+            if str(path).lower().endswith(".pptx"):
+                self.files_dropped.emit([path], "pptx_to_visio")
+            else:
+                self.files_dropped.emit([path], "vsdx")
 
     def set_state(self, state, text=None):
         self.drop_label.set_state(state, text)
