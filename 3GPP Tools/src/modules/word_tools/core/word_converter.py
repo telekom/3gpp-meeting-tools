@@ -81,7 +81,24 @@ class WordConverterThread(QThread):
             doc = word.Documents.Open(source_path, False, True, False)
 
             self.ui_log_msg.emit("⏳ Converting and saving...", logging.INFO)
-            doc.SaveAs2(out_path, FileFormat=self.FORMAT_MAP[self.target_format])
+
+            # --- NEW LOGIC: Branch based on target format ---
+            if self.target_format in ("pdf", "xps"):
+                # wdExportFormatPDF = 17, wdExportFormatXPS = 18
+                export_format = 17 if self.target_format == "pdf" else 18
+
+                doc.ExportAsFixedFormat(
+                    OutputFileName=out_path,
+                    ExportFormat=export_format,
+                    OpenAfterExport=False,
+                    OptimizeFor=0,  # wdExportOptimizeForPrint
+                    IncludeDocProps=True,
+                    CreateBookmarks=1  # wdExportCreateHeadingBookmarks
+                )
+            else:
+                # Fallback to standard SaveAs2 for HTML, RTF, TXT
+                doc.SaveAs2(out_path, FileFormat=self.FORMAT_MAP[self.target_format])
+            # ------------------------------------------------
 
             self.ui_log_msg.emit(f"✅ Conversion complete: {out_name}", logging.INFO)
             self.finished_path.emit(out_path)

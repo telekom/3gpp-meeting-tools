@@ -232,6 +232,9 @@ class DragDropUI(QMainWindow):
 
         self.console_panel.task_manager_requested.connect(self.open_task_manager)
 
+        # Logging
+        self.specs_tab.log_msg.connect(self.console_panel.log_message)
+
         self.queue_panel = QueuePanel()
 
         self.bottom_splitter.addWidget(self.console_panel)
@@ -490,6 +493,10 @@ class DragDropUI(QMainWindow):
                     self.log_message(f"👁️ Opened {ext} in default system viewer.")
                 except Exception as e:
                     self.log_message(f"⚠️ Could not automatically open file: {e}")
+            else:
+                # ---> NEW: Catch downloaded specs (PDFs, DOCX, ZIP) and log them to the terminal!
+                file_name = Path(out_path).name
+                self.log_message(f"✅ Successfully saved/downloaded: {file_name}", logging.INFO)
 
     def log_message(self, message: str, level=logging.INFO):
         self.console_panel.log_message(message, level)
