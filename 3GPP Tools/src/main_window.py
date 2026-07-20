@@ -113,7 +113,10 @@ class DragDropUI(QMainWindow):
         self.code_tab.file_dropped.connect(self.extract_code_from_visio)
 
         self.batch_tab = BatchConvertTab()
-        self.batch_tab.files_dropped.connect(lambda paths: self.queue_manager.add_batch(paths))
+        # 👇 UPDATE this line to accept 'fmt' and pass it as 'target_format'
+        self.batch_tab.files_dropped.connect(
+            lambda paths, fmt: self.queue_manager.add_batch(paths, target_format=fmt)
+        )
 
         self.word_tab = WordExtractorTab()
 
@@ -197,7 +200,7 @@ class DragDropUI(QMainWindow):
         )
 
         self.tabs.addTab(self.code_tab, "📝 PlantUML Editor")
-        self.tabs.addTab(self.batch_tab, "📂 PlantUML2Visio")
+        self.tabs.addTab(self.batch_tab, "📂 Visio Tools")
         self.tabs.addTab(self.word_tab, "📄 Word Tools")
         self.tabs.addTab(self.specs_tab, "📚 3GPP Specifications")
         self.tabs.addTab(self.meetings_tab, "🗓️ 3GPP Meetings")
@@ -308,8 +311,9 @@ class DragDropUI(QMainWindow):
             self.batch_tab.set_state("busy",
                                      "⚙️ Processing Queue...\n\nPlease wait until finished or drop more files to queue them.")
         else:
+            # ---> NEW: Updated the idle text to mention .pptx
             self.batch_tab.set_state("ready",
-                                     "📥 Drag & Drop your .puml or .txt file(s) here\n\n(Batch exports as Visio files)")
+                                     "📥 Drag & Drop your .puml, .txt, or .pptx file(s) here\n\n(Batch exports as Visio files)")
 
     def _set_editor_text(self, text):
         cursor = self.code_tab.text_input.textCursor()
