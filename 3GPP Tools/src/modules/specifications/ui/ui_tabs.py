@@ -69,11 +69,16 @@ class SpecificationsTab(QWidget):
         # --- ROW 1: Download Path ---
         dir_layout = QHBoxLayout()
         self.dl_dir_input = QLineEdit(self.default_dl_dir)
+        self.dl_dir_input.setToolTip(
+            "The local directory where all downloaded 3GPP specifications are saved and extracted.")
         self.dl_dir_input.editingFinished.connect(self._save_settings)
+
         browse_btn = QPushButton("📂 Browse...")
+        browse_btn.setToolTip("Select a new local folder to store your downloaded specifications.")
         browse_btn.clicked.connect(self._browse_dir)
+
         open_dir_btn = QPushButton("↗️ Open")
-        open_dir_btn.setToolTip("Open the base download folder in Windows Explorer")
+        open_dir_btn.setToolTip("Open the base download folder in Windows Explorer.")
         open_dir_btn.setCursor(Qt.PointingHandCursor)
         open_dir_btn.clicked.connect(self._open_download_dir)
 
@@ -93,18 +98,25 @@ class SpecificationsTab(QWidget):
         sync_layout.addWidget(QLabel("<b>🌐 Network Sync:</b>"))
 
         self.full_sync_btn = QPushButton("🔄 Full Sync")
+        self.full_sync_btn.setToolTip(
+            "Synchronize the entire 3GPP specification database from the FTP server (takes a while).")
         self.full_sync_btn.clicked.connect(lambda: self.update_db_requested.emit(self.force_meta_checkbox.isChecked()))
         sync_layout.addWidget(self.full_sync_btn)
 
         self.target_sync_btn = QPushButton("🎯 Quick Fetch")
+        self.target_sync_btn.setToolTip(
+            "Instantly download specific specs or series (e.g., '23.501' or '23') without a full sync.")
         self.target_sync_btn.clicked.connect(self._open_targeted_sync)
         sync_layout.addWidget(self.target_sync_btn)
 
         self.adv_sync_btn = QPushButton("⚙️ Filtered Sync")
+        self.adv_sync_btn.setToolTip("Sync only specific portions of the database based on Series, Tech, or Group.")
         self.adv_sync_btn.clicked.connect(self._open_advanced_sync)
         sync_layout.addWidget(self.adv_sync_btn)
 
         self.force_meta_checkbox = QCheckBox("Force Metadata")
+        self.force_meta_checkbox.setToolTip(
+            "Force the scraper to re-download HTML metadata even if it already exists in the database.")
         sync_layout.addWidget(self.force_meta_checkbox)
 
         self.bg_sync_label = QLabel("⏳ Fetching deep metadata in background...")
@@ -122,23 +134,27 @@ class SpecificationsTab(QWidget):
 
         self.spec_search_input = QLineEdit()
         self.spec_search_input.setPlaceholderText("Spec Number or Title...")
+        self.spec_search_input.setToolTip(
+            "Filter the table instantly by specification number (e.g., '23.501') or title keywords.")
         self.spec_search_input.textChanged.connect(lambda text: self.search_timer.start())
         search_layout.addWidget(self.spec_search_input)
 
         search_layout.addWidget(QLabel("Ver:"))
         self.version_search_input = QLineEdit()
         self.version_search_input.setPlaceholderText("e.g. 15.")
+        self.version_search_input.setToolTip("Filter the table by release version (e.g., '15' or '16.2').")
         self.version_search_input.setFixedWidth(60)
         self.version_search_input.textChanged.connect(lambda text: self.search_timer.start())
         search_layout.addWidget(self.version_search_input)
 
         self.filter_btn = QPushButton("⚙️ Table Filters")
+        self.filter_btn.setToolTip("Apply advanced filters (Series, Technology, Group) to the local table.")
         self.filter_btn.setCursor(Qt.PointingHandCursor)
         self.filter_btn.clicked.connect(self._open_table_filters)
 
         self.clear_filter_btn = QPushButton("❌")
         self.clear_filter_btn.setCursor(Qt.PointingHandCursor)
-        self.clear_filter_btn.setToolTip("Clear Active Filters")
+        self.clear_filter_btn.setToolTip("Clear all active table filters.")
         self.clear_filter_btn.setFixedWidth(24)
         self.clear_filter_btn.setVisible(False)
         self.clear_filter_btn.clicked.connect(self._clear_table_filters)
