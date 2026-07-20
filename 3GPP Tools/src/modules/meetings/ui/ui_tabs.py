@@ -190,11 +190,14 @@ class MeetingsTab(QWidget):
 
         self.btn_compare = QPushButton("⚖️ Compare in Word")
         self.btn_compare.setEnabled(False)
+        self.btn_compare.setToolTip(
+            "Launch an invisible Word instance to generate a visual redline diff between Slot A and Slot B.")
         self.btn_compare.setStyleSheet(
             "QPushButton { font-weight: bold; background-color: #0078D7; color: white; padding: 5px 15px; border-radius: 4px; } QPushButton:disabled { background-color: #A0C0E0; }")
         self.btn_compare.clicked.connect(self._run_comparison)
 
         self.btn_clear_cart = QPushButton("✖ Clear")
+        self.btn_clear_cart.setToolTip("Clear all items from the comparison cart.")
         self.btn_clear_cart.setStyleSheet("QPushButton { color: #555; padding: 5px 10px; }")
         self.btn_clear_cart.clicked.connect(ComparisonManager.get_instance().clear_cart)
 
@@ -232,14 +235,17 @@ class MeetingsTab(QWidget):
         right_layout.addWidget(QLabel("Working Group:"))
         self.wg_filter = QComboBox()
         self.wg_filter.addItem("All WGs")
+        self.wg_filter.setToolTip("Filter meetings by Working Group (e.g., SA2, RAN1).")
         self.wg_filter.currentTextChanged.connect(self.refresh_table)
 
         self.adhoc_filter = QComboBox()
         self.adhoc_filter.addItems(["All Meetings", "Regular", "Ad-Hoc / BIS"])
+        self.adhoc_filter.setToolTip("Show all meetings, or filter by Regular vs. Ad-Hoc/BIS.")
         self.adhoc_filter.currentTextChanged.connect(self.refresh_table)
 
         self.type_filter = QComboBox()
         self.type_filter.addItems(["All Types", "In-Person", "Electronic"])
+        self.type_filter.setToolTip("Filter by In-Person or Electronic (eMeetings).")
         self.type_filter.currentTextChanged.connect(self.refresh_table)
 
         right_layout.addWidget(self.wg_filter)
@@ -248,6 +254,7 @@ class MeetingsTab(QWidget):
 
         right_layout.addWidget(QLabel("Search (No. or Name):"))
         self.search_input = QLineEdit()
+        self.search_input.setToolTip("Search across meeting numbers, locations, and names.")
         self.search_input.textChanged.connect(self.refresh_table)
         right_layout.addWidget(self.search_input)
 
@@ -285,11 +292,13 @@ class MeetingsTab(QWidget):
         right_layout.addLayout(global_search_layout)
 
         self.enable_dates_cb = QCheckBox("Filter by Date Range")
+        self.enable_dates_cb.setToolTip("Enable to filter meetings within a specific date range.")
         self.enable_dates_cb.toggled.connect(self._toggle_date_inputs)
         self.enable_dates_cb.toggled.connect(self.refresh_table)
         right_layout.addWidget(self.enable_dates_cb)
 
         self.date_from = QDateEdit()
+        self.date_from.setToolTip("Start date for the meeting filter.")
         self.date_from.setCalendarPopup(True)
         self.date_from.setDate(QDate.currentDate().addYears(-1))
         self.date_from.dateChanged.connect(self.refresh_table)
@@ -297,6 +306,7 @@ class MeetingsTab(QWidget):
         right_layout.addWidget(self.date_from)
 
         self.date_to = QDateEdit()
+        self.date_to.setToolTip("End date for the meeting filter.")
         self.date_to.setCalendarPopup(True)
         self.date_to.setDate(QDate.currentDate().addYears(1))
         self.date_to.dateChanged.connect(self.refresh_table)
@@ -311,6 +321,7 @@ class MeetingsTab(QWidget):
 
         # 2. Compact Sync Configuration
         self.scrape_toggle_btn = QPushButton("⚙️ Scrape Configuration (Click to Expand)")
+        self.scrape_toggle_btn.setToolTip("Expand to configure which data is fetched during a sync.")
         self.scrape_toggle_btn.setCheckable(True)
         self.scrape_toggle_btn.setCursor(Qt.PointingHandCursor)
         self.scrape_toggle_btn.setStyleSheet("""
@@ -324,10 +335,16 @@ class MeetingsTab(QWidget):
         scrape_layout.setContentsMargins(15, 0, 0, 5)
 
         self.chk_wg = QCheckBox("Check for New Folders")
+        self.chk_wg.setToolTip("Scan the FTP for newly announced meetings.")
         self.chk_wg.setChecked(True)
+
         self.chk_dyna = QCheckBox("Update Metadata")
+        self.chk_dyna.setToolTip("Fetch detailed metadata (dates, location) from the 3GPP Portal.")
         self.chk_dyna.setChecked(True)
+
         self.chk_docs = QCheckBox("Deep Scrape 'Docs/'")
+        self.chk_docs.setToolTip(
+            "Deep scan the Docs/ folder to mathematically identify the first and last TDoc numbers.")
         self.chk_docs.setChecked(True)
 
         scrape_layout.addWidget(self.chk_wg)
@@ -343,6 +360,7 @@ class MeetingsTab(QWidget):
         right_layout.addWidget(QLabel("Local Cache Directory:"))
         cache_layout = QHBoxLayout()
         self.dl_dir_input = QLineEdit()
+        self.dl_dir_input.setToolTip("The local directory where meeting files and TDocs are cached.")
         self.dl_dir_input.setText(self.settings.cache_dir)
 
         # Uses a lambda to pass the text directly to the settings manager
@@ -360,6 +378,7 @@ class MeetingsTab(QWidget):
 
         # 3. Actions
         self.update_btn = QPushButton("🔄 Sync All Meetings")
+        self.update_btn.setToolTip("Trigger a background sync based on your current Scrape Configuration.")
         self.update_btn.setStyleSheet("padding: 8px; font-weight: bold;")
         self.update_btn.clicked.connect(lambda: self.update_db_requested.emit(
             self.chk_wg.isChecked(), self.chk_docs.isChecked(), self.chk_dyna.isChecked()
@@ -367,6 +386,7 @@ class MeetingsTab(QWidget):
         right_layout.addWidget(self.update_btn)
 
         self.delete_all_btn = QPushButton("🗑️ Clear All Meetings")
+        self.delete_all_btn.setToolTip("Wipe all meeting records from the local database. Cannot be undone.")
         self.delete_all_btn.setStyleSheet("padding: 8px; font-weight: bold; color: #D83B01;")
         self.delete_all_btn.clicked.connect(self._confirm_delete_all)
         right_layout.addWidget(self.delete_all_btn)

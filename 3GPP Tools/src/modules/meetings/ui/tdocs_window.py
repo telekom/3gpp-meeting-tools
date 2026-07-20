@@ -105,6 +105,7 @@ class TDocsWindow(QWidget):
 
         self.refresh_btn = QPushButton("🔄 Refresh")
         self.refresh_btn.setStyleSheet(style_btn())
+        self.refresh_btn.setToolTip("Reload TDocs or fetch the latest revisions from the FTP.")
 
         refresh_menu = QMenu(self)
         refresh_menu.addAction("📗 Refresh Excel List", self._refresh_excel)
@@ -116,6 +117,7 @@ class TDocsWindow(QWidget):
 
         self.folder_btn = QPushButton("🗂️ Resources")
         self.folder_btn.setStyleSheet(style_btn())
+        self.folder_btn.setToolTip("Access local cache folders, export reports, and remote FTP directories.")
 
         folder_menu = QMenu(self)
         folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
@@ -132,6 +134,7 @@ class TDocsWindow(QWidget):
 
         self.excel_btn = QPushButton("📗 Excel")
         self.excel_btn.setStyleSheet(style_btn())
+        self.excel_btn.setToolTip("Open the underlying Excel TDocs list downloaded from 3GPP.")
         self.excel_btn.clicked.connect(self._open_excel)
 
         self.llm_btn = QPushButton("🤖 Export Visible to LLM")
@@ -141,10 +144,12 @@ class TDocsWindow(QWidget):
 
         self.export_btn = QPushButton("📝 Export")
         self.export_btn.setStyleSheet(style_btn())
+        self.export_btn.setToolTip("Export the current filtered list to a formatted Markdown report.")
         self.export_btn.clicked.connect(self._export_reports)
 
         self.stats_btn = QPushButton("📊 Statistics")
         self.stats_btn.setStyleSheet(style_btn())
+        self.stats_btn.setToolTip("Generate an interactive HTML statistics dashboard for this meeting.")
         self.stats_btn.clicked.connect(self._generate_statistics)
 
         self.stats_cfg_btn = QPushButton("⚙️")
@@ -155,6 +160,7 @@ class TDocsWindow(QWidget):
 
         self.email_btn = QPushButton("📧 Emails")
         self.email_btn.setStyleSheet(style_btn())
+        self.email_btn.setToolTip("Open the Email Manager to sync and analyze Outlook threads for this meeting.")
         self.email_btn.clicked.connect(self._open_email_manager)
         self.email_btn.setVisible(self.is_sa2_electronic)
 
@@ -191,25 +197,30 @@ class TDocsWindow(QWidget):
         filter_layout.addWidget(QLabel("🔍 Search:"))
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search TDoc number, title, source, or abstract...")
+        self.search_input.setToolTip("Search across TDoc numbers, titles, sources, or abstracts.")
 
         # Route through the debounce timer!
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
         filter_layout.addWidget(self.search_input)
 
         self.type_combo = CheckableComboBox("Type")
+        self.type_combo.setToolTip("Filter by document type (e.g., pCR, Discussion, Draft).")
         self.type_combo.selectionChanged.connect(self._on_type_changed)
         filter_layout.addWidget(self.type_combo)
 
         self.ai_combo = CheckableComboBox("AI")
+        self.ai_combo.setToolTip("Filter by 3GPP Agenda Item (AI).")
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
         self.status_combo = CheckableComboBox("TDoc Status")
+        self.status_combo.setToolTip("Filter by document status (e.g., Agreed, Noted, Revised).")
         self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
 
         if self.is_sa2:
             self.chk_no_comments = QCheckBox("No Comments Only")
+            self.chk_no_comments.setToolTip("Hide TDocs that have comments in the secretary's notes.")
             self.chk_no_comments.toggled.connect(self._on_no_comments_toggled)
             filter_layout.addWidget(self.chk_no_comments)
 

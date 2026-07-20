@@ -214,26 +214,32 @@ class EmailManagerWindow(QWidget):
 
         self.btn_sync = QPushButton("🔄 Sync Source")
         self.btn_sync.setStyleSheet(get_btn_style(primary=True))
+        self.btn_sync.setToolTip("Scan your configured Outlook Source folder to download and index new emails.")
         self.btn_sync.clicked.connect(self._run_sync)
 
         self.btn_move = QPushButton("➡️ Move Selected")
         self.btn_move.setStyleSheet(get_btn_style())
+        self.btn_move.setToolTip("Move the currently selected emails from the Source folder to the Target folder.")
         self.btn_move.clicked.connect(self._run_move)
 
         self.btn_move_all = QPushButton("⏭️ Move All")
         self.btn_move_all.setStyleSheet(get_btn_style())
+        self.btn_move_all.setToolTip("Move ALL visible source emails to the Target folder, auto-organizing them by Agenda Item.")
         self.btn_move_all.clicked.connect(self._run_move_all)
 
         self.btn_rescan = QPushButton("🔁 Scan Target")
         self.btn_rescan.setStyleSheet(get_btn_style())
+        self.btn_rescan.setToolTip("Re-scan your configured Target archive folder to index previously moved emails.")
         self.btn_rescan.clicked.connect(self._run_target_rescan)
 
         self.btn_stats = QPushButton("📊 Statistics")
         self.btn_stats.setStyleSheet(get_btn_style())
+        self.btn_stats.setToolTip("Generate an interactive HTML analytics dashboard for email traffic.")
         self.btn_stats.clicked.connect(self._generate_statistics)
 
         self.btn_config = QPushButton("⚙️ Folders")
         self.btn_config.setStyleSheet(get_btn_style())
+        self.btn_config.setToolTip("Configure your Outlook Source/Target folders and Statistics preferences.")
         self.btn_config.clicked.connect(self._configure_folders)
 
         self.lbl_status = QLabel("Ready.")
@@ -257,6 +263,7 @@ class EmailManagerWindow(QWidget):
 
         self.dt_start = QDateEdit()
         self.dt_start.setCalendarPopup(True)
+        self.dt_start.setToolTip("Limit loaded emails to those received ON or AFTER this date.")
         if getattr(self, 'start_date', None):
             self.dt_start.setDate(QDate.fromString(self.start_date, Qt.ISODate))
         else:
@@ -264,6 +271,7 @@ class EmailManagerWindow(QWidget):
 
         self.dt_end = QDateEdit()
         self.dt_end.setCalendarPopup(True)
+        self.dt_end.setToolTip("Limit loaded emails to those received ON or BEFORE this date.")
         if getattr(self, 'end_date', None):
             self.dt_end.setDate(QDate.fromString(self.end_date, Qt.ISODate))
         else:
@@ -278,25 +286,30 @@ class EmailManagerWindow(QWidget):
 
         self.btn_filter_star = QPushButton("⭐ Starred")
         self.btn_filter_star.setCheckable(True)
+        self.btn_filter_star.setToolTip("Filter left panel to only show threads containing a Starred TDoc.")
         self.btn_filter_star.setStyleSheet(
             "QPushButton { padding: 4px 8px; background: white; border-radius: 3px; border: 1px solid #CCC; color: #333; } QPushButton:checked { background-color: #FFF4CE; font-weight: bold; border-color: #E2C08D; }")
         self.btn_filter_star.toggled.connect(self._apply_filters)
 
         self.btn_filter_follow = QPushButton("👀 Followed AIs")
         self.btn_filter_follow.setCheckable(True)
+        self.btn_filter_follow.setToolTip("Filter left panel to only show threads belonging to a Followed Agenda Item.")
         self.btn_filter_follow.setStyleSheet(
             "QPushButton { padding: 4px 8px; background: white; border-radius: 3px; border: 1px solid #CCC; color: #333; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }")
         self.btn_filter_follow.toggled.connect(self._apply_filters)
 
         self.cb_ai = CheckableComboBox("Filter by AI")
+        self.cb_ai.setToolTip("Filter threads by specific Agenda Items.")
         self.cb_ai.selectionChanged.connect(self._apply_filters)
 
         self.cb_company = CheckableComboBox("Company")
         self.cb_company.setMinimumWidth(110)
+        self.cb_company.setToolTip("Filter the right panel emails by contributing Company.")
         self.cb_company.selectionChanged.connect(self._apply_filters)
 
         self.cb_sender = CheckableComboBox("Sender")
         self.cb_sender.setMinimumWidth(110)
+        self.cb_sender.setToolTip("Filter the right panel emails by specific Senders.")
         self.cb_sender.selectionChanged.connect(self._apply_filters)
 
         row2_layout.addWidget(QLabel("📅 Limit Data:"))
@@ -330,9 +343,9 @@ class EmailManagerWindow(QWidget):
 
         self.tdoc_search_input = QLineEdit()
         self.tdoc_search_input.setPlaceholderText("🔍 Search threads...")
+        self.tdoc_search_input.setToolTip("Filter the thread list by TDoc number or Subject keywords.")
         self.tdoc_search_input.setStyleSheet(
             "padding: 2px 4px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333;")
-        # ---> THE FIX: Hook up the Debounce Timer
         self.tdoc_search_input.textChanged.connect(lambda _: self.search_timer.start())
 
         left_header_layout.addWidget(self.lbl_left_title)
@@ -345,7 +358,6 @@ class EmailManagerWindow(QWidget):
         self.tdoc_view.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tdoc_view.verticalHeader().setVisible(False)
         self.tdoc_view.setAlternatingRowColors(True)
-        # ---> ADD THIS LINE:
         self.tdoc_view.doubleClicked.connect(self._on_tdoc_double_clicked)
         self.tdoc_view.setStyleSheet(
             "QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; } QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }")
@@ -362,10 +374,10 @@ class EmailManagerWindow(QWidget):
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("🔍 Search this thread...")
+        self.search_input.setToolTip("Search for specific text, sender, or company within the currently selected thread.")
         self.search_input.setMaximumWidth(200)
         self.search_input.setStyleSheet(
             "padding: 2px 4px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333;")
-        # ---> THE FIX: Hook up the Debounce Timer
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
 
         right_header_layout.addWidget(self.lbl_right_title)
@@ -382,7 +394,6 @@ class EmailManagerWindow(QWidget):
         self.email_view.setAlternatingRowColors(True)
         self.email_view.setCursor(Qt.PointingHandCursor)
         self.email_view.clicked.connect(self._on_table_clicked)
-        # ---> THE FIX: Hook up Double Click
         self.email_view.doubleClicked.connect(self._on_email_double_clicked)
         self.email_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.email_view.customContextMenuRequested.connect(self._show_context_menu)
@@ -396,14 +407,17 @@ class EmailManagerWindow(QWidget):
         pane_layout.setContentsMargins(0, 10, 0, 0)
 
         self.btn_open_msg = QPushButton("📄 Open .msg File")
+        self.btn_open_msg.setToolTip("Open this email directly in native Microsoft Outlook.")
         self.btn_open_msg.setEnabled(False)
         self.btn_open_msg.clicked.connect(self._open_current_msg)
 
         self.btn_toggle_star = QPushButton("⭐ Star TDoc")
+        self.btn_toggle_star.setToolTip("Toggle the Star status for this TDoc globally.")
         self.btn_toggle_star.setEnabled(False)
         self.btn_toggle_star.clicked.connect(self._toggle_current_star)
 
         self.btn_toggle_follow = QPushButton("👀 Follow AI")
+        self.btn_toggle_follow.setToolTip("Toggle the Follow status for this Agenda Item globally.")
         self.btn_toggle_follow.setEnabled(False)
         self.btn_toggle_follow.clicked.connect(self._toggle_current_ai_follow)
 
