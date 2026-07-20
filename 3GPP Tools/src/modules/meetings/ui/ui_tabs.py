@@ -726,8 +726,16 @@ class MeetingsTab(QWidget):
 
     def _open_tdocs_window(self, mtg_info: dict, filepath: str):
         self.settings.save_last_meeting(mtg_info)
-        self._update_last_meeting_btn()  # ---> NEW: Refresh the button text instantly!
+        self._update_last_meeting_btn()
         mtg_id = mtg_info.get("mtg_id")
+
+        # ---> THE FIX: Calculate active sync status here, where the main DB lives!
+        mtg_info["is_active_sync"] = self.db.is_active_sync_meeting(
+            mtg_info.get("wg_name", ""),
+            mtg_info.get("start_date", ""),
+            mtg_info.get("end_date", ""),
+            mtg_info.get("is_electronic", 0)
+        )
 
         if mtg_id in self.tdoc_windows and self.tdoc_windows[mtg_id].isVisible():
             self.tdoc_windows[mtg_id].raise_()

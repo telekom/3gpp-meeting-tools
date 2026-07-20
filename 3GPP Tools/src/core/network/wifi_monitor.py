@@ -3,8 +3,6 @@ import subprocess
 import time
 import logging
 from PyQt5.QtCore import QThread, pyqtSignal
-
-# ---> NEW: Import our global NetworkState
 from core.network.network_state import NetworkState
 
 class WifiMonitorThread(QThread):
@@ -30,7 +28,7 @@ class WifiMonitorThread(QThread):
                 if is_3gpp:
                     server_reachable = self._ping_server(self.target_server)
 
-                # ---> NEW: Update the global state synchronously!
+                # ---> NEW: Update the global state synchronously
                 net_state.update_state(network_name, is_3gpp, server_reachable)
 
                 self.status_updated.emit(network_name, is_3gpp, server_reachable)
@@ -38,7 +36,7 @@ class WifiMonitorThread(QThread):
             except Exception as e:
                 logging.error(f"[WiFi Monitor] Loop error: {e}")
 
-            time.sleep(10)
+            time.sleep(10)  # Safe 10-second polling interval
 
     def _get_network_profile_name(self) -> str:
         try:
