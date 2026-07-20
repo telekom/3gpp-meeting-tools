@@ -1,8 +1,11 @@
+# --- File: src/core/network/wifi_monitor.py ---
 import subprocess
 import time
 import logging
 from PyQt5.QtCore import QThread, pyqtSignal
 
+# ---> NEW: Import our global NetworkState
+from core.network.network_state import NetworkState
 
 class WifiMonitorThread(QThread):
     status_updated = pyqtSignal(str, bool, bool)
@@ -10,32 +13,34 @@ class WifiMonitorThread(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.running = True
-        # ---> UPDATED: Exact 3GPP WiFi identifier <---
         self.target_keyword = "3GPPWIFI"
         self.target_server = "10.10.10.10"
         self.CREATE_NO_WINDOW = 0x08000000
 
     def run(self):
+        # Grab the singleton instance
+        net_state = NetworkState.get_instance()
+
         while self.running:
             try:
                 network_name = self._get_network_profile_name()
-
-                # Fuzzy match: Check if "3GPPWIFI" is anywhere in the Windows profile name
                 is_3gpp = (self.target_keyword in network_name.upper())
                 server_reachable = False
 
                 if is_3gpp:
                     server_reachable = self._ping_server(self.target_server)
 
+                # ---> NEW: Update the global state synchronously!
+                net_state.update_state(network_name, is_3gpp, server_reachable)
+
                 self.status_updated.emit(network_name, is_3gpp, server_reachable)
 
             except Exception as e:
                 logging.error(f"[WiFi Monitor] Loop error: {e}")
 
-            time.sleep(10)  # Safe 10-second polling interval
+            time.sleep(10)
 
     def _get_network_profile_name(self) -> str:
-        """Uses PowerShell to get the active network profile name without requiring Admin/Location rights."""
         try:
             output = subprocess.check_output(
                 ['powershell', '-NoProfile', '-Command', '(Get-NetConnectionProfile).Name'],
@@ -43,21 +48,15 @@ class WifiMonitorThread(QThread):
                 text=True,
                 timeout=5
             )
-
-            # PowerShell might return multiple lines if connected to Ethernet AND WiFi.
-            # We take the first valid non-empty line.
             lines = [line.strip() for line in output.split('\n') if line.strip()]
             if lines:
                 return lines[0]
-
         except subprocess.CalledProcessError:
-            # Command failed, likely no network connection active
             pass
         except subprocess.TimeoutExpired:
             logging.warning("[WiFi Monitor] PowerShell command timed out.")
         except Exception as e:
             logging.error(f"[WiFi Monitor] Unexpected error getting network name: {e}")
-
         return ""
 
     def _ping_server(self, ip: str) -> bool:
@@ -74,6 +73,5 @@ class WifiMonitorThread(QThread):
             return False
 
     def stop(self):
-        """Safely kills the loop before application shutdown."""
         self.running = False
         self.wait()
