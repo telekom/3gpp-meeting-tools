@@ -4,6 +4,7 @@ import os
 import re
 import zipfile
 import webbrowser
+import logging
 from pathlib import Path
 
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer
@@ -21,6 +22,7 @@ from modules.specifications.ui.dialogs import SpecInfoDialog, AdvancedSyncDialog
 class SpecificationsTab(QWidget):
     update_db_requested = pyqtSignal(bool)
     update_specific_requested = pyqtSignal(list, bool)
+    log_msg = pyqtSignal(str, int)
 
     def __init__(self, db_path: Path):
         super().__init__()
@@ -320,6 +322,7 @@ class SpecificationsTab(QWidget):
                             btn.setEnabled(False)
 
                             conv_thread = WordConverterThread(str(doc_path), doc_type)
+                            conv_thread.ui_log_msg.connect(self._handle_converter_log)
 
                             def on_success(p, c=combo, b=btn, txt=orig_text):
                                 try:
@@ -375,6 +378,7 @@ class SpecificationsTab(QWidget):
             combo.setEnabled(False)
 
             thread = SpecDownloadThread(c_data['url'], zip_path)
+            thread.ui_log_msg.connect(self._handle_converter_log)
 
             def _on_success(zp):
                 # Clean any formatting prefixes
@@ -646,3 +650,10 @@ class SpecificationsTab(QWidget):
 
         except Exception as e:
             print(f"Error during refresh_table: {e}")
+
+    def _handle_converter_log(self, msg: str, level: int):
+        """
+        Receives log messages from background conversion threads.
+        Relays them to the main window so they can be displayed in the UI Console.
+        """
+        self.log_msg.emit(msg, level)
