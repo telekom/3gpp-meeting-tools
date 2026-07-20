@@ -36,8 +36,8 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Multi-Action Resources Menu:** Instantly jump to local cache directories, fetched HTML Agenda files, Main FTP folders, Docs/ folders, or Revisions/ folders directly from the UI.
   * **Quick Launch History:** Remembers your exact active working group session, allowing you to bypass the database table and instantly jump back into your last opened meeting with a single click.
 
-* **Smart Network Detection:** Automatically detects when you are connected to the official "3GPPWIFI" network during live meetings. It runs a lightweight background thread to ping the internal local server (e.g., `10.10.10.10`) and displays a persistent visual indicator in the status bar. This enables dynamic features like bypassing public internet firewalls and routing downloads directly through the high-speed local meeting network.
-
+* **Smart Network Routing & Fallback Engine:** Automatically detects when you are connected to the official "3GPPWIFI" network. The Universal URL Router dynamically generates a fallback priority list (e.g., Local `10.10.10.10` Server ➔ Live `SYNC` Folder ➔ Standard Web Archive) based on the current meeting status. If a document is missing from a local directory, the engine instantly catches the 404 error and seamlessly falls back to the next fastest source.
+* **F2F "Instant Fetch" UI:** Face-to-Face meetings move fast. Bypass the Excel table entirely using the "Instant Fetch" input in the TDocs window. It smartly pre-fills your Working Group and Year prefix (e.g., `S2-26`); just type the document number, hit Enter, and the tool will instantly fetch brand-new revisions straight from the `Inbox/Revisions/` folder the second they are announced.
 * **3GPP FTP Session Manager:** Automatically injects randomized User-Agents and HTTP Keep-Alive headers. Features a configurable **Humanness Delay** engine to bypass aggressive 3GPP server throttling and "Too Many Requests" blocks, which can be dialed down to 0.0 for maximum scraping speed.
 
 ### 📧 eMeeting Email Manager (Native Outlook Integration)
@@ -78,7 +78,8 @@ This application strictly adheres to the **Model-View-Controller (MVC)** and **E
 1. **The UI Layer (`modules/*/ui/`):** Contains only dumb Qt Widgets and standard `QAbstractTableModel` proxies. It never blocks the main thread.
 2. **The Core Layer (`modules/*/core/`):** Contains the heavy lifting. All database transactions (`sqlite3`), FTP network scraping (`requests`), COM object automation (`win32com` & `pythoncom`), and XML manipulation (`python-docx`) are isolated here.
 3. **The Threading Bridge:** Every Core module inherits from `QThread`. The UI sends data to the Thread, and the Thread emits `pyqtSignals` back to the UI to update progress bars or logs.
-4. **The Singleton Managers:** The Network Configuration (proxies), Word Configuration (Sensitivity Labels), and Comparison Cart states are managed by robust Singletons and dynamic JSON config loaders to ensure cross-tab synchronization.
+4. **Unified Global Logging:** A custom `GuiLogHandler` intercepts native Python `logging` events from any background thread and safely emits them as Qt signals to the unified Console Panel, ensuring the terminal and the GUI are always perfectly synchronized.
+5. **The Singleton Managers:** The Network Configuration (proxies), Word Configuration (Sensitivity Labels), Global Network State, and Comparison Cart states are managed by robust thread-safe Singletons and dynamic JSON config loaders to ensure cross-tab synchronization.
 
 ---
 
@@ -99,8 +100,8 @@ To run this application natively or build it from source, you must have the foll
 
 ### 1. Clone the Repository
 ```bash
-git clone [https://github.com/your-repo/3GPP-Delegate-Helper.git](https://github.com/your-repo/3GPP-Delegate-Helper.git)
-cd 3GPP-Delegate-Helper
+git clone [https://github.com/telekom/3gpp-meeting-tools.git](https://github.com/telekom/3gpp-meeting-tools.git)
+cd 3gpp-meeting-tools/3GPP Tools
 ```
 
 ### 2. Install Python Dependencies
@@ -127,7 +128,8 @@ python src/main_tools.py
 5. In the TDocs Window, use the **Search** bar or dropdown filters to find specific documents. Double-click any cell to open the Notes editor and assign a color-coded status to a document.
 6. For SA2 meetings, use the **Refresh** menu to import `TdocsByAgenda.htm` and automatically merge secretary remarks and on-the-fly revisions into your list.
 7. Click the Action column to automatically download, unzip, and open the `.doc` files, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
-8. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
+8. **Instant Fetch:** During live Face-to-Face meetings, use the **🚀 Instant Fetch** input at the top of the TDocs window to instantly download newly announced documents directly from the local server's `Revisions` inbox before they even appear in the official Excel list.
+9. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
 
 ### 📧 eMeeting Email Manager
 1. Open a specific meeting from the main database and click the yellow **📧 Emails** button.
