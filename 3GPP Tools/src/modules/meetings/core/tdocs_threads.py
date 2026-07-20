@@ -65,43 +65,56 @@ class TDocsRevisionsFetcherThread(QThread):
             self.finished.emit(False, {}, str(e))
 
 
+# --- Inside: src/modules/meetings/core/tdocs_threads.py ---
 class TDocActionThread(QThread):
     finished_action = pyqtSignal(str, bool, str)
 
-    def __init__(self, base_tdoc: str, target_filename: str, base_url: str, meeting_dir: Path, open_file: bool = True):
+    def __init__(self, base_tdoc: str, target_filename: str, base_urls, meeting_dir: Path, open_file: bool = True):
         super().__init__()
         self.base_tdoc = base_tdoc
         self.target_filename = target_filename
-        self.base_url = base_url
+        # Accept a single URL (legacy) or a priority list of URLs
+        self.base_urls = base_urls if isinstance(base_urls, list) else [base_urls]
         self.tdoc_dir = meeting_dir / base_tdoc
         self.open_file = open_file
         self.extracted_doc_paths = []
 
     def run(self):
-        try:
-            self.extracted_doc_paths = TDocFileHandler.download_and_extract_tdoc(
-                self.target_filename,
-                self.base_url,
-                self.tdoc_dir
-            )
+        success = False
+        last_err = "No valid URLs provided."
 
-            if not self.extracted_doc_paths:
-                self.finished_action.emit(self.base_tdoc, False, "No viewable documents found inside the ZIP.")
-                return
+        for url in self.base_urls:
+            try:
+                self.extracted_doc_paths = TDocFileHandler.download_and_extract_tdoc(
+                    self.target_filename, url, self.tdoc_dir
+                )
+                if self.extracted_doc_paths:
+                    success = True
+                    break  # Break out of the fallback loop on success!
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 404:
+                    last_err = f"404 Not Found at {url}"
+                    continue  # File isn't here, try the next fallback URL!
+                last_err = str(e)
+                continue
+            except Exception as e:
+                last_err = str(e)
+                continue
 
-            if self.open_file:
-                import os, webbrowser
-                for doc in self.extracted_doc_paths:
-                    if hasattr(os, 'startfile'):
-                        os.startfile(str(doc))
-                    else:
-                        webbrowser.open(f"file:///{doc}")
+        if not success:
+            self.finished_action.emit(self.base_tdoc, False, f"Could not retrieve document.\nLast error: {last_err}")
+            return
 
-            msg = "Opened successfully." if self.open_file else "Downloaded & Added successfully."
-            self.finished_action.emit(self.base_tdoc, True, msg)
+        if self.open_file:
+            import os, webbrowser
+            for doc in self.extracted_doc_paths:
+                if hasattr(os, 'startfile'):
+                    os.startfile(str(doc))
+                else:
+                    webbrowser.open(f"file:///{doc}")
 
-        except Exception as e:
-            self.finished_action.emit(self.base_tdoc, False, str(e))
+        msg = "Opened successfully." if self.open_file else "Downloaded & Added successfully."
+        self.finished_action.emit(self.base_tdoc, True, msg)
 
 
 class TdocsByAgendaThread(QThread):

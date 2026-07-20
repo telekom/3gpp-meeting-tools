@@ -4,8 +4,8 @@ import threading
 class NetworkState:
     """
     A thread-safe Singleton that holds the current status of the user's network connection.
-    This allows any part of the application (like the UI or download threads) to instantly
-    check if the local 3GPP server is reachable without waiting for PyQt signals.
+    This allows any part of the application to instantly check if the local 3GPP server
+    is reachable.
     """
     _instance = None
     _lock = threading.Lock()
@@ -30,5 +30,6 @@ class NetworkState:
             self.is_local_reachable = reachable
 
     def is_local_active(self) -> bool:
+        """Returns True only if connected to 3GPPWIFI AND 10.10.10.10 is pingable."""
         with self._lock:
             return self.is_3gpp_wifi and self.is_local_reachable

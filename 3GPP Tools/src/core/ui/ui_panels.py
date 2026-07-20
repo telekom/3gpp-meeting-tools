@@ -1,10 +1,28 @@
 import logging
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QTextEdit, QListWidget, QDialog, QTreeWidget, QTreeWidgetItem, QHeaderView)
-from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtCore import pyqtSignal, Qt, QObject
 from PyQt5.QtGui import QColor, QBrush
 
 from core.process_manager import ProcessManager
+
+# ==========================================
+# --- CUSTOM GUI LOG HANDLER ---
+# ==========================================
+class GuiLogHandler(logging.Handler, QObject):
+    """
+    Intercepts standard Python logging calls globally and emits them as Qt signals.
+    This safely bridges background thread logging to the main UI thread.
+    """
+    log_emitted = pyqtSignal(str, int)
+
+    def __init__(self):
+        logging.Handler.__init__(self)
+        QObject.__init__(self)
+
+    def emit(self, record):
+        msg = self.format(record)
+        self.log_emitted.emit(msg, record.levelno)
 
 
 # ==========================================

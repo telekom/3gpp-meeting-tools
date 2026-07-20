@@ -1,6 +1,7 @@
 # --- File: src/modules/meetings/ui/tdocs_window.py ---
 import datetime
 import json
+import logging
 import os
 import re
 import webbrowser
@@ -28,6 +29,8 @@ from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_men
 from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog, InteractiveNotesDialog, StatisticsSettingsDialog
 from modules.emails.ui.email_window import EmailManagerWindow
 from modules.meetings.core.llm_exporter import LLMExporterThread
+from core.network.network_state import NetworkState
+from modules.meetings.core.url_router import URLRouter
 
 
 def _open_folder(p: Path):
@@ -87,6 +90,16 @@ class TDocsWindow(QWidget):
         title_lbl.setStyleSheet("font-size: 18px; color: #333;")
         title_lbl.setToolTip("Electronic Meeting (eMeeting)" if is_electronic else "In-Person Meeting (Face-to-Face)")
         title_lbl.setCursor(Qt.WhatsThisCursor)
+
+        # ---> NEW: Routing Indicator
+        self.routing_indicator = QLabel("⚪ Routing...")
+        self.routing_indicator.setStyleSheet("font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+
+        # Poll the network status every 2 seconds
+        self.routing_timer = QTimer(self)
+        self.routing_timer.timeout.connect(self._update_routing_indicator)
+        self.routing_timer.start(2000)
+        self._update_routing_indicator()  # Call immediately on boot
 
         self.last_mod_lbl = QLabel(self._get_mod_date_str())
         self.last_mod_lbl.setStyleSheet("font-size: 11px; color: #999999; margin-right: 15px; font-style: italic;")
@@ -167,8 +180,27 @@ class TDocsWindow(QWidget):
         self.count_lbl = QLabel(f"Showing {count} of {count} TDocs")
         self.count_lbl.setStyleSheet("font-size: 13px; color: #666;")
 
+        # ---> NEW: Instant Fetch UI
+        self.instant_fetch_input = QLineEdit()
+        self.instant_fetch_input.setPlaceholderText("Instant Fetch...")
+        self.instant_fetch_input.setToolTip(
+            "Instantly fetch a TDoc, bypassing the table entirely. Press Enter to launch.")
+        self.instant_fetch_input.setText(self._get_tdoc_prefix())
+        self.instant_fetch_input.setFixedWidth(120)
+        self.instant_fetch_input.returnPressed.connect(self._on_instant_fetch)
+
+        # Place cursor at the end of the pre-filled text
+        self.instant_fetch_input.setFocus()
+        self.instant_fetch_input.setCursorPosition(len(self.instant_fetch_input.text()))
+
         header_layout.addWidget(title_lbl)
+        header_layout.addWidget(self.routing_indicator)
         header_layout.addStretch()
+
+        header_layout.addWidget(QLabel("🚀"))
+        header_layout.addWidget(self.instant_fetch_input)
+        header_layout.addSpacing(15)
+
         header_layout.addWidget(self.last_mod_lbl)
         header_layout.addWidget(self.refresh_btn)
         header_layout.addWidget(self.folder_btn)
@@ -181,6 +213,29 @@ class TDocsWindow(QWidget):
         header_layout.addSpacing(15)
         header_layout.addWidget(self.count_lbl)
         layout.addLayout(header_layout)
+
+    def _trigger_download_thread(self, base_tdoc: str, target_filename: str, legacy_url: str = None,
+                                 is_silent_compare: bool = False):
+        self.model.set_loading(base_tdoc, True)
+
+        # ---> THE FIX: Safely read the injected flag
+        is_active = self.mtg_info.get("is_active_sync", False)
+
+        url_list = URLRouter.build_priority_url_list(
+            self.mtg_info.get("wg_name", ""),
+            self.mtg_info.get("folder_name") or self.mtg_info.get("meeting_number", ""),
+            self.main_ftp_url,
+            is_active
+        )
+
+        thread = TDocActionThread(base_tdoc, target_filename, url_list, self.meeting_dir,
+                                  open_file=not is_silent_compare)
+        thread.is_silent_compare = is_silent_compare
+        thread.target_filename = target_filename
+        thread.finished_action.connect(lambda t, s, m, th=thread: self._on_tdoc_action_finished(t, s, m, th))
+
+        self.active_threads[base_tdoc] = thread
+        thread.start()
 
     def _setup_filters(self, layout):
         # ---> SETUP DEBOUNCE TIMER FOR SEARCH
@@ -444,17 +499,6 @@ class TDocsWindow(QWidget):
                                     QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
                 self.global_action_requested.emit(base_tdoc, 'open_meeting')
 
-    def _trigger_download_thread(self, base_tdoc: str, target_filename: str, base_url: str,
-                                 is_silent_compare: bool = False):
-        self.model.set_loading(base_tdoc, True)
-        thread = TDocActionThread(base_tdoc, target_filename, base_url, self.meeting_dir,
-                                  open_file=not is_silent_compare)
-        thread.is_silent_compare = is_silent_compare
-        thread.target_filename = target_filename
-        thread.finished_action.connect(lambda t, s, m, th=thread: self._on_tdoc_action_finished(t, s, m, th))
-        self.active_threads[base_tdoc] = thread
-        thread.start()
-
     def _on_tdoc_action_finished(self, tdoc: str, success: bool, msg: str, thread: TDocActionThread):
         if tdoc in self.active_threads: del self.active_threads[tdoc]
         self.model.set_loading(tdoc, False)
@@ -664,3 +708,64 @@ class TDocsWindow(QWidget):
             _open_folder(self.meeting_dir / "Export" / "LLM_Corpus")
         else:
             QMessageBox.warning(self, "Export Failed", msg)
+
+    def _get_tdoc_prefix(self):
+        """Smartly pre-fills the WP part and the year (e.g., 'S2-26')."""
+        # 1. Try to extract from the actual first_tdoc
+        first_tdoc = self.mtg_info.get("first_tdoc", "")
+        if first_tdoc:
+            match = re.match(r'^([A-Z0-9]+-\d{2})', first_tdoc.upper())
+            if match:
+                return match.group(1)
+
+        # 2. Fallback: Map the WG and Year manually
+        wg = self.mtg_info.get("wg_name", "").upper()
+        start_date = self.mtg_info.get("start_date", "")
+        year_str = start_date[2:4] if len(start_date) >= 4 else datetime.datetime.now().strftime("%y")
+
+        wg_map = {
+            "SA1": "S1", "SA2": "S2", "SA3": "S3", "SA4": "S4", "SA5": "S5", "SA6": "S6", "SA": "SP",
+            "RAN1": "R1", "RAN2": "R2", "RAN3": "R3", "RAN4": "R4", "RAN5": "R5", "RAN6": "R6", "RAN": "RP",
+            "CT1": "C1", "CT3": "C3", "CT4": "C4", "CT6": "C6", "CT": "CP"
+        }
+        prefix = wg_map.get(wg, wg)
+        return f"{prefix}-{year_str}"
+
+    def _update_routing_indicator(self):
+        """Polls the NetworkState and updates the visual indicator badge."""
+        net_state = NetworkState.get_instance()
+
+        # ---> THE FIX: Safely read the injected flag
+        is_active = self.mtg_info.get("is_active_sync", False)
+
+        if net_state.is_local_active():
+            self.routing_indicator.setText("🟢 Local Server")
+            self.routing_indicator.setStyleSheet(
+                "color: #155724; background-color: #C8E6C9; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+            self.routing_indicator.setToolTip("Downloads are routed through the high-speed local 10.10.10.10 network.")
+        elif is_active:
+            self.routing_indicator.setText("🔵 SYNC Folder")
+            self.routing_indicator.setStyleSheet(
+                "color: #004085; background-color: #CCE5FF; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+            self.routing_indicator.setToolTip("Downloads are routed through the active meeting SYNC folder.")
+        else:
+            self.routing_indicator.setText("🌐 Standard Web")
+            self.routing_indicator.setStyleSheet(
+                "color: #383D41; background-color: #E2E3E5; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+            self.routing_indicator.setToolTip("Downloads are routed through the standard 3GPP web archive.")
+
+    def _on_instant_fetch(self):
+        """Triggered when Enter is pressed in the Instant Fetch box."""
+        tdoc_str = self.instant_fetch_input.text().strip()
+        match = re.match(r'^([A-Za-z0-9]+-\d+)(r\d+[a-zA-Z]?)?$', tdoc_str, re.IGNORECASE)
+        if not match:
+            QMessageBox.warning(self, "Invalid TDoc", "Please enter a valid TDoc number (e.g., S2-261234).")
+            return
+
+        base_tdoc = match.group(1).upper()
+        target_filename = (base_tdoc + (match.group(2) or "")).upper()
+
+        logging.info(f"🚀 [Instant Fetch] Requested {target_filename}. Engaging Smart Router...")
+
+        # Fire the download using the Smart Router!
+        self._trigger_download_thread(base_tdoc, target_filename, legacy_url=None, is_silent_compare=False)

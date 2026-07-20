@@ -23,7 +23,7 @@ from core.queue_manager import QueueManager
 
 from core.config.config import HELP_URL
 from core.utils.paths import get_project_root
-from core.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog
+from core.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog, GuiLogHandler
 
 from modules.puml2visio.utils.utils import encode_plantuml, InitializationThread
 from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
@@ -48,6 +48,12 @@ class DragDropUI(QMainWindow):
         self.last_out_path = ""
 
         self._setup_ui()
+
+        # ---> NEW: Attach the Global GUI Logger
+        self.gui_logger = GuiLogHandler()
+        self.gui_logger.setFormatter(logging.Formatter('%(message)s'))
+        logging.getLogger().addHandler(self.gui_logger)
+        self.gui_logger.log_emitted.connect(self.console_panel.log_message)
 
         # --- Wire the Queue Manager directly to the UI ---
         app_context = {
@@ -503,7 +509,11 @@ class DragDropUI(QMainWindow):
                 self.log_message(f"✅ Successfully saved/downloaded: {file_name}", logging.INFO)
 
     def log_message(self, message: str, level=logging.INFO):
-        self.console_panel.log_message(message, level)
+        """
+        Routes explicit UI log signals into the standard Python logging module.
+        The GuiLogHandler will automatically catch this and route it back to the ConsolePanel.
+        """
+        logging.log(level, message)
 
     # ---> NEW: Add this method anywhere in the class <---
     def _update_network_indicator(self, ssid, is_3gpp, server_reachable):
