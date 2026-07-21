@@ -290,6 +290,7 @@ class ProxyDialog(QDialog):
         return self.http_input.text().strip(), self.https_input.text().strip()
 
 
+# --- Inside: src/core/ui/ui_components.py ---
 class InteractiveDropLabel(QLabel):
     file_dropped = pyqtSignal(list)
 
@@ -298,10 +299,13 @@ class InteractiveDropLabel(QLabel):
         self.accepted_extensions = accepted_extensions
         self.setAlignment(Qt.AlignCenter)
         self.setAcceptDrops(True)
-        self.default_style = "border: 3px dashed #B0B0B0; border-radius: 10px; font-size: 15px; font-weight: bold; color: #777; background-color: #FAFAFA;"
-        self.hover_style = "border: 3px dashed #395396; border-radius: 10px; font-size: 15px; font-weight: bold; color: #395396; background-color: #EBF3FC;"
-        self.busy_style = "border: 3px dashed #D83B01; border-radius: 10px; font-size: 15px; font-weight: bold; color: #D83B01; background-color: #FDF4F0;"
-        self.error_style = "border: 3px dashed #D32F2F; border-radius: 10px; font-size: 15px; font-weight: bold; color: #D32F2F; background-color: #FDEDED;"
+
+        # ---> THE FIX: Added 'QLabel { ... }' to prevent style bleeding into ToolTips
+        self.default_style = "QLabel { border: 3px dashed #B0B0B0; border-radius: 10px; font-size: 15px; font-weight: bold; color: #777; background-color: #FAFAFA; }"
+        self.hover_style = "QLabel { border: 3px dashed #395396; border-radius: 10px; font-size: 15px; font-weight: bold; color: #395396; background-color: #EBF3FC; }"
+        self.busy_style = "QLabel { border: 3px dashed #D83B01; border-radius: 10px; font-size: 15px; font-weight: bold; color: #D83B01; background-color: #FDF4F0; }"
+        self.error_style = "QLabel { border: 3px dashed #D32F2F; border-radius: 10px; font-size: 15px; font-weight: bold; color: #D32F2F; background-color: #FDEDED; }"
+
         self.setStyleSheet(self.default_style)
 
     def set_state(self, state, text=None):
