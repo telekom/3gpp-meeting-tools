@@ -1,5 +1,6 @@
 from core.queue_manager import register_task
 from modules.puml2visio.core.pptx2visio_converter import PptxToVisioConverterThread
+from modules.puml2visio.core.visio2pptx_converter import VisioToPptxConverterThread
 
 
 def register_puml2visio_plugin():
@@ -33,4 +34,9 @@ def register_puml2visio_plugin():
         display_name="PowerPoint to Visio",
         # Notice we don't need the jar_path for this specific thread, so we only pass the file path 'f'
         thread_factory=lambda f, p, ctx: PptxToVisioConverterThread(f)
+    )
+    register_task(
+        target_format="vsdx_to_pptx",
+        display_name="Visio to PowerPoint",
+        thread_factory=lambda f, p, ctx: VisioToPptxConverterThread(f)
     )
