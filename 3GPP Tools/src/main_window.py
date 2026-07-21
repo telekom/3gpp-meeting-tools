@@ -317,9 +317,9 @@ class DragDropUI(QMainWindow):
             self.batch_tab.set_state("busy",
                                      "⚙️ Processing Queue...\n\nPlease wait until finished or drop more files to queue them.")
         else:
-            # ---> NEW: Updated the idle text to mention .pptx
+            # ---> NEW: Updated the idle text to mention bidirectional capabilities
             self.batch_tab.set_state("ready",
-                                     "📥 Drag & Drop your .puml, .txt, or .pptx file(s) here\n\n(Batch exports as Visio files)")
+                                     "📥 Drag & Drop your .puml, .txt, .pptx, or .vsdx file(s) here\n\n(Batch converts between Visio & PowerPoint)")
 
     def _set_editor_text(self, text):
         cursor = self.code_tab.text_input.textCursor()

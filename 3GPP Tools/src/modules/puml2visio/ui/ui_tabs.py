@@ -154,10 +154,21 @@ class BatchConvertTab(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # ---> NEW: Added '.pptx' to the allowed extensions list
+        # Added '.vsdx' to the allowed extensions list
         self.drop_label = InteractiveDropLabel(
             "⏳ Initializing system checks... Please wait.",
-            ['.puml', '.txt', '.pptx']
+            ['.puml', '.txt', '.pptx', '.vsdx']
+        )
+
+        # ---> NEW: Detailed rich-text hovertext for the drag-and-drop area
+        self.drop_label.setToolTip(
+            "<p><b>Visio Tools Batch Converter</b></p>"
+            "<p>Drag and drop files here to add them to the background processing queue:</p>"
+            "<ul>"
+            "<li>Drop <b>.puml</b> or <b>.txt</b> ➔ Generate Visio (<b>.vsdx</b>)</li>"
+            "<li>Drop <b>.pptx</b> (PowerPoint) ➔ Generate multi-page Visio (<b>.vsdx</b>)</li>"
+            "<li>Drop <b>.vsdx</b> (Visio) ➔ Generate editable PowerPoint (<b>.pptx</b>)</li>"
+            "</ul>"
         )
 
         self.drop_label.file_dropped.connect(self._handle_files_dropped)
@@ -167,11 +178,13 @@ class BatchConvertTab(QWidget):
     def _handle_files_dropped(self, paths):
         """Determines the correct Queue task target format based on the file extension."""
         for path in paths:
-            if str(path).lower().endswith(".pptx"):
+            ext = str(path).lower()
+            if ext.endswith(".pptx"):
                 self.files_dropped.emit([path], "pptx_to_visio")
+            elif ext.endswith(".vsdx"):
+                self.files_dropped.emit([path], "vsdx_to_pptx")
             else:
                 self.files_dropped.emit([path], "vsdx")
 
     def set_state(self, state, text=None):
         self.drop_label.set_state(state, text)
-

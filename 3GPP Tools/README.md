@@ -65,8 +65,11 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ### 🎨 Visio Tools (PlantUML & PowerPoint Converter)
 * **Live Preview IDE:** A PlantUML code editor featuring syntax highlighting, line numbering, and a 500ms debounced live-rendering engine.
-* **Batch Conversion Engine:** Drag and drop hundreds of `.puml`, `.txt`, or `.pptx` files to queue them for multi-threaded background conversion.
-* **PowerPoint to Visio Pipeline:** Seamlessly convert entire PowerPoint presentations into multi-page Visio documents (`.vsdx`). Uses Enhanced Metafile (EMF) bridging to perfectly preserve editable native Office shapes, automatically aggressively ungroup them, and shrink wrap their text boundaries.
+* **Bidirectional Batch Conversion Engine:** Drag and drop hundreds of files into the background processing queue. The tool dynamically maps target formats:
+  * Drop `.puml` or `.txt` ➔ Generate `.vsdx` (Visio)
+  * Drop `.pptx` (PowerPoint) ➔ Generate multi-page `.vsdx` (Visio)
+  * Drop `.vsdx` (Visio) ➔ Generate editable `.pptx` (PowerPoint)
+* **Vector Bridging Pipeline:** Seamlessly cross-converts PowerPoint and Visio presentations using Enhanced Metafile (EMF) bridging to perfectly preserve editable native Office shapes, automatically aggressively ungroup them, and shrink wrap their boundaries.
 * **Custom Visio Stencil Engine:** Converts standard PlantUML shapes into grouped Visio shapes (`.vsdx`) mapped directly to custom 3GPP node stencils.
 
 ---
@@ -149,7 +152,7 @@ python src/main_tools.py
 ### 🎨 Visio Tools
 1. **PlantUML Editor:** Type standard PlantUML code into the left pane. The Live Preview will automatically update the image on the right.
 2. Click **Export Diagram ▼** and select **To Visio (.vsdx)** to generate a native Visio file, or use other options like PowerPoint, SVG, or ASCII.
-3. **Batch Process & PowerPoint Conversion:** Navigate to the **📂 Visio Tools** tab and drag-and-drop `.puml`, `.txt`, or `.pptx` (PowerPoint) files into the drop zone. The system will automatically detect the file type and process it into a clean, editable Visio file in the background!
+3. **Batch Process & PowerPoint Conversion:** Navigate to the **📂 Visio Tools** tab and drag-and-drop `.puml`, `.txt`, `.pptx` (PowerPoint), or `.vsdx` (Visio) files into the drop zone. The system will automatically detect the file type and process it into a clean, editable file in the corresponding format.
 
 ### ⚙️ Configuring Corporate Proxies & Networking
 If you are behind a corporate firewall:
