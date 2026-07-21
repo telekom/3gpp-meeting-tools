@@ -69,7 +69,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * Drop `.puml` or `.txt` ➔ Generate `.vsdx` (Visio)
   * Drop `.pptx` (PowerPoint) ➔ Generate multi-page `.vsdx` (Visio)
   * Drop `.vsdx` (Visio) ➔ Generate editable `.pptx` (PowerPoint)
-* **Vector Bridging Pipeline:** Seamlessly cross-converts PowerPoint and Visio presentations using Enhanced Metafile (EMF) bridging to perfectly preserve editable native Office shapes, automatically aggressively ungroup them, and shrink wrap their boundaries.
+* **Hybrid Vector Bridging Pipeline:** Seamlessly cross-converts PowerPoint and Visio presentations using Enhanced Metafile (EMF) bridging combined with deep COM canvas optimization. This ensures perfect line-attachment fidelity while mathematically shrink-wrapping text boxes and injecting Arial theme overrides to prevent font splitting and Aptos fallback.
 * **Custom Visio Stencil Engine:** Converts standard PlantUML shapes into grouped Visio shapes (`.vsdx`) mapped directly to custom 3GPP node stencils.
 
 ---
