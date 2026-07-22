@@ -72,6 +72,7 @@ class WorkItemsTab(QWidget):
             QPushButton:hover { background-color: #005A9E; }
             QPushButton:disabled { background-color: #A0C0E0; }
         """)
+        self.sync_btn.setToolTip("Click to download and synchronize 3GPP Work Items in parallel from the server.")
         self.sync_btn.clicked.connect(self._start_sync)
 
         self.progress_bar = QProgressBar()
