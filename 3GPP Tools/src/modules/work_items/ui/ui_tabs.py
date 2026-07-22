@@ -229,36 +229,50 @@ class WorkItemsTab(QWidget):
         if not selected_indexes:
             return
 
-        # Extract the code from the first column (index 0) of the first selected row
-        row_idx = selected_indexes[0].row()
-        code_item = self.table_model.index(row_idx, 0)
-        wi_code = self.table_model.data(code_item, Qt.DisplayRole)
-
-        if not wi_code:
-            return
-
         menu = QMenu(self)
         menu.setStyleSheet("""
-            QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
-            QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
-            QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-            QMenu::item:disabled { color: #AAAAAA; } 
-        """)
+                        QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
+                        QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
+                        QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+                        QMenu::item:disabled { color: #AAAAAA; } 
+                    """)
 
-        # Create menu actions with matching icons/emojis
-        wi_page_action = menu.addAction(f"🌐 Open WI Page")
-        specs_action = menu.addAction(f"📂 Specifications Resulting from this WI")
-        crs_action = menu.addAction(f"📄 CRs Related to this WI")
+        len_indexes = len(selected_indexes)
+        if len_indexes == 1:
+            # Extract the code from the first column (index 0) of the first selected row
+            row_idx = selected_indexes[0].row()
+            code_item = self.table_model.index(row_idx, 0)
+            wi_code = self.table_model.data(code_item, Qt.DisplayRole)
+
+            if not wi_code:
+                return
+
+            # Create menu actions with matching icons/emojis
+            wi_page_action = menu.addAction(f"🌐 Open WI Page")
+            specs_action = menu.addAction(f"📂 Specifications Resulting from this WI")
+            crs_action = menu.addAction(f"📄 CRs Related to this WI")
+            update_action = menu.addAction(f"🔄 Update WI")
+        else:
+            wi_page_action = None
+            specs_action = None
+            crs_action = None
+            wi_code = None
+            update_action = menu.addAction(f"🔄 Update WIs  ({len_indexes} WIs)")
 
         # Execute the menu at the requested position
         action = menu.exec_(self.table.viewport().mapToGlobal(position))
 
-        if action == wi_page_action:
-            url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
-            webbrowser.open(url)
-        elif action == specs_action:
-            url = f"https://portal.3gpp.org/Specifications.aspx?q=1&WiUid={wi_code}"
-            webbrowser.open(url)
-        elif action == crs_action:
-            url = f"https://portal.3gpp.org/ChangeRequests.aspx?q=1&workitem={wi_code}"
-            webbrowser.open(url)
+        if len_indexes == 1:
+            if action == wi_page_action:
+                url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
+                webbrowser.open(url)
+            elif action == specs_action:
+                url = f"https://portal.3gpp.org/Specifications.aspx?q=1&WiUid={wi_code}"
+                webbrowser.open(url)
+            elif action == crs_action:
+                url = f"https://portal.3gpp.org/ChangeRequests.aspx?q=1&workitem={wi_code}"
+                webbrowser.open(url)
+        elif action == update_action:
+            # ToDo
+            pass
+
