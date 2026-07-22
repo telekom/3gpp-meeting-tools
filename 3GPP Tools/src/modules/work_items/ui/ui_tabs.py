@@ -238,11 +238,16 @@ class WorkItemsTab(QWidget):
                     """)
 
         len_indexes = len(selected_indexes)
+
+        # Gather the list of selected work item codes (wi_code_list)
+        wi_code_list = [
+            self.table_model.data(self.table_model.index(e.row(), 0), Qt.DisplayRole)
+            for e in selected_indexes
+        ]
+        wi_code_list = [code for code in wi_code_list if code]  # Filter out empty values
+
         if len_indexes == 1:
-            # Extract the code from the first column (index 0) of the first selected row
-            row_idx = selected_indexes[0].row()
-            code_item = self.table_model.index(row_idx, 0)
-            wi_code = self.table_model.data(code_item, Qt.DisplayRole)
+            wi_code = wi_code_list[0]
 
             if not wi_code:
                 return
@@ -259,7 +264,7 @@ class WorkItemsTab(QWidget):
             crs_action = None
             wi_code = None
             update_action = menu.addAction(f"🔄 Update WIs  ({len_indexes} WIs)")
-            delete_action = None
+            delete_action = menu.addAction(f"🗑️ Delete selected Work Items ({len_indexes} WIs)")
 
         # Execute the menu at the requested position
         action = menu.exec_(self.table.viewport().mapToGlobal(position))
@@ -285,7 +290,22 @@ class WorkItemsTab(QWidget):
                 if confirm == QMessageBox.Yes:
                     self.db.delete_work_item(wi_code)
                     self.refresh_table()
-        elif action == update_action:
-            # ToDo
-            pass
+            elif action == update_action:
+                # ToDo
+                pass
+        else:
+            if action == delete_action:
+                confirm = QMessageBox.question(
+                    self,
+                    "Confirm Batch Deletion",
+                    f"Are you sure you want to delete {len(wi_code_list)} selected Work Items from the database?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if confirm == QMessageBox.Yes:
+                    self.db.delete_work_items(wi_code_list)
+                    self.refresh_table()
+            elif action == update_action:
+                # ToDo
+                pass
 
