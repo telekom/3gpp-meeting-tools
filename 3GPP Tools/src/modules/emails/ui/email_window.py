@@ -411,6 +411,11 @@ class EmailManagerWindow(QWidget):
         self.btn_open_msg.setEnabled(False)
         self.btn_open_msg.clicked.connect(self._open_current_msg)
 
+        self.btn_open_folder = QPushButton("📁 Open Folder")
+        self.btn_open_folder.setToolTip("Open the folder containing this .msg file.")
+        self.btn_open_folder.setEnabled(False)
+        self.btn_open_folder.clicked.connect(self._open_current_msg_folder)
+
         self.btn_toggle_star = QPushButton("⭐ Star TDoc")
         self.btn_toggle_star.setToolTip("Toggle the Star status for this TDoc globally.")
         self.btn_toggle_star.setEnabled(False)
@@ -423,6 +428,7 @@ class EmailManagerWindow(QWidget):
 
         btn_layout = QHBoxLayout()
         btn_layout.addWidget(self.btn_open_msg)
+        btn_layout.addWidget(self.btn_open_folder)  # <-- Add it to the layout here
         btn_layout.addWidget(self.btn_toggle_star)
         btn_layout.addWidget(self.btn_toggle_follow)
         btn_layout.addStretch()
@@ -578,6 +584,7 @@ class EmailManagerWindow(QWidget):
         if not indexes:
             self.reading_pane.clear()
             self.btn_open_msg.setEnabled(False)
+            self.btn_open_folder.setEnabled(False)  # <-- NEW: Disable here
             self.btn_toggle_star.setEnabled(False)
             self.btn_toggle_follow.setEnabled(False)
             return
@@ -590,6 +597,7 @@ class EmailManagerWindow(QWidget):
         self.current_msg_path = row_data.get("msg_path", "")
 
         self.btn_open_msg.setEnabled(bool(self.current_msg_path))
+        self.btn_open_folder.setEnabled(bool(self.current_msg_path))  # <-- NEW: Enable here if path exists
         self.btn_toggle_star.setEnabled(bool(self.current_tdoc_id))
         self.btn_toggle_follow.setEnabled(bool(self.current_agenda_item))
 
@@ -747,6 +755,22 @@ class EmailManagerWindow(QWidget):
                 os.startfile(self.current_msg_path)
             except Exception as e:
                 QMessageBox.warning(self, "Error", f"Could not open file: {e}")
+
+    def _open_current_msg_folder(self):
+        if getattr(self, "current_msg_path", "") and Path(self.current_msg_path).exists():
+            try:
+                import subprocess
+                import platform
+
+                # Use Windows Explorer to open the folder and actively highlight the file
+                if platform.system() == 'Windows':
+                    windows_path = os.path.normpath(self.current_msg_path)
+                    subprocess.run(['explorer', '/select,', windows_path])
+                else:
+                    # Fallback for other systems: just open the parent directory
+                    os.startfile(Path(self.current_msg_path).parent)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not open folder: {e}")
 
     # -------------------------------------------------------------------------
     # THREADING (Sync, Move, Scan, Stats)
