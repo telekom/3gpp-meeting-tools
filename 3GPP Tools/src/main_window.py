@@ -36,6 +36,7 @@ from modules.specifications.ui.ui_tabs import SpecificationsTab
 from modules.word_tools.ui.word_tabs import WordExtractorTab
 
 from core.network.wifi_monitor import WifiMonitorThread
+from modules.work_items.ui.ui_tabs import WorkItemsTab
 
 
 class DragDropUI(QMainWindow):
@@ -182,6 +183,9 @@ class DragDropUI(QMainWindow):
         # Instantiate the tab
         self.meetings_tab = MeetingsTab(db_path)
 
+        # ---> NEW: Instantiate the Work Items Tab
+        self.work_items_tab = WorkItemsTab(db_path)
+
         # Connect the update signal to the QueueManager
         self.meetings_tab.update_db_requested.connect(
             lambda wg, docs, dyna: self.queue_manager.add_item(
@@ -209,6 +213,7 @@ class DragDropUI(QMainWindow):
         self.tabs.addTab(self.batch_tab, "🔄 Visio Tools")
         self.tabs.addTab(self.word_tab, "📘 Word Tools")
         self.tabs.addTab(self.specs_tab, "📚 3GPP Specifications")
+        self.tabs.addTab(self.work_items_tab, "📋 3GPP Work Items")
         self.tabs.addTab(self.meetings_tab, "🗓️ 3GPP Meetings")
         self.tabs.setEnabled(False)
 
