@@ -213,3 +213,22 @@ class WorkItemsDatabase:
         except Exception as e:
             import logging
             logging.error(f"Failed to delete Work Item {code}: {e}")
+
+    def delete_work_items(self, code_list: list):
+        """Deletes multiple Work Items and their associated group mappings and remarks in a single transaction."""
+        if not code_list:
+            return
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                # Use placeholders for safe SQL parameter binding
+                placeholders = ','.join(['?'] * len(code_list))
+
+                cursor.execute(f"DELETE FROM wi_group_map WHERE wi_code IN ({placeholders})", code_list)
+                cursor.execute(f"DELETE FROM wi_remarks WHERE wi_code IN ({placeholders})", code_list)
+                cursor.execute(f"DELETE FROM work_items WHERE code IN ({placeholders})", code_list)
+
+                conn.commit()
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to batch delete Work Items: {e}")
