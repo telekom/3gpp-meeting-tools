@@ -1,8 +1,11 @@
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QTableView, QHeaderView, QPushButton, QProgressBar, QMessageBox)
-from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex
 from pathlib import Path
 
+from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QTimer
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                             QTableView, QHeaderView, QPushButton, QProgressBar,
+                             QMessageBox, QLineEdit)
+
+from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import WorkItemsScraperThread
 
@@ -54,7 +57,15 @@ class WorkItemsTab(QWidget):
         super().__init__()
         self.db_path = db_path
         self.db = WorkItemsDatabase(db_path)
+
+        # Debounce timer for search
+        self.search_timer = QTimer()
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(400)
+        self.search_timer.timeout.connect(self.refresh_table)
+
         self._setup_ui()
+        self._populate_filters()
         self.refresh_table()
 
     def _setup_ui(self):
@@ -91,6 +102,37 @@ class WorkItemsTab(QWidget):
 
         main_layout.addLayout(header_layout)
 
+        # --- INLINE SEARCH & FILTER BAR ---
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("<b>🔍 Local Search:</b>"))
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search Code, Acronym, or Name...")
+        self.search_input.setToolTip("Filter the table instantly by typing keywords.")
+        self.search_input.textChanged.connect(lambda text: self.search_timer.start())
+        search_layout.addWidget(self.search_input)
+
+        # ---> NEW: Use CheckableComboBox for multi-select
+        self.release_combo = CheckableComboBox("Release")
+        self.release_combo.setToolTip("Filter by 3GPP Release")
+        self.release_combo.selectionChanged.connect(lambda _: self.search_timer.start())
+        search_layout.addWidget(self.release_combo)
+
+        self.wg_combo = CheckableComboBox("WG")
+        self.wg_combo.setToolTip("Filter by Working Group")
+        self.wg_combo.selectionChanged.connect(lambda _: self.search_timer.start())
+        search_layout.addWidget(self.wg_combo)
+
+        main_layout.addLayout(search_layout)
+
+        # --- RESULTS COUNTER ---
+        self.count_label = QLabel("Showing 0 Work Items")
+        self.count_label.setStyleSheet("font-weight: bold; color: #555555; margin-top: 5px;")
+        count_layout = QHBoxLayout()
+        count_layout.addStretch()
+        count_layout.addWidget(self.count_label)
+        main_layout.addLayout(count_layout)
+
         # --- TABLE VIEW ---
         self.table = QTableView()
         self.table_model = WorkItemsTableModel()
@@ -110,10 +152,39 @@ class WorkItemsTab(QWidget):
 
         main_layout.addWidget(self.table)
 
+    def _populate_filters(self):
+        """Fetches options from the DB and populates the UI dropdowns."""
+        options = self.db.get_filter_options()
+
+        # CheckableComboBox uses updateItems() to seamlessly populate the list
+        self.release_combo.blockSignals(True)
+        self.release_combo.updateItems(options.get('releases', []))
+        self.release_combo.blockSignals(False)
+
+        self.wg_combo.blockSignals(True)
+        self.wg_combo.updateItems(options.get('groups', []))
+        self.wg_combo.blockSignals(False)
+
     def refresh_table(self):
-        """Pulls the latest data from the database and updates the view."""
-        data = self.db.get_all_work_items()
+        """Pulls the latest data from the database using active filters."""
+        search_term = self.search_input.text().strip()
+
+        # Retrieve the selected items as lists
+        selected_releases = self.release_combo.getCheckedItems()
+        selected_wgs = self.wg_combo.getCheckedItems()
+
+        # Execute query
+        data = self.db.search_work_items(
+            search_term=search_term if search_term else None,
+            releases=selected_releases,
+            wg_names=selected_wgs
+        )
+
         self.table_model.update_data(data)
+
+        # Update counter
+        count = len(data)
+        self.count_label.setText(f"Showing {count} Work Items")
 
     def _start_sync(self):
         self.sync_btn.setEnabled(False)
@@ -137,6 +208,8 @@ class WorkItemsTab(QWidget):
         self.progress_bar.setVisible(False)
         self.status_lbl.setText("")
 
+        # Refresh dropdowns and table with new data
+        self._populate_filters()
         self.refresh_table()
 
         if success:
