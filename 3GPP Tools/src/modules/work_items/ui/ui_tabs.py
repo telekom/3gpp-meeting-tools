@@ -115,11 +115,13 @@ class WorkItemsTab(QWidget):
         # ---> NEW: Use CheckableComboBox for multi-select
         self.release_combo = CheckableComboBox("Release")
         self.release_combo.setToolTip("Filter by 3GPP Release")
+        self.release_combo.setMinimumWidth(170)  # Set your desired width in pixels here
         self.release_combo.selectionChanged.connect(lambda _: self.search_timer.start())
         search_layout.addWidget(self.release_combo)
 
         self.wg_combo = CheckableComboBox("WG")
         self.wg_combo.setToolTip("Filter by Working Group")
+        self.wg_combo.setMinimumWidth(150)  # Set your desired width in pixels here
         self.wg_combo.selectionChanged.connect(lambda _: self.search_timer.start())
         search_layout.addWidget(self.wg_combo)
 
