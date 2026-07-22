@@ -1,9 +1,10 @@
+import webbrowser
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QTimer
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTableView, QHeaderView, QPushButton, QProgressBar,
-                             QMessageBox, QLineEdit)
+                             QMessageBox, QLineEdit, QMenu)
 
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
@@ -148,6 +149,9 @@ class WorkItemsTab(QWidget):
             "QTableView::item:selected { background-color: #cce8ff; color: #000; }"
         )
 
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
+
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
@@ -218,3 +222,43 @@ class WorkItemsTab(QWidget):
             QMessageBox.information(self, "Sync Complete", msg)
         else:
             QMessageBox.warning(self, "Sync Failed", msg)
+
+    def _show_context_menu(self, position):
+        """Context menu for the work items table with URL actions."""
+        selected_indexes = self.table.selectionModel().selectedRows()
+        if not selected_indexes:
+            return
+
+        # Extract the code from the first column (index 0) of the first selected row
+        row_idx = selected_indexes[0].row()
+        code_item = self.table_model.index(row_idx, 0)
+        wi_code = self.table_model.data(code_item, Qt.DisplayRole)
+
+        if not wi_code:
+            return
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
+            QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
+            QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+            QMenu::item:disabled { color: #AAAAAA; } 
+        """)
+
+        # Create menu actions with matching icons/emojis
+        wi_page_action = menu.addAction(f"🌐 Open WI Page")
+        specs_action = menu.addAction(f"📂 Specifications Resulting from this WI")
+        crs_action = menu.addAction(f"📄 CRs Related to this WI")
+
+        # Execute the menu at the requested position
+        action = menu.exec_(self.table.viewport().mapToGlobal(position))
+
+        if action == wi_page_action:
+            url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
+            webbrowser.open(url)
+        elif action == specs_action:
+            url = f"https://portal.3gpp.org/Specifications.aspx?q=1&WiUid={wi_code}"
+            webbrowser.open(url)
+        elif action == crs_action:
+            url = f"https://portal.3gpp.org/ChangeRequests.aspx?q=1&workitem={wi_code}"
+            webbrowser.open(url)
