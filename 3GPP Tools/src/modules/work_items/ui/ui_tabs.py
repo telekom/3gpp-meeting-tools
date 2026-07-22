@@ -252,12 +252,14 @@ class WorkItemsTab(QWidget):
             specs_action = menu.addAction(f"📂 Specifications Resulting from this WI")
             crs_action = menu.addAction(f"📄 CRs Related to this WI")
             update_action = menu.addAction(f"🔄 Update WI")
+            delete_action = menu.addAction("🗑️ Delete this Meeting")
         else:
             wi_page_action = None
             specs_action = None
             crs_action = None
             wi_code = None
             update_action = menu.addAction(f"🔄 Update WIs  ({len_indexes} WIs)")
+            delete_action = None
 
         # Execute the menu at the requested position
         action = menu.exec_(self.table.viewport().mapToGlobal(position))
@@ -272,6 +274,17 @@ class WorkItemsTab(QWidget):
             elif action == crs_action:
                 url = f"https://portal.3gpp.org/ChangeRequests.aspx?q=1&workitem={wi_code}"
                 webbrowser.open(url)
+            elif action == delete_action:
+                confirm = QMessageBox.question(
+                    self,
+                    "Confirm Deletion",
+                    f"Are you sure you want to delete Work Item '{wi_code}' from the database?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if confirm == QMessageBox.Yes:
+                    self.db.delete_work_item(wi_code)
+                    self.refresh_table()
         elif action == update_action:
             # ToDo
             pass

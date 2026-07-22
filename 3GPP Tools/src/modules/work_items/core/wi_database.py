@@ -198,3 +198,18 @@ class WorkItemsDatabase:
             import logging
             logging.error(f"Failed to search Work Items: {e}")
             return []
+
+    def delete_work_item(self, code: str):
+        """Deletes a Work Item and its associated group mappings and remarks from the database."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                # Clean up foreign key relations first
+                cursor.execute("DELETE FROM wi_group_map WHERE wi_code = ?", (code,))
+                cursor.execute("DELETE FROM wi_remarks WHERE wi_code = ?", (code,))
+                # Delete the main work item record
+                cursor.execute("DELETE FROM work_items WHERE code = ?", (code,))
+                conn.commit()
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to delete Work Item {code}: {e}")
