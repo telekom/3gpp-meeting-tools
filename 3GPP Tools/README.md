@@ -2,7 +2,7 @@
 
 An advanced, component-based desktop IDE designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
 
-Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, and seamlessly navigate, filter, and synchronize the vast 3GPP meeting and specification databases locally.
+Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, and seamlessly navigate, filter, and synchronize the vast 3GPP meeting, specification, and work item databases locally.
 
 ---
 
@@ -18,12 +18,17 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ## <a id="features"></a>✨ Features
 
-### 📡 3GPP Meeting & Specifications Database
+### 📡 3GPP Meeting, Specification & Work Items Database
 * **Asynchronous Three-Phase Syncing Engine:** 
   * **Phase 1 (FTP Directory Mapping):** Scrapes the 3GPP FTP archives in parallel to instantly populate your database with all available meeting numbers, gracefully handling hidden RAN Ad-Hoc (`TSGR_AHs`) subdirectories.
   * **Phase 2 (Deep Document Scrape):** Crawls the `Docs/` folder of every meeting. Uses smart Regex stripping to ignore file extensions and revisions, mathematically sorting the files to determine the first and last TDocs of the meeting.
   * **Phase 3 (DynaReport Upserting):** Injects metadata (Location, Start/End Dates, Ad-Hoc/Electronic status) by fetching the legacy 3GPP Portal HTML tables.
 * **Targeted Quick Fetch:** Instantly sync individual specifications (e.g., `23.801-01`) or entire specification series (e.g., `23`) directly from the FTP server without needing to run a lengthy full database sync.
+
+* **3GPP Work Items (WIs) Synchronizer:**
+  * **Parallel Multi-WG Scraper:** Concurrently scrapes active Work Items across all 19 Technical Specification Groups and Working Groups (SA, SA1-6, RAN, RAN1-6, CT, CT1-6) from official 3GPP dynamic report pages using multi-threaded execution (5 workers).
+  * **High-Performance Bulk Upsert:** Utilizes atomic SQLite bulk transactions (`executemany` with `ON CONFLICT DO UPDATE`) to instantly sync thousands of work items and map them to their respective working groups via relational sidecar tables (`work_items`, `wi_group_map`, `wi_remarks`).
+  * **Interactive UI Tab:** Features a dedicated tab with a real-time progress bar, status feedback, and helpful button tooltips for seamless navigation.
 
 * **Intelligent TDocs Manager:**
   * **Smart Global TDoc Search:** Instantly locate and download any document across the entire database. Just type a TDoc number (e.g., `S2-2605740r11`) and the UI will dynamically reveal minimalist quick-actions to download the specific file or open its parent meeting context—all without leaving the main dashboard.
@@ -36,8 +41,8 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Multi-Action Resources Menu:** Instantly jump to local cache directories, fetched HTML Agenda files, Main FTP folders, Docs/ folders, or Revisions/ folders directly from the UI.
   * **Quick Launch History:** Remembers your exact active working group session, allowing you to bypass the database table and instantly jump back into your last opened meeting with a single click.
 
-* **Smart Network Routing & Fallback Engine:** Automatically detects when you are connected to the official "3GPPWIFI" network. The Universal URL Router dynamically generates a fallback priority list (e.g., Local `10.10.10.10` Server ➔ Live `SYNC` Folder ➔ Standard Web Archive) based on the current meeting status. If a document is missing from a local directory, the engine instantly catches the 404 error and seamlessly falls back to the next fastest source.
-* **F2F "Instant Fetch" UI:** Face-to-Face meetings move fast. Bypass the Excel table entirely using the "Instant Fetch" input in the TDocs window. It smartly pre-fills your Working Group and Year prefix (e.g., `S2-26`); just type the document number, hit Enter, and the tool will instantly fetch brand-new revisions straight from the `Inbox/Revisions/` folder the second they are announced.
+* **Smart Network Detection:** Automatically detects when you are connected to the official "3GPPWIFI" network during live meetings. It runs a lightweight background thread to ping the internal local server (e.g., `10.10.10.10`) and displays a persistent visual indicator in the status bar. This enables dynamic features like bypassing public internet firewalls and routing downloads directly through the high-speed local meeting network.
+
 * **3GPP FTP Session Manager:** Automatically injects randomized User-Agents and HTTP Keep-Alive headers. Features a configurable **Humanness Delay** engine to bypass aggressive 3GPP server throttling and "Too Many Requests" blocks, which can be dialed down to 0.0 for maximum scraping speed.
 
 ### 📧 eMeeting Email Manager (Native Outlook Integration)
@@ -65,11 +70,8 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ### 🎨 Visio Tools (PlantUML & PowerPoint Converter)
 * **Live Preview IDE:** A PlantUML code editor featuring syntax highlighting, line numbering, and a 500ms debounced live-rendering engine.
-* **Bidirectional Batch Conversion Engine:** Drag and drop hundreds of files into the background processing queue. The tool dynamically maps target formats:
-  * Drop `.puml` or `.txt` ➔ Generate `.vsdx` (Visio)
-  * Drop `.pptx` (PowerPoint) ➔ Generate multi-page `.vsdx` (Visio)
-  * Drop `.vsdx` (Visio) ➔ Generate editable `.pptx` (PowerPoint)
-* **Hybrid Vector Bridging Pipeline:** Seamlessly cross-converts PowerPoint and Visio presentations using Enhanced Metafile (EMF) bridging combined with deep COM canvas optimization. This ensures perfect line-attachment fidelity while mathematically shrink-wrapping text boxes and injecting Arial theme overrides to prevent font splitting and Aptos fallback.
+* **Batch Conversion Engine:** Drag and drop hundreds of `.puml`, `.txt`, or `.pptx` files to queue them for multi-threaded background conversion.
+* **PowerPoint to Visio Pipeline:** Seamlessly convert entire PowerPoint presentations into multi-page Visio documents (`.vsdx`). Uses Enhanced Metafile (EMF) bridging to perfectly preserve editable native Office shapes, automatically aggressively ungroup them, and shrink wrap their text boundaries.
 * **Custom Visio Stencil Engine:** Converts standard PlantUML shapes into grouped Visio shapes (`.vsdx`) mapped directly to custom 3GPP node stencils.
 
 ---
@@ -81,8 +83,7 @@ This application strictly adheres to the **Model-View-Controller (MVC)** and **E
 1. **The UI Layer (`modules/*/ui/`):** Contains only dumb Qt Widgets and standard `QAbstractTableModel` proxies. It never blocks the main thread.
 2. **The Core Layer (`modules/*/core/`):** Contains the heavy lifting. All database transactions (`sqlite3`), FTP network scraping (`requests`), COM object automation (`win32com` & `pythoncom`), and XML manipulation (`python-docx`) are isolated here.
 3. **The Threading Bridge:** Every Core module inherits from `QThread`. The UI sends data to the Thread, and the Thread emits `pyqtSignals` back to the UI to update progress bars or logs.
-4. **Unified Global Logging:** A custom `GuiLogHandler` intercepts native Python `logging` events from any background thread and safely emits them as Qt signals to the unified Console Panel, ensuring the terminal and the GUI are always perfectly synchronized.
-5. **The Singleton Managers:** The Network Configuration (proxies), Word Configuration (Sensitivity Labels), Global Network State, and Comparison Cart states are managed by robust thread-safe Singletons and dynamic JSON config loaders to ensure cross-tab synchronization.
+4. **The Singleton Managers:** The Network Configuration (proxies), Word Configuration (Sensitivity Labels), and Comparison Cart states are managed by robust Singletons and dynamic JSON config loaders to ensure cross-tab synchronization.
 
 ---
 
@@ -131,8 +132,12 @@ python src/main_tools.py
 5. In the TDocs Window, use the **Search** bar or dropdown filters to find specific documents. Double-click any cell to open the Notes editor and assign a color-coded status to a document.
 6. For SA2 meetings, use the **Refresh** menu to import `TdocsByAgenda.htm` and automatically merge secretary remarks and on-the-fly revisions into your list.
 7. Click the Action column to automatically download, unzip, and open the `.doc` files, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
-8. **Instant Fetch:** During live Face-to-Face meetings, use the **🚀 Instant Fetch** input at the top of the TDocs window to instantly download newly announced documents directly from the local server's `Revisions` inbox before they even appear in the official Excel list.
-9. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
+8. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
+
+### 📋 3GPP Work Items (WIs)
+1. Navigate to the **3GPP Work Items** tab.
+2. Click the **🔄 Sync 3GPP WIs** button (hover over it for tooltip details) to trigger the parallel multi-threaded scraper across all 19 Technical Specification Groups and Working Groups.
+3. Monitor the real-time progress bar and status messages as records are fetched and bulk upserted into the shared database.
 
 ### 📧 eMeeting Email Manager
 1. Open a specific meeting from the main database and click the yellow **📧 Emails** button.
@@ -152,7 +157,7 @@ python src/main_tools.py
 ### 🎨 Visio Tools
 1. **PlantUML Editor:** Type standard PlantUML code into the left pane. The Live Preview will automatically update the image on the right.
 2. Click **Export Diagram ▼** and select **To Visio (.vsdx)** to generate a native Visio file, or use other options like PowerPoint, SVG, or ASCII.
-3. **Batch Process & PowerPoint Conversion:** Navigate to the **📂 Visio Tools** tab and drag-and-drop `.puml`, `.txt`, `.pptx` (PowerPoint), or `.vsdx` (Visio) files into the drop zone. The system will automatically detect the file type and process it into a clean, editable file in the corresponding format.
+3. **Batch Process & PowerPoint Conversion:** Navigate to the **📂 Visio Tools** tab and drag-and-drop `.puml`, `.txt`, or `.pptx` (PowerPoint) files into the drop zone. The system will automatically detect the file type and process it into a clean, editable Visio file in the background!
 
 ### ⚙️ Configuring Corporate Proxies & Networking
 If you are behind a corporate firewall:
