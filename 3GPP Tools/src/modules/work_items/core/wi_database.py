@@ -56,8 +56,8 @@ class WorkItemsDatabase:
             ''')
 
     def get_all_work_items(self) -> list:
-        """Fetches all work items to populate the UI table."""
-        query = "SELECT code, acronym, name, latest_wid, release, start_date, end_date FROM work_items"
+        """Fetches all work items to populate the UI table, ordered by code descending numerically."""
+        query = "SELECT code, acronym, name, latest_wid, release, start_date, end_date FROM work_items ORDER BY CAST(code AS INTEGER) DESC"
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -186,7 +186,7 @@ class WorkItemsDatabase:
             term = f"%{search_term}%"
             params.extend([term, term, term])
 
-        query += " ORDER BY wi.code ASC"
+        query += " ORDER BY CAST(wi.code AS INTEGER) DESC"
 
         try:
             with self._get_connection() as conn:
