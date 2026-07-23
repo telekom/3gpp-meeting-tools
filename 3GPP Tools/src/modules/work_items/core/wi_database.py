@@ -153,9 +153,12 @@ class WorkItemsDatabase:
 
     def search_work_items(self, search_term: str = None, releases: list = None, wg_names: list = None) -> list:
         """Searches Work Items by text, multiple releases, and multiple working groups."""
+        # Use GROUP_CONCAT to bundle all historical remarks into a single delimited string
         query = """
-            SELECT DISTINCT wi.code, wi.acronym, wi.name, wi.latest_wid, wi.release, wi.start_date, wi.end_date 
+            SELECT wi.code, wi.acronym, wi.name, wi.latest_wid, wi.release, wi.start_date, wi.end_date,
+                   GROUP_CONCAT(r.creation_date || ': ' || r.remark, '|||') AS remarks 
             FROM work_items wi
+            LEFT JOIN wi_remarks r ON wi.code = r.wi_code
         """
         params = []
 
@@ -186,7 +189,8 @@ class WorkItemsDatabase:
             term = f"%{search_term}%"
             params.extend([term, term, term])
 
-        query += " ORDER BY CAST(wi.code AS INTEGER) DESC"
+        # Group by code so GROUP_CONCAT bundles remarks per work item
+        query += " GROUP BY wi.code ORDER BY CAST(wi.code AS INTEGER) DESC"
 
         try:
             with self._get_connection() as conn:
