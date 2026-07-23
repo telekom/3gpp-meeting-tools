@@ -1,7 +1,10 @@
-import re
 import concurrent.futures
-from bs4 import BeautifulSoup
+import concurrent.futures
+import logging
+import re
+
 from PyQt5.QtCore import QThread, pyqtSignal
+from bs4 import BeautifulSoup
 
 from core.network.session import NetworkSession
 from modules.work_items.core.wi_database import WorkItemsDatabase
@@ -106,6 +109,9 @@ class WorkItemsScraperThread(QThread):
 
         return parsed_items
 
+
+import re
+import logging
 import concurrent.futures
 from bs4 import BeautifulSoup
 from PyQt5.QtCore import QThread, pyqtSignal
@@ -130,6 +136,8 @@ class TargetedWIScraperThread(QThread):
 
         db = WorkItemsDatabase(self.db_path)
         total_targets = len(self.target_wi_codes)
+
+        logging.info(f"TargetedWIScraperThread starting for {total_targets} WIs: {self.target_wi_codes}")
         self.progress.emit(0, total_targets, "Initializing targeted Work Item update...")
 
         completed = 0
@@ -152,26 +160,36 @@ class TargetedWIScraperThread(QThread):
                         metadata['code'] = wi_code
                         batch_metadata.append(metadata)
                         msg = f"Parsed metadata for WI {wi_code}."
+                        logging.debug(f"Successfully scraped WI {wi_code}: {metadata}")
                     else:
                         msg = f"No metadata found for WI {wi_code}."
+                        logging.warning(msg)
 
                     self.progress.emit(completed, total_targets, msg)
                 except Exception as e:
-                    self.progress.emit(completed, total_targets, f"Error parsing WI {wi_code}: {str(e)}")
+                    error_msg = f"Error parsing WI {wi_code}: {str(e)}"
+                    logging.error(error_msg, exc_info=True)
+                    self.progress.emit(completed, total_targets, error_msg)
 
         # Perform a single, high-speed atomic transaction for all updated records
         if batch_metadata:
+            logging.info(f"Sending {len(batch_metadata)} parsed WIs to the database for update.")
             self.progress.emit(completed, total_targets, "Saving batch to database...")
             try:
                 db.update_work_items_metadata(batch_metadata)
             except Exception as e:
+                logging.error(f"Database transaction failed: {e}", exc_info=True)
                 self.finished_sync.emit(False, f"Database transaction failed: {str(e)}")
                 return
+        else:
+            logging.warning("batch_metadata is empty! Skipping database update.")
 
-        self.finished_sync.emit(True, f"Successfully updated {len(batch_metadata)} Work Items.")
+        self.finished_sync.emit(True, f"Successfully processed {len(batch_metadata)} Work Items.")
 
     def _fetch_and_parse_details(self, wi_code: str) -> dict:
-        url = f"[https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId=](https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId=){wi_code}"
+        # FIXED: Removed the markdown brackets from the URL string
+        url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
+        logging.info(f"Fetching WI details from: {url}")
 
         session = NetworkSession.get_instance()
         NetworkSession.apply_humanness(session)

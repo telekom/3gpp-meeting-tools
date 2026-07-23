@@ -248,8 +248,13 @@ class WorkItemsDatabase:
         Batch updates multiple Work Items with scraped metadata using a single transaction,
         including clearing and re-inserting their associated remarks.
         """
+        import logging
+
         if not metadata_list:
+            logging.warning("update_work_items_metadata was called with an empty list.")
             return
+
+        logging.info(f"Preparing database batch update for {len(metadata_list)} Work Items...")
 
         update_tuples = []
         remark_tuples = []
@@ -289,10 +294,14 @@ class WorkItemsDatabase:
                     WHERE code = ?
                 ''', update_tuples)
 
+                logging.info(f"Database UPDATE for work_items affected {cursor.rowcount} row(s).")
+
                 # 2. Delete existing remarks for these specific WIs to prevent duplicates
                 cursor.executemany('''
                     DELETE FROM wi_remarks WHERE wi_code = ?
                 ''', wi_codes_to_clear)
+
+                logging.info(f"Database DELETE for old wi_remarks affected {cursor.rowcount} row(s).")
 
                 # 3. Insert the newly scraped remarks
                 if remark_tuples:
@@ -300,7 +309,7 @@ class WorkItemsDatabase:
                         INSERT INTO wi_remarks (wi_code, creation_date, remark)
                         VALUES (?, ?, ?)
                     ''', remark_tuples)
+                    logging.info(f"Database INSERT for new wi_remarks added {cursor.rowcount} row(s).")
 
         except Exception as e:
-            import logging
-            logging.error(f"Failed to batch update Work Items metadata: {e}")
+            logging.error(f"Failed to batch update Work Items metadata: {e}", exc_info=True)
