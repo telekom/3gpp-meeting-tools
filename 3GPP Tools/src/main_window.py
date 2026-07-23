@@ -186,6 +186,9 @@ class DragDropUI(QMainWindow):
         # ---> NEW: Instantiate the Work Items Tab
         self.work_items_tab = WorkItemsTab(db_path)
 
+        # Wire the global TDoc request from the Work Items Tab directly into the Meetings Tab's controller
+        self.work_items_tab.global_action_requested.connect(self.meetings_tab._handle_global_action_from_window)
+
         # Connect the update signal to the QueueManager
         self.meetings_tab.update_db_requested.connect(
             lambda wg, docs, dyna: self.queue_manager.add_item(
