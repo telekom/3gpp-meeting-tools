@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import WorkItemsScraperThread, TargetedWIScraperThread
+from modules.work_items.core.wi_settings import WorkItemsSettings
 
 
 class WidDelegate(QStyledItemDelegate):
@@ -214,6 +215,7 @@ class WorkItemsTab(QWidget):
         super().__init__()
         self.db_path = db_path
         self.db = WorkItemsDatabase(db_path)
+        self.settings = WorkItemsSettings()
 
         # Debounce timer for search
         self.search_timer = QTimer()
@@ -221,9 +223,63 @@ class WorkItemsTab(QWidget):
         self.search_timer.setInterval(400)
         self.search_timer.timeout.connect(self.refresh_table)
 
+        # Debounce timer for saving filters
+        self.save_filters_timer = QTimer()
+        self.save_filters_timer.setSingleShot(True)
+        self.save_filters_timer.setInterval(1000)
+        self.save_filters_timer.timeout.connect(self._save_filters)
+
         self._setup_ui()
+
+        # Populate the dropdown options from the DB first, so they exist before loading filters
         self._populate_filters()
+        self._load_filters()
         self.refresh_table()
+
+    def _save_filters(self):
+        """Saves the current UI filter state to JSON."""
+        filters = {
+            "search": self.search_input.text().strip(),
+            "releases": self.release_combo.getCheckedItems(),
+            "wgs": self.wg_combo.getCheckedItems()
+        }
+        self.settings.save_filters(filters)
+
+    def _load_filters(self):
+        """Restores the UI filter state from JSON on startup."""
+        filters = self.settings.get_filters()
+        if not filters:
+            return
+
+        # Block signals to prevent triggering search_timer multiple times during setup
+        self.search_input.blockSignals(True)
+        self.release_combo.blockSignals(True)
+        self.wg_combo.blockSignals(True)
+
+        if "search" in filters:
+            self.search_input.setText(filters["search"])
+
+        # Safely apply the checked states to the CheckableComboBox widgets
+        if "releases" in filters:
+            self._apply_checked_items(self.release_combo, filters["releases"])
+
+        if "wgs" in filters:
+            self._apply_checked_items(self.wg_combo, filters["wgs"])
+
+        # Unblock signals
+        self.search_input.blockSignals(False)
+        self.release_combo.blockSignals(False)
+        self.wg_combo.blockSignals(False)
+
+    def _apply_checked_items(self, combo, items_to_check):
+        """Helper to manually iterate a QComboBox model and check specific items."""
+        model = combo.model()
+        for row in range(model.rowCount()):
+            item = model.item(row)
+            if item.text() in items_to_check:
+                item.setCheckState(Qt.Checked)
+            else:
+                item.setCheckState(Qt.Unchecked)
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
