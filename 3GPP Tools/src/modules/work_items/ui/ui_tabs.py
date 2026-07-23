@@ -175,7 +175,7 @@ class WorkItemsTableModel(QAbstractTableModel):
                     if len(parts) == 2:
                         parsed_remarks.append((parts[0], parts[1]))
                     else:
-                        parsed_remarks.append(("", item))  # Fallback
+                        parsed_remarks.append(("", item))
 
                 # Bulletproof sorting: sort by the ISO date string (index 0) in descending order
                 parsed_remarks.sort(key=lambda x: x[0], reverse=True)
@@ -251,35 +251,43 @@ class WorkItemsTab(QWidget):
         if not filters:
             return
 
-        # Block signals to prevent triggering search_timer multiple times during setup
-        self.search_input.blockSignals(True)
-        self.release_combo.blockSignals(True)
-        self.wg_combo.blockSignals(True)
+        # Deliberately NOT using blockSignals(True) here.
+        # The CheckableComboBox relies on the model.itemChanged signal to physically update its
+        # displayed line edit text. Blocking signals would leave the UI visually empty.
 
         if "search" in filters:
             self.search_input.setText(filters["search"])
 
-        # Safely apply the checked states to the CheckableComboBox widgets
         if "releases" in filters:
             self._apply_checked_items(self.release_combo, filters["releases"])
 
         if "wgs" in filters:
             self._apply_checked_items(self.wg_combo, filters["wgs"])
 
-        # Unblock signals
-        self.search_input.blockSignals(False)
-        self.release_combo.blockSignals(False)
-        self.wg_combo.blockSignals(False)
-
     def _apply_checked_items(self, combo, items_to_check):
         """Helper to manually iterate a QComboBox model and check specific items."""
         model = combo.model()
+        items_to_check_stripped = [str(x).strip() for x in items_to_check]
+
         for row in range(model.rowCount()):
-            item = model.item(row)
-            if item.text() in items_to_check:
-                item.setCheckState(Qt.Checked)
+            # Fallback wrapper in case the custom combo box relies on Qt.DisplayRole directly
+            if hasattr(model, 'item'):
+                item = model.item(row)
+                if item.text().strip() in items_to_check_stripped:
+                    item.setCheckState(Qt.Checked)
+                else:
+                    item.setCheckState(Qt.Unchecked)
             else:
-                item.setCheckState(Qt.Unchecked)
+                index = model.index(row, 0)
+                text = str(model.data(index, Qt.DisplayRole)).strip()
+                state = Qt.Checked if text in items_to_check_stripped else Qt.Unchecked
+                model.setData(index, state, Qt.CheckStateRole)
+
+        # Force a visual update if the custom widget supports it
+        if hasattr(combo, 'updateText'):
+            combo.updateText()
+        elif hasattr(combo, 'repaint'):
+            combo.repaint()
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -393,7 +401,9 @@ class WorkItemsTab(QWidget):
         self.wg_combo.blockSignals(False)
 
     def refresh_table(self):
-        """Pulls the latest data from the database using active filters."""
+        # Trigger the auto-save countdown every time the table data is refreshed
+        self.save_filters_timer.start()
+
         search_term = self.search_input.text().strip()
 
         # Retrieve the selected items as lists
