@@ -153,12 +153,18 @@ class WorkItemsDatabase:
 
     def search_work_items(self, search_term: str = None, releases: list = None, wg_names: list = None) -> list:
         """Searches Work Items by text, multiple releases, and multiple working groups."""
-        # Use GROUP_CONCAT to bundle all historical remarks into a single delimited string
+
+        # Use a sorted subquery to guarantee GROUP_CONCAT builds the string from newest to oldest.
+        # We only concatenate r.remark, omitting the creation_date from the final UI string.
         query = """
             SELECT wi.code, wi.acronym, wi.name, wi.latest_wid, wi.release, wi.start_date, wi.end_date,
-                   GROUP_CONCAT(r.creation_date || ': ' || r.remark, '|||') AS remarks 
+                   GROUP_CONCAT(r.remark, '|||') AS remarks 
             FROM work_items wi
-            LEFT JOIN wi_remarks r ON wi.code = r.wi_code
+            LEFT JOIN (
+                SELECT wi_code, remark 
+                FROM wi_remarks 
+                ORDER BY creation_date DESC
+            ) r ON wi.code = r.wi_code
         """
         params = []
 
@@ -239,26 +245,42 @@ class WorkItemsDatabase:
 
     def update_work_items_metadata(self, metadata_list: list):
         """
-        Batch updates multiple Work Items with scraped metadata using a single transaction.
-        Expects a list of dictionaries containing 'code', 'start_date', 'end_date', and 'latest_wid'.
+        Batch updates multiple Work Items with scraped metadata using a single transaction,
+        including clearing and re-inserting their associated remarks.
         """
         if not metadata_list:
             return
 
-        # Flatten the dictionary list into a list of tuples for executemany
         update_tuples = []
+        remark_tuples = []
+        wi_codes_to_clear = []
+
+        # Prepare our data for batch execution
         for meta in metadata_list:
+            wi_code = meta.get('code')
+            wi_codes_to_clear.append((wi_code,))
+
             update_tuples.append((
                 meta.get('start_date', ''), meta.get('start_date', ''),
                 meta.get('end_date', ''), meta.get('end_date', ''),
                 meta.get('latest_wid', ''), meta.get('latest_wid', ''),
-                meta.get('code')
+                wi_code
             ))
 
+            # Extract parsed remarks for batch insertion
+            for remark in meta.get('remarks', []):
+                remark_tuples.append((
+                    wi_code,
+                    remark['date'],
+                    remark['text']
+                ))
+
         try:
-            # The 'with' block automatically begins a transaction and commits it upon successful completion
+            # The 'with' block acts as an atomic transaction
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+
+                # 1. Update the main Work Item metadata
                 cursor.executemany('''
                     UPDATE work_items 
                     SET start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
@@ -266,6 +288,19 @@ class WorkItemsDatabase:
                         latest_wid = CASE WHEN ? != '' THEN ? ELSE latest_wid END
                     WHERE code = ?
                 ''', update_tuples)
+
+                # 2. Delete existing remarks for these specific WIs to prevent duplicates
+                cursor.executemany('''
+                    DELETE FROM wi_remarks WHERE wi_code = ?
+                ''', wi_codes_to_clear)
+
+                # 3. Insert the newly scraped remarks
+                if remark_tuples:
+                    cursor.executemany('''
+                        INSERT INTO wi_remarks (wi_code, creation_date, remark)
+                        VALUES (?, ?, ?)
+                    ''', remark_tuples)
+
         except Exception as e:
             import logging
             logging.error(f"Failed to batch update Work Items metadata: {e}")

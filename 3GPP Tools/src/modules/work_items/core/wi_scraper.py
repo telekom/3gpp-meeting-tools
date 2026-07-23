@@ -183,7 +183,8 @@ class TargetedWIScraperThread(QThread):
         metadata = {
             'start_date': '',
             'end_date': '',
-            'latest_wid': ''
+            'latest_wid': '',
+            'remarks': []  # New list to hold scraped remarks
         }
 
         start_tag = soup.find('span', id='lblStartDate')
@@ -197,5 +198,24 @@ class TargetedWIScraperThread(QThread):
         wid_tag = soup.find('a', id='lnkWiVersion')
         if wid_tag:
             metadata['latest_wid'] = wid_tag.get_text(strip=True)
+
+        # --- Parse Remarks Table ---
+        remarks_table = soup.find('table', id='wiRemarks_remarksGrid_ctl00')
+        if remarks_table:
+            tbody = remarks_table.find('tbody')
+            if tbody:
+                for row in tbody.find_all('tr'):
+                    cols = row.find_all('td')
+                    if len(cols) >= 3:
+                        # Date is in the first column, inside a <span>
+                        date_span = cols[0].find('span')
+                        # Remark text is in the third column, inside a <div>
+                        remark_div = cols[2].find('div')
+
+                        if date_span and remark_div:
+                            metadata['remarks'].append({
+                                'date': date_span.get_text(strip=True),
+                                'text': remark_div.get_text(strip=True)
+                            })
 
         return metadata
