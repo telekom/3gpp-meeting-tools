@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
-from modules.work_items.core.wi_scraper import WorkItemsScraperThread
+from modules.work_items.core.wi_scraper import WorkItemsScraperThread, TargetedWIScraperThread
 
 
 class WorkItemsTableModel(QAbstractTableModel):
@@ -291,8 +291,7 @@ class WorkItemsTab(QWidget):
                     self.db.delete_work_item(wi_code)
                     self.refresh_table()
             elif action == update_action:
-                # ToDo
-                pass
+                self._start_targeted_sync([wi_code])
         else:
             if action == delete_action:
                 confirm = QMessageBox.question(
@@ -306,6 +305,16 @@ class WorkItemsTab(QWidget):
                     self.db.delete_work_items(wi_code_list)
                     self.refresh_table()
             elif action == update_action:
-                # ToDo
-                pass
+                self._start_targeted_sync(wi_code_list)
+
+    def _start_targeted_sync(self, wi_codes: list):
+        self.sync_btn.setEnabled(False)
+        self.sync_btn.setText("⏳ Updating...")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+        self.targeted_thread = TargetedWIScraperThread(self.db_path, wi_codes, self)
+        self.targeted_thread.progress.connect(self._update_progress)
+        self.targeted_thread.finished_sync.connect(self._on_sync_finished)
+        self.targeted_thread.start()
 

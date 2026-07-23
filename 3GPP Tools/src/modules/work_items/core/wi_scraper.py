@@ -105,3 +105,97 @@ class WorkItemsScraperThread(QThread):
                 })
 
         return parsed_items
+
+import concurrent.futures
+from bs4 import BeautifulSoup
+from PyQt5.QtCore import QThread, pyqtSignal
+
+from core.network.session import NetworkSession
+from modules.work_items.core.wi_database import WorkItemsDatabase
+
+
+class TargetedWIScraperThread(QThread):
+    progress = pyqtSignal(int, int, str)
+    finished_sync = pyqtSignal(bool, str)
+
+    def __init__(self, db_path, target_wi_codes: list, parent=None):
+        super().__init__(parent)
+        self.db_path = db_path
+        self.target_wi_codes = target_wi_codes
+
+    def run(self):
+        if not self.target_wi_codes:
+            self.finished_sync.emit(False, "No Work Items selected for update.")
+            return
+
+        db = WorkItemsDatabase(self.db_path)
+        total_targets = len(self.target_wi_codes)
+        self.progress.emit(0, total_targets, "Initializing targeted Work Item update...")
+
+        completed = 0
+        batch_metadata = []
+
+        # Pool HTTP requests to prevent bottlenecks, capping at 10 simultaneous workers
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_wi = {
+                executor.submit(self._fetch_and_parse_details, wi_code): wi_code
+                for wi_code in self.target_wi_codes
+            }
+
+            for future in concurrent.futures.as_completed(future_to_wi):
+                wi_code = future_to_wi[future]
+                completed += 1
+                try:
+                    metadata = future.result()
+                    if metadata:
+                        # Append the WI Code so the database knows which row to update
+                        metadata['code'] = wi_code
+                        batch_metadata.append(metadata)
+                        msg = f"Parsed metadata for WI {wi_code}."
+                    else:
+                        msg = f"No metadata found for WI {wi_code}."
+
+                    self.progress.emit(completed, total_targets, msg)
+                except Exception as e:
+                    self.progress.emit(completed, total_targets, f"Error parsing WI {wi_code}: {str(e)}")
+
+        # Perform a single, high-speed atomic transaction for all updated records
+        if batch_metadata:
+            self.progress.emit(completed, total_targets, "Saving batch to database...")
+            try:
+                db.update_work_items_metadata(batch_metadata)
+            except Exception as e:
+                self.finished_sync.emit(False, f"Database transaction failed: {str(e)}")
+                return
+
+        self.finished_sync.emit(True, f"Successfully updated {len(batch_metadata)} Work Items.")
+
+    def _fetch_and_parse_details(self, wi_code: str) -> dict:
+        url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
+
+        session = NetworkSession.get_instance()
+        NetworkSession.apply_humanness(session)
+
+        response = session.get(url, timeout=30)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        metadata = {
+            'start_date': '',
+            'end_date': '',
+            'latest_wid': ''
+        }
+
+        start_tag = soup.find('span', id='lblStartDate')
+        if start_tag:
+            metadata['start_date'] = start_tag.get_text(strip=True)
+
+        end_tag = soup.find('span', id='lblEndDate')
+        if end_tag:
+            metadata['end_date'] = end_tag.get_text(strip=True)
+
+        wid_tag = soup.find('a', id='lnkWiVersion')
+        if wid_tag:
+            metadata['latest_wid'] = wid_tag.get_text(strip=True)
+
+        return metadata
