@@ -12,7 +12,7 @@ from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QFrame,
                              QPushButton, QMessageBox, QMenu, QApplication,
-                             QToolTip, QCheckBox)
+                             QToolTip, QCheckBox, QDialog, QTextEdit)
 
 from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
@@ -135,6 +135,11 @@ class TDocsWindow(QWidget):
         folder_menu = QMenu(self)
         folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
         folder_menu.addSeparator()
+
+        # ---> NEW: Unmatched Companies Action
+        folder_menu.addAction("⚠️ View Unmatched Companies", self._show_unmatched_companies)
+        folder_menu.addSeparator()
+
         folder_menu.addAction("📝 Export Markdown Reports", self._export_reports)
         folder_menu.addSeparator()
         if self.is_sa2: folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
@@ -600,6 +605,34 @@ class TDocsWindow(QWidget):
 
     def _open_meeting_folder(self):
         _open_folder(self.meeting_dir)
+
+    def _show_unmatched_companies(self):
+        unmatched = self.model.get_unmatched_sources()
+
+        if not unmatched:
+            QMessageBox.information(self, "All Matched",
+                                    "Great news! Every source in this meeting was successfully matched by the CompanySanitizer.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Unmatched Companies ({len(unmatched)})")
+        dialog.resize(500, 400)
+
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(
+            "The following raw 'Source' strings were not recognized by the CompanySanitizer and were grouped as 'Other'.\n\nYou can copy these to update your REGEX dictionary:"))
+
+        # A Read-Only Text Edit allows easy highlighting and copying
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setPlainText("\n".join(unmatched))
+        layout.addWidget(text_edit)
+
+        btn = QPushButton("Close")
+        btn.clicked.connect(dialog.accept)
+        layout.addWidget(btn)
+
+        dialog.exec_()
 
     def _open_agenda_file(self):
         _open_folder(self.meeting_dir / "Agenda" / "TdocsByAgenda.htm")

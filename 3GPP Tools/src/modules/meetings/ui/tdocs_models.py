@@ -37,6 +37,17 @@ class TDocsTableModel(QAbstractTableModel):
             # If the sanitizer returns nothing, categorize it as "Other" so it remains filterable
             row['_Sanitized_Companies'] = companies if companies else ["Other"]
 
+    def get_unmatched_sources(self) -> list:
+        """Returns a sorted list of unique raw 'Source' strings that evaluated to 'Other'."""
+        unmatched = set()
+        for row in self._data:
+            # Check if our pre-computation assigned this to the fallback bucket
+            if row.get('_Sanitized_Companies') == ["Other"]:
+                raw_source = str(row.get('Source', '')).strip()
+                if raw_source:
+                    unmatched.add(raw_source)
+        return sorted(list(unmatched))
+
     def _apply_user_data_logic(self):
         tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
 
