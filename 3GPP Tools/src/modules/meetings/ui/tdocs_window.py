@@ -258,6 +258,12 @@ class TDocsWindow(QWidget):
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
         filter_layout.addWidget(self.search_input)
 
+        # ---> NEW: Add the Company filter
+        self.company_combo = CheckableComboBox("Company")
+        self.company_combo.setToolTip("Filter by contributing companies.")
+        self.company_combo.selectionChanged.connect(self._on_company_changed)
+        filter_layout.addWidget(self.company_combo)
+
         self.type_combo = CheckableComboBox("Type")
         self.type_combo.setToolTip("Filter by document type (e.g., pCR, Discussion, Draft).")
         self.type_combo.selectionChanged.connect(self._on_type_changed)
@@ -377,6 +383,10 @@ class TDocsWindow(QWidget):
         self.proxy.setStatusFilters(statuses)
         QTimer.singleShot(0, self._update_count_label)
 
+    def _on_company_changed(self, companies):
+        self.proxy.setCompanyFilters(companies)
+        QTimer.singleShot(0, self._update_count_label)
+
     def _on_no_comments_toggled(self, checked):
         self.proxy.setNoCommentsFilter(checked)
         QTimer.singleShot(0, self._update_count_label)
@@ -392,12 +402,22 @@ class TDocsWindow(QWidget):
                             key=natural_sort_key)
         unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in self.model._data)))
 
+        # Pull the pre-calculated companies, flatten the list, and alphabetize it
+        unique_companies = set()
+        for r in self.model._data:
+            unique_companies.update(r.get("_Sanitized_Companies", ["Other"]))
+        sorted_companies = sorted(list(unique_companies), key=lambda x: x.lower())
+
         self.type_combo.updateItems(unique_types)
         self.ai_combo.updateItems(unique_ais)
         self.status_combo.updateItems(unique_statuses)
+        self.company_combo.updateItems(sorted_companies)
+
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
+        self.proxy.setCompanyFilters(self.company_combo.getCheckedItems())
+
         QTimer.singleShot(0, self._update_count_label)
 
     def _clear_all_filters(self):
@@ -410,15 +430,20 @@ class TDocsWindow(QWidget):
             self.chk_no_comments.setChecked(False)
             self.chk_no_comments.blockSignals(False)
             self.proxy.setNoCommentsFilter(False)
-        for combo in [self.type_combo, self.ai_combo, self.status_combo]:
+
+        # Loop now includes self.company_combo
+        for combo in [self.company_combo, self.type_combo, self.ai_combo, self.status_combo]:
             combo.blockSignals(True)
             combo.model().item(0).setCheckState(Qt.Checked)
             for i in range(1, combo.model().rowCount()): combo.model().item(i).setCheckState(Qt.Checked)
             combo.updateText()
             combo.blockSignals(False)
+
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
+        self.proxy.setCompanyFilters(self.company_combo.getCheckedItems())
+
         QTimer.singleShot(0, self._update_count_label)
 
     def _handle_tdoc_action(self, base_tdoc: str):

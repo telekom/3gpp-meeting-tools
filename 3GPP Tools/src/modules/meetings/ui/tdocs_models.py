@@ -3,6 +3,8 @@ import re
 from pathlib import Path
 from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyModel
 
+from core.utils.company_sanitizer import CompanySanitizer
+
 
 def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
@@ -22,7 +24,18 @@ class TDocsTableModel(QAbstractTableModel):
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
         self.loading_tdocs = set()
         self.revisions = {}
+
+        # Pre-compute sanitization for the initial load
+        self._apply_company_sanitization(self._data)
         self._apply_user_data_logic()
+
+    def _apply_company_sanitization(self, rows_to_process: list):
+        """Passes the raw Source string through the Sanitizer and caches the result."""
+        for row in rows_to_process:
+            source_str = str(row.get('Source', ''))
+            companies = CompanySanitizer.get_matching_contributors(source_str)
+            # If the sanitizer returns nothing, categorize it as "Other" so it remains filterable
+            row['_Sanitized_Companies'] = companies if companies else ["Other"]
 
     def _apply_user_data_logic(self):
         tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
@@ -55,6 +68,9 @@ class TDocsTableModel(QAbstractTableModel):
         self._data = new_data
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
         self.loading_tdocs.clear()
+
+        # Pre-compute for a completely fresh dataset update
+        self._apply_company_sanitization(self._data)
         self._apply_user_data_logic()
         self.endResetModel()
 
@@ -119,6 +135,10 @@ class TDocsTableModel(QAbstractTableModel):
             if role == Qt.UserRole + 2:
                 return len(self.revisions.get(row.get("TDoc", ""), [])) > 0
             return None
+
+        # Expose the sanitized companies directly to the ProxyModel via a hidden UserRole
+        if role == Qt.UserRole + 3 and col_name == "Source":
+            return row.get('_Sanitized_Companies', ["Other"])
 
         if role == Qt.UserRole + 2:
             val = row.get(col_name, "")
@@ -206,8 +226,12 @@ class TDocsTableModel(QAbstractTableModel):
 
                 if info.get('Title') and not self._data[idx].get('Title'):
                     self._data[idx]['Title'] = info.get('Title')
+
                 if info.get('Source') and not self._data[idx].get('Source'):
                     self._data[idx]['Source'] = info.get('Source')
+                    # Pre-compute sanitization since the source just updated!
+                    self._apply_company_sanitization([self._data[idx]])
+
                 if info.get('For') and not self._data[idx].get('For'):
                     self._data[idx]['For'] = info.get('For')
                 if info.get('Result') and self._data[idx].get('TDoc Status', 'Unknown') in ['Unknown', '', '-',
@@ -281,7 +305,10 @@ class TDocsTableModel(QAbstractTableModel):
                 new_rows.append(new_row)
 
         if new_rows:
+            # Pre-compute sanitization for any newly injected rows before saving them
+            self._apply_company_sanitization(new_rows)
             self._data.extend(new_rows)
+
             self._data.sort(key=lambda x: str(x.get('TDoc', '')))
             tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
 
@@ -317,6 +344,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.type_filters = set()
         self.status_filters = set()
         self.ai_filters = set()
+        self.company_filters = set()
         self.filter_no_comments = False
 
     def setNoCommentsFilter(self, enabled: bool):
@@ -339,6 +367,10 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.ai_filters = set(ais)
         self.invalidateFilter()
 
+    def setCompanyFilters(self, companies):
+        self.company_filters = set(companies)
+        self.invalidateFilter()
+
     def lessThan(self, left, right):
         left_data = self.sourceModel().data(left, Qt.UserRole + 2)
         right_data = self.sourceModel().data(right, Qt.UserRole + 2)
@@ -357,9 +389,16 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             if remarks and str(remarks).strip():
                 return False
 
+        # Apply standard metadata filters
         if model.data(model.index(source_row, 4, source_parent), Qt.UserRole) not in self.type_filters: return False
         if model.data(model.index(source_row, 10, source_parent), Qt.UserRole) not in self.ai_filters: return False
         if model.data(model.index(source_row, 11, source_parent), Qt.UserRole) not in self.status_filters: return False
+
+        # Apply the high-performance Company Filter check without the bypass
+        # If company_filters is empty, intersection returns empty, correctly hiding the row!
+        row_companies = model.data(model.index(source_row, 3, source_parent), Qt.UserRole + 3)
+        if not row_companies or not self.company_filters.intersection(row_companies):
+            return False
 
         if self.global_filter:
             match_found = False
