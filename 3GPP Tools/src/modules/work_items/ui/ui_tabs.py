@@ -1,7 +1,7 @@
 import webbrowser
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QTimer, QEvent, QRect
+from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QTimer, QEvent, QRect, pyqtSignal
 from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTableView, QHeaderView, QPushButton, QProgressBar,
@@ -10,6 +10,50 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import WorkItemsScraperThread, TargetedWIScraperThread
+
+
+class WidDelegate(QStyledItemDelegate):
+    """Custom delegate to render the Latest WID as a clickable hyperlink."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def paint(self, painter, option, index):
+        # Draw the standard row background (handles selection highlights)
+        QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
+
+        text = index.data(Qt.DisplayRole)
+        if not text:
+            return
+
+        painter.save()
+        font = option.font
+        font.setUnderline(True)
+        painter.setFont(font)
+
+        # Maintain readable text color when the row is selected
+        if option.state & QStyle.State_Selected:
+            painter.setPen(option.palette.color(QPalette.HighlightedText))
+        else:
+            painter.setPen(QColor("#0078D7"))  # Hyperlink blue
+
+        # Draw the text centered
+        painter.drawText(option.rect, Qt.AlignCenter, text)
+        painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        """Detects left-clicks on the hyperlink text."""
+        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            text = index.data(Qt.DisplayRole)
+            if text:
+                # Traverse up to find the WorkItemsTab and emit the signal
+                parent_widget = self.parent()
+                while parent_widget:
+                    if hasattr(parent_widget, 'global_action_requested'):
+                        parent_widget.global_action_requested.emit(text, "open_doc")
+                        return True
+                    parent_widget = parent_widget.parent()
+        return super().editorEvent(event, model, option, index)
 
 
 class RemarksDelegate(QStyledItemDelegate):
@@ -161,7 +205,11 @@ class WorkItemsTableModel(QAbstractTableModel):
         self._data = new_data
         self.endResetModel()
 
+
 class WorkItemsTab(QWidget):
+    # Added signal to match the TDocsWindow signature for global routing
+    global_action_requested = pyqtSignal(str, str)
+
     def __init__(self, db_path: Path):
         super().__init__()
         self.db_path = db_path
@@ -263,6 +311,9 @@ class WorkItemsTab(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
+
+        # Bind the WidDelegate to the 'Latest WID' column (index 3)
+        self.table.setItemDelegateForColumn(3, WidDelegate(self.table))
 
         # Ensure the Remarks column (index 7) has room to stretch alongside the Name column
         header.setSectionResizeMode(7, QHeaderView.Stretch)
@@ -431,4 +482,3 @@ class WorkItemsTab(QWidget):
         self.targeted_thread.progress.connect(self._update_progress)
         self.targeted_thread.finished_sync.connect(self._on_sync_finished)
         self.targeted_thread.start()
-
