@@ -123,7 +123,16 @@ class CompanySanitizer:
         'Facebook': re.compile(r'facebook|meta'),
         'DISH': re.compile(r'dish'),
         'ETRI': re.compile(r'etri'),
-        'INSPUR': re.compile(r'inspur')
+        'INSPUR': re.compile(r'inspur'),
+
+        # Added at SA2#175AHE
+        'HONOR': re.compile(r'honor'),
+        'JIO': re.compile(r'jio platforms'),
+        'Kyocera': re.compile(r'kyocera'),
+        'NVIDIA': re.compile(r'nvidia'),
+        'Ofinno': re.compile(r'ofinno'),
+        'Skylo': re.compile(r'skylo technologies'),
+        'Peraton Labs': re.compile(r'peraton labs'),
     }
 
     SOURCE_REPLACE_REGEX = re.compile(r'\(Rapporteur\)|\(\?\)|[\[\]\?\(\)]|(([\w\d]{2,3})-(\d\d)([\d]+))',
