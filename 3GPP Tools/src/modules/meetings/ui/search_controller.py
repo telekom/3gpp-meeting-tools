@@ -42,7 +42,9 @@ class GlobalSearchController:
             self.current_found_meeting = None
 
     def action_open_tdoc_only(self):
-        if not self.tab.btn_open_tdoc.isVisible() or not self.current_found_meeting:
+        # 🐛 FIX: Removed the .isVisible() check. If this is triggered programmatically
+        # from the Work Items tab, the button is technically off-screen and would return False!
+        if not self.current_found_meeting:
             return
 
         tdoc_str = self.tab.global_tdoc_input.text().strip()
