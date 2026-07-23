@@ -46,21 +46,43 @@ class DocxSplitter:
                 if "image" in rel.reltype or "oleObject" in rel.reltype or "package" in rel.reltype:
                     del rels[rId]
 
+    def _safe_remove_block(self, block, body):
+        """
+        Safely removes a block while rescuing any Section Properties (<w:sectPr>).
+        This prevents the loss of 3GPP headers, footers, and page margins.
+        """
+        if isinstance(block, CT_P):
+            # Check if the paragraph contains paragraph properties (<w:pPr>)
+            pPr = block.pPr
+            if pPr is not None:
+                # Check if it contains a section break (<w:sectPr>)
+                sectPr = pPr.sectPr
+                if sectPr is not None:
+                    # Rescue the section properties by moving them to the main body.
+                    # This ensures the page layout is preserved even if the paragraph dies.
+                    body.append(sectPr)
+
+        block.getparent().remove(block)
+
     def _process_section(self, section, output_dir, progress_callback):
         """The isolated task run by the parallel ThreadPool."""
-        out_file = Path(output_dir) / f"{section['title']}.docx"
+        # FIX 1: Dynamically inherit the original file extension (.docx or .docm)
+        # to prevent Word from stripping macros/styles on load!
+        original_ext = self.file_path.suffix
+        out_file = Path(output_dir) / f"{section['title']}{original_ext}"
         shutil.copy(self.file_path, out_file)
 
         sub_doc = Document(out_file)
         sub_blocks = list(self.iter_block_items(sub_doc))
+        body_element = sub_doc.element.body
 
-        # Delete everything BEFORE the target clause
+        # FIX 2: Use safe_remove to delete everything BEFORE the target clause without losing <w:sectPr>
         for block in sub_blocks[:section['start_idx']]:
-            block.getparent().remove(block)
+            self._safe_remove_block(block, body_element)
 
-        # Delete everything AFTER the target clause
+        # Use safe_remove to delete everything AFTER the target clause
         for block in sub_blocks[section['end_idx']:]:
-            block.getparent().remove(block)
+            self._safe_remove_block(block, body_element)
 
         # Run the Garbage Collector to remove orphaned Visio/Image bloat!
         self._prune_unused_media(sub_doc)
