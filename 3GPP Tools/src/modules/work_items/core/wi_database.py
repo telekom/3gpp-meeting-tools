@@ -154,17 +154,12 @@ class WorkItemsDatabase:
     def search_work_items(self, search_term: str = None, releases: list = None, wg_names: list = None) -> list:
         """Searches Work Items by text, multiple releases, and multiple working groups."""
 
-        # Use a sorted subquery to guarantee GROUP_CONCAT builds the string from newest to oldest.
-        # We only concatenate r.remark, omitting the creation_date from the final UI string.
+        # Inject the system creation_date into the concatenated string using ':::' so Python can sort it later
         query = """
             SELECT wi.code, wi.acronym, wi.name, wi.latest_wid, wi.release, wi.start_date, wi.end_date,
-                   GROUP_CONCAT(r.remark, '|||') AS remarks 
+                   GROUP_CONCAT(r.creation_date || ':::' || r.remark, '|||') AS remarks 
             FROM work_items wi
-            LEFT JOIN (
-                SELECT wi_code, remark 
-                FROM wi_remarks 
-                ORDER BY creation_date DESC
-            ) r ON wi.code = r.wi_code
+            LEFT JOIN wi_remarks r ON wi.code = r.wi_code
         """
         params = []
 

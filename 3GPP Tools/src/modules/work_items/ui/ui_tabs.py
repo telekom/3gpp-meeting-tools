@@ -121,7 +121,22 @@ class WorkItemsTableModel(QAbstractTableModel):
             # A Custom Role purely for the RemarksDelegate to parse the bundled list
             raw_remarks = row.get("remarks")
             if raw_remarks:
-                return raw_remarks.split("|||")
+                bundled_remarks = raw_remarks.split("|||")
+                parsed_remarks = []
+
+                # Split the system date and the human text
+                for item in bundled_remarks:
+                    parts = item.split(":::", 1)
+                    if len(parts) == 2:
+                        parsed_remarks.append((parts[0], parts[1]))
+                    else:
+                        parsed_remarks.append(("", item))  # Fallback
+
+                # Bulletproof sorting: sort by the ISO date string (index 0) in descending order
+                parsed_remarks.sort(key=lambda x: x[0], reverse=True)
+
+                # Strip the date and return just the clean text to the UI delegate
+                return [item[1] for item in parsed_remarks]
             return []
 
         elif role == Qt.TextAlignmentRole:
@@ -145,7 +160,6 @@ class WorkItemsTableModel(QAbstractTableModel):
         self.beginResetModel()
         self._data = new_data
         self.endResetModel()
-
 
 class WorkItemsTab(QWidget):
     def __init__(self, db_path: Path):
