@@ -171,7 +171,7 @@ class TargetedWIScraperThread(QThread):
         self.finished_sync.emit(True, f"Successfully updated {len(batch_metadata)} Work Items.")
 
     def _fetch_and_parse_details(self, wi_code: str) -> dict:
-        url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
+        url = f"[https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId=](https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId=){wi_code}"
 
         session = NetworkSession.get_instance()
         NetworkSession.apply_humanness(session)
@@ -184,7 +184,7 @@ class TargetedWIScraperThread(QThread):
             'start_date': '',
             'end_date': '',
             'latest_wid': '',
-            'remarks': []  # New list to hold scraped remarks
+            'remarks': []
         }
 
         start_tag = soup.find('span', id='lblStartDate')
@@ -217,5 +217,8 @@ class TargetedWIScraperThread(QThread):
                                 'date': date_span.get_text(strip=True),
                                 'text': remark_div.get_text(strip=True)
                             })
+
+        # Ensure remarks are sorted from most recent to oldest based on the system date string before saving
+        metadata['remarks'].sort(key=lambda x: x['date'], reverse=True)
 
         return metadata
