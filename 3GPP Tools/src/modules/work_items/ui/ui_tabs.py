@@ -12,9 +12,14 @@ from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import WorkItemsScraperThread, TargetedWIScraperThread
 from modules.work_items.core.wi_settings import WorkItemsSettings
 
+import logging
+
 
 class WidDelegate(QStyledItemDelegate):
     """Custom delegate to render the Latest WID as a clickable hyperlink."""
+
+    # 1. Define a clear pyqtSignal on the delegate itself
+    link_clicked = pyqtSignal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -46,16 +51,15 @@ class WidDelegate(QStyledItemDelegate):
         """Detects left-clicks on the hyperlink text."""
         if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             text = index.data(Qt.DisplayRole)
-            if text:
-                # Traverse up to find the WorkItemsTab and emit the signal
-                parent_widget = self.parent()
-                while parent_widget:
-                    if hasattr(parent_widget, 'global_action_requested'):
-                        parent_widget.global_action_requested.emit(text, "open_doc")
-                        return True
-                    parent_widget = parent_widget.parent()
-        return super().editorEvent(event, model, option, index)
 
+            if text:
+                logging.info(f"🚀 Emitting link_clicked signal for '{text}'...")
+                self.link_clicked.emit(text, "open_doc")
+                return True
+            else:
+                logging.warning("⚠️ Clicked, but no text found in cell.")
+
+        return super().editorEvent(event, model, option, index)
 
 class RemarksDelegate(QStyledItemDelegate):
     """Custom delegate to draw the latest remark text and a clickable '💬' history button in a single cell."""
@@ -377,7 +381,15 @@ class WorkItemsTab(QWidget):
         header.setSectionResizeMode(2, QHeaderView.Stretch)
 
         # Bind the WidDelegate to the 'Latest WID' column (index 3)
-        self.table.setItemDelegateForColumn(3, WidDelegate(self.table))
+        self.wid_delegate = WidDelegate(self.table)
+
+        # --- NEW: Route the signal through our logging function ---
+        self.wid_delegate.link_clicked.connect(self._log_and_forward_action)
+
+        # Connect the delegate's new signal directly to the tab's global signal
+        self.wid_delegate.link_clicked.connect(self.global_action_requested.emit)
+
+        self.table.setItemDelegateForColumn(3, self.wid_delegate)
 
         # Ensure the Remarks column (index 7) has room to stretch alongside the Name column
         header.setSectionResizeMode(7, QHeaderView.Stretch)
@@ -386,6 +398,11 @@ class WorkItemsTab(QWidget):
         self.table.setItemDelegateForColumn(7, RemarksDelegate(self.table))
 
         main_layout.addWidget(self.table)
+
+    # --- NEW: Temporary logging method ---
+    def _log_and_forward_action(self, text, action):
+        """Logs the receipt of the delegate's signal before forwarding it globally."""
+        self.global_action_requested.emit(text, action)
 
     def _populate_filters(self):
         """Fetches options from the DB and populates the UI dropdowns."""

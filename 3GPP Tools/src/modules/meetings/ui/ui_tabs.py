@@ -22,6 +22,8 @@ from modules.word_tools.core.word_comparator import WordComparatorThread
 from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.ui.search_controller import GlobalSearchController
 
+import logging
+
 
 # ==========================================
 # --- MAIN UI TAB ---
@@ -820,12 +822,15 @@ class MeetingsTab(QWidget):
 
     def _handle_global_action_from_window(self, tdoc_str: str, action: str):
         """Programmatically triggers the global search controller based on window requests."""
+
         # Force the UI to update the search text so the user sees what's happening
         self.global_tdoc_input.setText(tdoc_str)
         self.search_controller.on_tdoc_input_changed(tdoc_str)
 
         if not self.search_controller.current_found_meeting:
-            QMessageBox.warning(self, "Not Found", f"Could not find '{tdoc_str}' in the global database.")
+            logging.warning(f"⚠️ MeetingsTab couldn't find meeting for '{tdoc_str}'")
+            QMessageBox.warning(self, "Not Found",
+                                f"Could not find '{tdoc_str}' in the global database. Ensure the meeting is synced.")
             return
 
         # Route the request to the correct controller method
