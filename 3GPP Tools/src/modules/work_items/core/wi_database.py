@@ -232,3 +232,36 @@ class WorkItemsDatabase:
         except Exception as e:
             import logging
             logging.error(f"Failed to batch delete Work Items: {e}")
+
+    def update_work_items_metadata(self, metadata_list: list):
+        """
+        Batch updates multiple Work Items with scraped metadata using a single transaction.
+        Expects a list of dictionaries containing 'code', 'start_date', 'end_date', and 'latest_wid'.
+        """
+        if not metadata_list:
+            return
+
+        # Flatten the dictionary list into a list of tuples for executemany
+        update_tuples = []
+        for meta in metadata_list:
+            update_tuples.append((
+                meta.get('start_date', ''), meta.get('start_date', ''),
+                meta.get('end_date', ''), meta.get('end_date', ''),
+                meta.get('latest_wid', ''), meta.get('latest_wid', ''),
+                meta.get('code')
+            ))
+
+        try:
+            # The 'with' block automatically begins a transaction and commits it upon successful completion
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.executemany('''
+                    UPDATE work_items 
+                    SET start_date = CASE WHEN ? != '' THEN ? ELSE start_date END,
+                        end_date = CASE WHEN ? != '' THEN ? ELSE end_date END,
+                        latest_wid = CASE WHEN ? != '' THEN ? ELSE latest_wid END
+                    WHERE code = ?
+                ''', update_tuples)
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to batch update Work Items metadata: {e}")
