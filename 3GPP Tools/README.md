@@ -28,7 +28,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **3GPP Work Items (WIs) Synchronizer:**
   * **Parallel Multi-WG Scraper:** Concurrently scrapes active Work Items across all 19 Technical Specification Groups and Working Groups (SA, SA1-6, RAN, RAN1-6, CT, CT1-6) from official 3GPP dynamic report pages using multi-threaded execution (5 workers).
   * **High-Performance Bulk Upsert:** Utilizes atomic SQLite bulk transactions (`executemany` with `ON CONFLICT DO UPDATE`) to instantly sync thousands of work items and map them to their respective working groups via relational sidecar tables (`work_items`, `wi_group_map`, `wi_remarks`).
-  * **Interactive UI Tab:** Features a dedicated tab with a real-time progress bar, status feedback, a debounced search bar, and advanced Release/WG filters for seamless navigation.
+  * **Interactive UI Tab:** Features a dedicated tab with a real-time progress bar, status feedback, and helpful button tooltips. Includes debounced multi-select CheckableComboBox filters (Release, WG) with persistent state-saving, chronologically sorted historical remarks via a custom interactive UI bubble, and clickable WID hyperlinks that automatically route through the global TDoc fetcher or 3GPP Portal.
 
 * **Intelligent TDocs Manager:**
   * **Smart Global TDoc Search:** Instantly locate and download any document across the entire database. Just type a TDoc number (e.g., `S2-2605740r11`) and the UI will dynamically reveal minimalist quick-actions to download the specific file or open its parent meeting context—all without leaving the main dashboard.
@@ -138,8 +138,8 @@ python src/main_tools.py
 1. Navigate to the **3GPP Work Items** tab.
 2. Click the **🔄 Sync 3GPP WIs** button (hover over it for tooltip details) to trigger the parallel multi-threaded scraper across all 19 Technical Specification Groups and Working Groups.
 3. Monitor the real-time progress bar and status messages as records are fetched and bulk upserted into the shared database.
-4. Use the **Local Search** bar to instantly debounce-filter the table by Acronym, Name, or Code.
-5. Click **⚙️ Table Filters** to apply advanced Release and Working Group filters to the grid.
+4. Use the **Local Search** bar and multi-select **Checkable Dropdowns** to instantly debounce-filter the table by Acronym, Name, Code, Release, or Working Group. Your selected filters are automatically saved and restored between application sessions!
+5. **Interactive Columns:** Click any blue **Latest WID** hyperlink to instantly download the document via the global search engine (or fall back to the 3GPP Web Portal). Click the interactive **💬 Remarks** button to view a chronologically sorted history of secretary remarks for that specific work item.
 
 ### 📧 eMeeting Email Manager
 1. Open a specific meeting from the main database and click the yellow **📧 Emails** button.
