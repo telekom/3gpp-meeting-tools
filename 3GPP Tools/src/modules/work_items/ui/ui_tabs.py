@@ -1,21 +1,101 @@
 import webbrowser
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QTimer
+from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QTimer, QEvent, QRect
+from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTableView, QHeaderView, QPushButton, QProgressBar,
-                             QMessageBox, QLineEdit, QMenu)
+                             QMessageBox, QLineEdit, QMenu, QStyle, QApplication, QStyledItemDelegate)
 
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import WorkItemsScraperThread, TargetedWIScraperThread
 
 
+class RemarksDelegate(QStyledItemDelegate):
+    """Custom delegate to draw the latest remark text and a clickable '💬' history button in a single cell."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.button_width = 45
+        self.button_margin = 4
+
+    def get_button_rect(self, option):
+        """Calculates the boundary box for the action button."""
+        rect = option.rect
+        return QRect(
+            rect.right() - self.button_width - self.button_margin,
+            rect.top() + self.button_margin,
+            self.button_width,
+            rect.height() - (2 * self.button_margin)
+        )
+
+    def paint(self, painter, option, index):
+        # Draw the standard row background (handles selection highlights)
+        QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
+
+        remarks_list = index.data(Qt.UserRole + 1)
+        if not remarks_list:
+            return
+
+        latest_remark = remarks_list[0]
+        count = len(remarks_list)
+
+        # 1. Paint the Text (Clamped to avoid overlapping the button, elided with '...')
+        text_rect = option.rect.adjusted(5, 0, -(self.button_width + 10), 0)
+
+        # Set text color dynamically based on whether the row is currently selected
+        if option.state & QStyle.State_Selected:
+            painter.setPen(option.palette.color(QPalette.HighlightedText))
+        else:
+            painter.setPen(option.palette.color(QPalette.Text))
+
+        elided_text = option.fontMetrics.elidedText(latest_remark, Qt.ElideRight, text_rect.width())
+        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_text)
+
+        # 2. Paint the Button
+        btn_rect = self.get_button_rect(option)
+        painter.save()
+        painter.setRenderHint(painter.Antialiasing)
+
+        # Button Background
+        painter.setBrush(QColor("#E1F0FF"))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(btn_rect, 4, 4)
+
+        # Button Text
+        painter.setPen(QColor("#0078D7"))
+        painter.drawText(btn_rect, Qt.AlignCenter, f"💬 {count}")
+        painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        """Detects if the user clicks exactly on the button, bypassing normal row selection."""
+        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            btn_rect = self.get_button_rect(option)
+            if btn_rect.contains(event.pos()):
+                remarks_list = index.data(Qt.UserRole + 1)
+                if remarks_list:
+                    menu = QMenu()
+                    menu.setStyleSheet("""
+                        QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
+                        QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
+                        QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+                    """)
+                    for remark in remarks_list:
+                        menu.addAction(remark)
+
+                    # Pop the menu exactly below the user's cursor
+                    menu.exec_(event.globalPos())
+                return True  # Consume the event so we don't accidentally unselect the row
+        return super().editorEvent(event, model, option, index)
+
+
 class WorkItemsTableModel(QAbstractTableModel):
     def __init__(self, data=None):
         super().__init__()
         self._data = data or []
-        self._headers = ["Code", "Acronym", "Name", "Latest WID", "Release", "Start Date", "End Date"]
+        # Added 'Remarks' to the end of the headers list
+        self._headers = ["Code", "Acronym", "Name", "Latest WID", "Release", "Start Date", "End Date", "Remarks"]
 
     def data(self, index, role):
         if not index.isValid():
@@ -27,12 +107,26 @@ class WorkItemsTableModel(QAbstractTableModel):
             key_map = {
                 "Code": "code", "Acronym": "acronym", "Name": "name",
                 "Latest WID": "latest_wid", "Release": "release",
-                "Start Date": "start_date", "End Date": "end_date"
+                "Start Date": "start_date", "End Date": "end_date",
+                "Remarks": "remarks"
             }
+            # Suppress normal DisplayRole for Remarks so our custom delegate can handle it
+            if col_name == "Remarks" and role == Qt.DisplayRole:
+                return ""
+
             val = row.get(key_map.get(col_name, ""), "")
             return str(val).strip() if val is not None else ""
+
+        elif role == Qt.UserRole + 1 and col_name == "Remarks":
+            # A Custom Role purely for the RemarksDelegate to parse the bundled list
+            raw_remarks = row.get("remarks")
+            if raw_remarks:
+                return raw_remarks.split("|||")
+            return []
+
         elif role == Qt.TextAlignmentRole:
-            if col_name == "Name": return Qt.AlignLeft | Qt.AlignVCenter
+            if col_name in ["Name", "Remarks"]:
+                return Qt.AlignLeft | Qt.AlignVCenter
             return Qt.AlignCenter
         return None
 
@@ -155,6 +249,12 @@ class WorkItemsTab(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
+
+        # Ensure the Remarks column (index 7) has room to stretch alongside the Name column
+        header.setSectionResizeMode(7, QHeaderView.Stretch)
+
+        # Bind our custom painter to the Remarks column
+        self.table.setItemDelegateForColumn(7, RemarksDelegate(self.table))
 
         main_layout.addWidget(self.table)
 
