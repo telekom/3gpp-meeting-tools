@@ -151,26 +151,43 @@ GLOBAL_STYLE = """
     }
 """
 
+
 def create_app_icon(text="3G\nPP"):
-    """Generates a dynamic app icon. Pass different text for different tools."""
-    pixmap = QPixmap(64, 64)
-    pixmap.fill(Qt.transparent)
+    """Generates a dynamic app icon with multiple sizes for Windows taskbar compatibility."""
+    icon = QIcon()
 
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
+    # Standard sizes requested by the Windows shell (Titlebar, Taskbar, Alt+Tab, Large)
+    sizes = [16, 32, 48, 64, 128, 256]
 
-    painter.setBrush(QColor("#1E5C99"))
-    painter.setPen(Qt.NoPen)
-    painter.drawRoundedRect(4, 4, 56, 56, 12, 12)
+    for size in sizes:
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
 
-    painter.setPen(QColor("#FFFFFF"))
-    font_size = 16 if len(text) <= 3 else 16
-    font = QFont("Segoe UI", font_size, QFont.Bold)
-    painter.setFont(font)
-    painter.drawText(pixmap.rect(), Qt.AlignCenter, text)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
 
-    painter.end()
-    return QIcon(pixmap)
+        # Scale padding and corners relative to the current size
+        padding = max(1, size // 16)
+        corner_radius = max(2, size // 5)
+
+        painter.setBrush(QColor("#1E5C99"))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(padding, padding, size - 2 * padding, size - 2 * padding, corner_radius, corner_radius)
+
+        # Scale font relative to the current size
+        painter.setPen(QColor("#FFFFFF"))
+        font_size = max(5, size // 4)
+        font = QFont("Segoe UI", font_size, QFont.Bold)
+        painter.setFont(font)
+
+        # Draw the text
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, text)
+        painter.end()
+
+        # Bundle this specific resolution into the master QIcon
+        icon.addPixmap(pixmap)
+
+    return icon
 
 
 class ProxyDialog(QDialog):
