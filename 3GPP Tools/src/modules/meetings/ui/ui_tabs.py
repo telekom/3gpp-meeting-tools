@@ -1,30 +1,80 @@
 # --- File: modules/meetings/ui/ui_tabs.py ---
+import logging
 import os
 import webbrowser
 from pathlib import Path
 
+from PyQt5.QtCore import QEvent
 from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint, QTimer
+from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
                              QMenu, QLabel, QCheckBox, QDateEdit, QSplitter,
                              QMessageBox, QFrame, QFileDialog)
 
 from core.network.session import NetworkConfigDialog
+from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.meetings_db import MeetingsDatabase
+from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.ui.dialogs import MeetingInfoDialog
 from modules.meetings.ui.models import MeetingsTableModel
-from modules.meetings.ui.tdocs_window import TDocsWindow
-from modules.specifications.ui.components import HoverMenuButton
-from modules.meetings.core.compare_manager import ComparisonManager
-from modules.word_tools.core.word_comparator import WordComparatorThread
-from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.ui.search_controller import GlobalSearchController
 from modules.meetings.ui.tdocs_components import CheckableComboBox
+from modules.meetings.ui.tdocs_window import TDocsWindow
+from modules.specifications.ui.components import HoverMenuButton
+from modules.word_tools.core.word_comparator import WordComparatorThread
 
-import logging
 
+class DynamicHoverMenuDelegate(QStyledItemDelegate):
+    def __init__(self, parent_tab):
+        super().__init__(parent_tab.table)
+        self.parent_tab = parent_tab
+
+    def paint(self, painter, option, index):
+        # 1. Let Qt draw the standard background (handles selection highlights)
+        super().paint(painter, option, index)
+
+        # 2. Draw the "⋮" text to look like your HoverMenuButton
+        painter.save()
+        font = painter.font()
+        font.setPointSize(16)
+        font.setBold(True)
+        painter.setFont(font)
+
+        # Optional: Change color if hovered
+        if option.state & QStyle.State_MouseOver:
+            painter.setPen(Qt.blue)  # Match your #0078D7 hover color
+        else:
+            painter.setPen(Qt.darkGray)  # Match your #555 base color
+
+        painter.drawText(option.rect, Qt.AlignCenter, "⋮")
+        painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        # 3. Intercept the mouse click ONLY when needed
+        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            row_data = model.data(index, Qt.UserRole)
+            if not row_data:
+                return False
+
+            # Generate the menu on the fly!
+            menu = QMenu(self.parent_tab)
+            menu.setStyleSheet(
+                "QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } "
+                "QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } "
+                "QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }"
+            )
+
+            # Populate it using your existing logic
+            self.parent_tab._populate_dynamic_menu(menu, row_data, index.row())
+
+            # Show it exactly where the user clicked
+            menu.exec_(event.globalPos())
+            return True
+
+        return super().editorEvent(event, model, option, index)
 
 # ==========================================
 # --- MAIN UI TAB ---
@@ -156,6 +206,9 @@ class MeetingsTab(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(36)
         self.table.setStyleSheet(
             "QTableView { border: 1px solid #dcdcdc; gridline-color: #f0f0f0; } QTableView::item:selected { background-color: #cce8ff; color: #000; }")
+
+        self.hover_delegate = DynamicHoverMenuDelegate(self)
+        self.table.setItemDelegateForColumn(0, self.hover_delegate)
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
@@ -492,8 +545,9 @@ class MeetingsTab(QWidget):
         )
 
         self.table_model.update_data(data)
+
+        # Only inject the TDocs button now. The Hover Menu is handled instantly by the Delegate!
         for row_idx, row_data in enumerate(data):
-            self._inject_hover_menu(row_idx, row_data)
             self._inject_tdocs_button(row_idx, row_data)
 
     def _emit_multi_sync(self, selected_rows):
@@ -575,26 +629,6 @@ class MeetingsTab(QWidget):
             menu.addSeparator()
             menu.addAction("🗑️ Delete this Meeting").triggered.connect(lambda: self._confirm_delete_specific(
                 [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}]))
-
-    def _inject_hover_menu(self, row_idx: int, row_data: dict):
-        action_btn = HoverMenuButton("⋮")
-        action_btn.setFixedSize(24, 24)
-        action_btn.setCursor(Qt.PointingHandCursor)
-        action_btn.setStyleSheet(
-            "QPushButton { border: none; background: transparent; color: #555; font-size: 20px; font-weight: bold; padding-bottom: 4px; } QPushButton:hover { color: #0078D7; } QPushButton::menu-indicator { image: none; width: 0px; }")
-
-        menu = QMenu(self)
-        menu.setStyleSheet(
-            "QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }")
-        menu.aboutToShow.connect(lambda m=menu, d=row_data, i=row_idx: self._populate_dynamic_menu(m, d, i))
-        action_btn.setMenu(menu)
-
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.addWidget(action_btn)
-        self.table.setIndexWidget(self.table_model.index(row_idx, 0), container)
 
     def show_right_click_menu(self, pos: QPoint):
         index = self.table.indexAt(pos)
