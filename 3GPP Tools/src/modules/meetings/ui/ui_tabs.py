@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PyQt5.QtCore import QEvent
 from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint, QTimer
+from PyQt5.QtGui import QPen, QColor, QBrush
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QComboBox, QTableView, QHeaderView,
@@ -26,6 +27,65 @@ from modules.meetings.ui.tdocs_window import TDocsWindow
 from modules.specifications.ui.components import HoverMenuButton
 from modules.word_tools.core.word_comparator import WordComparatorThread
 
+
+class TDocsButtonDelegate(QStyledItemDelegate):
+    def __init__(self, parent_tab):
+        super().__init__(parent_tab.table)
+        self.parent_tab = parent_tab
+
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        row_data = index.model().data(index, Qt.UserRole)
+        if not row_data: return
+
+        # Read the pre-calculated status from the data model
+        status = row_data.get('tdoc_btn_status', 'na')
+
+        painter.save()
+        painter.setRenderHint(painter.Antialiasing)
+
+        # 1. Define colors based on your original CSS
+        if status == 'na':
+            bg, border, text_col, text = "#F0F0F0", "#D1D1D1", "#7A7A7A", "N/A"
+        elif status == 'open':
+            bg, border, text_col, text = "#E6F4E6", "#A3DDA3", "#0C6B0C", "✔ Open"
+        elif status == 'fetching':
+            bg, border, text_col, text = "#FFF4CE", "#F3C74C", "#B85C00", "⏳ Fetching"
+        else:  # 'get'
+            bg, border, text_col, text = "#E1F0FF", "#99C9FF", "#005A9E", "⬇ Get"
+
+        # 2. Draw the rounded background
+        rect = option.rect
+        btn_rect = rect.adjusted(4, 6, -4, -6)  # Add padding so it doesn't touch cell walls
+
+        painter.setBrush(QBrush(QColor(bg)))
+        painter.setPen(QPen(QColor(border), 1))
+        painter.drawRoundedRect(btn_rect, 10, 10)  # 10px border radius
+
+        # 3. Draw the text
+        font = painter.font()
+        font.setPointSize(8)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(text_col)))
+        painter.drawText(btn_rect, Qt.AlignCenter, text)
+
+        painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        # 4. Handle Clicks instantly
+        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            row_data = model.data(index, Qt.UserRole)
+            if not row_data: return False
+
+            status = row_data.get('tdoc_btn_status', 'na')
+            if status == 'open':
+                self.parent_tab._open_tdocs_window(row_data, row_data.get('tdoc_filepath'))
+            elif status == 'get':
+                self.parent_tab._download_and_open_tdocs(row_data, index.row())
+            return True
+
+        return super().editorEvent(event, model, option, index)
 
 class DynamicHoverMenuDelegate(QStyledItemDelegate):
     def __init__(self, parent_tab):
@@ -209,6 +269,10 @@ class MeetingsTab(QWidget):
 
         self.hover_delegate = DynamicHoverMenuDelegate(self)
         self.table.setItemDelegateForColumn(0, self.hover_delegate)
+
+        # ---> NEW: Assign the TDocs Delegate to Column 1
+        self.tdocs_delegate = TDocsButtonDelegate(self)
+        self.table.setItemDelegateForColumn(1, self.tdocs_delegate)
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
@@ -524,31 +588,51 @@ class MeetingsTab(QWidget):
     def refresh_table(self):
         self.save_filters_timer.start()
 
-        # Extract a LIST of working groups instead of a string
         selected_wgs = self.wg_filter.getCheckedItems()
-
         date_from = self.date_from.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
         date_to = self.date_to.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
-
         adhoc_val = self.adhoc_filter.currentText()
         type_val = self.type_filter.currentText()
 
-        # Pass the list (selected_wgs) to your database search
         data = self.db.search_meetings(
-            wg_name=selected_wgs,
-            search_term=self.search_input.text().strip(),
-            location=None,
-            date_from=date_from,
-            date_to=date_to,
-            adhoc_filter=adhoc_val,
-            type_filter=type_val
+            wg_name=selected_wgs, search_term=self.search_input.text().strip(),
+            location=None, date_from=date_from, date_to=date_to,
+            adhoc_filter=adhoc_val, type_filter=type_val
         )
 
-        self.table_model.update_data(data)
+        # --- FAST CACHE SCAN ---
+        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.settings.cache_dir
+        cache_path = Path(current_cache)
+        cached_folders = set(f.name for f in cache_path.iterdir() if f.is_dir()) if cache_path.exists() else set()
 
-        # Only inject the TDocs button now. The Hover Menu is handled instantly by the Delegate!
-        for row_idx, row_data in enumerate(data):
-            self._inject_tdocs_button(row_idx, row_data)
+        for row in data:
+            mtg_id = row.get("mtg_id")
+            if not mtg_id:
+                row['tdoc_btn_status'] = 'na'
+                continue
+
+            folder_name = row.get("folder_name") or row.get("meeting_number", "")
+            filepath = None
+
+            # Only hit the disk if the meeting folder actually exists in our fast-scan set
+            if folder_name in cached_folders:
+                agenda_dir = cache_path / folder_name / "Agenda"
+                if agenda_dir.exists():
+                    filepath = next((f for f in agenda_dir.iterdir() if (
+                                "tdoc_list_meeting_" in f.name.lower() or "tdocs_list_" in f.name.lower()) and f.name.endswith(
+                        ".xlsx")), None)
+                    if not filepath:
+                        fallback = agenda_dir / f"TDoc_List_Meeting_{mtg_id}.xlsx"
+                        filepath = fallback if fallback.exists() else None
+
+            if filepath:
+                row['tdoc_btn_status'] = 'open'
+                row['tdoc_filepath'] = str(filepath)
+            else:
+                row['tdoc_btn_status'] = 'get'
+
+        # Pass the tagged data to the model. We can delete the _inject_tdocs_button loop entirely!
+        self.table_model.update_data(data)
 
     def _emit_multi_sync(self, selected_rows):
         targets = [{"wg": self.table_model.data(r, Qt.UserRole).get("wg_name"),
@@ -685,17 +769,15 @@ class MeetingsTab(QWidget):
 
         return agenda_dir / f"TDoc_List_Meeting_{mtg_id}.xlsx"
 
-    def _download_and_open_tdocs(self, row_data: dict, btn: QPushButton):
+    def _download_and_open_tdocs(self, row_data: dict, row_idx: int):
         mtg_id = row_data.get("mtg_id")
-        btn.setText("⏳ Fetching")
-        btn.setStyleSheet("""
-                    QPushButton {
-                        font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; font-weight: bold;
-                        border-radius: 12px; padding: 2px 6px;
-                        color: #B85C00; background-color: #FFF4CE; border: 1px solid #F3C74C;
-                    }
-                """)
-        btn.setEnabled(False)
+
+        # 1. Update the UI state data model instead of a physical button
+        row_data['tdoc_btn_status'] = 'fetching'
+
+        # Force the UI to redraw just that specific cell instantly
+        index = self.table_model.index(row_idx, 1)
+        self.table_model.dataChanged.emit(index, index)
 
         current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.settings.cache_dir
         folder_name = row_data.get("folder_name") or row_data.get("meeting_number", "")
@@ -703,64 +785,11 @@ class MeetingsTab(QWidget):
 
         thread = TDocsDownloaderThread(mtg_id, local_path, self)
         self._active_dl_threads[mtg_id] = thread
+
+        # Pass the row_idx so the callback can reset the button if it fails
         thread.finished.connect(
-            lambda success, res, m_id: self._on_inline_download_finished(success, res, m_id, row_data))
+            lambda success, res, m_id: self._on_inline_download_finished(success, res, m_id, row_data, row_idx))
         thread.start()
-
-    def _inject_tdocs_button(self, row_idx: int, row_data: dict):
-        mtg_id = row_data.get("mtg_id")
-        filepath = self._get_tdoc_list_path(row_data)
-
-        btn = QPushButton()
-        btn.setFixedHeight(24)
-        btn.setCursor(Qt.PointingHandCursor)
-
-        if not mtg_id:
-            btn.setText("N/A")
-            btn.setToolTip("Missing 3GPP Portal ID (Cannot fetch TDocs)")
-            btn.setStyleSheet("""
-                QPushButton {
-                    font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; font-weight: bold;
-                    border-radius: 12px; padding: 2px 6px;
-                    color: #7A7A7A; background-color: #F0F0F0; border: 1px solid #D1D1D1;
-                }
-            """)
-            btn.setEnabled(False)
-
-        elif filepath and filepath.exists():
-            btn.setText("✔ Open")
-            btn.setToolTip("TDocs are cached locally. Click to view table.")
-            btn.setStyleSheet("""
-                QPushButton {
-                    font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; font-weight: bold;
-                    border-radius: 12px; padding: 2px 6px;
-                    color: #0C6B0C; background-color: #E6F4E6; border: 1px solid #A3DDA3;
-                }
-                QPushButton:hover { background-color: #D1EED1; border: 1px solid #0C6B0C; color: #0C6B0C; }
-            """)
-            btn.clicked.connect(lambda _, d=row_data, f=str(filepath): self._open_tdocs_window(d, f))
-
-        else:
-            btn.setText("⬇ Get")
-            btn.setToolTip("Not cached. Click to download TDocs List from 3GPP Portal.")
-            btn.setStyleSheet("""
-                QPushButton {
-                    font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; font-weight: bold;
-                    border-radius: 12px; padding: 2px 6px;
-                    color: #005A9E; background-color: #E1F0FF; border: 1px solid #99C9FF;
-                }
-                QPushButton:hover { background-color: #CCE4FF; border: 1px solid #005A9E; color: #005A9E; }
-            """)
-            btn.clicked.connect(lambda _, d=row_data, b=btn: self._download_and_open_tdocs(d, b))
-
-        container = QWidget()
-        container.setStyleSheet("background-color: transparent;")
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(2, 0, 2, 0)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.addWidget(btn)
-
-        self.table.setIndexWidget(self.table_model.index(row_idx, 1), container)
 
     def _open_tdocs_window(self, mtg_info: dict, filepath: str):
         self.settings.save_last_meeting(mtg_info)
@@ -791,7 +820,7 @@ class MeetingsTab(QWidget):
         self.tdoc_windows[mtg_id] = window
         window.show()
 
-    def _on_inline_download_finished(self, success: bool, result: str, mtg_id: str, row_data: dict):
+    def _on_inline_download_finished(self, success: bool, result: str, mtg_id: str, row_data: dict, row_idx: int):
         if mtg_id in self._active_dl_threads:
             del self._active_dl_threads[mtg_id]
 
