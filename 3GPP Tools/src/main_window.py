@@ -36,7 +36,7 @@ from modules.work_items.ui.ui_tabs import WorkItemsTab
 class DragDropUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("3GPP Tools")
+        self.setWindowTitle("3GPP Delegate Tools")
 
         self.setWindowIcon(create_app_icon())
 
