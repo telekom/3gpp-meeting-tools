@@ -1,41 +1,35 @@
-import logging
 import datetime
+import logging
+import os
 import urllib.request
 import webbrowser
-import os
 from pathlib import Path
 
+from PyQt5.QtCore import Qt, QTimer
+# Add the new thread underneath your other core imports
+from PyQt5.QtGui import QKeySequence
+from PyQt5.QtGui import QTextCursor
 # Add QLabel to your existing QtWidgets import list
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication, QDialog, QTabWidget, \
     QPushButton, QShortcut, QLabel
 
-# Add the new thread underneath your other core imports
-from core.network.wifi_monitor import WifiMonitorThread
-from PyQt5.QtGui import QKeySequence
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QTextCursor
-
-from core.network.session import NetworkConfigDialog
-from core.ui.ui_components import ProxyDialog
-from modules.meetings.ui.ui_tabs import MeetingsTab
-from modules.puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab
-from core.queue_manager import QueueManager
-
 from core.config.config import HELP_URL
-from core.utils.paths import get_project_root
-from core.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog, GuiLogHandler
-
-from modules.puml2visio.utils.utils import encode_plantuml, InitializationThread
-from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
-from modules.puml2visio.core.visio_converter import VisioReaderThread
-from modules.puml2visio.core.live_preview import LivePreviewManager
-from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
-from modules.puml2visio.utils.paths import get_puml2visio_asset_path
-from modules.specifications.ui.ui_tabs import SpecificationsTab
-
-from modules.word_tools.ui.word_tabs import WordExtractorTab
-
+from core.network.session import NetworkConfigDialog
 from core.network.wifi_monitor import WifiMonitorThread
+from core.queue_manager import QueueManager
+from core.ui.ui_components import ProxyDialog, create_app_icon
+from core.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog, GuiLogHandler
+from core.utils.paths import get_project_root
+from modules.meetings.ui.ui_tabs import MeetingsTab
+from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
+from modules.puml2visio.core.live_preview import LivePreviewManager
+from modules.puml2visio.core.visio_converter import VisioReaderThread
+from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
+from modules.puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab
+from modules.puml2visio.utils.paths import get_puml2visio_asset_path
+from modules.puml2visio.utils.utils import encode_plantuml, InitializationThread
+from modules.specifications.ui.ui_tabs import SpecificationsTab
+from modules.word_tools.ui.word_tabs import WordExtractorTab
 from modules.work_items.ui.ui_tabs import WorkItemsTab
 
 
@@ -43,6 +37,9 @@ class DragDropUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("3GPP Tools")
+
+        self.setWindowIcon(create_app_icon())
+
         self.resize(950, 750)
 
         self.jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
