@@ -44,7 +44,7 @@ if __name__ == '__main__':
     # This prevents Windows from grouping our app under the generic Python snake logo!
     if os.name == 'nt':
         import ctypes
-        myappid = '3gpp.3GPP Tools.converter.1.1'
+        myappid = '3GPP Delegate Tools.1.0'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
     register_puml2visio_plugin()
