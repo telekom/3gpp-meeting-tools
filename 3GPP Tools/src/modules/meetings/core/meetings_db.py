@@ -277,9 +277,23 @@ class MeetingsDatabase:
             WHERE 1=1
         '''
         params = []
-        if wg_name and wg_name != "All WGs":
-            query += " AND w.name = ?"
-            params.append(wg_name)
+
+        # --- NEW MULTI-SELECT WG FILTER LOGIC ---
+        if wg_name:
+            # Ensure wg_name is a list (this safely handles both the new UI and any legacy string calls)
+            if isinstance(wg_name, str):
+                wg_name = [wg_name]
+
+            # Filter out the "All WGs" placeholder if it exists in the selection
+            valid_wgs = [wg for wg in wg_name if wg != "All WGs"]
+
+            if valid_wgs:
+                # Create dynamic placeholders (e.g., "?,?,?") based on the number of selected WGs
+                placeholders = ','.join('?' * len(valid_wgs))
+                query += f" AND w.name IN ({placeholders})"
+                params.extend(valid_wgs)
+
+        # --- EXISTING FILTERS ---
         if search_term:
             query += " AND (m.meeting_number LIKE ? OR m.name LIKE ?)"
             params.extend([f"%{search_term}%", f"%{search_term}%"])

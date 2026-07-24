@@ -21,6 +21,7 @@ from modules.meetings.core.compare_manager import ComparisonManager
 from modules.word_tools.core.word_comparator import WordComparatorThread
 from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.ui.search_controller import GlobalSearchController
+from modules.meetings.ui.tdocs_components import CheckableComboBox
 
 import logging
 
@@ -60,7 +61,7 @@ class MeetingsTab(QWidget):
 
     def _save_filters(self):
         filters = {
-            "wg": self.wg_filter.currentText(),
+            "wg": self.wg_filter.getCheckedItems(), # Now saves a list
             "adhoc": self.adhoc_filter.currentText(),
             "type": self.type_filter.currentText(),
             "search": self.search_input.text().strip(),
@@ -84,8 +85,16 @@ class MeetingsTab(QWidget):
         self.date_to.blockSignals(True)
 
         if "wg" in filters:
-            idx = self.wg_filter.findText(filters["wg"])
-            if idx >= 0: self.wg_filter.setCurrentIndex(idx)
+            saved_wgs = filters["wg"]
+            # Ensure we are dealing with a list from the new save format
+            if isinstance(saved_wgs, list):
+                for i in range(1, self.wg_filter.model().rowCount()):
+                    item = self.wg_filter.model().item(i)
+                    if item.text() in saved_wgs:
+                        item.setCheckState(Qt.Checked)
+                    else:
+                        item.setCheckState(Qt.Unchecked)
+                self.wg_filter.updateText()
 
         if "adhoc" in filters:
             idx = self.adhoc_filter.findText(filters["adhoc"])
@@ -235,10 +244,10 @@ class MeetingsTab(QWidget):
         right_layout.addWidget(title_lbl)
 
         right_layout.addWidget(QLabel("Working Group:"))
-        self.wg_filter = QComboBox()
-        self.wg_filter.addItem("All WGs")
+        self.wg_filter = CheckableComboBox("Working Group")
         self.wg_filter.setToolTip("Filter meetings by Working Group (e.g., SA2, RAN1).")
-        self.wg_filter.currentTextChanged.connect(self.refresh_table)
+        # Use selectionChanged instead of currentTextChanged
+        self.wg_filter.selectionChanged.connect(self.refresh_table)
 
         self.adhoc_filter = QComboBox()
         self.adhoc_filter.addItems(["All Meetings", "Regular", "Ad-Hoc / BIS"])
@@ -452,35 +461,28 @@ class MeetingsTab(QWidget):
             print(f"🔵 {msg}")
 
     def _populate_filters(self):
-        current_wg = self.wg_filter.currentText()
         wgs = self.db.get_working_groups()
 
         self.wg_filter.blockSignals(True)
-        self.wg_filter.clear()
-        self.wg_filter.addItem("All WGs")
-        self.wg_filter.addItems(wgs)
-
-        idx = self.wg_filter.findText(current_wg)
-        if idx >= 0:
-            self.wg_filter.setCurrentIndex(idx)
-
+        # updateItems automatically populates the checkable list
+        self.wg_filter.updateItems(wgs)
         self.wg_filter.blockSignals(False)
 
     def refresh_table(self):
-        self.save_filters_timer.start()  # ---> NEW: Trigger the auto-save countdown
+        self.save_filters_timer.start()
 
-        wg = self.wg_filter.currentText()
-        date_from = self.date_from.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
+        # Extract a LIST of working groups instead of a string
+        selected_wgs = self.wg_filter.getCheckedItems()
 
-        wg = self.wg_filter.currentText()
         date_from = self.date_from.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
         date_to = self.date_to.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
 
         adhoc_val = self.adhoc_filter.currentText()
         type_val = self.type_filter.currentText()
 
+        # Pass the list (selected_wgs) to your database search
         data = self.db.search_meetings(
-            wg_name=wg,
+            wg_name=selected_wgs,
             search_term=self.search_input.text().strip(),
             location=None,
             date_from=date_from,
