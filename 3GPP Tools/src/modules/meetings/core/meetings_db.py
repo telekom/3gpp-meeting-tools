@@ -278,13 +278,18 @@ class MeetingsDatabase:
         '''
         params = []
 
-        # --- NEW MULTI-SELECT WG FILTER LOGIC ---
-        if wg_name:
-            # Ensure wg_name is a list (this safely handles both the new UI and any legacy string calls)
+        # --- UPDATED MULTI-SELECT WG FILTER LOGIC ---
+        if wg_name is not None:
+            # Ensure wg_name is a list (this safely handles legacy string calls)
             if isinstance(wg_name, str):
                 wg_name = [wg_name]
 
-            # Filter out the "All WGs" placeholder if it exists in the selection
+            # 1. FAST FAIL: If the list is completely empty, the user deselected everything.
+            # Return an empty list instantly so no meetings are shown!
+            if len(wg_name) == 0:
+                return []
+
+            # 2. Filter out the legacy "All WGs" placeholder if it exists in the selection
             valid_wgs = [wg for wg in wg_name if wg != "All WGs"]
 
             if valid_wgs:
