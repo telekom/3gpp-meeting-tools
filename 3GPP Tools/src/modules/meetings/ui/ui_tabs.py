@@ -1,6 +1,7 @@
 # --- File: modules/meetings/ui/ui_tabs.py ---
 import logging
 import os
+import re
 import webbrowser
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_window import TDocsWindow
 from modules.specifications.ui.components import HoverMenuButton
 from modules.word_tools.core.word_comparator import WordComparatorThread
+from modules.meetings.core.tdocs_merger import TDocsMergerThread
 
 
 class TDocsButtonDelegate(QStyledItemDelegate):
@@ -513,6 +515,14 @@ class MeetingsTab(QWidget):
         ))
         right_layout.addWidget(self.update_btn)
 
+        self.btn_export_merged = QPushButton("📥 Export Merged TDocs (Excel)")
+        self.btn_export_merged.setToolTip(
+            "Merge TDocs from all currently filtered meetings into a single master Excel file.")
+        self.btn_export_merged.setStyleSheet(
+            "padding: 8px; font-weight: bold; color: #005A9E; background-color: #E1F0FF; border: 1px solid #99C9FF; border-radius: 4px;")
+        self.btn_export_merged.clicked.connect(self._export_merged_tdocs)
+        right_layout.addWidget(self.btn_export_merged)
+
         self.delete_all_btn = QPushButton("🗑️ Clear All Meetings")
         self.delete_all_btn.setToolTip("Wipe all meeting records from the local database. Cannot be undone.")
         self.delete_all_btn.setStyleSheet("padding: 8px; font-weight: bold; color: #D83B01;")
@@ -905,3 +915,61 @@ class MeetingsTab(QWidget):
             self.search_controller.action_open_tdoc_only()
         elif action == 'add_to_cart':
             self.search_controller.action_add_to_cart()
+
+    def _export_merged_tdocs(self):
+        # 1. Grab the currently filtered data straight from the UI Model
+        meetings_data = getattr(self.table_model, '_data', [])
+        if not meetings_data:
+            QMessageBox.warning(self, "No Data", "There are no meetings currently visible in the table to export.")
+            return
+
+        # 2. Prompt for save location
+        default_name = f"Merged_TDocs_{QDate.currentDate().toString('yyyy-MM-dd')}.xlsx"
+        save_path, _ = QFileDialog.getSaveFileName(self, "Save Merged TDocs",
+                                                   str(Path.home() / "Desktop" / default_name), "Excel Files (*.xlsx)")
+        if not save_path:
+            return
+
+        # 3. Prompt for Force Download vs Cache
+        reply = QMessageBox.question(self, 'Force Download?',
+                                     "Do you want to force a fresh download of all Excel files from 3GPP?\n\n"
+                                     "• Select 'Yes' to fetch the absolute latest updates.\n"
+                                     "• Select 'No' to use your lightning-fast local cache for files you've already downloaded.",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        force_download = (reply == QMessageBox.Yes)
+
+        # 4. Lock the UI button
+        self.btn_export_merged.setText("⏳ Merging...")
+        self.btn_export_merged.setEnabled(False)
+
+        # 5. Launch the Thread
+        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.settings.cache_dir
+
+        self.merger_thread = TDocsMergerThread(meetings_data, force_download, save_path, current_cache, self)
+
+        # Connect progress to dynamically update the button text
+        self.merger_thread.progress.connect(lambda msg: self.btn_export_merged.setText(f"⏳ {msg[:20]}..."))
+        self.merger_thread.finished.connect(self._on_merger_finished)
+        self.merger_thread.start()
+
+    def _on_merger_finished(self, success: bool, msg: str):
+        # 6. Unlock the UI and show results
+        self.btn_export_merged.setText("📥 Export Merged TDocs (Excel)")
+        self.btn_export_merged.setEnabled(True)
+
+        if success:
+            QMessageBox.information(self, "Export Complete", msg)
+
+            # Optional: Ask to open the generated file immediately
+            if QMessageBox.question(self, "Open File", "Would you like to open the generated Excel file now?",
+                                    QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+                # Extract file path safely from the message or use the known path
+                path_match = re.search(r'Saved to:\n(.*)', msg)
+                if path_match:
+                    filepath = path_match.group(1).strip()
+                    try:
+                        os.startfile(filepath) if hasattr(os, 'startfile') else webbrowser.open(f"file:///{filepath}")
+                    except Exception as e:
+                        logging.error(f"Could not open merged Excel: {e}")
+        else:
+            QMessageBox.warning(self, "Export Failed", msg)
