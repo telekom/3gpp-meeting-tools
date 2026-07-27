@@ -4,10 +4,15 @@ import re
 from pathlib import Path
 import pandas as pd
 from PyQt5.QtCore import QThread, pyqtSignal
+import logging
+
+import openpyxl
+from openpyxl.styles import Font, Alignment, GradientFill
+from openpyxl.styles.fills import Stop
+from openpyxl.utils import get_column_letter
 
 from core.network.session import NetworkSession
 from modules.meetings.core.tdocs_parser import TDocsParser
-import logging
 
 
 class TDocsMergerThread(QThread):
@@ -83,7 +88,12 @@ class TDocsMergerThread(QThread):
 
             # Concat perfectly handles varying column layouts across different WG files
             master_df = pd.concat(all_dfs, ignore_index=True)
+
+            # Save the raw data using pandas
             master_df.to_excel(self.save_path, index=False)
+
+            self.progress.emit("Applying precise 3GPP TDoc formatting...")
+            self._format_excel(self.save_path)
 
             self.finished.emit(True,
                                f"Successfully merged {len(master_df)} TDocs across {len(all_dfs)} meetings!\n\nSaved to:\n{self.save_path}")
@@ -91,6 +101,59 @@ class TDocsMergerThread(QThread):
         except Exception as e:
             logging.error(f"Error merging TDocs: {e}", exc_info=True)
             self.finished.emit(False, f"Error merging TDocs:\n{str(e)}")
+
+    def _format_excel(self, filepath: str):
+        """Applies formatting to match the official 3GPP TDocs list template."""
+        wb = openpyxl.load_workbook(filepath)
+        ws = wb.active
+
+        # 1. Exact 3GPP Styles extracted directly from the SA2 source file
+        # Note: We use white text for the header to contrast the dark green background
+        header_font = Font(name='Arial', size=9, bold=True, color="FFFFFFFF")
+        header_fill = GradientFill(type="linear", stop=[Stop("FF75B91A", 0), Stop("FF54AF13", 1)])
+
+        data_font = Font(name='Arial', size=8)
+        data_alignment = Alignment(vertical='top', wrapText=True)
+
+        # 2. Exact Column Widths mapped from the source file
+        col_widths = {
+            'WG': 10.0, 'Meeting': 14.0, 'Start Date': 12.0, 'End Date': 12.0,
+            'TDoc': 9.14, 'Title': 36.57, 'Source': 14.0, 'Contact': 12.85,
+            'Contact ID': 9.42, 'Type': 15.85, 'For': 15.85, 'Abstract': 16.85,
+            'Secretary Remarks': 13.0, 'Agenda item sort order': 9.71,
+            'Agenda item': 13.42, 'Agenda item description': 24.57,
+            'TDoc sort order within agenda item': 16.0, 'TDoc Status': 20.14,
+            'Reservation date': 16.14, 'Uploaded': 16.14, 'Is revision of': 14.28,
+            'Revised to': 14.28, 'Release': 12.57, 'Spec': 9.85, 'Version': 13.0,
+            'Related WIs': 16.42, 'CR': 10.42, 'CR revision': 13.0, 'CR category': 10.42,
+            'TSG CR Pack': 13.0, 'UICC': 10.42, 'ME': 13.0, 'RAN': 13.0, 'CN': 13.0,
+            'Clauses Affected': 13.0, 'Reply to': 15.42, 'To': 13.0, 'Cc': 13.0,
+            'Original LS': 13.0, 'Reply in': 13.0
+        }
+
+        # 3. Format Headers and Set Widths
+        for col_idx in range(1, ws.max_column + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = data_alignment  # Keep headers top-aligned and wrapped
+
+            # Apply mapped width or default to 15.0 if column name is unknown
+            header_val = str(cell.value).strip() if cell.value else ""
+            width = col_widths.get(header_val, 15.0)
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+        # 4. Format Data Rows
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+            for cell in row:
+                cell.font = data_font
+                cell.alignment = data_alignment
+
+        # 5. UX Enhancements: Add Auto-Filter and Freeze the Top Row
+        ws.auto_filter.ref = ws.dimensions
+        ws.freeze_panes = "A2"
+
+        wb.save(filepath)
 
     def _find_cached_file(self, agenda_dir: Path, mtg_id: str) -> Path:
         """Looks for the existing Excel file in the local cache."""
