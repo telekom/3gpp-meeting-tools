@@ -87,6 +87,10 @@ class WordConverterThread(QThread):
                 # wdExportFormatPDF = 17, wdExportFormatXPS = 18
                 export_format = 17 if self.target_format == "pdf" else 18
 
+                # Prevent Word from failing on broken background field updates
+                word.Options.UpdateFieldsAtPrint = False
+                word.Options.UpdateLinksAtPrint = False
+
                 doc.ExportAsFixedFormat(
                     OutputFileName=out_path,
                     ExportFormat=export_format,
