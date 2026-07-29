@@ -18,6 +18,11 @@ PLANTUML_TYPES = {
     "Sequence": {
         "url": "https://plantuml.com/en/sequence-diagram",
         "template": "@startuml\n" + COMMON_STYLE + '''
+<style>
+lifeLine {
+  LineStyle 0
+}
+</style>
 hide footbox
 skinparam BoxPadding 10
 skinparam ResponseMessageBelowArrow true
