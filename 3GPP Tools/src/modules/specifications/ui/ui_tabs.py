@@ -7,6 +7,7 @@ import webbrowser
 import logging
 from pathlib import Path
 
+from PyQt5 import sip
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QCheckBox, QTableWidget, QTableWidgetItem,
@@ -307,7 +308,7 @@ class SpecificationsTab(QWidget):
                     QMessageBox.warning(self, "Extraction Error", f"Failed to extract archive:\n{e}")
                     return
 
-            # Fallback: Find existing word docs on disk if zip didn't provide them (e.g. if zip was deleted manually)
+            # Fallback: Find existing word docs on disk if zip didn't provide them
             if not extracted_docs:
                 extracted_docs = list(spec_dl_dir.glob(f"{stem}*.doc*"))
 
@@ -333,9 +334,10 @@ class SpecificationsTab(QWidget):
                         target_path = doc_path.with_suffix(target_ext)
 
                         if not target_path.exists():
-                            orig_text = btn.text()
-                            btn.setText("⏳ Converting...")
-                            btn.setEnabled(False)
+                            orig_text = btn.text() if not sip.isdeleted(btn) else "Converting..."
+                            if not sip.isdeleted(btn):
+                                btn.setText("⏳ Converting...")
+                                btn.setEnabled(False)
 
                             conv_thread = WordConverterThread(str(doc_path), doc_type)
                             conv_thread.ui_log_msg.connect(self._handle_converter_log)
@@ -346,19 +348,28 @@ class SpecificationsTab(QWidget):
                                 except Exception as e:
                                     print(f"Error opening converted file: {e}")
 
-                                # Instantly force the row UI to update so the button turns Green ✅
-                                c.currentIndexChanged.emit(c.currentIndex())
-                                b.setText(txt)
-                                b.setEnabled(True)
+                                # Guard against deleted C++ Qt objects
+                                try:
+                                    if not sip.isdeleted(c):
+                                        c.currentIndexChanged.emit(c.currentIndex())
+                                    if not sip.isdeleted(b):
+                                        b.setText(txt)
+                                        b.setEnabled(True)
+                                except RuntimeError:
+                                    pass
 
                             conv_thread.finished_path.connect(on_success)
 
                             def cleanup(t=conv_thread, b=btn, txt=orig_text):
                                 if t in self._download_threads:
                                     self._download_threads.remove(t)
-                                if not b.isEnabled():
-                                    b.setText(txt)
-                                    b.setEnabled(True)
+                                # Guard against deleted C++ Qt objects
+                                try:
+                                    if not sip.isdeleted(b) and not b.isEnabled():
+                                        b.setText(txt)
+                                        b.setEnabled(True)
+                                except RuntimeError:
+                                    pass
 
                             conv_thread.finished.connect(cleanup)
                             self._download_threads.append(conv_thread)
@@ -381,11 +392,11 @@ class SpecificationsTab(QWidget):
         elif doc_type == 'html':
             target_exists = any(spec_dl_dir.glob(f"{stem}*.html"))
 
-        # If the target exists, OR we have the Word doc to convert, OR we have the zip to extract... process locally!
+        # If target exists, OR Word doc exists, OR zip exists... process locally!
         if target_exists or word_exists or zip_path.exists():
             _process_and_open()
         else:
-            # We have nothing. Download the zip from the internet first.
+            # Download zip from internet first
             spec_dl_dir.mkdir(parents=True, exist_ok=True)
 
             idx = combo.currentIndex()
@@ -397,26 +408,38 @@ class SpecificationsTab(QWidget):
             thread.ui_log_msg.connect(self._handle_converter_log)
 
             def _on_success(zp):
-                # Clean any formatting prefixes
                 clean_text = orig_text.replace('✅ ', '').replace('⚙️ ', '').replace('⬇️ ', '').strip()
-                combo.setItemText(idx, f"✅ {clean_text}")
 
-                c_data = combo.itemData(idx)
-                if c_data:
-                    c_data['is_downloaded'] = True
-                    combo.setItemData(idx, c_data)
+                try:
+                    if not sip.isdeleted(combo):
+                        combo.setItemText(idx, f"✅ {clean_text}")
 
-                combo.setEnabled(True)
+                        c_data = combo.itemData(idx)
+                        if c_data:
+                            c_data['is_downloaded'] = True
+                            combo.setItemData(idx, c_data)
 
-                # ---> FIX: Extract the files FIRST...
+                        combo.setEnabled(True)
+                except RuntimeError:
+                    pass
+
+                # Extract files FIRST...
                 _process_and_open()
 
-                # ---> THEN force the UI to refresh, so it sees the new .doc files!
-                combo.currentIndexChanged.emit(idx)
+                # THEN force UI refresh if widget is still alive
+                try:
+                    if not sip.isdeleted(combo):
+                        combo.currentIndexChanged.emit(idx)
+                except RuntimeError:
+                    pass
 
             def _on_err(err):
-                combo.setItemText(idx, "❌ Error")
-                combo.setEnabled(True)
+                try:
+                    if not sip.isdeleted(combo):
+                        combo.setItemText(idx, "❌ Error")
+                        combo.setEnabled(True)
+                except RuntimeError:
+                    pass
                 QMessageBox.critical(self, "Download Failed", f"Network error:\n{err}")
 
             thread.finished_success.connect(_on_success)
