@@ -39,6 +39,14 @@ def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> 
         with open(svg_path, 'r', encoding='utf-8') as f:
             svg_content = f.read()
 
+        # --- VISIO COM SANITIZATION ---
+        # PlantUML injects <style> blocks and <tspan> tags for HTML fonts and subscripts.
+        # These must be stripped BEFORE the text merge, otherwise they artificially inflate
+        # the length calculation and corrupt the SVG structure causing Visio to crash.
+        svg_content = re.sub(r'<style\b[^>]*>.*?</style>', '', svg_content, flags=re.IGNORECASE | re.DOTALL)
+        svg_content = re.sub(r'<tspan\b[^>]*>', '', svg_content, flags=re.IGNORECASE)
+        svg_content = re.sub(r'</tspan>', '', svg_content, flags=re.IGNORECASE)
+
         # --- INTELLIGENT 2D TEXT MERGE ---
         pattern = re.compile(r'(<text\b[^>]*?>)(.*?)(</text>)', re.IGNORECASE | re.DOTALL)
         matches = list(pattern.finditer(svg_content))
