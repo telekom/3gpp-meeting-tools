@@ -1,4 +1,5 @@
 import logging
+import re
 from pathlib import Path
 
 import pythoncom
@@ -25,7 +26,11 @@ class PptxConverterThread(QThread):
         try:
             self._emit_log(f"\n⚙️ Generating PowerPoint slide for: {self.puml_path.name}", logging.INFO)
 
+            # Step 1: Generate standard SVG from PlantUML
             svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self._emit_log)
+
+            # Step 2: Sanitize SVG markup to prevent Visio import crashes
+            self._sanitize_svg_for_visio(svg_path)
 
             with open(self.puml_path, "r", encoding="utf-8") as f:
                 raw_code = f.read()
@@ -114,6 +119,36 @@ class PptxConverterThread(QThread):
             self.finished_path.emit("")
         finally:
             pythoncom.CoUninitialize()
+
+    def _sanitize_svg_for_visio(self, svg_path: Path) -> None:
+        """
+        Sanitizes PlantUML-generated SVG content before passing it to Visio COM.
+        Removes inline font-family, baseline-shift, and position overrides from <tspan>
+        tags that cause Visio's strict SVG importer to crash with corruption errors.
+        """
+        if not svg_path.exists():
+            return
+
+        try:
+            with open(svg_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            # 1. Strip font-family overrides in <tspan> (e.g. from <font face="...">)
+            content = re.sub(r'(<tspan[^>]*?)\s+font-family="[^"]*"', r'\1', content)
+
+            # 2. Strip baseline shifts (e.g. from <sub> or <sup>)
+            content = re.sub(r'(<tspan[^>]*?)\s+baseline-shift="[^"]*"', r'\1', content)
+
+            # 3. Strip coordinate offset shifts in <tspan> that corrupt Visio text layout
+            content = re.sub(r'(<tspan[^>]*?)\s+dy="[^"]*"', r'\1', content)
+            content = re.sub(r'(<tspan[^>]*?)\s+dx="[^"]*"', r'\1', content)
+
+            with open(svg_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            self._emit_log("🧹 Sanitized SVG markup for Visio compatibility.", logging.DEBUG)
+        except Exception as e:
+            self._emit_log(f"⚠️ Could not sanitize SVG: {e}", logging.WARNING)
 
     def _create_emf_via_visio(self, svg_path: Path) -> Path:
         """Silently uses Visio to parse the SVG, fix text padding, and export as a native Microsoft EMF."""

@@ -1,4 +1,5 @@
 import logging
+import re
 from pathlib import Path
 
 import pythoncom
@@ -64,6 +65,7 @@ class ConverterThread(QThread):
             self._emit_log(f"\n⚙️ Processing: {self.puml_path.name}", logging.INFO)
 
             svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self._emit_log)
+            self._sanitize_svg_for_visio(svg_path)  # Clean SVG before Visio import
             self._convert_to_vsdx(svg_path)
 
             vsdx_path = self.puml_path.with_suffix(".vsdx")
@@ -77,6 +79,24 @@ class ConverterThread(QThread):
             self.finished_path.emit("")
         finally:
             pythoncom.CoUninitialize()
+
+    def _sanitize_svg_for_visio(self, svg_path: Path) -> None:
+        """Sanitizes SVG tags to prevent Visio import crashes."""
+        if not svg_path.exists():
+            return
+        try:
+            with open(svg_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            content = re.sub(r'(<tspan[^>]*?)\s+font-family="[^"]*"', r'\1', content)
+            content = re.sub(r'(<tspan[^>]*?)\s+baseline-shift="[^"]*"', r'\1', content)
+            content = re.sub(r'(<tspan[^>]*?)\s+dy="[^"]*"', r'\1', content)
+            content = re.sub(r'(<tspan[^>]*?)\s+dx="[^"]*"', r'\1', content)
+
+            with open(svg_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception as e:
+            self._emit_log(f"⚠️ Could not sanitize SVG: {e}", logging.WARNING)
 
     def _emit_log(self, message: str, level: int):
         logging.log(level, message)
