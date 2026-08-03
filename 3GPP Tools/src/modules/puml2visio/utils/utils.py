@@ -10,7 +10,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.utils import get_best_java
 from modules.puml2visio.config.paths import PLANTUML_URL_LATEST, PLANTUML_URL_JAVA_8
-from core.network.session import NetworkSession  # <--- NEW: Import the shared session
+from core.network.session import NetworkSession
 
 
 # --- CORE UTILITIES ---
