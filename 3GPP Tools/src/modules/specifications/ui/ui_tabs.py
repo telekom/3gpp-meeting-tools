@@ -508,16 +508,6 @@ class SpecificationsTab(QWidget):
             for row in specs:
                 series, spec_num, title, spec_type, filename, version, url = row
 
-                # --- NEW LOGIC: Extract part number from filename ---
-                # Safely corrects multipart specs like 23.801-01. Looks for 1 or 2 digits followed by
-                # a boundary (hyphen, dot, or end). This flawlessly extracts part numbers (e.g., "-01")
-                # while explicitly rejecting older 3-digit versions (e.g., "-000").
-                if filename:
-                    part_match = re.search(r'\d{4,5}-(\d{1,2})(?:[-_.]|$)', filename)
-                    if part_match and "-" not in spec_num:
-                        spec_num = f"{spec_num}-{part_match.group(1)}"
-                # ----------------------------------------------------
-
                 if spec_num not in grouped_specs:
                     grouped_specs[spec_num] = {
                         'title': title,
