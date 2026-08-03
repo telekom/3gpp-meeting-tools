@@ -11,7 +11,7 @@ from modules.puml2visio.config.paths import PLANTUML_WATERMARK
 
 
 class PptxConverterThread(QThread):
-    """Background thread to generate a PowerPoint slide using Visio as an EMF translator."""
+    """Background thread to generate a PowerPoint slide using Visio as an EMF translator, with a native SVG fallback."""
     ui_log_msg = pyqtSignal(str)
     finished_path = pyqtSignal(str)
 
@@ -23,18 +23,27 @@ class PptxConverterThread(QThread):
     def run(self):
         pythoncom.CoInitialize()
         ppt = None
+        emf_path = None
         try:
             self._emit_log(f"\n⚙️ Generating PowerPoint slide for: {self.puml_path.name}", logging.INFO)
 
-            # Step 1: Generate standard SVG from PlantUML (Sanitization is now handled natively here)
+            # Step 1: Generate standard SVG from PlantUML
             svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self._emit_log)
 
             with open(self.puml_path, "r", encoding="utf-8") as f:
                 raw_code = f.read()
             final_source_code = PLANTUML_WATERMARK + "\n\n" + strip_watermark(raw_code)
 
-            self._emit_log("⏳ Translating SVG to Microsoft EMF via Visio engine...", logging.INFO)
-            emf_path = self._create_emf_via_visio(svg_path)
+            # Step 2: Attempt Visio EMF Translation with Native PPT Fallback
+            target_import_path = svg_path
+            try:
+                self._emit_log("⏳ Translating SVG to Microsoft EMF via Visio engine...", logging.INFO)
+                emf_path = self._create_emf_via_visio(svg_path)
+                if emf_path and emf_path.exists():
+                    target_import_path = emf_path
+            except Exception as e:
+                self._emit_log(f"⚠️ Visio EMF Export Failed: {e}", logging.WARNING)
+                self._emit_log("🔄 Falling back to native PowerPoint SVG conversion...", logging.INFO)
 
             ppt = win32com.client.DispatchEx("PowerPoint.Application")
             ppt.Visible = 1
@@ -46,10 +55,14 @@ class PptxConverterThread(QThread):
             pres = ppt.Presentations.Add()
             slide = pres.Slides.Add(1, 12)  # 12 = ppLayoutBlank
 
-            shape = slide.Shapes.AddPicture(str(emf_path.resolve()), 0, -1, 0, 0, -1, -1)
+            # Import either the Visio EMF or the raw SVG if Visio failed
+            shape = slide.Shapes.AddPicture(str(target_import_path.resolve()), 0, -1, 0, 0, -1, -1)
 
-            self._emit_log("⏳ Unpacking EMF into native PowerPoint shapes...", logging.INFO)
+            file_type = "EMF" if target_import_path.suffix == ".emf" else "SVG"
+            self._emit_log(f"⏳ Unpacking {file_type} into native PowerPoint shapes...", logging.INFO)
+
             try:
+                # Calling Ungroup on an SVG in PPT automatically triggers "Convert to Shape"
                 sr = shape.Ungroup()
 
                 if sr.Count > 1:
@@ -59,7 +72,7 @@ class PptxConverterThread(QThread):
 
                 self._emit_log("✅ Successfully generated native shapes.", logging.INFO)
             except Exception as e:
-                self._emit_log(f"⚠️ Could not unpack EMF: {e}", logging.WARNING)
+                self._emit_log(f"⚠️ Could not unpack {file_type}: {e}", logging.WARNING)
                 try:
                     _ = shape.Width
                 except:
@@ -97,7 +110,7 @@ class PptxConverterThread(QThread):
                     svg_path.unlink()
                 except:
                     pass
-            if emf_path.exists():
+            if emf_path and emf_path.exists():
                 try:
                     emf_path.unlink()
                 except:
