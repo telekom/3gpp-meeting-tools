@@ -450,6 +450,72 @@ class SpecificationsTab(QWidget):
                 lambda t=thread: self._download_threads.remove(t) if t in self._download_threads else None)
             thread.start()
 
+    def _handle_zip_action(self, combo: QComboBox, btn: QPushButton):
+        """Dedicated action to just download the ZIP archive without opening/extracting files."""
+        c_data = combo.currentData()
+        if not c_data: return
+
+        spec_dl_dir = Path(self.dl_dir_input.text().strip()) / c_data['spec_num']
+        zip_path = spec_dl_dir / c_data['fname']
+
+        # If the file already exists, gracefully open the directory for the user
+        if zip_path.exists():
+            try:
+                os.startfile(str(spec_dl_dir))
+            except Exception as e:
+                QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
+            return
+
+        # Prepare directory and UI for download
+        spec_dl_dir.mkdir(parents=True, exist_ok=True)
+
+        idx = combo.currentIndex()
+        orig_text = combo.itemText(idx)
+        combo.setItemText(idx, "⏳ Downloading...")
+        combo.setEnabled(False)
+
+        btn.setText("⏳...")
+        btn.setEnabled(False)
+
+        # Initialize background download thread
+        thread = SpecDownloadThread(c_data['url'], zip_path)
+        thread.ui_log_msg.connect(self._handle_converter_log)
+
+        def _on_success(zp):
+            clean_text = orig_text.replace('✅ ', '').replace('⚙️ ', '').replace('⬇️ ', '').strip()
+            try:
+                if not sip.isdeleted(combo):
+                    combo.setItemText(idx, f"✅ {clean_text}")
+                    c_data = combo.itemData(idx)
+                    if c_data:
+                        c_data['is_downloaded'] = True
+                        combo.setItemData(idx, c_data)
+                    combo.setEnabled(True)
+                    # Trigger the UI styling update to turn the ZIP button green
+                    combo.currentIndexChanged.emit(idx)
+            except RuntimeError:
+                pass
+
+        def _on_err(err):
+            try:
+                if not sip.isdeleted(combo):
+                    combo.setItemText(idx, "❌ Error")
+                    combo.setEnabled(True)
+                if not sip.isdeleted(btn):
+                    btn.setText("⬇️ Get ZIP")
+                    btn.setEnabled(True)
+            except RuntimeError:
+                pass
+            QMessageBox.critical(self, "Download Failed", f"Network error:\n{err}")
+
+        thread.finished_success.connect(_on_success)
+        thread.error.connect(_on_err)
+
+        self._download_threads.append(thread)
+        thread.finished.connect(
+            lambda t=thread: self._download_threads.remove(t) if t in self._download_threads else None)
+        thread.start()
+
     def _open_table_filters(self):
         dialog = TableFilterDialog(self.db, self.table_filters, self)
         if dialog.exec_():
@@ -606,19 +672,18 @@ class SpecificationsTab(QWidget):
                 word_btn = QPushButton("📝 Word")
                 pdf_btn = QPushButton("📕 PDF")
                 html_btn = QPushButton("🌐 HTML")
+                zip_btn = QPushButton("📥 ZIP")  # <--- NEW: Add the ZIP button
 
                 for b in (word_btn, pdf_btn, html_btn):
                     b.setCursor(Qt.PointingHandCursor)
 
                 # ---> 3-STATE DYNAMIC UI CHECKER
-                def _update_btn_state(index_ignore=0, c=version_combo, wb=word_btn, pb=pdf_btn, hb=html_btn):
+                def _update_btn_state(index_ignore=0, c=version_combo, wb=word_btn, pb=pdf_btn, hb=html_btn,
+                                      zb=zip_btn):
                     c_data = c.currentData()
                     if not c_data: return
 
-                    # ---> FIX: Resolve the directory dynamically from the combo box data!
-                    # This prevents Python loop closures from pointing to the wrong folder.
                     current_dir = Path(self.dl_dir_input.text().strip()) / c_data['spec_num']
-
                     stem = Path(c_data['fname']).stem
                     zip_exists = (current_dir / c_data['fname']).exists()
 
@@ -628,31 +693,42 @@ class SpecificationsTab(QWidget):
 
                     def style_btn(btn, exists, icon, name):
                         if exists:
-                            # State 1: File is ready locally
                             btn.setText(f"{icon} {name} ✅")
                             btn.setStyleSheet("""
-                                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
-                                                QPushButton:hover { background-color: #C8E6C9; }
-                                            """)
+                                                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
+                                                                QPushButton:hover { background-color: #C8E6C9; }
+                                                            """)
                         elif word_exists or zip_exists:
-                            # State 2: Can be processed entirely offline (Zip->Extract, or Word->Convert)
                             action = "Extract" if name == "Word" else "Convert"
                             btn.setText(f"⚙️ {action}")
                             btn.setStyleSheet("""
-                                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; } 
-                                                QPushButton:hover { background-color: #FFE0B2; }
-                                            """)
+                                                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; } 
+                                                                QPushButton:hover { background-color: #FFE0B2; }
+                                                            """)
                         else:
-                            # State 3: Requires Network Download
                             btn.setText(f"⬇️ Get {name}")
                             btn.setStyleSheet("""
-                                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
-                                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
-                                            """)
+                                                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
+                                                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
+                                                            """)
 
                     style_btn(wb, word_exists, "📝", "Word")
                     style_btn(pb, pdf_exists, "📕", "PDF")
                     style_btn(hb, html_exists, "🌐", "HTML")
+
+                    # <--- NEW: Custom style check purely for the ZIP download state
+                    if zip_exists:
+                        zb.setText("📥 ZIP ✅")
+                        zb.setStyleSheet("""
+                                            QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
+                                            QPushButton:hover { background-color: #C8E6C9; }
+                                        """)
+                    else:
+                        zb.setText("⬇️ Get ZIP")
+                        zb.setStyleSheet("""
+                                            QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
+                                            QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
+                                        """)
 
                 # Bind the UI style updater
                 version_combo.currentIndexChanged.connect(_update_btn_state)
@@ -664,6 +740,8 @@ class SpecificationsTab(QWidget):
                 pdf_btn.clicked.connect(lambda _, c=version_combo, b=pdf_btn: self._handle_document_action(c, 'pdf', b))
                 html_btn.clicked.connect(
                     lambda _, c=version_combo, b=html_btn: self._handle_document_action(c, 'html', b))
+                zip_btn.clicked.connect(lambda _, c=version_combo, b=zip_btn: self._handle_zip_action(c,
+                                                                                                      b))  # <--- NEW: Connect the ZIP button
 
                 cell_widget = QWidget()
                 layout = QHBoxLayout(cell_widget)
@@ -674,6 +752,7 @@ class SpecificationsTab(QWidget):
                 layout.addWidget(word_btn)
                 layout.addWidget(pdf_btn)
                 layout.addWidget(html_btn)
+                layout.addWidget(zip_btn)  # <--- NEW: Add to layout
 
                 self.table.setCellWidget(row_idx, 2, cell_widget)
 
