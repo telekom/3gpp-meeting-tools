@@ -68,7 +68,7 @@ class WordConverterThread(QThread):
             if self.target_format not in self.FORMAT_MAP:
                 raise ValueError(f"Unsupported conversion format: {self.target_format}")
 
-            self.ui_log_msg.emit("⏳ Spawning detached Word Converter Engine...", logging.INFO)
+            self.ui_log_msg.emit(f"⏳ Spawning detached Word Converter Engine for {out_name}...", logging.INFO)
             # DispatchEx forces a completely new, invisible instance of Word
             word = win32com.client.DispatchEx("Word.Application")
             word.Visible = False
@@ -80,7 +80,7 @@ class WordConverterThread(QThread):
             # Signature: Open(FileName, ConfirmConversions, ReadOnly, AddToRecentFiles)
             doc = word.Documents.Open(source_path, False, True, False)
 
-            self.ui_log_msg.emit("⏳ Converting and saving...", logging.INFO)
+            self.ui_log_msg.emit(f"⏳ Converting and saving {out_name} to {self.target_format}...", logging.INFO)
 
             # --- NEW LOGIC: Branch based on target format ---
             if self.target_format in ("pdf", "xps"):

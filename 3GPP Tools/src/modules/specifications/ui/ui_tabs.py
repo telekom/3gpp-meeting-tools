@@ -574,6 +574,14 @@ class SpecificationsTab(QWidget):
             for row in specs:
                 series, spec_num, title, spec_type, filename, version, url = row
 
+                # Safely extracts multipart specs like -01 from the filename
+                # and appends it to the base database number. Necessary for specifications like TR 23.801-01 (6G study),
+                # as there is also a 23.801 specification
+                if filename:
+                    part_match = re.search(r'\d{4,5}-(\d{1,2})(?:[-_.]|$)', filename)
+                    if part_match and "-" not in spec_num:
+                        spec_num = f"{spec_num}-{part_match.group(1)}"
+
                 if spec_num not in grouped_specs:
                     grouped_specs[spec_num] = {
                         'title': title,
