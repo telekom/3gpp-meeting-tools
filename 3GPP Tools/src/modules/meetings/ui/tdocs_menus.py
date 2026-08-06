@@ -1,4 +1,5 @@
 # --- File: src/modules/meetings/ui/tdocs_menus.py ---
+import webbrowser
 from PyQt5.QtWidgets import QMenu, QApplication, QToolTip
 from PyQt5.QtCore import Qt
 from pathlib import Path
@@ -48,6 +49,14 @@ def build_action_menu(parent_widget, base_tdoc, docs_ftp_url, revisions_url, rev
                 lambda _, t=target_filename: download_callback(base_tdoc, t, revisions_url, False))
 
     menu.addSeparator()
+
+    # --- View on 3GU ---
+    act_3gu = menu.addAction("🖥️ View TDoc on 3GU")
+    act_3gu.setToolTip("Open the detailed 3GU portal page for this contribution.")
+    act_3gu.triggered.connect(lambda _, t=base_tdoc: webbrowser.open(
+        f"https://portal.3gpp.org/ngppapp/CreateTDoc.aspx?mode=view&contributionUid={t}"))
+    # ------------------------
+
     act_folder = menu.addAction("📂 Open Local Folder")
     act_folder.triggered.connect(lambda _, d=(meeting_dir / base_tdoc): __open_folder(d))
 
@@ -93,6 +102,12 @@ def build_related_menu(parent_widget, target_tdoc, valid_tdocs, docs_ftp_url, re
         menu.addAction("⬇️ Go to Row").triggered.connect(lambda: scroll_callback(target_tdoc))
         menu.addAction(f"📄 Open Document: {target_tdoc}").triggered.connect(
             lambda: download_callback(base_tdoc, target_tdoc, dl_url, False))
+
+        menu.addAction("🖥️ View TDoc on 3GU").triggered.connect(
+            lambda _, t=target_tdoc: webbrowser.open(
+                f"https://portal.3gpp.org/ngppapp/CreateTDoc.aspx?mode=view&contributionUid={t}")
+        )
+
         menu.addAction(f"⚖️ Add to Comparison Cart: {target_tdoc}").triggered.connect(
             lambda: download_callback(base_tdoc, target_tdoc, dl_url, True))
 

@@ -662,6 +662,27 @@ class MeetingsTab(QWidget):
                 lambda _, rows=selected_rows: self._emit_multi_delete(rows))
         else:
             menu.addAction("ℹ️ Meeting Info").triggered.connect(lambda _, d=row_data: self.show_meeting_info(d))
+
+            # --- 3GU Portal and Conditional TDoc Contribution ---
+            mtg_id = row_data.get("mtg_id")
+            if mtg_id:
+                # 1. Always allow opening the 3GU portal page
+                menu.addAction("🖥️ 3GU Meeting Portal").triggered.connect(
+                    lambda _, m=mtg_id: webbrowser.open(f"https://portal.3gpp.org/Home.aspx#/meeting?MtgId={m}")
+                )
+
+                # 2. Check the meeting date for TDoc reservations
+                end_date_str = row_data.get("end_date", "")
+                end_date = QDate.fromString(end_date_str, "yyyy-MM-dd")  # Adjust format if your DB uses something else
+                current_date = QDate.currentDate()
+
+                # Only show if the date is invalid/missing OR if the meeting hasn't ended yet
+                if not end_date.isValid() or end_date >= current_date:
+                    menu.addAction("📝 Reserve / Contribute TDoc").triggered.connect(
+                        lambda _, m=mtg_id: webbrowser.open(
+                            f"https://portal.3gpp.org/ngppapp/CreateTdoc.Aspx?mode=create&meetingId={m}")
+                    )
+
             menu.addAction("🔄 Sync this Meeting").triggered.connect(lambda: self.update_specific_requested.emit(
                 [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}], self.chk_wg.isChecked(),
                 self.chk_docs.isChecked(), self.chk_dyna.isChecked()))
