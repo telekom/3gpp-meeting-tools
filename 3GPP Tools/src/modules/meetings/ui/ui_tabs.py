@@ -518,8 +518,7 @@ class MeetingsTab(QWidget):
         self.btn_export_merged = QPushButton("📥 Export Merged TDocs (Excel)")
         self.btn_export_merged.setToolTip(
             "Merge TDocs from all currently filtered meetings into a single master Excel file.")
-        self.btn_export_merged.setStyleSheet(
-            "padding: 8px; font-weight: bold; color: #005A9E; background-color: #E1F0FF; border: 1px solid #99C9FF; border-radius: 4px;")
+        self.btn_export_merged.setStyleSheet("padding: 8px; font-weight: bold;")
         self.btn_export_merged.clicked.connect(self._export_merged_tdocs)
         right_layout.addWidget(self.btn_export_merged)
 
