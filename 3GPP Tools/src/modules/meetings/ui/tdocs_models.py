@@ -356,6 +356,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.status_filters = set()
         self.ai_filters = set()
         self.company_filters = set()
+        self.my_status_filters = set()
         self.filter_no_comments = False
 
     def setNoCommentsFilter(self, enabled: bool):
@@ -382,6 +383,10 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.company_filters = set(companies)
         self.invalidateFilter()
 
+    def setMyStatusFilters(self, statuses):
+        self.my_status_filters = set(statuses)
+        self.invalidateFilter()
+
     def lessThan(self, left, right):
         left_data = self.sourceModel().data(left, Qt.UserRole + 2)
         right_data = self.sourceModel().data(right, Qt.UserRole + 2)
@@ -404,6 +409,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         if model.data(model.index(source_row, 4, source_parent), Qt.UserRole) not in self.type_filters: return False
         if model.data(model.index(source_row, 10, source_parent), Qt.UserRole) not in self.ai_filters: return False
         if model.data(model.index(source_row, 11, source_parent), Qt.UserRole) not in self.status_filters: return False
+        if model.data(model.index(source_row, 8, source_parent), Qt.UserRole) not in self.my_status_filters: return False
 
         # Apply the high-performance Company Filter check without the bypass
         # If company_filters is empty, intersection returns empty, correctly hiding the row!
