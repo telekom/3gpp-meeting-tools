@@ -89,6 +89,21 @@ class InteractiveNotesDialog(QDialog):
         btn_layout.addWidget(save_btn)
         layout.addLayout(btn_layout)
 
+    def _on_save_clicked(self):
+        """Extracts the updated values and triggers the save callback."""
+        # 1. Grab the currently selected status
+        status = self.status_combo.currentText()
+
+        # 2. Grab the updated text from the notes box
+        notes = self.my_notes.toPlainText()
+
+        # 3. Trigger the database save callback passed from tdocs_window.py
+        if self.db_save_callback:
+            self.db_save_callback(self.tdoc_id, status, notes)
+
+        # 4. Close the dialog window
+        self.accept()
+
 
 class StatisticsSettingsDialog(QDialog):
     def __init__(self, parent=None):
