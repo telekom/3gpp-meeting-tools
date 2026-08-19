@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional
 import zipfile
 from PyQt5.QtCore import QThread, pyqtSignal
@@ -56,7 +57,7 @@ def get_candidate_cache_dirs() -> List[Path]:
 
 
 def find_cached_spec_file(filename: str, spec_number: str = "24.501") -> Optional[Path]:
-    """Searches candidate directories for cached .docx, .doc, or .zip files."""
+    """Searches candidate directories for cached .zip, .docx, or .doc files."""
     doc_base = filename.replace(".zip", "").lower()
     clean_spec = spec_number.replace(".", "")
 
@@ -74,24 +75,28 @@ def find_cached_spec_file(filename: str, spec_number: str = "24.501") -> Optiona
             if not s_dir.exists():
                 continue
 
+            # Prioritize exact zip archive to guarantee full multi-part extraction
+            if filename.lower().endswith(".zip"):
+                zip_target = s_dir / filename
+                if zip_target.exists() and zip_target.is_file():
+                    return zip_target
+
+            # Check for generic zip matching the document base name
+            for zip_file in s_dir.glob(f"*{doc_base}*.zip"):
+                if zip_file.is_file() and not zip_file.name.startswith("._") and "__MACOSX" not in zip_file.parts:
+                    return zip_file
+
+            # Fallback to cached docx/doc files
             for ext in [".docx", ".doc"]:
                 for file_path in s_dir.glob(f"*{doc_base}*{ext}"):
                     if file_path.is_file() and not file_path.name.startswith("._") and "__MACOSX" not in file_path.parts:
                         return file_path
 
-            zip_target = s_dir / filename
-            if zip_target.exists() and zip_target.is_file():
-                return zip_target
-
-            for zip_file in s_dir.glob(f"*{doc_base}*.zip"):
-                if zip_file.is_file() and not zip_file.name.startswith("._") and "__MACOSX" not in zip_file.parts:
-                    return zip_file
-
     return None
 
 
 class NASFetchAndImportThread(QThread):
-    """Background worker that sequentially ingests one or more TS 24.501 / TS 24.301 specifications."""
+    """Background worker that sequentially ingests single or split TS 24.501 / TS 24.301 specifications."""
 
     progress = pyqtSignal(str, int)
     finished_success = pyqtSignal(int, int)
@@ -122,7 +127,7 @@ class NASFetchAndImportThread(QThread):
             version = task.get("version", "")
             filename = task.get("filename", "")
             file_url = task.get("file_url", "")
-            local_docx_path = task.get("local_docx_path")
+            local_docx_input = task.get("local_docx_paths") or task.get("local_docx_path")
 
             base_progress = int((t_idx / total_tasks) * 100)
             task_weight = 1.0 / total_tasks
@@ -132,42 +137,44 @@ class NASFetchAndImportThread(QThread):
                 self.progress.emit(f"[{t_idx + 1}/{total_tasks}] {msg}", min(overall, 99))
 
             try:
-                target_doc: Optional[Path] = None
+                target_docs: List[Path] = []
 
-                # 1. Direct Local File
-                if local_docx_path and Path(local_docx_path).exists():
-                    target_doc = Path(local_docx_path)
-                    emit_task_progress(f"Loading local file: {target_doc.name}...", 10)
+                # 1. Direct Local Files
+                if local_docx_input:
+                    if isinstance(local_docx_input, list):
+                        target_docs = [Path(p) for p in local_docx_input if Path(p).exists()]
+                    elif Path(local_docx_input).exists():
+                        target_docs = [Path(local_docx_input)]
+
+                    if target_docs:
+                        emit_task_progress(f"Loading local file(s): {len(target_docs)} part(s)...", 10)
 
                 # 2. Automated Cache Lookup / FTP Download
-                else:
+                if not target_docs:
                     spec_cache_dir = self.cache_dir / spec_number
                     spec_cache_dir.mkdir(parents=True, exist_ok=True)
 
                     cached_hit = find_cached_spec_file(filename, spec_number)
+                    zip_to_extract: Optional[Path] = None
 
-                    if cached_hit and cached_hit.suffix.lower() in [".docx", ".doc"]:
-                        target_doc = cached_hit
-                        emit_task_progress(f"Found cached document: {target_doc.name}", 20)
-                    elif cached_hit and cached_hit.suffix.lower() == ".zip":
-                        emit_task_progress(f"Extracting cached archive: {cached_hit.name}...", 25)
-                        with zipfile.ZipFile(cached_hit, "r") as zf:
-                            for member in zf.namelist():
-                                if (
-                                    member.lower().endswith((".docx", ".doc"))
-                                    and not member.startswith("._")
-                                    and "__MACOSX" not in member
-                                ):
-                                    zf.extract(member, spec_cache_dir)
-                                    target_doc = spec_cache_dir / member
-                                    break
+                    if cached_hit and cached_hit.suffix.lower() == ".zip":
+                        zip_to_extract = cached_hit
+                        emit_task_progress(f"Found cached archive: {cached_hit.name}...", 20)
+                    elif cached_hit and cached_hit.suffix.lower() in [".docx", ".doc"]:
+                        # Look for potential split sibling parts cached locally
+                        base_prefix = re.sub(r"_\d+_.*$", "", cached_hit.stem)
+                        siblings = list(cached_hit.parent.glob(f"{base_prefix}*.docx")) + list(cached_hit.parent.glob(f"{base_prefix}*.doc"))
+                        target_docs = sorted(list(set(siblings)), key=lambda p: NASDocxParser._extract_part_index(p.name))
+                        emit_task_progress(f"Found cached document(s): {len(target_docs)} part(s)", 20)
                     else:
                         zip_path = spec_cache_dir / filename
                         emit_task_progress(f"Downloading {filename} from 3GPP FTP...", 25)
                         NetworkSession.download_file(file_url, zip_path)
+                        zip_to_extract = zip_path
 
-                        emit_task_progress(f"Extracting {filename}...", 45)
-                        with zipfile.ZipFile(zip_path, "r") as zf:
+                    if zip_to_extract and zip_to_extract.exists():
+                        emit_task_progress(f"Extracting all parts from {zip_to_extract.name}...", 40)
+                        with zipfile.ZipFile(zip_to_extract, "r") as zf:
                             for member in zf.namelist():
                                 if (
                                     member.lower().endswith((".docx", ".doc"))
@@ -175,24 +182,29 @@ class NASFetchAndImportThread(QThread):
                                     and "__MACOSX" not in member
                                 ):
                                     zf.extract(member, spec_cache_dir)
-                                    target_doc = spec_cache_dir / member
-                                    break
+                                    target_docs.append(spec_cache_dir / member)
 
-                if not target_doc or not target_doc.exists():
-                    self.progress.emit(f"⚠️ Could not locate Word doc for {filename}. Skipping...", base_progress)
+                if not target_docs:
+                    self.progress.emit(f"⚠️ Could not locate Word doc(s) for {filename}. Skipping...", base_progress)
                     continue
 
-                # Convert legacy .doc to .docx using word_tools
-                if target_doc.suffix.lower() == ".doc":
-                    emit_task_progress(f"Converting legacy .doc to .docx: {target_doc.name}...", 50)
-                    target_doc = convert_doc_to_docx(target_doc)
+                # Convert legacy .doc to .docx if required
+                converted_docs: List[Path] = []
+                for doc_file in target_docs:
+                    if doc_file.suffix.lower() == ".doc":
+                        emit_task_progress(f"Converting legacy .doc: {doc_file.name}...", 48)
+                        converted_docs.append(convert_doc_to_docx(doc_file))
+                    else:
+                        converted_docs.append(doc_file)
 
-                # Auto-detect version from filename if not explicitly provided
-                parser = NASDocxParser(target_doc)
+                # Initialize Parser with all parts
+                parser = NASDocxParser(converted_docs)
                 if not version:
                     version = parser.extract_version_from_filename()
 
-                emit_task_progress(f"Parsing TS {spec_number} v{version} ({target_doc.name})...", 55)
+                num_parts_str = f" ({len(converted_docs)} parts)" if len(converted_docs) > 1 else ""
+                emit_task_progress(f"Parsing TS {spec_number} v{version}{num_parts_str}...", 55)
+
                 messages, ie_defs = parser.parse(
                     progress_callback=lambda msg, p: emit_task_progress(msg, 55 + int(p * 0.35))
                 )

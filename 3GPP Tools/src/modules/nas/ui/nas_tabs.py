@@ -502,11 +502,13 @@ class NASTab(QWidget):
 
         df = self.db.get_message_evolution_df(msg_name, self.selected_version_ids)
 
-        # Identify specifications represented in this message
         specs = []
         if not df.empty and "spec_number" in df.columns:
             unique_specs = sorted(df["spec_number"].dropna().unique())
             specs = [f"TS {s}" if not str(s).startswith("TS") else str(s) for s in unique_specs]
+            self._current_message_spec = str(unique_specs[0]) if len(unique_specs) == 1 else None
+        else:
+            self._current_message_spec = None
 
         spec_prefix = f" ({', '.join(specs)})" if specs else ""
         self.matrix_title.setText(f"Message{spec_prefix}: {msg_name}{title_suffix}")
@@ -526,6 +528,13 @@ class NASTab(QWidget):
         ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "")
         type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "")
 
+        spec_num = getattr(self, "_current_message_spec", None)
+        if col >= 3:
+            col_name = str(model._pivot_df.columns[col])
+            match_spec = re.search(r"24\.[0-9]{3}", col_name)
+            if match_spec:
+                spec_num = match_spec.group(0)
+
         match = re.search(r"((?:9|D\.6)(?:\.[0-9A-Za-z]+)+)", type_ref)
         if not match:
             self.inspector_title_lbl.setText(ie_name)
@@ -533,15 +542,21 @@ class NASTab(QWidget):
             self.inspector_version_combo.clear()
             self._current_clause_defs.clear()
             self._current_ie_clause = None
-            self._current_ie_name = None
+            self._current_ie_name = ie_name
+            self._current_ie_spec = spec_num
             self.inspector_text.setPlainText(f"Type / Reference: {type_ref}\n(No Clause 9 reference identified)")
             return
 
         clause = match.group(1).strip()
         self._current_ie_clause = clause
         self._current_ie_name = ie_name
+        self._current_ie_spec = spec_num
 
-        defs = self.db.get_ie_definitions_by_clause(clause)
+        defs = self.db.get_ie_definitions_by_clause(
+            clause, spec_number=spec_num, version_ids=self.selected_version_ids
+        )
+        if not defs:
+            defs = self.db.get_ie_definitions_by_clause(clause, version_ids=self.selected_version_ids)
 
         if not defs:
             self.inspector_title_lbl.setText(f"Clause {clause} – {ie_name}")
@@ -552,10 +567,16 @@ class NASTab(QWidget):
             return
 
         resolved_name = defs[0]["ie_name"]
-        self.inspector_title_lbl.setText(f"Clause {clause} – {resolved_name}")
+        spec_badge = f" (TS {spec_num})" if spec_num else ""
+        self.inspector_title_lbl.setText(f"Clause {clause} – {resolved_name}{spec_badge}")
         self._current_clause_defs = {f"{d['spec_number']} v{d['version']}": d for d in defs}
 
-        containing_msgs = self.db.get_messages_using_ie(clause, resolved_name, self.selected_version_ids)
+        containing_msgs = self.db.get_messages_using_ie(
+            clause=clause,
+            ie_name=resolved_name,
+            spec_number=spec_num,
+            version_ids=self.selected_version_ids,
+        )
         num_msgs = len(containing_msgs)
         self.ie_usage_btn.setText(f"Used in: {num_msgs} message{'s' if num_msgs != 1 else ''} ▾")
         self.ie_usage_btn.setVisible(True)
@@ -567,7 +588,6 @@ class NASTab(QWidget):
             self.inspector_version_combo.addItem(key_name, f"{d['spec_number']} v{d['version']}")
 
         target_version_key: Optional[str] = None
-
         if col >= 3:
             col_name = str(model._pivot_df.columns[col])
             clean_col = col_name.replace("TS ", "").strip()
@@ -598,7 +618,14 @@ class NASTab(QWidget):
 
         clause = self._current_ie_clause
         name = self._current_ie_name or ""
-        containing_msgs = self.db.get_messages_using_ie(clause, name, self.selected_version_ids)
+        spec_num = getattr(self, "_current_ie_spec", None)
+
+        containing_msgs = self.db.get_messages_using_ie(
+            clause=clause,
+            ie_name=name,
+            spec_number=spec_num,
+            version_ids=self.selected_version_ids,
+        )
 
         menu = QMenu(self)
         menu.setStyleSheet("""
@@ -623,7 +650,10 @@ class NASTab(QWidget):
             }
         """)
 
-        header_action = QAction(f"Messages referencing Clause {clause}:", self)
+        header_title = f"Messages referencing Clause {clause}"
+        if spec_num:
+            header_title += f" [TS {spec_num}]"
+        header_action = QAction(f"{header_title}:", self)
         header_action.setEnabled(False)
         menu.addAction(header_action)
         menu.addSeparator()
@@ -632,8 +662,10 @@ class NASTab(QWidget):
             for m in containing_msgs:
                 msg_name = m["message_name"]
                 clause_ref = m["clause"]
-                is_current = (msg_name == self.current_selected_message_name)
-                label = f"{'👉 ' if is_current else ''}{msg_name} ({clause_ref})"
+                m_spec = m.get("spec_number", "")
+                spec_tag = f" [TS {m_spec}]" if m_spec and not spec_num else ""
+                is_current = msg_name == self.current_selected_message_name
+                label = f"{'👉 ' if is_current else ''}{msg_name} ({clause_ref}){spec_tag}"
                 action = QAction(label, self)
                 action.triggered.connect(lambda checked, mn=msg_name: self._jump_to_message(mn))
                 menu.addAction(action)
@@ -664,6 +696,7 @@ class NASTab(QWidget):
 
         match = re.search(r"((?:9|D\.6)(?:\.[0-9A-Za-z]+)+)", type_ref)
         clause = match.group(1).strip() if match else ""
+        spec_num = getattr(self, "_current_message_spec", None)
 
         menu = QMenu(self)
         menu.setStyleSheet("""
@@ -692,11 +725,18 @@ class NASTab(QWidget):
         menu.addAction(act_inspect)
 
         if clause:
-            containing_msgs = self.db.get_messages_using_ie(clause, ie_name, self.selected_version_ids)
+            containing_msgs = self.db.get_messages_using_ie(
+                clause=clause,
+                ie_name=ie_name,
+                spec_number=spec_num,
+                version_ids=self.selected_version_ids,
+            )
             sub_menu = menu.addMenu(f"📂 Open message using this IE ({len(containing_msgs)} found)...")
             for m in containing_msgs:
                 mn = m["message_name"]
-                sub_act = QAction(f"{mn} ({m['clause']})", self)
+                m_spec = m.get("spec_number", "")
+                spec_tag = f" [TS {m_spec}]" if m_spec and not spec_num else ""
+                sub_act = QAction(f"{mn} ({m['clause']}){spec_tag}", self)
                 sub_act.triggered.connect(lambda checked, target=mn: self._jump_to_message(target))
                 sub_menu.addAction(sub_act)
 
@@ -755,16 +795,25 @@ class NASTab(QWidget):
         if not file_paths:
             return
 
-        tasks = []
+        # Group split parts belonging to the same specification release
+        grouped_tasks: Dict[str, List[Path]] = {}
         for fp in file_paths:
-            parser_temp = NASDocxParser(Path(fp))
+            p = Path(fp)
+            # Remove part identifiers (e.g. '24501-k00_4_Main-Body_s06_s08' -> '24501-k00')
+            base_key = re.sub(r"_\d+_.*$", "", p.stem)
+            grouped_tasks.setdefault(base_key, []).append(p)
+
+        tasks = []
+        for base_key, paths in grouped_tasks.items():
+            parser_temp = NASDocxParser(paths)
             spec_num = parser_temp.extract_spec_number()
+            version = parser_temp.extract_version_from_filename()
             tasks.append({
                 "spec_number": spec_num,
-                "version": "",
-                "filename": Path(fp).name,
+                "version": version,
+                "filename": f"{base_key}.docx" if len(paths) == 1 else f"{base_key}.zip",
                 "file_url": "",
-                "local_docx_path": Path(fp),
+                "local_docx_paths": paths,
             })
 
         self._start_batch_ingestion(tasks)

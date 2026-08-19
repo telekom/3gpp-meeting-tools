@@ -2,7 +2,7 @@ import json
 import logging
 from pathlib import Path
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import zipfile
 
 try:
@@ -148,28 +148,42 @@ def _convert_table_to_html(tbl_elem, is_figure_diagram: bool = False) -> str:
 
 
 class NASDocxParser:
-    """Direct XML parser for 3GPP TS 24.501 (5GS) and TS 24.301 (EPS) specifications."""
+    """Direct XML parser for 3GPP TS 24.501 (5GS) and TS 24.301 (EPS) specifications (single or split files)."""
 
-    def __init__(self, docx_path: Path):
-        self.docx_path = Path(docx_path)
+    def __init__(self, docx_paths: Union[Path, str, List[Union[Path, str]]]):
+        if isinstance(docx_paths, (str, Path)):
+            self.docx_paths = [Path(docx_paths)]
+        else:
+            self.docx_paths = [Path(p) for p in docx_paths]
+
+        # Natural sort to guarantee parts run in order (_0_, _1_, _4_, _5_, _6_, etc.)
+        self.docx_paths.sort(key=lambda p: self._extract_part_index(p.name))
         self.logger = logging.getLogger(__name__)
+
+    @staticmethod
+    def _extract_part_index(filename: str) -> int:
+        match = re.search(r"_(\d+)_", filename)
+        return int(match.group(1)) if match else 0
 
     def extract_spec_number(self) -> str:
         """Extracts 3GPP specification number (e.g., '24.301' or '24.501') from filename."""
-        stem = self.docx_path.stem.replace(".", "").replace("-", "").replace("_", "")
+        if not self.docx_paths:
+            return "24.501"
+        stem = self.docx_paths[0].stem.replace(".", "").replace("-", "").replace("_", "")
         if "24301" in stem:
             return "24.301"
         if "24501" in stem:
             return "24.501"
-        # Fallback regex pattern
-        match = re.search(r"24[._]?(301|501)", self.docx_path.stem)
+        match = re.search(r"24[._]?(301|501)", self.docx_paths[0].stem)
         if match:
             return f"24.{match.group(1)}"
         return "24.501"
 
     def extract_version_from_filename(self) -> str:
-        stem = self.docx_path.stem
-        match = re.search(r"-([a-zA-Z0-9]{3})$", stem)
+        if not self.docx_paths:
+            return ""
+        stem = self.docx_paths[0].stem
+        match = re.search(r"-([a-zA-Z0-9]{3})(?:_\d+.*)?$", stem)
         if match:
             parsed_ver = file_version_to_version(match.group(1))
             if parsed_ver:
@@ -179,25 +193,9 @@ class NASDocxParser:
     def parse(
         self, progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        if not self.docx_path.exists():
-            raise FileNotFoundError(f"Specification file not found: {self.docx_path}")
-
-        if progress_callback:
-            progress_callback("Reading document archive into memory...", 10)
-
-        try:
-            with zipfile.ZipFile(self.docx_path, "r") as zf:
-                xml_bytes = zf.read("word/document.xml")
-        except Exception as e:
-            raise ValueError(f"Failed to read word/document.xml from {self.docx_path.name}: {e}")
-
-        if progress_callback:
-            progress_callback("Building XML element tree...", 25)
-
-        root = ET.fromstring(xml_bytes)
-        body = root.find(TAG_BODY)
-        if body is None:
-            return [], []
+        valid_paths = [p for p in self.docx_paths if p.exists()]
+        if not valid_paths:
+            raise FileNotFoundError(f"Specification file(s) not found: {self.docx_paths}")
 
         messages: List[Dict[str, Any]] = []
         ie_definitions: List[Dict[str, Any]] = []
@@ -211,99 +209,115 @@ class NASDocxParser:
         )
         major_boundary_pattern = re.compile(r"^(?:[1-8]|10|11|12|Annex\s+[A-Z])\b")
 
-        last_caption_info: Optional[Tuple[str, str, str]] = None
-        last_paragraph_text: str = ""
-        current_ie_def: Optional[Dict[str, Any]] = None
+        total_files = len(valid_paths)
 
-        body_elements = list(body)
-        total_elements = len(body_elements)
+        for file_idx, docx_path in enumerate(valid_paths):
+            file_weight = 1.0 / total_files
+            base_file_progress = 10 + int((file_idx / total_files) * 80)
 
-        if progress_callback:
-            progress_callback("Extracting Clause 8 tables & Clause 9 definitions...", 40)
+            if progress_callback:
+                progress_callback(f"Reading {docx_path.name} ({file_idx + 1}/{total_files})...", base_file_progress)
 
-        for idx, elem in enumerate(body_elements):
-            if elem.tag == TAG_P:
-                p_text = _extract_p_text(elem)
-                if p_text:
-                    last_paragraph_text = p_text
+            try:
+                with zipfile.ZipFile(docx_path, "r") as zf:
+                    if "word/document.xml" not in zf.namelist():
+                        continue
+                    xml_bytes = zf.read("word/document.xml")
+            except Exception as e:
+                self.logger.warning(f"Failed to read word/document.xml from {docx_path.name}: {e}")
+                continue
 
-                    # 1. Message Table Captions
-                    if p_text.startswith("Table 8.") or p_text.startswith("Table D."):
-                        match_cap = caption_pattern.search(p_text)
-                        if match_cap:
-                            clause = match_cap.group(1).strip()
-                            name = match_cap.group(2).strip()
-                            name = re.sub(r"(?i)\s+message\s+content", "", name).strip()
-                            last_caption_info = (clause, name, p_text)
-                    else:
+            root = ET.fromstring(xml_bytes)
+            body = root.find(TAG_BODY)
+            if body is None:
+                continue
+
+            last_caption_info: Optional[Tuple[str, str, str]] = None
+            last_paragraph_text: str = ""
+            current_ie_def: Optional[Dict[str, Any]] = None
+
+            body_elements = list(body)
+            total_elements = len(body_elements)
+
+            for idx, elem in enumerate(body_elements):
+                if elem.tag == TAG_P:
+                    p_text = _extract_p_text(elem)
+                    if p_text:
+                        last_paragraph_text = p_text
+
+                        # 1. Message Table Captions
+                        if p_text.startswith("Table 8.") or p_text.startswith("Table D."):
+                            match_cap = caption_pattern.search(p_text)
+                            if match_cap:
+                                clause = match_cap.group(1).strip()
+                                name = match_cap.group(2).strip()
+                                name = re.sub(r"(?i)\s+message\s+content", "", name).strip()
+                                last_caption_info = (clause, name, p_text)
+                        else:
+                            last_caption_info = None
+
+                        # 2. IE Headings
+                        match_ie = ie_heading_pattern.match(p_text)
+                        if match_ie:
+                            if current_ie_def:
+                                self._finalize_ie_def(current_ie_def, ie_definitions)
+
+                            cl = match_ie.group(1).strip()
+                            ie_name = match_ie.group(2).strip()
+                            current_ie_def = {
+                                "clause": cl,
+                                "ie_name": ie_name,
+                                "html_content": [
+                                    f'<h2 style="color: #0D47A1; margin-top: 4px; margin-bottom: 6px; font-family: Segoe UI, sans-serif;">{ie_name} (Clause {cl})</h2>'
+                                ],
+                            }
+                        elif major_boundary_pattern.match(p_text) and not p_text.startswith("9."):
+                            if current_ie_def:
+                                self._finalize_ie_def(current_ie_def, ie_definitions)
+                                current_ie_def = None
+                        elif current_ie_def:
+                            if p_text.startswith("Figure 9.") or p_text.startswith("Figure D."):
+                                current_ie_def["html_content"].append(
+                                    f'<p style="font-weight: bold; color: #37474F; margin-top: 10px; margin-bottom: 4px;">{p_text}</p>'
+                                )
+                            elif p_text.startswith("Table 9.") or p_text.startswith("Table D."):
+                                current_ie_def["html_content"].append(
+                                    f'<p style="font-weight: bold; color: #1A237E; margin-top: 12px; margin-bottom: 4px;">{p_text}</p>'
+                                )
+                            elif p_text.startswith("NOTE"):
+                                current_ie_def["html_content"].append(
+                                    f'<div style="background-color: #F0F4F8; border-left: 3px solid #90A4AE; padding: 4px 8px; margin: 4px 0; font-size: 11px; color: #455A64;">{p_text}</div>'
+                                )
+                            else:
+                                current_ie_def["html_content"].append(
+                                    f'<p style="margin: 4px 0; line-height: 1.4; color: #263238;">{p_text}</p>'
+                                )
+
+                elif elem.tag == TAG_TBL:
+                    # 3. Clause 8 Message Tables
+                    if last_caption_info:
+                        clause, name, full_caption = last_caption_info
+                        ies = self._parse_clause_8_table(elem)
+                        if ies:
+                            messages.append({
+                                "clause": clause,
+                                "message_name": name,
+                                "table_caption": full_caption,
+                                "ies": ies,
+                            })
                         last_caption_info = None
 
-                    # 2. IE Headings
-                    match_ie = ie_heading_pattern.match(p_text)
-                    if match_ie:
-                        if current_ie_def:
-                            self._finalize_ie_def(current_ie_def, ie_definitions)
-
-                        cl = match_ie.group(1).strip()
-                        ie_name = match_ie.group(2).strip()
-                        current_ie_def = {
-                            "clause": cl,
-                            "ie_name": ie_name,
-                            "html_content": [
-                                f'<h2 style="color: #0D47A1; margin-top: 4px; margin-bottom: 6px; font-family: Segoe UI, sans-serif;">{ie_name} (Clause {cl})</h2>'
-                            ],
-                        }
-                    elif major_boundary_pattern.match(p_text) and not p_text.startswith("9."):
-                        if current_ie_def:
-                            self._finalize_ie_def(current_ie_def, ie_definitions)
-                            current_ie_def = None
+                    # 4. Clause 9 Structure / Description Tables
                     elif current_ie_def:
-                        if p_text.startswith("Figure 9.") or p_text.startswith("Figure D."):
-                            current_ie_def["html_content"].append(
-                                f'<p style="font-weight: bold; color: #37474F; margin-top: 10px; margin-bottom: 4px;">{p_text}</p>'
-                            )
-                        elif p_text.startswith("Table 9.") or p_text.startswith("Table D."):
-                            current_ie_def["html_content"].append(
-                                f'<p style="font-weight: bold; color: #1A237E; margin-top: 12px; margin-bottom: 4px;">{p_text}</p>'
-                            )
-                        elif p_text.startswith("NOTE"):
-                            current_ie_def["html_content"].append(
-                                f'<div style="background-color: #F0F4F8; border-left: 3px solid #90A4AE; padding: 4px 8px; margin: 4px 0; font-size: 11px; color: #455A64;">{p_text}</div>'
-                            )
-                        else:
-                            current_ie_def["html_content"].append(
-                                f'<p style="margin: 4px 0; line-height: 1.4; color: #263238;">{p_text}</p>'
-                            )
+                        is_diagram = "figure" in last_paragraph_text.lower() or any(
+                            "octet" in _extract_tc_text(c).lower() for c in elem.iter(TAG_TC)
+                        )
+                        tbl_html = _convert_table_to_html(elem, is_figure_diagram=is_diagram)
+                        if tbl_html:
+                            current_ie_def["html_content"].append(tbl_html)
 
-            elif elem.tag == TAG_TBL:
-                # 3. Clause 8 Message Tables
-                if last_caption_info:
-                    clause, name, full_caption = last_caption_info
-                    ies = self._parse_clause_8_table(elem)
-                    if ies:
-                        messages.append({
-                            "clause": clause,
-                            "message_name": name,
-                            "table_caption": full_caption,
-                            "ies": ies,
-                        })
-                    last_caption_info = None
-
-                # 4. Clause 9 Structure / Description Tables
-                elif current_ie_def:
-                    is_diagram = "figure" in last_paragraph_text.lower() or any(
-                        "octet" in _extract_tc_text(c).lower() for c in elem.iter(TAG_TC)
-                    )
-                    tbl_html = _convert_table_to_html(elem, is_figure_diagram=is_diagram)
-                    if tbl_html:
-                        current_ie_def["html_content"].append(tbl_html)
-
-            if idx % 500 == 0 and progress_callback:
-                progress = 40 + int((idx / max(1, total_elements)) * 50)
-                progress_callback(f"Scanning document ({idx}/{total_elements})...", progress)
-
-        if current_ie_def:
-            self._finalize_ie_def(current_ie_def, ie_definitions)
+            if current_ie_def:
+                self._finalize_ie_def(current_ie_def, ie_definitions)
 
         if progress_callback:
             progress_callback(f"Extracted {len(messages)} messages and {len(ie_definitions)} IE definitions.", 95)
