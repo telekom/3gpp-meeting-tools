@@ -94,7 +94,7 @@ class NASFetchAndImportThread(QThread):
     """Background worker that sequentially ingests one or more TS 24.501 / TS 24.301 specifications."""
 
     progress = pyqtSignal(str, int)
-    finished_success = pyqtSignal(int, int)  # total_specs, total_messages
+    finished_success = pyqtSignal(int, int)
     error = pyqtSignal(str)
 
     def __init__(
@@ -182,9 +182,9 @@ class NASFetchAndImportThread(QThread):
                     self.progress.emit(f"⚠️ Could not locate Word doc for {filename}. Skipping...", base_progress)
                     continue
 
-                # Convert legacy .doc to .docx if required
+                # Convert legacy .doc to .docx using word_tools
                 if target_doc.suffix.lower() == ".doc":
-                    emit_task_progress(f"Converting legacy .doc: {target_doc.name}...", 50)
+                    emit_task_progress(f"Converting legacy .doc to .docx: {target_doc.name}...", 50)
                     target_doc = convert_doc_to_docx(target_doc)
 
                 # Auto-detect version from filename if not explicitly provided
