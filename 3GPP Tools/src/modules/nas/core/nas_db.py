@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+import re
 import sqlite3
 from typing import Any, Dict, List, Optional
 import pandas as pd
@@ -20,7 +21,7 @@ def parse_version_tuple(version_str: str) -> tuple:
 
 
 class NASDatabase:
-    """Manages the SQLite database for 3GPP TS 24.501 NAS messages and IE definitions."""
+    """Manages the SQLite database for 3GPP TS 24.501 and TS 24.301 NAS messages and IE definitions."""
 
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
@@ -32,6 +33,12 @@ class NASDatabase:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode = WAL;")
+        # Register Python regex function for SQLite
+        conn.create_function(
+            "REGEXP",
+            2,
+            lambda expr, item: bool(re.search(expr, str(item))) if item is not None else False,
+        )
         return conn
 
     def _init_db(self):
@@ -95,7 +102,6 @@ class NASDatabase:
             self.logger.error(f"Error initializing NAS DB: {e}")
 
     def get_imported_versions(self) -> List[Dict[str, Any]]:
-        """Retrieves all imported specification versions sorted numerically descending."""
         query = "SELECT id, spec_number, version, import_date FROM spec_versions"
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -235,7 +241,6 @@ class NASDatabase:
     def get_messages_by_ie_search(
         self, ie_query: str, version_ids: Optional[List[int]] = None
     ) -> List[Dict[str, Any]]:
-        """Returns only messages that contain Information Elements matching the search query."""
         if not version_ids or not ie_query.strip():
             return self.get_messages_list(version_ids)
 
@@ -263,30 +268,52 @@ class NASDatabase:
             return [dict(row) for row in cursor.fetchall()]
 
     def get_messages_using_ie(
-        self, clause: str, ie_name: str = "", version_ids: Optional[List[int]] = None
+        self,
+        clause: Optional[str] = None,
+        ie_name: Optional[str] = None,
+        spec_number: Optional[str] = None,
+        version_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Finds all distinct NAS messages across active versions that reference an IE by clause or name.
+        Finds distinct NAS messages referencing an IE by exact Clause boundary or exact IE name,
+        scoped strictly to the active specification and versions.
         """
         if not version_ids:
             return []
 
         placeholders = ",".join("?" for _ in version_ids)
-        clause_pattern = f"%{clause.strip()}%" if clause.strip() else ""
-        name_pattern = f"%{ie_name.strip()}%" if ie_name.strip() else ""
+        where_conditions = [f"m.version_id IN ({placeholders})"]
+        params: List[Any] = list(version_ids)
 
+        if spec_number:
+            where_conditions.append("sv.spec_number = ?")
+            params.append(spec_number.strip())
+
+        clean_clause = clause.strip() if clause else ""
+        clean_name = ie_name.strip() if ie_name else ""
+
+        if clean_clause:
+            # Match exact clause boundary (e.g., '9.11.3.47' but not '9.11.3.4' or '9.11.3.47A')
+            regex_pattern = rf"(?<![0-9A-Za-z.]){re.escape(clean_clause)}(?![0-9A-Za-z.])"
+            where_conditions.append("i.type_reference REGEXP ?")
+            params.append(regex_pattern)
+        elif clean_name:
+            # Exact case-insensitive match when clause reference is absent
+            where_conditions.append("LOWER(TRIM(i.ie_name)) = LOWER(?)")
+            params.append(clean_name)
+        else:
+            return []
+
+        where_clause = " AND ".join(where_conditions)
         query = f"""
-            SELECT DISTINCT m.message_name, m.clause
+            SELECT m.message_name, m.clause, GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number
             FROM nas_messages m
             JOIN message_ies i ON i.message_id = m.id
-            WHERE m.version_id IN ({placeholders})
-              AND (
-                  (? != '' AND i.type_reference LIKE ?)
-                  OR (? != '' AND i.ie_name LIKE ?)
-              )
+            JOIN spec_versions sv ON m.version_id = sv.id
+            WHERE {where_clause}
+            GROUP BY m.message_name, m.clause
             ORDER BY m.message_name ASC
         """
-        params = list(version_ids) + [clause_pattern, clause_pattern, name_pattern, name_pattern]
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -321,7 +348,10 @@ class NASDatabase:
             return pd.read_sql_query(query, conn, params=params)
 
     def get_ie_definitions_by_clause(
-        self, clause: str, version_ids: Optional[List[int]] = None
+        self,
+        clause: str,
+        spec_number: Optional[str] = None,
+        version_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
         query = """
             SELECT d.*, sv.version, sv.spec_number
@@ -330,6 +360,10 @@ class NASDatabase:
             WHERE d.clause = ?
         """
         params = [clause]
+        if spec_number:
+            query += " AND sv.spec_number = ?"
+            params.append(spec_number.strip())
+
         if version_ids:
             placeholders = ",".join("?" for _ in version_ids)
             query += f" AND d.version_id IN ({placeholders})"
@@ -341,17 +375,3 @@ class NASDatabase:
             rows = [dict(row) for row in cursor.fetchall()]
 
         return sorted(rows, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
-
-    def get_ie_definition(self, clause: str, version_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
-        query = "SELECT * FROM ie_definitions WHERE clause = ?"
-        params = [clause]
-        if version_id:
-            query += " AND version_id = ?"
-            params.append(version_id)
-        query += " ORDER BY id DESC LIMIT 1"
-
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            row = cursor.fetchone()
-            return dict(row) if row else None
