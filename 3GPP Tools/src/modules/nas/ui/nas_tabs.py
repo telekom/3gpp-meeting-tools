@@ -267,11 +267,9 @@ class NASTab(QWidget):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Escaped && ensures literal & is displayed without mnemonic underscore
         ver_group = QGroupBox("Specification Versions && Releases")
         ver_layout = QVBoxLayout(ver_group)
 
-        # Hierarchical Specification Tree styled to match QListWidget sizing
         self.version_tree = QTreeWidget()
         self.version_tree.setHeaderHidden(True)
         self.version_tree.setAlternatingRowColors(True)
@@ -291,8 +289,8 @@ class NASTab(QWidget):
                 background-color: #F1F5F9;
             }
             QTreeWidget::item:selected {
-                background-color: #E0F2FE;
-                color: #0369A1;
+                background-color: #E2E8F0;
+                color: #0F172A;
             }
         """)
         self.version_tree.itemChanged.connect(self._on_version_tree_item_changed)
@@ -472,7 +470,7 @@ class NASTab(QWidget):
     # -------------------------------------------------------------------------
 
     def refresh_versions(self):
-        """Builds hierarchical specification tree inheriting the application font."""
+        """Builds hierarchical specification tree with neutral theme text colors."""
         self._updating_checks = True
         self.version_tree.clear()
         versions = self.db.get_imported_versions()
@@ -491,10 +489,14 @@ class NASTab(QWidget):
         if saved_checked is not None:
             saved_tuples = {(item.get("spec_number"), item.get("version")) for item in saved_checked}
 
-        # Inherit application base font for consistent sizing
+        # Base application font metrics
         base_font = self.version_tree.font()
         bold_font = QFont(base_font)
         bold_font.setBold(True)
+
+        # Standard neutral dark text brushes
+        text_color_header = QBrush(QColor("#0F172A"))
+        text_color_item = QBrush(QColor("#334155"))
 
         # 1. Master toggle item
         all_item = QTreeWidgetItem(self.version_tree)
@@ -502,7 +504,7 @@ class NASTab(QWidget):
         all_item.setData(0, Qt.UserRole, {"type": "all"})
         all_item.setFlags(all_item.flags() | Qt.ItemIsUserCheckable)
         all_item.setFont(0, bold_font)
-        all_item.setForeground(0, QBrush(QColor("#1E293B")))
+        all_item.setForeground(0, text_color_header)
         all_item.setCheckState(0, Qt.Checked)
 
         # 2. Group versions by specification number
@@ -520,7 +522,7 @@ class NASTab(QWidget):
             spec_item.setData(0, Qt.UserRole, {"type": "spec", "spec_number": spec_num})
             spec_item.setFlags(spec_item.flags() | Qt.ItemIsUserCheckable)
             spec_item.setFont(0, bold_font)
-            spec_item.setForeground(0, QBrush(QColor("#0369A1")))
+            spec_item.setForeground(0, text_color_header)
             spec_item.setCheckState(0, Qt.Checked)
 
             # Sort versions within this spec descending
@@ -542,7 +544,7 @@ class NASTab(QWidget):
                 )
                 child.setFlags(child.flags() | Qt.ItemIsUserCheckable)
                 child.setFont(0, base_font)
-                child.setForeground(0, QBrush(QColor("#334155")))
+                child.setForeground(0, text_color_item)
 
                 if saved_tuples is not None:
                     is_checked = (v["spec_number"], v["version"]) in saved_tuples
@@ -1082,7 +1084,7 @@ class NASTab(QWidget):
         )
         self.refresh_versions()
 
-    def _on_error_import(self, err: str):
+    def _on_import_error(self, err: str):
         self.progress_bar.setVisible(False)
         self.fetch_btn.setEnabled(True)
         self.import_file_btn.setEnabled(True)
