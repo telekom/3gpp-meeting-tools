@@ -9,6 +9,7 @@ from core.utils.paths import get_project_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase
 from modules.nas.core.nas_parser import NASDocxParser
+from modules.word_tools.core.word_converter import convert_doc_to_docx
 
 
 def get_candidate_cache_dirs() -> List[Path]:
@@ -90,7 +91,7 @@ def find_cached_spec_file(filename: str, spec_number: str = "24.501") -> Optiona
 
 
 class NASFetchAndImportThread(QThread):
-    """Background worker that sequentially ingests one or more TS 24.501 specifications."""
+    """Background worker that sequentially ingests one or more TS 24.501 / TS 24.301 specifications."""
 
     progress = pyqtSignal(str, int)
     finished_success = pyqtSignal(int, int)  # total_specs, total_messages
@@ -131,12 +132,12 @@ class NASFetchAndImportThread(QThread):
                 self.progress.emit(f"[{t_idx + 1}/{total_tasks}] {msg}", min(overall, 99))
 
             try:
-                target_docx: Optional[Path] = None
+                target_doc: Optional[Path] = None
 
                 # 1. Direct Local File
                 if local_docx_path and Path(local_docx_path).exists():
-                    target_docx = Path(local_docx_path)
-                    emit_task_progress(f"Loading local file: {target_docx.name}...", 10)
+                    target_doc = Path(local_docx_path)
+                    emit_task_progress(f"Loading local file: {target_doc.name}...", 10)
 
                 # 2. Automated Cache Lookup / FTP Download
                 else:
@@ -146,8 +147,8 @@ class NASFetchAndImportThread(QThread):
                     cached_hit = find_cached_spec_file(filename, spec_number)
 
                     if cached_hit and cached_hit.suffix.lower() in [".docx", ".doc"]:
-                        target_docx = cached_hit
-                        emit_task_progress(f"Found cached document: {target_docx.name}", 20)
+                        target_doc = cached_hit
+                        emit_task_progress(f"Found cached document: {target_doc.name}", 20)
                     elif cached_hit and cached_hit.suffix.lower() == ".zip":
                         emit_task_progress(f"Extracting cached archive: {cached_hit.name}...", 25)
                         with zipfile.ZipFile(cached_hit, "r") as zf:
@@ -158,7 +159,7 @@ class NASFetchAndImportThread(QThread):
                                     and "__MACOSX" not in member
                                 ):
                                     zf.extract(member, spec_cache_dir)
-                                    target_docx = spec_cache_dir / member
+                                    target_doc = spec_cache_dir / member
                                     break
                     else:
                         zip_path = spec_cache_dir / filename
@@ -174,19 +175,24 @@ class NASFetchAndImportThread(QThread):
                                     and "__MACOSX" not in member
                                 ):
                                     zf.extract(member, spec_cache_dir)
-                                    target_docx = spec_cache_dir / member
+                                    target_doc = spec_cache_dir / member
                                     break
 
-                if not target_docx or not target_docx.exists():
+                if not target_doc or not target_doc.exists():
                     self.progress.emit(f"⚠️ Could not locate Word doc for {filename}. Skipping...", base_progress)
                     continue
 
+                # Convert legacy .doc to .docx if required
+                if target_doc.suffix.lower() == ".doc":
+                    emit_task_progress(f"Converting legacy .doc: {target_doc.name}...", 50)
+                    target_doc = convert_doc_to_docx(target_doc)
+
                 # Auto-detect version from filename if not explicitly provided
-                parser = NASDocxParser(target_docx)
+                parser = NASDocxParser(target_doc)
                 if not version:
                     version = parser.extract_version_from_filename()
 
-                emit_task_progress(f"Parsing TS {spec_number} v{version} ({target_docx.name})...", 55)
+                emit_task_progress(f"Parsing TS {spec_number} v{version} ({target_doc.name})...", 55)
                 messages, ie_defs = parser.parse(
                     progress_callback=lambda msg, p: emit_task_progress(msg, 55 + int(p * 0.35))
                 )

@@ -1,12 +1,65 @@
 import logging
-import tempfile
 from pathlib import Path
+import tempfile
+from typing import Optional, Union
 
 import pythoncom
 import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.utils import get_proxies
+
+
+def convert_doc_to_docx(
+    doc_path: Union[str, Path],
+    output_path: Optional[Union[str, Path]] = None,
+    logger: Optional[logging.Logger] = None,
+) -> Path:
+    """
+    Synchronously converts a legacy Word 97-2003 (.doc) binary file to OpenXML (.docx)
+    using Microsoft Word COM automation.
+    """
+    log = logger or logging.getLogger(__name__)
+    source = Path(doc_path)
+
+    if not source.exists():
+        raise FileNotFoundError(f"Source document not found: {source}")
+
+    if source.suffix.lower() == ".docx":
+        return source
+
+    target = Path(output_path) if output_path else source.with_suffix(".docx")
+    if target.exists() and target.stat().st_size > 0:
+        return target
+
+    word = None
+    doc = None
+    try:
+        pythoncom.CoInitialize()
+        # Spawn an isolated, headless Word instance
+        word = win32com.client.DispatchEx("Word.Application")
+        word.Visible = False
+        word.DisplayAlerts = 0  # wdAlertsNone
+
+        # Signature: Open(FileName, ConfirmConversions, ReadOnly, AddToRecentFiles)
+        doc = word.Documents.Open(str(source.resolve()), False, True, False)
+
+        # wdFormatXMLDocument = 16 (.docx)
+        doc.SaveAs2(str(target.resolve()), FileFormat=16)
+        log.info(f"Successfully converted {source.name} -> {target.name}")
+        return target
+    except Exception as e:
+        log.error(f"COM conversion failed for {source.name}: {e}")
+        raise
+    finally:
+        try:
+            if doc:
+                doc.Close(SaveChanges=False)
+            if word:
+                word.Quit()
+        except Exception:
+            pass
+        pythoncom.CoUninitialize()
 
 
 class WordConverterThread(QThread):
@@ -17,11 +70,13 @@ class WordConverterThread(QThread):
     # Microsoft Word WdSaveFormat Enumerations
     # https://learn.microsoft.com/en-us/office/vba/api/word.wdsaveformat
     FORMAT_MAP = {
-        "pdf": 17,  # wdFormatPDF
-        "html": 8,  # wdFormatHTML
-        "xps": 18,  # wdFormatXPS
-        "rtf": 6,  # wdFormatRTF
-        "txt": 2,  # wdFormatText
+        "pdf": 17,   # wdFormatPDF
+        "html": 8,   # wdFormatHTML
+        "xps": 18,   # wdFormatXPS
+        "rtf": 6,    # wdFormatRTF
+        "txt": 2,    # wdFormatText
+        "docx": 16,  # wdFormatXMLDocument
+        "doc": 0,    # wdFormatDocument
     }
 
     def __init__(self, doc_source: str, target_format: str):
@@ -60,7 +115,6 @@ class WordConverterThread(QThread):
             self.ui_log_msg.emit(f"⏳ Preparing document for {self.target_format.upper()} conversion...", logging.INFO)
             source_path = self._resolve_path(self.doc_source)
 
-            # Determine output path (next to the source file if local, or temp if URL)
             out_dir = Path(source_path).parent
             out_name = Path(source_path).stem + f".{self.target_format}"
             out_path = str(out_dir / out_name)
@@ -69,25 +123,16 @@ class WordConverterThread(QThread):
                 raise ValueError(f"Unsupported conversion format: {self.target_format}")
 
             self.ui_log_msg.emit(f"⏳ Spawning detached Word Converter Engine for {out_name}...", logging.INFO)
-            # DispatchEx forces a completely new, invisible instance of Word
             word = win32com.client.DispatchEx("Word.Application")
             word.Visible = False
-
-            # 0 is the native Word constant for wdAlertsNone
             word.DisplayAlerts = 0
 
-            # We must pass the arguments positionally to bypass the file-lock popup.
-            # Signature: Open(FileName, ConfirmConversions, ReadOnly, AddToRecentFiles)
             doc = word.Documents.Open(source_path, False, True, False)
 
             self.ui_log_msg.emit(f"⏳ Converting and saving {out_name} to {self.target_format}...", logging.INFO)
 
-            # --- NEW LOGIC: Branch based on target format ---
             if self.target_format in ("pdf", "xps"):
-                # wdExportFormatPDF = 17, wdExportFormatXPS = 18
                 export_format = 17 if self.target_format == "pdf" else 18
-
-                # Prevent Word from failing on broken background field updates
                 word.Options.UpdateFieldsAtPrint = False
                 word.Options.UpdateLinksAtPrint = False
 
@@ -100,9 +145,7 @@ class WordConverterThread(QThread):
                     CreateBookmarks=1  # wdExportCreateHeadingBookmarks
                 )
             else:
-                # Fallback to standard SaveAs2 for HTML, RTF, TXT
                 doc.SaveAs2(out_path, FileFormat=self.FORMAT_MAP[self.target_format])
-            # ------------------------------------------------
 
             self.ui_log_msg.emit(f"✅ Conversion complete: {out_name}", logging.INFO)
             self.finished_path.emit(out_path)
@@ -110,10 +153,11 @@ class WordConverterThread(QThread):
         except Exception as e:
             self.ui_log_msg.emit(f"❌ Conversion Error: {str(e)}", logging.ERROR)
         finally:
-            # Rigorous cleanup to prevent ghost processes
             try:
-                if doc: doc.Close(SaveChanges=False)
-                if word: word.Quit()
+                if doc:
+                    doc.Close(SaveChanges=False)
+                if word:
+                    word.Quit()
             except Exception:
                 pass
 
