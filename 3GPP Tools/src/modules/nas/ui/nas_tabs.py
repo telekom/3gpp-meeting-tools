@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
 
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
+from modules.nas.core.nas_parser import NASDocxParser
 from modules.nas.core.nas_threads import (
     NASFetchAndImportThread,
     find_cached_spec_file,
@@ -41,7 +42,7 @@ from modules.specifications.core.database import SpecsDatabase
 
 
 class NASVersionSelectDialog(QDialog):
-    """Dialog allowing multi-selection of indexed TS 24.501 versions with natural numerical sorting."""
+    """Dialog allowing selection of TS 24.501 or TS 24.301 versions to fetch and ingest."""
 
     def __init__(
             self,
@@ -56,19 +57,30 @@ class NASVersionSelectDialog(QDialog):
         self.cache_dir = cache_dir
         self.selected_files_info: List[Dict[str, Any]] = []
 
-        self.setWindowTitle("Select TS 24.501 Version(s) to Ingest")
-        self.resize(700, 440)
+        self.setWindowTitle("Select 3GPP NAS Specification Version(s) to Ingest")
+        self.resize(740, 480)
         self._setup_ui()
         self._load_available_versions()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
 
+        top_bar = QHBoxLayout()
+        top_bar.addWidget(QLabel("Specification:"))
+
+        self.spec_combo = QComboBox()
+        self.spec_combo.addItem("TS 24.501 (5GS NAS)", "24.501")
+        self.spec_combo.addItem("TS 24.301 (EPS NAS)", "24.301")
+        self.spec_combo.currentIndexChanged.connect(self._load_available_versions)
+        top_bar.addWidget(self.spec_combo)
+        top_bar.addStretch()
+        layout.addLayout(top_bar)
+
         info_lbl = QLabel(
-            "Select one or more TS 24.501 versions from the specification archive (use Ctrl+Click or Shift+Click).\n"
-            "Missing files will be downloaded automatically from the 3GPP FTP server."
+            "Select one or more versions from the specification archive (use Ctrl+Click or Shift+Click).\n"
+            "Files not currently cached locally will be downloaded automatically from the 3GPP FTP server."
         )
-        info_lbl.setStyleSheet("color: #555; padding-bottom: 5px;")
+        info_lbl.setStyleSheet("color: #555; padding-bottom: 4px;")
         layout.addWidget(info_lbl)
 
         self.table = QTableWidget()
@@ -87,8 +99,12 @@ class NASVersionSelectDialog(QDialog):
         layout.addWidget(btn_box)
 
     def _load_available_versions(self):
-        spec_files = self.specs_db.search_files(spec_number="24.501")
-        imported_versions = {v["version"] for v in self.nas_db.get_imported_versions()}
+        spec_num = self.spec_combo.currentData()
+        spec_files = self.specs_db.search_files(spec_number=spec_num)
+
+        imported_entries = {
+            (v["spec_number"], v["version"]) for v in self.nas_db.get_imported_versions()
+        }
 
         spec_files = sorted(
             spec_files,
@@ -99,14 +115,14 @@ class NASVersionSelectDialog(QDialog):
         self.table.setRowCount(0)
 
         for row_idx, row_data in enumerate(spec_files):
-            _, spec_num, _, _, filename, version, url = row_data
+            _, s_num, _, _, filename, version, url = row_data
             self.table.insertRow(row_idx)
 
             v_item = QTableWidgetItem(f"v{version}")
             v_item.setData(
                 Qt.UserRole,
                 {
-                    "spec_number": spec_num,
+                    "spec_number": s_num,
                     "version": version,
                     "filename": filename,
                     "file_url": url,
@@ -115,7 +131,7 @@ class NASVersionSelectDialog(QDialog):
             self.table.setItem(row_idx, 0, v_item)
             self.table.setItem(row_idx, 1, QTableWidgetItem(filename))
 
-            cached_file = find_cached_spec_file(filename, spec_num)
+            cached_file = find_cached_spec_file(filename, s_num)
             if cached_file:
                 cache_text = f"🟢 Cached ({cached_file.suffix[1:].upper()})"
                 cache_item = QTableWidgetItem(cache_text)
@@ -125,7 +141,7 @@ class NASVersionSelectDialog(QDialog):
                 cache_item.setForeground(Qt.darkGray)
             self.table.setItem(row_idx, 2, cache_item)
 
-            in_db = version in imported_versions
+            in_db = (s_num, version) in imported_entries
             db_item = QTableWidgetItem("✅ Ingested" if in_db else "⚪ Ready")
             if in_db:
                 db_item.setForeground(Qt.blue)
@@ -139,8 +155,9 @@ class NASVersionSelectDialog(QDialog):
     def _on_accept(self):
         selected_rows = sorted(list(set(item.row() for item in self.table.selectedItems())))
         if not selected_rows:
-            QMessageBox.warning(self, "Selection Required",
-                                "Please select at least one specification version to import.")
+            QMessageBox.warning(
+                self, "Selection Required", "Please select at least one specification version to import."
+            )
             return
 
         self.selected_files_info = [
@@ -179,7 +196,6 @@ class NASTab(QWidget):
         self._updating_checks: bool = False
         self._updating_combo: bool = False
 
-        # Debounce Timers (250ms)
         self._msg_search_timer = QTimer(self)
         self._msg_search_timer.setSingleShot(True)
         self._msg_search_timer.setInterval(250)
@@ -197,7 +213,6 @@ class NASTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        # Toolbar
         toolbar = QHBoxLayout()
 
         self.fetch_btn = QPushButton("📥 Import from Specs DB")
@@ -224,10 +239,8 @@ class NASTab(QWidget):
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
-        # Main Horizontal Splitter
         main_splitter = QSplitter(Qt.Horizontal)
 
-        # Left Column: Versions & Messages
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -242,16 +255,14 @@ class NASTab(QWidget):
         msg_group = QGroupBox("NAS Messages")
         msg_layout = QVBoxLayout(msg_group)
 
-        # 1. Message Name Search
         self.msg_search = QLineEdit()
-        self.msg_search.setPlaceholderText("Filter message name (e.g. REGISTRATION)...")
+        self.msg_search.setPlaceholderText("Filter message name (e.g. ATTACH, REGISTRATION)...")
         self.msg_search.setClearButtonEnabled(True)
         self.msg_search.textChanged.connect(lambda: self._msg_search_timer.start())
         msg_layout.addWidget(self.msg_search)
 
-        # 2. IE / Type Deep Search
         self.ie_search = QLineEdit()
-        self.ie_search.setPlaceholderText("Filter by IE / Type (e.g. NSSAI, PLMN)...")
+        self.ie_search.setPlaceholderText("Filter by IE / Type (e.g. EPS bearer, NSSAI)...")
         self.ie_search.setClearButtonEnabled(True)
         self.ie_search.textChanged.connect(lambda: self._ie_search_timer.start())
         msg_layout.addWidget(self.ie_search)
@@ -263,10 +274,8 @@ class NASTab(QWidget):
 
         main_splitter.addWidget(left_widget)
 
-        # Right Column: Matrix & Inspector
         right_splitter = QSplitter(Qt.Vertical)
 
-        # Top Right: Evolution Matrix
         matrix_widget = QWidget()
         matrix_layout = QVBoxLayout(matrix_widget)
         matrix_layout.setContentsMargins(0, 0, 0, 0)
@@ -282,19 +291,16 @@ class NASTab(QWidget):
         self.matrix_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.matrix_table.clicked.connect(self._on_table_cell_clicked)
 
-        # Right-click context menu on matrix table
         self.matrix_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.matrix_table.customContextMenuRequested.connect(self._on_matrix_context_menu)
 
         matrix_layout.addWidget(self.matrix_table)
         right_splitter.addWidget(matrix_widget)
 
-        # Bottom Right: Clause 9 Inspector
         inspector_group = QGroupBox("Clause 9 Structure && Coding Inspector")
         inspector_layout = QVBoxLayout(inspector_group)
         inspector_layout.setContentsMargins(8, 8, 8, 8)
 
-        # Header Bar: Active Badge (Left) + Reverse Lookup Pill (Center-Right) + Version Combo (Right)
         insp_header = QHBoxLayout()
         insp_header.setContentsMargins(0, 0, 0, 4)
 
@@ -304,7 +310,6 @@ class NASTab(QWidget):
 
         insp_header.addStretch()
 
-        # Reverse Lookup Pill Button
         self.ie_usage_btn = QPushButton("Used in: 0 messages ▾")
         self.ie_usage_btn.setVisible(False)
         self.ie_usage_btn.setCursor(Qt.PointingHandCursor)
@@ -336,7 +341,7 @@ class NASTab(QWidget):
                 border: 1px solid #CBD5E1;
                 border-radius: 4px;
                 background-color: #F8FAFC;
-                min-width: 90px;
+                min-width: 110px;
             }
             QComboBox:hover {
                 border-color: #0284C7;
@@ -350,7 +355,8 @@ class NASTab(QWidget):
         self.inspector_text = QTextEdit()
         self.inspector_text.setReadOnly(True)
         self.inspector_text.setPlaceholderText(
-            "Click on an Information Element above to inspect its Clause 9 details...")
+            "Click on an Information Element above to inspect its Clause 9 details..."
+        )
         inspector_layout.addWidget(self.inspector_text)
         right_splitter.addWidget(inspector_group)
 
@@ -370,14 +376,14 @@ class NASTab(QWidget):
 
         if versions:
             all_item = QListWidgetItem("All Versions")
-            all_item.setData(Qt.UserRole, -1)
+            all_item.setData(Qt.UserRole, {"id": -1, "spec_number": "", "version": ""})
             all_item.setFlags(all_item.flags() | Qt.ItemIsUserCheckable)
             all_item.setCheckState(Qt.Checked)
             self.version_list.addItem(all_item)
 
             for v in versions:
                 item = QListWidgetItem(f"TS {v['spec_number']} v{v['version']}")
-                item.setData(Qt.UserRole, v["id"])
+                item.setData(Qt.UserRole, {"id": v["id"], "spec_number": v["spec_number"], "version": v["version"]})
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
                 item.setCheckState(Qt.Checked)
                 self.version_list.addItem(item)
@@ -394,7 +400,8 @@ class NASTab(QWidget):
             return
 
         self._updating_checks = True
-        item_id = item.data(Qt.UserRole)
+        user_data = item.data(Qt.UserRole)
+        item_id = user_data["id"] if isinstance(user_data, dict) else user_data
         is_checked = item.checkState() == Qt.Checked
 
         if item_id == -1:
@@ -415,7 +422,9 @@ class NASTab(QWidget):
                     all_item.setCheckState(Qt.Unchecked)
 
         self.selected_version_ids = [
-            self.version_list.item(i).data(Qt.UserRole)
+            (self.version_list.item(i).data(Qt.UserRole)["id"]
+             if isinstance(self.version_list.item(i).data(Qt.UserRole), dict)
+             else self.version_list.item(i).data(Qt.UserRole))
             for i in range(1, self.version_list.count())
             if self.version_list.item(i).checkState() == Qt.Checked
         ]
@@ -532,9 +541,8 @@ class NASTab(QWidget):
 
         resolved_name = defs[0]["ie_name"]
         self.inspector_title_lbl.setText(f"Clause {clause} – {resolved_name}")
-        self._current_clause_defs = {d["version"]: d for d in defs}
+        self._current_clause_defs = {f"{d['spec_number']} v{d['version']}": d for d in defs}
 
-        # Update Reverse Lookup Pill Button
         containing_msgs = self.db.get_messages_using_ie(clause, resolved_name, self.selected_version_ids)
         num_msgs = len(containing_msgs)
         self.ie_usage_btn.setText(f"Used in: {num_msgs} message{'s' if num_msgs != 1 else ''} ▾")
@@ -543,43 +551,36 @@ class NASTab(QWidget):
         self._updating_combo = True
         self.inspector_version_combo.clear()
         for d in defs:
-            self.inspector_version_combo.addItem(f"v{d['version']}", d["version"])
+            key_name = f"TS {d['spec_number']} v{d['version']}"
+            self.inspector_version_combo.addItem(key_name, f"{d['spec_number']} v{d['version']}")
 
-        target_version: Optional[str] = None
+        target_version_key: Optional[str] = None
 
         if col >= 3:
-            col_name = str(model._pivot_df.columns[col]).lstrip("vV")
-            if col_name in self._current_clause_defs:
-                target_version = col_name
+            col_name = str(model._pivot_df.columns[col])
+            clean_col = col_name.replace("TS ", "").strip()
+            if clean_col in self._current_clause_defs:
+                target_version_key = clean_col
+            else:
+                for k in self._current_clause_defs:
+                    if col_name in k or k.endswith(f"v{col_name}"):
+                        target_version_key = k
+                        break
 
-        if not target_version:
-            active_versions = [
-                self.version_list.item(i).text().replace("TS 24.501 v", "").strip()
-                for i in range(1, self.version_list.count())
-                if self.version_list.item(i).checkState() == Qt.Checked
-            ]
-            active_versions = sorted(active_versions, key=parse_version_tuple, reverse=True)
-
-            for v in active_versions:
-                if v in self._current_clause_defs:
-                    target_version = v
-                    break
-
-            if not target_version and defs:
-                target_version = defs[0]["version"]
+        if not target_version_key and defs:
+            target_version_key = f"{defs[0]['spec_number']} v{defs[0]['version']}"
 
         for idx in range(self.inspector_version_combo.count()):
-            if self.inspector_version_combo.itemData(idx) == target_version:
+            if self.inspector_version_combo.itemData(idx) == target_version_key:
                 self.inspector_version_combo.setCurrentIndex(idx)
                 break
 
         self._updating_combo = False
 
-        selected_def = self._current_clause_defs.get(target_version) or defs[0]
+        selected_def = self._current_clause_defs.get(target_version_key) or defs[0]
         self.inspector_text.setHtml(selected_def["raw_description"])
 
     def _show_usage_menu(self):
-        """Displays popup menu listing containing messages when the usage pill is clicked."""
         if not self._current_ie_clause:
             return
 
@@ -637,7 +638,6 @@ class NASTab(QWidget):
         menu.exec_(self.ie_usage_btn.mapToGlobal(self.ie_usage_btn.rect().bottomLeft()))
 
     def _on_matrix_context_menu(self, pos):
-        """Displays right-click context menu on the Evolution Matrix table."""
         model = self.matrix_table.model()
         if not model:
             return
@@ -670,18 +670,15 @@ class NASTab(QWidget):
             }
         """)
 
-        # Option 1: Filter left panel
         filter_term = clause if clause else ie_name
         act_filter = QAction(f"🔍 Filter message list for '{filter_term}'", self)
         act_filter.triggered.connect(lambda: self.ie_search.setText(filter_term))
         menu.addAction(act_filter)
 
-        # Option 2: Inspect Clause 9
         act_inspect = QAction(f"📖 Inspect Definition ({clause or ie_name})", self)
         act_inspect.triggered.connect(lambda: self._on_table_cell_clicked(index))
         menu.addAction(act_inspect)
 
-        # Option 3: Containing Messages Submenu
         if clause:
             containing_msgs = self.db.get_messages_using_ie(clause, ie_name, self.selected_version_ids)
             sub_menu = menu.addMenu(f"📂 Open message using this IE ({len(containing_msgs)} found)...")
@@ -694,12 +691,9 @@ class NASTab(QWidget):
         menu.exec_(self.matrix_table.viewport().mapToGlobal(pos))
 
     def _jump_to_message(self, message_name: str):
-        """Unhides, highlights, and scrolls to the selected message in the left list."""
         self.current_selected_message_name = message_name
 
-        # If filtered out by text searches, clear searches to ensure visibility
         if self.msg_search.text().strip() or self.ie_search.text().strip():
-            # Check if message is currently visible
             visible_names = [
                 self.msg_list.item(i).data(Qt.UserRole)
                 for i in range(self.msg_list.count())
@@ -709,7 +703,6 @@ class NASTab(QWidget):
                 self.msg_search.clear()
                 self.ie_search.clear()
 
-        # Find target in list widget
         for i in range(self.msg_list.count()):
             item = self.msg_list.item(i)
             if item.data(Qt.UserRole) == message_name:
@@ -723,9 +716,9 @@ class NASTab(QWidget):
         if self._updating_combo or index < 0:
             return
 
-        version_str = self.inspector_version_combo.itemData(index)
-        if version_str in self._current_clause_defs:
-            self.inspector_text.setHtml(self._current_clause_defs[version_str]["raw_description"])
+        version_key = self.inspector_version_combo.itemData(index)
+        if version_key in self._current_clause_defs:
+            self.inspector_text.setHtml(self._current_clause_defs[version_key]["raw_description"])
 
     def _on_fetch_from_specs_db_clicked(self):
         if not self.specs_db:
@@ -743,23 +736,25 @@ class NASTab(QWidget):
     def _on_import_local_file_clicked(self):
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select TS 24.501 Specification(s) (.docx)",
+            "Select 3GPP NAS Specification(s) (.docx)",
             "",
             "Word Files (*.docx)",
         )
         if not file_paths:
             return
 
-        tasks = [
-            {
-                "spec_number": "24.501",
+        tasks = []
+        for fp in file_paths:
+            parser_temp = NASDocxParser(Path(fp))
+            spec_num = parser_temp.extract_spec_number()
+            tasks.append({
+                "spec_number": spec_num,
                 "version": "",
                 "filename": Path(fp).name,
                 "file_url": "",
                 "local_docx_path": Path(fp),
-            }
-            for fp in file_paths
-        ]
+            })
+
         self._start_batch_ingestion(tasks)
 
     def _start_batch_ingestion(self, tasks: List[Dict[str, Any]]):
@@ -817,8 +812,15 @@ class NASTab(QWidget):
         )
         if reply == QMessageBox.Yes:
             for item in checked_items:
-                v_text = item.text().replace("TS 24.501 v", "")
-                self.db.clear_version("24.501", v_text)
+                user_data = item.data(Qt.UserRole)
+                if isinstance(user_data, dict):
+                    self.db.clear_version(user_data["spec_number"], user_data["version"])
+                else:
+                    # Fallback
+                    text = item.text().replace("TS ", "")
+                    parts = text.split(" v")
+                    if len(parts) == 2:
+                        self.db.clear_version(parts[0], parts[1])
             self.current_selected_message_name = None
             self.refresh_versions()
 

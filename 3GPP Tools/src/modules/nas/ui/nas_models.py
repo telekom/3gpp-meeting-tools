@@ -35,8 +35,18 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             + df["length"].fillna("")
         )
 
-        # Chronological version ordering for horizontal diffing
-        self._versions = sorted(df["version"].unique().tolist(), key=parse_version_tuple)
+        multiple_specs = df["spec_number"].nunique() > 1 if "spec_number" in df.columns else False
+        if multiple_specs:
+            df["ver_col"] = df["spec_number"] + " v" + df["version"]
+        else:
+            df["ver_col"] = df["version"]
+
+        # Natural version sorting
+        unique_vers = df[["spec_number", "version", "ver_col"]].drop_duplicates() if "spec_number" in df.columns else df[["version", "ver_col"]].drop_duplicates()
+        sorted_ver_cols = unique_vers.sort_values(
+            by="version", key=lambda s: s.map(parse_version_tuple)
+        )["ver_col"].tolist()
+        self._versions = sorted_ver_cols
 
         # 1. Compute canonical specification row order for each distinct IE
         order_map = (
@@ -45,10 +55,10 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             .reset_index()
         )
 
-        # 2. Pivot: Rows = IEI + IE Name + Type, Columns = Versions
+        # 2. Pivot: Rows = IEI + IE Name + Type, Columns = Version Col
         pivot = df.pivot_table(
             index=["iei", "ie_name", "type_reference"],
-            columns="version",
+            columns="ver_col",
             values="details",
             aggfunc="first",
         ).reset_index()
@@ -59,10 +69,9 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         )
         merged = merged.sort_values(by="order_index", ascending=True).reset_index(drop=True)
 
-        # 4. Drop order_index so it remains hidden from the table view
+        # 4. Drop order_index
         self._pivot_df = merged.drop(columns=["order_index"])
 
-        # Fill missing values
         for v in self._versions:
             if v not in self._pivot_df.columns:
                 self._pivot_df[v] = "-"
@@ -101,7 +110,6 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
-        # Visual diffing across version columns
         if role == Qt.BackgroundRole and col >= 3:
             current_ver_col = self._pivot_df.columns[col]
             current_val = str(val)
@@ -113,15 +121,15 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
                     prev_val = str(self._pivot_df.iloc[row][prev_ver_col])
 
                     if prev_val == "-" and current_val != "-":
-                        return QBrush(QColor("#E8F5E9"))  # Added (Green)
+                        return QBrush(QColor("#E8F5E9"))  # Added
                     elif prev_val != "-" and current_val == "-":
-                        return QBrush(QColor("#FFEBEE"))  # Removed (Red)
+                        return QBrush(QColor("#FFEBEE"))  # Removed
                     elif (
                         prev_val != current_val
                         and prev_val != "-"
                         and current_val != "-"
                     ):
-                        return QBrush(QColor("#FFF9C4"))  # Modified (Yellow)
+                        return QBrush(QColor("#FFF9C4"))  # Modified
 
         return None
 
@@ -135,5 +143,7 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
                 "ie_name": "Information Element",
                 "type_reference": "Type / Reference",
             }
-            return header_map.get(col_name, f"v{col_name}")
+            if col_name in header_map:
+                return header_map[col_name]
+            return col_name if col_name.startswith("TS ") or col_name.startswith("v") else f"v{col_name}"
         return None

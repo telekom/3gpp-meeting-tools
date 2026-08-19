@@ -294,6 +294,7 @@ class NASDatabase:
         placeholders = ",".join("?" for _ in version_ids)
         query = f"""
             SELECT 
+                sv.spec_number,
                 sv.version,
                 i.iei,
                 i.ie_name,
