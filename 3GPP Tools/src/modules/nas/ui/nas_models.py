@@ -7,7 +7,7 @@ from modules.nas.core.nas_db import parse_version_tuple
 
 
 class NASEvolutionMatrixModel(QAbstractTableModel):
-    """Pivots Information Elements across multiple versions with natural chronological diffing."""
+    """Pivots Information Elements across multiple versions while strictly preserving specification row order."""
 
     def __init__(self, raw_df: pd.DataFrame = None):
         super().__init__()
@@ -31,17 +31,34 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             + df["length"].fillna("")
         )
 
-        # Sort versions numerically ascending so diffing flows chronologically
+        # Chronological version ordering for horizontal diffing
         self._versions = sorted(df["version"].unique().tolist(), key=parse_version_tuple)
 
-        # Pivot: Rows = IEI + IE Name + Type, Columns = Versions
-        self._pivot_df = df.pivot_table(
+        # 1. Compute canonical specification row order for each distinct IE
+        order_map = (
+            df.groupby(["iei", "ie_name", "type_reference"])["order_index"]
+            .min()
+            .reset_index()
+        )
+
+        # 2. Pivot: Rows = IEI + IE Name + Type, Columns = Versions
+        pivot = df.pivot_table(
             index=["iei", "ie_name", "type_reference"],
             columns="version",
             values="details",
             aggfunc="first",
         ).reset_index()
 
+        # 3. Merge order_map and sort rows strictly by specification order
+        merged = pd.merge(
+            pivot, order_map, on=["iei", "ie_name", "type_reference"], how="left"
+        )
+        merged = merged.sort_values(by="order_index", ascending=True).reset_index(drop=True)
+
+        # 4. Drop order_index so it remains hidden from the table view
+        self._pivot_df = merged.drop(columns=["order_index"])
+
+        # Fill missing values
         for v in self._versions:
             if v not in self._pivot_df.columns:
                 self._pivot_df[v] = "-"
@@ -70,7 +87,7 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
-        # Visual diffing for version columns
+        # Visual diffing across version columns
         if role == Qt.BackgroundRole and col >= 3:
             current_ver_col = self._pivot_df.columns[col]
             current_val = str(val)
