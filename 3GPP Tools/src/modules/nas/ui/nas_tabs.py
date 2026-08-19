@@ -41,11 +41,11 @@ class NASVersionSelectDialog(QDialog):
     """Dialog allowing selection of indexed TS 24.501 versions with natural numerical sorting."""
 
     def __init__(
-        self,
-        specs_db: SpecsDatabase,
-        nas_db: NASDatabase,
-        cache_dir: Path,
-        parent: Optional[QWidget] = None,
+            self,
+            specs_db: SpecsDatabase,
+            nas_db: NASDatabase,
+            cache_dir: Path,
+            parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self.specs_db = specs_db
@@ -163,7 +163,9 @@ class NASTab(QWidget):
             else None
         )
 
-        self.selected_version_ids = []
+        self.selected_version_ids: List[int] = []
+        self.current_selected_message_name: Optional[str] = None
+        self._updating_checks: bool = False
         self._setup_ui()
         self.refresh_versions()
 
@@ -205,11 +207,10 @@ class NASTab(QWidget):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
 
-        ver_group = QGroupBox("Specification Versions (Select Multiple or 'All')")
+        ver_group = QGroupBox("Specification Versions (Check Multiple or 'All')")
         ver_layout = QVBoxLayout(ver_group)
         self.version_list = QListWidget()
-        self.version_list.setSelectionMode(QListWidget.MultiSelection)
-        self.version_list.itemSelectionChanged.connect(self._on_version_selection_changed)
+        self.version_list.itemChanged.connect(self._on_version_item_changed)
         ver_layout.addWidget(self.version_list)
         left_layout.addWidget(ver_group)
 
@@ -247,7 +248,8 @@ class NASTab(QWidget):
         inspector_layout = QVBoxLayout(inspector_group)
         self.inspector_text = QTextEdit()
         self.inspector_text.setReadOnly(True)
-        self.inspector_text.setPlaceholderText("Click on an Information Element above to inspect its Clause 9 details...")
+        self.inspector_text.setPlaceholderText(
+            "Click on an Information Element above to inspect its Clause 9 details...")
         inspector_layout.addWidget(self.inspector_text)
         right_splitter.addWidget(inspector_group)
 
@@ -258,44 +260,108 @@ class NASTab(QWidget):
         layout.addWidget(main_splitter)
 
     def refresh_versions(self):
+        self._updating_checks = True
         self.version_list.clear()
         versions = self.db.get_imported_versions()
 
-        all_item = QListWidgetItem("All Versions")
-        all_item.setData(Qt.UserRole, -1)
-        self.version_list.addItem(all_item)
+        if versions:
+            all_item = QListWidgetItem("All Versions")
+            all_item.setData(Qt.UserRole, -1)
+            all_item.setFlags(all_item.flags() | Qt.ItemIsUserCheckable)
+            all_item.setCheckState(Qt.Checked)
+            self.version_list.addItem(all_item)
 
-        for v in versions:
-            item = QListWidgetItem(f"TS {v['spec_number']} v{v['version']}")
-            item.setData(Qt.UserRole, v["id"])
-            self.version_list.addItem(item)
+            for v in versions:
+                item = QListWidgetItem(f"TS {v['spec_number']} v{v['version']}")
+                item.setData(Qt.UserRole, v["id"])
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked)
+                self.version_list.addItem(item)
 
-        if self.version_list.count() > 1:
-            self.version_list.item(0).setSelected(True)
-
-    def _on_version_selection_changed(self):
-        selected_items = self.version_list.selectedItems()
-        all_selected = any(item.data(Qt.UserRole) == -1 for item in selected_items)
-
-        versions = self.db.get_imported_versions()
-        if all_selected or not selected_items:
             self.selected_version_ids = [v["id"] for v in versions]
         else:
-            self.selected_version_ids = [
-                item.data(Qt.UserRole)
-                for item in selected_items
-                if item.data(Qt.UserRole) != -1
-            ]
+            self.selected_version_ids = []
 
+        self._updating_checks = False
+        self._populate_messages()
+
+    def _on_version_item_changed(self, item: QListWidgetItem):
+        """Handles native checkbox clicks and synchronizes the 'All Versions' master toggle."""
+        if self._updating_checks:
+            return
+
+        self._updating_checks = True
+        item_id = item.data(Qt.UserRole)
+        is_checked = item.checkState() == Qt.Checked
+
+        # 1. Master "All Versions" Toggle
+        if item_id == -1:
+            for i in range(1, self.version_list.count()):
+                self.version_list.item(i).setCheckState(Qt.Checked if is_checked else Qt.Unchecked)
+        else:
+            # 2. Individual Version Checkbox
+            all_item = self.version_list.item(0)
+            if all_item:
+                total_versions = self.version_list.count() - 1
+                checked_versions = sum(
+                    1
+                    for i in range(1, self.version_list.count())
+                    if self.version_list.item(i).checkState() == Qt.Checked
+                )
+                if checked_versions == total_versions and total_versions > 0:
+                    all_item.setCheckState(Qt.Checked)
+                else:
+                    all_item.setCheckState(Qt.Unchecked)
+
+        # 3. Update active version IDs
+        self.selected_version_ids = [
+            self.version_list.item(i).data(Qt.UserRole)
+            for i in range(1, self.version_list.count())
+            if self.version_list.item(i).checkState() == Qt.Checked
+        ]
+
+        self._updating_checks = False
+
+        # Repopulates messages and preserves the active selection automatically
         self._populate_messages()
 
     def _populate_messages(self):
+        """Populates the message list while maintaining the currently selected message."""
+        target_msg_name = self.current_selected_message_name
         self.msg_list.clear()
+
+        if not self.selected_version_ids:
+            self.matrix_table.setModel(None)
+            self.matrix_title.setText("Select a Message to View Evolution Matrix")
+            self.current_selected_message_name = None
+            return
+
         messages = self.db.get_messages_list(self.selected_version_ids)
+        target_item = None
+        filter_text = self.msg_search.text().strip().lower()
+
         for m in messages:
-            item = QListWidgetItem(f"{m['message_name']} ({m['clause']})")
-            item.setData(Qt.UserRole, m["message_name"])
+            msg_name = m["message_name"]
+            item_text = f"{msg_name} ({m['clause']})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, msg_name)
+
+            if filter_text and filter_text not in item_text.lower():
+                item.setHidden(True)
+
             self.msg_list.addItem(item)
+
+            if target_msg_name and msg_name == target_msg_name:
+                target_item = item
+
+        # If previous selection still exists in the newly chosen version set, restore it
+        if target_item:
+            self.msg_list.setCurrentItem(target_item)
+            self._on_message_clicked(target_item)
+        else:
+            self.current_selected_message_name = None
+            self.matrix_table.setModel(None)
+            self.matrix_title.setText("Select a Message to View Evolution Matrix")
 
     def _filter_messages(self, text: str):
         for i in range(self.msg_list.count()):
@@ -304,6 +370,7 @@ class NASTab(QWidget):
 
     def _on_message_clicked(self, item: QListWidgetItem):
         msg_name = item.data(Qt.UserRole)
+        self.current_selected_message_name = msg_name
         self.matrix_title.setText(f"Message: {msg_name}")
 
         df = self.db.get_message_evolution_df(msg_name, self.selected_version_ids)
@@ -316,12 +383,10 @@ class NASTab(QWidget):
         if not model:
             return
 
-        # Column 2 holds Type / Reference (e.g. 'NSSAI 9.11.3.37' or 'Message type 9.7')
         type_ref_idx = model.index(index.row(), 2)
         type_ref = model.data(type_ref_idx, Qt.DisplayRole)
 
         if type_ref:
-            # Matches Clause 9 references (e.g. 9.7, 9.11.3.37) and Annex D (D.6.x)
             match = re.search(r"((?:9|D\.6)(?:\.[0-9A-Za-z]+)+)", str(type_ref))
             if match:
                 cl = match.group(1).strip()
@@ -330,7 +395,8 @@ class NASTab(QWidget):
                     self.inspector_text.setHtml(ie_def["raw_description"])
                     return
 
-        self.inspector_text.setPlainText(f"Type / Reference: {type_ref}\n(No Clause 9 definition found for this reference)")
+        self.inspector_text.setPlainText(
+            f"Type / Reference: {type_ref}\n(No Clause 9 definition found for this reference)")
 
     def _on_fetch_from_specs_db_clicked(self):
         if not self.specs_db:
@@ -371,12 +437,12 @@ class NASTab(QWidget):
         )
 
     def _start_ingestion_thread(
-        self,
-        spec_number: str,
-        version: str,
-        filename: str,
-        file_url: str,
-        local_docx_path: Optional[Path] = None,
+            self,
+            spec_number: str,
+            version: str,
+            filename: str,
+            file_url: str,
+            local_docx_path: Optional[Path] = None,
     ):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -419,22 +485,26 @@ class NASTab(QWidget):
         self.log_msg.emit(f"❌ Ingestion failed: {err}", logging.ERROR)
 
     def _on_clear_version_clicked(self):
-        selected_items = self.version_list.selectedItems()
-        valid_items = [item for item in selected_items if item.data(Qt.UserRole) != -1]
-        if not valid_items:
-            QMessageBox.warning(self, "Select Version", "Please select a specific version to clear.")
+        checked_items = [
+            self.version_list.item(i)
+            for i in range(1, self.version_list.count())
+            if self.version_list.item(i).checkState() == Qt.Checked
+        ]
+        if not checked_items:
+            QMessageBox.warning(self, "Select Version", "Please check at least one specific version to clear.")
             return
 
         reply = QMessageBox.question(
             self,
             "Confirm Delete",
-            f"Delete {len(valid_items)} selected specification version(s)?",
+            f"Delete {len(checked_items)} checked specification version(s)?",
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
-            for item in valid_items:
+            for item in checked_items:
                 v_text = item.text().replace("TS 24.501 v", "")
                 self.db.clear_version("24.501", v_text)
+            self.current_selected_message_name = None
             self.refresh_versions()
 
     def _on_wipe_db_clicked(self):
@@ -446,6 +516,7 @@ class NASTab(QWidget):
         )
         if reply == QMessageBox.Yes:
             self.db.wipe_database()
+            self.current_selected_message_name = None
             self.refresh_versions()
             self.msg_list.clear()
             self.matrix_table.setModel(None)
