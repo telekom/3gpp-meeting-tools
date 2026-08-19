@@ -3,7 +3,7 @@ from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
@@ -174,6 +174,18 @@ class NASTab(QWidget):
         self._updating_checks: bool = False
         self._updating_combo: bool = False
 
+        # Debounce Timer for Message Name Search (250ms)
+        self._msg_search_timer = QTimer(self)
+        self._msg_search_timer.setSingleShot(True)
+        self._msg_search_timer.setInterval(250)
+        self._msg_search_timer.timeout.connect(self._on_search_timer_timeout)
+
+        # Debounce Timer for IE Deep Search (250ms)
+        self._ie_search_timer = QTimer(self)
+        self._ie_search_timer.setSingleShot(True)
+        self._ie_search_timer.setInterval(250)
+        self._ie_search_timer.timeout.connect(self._on_search_timer_timeout)
+
         self._setup_ui()
         self.refresh_versions()
 
@@ -225,11 +237,20 @@ class NASTab(QWidget):
 
         msg_group = QGroupBox("NAS Messages")
         msg_layout = QVBoxLayout(msg_group)
+
+        # 1. Message Name Search
         self.msg_search = QLineEdit()
-        self.msg_search.setPlaceholderText("Filter messages (e.g. REGISTRATION)...")
+        self.msg_search.setPlaceholderText("Filter message name (e.g. REGISTRATION)...")
         self.msg_search.setClearButtonEnabled(True)
-        self.msg_search.textChanged.connect(self._filter_messages)
+        self.msg_search.textChanged.connect(lambda: self._msg_search_timer.start())
         msg_layout.addWidget(self.msg_search)
+
+        # 2. IE / Type Deep Search
+        self.ie_search = QLineEdit()
+        self.ie_search.setPlaceholderText("Filter by IE / Type (e.g. NSSAI, PLMN)...")
+        self.ie_search.setClearButtonEnabled(True)
+        self.ie_search.textChanged.connect(lambda: self._ie_search_timer.start())
+        msg_layout.addWidget(self.ie_search)
 
         self.msg_list = QListWidget()
         self.msg_list.itemClicked.connect(self._on_message_clicked)
@@ -259,12 +280,11 @@ class NASTab(QWidget):
         matrix_layout.addWidget(self.matrix_table)
         right_splitter.addWidget(matrix_widget)
 
-        # Bottom Right: Clause 9 Inspector with Slim Inline Header Bar
+        # Bottom Right: Clause 9 Inspector
         inspector_group = QGroupBox("Clause 9 Structure && Coding Inspector")
         inspector_layout = QVBoxLayout(inspector_group)
         inspector_layout.setContentsMargins(8, 8, 8, 8)
 
-        # Slim Header Bar: Active Clause Badge (Left) + Compact Version Pill Dropdown (Right)
         insp_header = QHBoxLayout()
         insp_header.setContentsMargins(0, 0, 0, 4)
 
@@ -305,6 +325,10 @@ class NASTab(QWidget):
         main_splitter.setSizes([280, 670])
 
         layout.addWidget(main_splitter)
+
+    def _on_search_timer_timeout(self):
+        """Called when either search box timer elapses to refresh messages and matrix."""
+        self._populate_messages()
 
     def refresh_versions(self):
         self._updating_checks = True
@@ -369,12 +393,6 @@ class NASTab(QWidget):
         self._updating_checks = False
         self._populate_messages()
 
-        current_msg_item = self.msg_list.currentItem()
-        if current_msg_item:
-            self._on_message_clicked(current_msg_item)
-        else:
-            self.matrix_table.setModel(None)
-
     def _populate_messages(self):
         target_msg_name = self.current_selected_message_name
         self.msg_list.clear()
@@ -388,9 +406,16 @@ class NASTab(QWidget):
             self.current_selected_message_name = None
             return
 
-        messages = self.db.get_messages_list(self.selected_version_ids)
+        ie_query = self.ie_search.text().strip()
+        msg_query = self.msg_search.text().strip().lower()
+
+        # Retrieve messages (filtered by IE search query if active)
+        if ie_query:
+            messages = self.db.get_messages_by_ie_search(ie_query, self.selected_version_ids)
+        else:
+            messages = self.db.get_messages_list(self.selected_version_ids)
+
         target_item = None
-        filter_text = self.msg_search.text().strip().lower()
 
         for m in messages:
             msg_name = m["message_name"]
@@ -398,7 +423,8 @@ class NASTab(QWidget):
             item = QListWidgetItem(item_text)
             item.setData(Qt.UserRole, msg_name)
 
-            if filter_text and filter_text not in item_text.lower():
+            # Filter by message name query if active
+            if msg_query and msg_query not in item_text.lower():
                 item.setHidden(True)
 
             self.msg_list.addItem(item)
@@ -406,29 +432,32 @@ class NASTab(QWidget):
             if target_msg_name and msg_name == target_msg_name:
                 target_item = item
 
+        # Restore previously selected message and refresh its matrix
         if target_item:
             self.msg_list.setCurrentItem(target_item)
             self._on_message_clicked(target_item)
+        elif self.msg_list.count() > 0 and not target_msg_name:
+            # If no prior selection, leave table cleared until user clicks
+            self.matrix_table.setModel(None)
+            self.matrix_title.setText("Select a Message to View Evolution Matrix")
         else:
-            self.current_selected_message_name = None
             self.matrix_table.setModel(None)
             self.matrix_title.setText("Select a Message to View Evolution Matrix")
             self.inspector_title_lbl.setText("No Information Element selected")
             self.inspector_version_combo.clear()
             self.inspector_text.clear()
 
-    def _filter_messages(self, text: str):
-        for i in range(self.msg_list.count()):
-            item = self.msg_list.item(i)
-            item.setHidden(text.lower() not in item.text().lower())
-
     def _on_message_clicked(self, item: QListWidgetItem):
         msg_name = item.data(Qt.UserRole)
         self.current_selected_message_name = msg_name
-        self.matrix_title.setText(f"Message: {msg_name}")
+
+        ie_query = self.ie_search.text().strip()
+        title_suffix = f" (Filtered by IE: '{ie_query}')" if ie_query else ""
+        self.matrix_title.setText(f"Message: {msg_name}{title_suffix}")
 
         df = self.db.get_message_evolution_df(msg_name, self.selected_version_ids)
-        model = NASEvolutionMatrixModel(df)
+        # Pass active IE filter to model so only matching rows are displayed
+        model = NASEvolutionMatrixModel(df, ie_filter=ie_query)
         self.matrix_table.setModel(model)
         self.matrix_table.resizeColumnsToContents()
 
@@ -440,7 +469,6 @@ class NASTab(QWidget):
         row = index.row()
         col = index.column()
 
-        # Type / Reference is in column 2, IE Name in column 1
         ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "")
         type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "")
 
@@ -472,13 +500,11 @@ class NASTab(QWidget):
 
         target_version: Optional[str] = None
 
-        # Clicked a specific version column (col >= 3)
         if col >= 3:
             col_name = str(model._pivot_df.columns[col]).lstrip("vV")
             if col_name in self._current_clause_defs:
                 target_version = col_name
 
-        # Clicked an IE metadata column (col 0-2) -> resolve latest active version
         if not target_version:
             active_versions = [
                 self.version_list.item(i).text().replace("TS 24.501 v", "").strip()

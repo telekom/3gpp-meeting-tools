@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Optional
 import pandas as pd
 from PyQt5.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt5.QtGui import QBrush, QColor
@@ -7,11 +7,15 @@ from modules.nas.core.nas_db import parse_version_tuple
 
 
 class NASEvolutionMatrixModel(QAbstractTableModel):
-    """Pivots Information Elements across multiple versions while strictly preserving specification row order."""
+    """
+    Pivots Information Elements across multiple versions while preserving
+    specification row order and applying optional IE substring filtering.
+    """
 
-    def __init__(self, raw_df: pd.DataFrame = None):
+    def __init__(self, raw_df: pd.DataFrame = None, ie_filter: Optional[str] = None):
         super().__init__()
         self._raw_df = raw_df if raw_df is not None else pd.DataFrame()
+        self._ie_filter = ie_filter.strip().lower() if ie_filter else None
         self._pivot_df = pd.DataFrame()
         self._versions: List[str] = []
         self._setup_matrix()
@@ -64,6 +68,16 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
                 self._pivot_df[v] = "-"
             else:
                 self._pivot_df[v] = self._pivot_df[v].fillna("-")
+
+        # 5. Apply IE Row Filtering if active
+        if self._ie_filter and not self._pivot_df.empty:
+            q = self._ie_filter
+            mask = (
+                self._pivot_df["ie_name"].astype(str).str.lower().str.contains(q, na=False)
+                | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False)
+                | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False)
+            )
+            self._pivot_df = self._pivot_df[mask].reset_index(drop=True)
 
     def rowCount(self, parent=QModelIndex()) -> int:
         return len(self._pivot_df)

@@ -228,6 +228,34 @@ class NASDatabase:
             cursor.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_messages_by_ie_search(
+        self, ie_query: str, version_ids: Optional[List[int]] = None
+    ) -> List[Dict[str, Any]]:
+        """Returns only messages that contain Information Elements matching the search query."""
+        if not version_ids or not ie_query.strip():
+            return self.get_messages_list(version_ids)
+
+        placeholders = ",".join("?" for _ in version_ids)
+        query = f"""
+            SELECT DISTINCT m.message_name, m.clause
+            FROM nas_messages m
+            JOIN message_ies i ON i.message_id = m.id
+            WHERE m.version_id IN ({placeholders})
+              AND (
+                  i.ie_name LIKE ? 
+                  OR i.type_reference LIKE ? 
+                  OR i.iei LIKE ?
+              )
+            ORDER BY m.message_name ASC
+        """
+        pattern = f"%{ie_query.strip()}%"
+        params = list(version_ids) + [pattern, pattern, pattern]
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
     def get_message_evolution_df(self, message_name: str, version_ids: List[int]) -> pd.DataFrame:
         if not version_ids:
             return pd.DataFrame()
@@ -257,10 +285,6 @@ class NASDatabase:
     def get_ie_definitions_by_clause(
         self, clause: str, version_ids: Optional[List[int]] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Retrieves definitions for a clause across versions joined with version metadata,
-        sorted chronologically descending.
-        """
         query = """
             SELECT d.*, sv.version, sv.spec_number
             FROM ie_definitions d
