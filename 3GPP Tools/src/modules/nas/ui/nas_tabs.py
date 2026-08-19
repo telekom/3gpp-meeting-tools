@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
+    QAction,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -16,6 +17,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -42,11 +44,11 @@ class NASVersionSelectDialog(QDialog):
     """Dialog allowing multi-selection of indexed TS 24.501 versions with natural numerical sorting."""
 
     def __init__(
-        self,
-        specs_db: SpecsDatabase,
-        nas_db: NASDatabase,
-        cache_dir: Path,
-        parent: Optional[QWidget] = None,
+            self,
+            specs_db: SpecsDatabase,
+            nas_db: NASDatabase,
+            cache_dir: Path,
+            parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self.specs_db = specs_db
@@ -137,7 +139,8 @@ class NASVersionSelectDialog(QDialog):
     def _on_accept(self):
         selected_rows = sorted(list(set(item.row() for item in self.table.selectedItems())))
         if not selected_rows:
-            QMessageBox.warning(self, "Selection Required", "Please select at least one specification version to import.")
+            QMessageBox.warning(self, "Selection Required",
+                                "Please select at least one specification version to import.")
             return
 
         self.selected_files_info = [
@@ -171,16 +174,17 @@ class NASTab(QWidget):
         self.selected_version_ids: List[int] = []
         self.current_selected_message_name: Optional[str] = None
         self._current_clause_defs: Dict[str, Dict[str, Any]] = {}
+        self._current_ie_clause: Optional[str] = None
+        self._current_ie_name: Optional[str] = None
         self._updating_checks: bool = False
         self._updating_combo: bool = False
 
-        # Debounce Timer for Message Name Search (250ms)
+        # Debounce Timers (250ms)
         self._msg_search_timer = QTimer(self)
         self._msg_search_timer.setSingleShot(True)
         self._msg_search_timer.setInterval(250)
         self._msg_search_timer.timeout.connect(self._on_search_timer_timeout)
 
-        # Debounce Timer for IE Deep Search (250ms)
         self._ie_search_timer = QTimer(self)
         self._ie_search_timer.setSingleShot(True)
         self._ie_search_timer.setInterval(250)
@@ -277,6 +281,11 @@ class NASTab(QWidget):
         self.matrix_table.verticalHeader().setDefaultSectionSize(26)
         self.matrix_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.matrix_table.clicked.connect(self._on_table_cell_clicked)
+
+        # Right-click context menu on matrix table
+        self.matrix_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.matrix_table.customContextMenuRequested.connect(self._on_matrix_context_menu)
+
         matrix_layout.addWidget(self.matrix_table)
         right_splitter.addWidget(matrix_widget)
 
@@ -285,6 +294,7 @@ class NASTab(QWidget):
         inspector_layout = QVBoxLayout(inspector_group)
         inspector_layout.setContentsMargins(8, 8, 8, 8)
 
+        # Header Bar: Active Badge (Left) + Reverse Lookup Pill (Center-Right) + Version Combo (Right)
         insp_header = QHBoxLayout()
         insp_header.setContentsMargins(0, 0, 0, 4)
 
@@ -293,6 +303,29 @@ class NASTab(QWidget):
         insp_header.addWidget(self.inspector_title_lbl)
 
         insp_header.addStretch()
+
+        # Reverse Lookup Pill Button
+        self.ie_usage_btn = QPushButton("Used in: 0 messages ▾")
+        self.ie_usage_btn.setVisible(False)
+        self.ie_usage_btn.setCursor(Qt.PointingHandCursor)
+        self.ie_usage_btn.setToolTip("View other NAS messages that contain this Information Element")
+        self.ie_usage_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                font-weight: bold;
+                color: #0369A1;
+                background-color: #E0F2FE;
+                border: 1px solid #BAE6FD;
+                border-radius: 4px;
+                padding: 2px 8px;
+            }
+            QPushButton:hover {
+                background-color: #BAE6FD;
+                border-color: #0284C7;
+            }
+        """)
+        self.ie_usage_btn.clicked.connect(self._show_usage_menu)
+        insp_header.addWidget(self.ie_usage_btn)
 
         self.inspector_version_combo = QComboBox()
         self.inspector_version_combo.setToolTip("Switch specification release for this Clause 9 definition")
@@ -316,7 +349,8 @@ class NASTab(QWidget):
 
         self.inspector_text = QTextEdit()
         self.inspector_text.setReadOnly(True)
-        self.inspector_text.setPlaceholderText("Click on an Information Element above to inspect its Clause 9 details...")
+        self.inspector_text.setPlaceholderText(
+            "Click on an Information Element above to inspect its Clause 9 details...")
         inspector_layout.addWidget(self.inspector_text)
         right_splitter.addWidget(inspector_group)
 
@@ -327,7 +361,6 @@ class NASTab(QWidget):
         layout.addWidget(main_splitter)
 
     def _on_search_timer_timeout(self):
-        """Called when either search box timer elapses to refresh messages and matrix."""
         self._populate_messages()
 
     def refresh_versions(self):
@@ -364,12 +397,10 @@ class NASTab(QWidget):
         item_id = item.data(Qt.UserRole)
         is_checked = item.checkState() == Qt.Checked
 
-        # 1. Master "All Versions" Toggle
         if item_id == -1:
             for i in range(1, self.version_list.count()):
                 self.version_list.item(i).setCheckState(Qt.Checked if is_checked else Qt.Unchecked)
         else:
-            # 2. Individual Version Checkbox
             all_item = self.version_list.item(0)
             if all_item:
                 total_versions = self.version_list.count() - 1
@@ -383,7 +414,6 @@ class NASTab(QWidget):
                 else:
                     all_item.setCheckState(Qt.Unchecked)
 
-        # 3. Update active version IDs
         self.selected_version_ids = [
             self.version_list.item(i).data(Qt.UserRole)
             for i in range(1, self.version_list.count())
@@ -393,6 +423,12 @@ class NASTab(QWidget):
         self._updating_checks = False
         self._populate_messages()
 
+        current_msg_item = self.msg_list.currentItem()
+        if current_msg_item:
+            self._on_message_clicked(current_msg_item)
+        else:
+            self.matrix_table.setModel(None)
+
     def _populate_messages(self):
         target_msg_name = self.current_selected_message_name
         self.msg_list.clear()
@@ -401,6 +437,7 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
             self.matrix_title.setText("Select a Message to View Evolution Matrix")
             self.inspector_title_lbl.setText("No Information Element selected")
+            self.ie_usage_btn.setVisible(False)
             self.inspector_version_combo.clear()
             self.inspector_text.clear()
             self.current_selected_message_name = None
@@ -409,7 +446,6 @@ class NASTab(QWidget):
         ie_query = self.ie_search.text().strip()
         msg_query = self.msg_search.text().strip().lower()
 
-        # Retrieve messages (filtered by IE search query if active)
         if ie_query:
             messages = self.db.get_messages_by_ie_search(ie_query, self.selected_version_ids)
         else:
@@ -423,7 +459,6 @@ class NASTab(QWidget):
             item = QListWidgetItem(item_text)
             item.setData(Qt.UserRole, msg_name)
 
-            # Filter by message name query if active
             if msg_query and msg_query not in item_text.lower():
                 item.setHidden(True)
 
@@ -432,18 +467,17 @@ class NASTab(QWidget):
             if target_msg_name and msg_name == target_msg_name:
                 target_item = item
 
-        # Restore previously selected message and refresh its matrix
         if target_item:
             self.msg_list.setCurrentItem(target_item)
             self._on_message_clicked(target_item)
         elif self.msg_list.count() > 0 and not target_msg_name:
-            # If no prior selection, leave table cleared until user clicks
             self.matrix_table.setModel(None)
             self.matrix_title.setText("Select a Message to View Evolution Matrix")
         else:
             self.matrix_table.setModel(None)
             self.matrix_title.setText("Select a Message to View Evolution Matrix")
             self.inspector_title_lbl.setText("No Information Element selected")
+            self.ie_usage_btn.setVisible(False)
             self.inspector_version_combo.clear()
             self.inspector_text.clear()
 
@@ -456,7 +490,6 @@ class NASTab(QWidget):
         self.matrix_title.setText(f"Message: {msg_name}{title_suffix}")
 
         df = self.db.get_message_evolution_df(msg_name, self.selected_version_ids)
-        # Pass active IE filter to model so only matching rows are displayed
         model = NASEvolutionMatrixModel(df, ie_filter=ie_query)
         self.matrix_table.setModel(model)
         self.matrix_table.resizeColumnsToContents()
@@ -475,23 +508,37 @@ class NASTab(QWidget):
         match = re.search(r"((?:9|D\.6)(?:\.[0-9A-Za-z]+)+)", type_ref)
         if not match:
             self.inspector_title_lbl.setText(ie_name)
+            self.ie_usage_btn.setVisible(False)
             self.inspector_version_combo.clear()
             self._current_clause_defs.clear()
+            self._current_ie_clause = None
+            self._current_ie_name = None
             self.inspector_text.setPlainText(f"Type / Reference: {type_ref}\n(No Clause 9 reference identified)")
             return
 
         clause = match.group(1).strip()
+        self._current_ie_clause = clause
+        self._current_ie_name = ie_name
+
         defs = self.db.get_ie_definitions_by_clause(clause)
 
         if not defs:
             self.inspector_title_lbl.setText(f"Clause {clause} – {ie_name}")
+            self.ie_usage_btn.setVisible(False)
             self.inspector_version_combo.clear()
             self._current_clause_defs.clear()
             self.inspector_text.setPlainText(f"Clause {clause}\n(No definition found in database)")
             return
 
-        self.inspector_title_lbl.setText(f"Clause {clause} – {defs[0]['ie_name']}")
+        resolved_name = defs[0]["ie_name"]
+        self.inspector_title_lbl.setText(f"Clause {clause} – {resolved_name}")
         self._current_clause_defs = {d["version"]: d for d in defs}
+
+        # Update Reverse Lookup Pill Button
+        containing_msgs = self.db.get_messages_using_ie(clause, resolved_name, self.selected_version_ids)
+        num_msgs = len(containing_msgs)
+        self.ie_usage_btn.setText(f"Used in: {num_msgs} message{'s' if num_msgs != 1 else ''} ▾")
+        self.ie_usage_btn.setVisible(True)
 
         self._updating_combo = True
         self.inspector_version_combo.clear()
@@ -530,6 +577,147 @@ class NASTab(QWidget):
 
         selected_def = self._current_clause_defs.get(target_version) or defs[0]
         self.inspector_text.setHtml(selected_def["raw_description"])
+
+    def _show_usage_menu(self):
+        """Displays popup menu listing containing messages when the usage pill is clicked."""
+        if not self._current_ie_clause:
+            return
+
+        clause = self._current_ie_clause
+        name = self._current_ie_name or ""
+        containing_msgs = self.db.get_messages_using_ie(clause, name, self.selected_version_ids)
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                font-size: 11px;
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 4px 20px 4px 10px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #E0F2FE;
+                color: #0369A1;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #E2E8F0;
+                margin: 4px 0;
+            }
+        """)
+
+        header_action = QAction(f"Messages referencing Clause {clause}:", self)
+        header_action.setEnabled(False)
+        menu.addAction(header_action)
+        menu.addSeparator()
+
+        if containing_msgs:
+            for m in containing_msgs:
+                msg_name = m["message_name"]
+                clause_ref = m["clause"]
+                is_current = (msg_name == self.current_selected_message_name)
+                label = f"{'👉 ' if is_current else ''}{msg_name} ({clause_ref})"
+                action = QAction(label, self)
+                action.triggered.connect(lambda checked, mn=msg_name: self._jump_to_message(mn))
+                menu.addAction(action)
+        else:
+            none_act = QAction("No messages found in active releases", self)
+            none_act.setEnabled(False)
+            menu.addAction(none_act)
+
+        menu.addSeparator()
+        filter_action = QAction(f"🔍 Filter message list by this IE ({clause})", self)
+        filter_action.triggered.connect(lambda: self.ie_search.setText(clause))
+        menu.addAction(filter_action)
+
+        menu.exec_(self.ie_usage_btn.mapToGlobal(self.ie_usage_btn.rect().bottomLeft()))
+
+    def _on_matrix_context_menu(self, pos):
+        """Displays right-click context menu on the Evolution Matrix table."""
+        model = self.matrix_table.model()
+        if not model:
+            return
+
+        index = self.matrix_table.indexAt(pos)
+        if not index.isValid():
+            return
+
+        row = index.row()
+        ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "")
+        type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "")
+
+        match = re.search(r"((?:9|D\.6)(?:\.[0-9A-Za-z]+)+)", type_ref)
+        clause = match.group(1).strip() if match else ""
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                font-size: 11px;
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 4px 15px;
+            }
+            QMenu::item:selected {
+                background-color: #E0F2FE;
+                color: #0369A1;
+            }
+        """)
+
+        # Option 1: Filter left panel
+        filter_term = clause if clause else ie_name
+        act_filter = QAction(f"🔍 Filter message list for '{filter_term}'", self)
+        act_filter.triggered.connect(lambda: self.ie_search.setText(filter_term))
+        menu.addAction(act_filter)
+
+        # Option 2: Inspect Clause 9
+        act_inspect = QAction(f"📖 Inspect Definition ({clause or ie_name})", self)
+        act_inspect.triggered.connect(lambda: self._on_table_cell_clicked(index))
+        menu.addAction(act_inspect)
+
+        # Option 3: Containing Messages Submenu
+        if clause:
+            containing_msgs = self.db.get_messages_using_ie(clause, ie_name, self.selected_version_ids)
+            sub_menu = menu.addMenu(f"📂 Open message using this IE ({len(containing_msgs)} found)...")
+            for m in containing_msgs:
+                mn = m["message_name"]
+                sub_act = QAction(f"{mn} ({m['clause']})", self)
+                sub_act.triggered.connect(lambda checked, target=mn: self._jump_to_message(target))
+                sub_menu.addAction(sub_act)
+
+        menu.exec_(self.matrix_table.viewport().mapToGlobal(pos))
+
+    def _jump_to_message(self, message_name: str):
+        """Unhides, highlights, and scrolls to the selected message in the left list."""
+        self.current_selected_message_name = message_name
+
+        # If filtered out by text searches, clear searches to ensure visibility
+        if self.msg_search.text().strip() or self.ie_search.text().strip():
+            # Check if message is currently visible
+            visible_names = [
+                self.msg_list.item(i).data(Qt.UserRole)
+                for i in range(self.msg_list.count())
+                if not self.msg_list.item(i).isHidden()
+            ]
+            if message_name not in visible_names:
+                self.msg_search.clear()
+                self.ie_search.clear()
+
+        # Find target in list widget
+        for i in range(self.msg_list.count()):
+            item = self.msg_list.item(i)
+            if item.data(Qt.UserRole) == message_name:
+                item.setHidden(False)
+                self.msg_list.setCurrentItem(item)
+                self.msg_list.scrollToItem(item)
+                self._on_message_clicked(item)
+                break
 
     def _on_inspector_version_changed(self, index: int):
         if self._updating_combo or index < 0:
