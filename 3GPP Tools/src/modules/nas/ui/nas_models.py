@@ -3,9 +3,11 @@ import pandas as pd
 from PyQt5.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt5.QtGui import QBrush, QColor
 
+from modules.nas.core.nas_db import parse_version_tuple
+
 
 class NASEvolutionMatrixModel(QAbstractTableModel):
-    """Pivots Information Elements across multiple versions with visual diffing."""
+    """Pivots Information Elements across multiple versions with natural chronological diffing."""
 
     def __init__(self, raw_df: pd.DataFrame = None):
         super().__init__()
@@ -29,7 +31,8 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             + df["length"].fillna("")
         )
 
-        self._versions = sorted(df["version"].unique().tolist())
+        # Sort versions numerically ascending so diffing flows chronologically
+        self._versions = sorted(df["version"].unique().tolist(), key=parse_version_tuple)
 
         # Pivot: Rows = IEI + IE Name + Type, Columns = Versions
         self._pivot_df = df.pivot_table(
