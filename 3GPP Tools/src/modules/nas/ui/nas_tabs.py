@@ -74,7 +74,6 @@ class NASVersionSelectDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["Version", "Filename", "Local Cache", "NAS DB Status"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        # Enable multi-row selection via Shift/Ctrl click
         self.table.setSelectionMode(QTableWidget.ExtendedSelection)
         self.table.itemDoubleClicked.connect(self._on_item_double_clicked)
         layout.addWidget(self.table)
@@ -89,7 +88,6 @@ class NASVersionSelectDialog(QDialog):
         spec_files = self.specs_db.search_files(spec_number="24.501")
         imported_versions = {v["version"] for v in self.nas_db.get_imported_versions()}
 
-        # Sort numerically descending (v20.0.0 -> v19.7.0 -> ... -> v2.0.0)
         spec_files = sorted(
             spec_files,
             key=lambda row: parse_version_tuple(row[5]),
@@ -210,9 +208,10 @@ class NASTab(QWidget):
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
-        # Main Splitter
+        # Main Horizontal Splitter
         main_splitter = QSplitter(Qt.Horizontal)
 
+        # Left Column: Versions & Messages
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -228,6 +227,7 @@ class NASTab(QWidget):
         msg_layout = QVBoxLayout(msg_group)
         self.msg_search = QLineEdit()
         self.msg_search.setPlaceholderText("Filter messages (e.g. REGISTRATION)...")
+        self.msg_search.setClearButtonEnabled(True)
         self.msg_search.textChanged.connect(self._filter_messages)
         msg_layout.addWidget(self.msg_search)
 
@@ -238,32 +238,60 @@ class NASTab(QWidget):
 
         main_splitter.addWidget(left_widget)
 
+        # Right Column: Matrix & Inspector
         right_splitter = QSplitter(Qt.Vertical)
 
-        # Center Matrix
+        # Top Right: Evolution Matrix
         matrix_widget = QWidget()
         matrix_layout = QVBoxLayout(matrix_widget)
         matrix_layout.setContentsMargins(0, 0, 0, 0)
         self.matrix_title = QLabel("Select a Message to View Evolution Matrix")
-        self.matrix_title.setStyleSheet("font-weight: bold; font-size: 13px;")
+        self.matrix_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1E293B;")
         matrix_layout.addWidget(self.matrix_title)
 
         self.matrix_table = QTableView()
+        self.matrix_table.setAlternatingRowColors(True)
+        self.matrix_table.setSelectionBehavior(QTableView.SelectRows)
+        self.matrix_table.setSelectionMode(QTableView.SingleSelection)
+        self.matrix_table.verticalHeader().setDefaultSectionSize(26)
         self.matrix_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.matrix_table.clicked.connect(self._on_table_cell_clicked)
         matrix_layout.addWidget(self.matrix_table)
         right_splitter.addWidget(matrix_widget)
 
-        # Bottom Inspector with Version Selector Dropdown
+        # Bottom Right: Clause 9 Inspector with Slim Inline Header Bar
         inspector_group = QGroupBox("Clause 9 Structure && Coding Inspector")
         inspector_layout = QVBoxLayout(inspector_group)
+        inspector_layout.setContentsMargins(8, 8, 8, 8)
 
+        # Slim Header Bar: Active Clause Badge (Left) + Compact Version Pill Dropdown (Right)
         insp_header = QHBoxLayout()
-        insp_header.addWidget(QLabel("Displayed Version:"))
+        insp_header.setContentsMargins(0, 0, 0, 4)
+
+        self.inspector_title_lbl = QLabel("No Information Element selected")
+        self.inspector_title_lbl.setStyleSheet("font-weight: bold; color: #0284C7; font-size: 12px;")
+        insp_header.addWidget(self.inspector_title_lbl)
+
+        insp_header.addStretch()
+
         self.inspector_version_combo = QComboBox()
+        self.inspector_version_combo.setToolTip("Switch specification release for this Clause 9 definition")
+        self.inspector_version_combo.setStyleSheet("""
+            QComboBox {
+                font-weight: bold;
+                padding: 2px 8px;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                background-color: #F8FAFC;
+                min-width: 90px;
+            }
+            QComboBox:hover {
+                border-color: #0284C7;
+                background-color: #FFFFFF;
+            }
+        """)
         self.inspector_version_combo.currentIndexChanged.connect(self._on_inspector_version_changed)
         insp_header.addWidget(self.inspector_version_combo)
-        insp_header.addStretch()
         inspector_layout.addLayout(insp_header)
 
         self.inspector_text = QTextEdit()
@@ -272,7 +300,7 @@ class NASTab(QWidget):
         inspector_layout.addWidget(self.inspector_text)
         right_splitter.addWidget(inspector_group)
 
-        right_splitter.setSizes([450, 200])
+        right_splitter.setSizes([380, 320])
         main_splitter.addWidget(right_splitter)
         main_splitter.setSizes([280, 670])
 
@@ -354,6 +382,9 @@ class NASTab(QWidget):
         if not self.selected_version_ids:
             self.matrix_table.setModel(None)
             self.matrix_title.setText("Select a Message to View Evolution Matrix")
+            self.inspector_title_lbl.setText("No Information Element selected")
+            self.inspector_version_combo.clear()
+            self.inspector_text.clear()
             self.current_selected_message_name = None
             return
 
@@ -382,6 +413,9 @@ class NASTab(QWidget):
             self.current_selected_message_name = None
             self.matrix_table.setModel(None)
             self.matrix_title.setText("Select a Message to View Evolution Matrix")
+            self.inspector_title_lbl.setText("No Information Element selected")
+            self.inspector_version_combo.clear()
+            self.inspector_text.clear()
 
     def _filter_messages(self, text: str):
         for i in range(self.msg_list.count()):
@@ -406,12 +440,13 @@ class NASTab(QWidget):
         row = index.row()
         col = index.column()
 
-        # Type / Reference is in column 2
-        type_ref_idx = model.index(row, 2)
-        type_ref = str(model.data(type_ref_idx, Qt.DisplayRole) or "")
+        # Type / Reference is in column 2, IE Name in column 1
+        ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "")
+        type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "")
 
         match = re.search(r"((?:9|D\.6)(?:\.[0-9A-Za-z]+)+)", type_ref)
         if not match:
+            self.inspector_title_lbl.setText(ie_name)
             self.inspector_version_combo.clear()
             self._current_clause_defs.clear()
             self.inspector_text.setPlainText(f"Type / Reference: {type_ref}\n(No Clause 9 reference identified)")
@@ -421,11 +456,13 @@ class NASTab(QWidget):
         defs = self.db.get_ie_definitions_by_clause(clause)
 
         if not defs:
+            self.inspector_title_lbl.setText(f"Clause {clause} – {ie_name}")
             self.inspector_version_combo.clear()
             self._current_clause_defs.clear()
             self.inspector_text.setPlainText(f"Clause {clause}\n(No definition found in database)")
             return
 
+        self.inspector_title_lbl.setText(f"Clause {clause} – {defs[0]['ie_name']}")
         self._current_clause_defs = {d["version"]: d for d in defs}
 
         self._updating_combo = True
@@ -441,7 +478,7 @@ class NASTab(QWidget):
             if col_name in self._current_clause_defs:
                 target_version = col_name
 
-        # Clicked an IE metadata column -> resolve latest active version
+        # Clicked an IE metadata column (col 0-2) -> resolve latest active version
         if not target_version:
             active_versions = [
                 self.version_list.item(i).text().replace("TS 24.501 v", "").strip()
