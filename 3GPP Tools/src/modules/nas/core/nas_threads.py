@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import zipfile
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -15,7 +15,6 @@ def get_candidate_cache_dirs() -> List[Path]:
     """Resolves all candidate paths using MeetingsSettings and project directories."""
     candidate_paths: List[Path] = []
 
-    # 1. Paths derived from MeetingsSettings (meetings_config.json / 3GPP_Delegate_Helper)
     try:
         settings = MeetingsSettings()
         cfg_download_dir = Path(settings.cache_dir)
@@ -29,7 +28,6 @@ def get_candidate_cache_dirs() -> List[Path]:
     except Exception as e:
         logging.warning(f"Could not load MeetingsSettings for NAS cache resolution: {e}")
 
-    # 2. Standard user directory fallback
     home_helper = Path.home() / "3GPP_Delegate_Helper"
     candidate_paths.extend([
         home_helper / "specs",
@@ -37,7 +35,6 @@ def get_candidate_cache_dirs() -> List[Path]:
         home_helper,
     ])
 
-    # 3. Project root relative paths
     root = get_project_root()
     candidate_paths.extend([
         root / "cache" / "specs",
@@ -46,7 +43,6 @@ def get_candidate_cache_dirs() -> List[Path]:
         root.parent / "cache",
     ])
 
-    # Deduplicate while preserving order
     seen = set()
     unique_dirs = []
     for p in candidate_paths:
@@ -59,9 +55,7 @@ def get_candidate_cache_dirs() -> List[Path]:
 
 
 def find_cached_spec_file(filename: str, spec_number: str = "24.501") -> Optional[Path]:
-    """
-    Searches candidate directories for cached .docx, .doc, or .zip files matching the spec.
-    """
+    """Searches candidate directories for cached .docx, .doc, or .zip files."""
     doc_base = filename.replace(".zip", "").lower()
     clean_spec = spec_number.replace(".", "")
 
@@ -79,14 +73,11 @@ def find_cached_spec_file(filename: str, spec_number: str = "24.501") -> Optiona
             if not s_dir.exists():
                 continue
 
-            # 1. Look for extracted Word documents
             for ext in [".docx", ".doc"]:
                 for file_path in s_dir.glob(f"*{doc_base}*{ext}"):
-                    if file_path.is_file() and not file_path.name.startswith(
-                            "._") and "__MACOSX" not in file_path.parts:
+                    if file_path.is_file() and not file_path.name.startswith("._") and "__MACOSX" not in file_path.parts:
                         return file_path
 
-            # 2. Look for existing ZIP file
             zip_target = s_dir / filename
             if zip_target.exists() and zip_target.is_file():
                 return zip_target
@@ -99,109 +90,116 @@ def find_cached_spec_file(filename: str, spec_number: str = "24.501") -> Optiona
 
 
 class NASFetchAndImportThread(QThread):
-    """
-    Background worker that resolves local cache, downloads missing .zip archives,
-    extracts the .docx file, and parses Clauses 8 and 9 into nas_data.db.
-    """
+    """Background worker that sequentially ingests one or more TS 24.501 specifications."""
 
     progress = pyqtSignal(str, int)
-    finished_success = pyqtSignal(str, str, int)
+    finished_success = pyqtSignal(int, int)  # total_specs, total_messages
     error = pyqtSignal(str)
 
     def __init__(
-            self,
-            nas_db_path: Path,
-            spec_number: str,
-            version: str,
-            filename: str,
-            file_url: str,
-            cache_dir: Path,
-            local_docx_path: Optional[Path] = None,
+        self,
+        nas_db_path: Path,
+        tasks: List[Dict[str, Any]],
+        cache_dir: Path,
     ):
         super().__init__()
         self.nas_db = NASDatabase(nas_db_path)
-        self.spec_number = spec_number
-        self.version = version
-        self.filename = filename
-        self.file_url = file_url
+        self.tasks = tasks
         self.cache_dir = Path(cache_dir)
-        self.local_docx_path = Path(local_docx_path) if local_docx_path else None
 
     def run(self):
-        try:
-            target_docx: Optional[Path] = None
+        total_tasks = len(self.tasks)
+        if total_tasks == 0:
+            self.error.emit("No specifications selected for ingestion.")
+            return
 
-            # Case A: Manual Local .docx Import
-            if self.local_docx_path and self.local_docx_path.exists():
-                target_docx = self.local_docx_path
-                self.progress.emit(f"Loading local file: {target_docx.name}...", 10)
+        total_messages_imported = 0
+        successful_specs = 0
 
-            # Case B: Automated Lookup from Cache / Remote Fetch
-            else:
-                spec_cache_dir = self.cache_dir / self.spec_number
-                spec_cache_dir.mkdir(parents=True, exist_ok=True)
+        for t_idx, task in enumerate(self.tasks):
+            spec_number = task.get("spec_number", "24.501")
+            version = task.get("version", "")
+            filename = task.get("filename", "")
+            file_url = task.get("file_url", "")
+            local_docx_path = task.get("local_docx_path")
 
-                cached_hit = find_cached_spec_file(self.filename, self.spec_number)
+            base_progress = int((t_idx / total_tasks) * 100)
+            task_weight = 1.0 / total_tasks
 
-                # 1. Existing extracted .docx or .doc file
-                if cached_hit and cached_hit.suffix.lower() in [".docx", ".doc"]:
-                    target_docx = cached_hit
-                    self.progress.emit(f"Found cached document: {target_docx.name}", 20)
+            def emit_task_progress(msg: str, step_pct: int):
+                overall = base_progress + int(step_pct * task_weight)
+                self.progress.emit(f"[{t_idx + 1}/{total_tasks}] {msg}", min(overall, 99))
 
-                # 2. Existing cached .zip file -> extract to specs directory
-                elif cached_hit and cached_hit.suffix.lower() == ".zip":
-                    self.progress.emit(f"Extracting cached archive: {cached_hit.name}...", 25)
-                    with zipfile.ZipFile(cached_hit, "r") as zf:
-                        for member in zf.namelist():
-                            if (
-                                    member.lower().endswith((".docx", ".doc"))
-                                    and not member.startswith("._")
-                                    and "__MACOSX" not in member
-                            ):
-                                zf.extract(member, spec_cache_dir)
-                                target_docx = spec_cache_dir / member
-                                break
+            try:
+                target_docx: Optional[Path] = None
 
-                # 3. Not cached -> download .zip from FTP
+                # 1. Direct Local File
+                if local_docx_path and Path(local_docx_path).exists():
+                    target_docx = Path(local_docx_path)
+                    emit_task_progress(f"Loading local file: {target_docx.name}...", 10)
+
+                # 2. Automated Cache Lookup / FTP Download
                 else:
-                    zip_path = spec_cache_dir / self.filename
-                    self.progress.emit(f"Downloading {self.filename} from 3GPP FTP...", 25)
-                    NetworkSession.download_file(self.file_url, zip_path)
+                    spec_cache_dir = self.cache_dir / spec_number
+                    spec_cache_dir.mkdir(parents=True, exist_ok=True)
 
-                    self.progress.emit(f"Extracting {self.filename}...", 45)
-                    with zipfile.ZipFile(zip_path, "r") as zf:
-                        for member in zf.namelist():
-                            if (
+                    cached_hit = find_cached_spec_file(filename, spec_number)
+
+                    if cached_hit and cached_hit.suffix.lower() in [".docx", ".doc"]:
+                        target_docx = cached_hit
+                        emit_task_progress(f"Found cached document: {target_docx.name}", 20)
+                    elif cached_hit and cached_hit.suffix.lower() == ".zip":
+                        emit_task_progress(f"Extracting cached archive: {cached_hit.name}...", 25)
+                        with zipfile.ZipFile(cached_hit, "r") as zf:
+                            for member in zf.namelist():
+                                if (
                                     member.lower().endswith((".docx", ".doc"))
                                     and not member.startswith("._")
                                     and "__MACOSX" not in member
-                            ):
-                                zf.extract(member, spec_cache_dir)
-                                target_docx = spec_cache_dir / member
-                                break
+                                ):
+                                    zf.extract(member, spec_cache_dir)
+                                    target_docx = spec_cache_dir / member
+                                    break
+                    else:
+                        zip_path = spec_cache_dir / filename
+                        emit_task_progress(f"Downloading {filename} from 3GPP FTP...", 25)
+                        NetworkSession.download_file(file_url, zip_path)
 
-            if not target_docx or not target_docx.exists():
-                self.error.emit(f"Could not find or extract Word document for TS {self.spec_number} v{self.version}")
-                return
+                        emit_task_progress(f"Extracting {filename}...", 45)
+                        with zipfile.ZipFile(zip_path, "r") as zf:
+                            for member in zf.namelist():
+                                if (
+                                    member.lower().endswith((".docx", ".doc"))
+                                    and not member.startswith("._")
+                                    and "__MACOSX" not in member
+                                ):
+                                    zf.extract(member, spec_cache_dir)
+                                    target_docx = spec_cache_dir / member
+                                    break
 
-            # Parse Clauses 8 & 9
-            self.progress.emit(f"Parsing TS {self.spec_number} v{self.version} ({target_docx.name})...", 55)
-            parser = NASDocxParser(target_docx)
-            messages, ie_defs = parser.parse(
-                progress_callback=lambda msg, p: self.progress.emit(msg, 55 + int(p * 0.35))
-            )
+                if not target_docx or not target_docx.exists():
+                    self.progress.emit(f"⚠️ Could not locate Word doc for {filename}. Skipping...", base_progress)
+                    continue
 
-            # Insert into SQLite
-            self.progress.emit("Saving records to NAS database...", 92)
-            success = self.nas_db.insert_parsed_spec(
-                self.spec_number, self.version, messages, ie_defs
-            )
+                # Auto-detect version from filename if not explicitly provided
+                parser = NASDocxParser(target_docx)
+                if not version:
+                    version = parser.extract_version_from_filename()
 
-            if success:
-                self.progress.emit("Import complete.", 100)
-                self.finished_success.emit(self.spec_number, self.version, len(messages))
-            else:
-                self.error.emit("Failed to save parsed data into nas_data.db.")
+                emit_task_progress(f"Parsing TS {spec_number} v{version} ({target_docx.name})...", 55)
+                messages, ie_defs = parser.parse(
+                    progress_callback=lambda msg, p: emit_task_progress(msg, 55 + int(p * 0.35))
+                )
 
-        except Exception as e:
-            self.error.emit(f"Ingestion error: {str(e)}")
+                emit_task_progress("Saving records to database...", 92)
+                success = self.nas_db.insert_parsed_spec(spec_number, version, messages, ie_defs)
+
+                if success:
+                    successful_specs += 1
+                    total_messages_imported += len(messages)
+
+            except Exception as e:
+                self.progress.emit(f"⚠️ Error ingesting {filename}: {e}", base_progress)
+
+        self.progress.emit("Batch ingestion complete.", 100)
+        self.finished_success.emit(successful_specs, total_messages_imported)
