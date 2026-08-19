@@ -99,34 +99,29 @@ def _convert_table_to_html(tbl_elem, is_figure_diagram: bool = False) -> str:
             is_vmerge_continue = False
 
             if tcPr is not None:
-                # 1. Parse Column Span (gridSpan)
                 gs = tcPr.find(TAG_GRIDSPAN)
                 if gs is not None:
                     val = gs.get(f"{W_NS}val")
                     if val and val.isdigit():
                         colspan = int(val)
 
-                # 2. Parse Vertical Merge (vMerge)
                 vm = tcPr.find(TAG_VMERGE)
                 if vm is not None:
                     val = vm.get(f"{W_NS}val")
                     if val != "restart":
                         is_vmerge_continue = True
 
-            # Skip continuation cells for vertical merges
             if is_vmerge_continue:
                 continue
 
             cell_text = _extract_tc_text(cell)
             align = _get_tc_alignment(cell)
 
-            # Auto-center single digit headers (bit numbers 8, 7, 6...)
             if is_figure_diagram or (len(cell_text) <= 2 and cell_text.isdigit()):
                 align = "center"
 
             tag = "th" if (r_idx == 0 and not is_figure_diagram) else "td"
 
-            # Styling per cell type
             style_bits = [
                 "border: 1px solid #78909C;",
                 "padding: 4px 6px;",
@@ -138,7 +133,6 @@ def _convert_table_to_html(tbl_elem, is_figure_diagram: bool = False) -> str:
             elif is_figure_diagram and r_idx == 0:
                 style_bits.append("background-color: #F5F7F8; font-weight: bold; color: #37474F;")
 
-            # Format octet index columns distinctly
             if "octet" in cell_text.lower():
                 style_bits.append("font-weight: bold; background-color: #FAFAFA; white-space: nowrap;")
 
@@ -154,11 +148,24 @@ def _convert_table_to_html(tbl_elem, is_figure_diagram: bool = False) -> str:
 
 
 class NASDocxParser:
-    """High-performance direct XML parser for 3GPP TS 24.501 specifications."""
+    """Direct XML parser for 3GPP TS 24.501 (5GS) and TS 24.301 (EPS) specifications."""
 
     def __init__(self, docx_path: Path):
         self.docx_path = Path(docx_path)
         self.logger = logging.getLogger(__name__)
+
+    def extract_spec_number(self) -> str:
+        """Extracts 3GPP specification number (e.g., '24.301' or '24.501') from filename."""
+        stem = self.docx_path.stem.replace(".", "").replace("-", "").replace("_", "")
+        if "24301" in stem:
+            return "24.301"
+        if "24501" in stem:
+            return "24.501"
+        # Fallback regex pattern
+        match = re.search(r"24[._]?(301|501)", self.docx_path.stem)
+        if match:
+            return f"24.{match.group(1)}"
+        return "24.501"
 
     def extract_version_from_filename(self) -> str:
         stem = self.docx_path.stem
@@ -170,7 +177,7 @@ class NASDocxParser:
         return stem
 
     def parse(
-            self, progress_callback: Optional[Callable[[str, int], None]] = None
+        self, progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         if not self.docx_path.exists():
             raise FileNotFoundError(f"Specification file not found: {self.docx_path}")
@@ -244,14 +251,13 @@ class NASDocxParser:
                             "ie_name": ie_name,
                             "html_content": [
                                 f'<h2 style="color: #0D47A1; margin-top: 4px; margin-bottom: 6px; font-family: Segoe UI, sans-serif;">{ie_name} (Clause {cl})</h2>'
-                            ]
+                            ],
                         }
                     elif major_boundary_pattern.match(p_text) and not p_text.startswith("9."):
                         if current_ie_def:
                             self._finalize_ie_def(current_ie_def, ie_definitions)
                             current_ie_def = None
                     elif current_ie_def:
-                        # Format body text, figure captions, and notes
                         if p_text.startswith("Figure 9.") or p_text.startswith("Figure D."):
                             current_ie_def["html_content"].append(
                                 f'<p style="font-weight: bold; color: #37474F; margin-top: 10px; margin-bottom: 4px;">{p_text}</p>'
