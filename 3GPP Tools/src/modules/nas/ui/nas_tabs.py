@@ -296,6 +296,8 @@ class NASTab(QWidget):
         self.version_tree.itemChanged.connect(self._on_version_tree_item_changed)
         self.version_tree.itemExpanded.connect(lambda _: self._save_config())
         self.version_tree.itemCollapsed.connect(lambda _: self._save_config())
+        self.version_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.version_tree.customContextMenuRequested.connect(self._on_version_tree_context_menu)
         ver_layout.addWidget(self.version_tree)
         left_layout.addWidget(ver_group)
 
@@ -494,7 +496,6 @@ class NASTab(QWidget):
         bold_font = QFont(base_font)
         bold_font.setBold(True)
 
-        # Standard neutral dark text brushes
         text_color_header = QBrush(QColor("#0F172A"))
         text_color_item = QBrush(QColor("#334155"))
 
@@ -531,7 +532,7 @@ class NASTab(QWidget):
             for v in sorted_v_list:
                 child = QTreeWidgetItem(spec_item)
                 child.setText(0, f"v{v['version']}")
-                child.setToolTip(0, f"TS {v['spec_number']} v{v['version']}")
+                child.setToolTip(0, f"TS {v['spec_number']} v{v['version']}\n(Right-click to delete)")
                 child.setData(
                     0,
                     Qt.UserRole,
@@ -613,6 +614,87 @@ class NASTab(QWidget):
             self._on_message_clicked(current_msg_item)
         else:
             self.matrix_table.setModel(None)
+
+    def _on_version_tree_context_menu(self, pos):
+        """Displays context menu to delete specific version or specification group."""
+        item = self.version_tree.itemAt(pos)
+        if not item:
+            return
+
+        data = item.data(0, Qt.UserRole) or {}
+        item_type = data.get("type")
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                font-size: 11px;
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 4px 15px;
+            }
+            QMenu::item:selected {
+                background-color: #FEE2E2;
+                color: #B91C1C;
+            }
+        """)
+
+        if item_type == "version":
+            spec_num = data.get("spec_number", "")
+            version = data.get("version", "")
+            act_delete = QAction(f"🗑️ Delete TS {spec_num} v{version}", self)
+            act_delete.triggered.connect(lambda: self._delete_single_version(spec_num, version))
+            menu.addAction(act_delete)
+            menu.exec_(self.version_tree.viewport().mapToGlobal(pos))
+
+        elif item_type == "spec":
+            spec_num = data.get("spec_number", "")
+            child_count = item.childCount()
+            act_delete_spec = QAction(f"🗑️ Delete all versions of TS {spec_num} ({child_count} versions)", self)
+            act_delete_spec.triggered.connect(lambda: self._delete_spec_group(spec_num, item))
+            menu.addAction(act_delete_spec)
+            menu.exec_(self.version_tree.viewport().mapToGlobal(pos))
+
+    def _delete_single_version(self, spec_number: str, version: str):
+        """Deletes a single specification version from the database and updates views."""
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete all stored data for TS {spec_number} v{version}?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            success = self.db.clear_version(spec_number, version)
+            if success:
+                self.current_selected_message_name = None
+                self.refresh_versions()
+                self._save_config()
+                self.log_msg.emit(f"🗑️ Deleted TS {spec_number} v{version} from database.", logging.INFO)
+            else:
+                QMessageBox.warning(self, "Error", f"Failed to delete TS {spec_number} v{version}.")
+
+    def _delete_spec_group(self, spec_number: str, spec_item: QTreeWidgetItem):
+        """Deletes all versions of a specific specification group from the database."""
+        child_count = spec_item.childCount()
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete all {child_count} version(s) of TS {spec_number} from the database?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            for c_idx in range(child_count):
+                child = spec_item.child(c_idx)
+                c_data = child.data(0, Qt.UserRole) or {}
+                ver = c_data.get("version")
+                if ver:
+                    self.db.clear_version(spec_number, ver)
+            self.current_selected_message_name = None
+            self.refresh_versions()
+            self._save_config()
+            self.log_msg.emit(f"🗑️ Deleted all versions of TS {spec_number} from database.", logging.INFO)
 
     def _update_parent_states(self):
         """Updates partially checked / checked states for specification and root items."""
