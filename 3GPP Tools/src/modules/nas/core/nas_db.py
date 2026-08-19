@@ -256,6 +256,37 @@ class NASDatabase:
             cursor.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_messages_using_ie(
+        self, clause: str, ie_name: str = "", version_ids: Optional[List[int]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Finds all distinct NAS messages across active versions that reference an IE by clause or name.
+        """
+        if not version_ids:
+            return []
+
+        placeholders = ",".join("?" for _ in version_ids)
+        clause_pattern = f"%{clause.strip()}%" if clause.strip() else ""
+        name_pattern = f"%{ie_name.strip()}%" if ie_name.strip() else ""
+
+        query = f"""
+            SELECT DISTINCT m.message_name, m.clause
+            FROM nas_messages m
+            JOIN message_ies i ON i.message_id = m.id
+            WHERE m.version_id IN ({placeholders})
+              AND (
+                  (? != '' AND i.type_reference LIKE ?)
+                  OR (? != '' AND i.ie_name LIKE ?)
+              )
+            ORDER BY m.message_name ASC
+        """
+        params = list(version_ids) + [clause_pattern, clause_pattern, name_pattern, name_pattern]
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
     def get_message_evolution_df(self, message_name: str, version_ids: List[int]) -> pd.DataFrame:
         if not version_ids:
             return pd.DataFrame()
