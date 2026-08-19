@@ -215,13 +215,17 @@ class NASDatabase:
             conn.close()
 
     def get_messages_list(self, version_ids: Optional[List[int]] = None) -> List[Dict[str, Any]]:
-        query = "SELECT DISTINCT m.message_name, m.clause FROM nas_messages m"
+        query = """
+            SELECT m.message_name, m.clause, GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number
+            FROM nas_messages m
+            JOIN spec_versions sv ON m.version_id = sv.id
+        """
         params = []
         if version_ids:
             placeholders = ",".join("?" for _ in version_ids)
             query += f" WHERE m.version_id IN ({placeholders})"
             params.extend(version_ids)
-        query += " ORDER BY m.message_name ASC"
+        query += " GROUP BY m.message_name, m.clause ORDER BY m.message_name ASC"
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -237,15 +241,17 @@ class NASDatabase:
 
         placeholders = ",".join("?" for _ in version_ids)
         query = f"""
-            SELECT DISTINCT m.message_name, m.clause
+            SELECT m.message_name, m.clause, GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number
             FROM nas_messages m
             JOIN message_ies i ON i.message_id = m.id
+            JOIN spec_versions sv ON m.version_id = sv.id
             WHERE m.version_id IN ({placeholders})
               AND (
                   i.ie_name LIKE ? 
                   OR i.type_reference LIKE ? 
                   OR i.iei LIKE ?
               )
+            GROUP BY m.message_name, m.clause
             ORDER BY m.message_name ASC
         """
         pattern = f"%{ie_query.strip()}%"

@@ -464,9 +464,12 @@ class NASTab(QWidget):
 
         for m in messages:
             msg_name = m["message_name"]
+            spec_num = m.get("spec_number", "")
             item_text = f"{msg_name} ({m['clause']})"
             item = QListWidgetItem(item_text)
             item.setData(Qt.UserRole, msg_name)
+            if spec_num:
+                item.setToolTip(f"Specification: TS {spec_num}\nClause: {m['clause']}")
 
             if msg_query and msg_query not in item_text.lower():
                 item.setHidden(True)
@@ -496,9 +499,18 @@ class NASTab(QWidget):
 
         ie_query = self.ie_search.text().strip()
         title_suffix = f" (Filtered by IE: '{ie_query}')" if ie_query else ""
-        self.matrix_title.setText(f"Message: {msg_name}{title_suffix}")
 
         df = self.db.get_message_evolution_df(msg_name, self.selected_version_ids)
+
+        # Identify specifications represented in this message
+        specs = []
+        if not df.empty and "spec_number" in df.columns:
+            unique_specs = sorted(df["spec_number"].dropna().unique())
+            specs = [f"TS {s}" if not str(s).startswith("TS") else str(s) for s in unique_specs]
+
+        spec_prefix = f" ({', '.join(specs)})" if specs else ""
+        self.matrix_title.setText(f"Message{spec_prefix}: {msg_name}{title_suffix}")
+
         model = NASEvolutionMatrixModel(df, ie_filter=ie_query)
         self.matrix_table.setModel(model)
         self.matrix_table.resizeColumnsToContents()
