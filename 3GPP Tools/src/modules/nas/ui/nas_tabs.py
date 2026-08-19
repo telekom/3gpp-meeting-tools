@@ -100,7 +100,6 @@ class NASVersionSelectDialog(QDialog):
             _, spec_num, _, _, filename, version, url = row_data
             self.table.insertRow(row_idx)
 
-            # 1. Version Item
             v_item = QTableWidgetItem(f"v{version}")
             v_item.setData(
                 Qt.UserRole,
@@ -112,11 +111,8 @@ class NASVersionSelectDialog(QDialog):
                 },
             )
             self.table.setItem(row_idx, 0, v_item)
-
-            # 2. Filename Item
             self.table.setItem(row_idx, 1, QTableWidgetItem(filename))
 
-            # 3. Dynamic Cache Detection
             cached_file = find_cached_spec_file(filename, spec_num)
             if cached_file:
                 cache_text = f"🟢 Cached ({cached_file.suffix[1:].upper()})"
@@ -127,7 +123,6 @@ class NASVersionSelectDialog(QDialog):
                 cache_item.setForeground(Qt.darkGray)
             self.table.setItem(row_idx, 2, cache_item)
 
-            # 4. NAS DB Status
             in_db = version in imported_versions
             db_item = QTableWidgetItem("✅ Ingested" if in_db else "⚪ Ready")
             if in_db:
@@ -247,7 +242,8 @@ class NASTab(QWidget):
         matrix_layout.addWidget(self.matrix_table)
         right_splitter.addWidget(matrix_widget)
 
-        inspector_group = QGroupBox("Clause 9 Structure & Coding Inspector")
+        # Escaped ampersand (&&) renders as literal '&'
+        inspector_group = QGroupBox("Clause 9 Structure && Coding Inspector")
         inspector_layout = QVBoxLayout(inspector_group)
         self.inspector_text = QTextEdit()
         self.inspector_text.setReadOnly(True)
@@ -320,20 +316,21 @@ class NASTab(QWidget):
         if not model:
             return
 
+        # Column 2 holds Type / Reference (e.g. 'NSSAI 9.11.3.37' or 'Message type 9.7')
         type_ref_idx = model.index(index.row(), 2)
         type_ref = model.data(type_ref_idx, Qt.DisplayRole)
 
         if type_ref:
-            match = re.search(r"(9\.11(?:\.\d+)+)", str(type_ref))
+            # Matches Clause 9 references (e.g. 9.7, 9.11.3.37) and Annex D (D.6.x)
+            match = re.search(r"((?:9|D\.6)(?:\.[0-9A-Za-z]+)+)", str(type_ref))
             if match:
-                cl = match.group(1)
+                cl = match.group(1).strip()
                 ie_def = self.db.get_ie_definition(cl)
-                if ie_def:
-                    self.inspector_text.setHtml(
-                        f"<h3>{ie_def['ie_name']} (Clause {cl})</h3><p>{ie_def['raw_description']}</p>"
-                    )
+                if ie_def and ie_def.get("raw_description"):
+                    self.inspector_text.setHtml(ie_def["raw_description"])
                     return
-        self.inspector_text.setPlainText(f"Type / Reference: {type_ref}\n(No Clause 9 definition recorded)")
+
+        self.inspector_text.setPlainText(f"Type / Reference: {type_ref}\n(No Clause 9 definition found for this reference)")
 
     def _on_fetch_from_specs_db_clicked(self):
         if not self.specs_db:
