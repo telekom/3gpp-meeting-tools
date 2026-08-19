@@ -2,7 +2,7 @@
 
 An advanced, component-based desktop IDE designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
 
-Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, and seamlessly navigate, filter, and synchronize the vast 3GPP meeting, specification, and work item databases locally.
+Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, track NAS message protocol evolutions across 3GPP releases, and seamlessly navigate, filter, and synchronize the vast 3GPP meeting, specification, and work item databases locally.
 
 ---
 
@@ -17,6 +17,21 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ---
 
 ## <a id="features"></a>✨ Features
+
+### 🔬 3GPP NAS Evolution Matrix & Clause 9 Inspector
+* **Automated TS 24.501 Specification Ingestion:**
+  * **Direct Word XML Parser:** High-performance direct `lxml` parser that extracts Clause 8 message definition tables and Clause 9 Information Element (IE) structure definitions directly from `.docx` archives without spawning Microsoft Word.
+  * **Batch Multi-Version Ingestion:** Select and ingest multiple specification releases (e.g., Rel-15 through Rel-19) concurrently via local file import or automatic background downloads from the 3GPP FTP archive.
+* **Evolution Matrix & Visual Diffing:**
+  * **Specification Order Preservation:** Strictly preserves the canonical 3GPP document sequence (mandatory IEs followed by optional IEs in exact specification order) across multi-version matrix pivots.
+  * **Visual Release Diffing:** Color-coded matrix cells immediately highlight field additions (🟢 Green), removals (🔴 Red), and format/length modifications (🟡 Yellow) between chronological 3GPP releases.
+  * **Interactive Version Checkboxes:** Dynamically toggle individual specification versions in real time with an instant master toggle (`All Versions`) while preserving active message selection.
+* **Deep Cross-Level IE Filtering:**
+  * **Dual-Layer Debounced Search:** Features dedicated 250ms debounced filters for Message Names and Information Elements. Typing an IE name, type, or IEI (e.g., `PLMN`, `NSSAI`, `5F`) isolates parent messages and filters child matrix rows simultaneously.
+* **Clause 9 Structure & Coding Inspector:**
+  * **High-Fidelity Structure Rendering:** Renders bit-level octet diagrams (Figure 9.x) and value coding tables (Table 9.x) with full OpenXML `gridSpan` (colspan) and `vMerge` (rowspan) support in a compact reading pane.
+  * **Multi-Version Release Selector:** View the exact Clause 9 coding definition for any specific release via an inline dropdown, or click a release column in the matrix to load that version automatically.
+  * **Reverse IE Lookup:** Interactive header badge (`Used in: N messages ▾`) and right-click matrix context menu to immediately trace and jump to all NAS messages containing a given Information Element across active releases.
 
 ### 📡 3GPP Meeting, Specification & Work Items Database
 * **Asynchronous Three-Phase Syncing Engine:** 
@@ -80,10 +95,10 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 This application strictly adheres to the **Model-View-Controller (MVC)** and **Event-Driven Architecture (EDA)** paradigms using `PyQt5`. 
 
-1. **The UI Layer (`modules/*/ui/`):** Contains only dumb Qt Widgets and standard `QAbstractTableModel` proxies. It never blocks the main thread.
-2. **The Core Layer (`modules/*/core/`):** Contains the heavy lifting. All database transactions (`sqlite3`), FTP network scraping (`requests`), COM object automation (`win32com` & `pythoncom`), and XML manipulation (`python-docx`) are isolated here.
-3. **The Threading Bridge:** Every Core module inherits from `QThread`. The UI sends data to the Thread, and the Thread emits `pyqtSignals` back to the UI to update progress bars or logs.
-4. **The Singleton Managers:** The Network Configuration (proxies), Word Configuration (Sensitivity Labels), and Comparison Cart states are managed by robust Singletons and dynamic JSON config loaders to ensure cross-tab synchronization.
+1. **The UI Layer (`modules/*/ui/`):** Contains Qt Widgets and `QAbstractTableModel` implementations. It never blocks the main thread.
+2. **The Core Layer (`modules/*/core/`):** Contains the domain logic. All database transactions (`sqlite3`), FTP network scraping (`requests`), COM automation (`win32com` & `pythoncom`), and direct XML manipulation (`lxml` & `python-docx`) are isolated here.
+3. **The Threading Bridge:** Worker tasks inherit from `QThread`. The UI dispatches tasks to the Thread, and the Thread emits `pyqtSignals` back to the UI to update progress bars, models, and logs asynchronously.
+4. **The Singleton Managers:** Network configuration (proxies), Word configuration (Sensitivity Labels), and Comparison Cart states are managed by thread-safe singletons and dynamic JSON config loaders to ensure cross-tab synchronization.
 
 ---
 
@@ -95,8 +110,8 @@ To run this application natively or build it from source, you must have the foll
 2. **Microsoft Word (Desktop App)** (Required for the COM Automation Splitter, Converter, and Diff Engine)
 3. **Microsoft Outlook (Desktop App)** (Required for the eMeeting Email Manager)
 4. **Java Runtime Environment (JRE) 11+** (Required for the local PlantUML generation engine)
-5. *(Optional but Recommended)* **Microsoft Visio** (To view the generated outputs)
-6. *(Optional but Recommended)* **Microsoft PowerPoint** (For .pptx conversions)
+5. *(Optional but Recommended)* **Microsoft Visio** (To view generated `.vsdx` files)
+6. *(Optional but Recommended)* **Microsoft PowerPoint** (For `.pptx` conversions)
 
 ---
 
@@ -105,24 +120,39 @@ To run this application natively or build it from source, you must have the foll
 ### 1. Clone the Repository
 ```bash
 git clone [https://github.com/telekom/3gpp-meeting-tools.git](https://github.com/telekom/3gpp-meeting-tools.git)
-cd 3gpp-meeting-tools/3GPP Tools
+cd 3gpp-meeting-tools/3GPP\ Tools
 ```
 
 ### 2. Install Python Dependencies
 ```bash
 pip install -r requirements.txt
 ```
-*Note: This includes `PyQt5`, `requests`, `python-docx`, `beautifulsoup4`, `openpyxl`, and `pywin32`.*
+*Note: This installs `PyQt5`, `requests`, `python-docx`, `beautifulsoup4`, `openpyxl`, `pandas`, `plotly`, `networkx`, and `pywin32`.*
 
 ### 3. Launch the Application
 ```bash
 python src/main_tools.py
 ```
-*Upon first launch, the app will automatically attempt to download the latest `plantuml.jar` from GitHub if it is not present in your assets folder.*
+*Upon first launch, the app will automatically download the latest `plantuml.jar` from GitHub if it is not present in your assets folder.*
 
 ---
 
 ## <a id="usage"></a>📖 How to Use the GUI
+
+### 🔬 3GPP NAS Evolution Matrix & Clause 9 Inspector
+1. Navigate to the **🔬 NAS** tab.
+2. **Importing Specifications:**
+   * Click **📥 Import from Specs DB** to select one or multiple TS 24.501 releases (use `Shift+Click` or `Ctrl+Click` for batch ingestion). Missing versions download automatically from the 3GPP FTP archive.
+   * Click **📁 Import Local .docx** to ingest one or more local specification documents directly.
+3. **Selecting Releases & Messages:**
+   * Use the **Specification Versions** checklist to activate or deactivate releases in real time.
+   * Select a NAS message from the left panel (e.g., `REGISTRATION REQUEST`, `REGISTRATION REJECT`). The **Evolution Matrix** will pivot all Information Elements in strict specification order, highlighting additions, removals, and changes across releases.
+4. **Filtering Messages and IEs:**
+   * Use **Filter message name** to filter by message title.
+   * Use **Filter by IE / Type** to filter parent messages and isolate matching Information Elements inside the active matrix view simultaneously.
+5. **Inspecting Structure & Reverse Lookup:**
+   * Click any row in the matrix to render its Clause 9 definition, bit diagram, and value description table in the **Clause 9 Structure & Coding Inspector**.
+   * Click the **Used in: N messages ▾** badge in the inspector header (or right-click any row in the matrix) to see all other NAS messages referencing that Information Element and jump to them instantly.
 
 ### 📊 3GPP Meetings & Specifications
 1. Navigate to the **Meetings** tab.
@@ -138,32 +168,32 @@ python src/main_tools.py
 1. Navigate to the **3GPP Work Items** tab.
 2. Click the **🔄 Sync 3GPP WIs** button (hover over it for tooltip details) to trigger the parallel multi-threaded scraper across all 19 Technical Specification Groups and Working Groups.
 3. Monitor the real-time progress bar and status messages as records are fetched and bulk upserted into the shared database.
-4. Use the **Local Search** bar and multi-select **Checkable Dropdowns** to instantly debounce-filter the table by Acronym, Name, Code, Release, or Working Group. Your selected filters are automatically saved and restored between application sessions!
-5. **Interactive Columns:** Click any blue **Latest WID** hyperlink to instantly download the document via the global search engine (or fall back to the 3GPP Web Portal). Click the interactive **💬 Remarks** button to view a chronologically sorted history of secretary remarks for that specific work item.
+4. Use the **Local Search** bar and multi-select **Checkable Dropdowns** to debounce-filter the table by Acronym, Name, Code, Release, or Working Group. Your selected filters are automatically saved and restored between application sessions.
+5. **Interactive Columns:** Click any blue **Latest WID** hyperlink to download the document via the global search engine (or fall back to the 3GPP Web Portal). Click the interactive **💬 Remarks** button to view a chronologically sorted history of secretary remarks for that specific work item.
 
 ### 📧 eMeeting Email Manager
 1. Open a specific meeting from the main database and click the yellow **📧 Emails** button.
 2. Click **⚙️ Folders** to browse your Outlook directory and safely map your Source (Inbox) and Target (Archive) folders.
 3. Click **🔄 Sync Source** to download and index all emails for this meeting.
 4. Select a TDoc thread from the **Left Panel** to view its chronological email history in the **Right Panel**.
-5. Use the **⭐ Star** and **👀 Follow** buttons in the reading pane to surgically track specific documents or entire topics. Use the left-side filters to isolate these threads, and the right-side dropdowns to filter by Company or Sender strictly within a thread.
-6. Select rows and click **➡️ Move Selected** (or **⏭️ Move All**) to permanently organize the emails into dynamic Agenda Item subfolders inside your Outlook archive.
-7. Click **📊 Statistics** to generate and open a comprehensive visual analytics dashboard of the meeting's email traffic.
-8. Click any blue Sender Name in the grid to open a new email window directly to them, or click a blue Revision number to automatically download and open that document in Word.
+5. Use the **⭐ Star** and **👀 Follow** buttons in the reading pane to track specific documents or entire topics. Use the left-side filters to isolate these threads, and the right-side dropdowns to filter by Company or Sender strictly within a thread.
+6. Select rows and click **➡️ Move Selected** (or **⏭️ Move All**) to organize emails into dynamic Agenda Item subfolders inside your Outlook archive.
+7. Click **📊 Statistics** to generate and open an interactive visual analytics dashboard of the meeting's email traffic.
+8. Click any blue Sender Name in the grid to open an email window directly to them, or click a blue Revision number to download and open that document in Word.
 
 ### 📝 Slicing & Comparing Word Documents
 1. In the **Comparison Cart** at the bottom of the Meetings Tab, sequentially select documents. The round-robin queue will automatically populate Slot A and Slot B with local files or fetched 3GPP Revisions.
-2. Click **Compare in Word**. The tool will spawn a background process, temporarily remove file locks and OS restrictions, and present you with a native Word redline document.
+2. Click **Compare in Word**. The tool will spawn a background process, temporarily remove file locks, and present a native Word redline comparison.
 3. For large specs, navigate to the **Spec Splitter** tab, drag a `.docx` file, choose a Heading depth (e.g., "Level 2" for clauses like `6.1`, `6.2`), and click Split.
 
 ### 🎨 Visio Tools
 1. **PlantUML Editor:** Type standard PlantUML code into the left pane. The Live Preview will automatically update the image on the right.
 2. Click **Export Diagram ▼** and select **To Visio (.vsdx)** to generate a native Visio file, or use other options like PowerPoint, SVG, or ASCII.
-3. **Batch Process & PowerPoint Conversion:** Navigate to the **📂 Visio Tools** tab and drag-and-drop `.puml`, `.txt`, or `.pptx` (PowerPoint) files into the drop zone. The system will automatically detect the file type and process it into a clean, editable Visio file in the background!
+3. **Batch Process & PowerPoint Conversion:** Navigate to the **📂 Visio Tools** tab and drag-and-drop `.puml`, `.txt`, or `.pptx` (PowerPoint) files into the drop zone. The system will detect the file type and process it into an editable Visio file in the background.
 
 ### ⚙️ Configuring Corporate Proxies & Networking
 If you are behind a corporate firewall:
-1. Glance at the **bottom right status bar** to instantly see your active network status (Public Internet vs. 3GPP Local Network).
+1. Glance at the **bottom right status bar** to see your active network status (Public Internet vs. 3GPP Local Network).
 2. Click the **Network Config** button in the Console Panel.
 3. Enter your HTTP/HTTPS proxies into the global session without restarting the app.
 4. Adjust the **Humanness Delays** to throttle network requests (to mimic human behavior) or set them to 0.0 for maximum download speed.
