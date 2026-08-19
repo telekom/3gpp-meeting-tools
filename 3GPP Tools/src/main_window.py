@@ -31,6 +31,7 @@ from modules.puml2visio.utils.utils import encode_plantuml, InitializationThread
 from modules.specifications.ui.ui_tabs import SpecificationsTab
 from modules.word_tools.ui.word_tabs import WordExtractorTab
 from modules.work_items.ui.ui_tabs import WorkItemsTab
+from modules.nas.ui.nas_tabs import NASTab
 
 
 class DragDropUI(QMainWindow):
@@ -209,12 +210,17 @@ class DragDropUI(QMainWindow):
             )
         )
 
-        self.tabs.addTab(self.code_tab, "📝 PlantUML Editor")
-        self.tabs.addTab(self.batch_tab, "🔄 Visio Tools")
-        self.tabs.addTab(self.word_tab, "📘 Word Tools")
-        self.tabs.addTab(self.specs_tab, "📚 3GPP Specifications")
-        self.tabs.addTab(self.work_items_tab, "📋 3GPP Work Items")
-        self.tabs.addTab(self.meetings_tab, "🗓️ 3GPP Meetings")
+        # NAS tab
+        nas_db_path = get_project_root() / "nas_data.db"
+        self.nas_tab = NASTab(nas_db_path, db_path)
+
+        self.tabs.addTab(self.code_tab, "📝 PlantUML")
+        self.tabs.addTab(self.batch_tab, "🔄 Visio")
+        self.tabs.addTab(self.word_tab, "📘 Word")
+        self.tabs.addTab(self.specs_tab, "📚 Specifications")
+        self.tabs.addTab(self.work_items_tab, "📋 Work Items")
+        self.tabs.addTab(self.meetings_tab, "🗓️ Meetings")
+        self.tabs.addTab(self.nas_tab, "🔬 NAS")
         self.tabs.setEnabled(False)
 
         # --- TAB CORNER HELP WIDGET ---
@@ -248,6 +254,7 @@ class DragDropUI(QMainWindow):
 
         # Logging
         self.specs_tab.log_msg.connect(self.console_panel.log_message)
+        self.nas_tab.log_msg.connect(self.console_panel.log_message)
 
         self.queue_panel = QueuePanel()
 
