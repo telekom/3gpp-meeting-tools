@@ -6,10 +6,7 @@ import pandas as pd
 
 
 def parse_version_tuple(version_str: str) -> tuple:
-    """
-    Converts a version string into a tuple of integers for natural sorting.
-    E.g., '20.0.0' -> (20, 0, 0), '19.7.0' -> (19, 7, 0), '2.0.0' -> (2, 0, 0).
-    """
+    """Converts a version string into a tuple of integers for natural sorting."""
     if not version_str:
         return ()
     clean = str(version_str).lstrip("vV").strip()
@@ -256,6 +253,32 @@ class NASDatabase:
 
         with self._get_connection() as conn:
             return pd.read_sql_query(query, conn, params=params)
+
+    def get_ie_definitions_by_clause(
+        self, clause: str, version_ids: Optional[List[int]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieves definitions for a clause across versions joined with version metadata,
+        sorted chronologically descending.
+        """
+        query = """
+            SELECT d.*, sv.version, sv.spec_number
+            FROM ie_definitions d
+            JOIN spec_versions sv ON d.version_id = sv.id
+            WHERE d.clause = ?
+        """
+        params = [clause]
+        if version_ids:
+            placeholders = ",".join("?" for _ in version_ids)
+            query += f" AND d.version_id IN ({placeholders})"
+            params.extend(version_ids)
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = [dict(row) for row in cursor.fetchall()]
+
+        return sorted(rows, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
 
     def get_ie_definition(self, clause: str, version_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         query = "SELECT * FROM ie_definitions WHERE clause = ?"
