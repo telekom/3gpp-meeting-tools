@@ -1,9 +1,11 @@
+import json
 import logging
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QBrush, QColor, QFont
 from PyQt5.QtWidgets import (
     QAction,
     QComboBox,
@@ -26,6 +28,8 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem,
     QTableView,
     QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -39,6 +43,18 @@ from modules.nas.core.nas_threads import (
 )
 from modules.nas.ui.nas_models import NASEvolutionMatrixModel
 from modules.specifications.core.database import SpecsDatabase
+
+
+def get_spec_title(spec_number: str) -> str:
+    """Returns a descriptive title for common 3GPP specifications."""
+    spec_titles = {
+        "24.501": "TS 24.501 (5GS NAS)",
+        "24.301": "TS 24.301 (EPS NAS)",
+        "24.008": "TS 24.008 (Core Network)",
+        "23.501": "TS 23.501 (5GS Architecture)",
+        "23.502": "TS 23.502 (5GS Procedures)",
+    }
+    return spec_titles.get(spec_number, f"TS {spec_number}")
 
 
 class NASVersionSelectDialog(QDialog):
@@ -174,6 +190,7 @@ class NASTab(QWidget):
         super().__init__()
         self.nas_db_path = Path(nas_db_path)
         self.specs_db_path = Path(specs_db_path) if specs_db_path else None
+        self.config_path = self.nas_db_path.parent / "nas_config.json"
 
         try:
             settings = MeetingsSettings()
@@ -193,8 +210,13 @@ class NASTab(QWidget):
         self._current_clause_defs: Dict[str, Dict[str, Any]] = {}
         self._current_ie_clause: Optional[str] = None
         self._current_ie_name: Optional[str] = None
+        self._current_ie_spec: Optional[str] = None
+        self._current_message_spec: Optional[str] = None
+
         self._updating_checks: bool = False
         self._updating_combo: bool = False
+        self._loading_config: bool = False
+        self._initialized_filters: bool = False
 
         self._msg_search_timer = QTimer(self)
         self._msg_search_timer.setSingleShot(True)
@@ -245,11 +267,17 @@ class NASTab(QWidget):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
 
-        ver_group = QGroupBox("Specification Versions (Check Multiple or 'All')")
+        ver_group = QGroupBox("Specification Versions & Releases")
         ver_layout = QVBoxLayout(ver_group)
-        self.version_list = QListWidget()
-        self.version_list.itemChanged.connect(self._on_version_item_changed)
-        ver_layout.addWidget(self.version_list)
+
+        # Hierarchical Specification Tree
+        self.version_tree = QTreeWidget()
+        self.version_tree.setHeaderHidden(True)
+        self.version_tree.setAlternatingRowColors(True)
+        self.version_tree.itemChanged.connect(self._on_version_tree_item_changed)
+        self.version_tree.itemExpanded.connect(lambda _: self._save_config())
+        self.version_tree.itemCollapsed.connect(lambda _: self._save_config())
+        ver_layout.addWidget(self.version_tree)
         left_layout.addWidget(ver_group)
 
         msg_group = QGroupBox("NAS Messages")
@@ -366,70 +394,186 @@ class NASTab(QWidget):
 
         layout.addWidget(main_splitter)
 
-    def _on_search_timer_timeout(self):
-        self._populate_messages()
+    # -------------------------------------------------------------------------
+    # Configuration Persistence
+    # -------------------------------------------------------------------------
+
+    def _load_config(self) -> Dict[str, Any]:
+        """Loads saved filter and version selections from nas_config.json."""
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logging.warning(f"Could not load NAS config from {self.config_path}: {e}")
+        return {}
+
+    def _save_config(self):
+        """Saves current filter and version configuration to nas_config.json."""
+        if self._loading_config or self._updating_checks:
+            return
+
+        try:
+            checked_versions = []
+            collapsed_specs = []
+
+            for s_idx in range(1, self.version_tree.topLevelItemCount()):
+                spec_item = self.version_tree.topLevelItem(s_idx)
+                s_data = spec_item.data(0, Qt.UserRole) or {}
+                spec_num = s_data.get("spec_number", "")
+                if not spec_item.isExpanded():
+                    collapsed_specs.append(spec_num)
+
+                for c_idx in range(spec_item.childCount()):
+                    child = spec_item.child(c_idx)
+                    if child.checkState(0) == Qt.Checked:
+                        c_data = child.data(0, Qt.UserRole) or {}
+                        checked_versions.append({
+                            "spec_number": c_data.get("spec_number"),
+                            "version": c_data.get("version"),
+                        })
+
+            config_data = {
+                "checked_versions": checked_versions,
+                "msg_filter": self.msg_search.text(),
+                "ie_filter": self.ie_search.text(),
+                "selected_message": self.current_selected_message_name or "",
+                "collapsed_specs": collapsed_specs,
+            }
+
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(config_data, f, indent=4)
+        except Exception as e:
+            logging.warning(f"Could not save NAS config to {self.config_path}: {e}")
+
+    # -------------------------------------------------------------------------
+    # Version Tree Management
+    # -------------------------------------------------------------------------
 
     def refresh_versions(self):
+        """Builds hierarchical specification tree with master, spec, and version controls."""
         self._updating_checks = True
-        self.version_list.clear()
+        self.version_tree.clear()
         versions = self.db.get_imported_versions()
 
-        if versions:
-            all_item = QListWidgetItem("All Versions")
-            all_item.setData(Qt.UserRole, {"id": -1, "spec_number": "", "version": ""})
-            all_item.setFlags(all_item.flags() | Qt.ItemIsUserCheckable)
-            all_item.setCheckState(Qt.Checked)
-            self.version_list.addItem(all_item)
-
-            for v in versions:
-                item = QListWidgetItem(f"TS {v['spec_number']} v{v['version']}")
-                item.setData(Qt.UserRole, {"id": v["id"], "spec_number": v["spec_number"], "version": v["version"]})
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Checked)
-                self.version_list.addItem(item)
-
-            self.selected_version_ids = [v["id"] for v in versions]
-        else:
+        if not versions:
             self.selected_version_ids = []
+            self._updating_checks = False
+            self._populate_messages()
+            return
 
+        saved_config = self._load_config()
+        saved_checked = saved_config.get("checked_versions")
+        saved_collapsed = set(saved_config.get("collapsed_specs", []))
+
+        saved_tuples: Optional[Set[Tuple[str, str]]] = None
+        if saved_checked is not None:
+            saved_tuples = {(item.get("spec_number"), item.get("version")) for item in saved_checked}
+
+        # 1. Master toggle item at the top
+        all_item = QTreeWidgetItem(self.version_tree)
+        all_item.setText(0, "All Specifications & Versions")
+        all_item.setData(0, Qt.UserRole, {"type": "all"})
+        all_item.setFlags(all_item.flags() | Qt.ItemIsUserCheckable)
+        all_item.setFont(0, QFont("", -1, QFont.Bold))
+        all_item.setCheckState(0, Qt.Checked)
+
+        # 2. Group versions by specification number
+        specs_map: Dict[str, List[Dict[str, Any]]] = {}
+        for v in versions:
+            specs_map.setdefault(v["spec_number"], []).append(v)
+
+        sorted_specs = sorted(specs_map.keys())
+
+        for spec_num in sorted_specs:
+            spec_versions = specs_map[spec_num]
+            spec_item = QTreeWidgetItem(self.version_tree)
+            spec_title = get_spec_title(spec_num)
+            spec_item.setText(0, spec_title)
+            spec_item.setData(0, Qt.UserRole, {"type": "spec", "spec_number": spec_num})
+            spec_item.setFlags(spec_item.flags() | Qt.ItemIsUserCheckable)
+            spec_item.setFont(0, QFont("", -1, QFont.Bold))
+            spec_item.setForeground(0, QBrush(QColor("#0284C7")))
+            spec_item.setCheckState(0, Qt.Checked)
+
+            # Sort versions within this spec descending (natural version sort)
+            sorted_v_list = sorted(spec_versions, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
+
+            for v in sorted_v_list:
+                child = QTreeWidgetItem(spec_item)
+                child.setText(0, f"TS {v['spec_number']} v{v['version']}")
+                child.setData(
+                    0,
+                    Qt.UserRole,
+                    {
+                        "type": "version",
+                        "id": v["id"],
+                        "spec_number": v["spec_number"],
+                        "version": v["version"],
+                    },
+                )
+                child.setFlags(child.flags() | Qt.ItemIsUserCheckable)
+
+                if saved_tuples is not None:
+                    is_checked = (v["spec_number"], v["version"]) in saved_tuples
+                    child.setCheckState(0, Qt.Checked if is_checked else Qt.Unchecked)
+                else:
+                    child.setCheckState(0, Qt.Checked)
+
+            if spec_num in saved_collapsed:
+                spec_item.setExpanded(False)
+            else:
+                spec_item.setExpanded(True)
+
+        self._update_parent_states()
+        self._recalculate_selected_versions()
         self._updating_checks = False
+
+        # Restore search text filters and active message
+        if not self._initialized_filters:
+            self._loading_config = True
+            if "msg_filter" in saved_config:
+                self.msg_search.setText(saved_config["msg_filter"])
+            if "ie_filter" in saved_config:
+                self.ie_search.setText(saved_config["ie_filter"])
+            if "selected_message" in saved_config and saved_config["selected_message"]:
+                self.current_selected_message_name = saved_config["selected_message"]
+            self._loading_config = False
+            self._initialized_filters = True
+
         self._populate_messages()
 
-    def _on_version_item_changed(self, item: QListWidgetItem):
+    def _on_version_tree_item_changed(self, item: QTreeWidgetItem, column: int):
+        """Propagates check state changes across master, spec, and version levels."""
         if self._updating_checks:
             return
 
         self._updating_checks = True
-        user_data = item.data(Qt.UserRole)
-        item_id = user_data["id"] if isinstance(user_data, dict) else user_data
-        is_checked = item.checkState() == Qt.Checked
+        state = item.checkState(0)
+        data = item.data(0, Qt.UserRole) or {}
+        item_type = data.get("type")
 
-        if item_id == -1:
-            for i in range(1, self.version_list.count()):
-                self.version_list.item(i).setCheckState(Qt.Checked if is_checked else Qt.Unchecked)
-        else:
-            all_item = self.version_list.item(0)
-            if all_item:
-                total_versions = self.version_list.count() - 1
-                checked_versions = sum(
-                    1
-                    for i in range(1, self.version_list.count())
-                    if self.version_list.item(i).checkState() == Qt.Checked
-                )
-                if checked_versions == total_versions and total_versions > 0:
-                    all_item.setCheckState(Qt.Checked)
-                else:
-                    all_item.setCheckState(Qt.Unchecked)
+        if item_type == "all":
+            target_state = Qt.Checked if state == Qt.Checked else Qt.Unchecked
+            for s_idx in range(1, self.version_tree.topLevelItemCount()):
+                spec_item = self.version_tree.topLevelItem(s_idx)
+                spec_item.setCheckState(0, target_state)
+                for c_idx in range(spec_item.childCount()):
+                    child = spec_item.child(c_idx)
+                    child.setCheckState(0, target_state)
+        elif item_type == "spec":
+            target_state = Qt.Checked if state == Qt.Checked else Qt.Unchecked
+            for c_idx in range(item.childCount()):
+                child = item.child(c_idx)
+                child.setCheckState(0, target_state)
+            self._update_parent_states()
+        elif item_type == "version":
+            self._update_parent_states()
 
-        self.selected_version_ids = [
-            (self.version_list.item(i).data(Qt.UserRole)["id"]
-             if isinstance(self.version_list.item(i).data(Qt.UserRole), dict)
-             else self.version_list.item(i).data(Qt.UserRole))
-            for i in range(1, self.version_list.count())
-            if self.version_list.item(i).checkState() == Qt.Checked
-        ]
-
+        self._recalculate_selected_versions()
         self._updating_checks = False
+
+        self._save_config()
         self._populate_messages()
 
         current_msg_item = self.msg_list.currentItem()
@@ -437,6 +581,62 @@ class NASTab(QWidget):
             self._on_message_clicked(current_msg_item)
         else:
             self.matrix_table.setModel(None)
+
+    def _update_parent_states(self):
+        """Updates partially checked / checked states for specification and root items."""
+        total_version_count = 0
+        total_checked_count = 0
+
+        for s_idx in range(1, self.version_tree.topLevelItemCount()):
+            spec_item = self.version_tree.topLevelItem(s_idx)
+            child_count = spec_item.childCount()
+            if child_count == 0:
+                continue
+
+            checked_children = sum(
+                1 for c_idx in range(child_count)
+                if spec_item.child(c_idx).checkState(0) == Qt.Checked
+            )
+
+            total_version_count += child_count
+            total_checked_count += checked_children
+
+            if checked_children == child_count:
+                spec_item.setCheckState(0, Qt.Checked)
+            elif checked_children == 0:
+                spec_item.setCheckState(0, Qt.Unchecked)
+            else:
+                spec_item.setCheckState(0, Qt.PartiallyChecked)
+
+        all_item = self.version_tree.topLevelItem(0)
+        if all_item:
+            if total_version_count > 0 and total_checked_count == total_version_count:
+                all_item.setCheckState(0, Qt.Checked)
+            elif total_checked_count == 0:
+                all_item.setCheckState(0, Qt.Unchecked)
+            else:
+                all_item.setCheckState(0, Qt.PartiallyChecked)
+
+    def _recalculate_selected_versions(self):
+        """Aggregates all selected database version IDs across active specification groups."""
+        selected_ids = []
+        for s_idx in range(1, self.version_tree.topLevelItemCount()):
+            spec_item = self.version_tree.topLevelItem(s_idx)
+            for c_idx in range(spec_item.childCount()):
+                child = spec_item.child(c_idx)
+                if child.checkState(0) == Qt.Checked:
+                    data = child.data(0, Qt.UserRole)
+                    if data and "id" in data:
+                        selected_ids.append(data["id"])
+        self.selected_version_ids = selected_ids
+
+    # -------------------------------------------------------------------------
+    # Message & Matrix Handlers
+    # -------------------------------------------------------------------------
+
+    def _on_search_timer_timeout(self):
+        self._save_config()
+        self._populate_messages()
 
     def _populate_messages(self):
         target_msg_name = self.current_selected_message_name
@@ -496,6 +696,7 @@ class NASTab(QWidget):
     def _on_message_clicked(self, item: QListWidgetItem):
         msg_name = item.data(Qt.UserRole)
         self.current_selected_message_name = msg_name
+        self._save_config()
 
         ie_query = self.ie_search.text().strip()
         title_suffix = f" (Filtered by IE: '{ie_query}')" if ie_query else ""
@@ -744,6 +945,7 @@ class NASTab(QWidget):
 
     def _jump_to_message(self, message_name: str):
         self.current_selected_message_name = message_name
+        self._save_config()
 
         if self.msg_search.text().strip() or self.ie_search.text().strip():
             visible_names = [
@@ -772,6 +974,10 @@ class NASTab(QWidget):
         if version_key in self._current_clause_defs:
             self.inspector_text.setHtml(self._current_clause_defs[version_key]["raw_description"])
 
+    # -------------------------------------------------------------------------
+    # Ingestion Actions
+    # -------------------------------------------------------------------------
+
     def _on_fetch_from_specs_db_clicked(self):
         if not self.specs_db:
             QMessageBox.warning(
@@ -795,11 +1001,9 @@ class NASTab(QWidget):
         if not file_paths:
             return
 
-        # Group split parts belonging to the same specification release
         grouped_tasks: Dict[str, List[Path]] = {}
         for fp in file_paths:
             p = Path(fp)
-            # Remove part identifiers (e.g. '24501-k00_4_Main-Body_s06_s08' -> '24501-k00')
             base_key = re.sub(r"_\d+_.*$", "", p.stem)
             grouped_tasks.setdefault(base_key, []).append(p)
 
@@ -856,34 +1060,32 @@ class NASTab(QWidget):
         self.log_msg.emit(f"❌ Ingestion failed: {err}", logging.ERROR)
 
     def _on_clear_version_clicked(self):
-        checked_items = [
-            self.version_list.item(i)
-            for i in range(1, self.version_list.count())
-            if self.version_list.item(i).checkState() == Qt.Checked
-        ]
-        if not checked_items:
+        checked_versions_to_delete = []
+        for s_idx in range(1, self.version_tree.topLevelItemCount()):
+            spec_item = self.version_tree.topLevelItem(s_idx)
+            for c_idx in range(spec_item.childCount()):
+                child = spec_item.child(c_idx)
+                if child.checkState(0) == Qt.Checked:
+                    c_data = child.data(0, Qt.UserRole)
+                    if c_data and c_data.get("type") == "version":
+                        checked_versions_to_delete.append((c_data["spec_number"], c_data["version"]))
+
+        if not checked_versions_to_delete:
             QMessageBox.warning(self, "Select Version", "Please check at least one specific version to clear.")
             return
 
         reply = QMessageBox.question(
             self,
             "Confirm Delete",
-            f"Delete {len(checked_items)} checked specification version(s)?",
+            f"Delete {len(checked_versions_to_delete)} checked specification version(s)?",
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
-            for item in checked_items:
-                user_data = item.data(Qt.UserRole)
-                if isinstance(user_data, dict):
-                    self.db.clear_version(user_data["spec_number"], user_data["version"])
-                else:
-                    # Fallback
-                    text = item.text().replace("TS ", "")
-                    parts = text.split(" v")
-                    if len(parts) == 2:
-                        self.db.clear_version(parts[0], parts[1])
+            for s_num, ver in checked_versions_to_delete:
+                self.db.clear_version(s_num, ver)
             self.current_selected_message_name = None
             self.refresh_versions()
+            self._save_config()
 
     def _on_wipe_db_clicked(self):
         reply = QMessageBox.critical(
@@ -895,6 +1097,11 @@ class NASTab(QWidget):
         if reply == QMessageBox.Yes:
             self.db.wipe_database()
             self.current_selected_message_name = None
+            if self.config_path.exists():
+                try:
+                    self.config_path.unlink()
+                except Exception:
+                    pass
             self.refresh_versions()
             self.msg_list.clear()
             self.matrix_table.setModel(None)
