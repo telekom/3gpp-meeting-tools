@@ -5,6 +5,23 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 
+def parse_version_tuple(version_str: str) -> tuple:
+    """
+    Converts a version string into a tuple of integers for natural sorting.
+    E.g., '20.0.0' -> (20, 0, 0), '19.7.0' -> (19, 7, 0), '2.0.0' -> (2, 0, 0).
+    """
+    if not version_str:
+        return ()
+    clean = str(version_str).lstrip("vV").strip()
+    parts = []
+    for part in clean.split("."):
+        if part.isdigit():
+            parts.append(int(part))
+        else:
+            parts.append(part)
+    return tuple(parts)
+
+
 class NASDatabase:
     """Manages the SQLite database for 3GPP TS 24.501 NAS messages and IE definitions."""
 
@@ -24,7 +41,6 @@ class NASDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                # 1. Specification version table
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS spec_versions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,7 +51,6 @@ class NASDatabase:
                     )
                 """)
 
-                # 2. NAS messages table (from Clause 8)
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS nas_messages (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,7 +62,6 @@ class NASDatabase:
                     )
                 """)
 
-                # 3. Message Information Elements (Clause 8 6-column tables)
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS message_ies (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +77,6 @@ class NASDatabase:
                     )
                 """)
 
-                # 4. IE bit-level coding and definitions (Clause 9)
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS ie_definitions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,43 +90,28 @@ class NASDatabase:
                     )
                 """)
 
-                # Performance indexes for matrix pivoting
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_msg_ver ON"
-                    " nas_messages(version_id);"
-                )
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_ie_msg ON"
-                    " message_ies(message_id);"
-                )
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_def_ver ON"
-                    " ie_definitions(version_id);"
-                )
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_msg_ver ON nas_messages(version_id);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_msg ON message_ies(message_id);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_ver ON ie_definitions(version_id);")
                 conn.commit()
         except Exception as e:
             self.logger.error(f"Error initializing NAS DB: {e}")
 
     def get_imported_versions(self) -> List[Dict[str, Any]]:
-        """Retrieves all imported specification versions."""
-        query = (
-            "SELECT id, spec_number, version, import_date FROM spec_versions"
-            " ORDER BY version DESC"
-        )
+        """Retrieves all imported specification versions sorted numerically descending."""
+        query = "SELECT id, spec_number, version, import_date FROM spec_versions"
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query)
-            return [dict(row) for row in cursor.fetchall()]
+            rows = [dict(row) for row in cursor.fetchall()]
+        return sorted(rows, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
 
     def clear_version(self, spec_number: str, version: str) -> bool:
-        """Deletes a specific specification version with cascading foreign key deletion."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    """
-                    DELETE FROM spec_versions WHERE spec_number = ? AND version = ?
-                """,
+                    "DELETE FROM spec_versions WHERE spec_number = ? AND version = ?",
                     (spec_number, version),
                 )
                 conn.commit()
@@ -123,7 +121,6 @@ class NASDatabase:
             return False
 
     def wipe_database(self) -> bool:
-        """Drops all tables and re-initializes the schema."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -145,28 +142,21 @@ class NASDatabase:
         messages: List[Dict[str, Any]],
         ie_defs: List[Dict[str, Any]],
     ) -> bool:
-        """Performs atomic, idempotent insertion of Clause 8 and Clause 9 structures."""
         conn = self._get_connection()
         try:
             with conn:
                 cursor = conn.cursor()
-                # Idempotent replace: remove existing version records if re-importing
                 cursor.execute(
-                    """
-                    DELETE FROM spec_versions WHERE spec_number = ? AND version = ?
-                """,
+                    "DELETE FROM spec_versions WHERE spec_number = ? AND version = ?",
                     (spec_number, version),
                 )
 
                 cursor.execute(
-                    """
-                    INSERT INTO spec_versions (spec_number, version) VALUES (?, ?)
-                """,
+                    "INSERT INTO spec_versions (spec_number, version) VALUES (?, ?)",
                     (spec_number, version),
                 )
                 version_id = cursor.lastrowid
 
-                # Insert Clause 8 messages and child IEs
                 for msg in messages:
                     cursor.execute(
                         """
@@ -203,7 +193,6 @@ class NASDatabase:
                         ie_rows,
                     )
 
-                # Insert Clause 9 definitions
                 def_rows = [
                     (
                         version_id,
@@ -228,14 +217,8 @@ class NASDatabase:
         finally:
             conn.close()
 
-    def get_messages_list(
-        self, version_ids: Optional[List[int]] = None
-    ) -> List[Dict[str, Any]]:
-        """Returns all distinct NAS message names for the selected version IDs."""
-        query = """
-            SELECT DISTINCT m.message_name, m.clause
-            FROM nas_messages m
-        """
+    def get_messages_list(self, version_ids: Optional[List[int]] = None) -> List[Dict[str, Any]]:
+        query = "SELECT DISTINCT m.message_name, m.clause FROM nas_messages m"
         params = []
         if version_ids:
             placeholders = ",".join("?" for _ in version_ids)
@@ -248,10 +231,7 @@ class NASDatabase:
             cursor.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
-    def get_message_evolution_df(
-        self, message_name: str, version_ids: List[int]
-    ) -> pd.DataFrame:
-        """Fetches all message IEs across selected versions into a Pandas DataFrame."""
+    def get_message_evolution_df(self, message_name: str, version_ids: List[int]) -> pd.DataFrame:
         if not version_ids:
             return pd.DataFrame()
 
@@ -277,10 +257,7 @@ class NASDatabase:
         with self._get_connection() as conn:
             return pd.read_sql_query(query, conn, params=params)
 
-    def get_ie_definition(
-        self, clause: str, version_id: Optional[int] = None
-    ) -> Optional[Dict[str, Any]]:
-        """Retrieves Clause 9 bit coding and description by subclause number."""
+    def get_ie_definition(self, clause: str, version_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         query = "SELECT * FROM ie_definitions WHERE clause = ?"
         params = [clause]
         if version_id:

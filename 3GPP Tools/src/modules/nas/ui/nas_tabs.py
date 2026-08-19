@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
 )
 
 from modules.meetings.core.settings import MeetingsSettings
-from modules.nas.core.nas_db import NASDatabase
+from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
 from modules.nas.core.nas_threads import (
     NASFetchAndImportThread,
     find_cached_spec_file,
@@ -38,7 +38,7 @@ from modules.specifications.core.database import SpecsDatabase
 
 
 class NASVersionSelectDialog(QDialog):
-    """Dialog allowing selection of indexed TS 24.501 versions with live cache detection."""
+    """Dialog allowing selection of indexed TS 24.501 versions with natural numerical sorting."""
 
     def __init__(
         self,
@@ -87,6 +87,13 @@ class NASVersionSelectDialog(QDialog):
         spec_files = self.specs_db.search_files(spec_number="24.501")
         imported_versions = {v["version"] for v in self.nas_db.get_imported_versions()}
 
+        # Sort numerically descending (v20.0.0 -> v19.7.0 -> ... -> v2.0.0)
+        spec_files = sorted(
+            spec_files,
+            key=lambda row: parse_version_tuple(row[5]),
+            reverse=True,
+        )
+
         self.table.setRowCount(0)
 
         for row_idx, row_data in enumerate(spec_files):
@@ -109,7 +116,7 @@ class NASVersionSelectDialog(QDialog):
             # 2. Filename Item
             self.table.setItem(row_idx, 1, QTableWidgetItem(filename))
 
-            # 3. Dynamic Cache Detection across Settings Paths
+            # 3. Dynamic Cache Detection
             cached_file = find_cached_spec_file(filename, spec_num)
             if cached_file:
                 cache_text = f"🟢 Cached ({cached_file.suffix[1:].upper()})"
@@ -148,7 +155,6 @@ class NASTab(QWidget):
         self.nas_db_path = Path(nas_db_path)
         self.specs_db_path = Path(specs_db_path) if specs_db_path else None
 
-        # Resolve cache dir dynamically from MeetingsSettings
         try:
             settings = MeetingsSettings()
             self.cache_dir = Path(settings.cache_dir).parent / "specs"
