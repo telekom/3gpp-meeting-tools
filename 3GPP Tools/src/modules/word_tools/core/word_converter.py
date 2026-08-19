@@ -1,5 +1,7 @@
 import logging
+import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import Optional, Union
 
@@ -10,9 +12,17 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.utils.utils import get_proxies
 
 
-def _unblock_file(file_path: Path) -> None:
-    """Removes the Windows Zone.Identifier NTFS stream to prevent Word Protected View."""
+def _sanitize_file_attributes(file_path: Path) -> None:
+    """Removes read-only flags and NTFS Zone.Identifier streams from the file."""
     try:
+        if file_path.exists():
+            # Remove Windows Read-Only attribute
+            os.chmod(file_path, stat.S_IWRITE | stat.S_IREAD)
+    except Exception:
+        pass
+
+    try:
+        # Strip Mark-of-the-Web Zone Identifier
         zone_stream = Path(f"{file_path.resolve()}:Zone.Identifier")
         if zone_stream.exists():
             zone_stream.unlink()
@@ -27,7 +37,8 @@ def convert_doc_to_docx(
 ) -> Path:
     """
     Synchronously converts a legacy Word 97-2003 (.doc) binary file to OpenXML (.docx)
-    using Microsoft Word COM automation with Protected View bypass and error recovery.
+    using Word COM automation with Protected View bypass, doc.Convert(), and document
+    stream cloning fallbacks.
     """
     log = logger or logging.getLogger(__name__)
     source = Path(doc_path).resolve()
@@ -42,19 +53,21 @@ def convert_doc_to_docx(
     if target.exists() and target.stat().st_size > 0:
         return target
 
-    # 1. Strip Mark-of-the-Web to prevent Protected View locking
-    _unblock_file(source)
+    # 1. Clean file locks and attributes
+    _sanitize_file_attributes(source)
 
-    # Ensure target directory exists and stale target is removed
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         try:
+            _sanitize_file_attributes(target)
             target.unlink()
         except Exception:
             pass
 
     word = None
     doc = None
+    new_doc = None
+
     try:
         pythoncom.CoInitialize()
 
@@ -62,18 +75,17 @@ def convert_doc_to_docx(
         word.Visible = False
         word.DisplayAlerts = 0  # wdAlertsNone
 
-        # Disable macro warning dialogs
         try:
             word.AutomationSecurity = 1  # msoAutomationSecurityLow
         except Exception:
             pass
 
-        # 2. Open Document with fallback for Protected View
+        # 2. Open Document with ReadOnly=False to allow in-memory format upgrade
         try:
             doc = word.Documents.Open(
                 FileName=str(source),
                 ConfirmConversions=False,
-                ReadOnly=True,
+                ReadOnly=False,
                 AddToRecentFiles=False,
             )
         except Exception as open_err:
@@ -82,44 +94,58 @@ def convert_doc_to_docx(
                 pv = word.ProtectedViewWindows.Item(1)
                 doc = pv.Edit()
             else:
-                raise open_err
+                # Retry with ReadOnly=True if file is locked on disk
+                doc = word.Documents.Open(
+                    FileName=str(source),
+                    ConfirmConversions=False,
+                    ReadOnly=True,
+                    AddToRecentFiles=False,
+                )
 
         if doc is None:
             raise RuntimeError(f"Word failed to acquire a valid document handle for {source.name}")
 
-        # 3. Apply corporate Sensitivity Label if configured in word_tools
+        # 3. Apply corporate Sensitivity Label if configured
         try:
             from modules.word_tools.core.sensitivity_label import apply_configured_sensitivity_label
             apply_configured_sensitivity_label(doc)
         except Exception:
             pass
 
-        # 4. Save as .docx (wdFormatXMLDocument = 16) with tiered fallbacks
-        save_success = False
-        save_errors = []
-
+        # 4. Attempt in-memory model upgrade
         try:
-            doc.SaveAs2(str(target), 16)
-            save_success = True
-        except Exception as e1:
-            save_errors.append(str(e1))
+            doc.Convert()
+        except Exception:
+            pass
 
-        if not save_success:
+        # 5. Primary conversion: SaveAs2 to OpenXML (FileFormat=16, CompatibilityMode=15)
+        saved = False
+        try:
+            doc.SaveAs2(FileName=str(target), FileFormat=16, CompatibilityMode=15)
+            saved = True
+        except Exception as save_err:
+            log.warning(f"Direct SaveAs2 failed ({save_err}). Attempting fresh document stream clone...")
+
+        # 6. Fallback: Fresh Document Transfer (Bypasses File Block & Legacy Template policies)
+        if not saved or not target.exists() or target.stat().st_size == 0:
+            new_doc = word.Documents.Add()
             try:
-                doc.SaveAs2(FileName=str(target), FileFormat=16)
-                save_success = True
-            except Exception as e2:
-                save_errors.append(str(e2))
+                from modules.word_tools.core.sensitivity_label import apply_configured_sensitivity_label
+                apply_configured_sensitivity_label(new_doc)
+            except Exception:
+                pass
 
-        if not save_success:
-            try:
-                doc.SaveAs(str(target), 16)
-                save_success = True
-            except Exception as e3:
-                save_errors.append(str(e3))
+            # Copy formatted content stream from legacy doc into modern doc container
+            doc.Content.Copy()
+            new_doc.Content.Paste()
 
-        if not save_success:
-            raise RuntimeError(f"Failed to SaveAs2/SaveAs .docx: {'; '.join(save_errors)}")
+            new_doc.SaveAs2(FileName=str(target), FileFormat=16)
+            new_doc.Close(SaveChanges=False)
+            new_doc = None
+            saved = True
+
+        if not target.exists() or target.stat().st_size == 0:
+            raise RuntimeError(f"Target .docx file was not generated for {source.name}")
 
         log.info(f"Successfully converted {source.name} -> {target.name}")
         return target
@@ -128,6 +154,12 @@ def convert_doc_to_docx(
         log.error(f"COM conversion failed for {source.name}: {e}")
         raise
     finally:
+        try:
+            if new_doc:
+                new_doc.Close(SaveChanges=False)
+        except Exception:
+            pass
+
         try:
             if doc:
                 doc.Close(SaveChanges=False)
@@ -201,7 +233,7 @@ class WordConverterThread(QThread):
             self.ui_log_msg.emit(f"⏳ Preparing document for {self.target_format.upper()} conversion...", logging.INFO)
             source_path = self._resolve_path(self.doc_source)
             source = Path(source_path).resolve()
-            _unblock_file(source)
+            _sanitize_file_attributes(source)
 
             out_dir = source.parent
             out_name = source.stem + f".{self.target_format}"
