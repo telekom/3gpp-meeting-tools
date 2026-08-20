@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 import sqlite3
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
@@ -63,7 +63,7 @@ class DatabaseMaintenanceDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Database Maintenance & Compaction")
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
-        self.resize(720, 380)
+        self.resize(680, 320)
         self.setStyleSheet("background-color: #FAFAFA;")
 
         self._setup_ui()
@@ -71,10 +71,10 @@ class DatabaseMaintenanceDialog(QDialog):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setContentsMargins(14, 14, 14, 14)
 
         title = QLabel("🗄️ SQLite Database Maintenance")
-        title.setStyleSheet("font-size: 15px; font-weight: bold; color: #1E293B; margin-bottom: 2px;")
+        title.setStyleSheet("font-size: 13px; font-weight: bold; color: #1E293B; margin-bottom: 2px;")
         layout.addWidget(title)
 
         desc = QLabel(
@@ -83,7 +83,7 @@ class DatabaseMaintenanceDialog(QDialog):
             "disk space and defragment indices."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #64748B; font-size: 12px; margin-bottom: 10px;")
+        desc.setStyleSheet("color: #64748B; font-size: 11px; margin-bottom: 8px;")
         layout.addWidget(desc)
 
         self.table = QTableWidget()
@@ -94,21 +94,25 @@ class DatabaseMaintenanceDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.table.verticalHeader().setDefaultSectionSize(32)
+        self.table.verticalHeader().setDefaultSectionSize(26)
         self.table.verticalHeader().setVisible(False)
         self.table.setStyleSheet("""
             QTableWidget {
                 background-color: #FFFFFF;
                 border: 1px solid #CBD5E1;
-                border-radius: 6px;
+                border-radius: 4px;
                 gridline-color: #F1F5F9;
+            }
+            QTableWidget::item {
+                padding: 1px 4px;
             }
             QHeaderView::section {
                 background-color: #F8FAFC;
-                padding: 4px 8px;
+                padding: 3px 6px;
                 font-weight: bold;
                 color: #475569;
                 border: 1px solid #E2E8F0;
+                font-size: 11px;
             }
         """)
         layout.addWidget(self.table)
@@ -116,27 +120,34 @@ class DatabaseMaintenanceDialog(QDialog):
         btn_layout = QHBoxLayout()
 
         self.vacuum_all_btn = QPushButton("🧹 Compact All Databases")
+        self.vacuum_all_btn.setFixedHeight(26)
         self.vacuum_all_btn.setStyleSheet("""
             QPushButton {
                 background-color: #1E5C99;
                 color: white;
                 font-weight: bold;
+                font-size: 11px;
                 border-radius: 4px;
-                padding: 6px 14px;
+                padding: 3px 12px;
             }
             QPushButton:hover {
                 background-color: #15426E;
+            }
+            QPushButton:disabled {
+                background-color: #94A3B8;
             }
         """)
         self.vacuum_all_btn.clicked.connect(self._vacuum_all)
 
         refresh_btn = QPushButton("🔄 Refresh")
-        refresh_btn.setFixedHeight(30)
+        refresh_btn.setFixedHeight(26)
+        refresh_btn.setStyleSheet("font-size: 11px; padding: 2px 10px;")
         refresh_btn.clicked.connect(self._refresh_databases)
 
         close_btn = QPushButton("Close")
-        close_btn.setFixedHeight(30)
-        close_btn.setMinimumWidth(75)
+        close_btn.setFixedHeight(26)
+        close_btn.setMinimumWidth(70)
+        close_btn.setStyleSheet("font-size: 11px; padding: 2px 10px;")
         close_btn.clicked.connect(self.accept)
 
         btn_layout.addWidget(self.vacuum_all_btn)
@@ -160,7 +171,6 @@ class DatabaseMaintenanceDialog(QDialog):
             },
         ]
 
-        # Scan for any additional SQLite databases (e.g. personal notes or email caches)
         for extra_db in root.glob("*.db"):
             if extra_db not in [c["path"] for c in candidate_files] and not extra_db.name.endswith("-wal"):
                 candidate_files.append({
@@ -171,9 +181,14 @@ class DatabaseMaintenanceDialog(QDialog):
         return candidate_files
 
     def _refresh_databases(self):
-        """Populates the table with current database sizes and WAL statuses."""
+        """Populates the table with properly sized and themed entries."""
         db_entries = self._get_tracked_databases()
         self.table.setRowCount(0)
+
+        # Inherit base application font
+        base_font = self.table.font()
+        bold_font = QFont(base_font)
+        bold_font.setBold(True)
 
         for row_idx, entry in enumerate(db_entries):
             db_path: Path = entry["path"]
@@ -182,12 +197,15 @@ class DatabaseMaintenanceDialog(QDialog):
             # 1. Database Name & Tooltip Path
             name_item = QTableWidgetItem(f"📁 {entry['name']}")
             name_item.setToolTip(str(db_path))
-            name_item.setFont(QFont("", 9, QFont.Bold))
+            name_item.setFont(bold_font)
+            name_item.setForeground(QBrush(QColor("#0F172A")))
             self.table.setItem(row_idx, 0, name_item)
 
             if db_path.exists():
                 size = db_path.stat().st_size
                 size_item = QTableWidgetItem(format_file_size(size))
+                size_item.setFont(base_font)
+                size_item.setForeground(QBrush(QColor("#334155")))
                 size_item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_idx, 1, size_item)
 
@@ -200,22 +218,26 @@ class DatabaseMaintenanceDialog(QDialog):
                 else:
                     wal_item = QTableWidgetItem("⚪ Clean")
                     wal_item.setForeground(QBrush(QColor("#64748B")))
+                wal_item.setFont(base_font)
                 wal_item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_idx, 2, wal_item)
 
                 status_item = QTableWidgetItem("🟢 Ready")
+                status_item.setFont(base_font)
                 status_item.setForeground(QBrush(QColor("#166534")))
                 status_item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_idx, 3, status_item)
 
-                # Action button
+                # Action button styled to match standard tables
                 btn_compact = QPushButton("Compact")
+                btn_compact.setFixedHeight(22)
                 btn_compact.setStyleSheet("""
                     QPushButton {
                         background-color: #F1F5F9;
                         border: 1px solid #CBD5E1;
                         border-radius: 3px;
-                        padding: 2px 10px;
+                        padding: 1px 8px;
+                        font-size: 11px;
                         font-weight: bold;
                         color: #0369A1;
                     }
@@ -229,20 +251,24 @@ class DatabaseMaintenanceDialog(QDialog):
 
             else:
                 empty_size = QTableWidgetItem("Not Created")
+                empty_size.setFont(base_font)
                 empty_size.setForeground(QBrush(QColor("#94A3B8")))
                 empty_size.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_idx, 1, empty_size)
 
                 empty_wal = QTableWidgetItem("-")
+                empty_wal.setFont(base_font)
                 empty_wal.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_idx, 2, empty_wal)
 
                 empty_status = QTableWidgetItem("⚪ Inactive")
+                empty_status.setFont(base_font)
                 empty_status.setForeground(QBrush(QColor("#94A3B8")))
                 empty_status.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_idx, 3, empty_status)
 
                 lbl_none = QLabel("—")
+                lbl_none.setFont(base_font)
                 lbl_none.setAlignment(Qt.AlignCenter)
                 self.table.setCellWidget(row_idx, 4, lbl_none)
 
@@ -260,11 +286,8 @@ class DatabaseMaintenanceDialog(QDialog):
         try:
             conn = sqlite3.connect(str(db_path), check_same_thread=False)
             try:
-                # 1. Truncate and flush all active Write-Ahead Log pages into the main DB file
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-                # 2. Defragment and reclaim all unused freelist pages back to the operating system
                 conn.execute("VACUUM;")
-                # 3. Analyze tables for optimal query planning
                 conn.execute("PRAGMA optimize;")
             finally:
                 conn.close()
@@ -501,7 +524,6 @@ class ConsolePanel(QWidget):
         self.task_btn.setToolTip("Manage hanging background COM processes.")
         self.task_btn.clicked.connect(self.task_manager_requested.emit)
 
-        # ---> NEW: Database Maintenance Action Button <---
         self.db_btn = QPushButton("🗄️ Database")
         self.db_btn.setFixedSize(85, 24)
         self.db_btn.setStyleSheet("padding: 2px; font-size: 11px;")
