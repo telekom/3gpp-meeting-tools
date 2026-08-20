@@ -21,7 +21,7 @@ def parse_version_tuple(version_str: str) -> tuple:
 
 
 class NASDatabase:
-    """Manages the SQLite database for 3GPP TS 24.501 and TS 24.301 NAS messages and IE definitions."""
+    """Manages the SQLite database for 3GPP NAS (24.501, 24.301) and ASN.1 (38.331, 36.331, 38.413) protocols."""
 
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
@@ -33,7 +33,6 @@ class NASDatabase:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode = WAL;")
-        # Register Python regex function for SQLite
         conn.create_function(
             "REGEXP",
             2,
@@ -50,6 +49,7 @@ class NASDatabase:
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         spec_number TEXT NOT NULL,
                         version TEXT NOT NULL,
+                        spec_type TEXT DEFAULT 'NAS',
                         import_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(spec_number, version)
                     )
@@ -72,6 +72,8 @@ class NASDatabase:
                         message_id INTEGER NOT NULL,
                         iei TEXT,
                         ie_name TEXT NOT NULL,
+                        field_path TEXT,
+                        depth INTEGER DEFAULT 0,
                         type_reference TEXT,
                         presence TEXT,
                         format TEXT,
@@ -99,10 +101,10 @@ class NASDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_ver ON ie_definitions(version_id);")
                 conn.commit()
         except Exception as e:
-            self.logger.error(f"Error initializing NAS DB: {e}")
+            self.logger.error(f"Error initializing Protocol DB: {e}")
 
     def get_imported_versions(self) -> List[Dict[str, Any]]:
-        query = "SELECT id, spec_number, version, import_date FROM spec_versions"
+        query = "SELECT id, spec_number, version, spec_type, import_date FROM spec_versions"
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query)
@@ -124,7 +126,7 @@ class NASDatabase:
             return False
 
     def wipe_database(self) -> bool:
-        """Drops all tables, re-initializes schemas, and flushes/vacuums the file to shrink it on disk."""
+        """Drops all tables, re-initializes schemas, and vacuums the file to reclaim disk space."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -142,11 +144,11 @@ class NASDatabase:
 
             return True
         except Exception as e:
-            self.logger.error(f"Failed to wipe NAS DB: {e}")
+            self.logger.error(f"Failed to wipe Protocol DB: {e}")
             return False
 
     def vacuum(self) -> bool:
-        """Manually defragments and reclaims disk space for nas_data.db."""
+        """Manually defragments and reclaims disk space for protocol database."""
         try:
             with self._get_connection() as conn:
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
@@ -154,7 +156,7 @@ class NASDatabase:
                 conn.execute("PRAGMA optimize;")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to vacuum NAS DB: {e}")
+            self.logger.error(f"Failed to vacuum DB: {e}")
             return False
 
     def insert_parsed_spec(
@@ -163,6 +165,7 @@ class NASDatabase:
         version: str,
         messages: List[Dict[str, Any]],
         ie_defs: List[Dict[str, Any]],
+        spec_type: str = "NAS",
     ) -> bool:
         conn = self._get_connection()
         try:
@@ -174,8 +177,8 @@ class NASDatabase:
                 )
 
                 cursor.execute(
-                    "INSERT INTO spec_versions (spec_number, version) VALUES (?, ?)",
-                    (spec_number, version),
+                    "INSERT INTO spec_versions (spec_number, version, spec_type) VALUES (?, ?, ?)",
+                    (spec_number, version, spec_type),
                 )
                 version_id = cursor.lastrowid
 
@@ -200,6 +203,8 @@ class NASDatabase:
                             message_id,
                             ie.get("iei", ""),
                             ie.get("information_element", ""),
+                            ie.get("field_path", ie.get("information_element", "")),
+                            ie.get("depth", 0),
                             ie.get("type_reference", ""),
                             ie.get("presence", ""),
                             ie.get("format", ""),
@@ -209,8 +214,8 @@ class NASDatabase:
 
                     cursor.executemany(
                         """
-                        INSERT INTO message_ies (message_id, iei, ie_name, type_reference, presence, format, length, order_index)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO message_ies (message_id, iei, ie_name, field_path, depth, type_reference, presence, format, length, order_index)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                         ie_rows,
                     )
@@ -234,7 +239,7 @@ class NASDatabase:
                 )
             return True
         except Exception as e:
-            self.logger.error(f"Failed to insert parsed spec: {e}")
+            self.logger.error(f"Failed to insert parsed spec TS {spec_number} v{version}: {e}")
             return False
         finally:
             conn.close()
@@ -263,10 +268,6 @@ class NASDatabase:
         version_ids: Optional[List[int]] = None,
         search_descriptions: bool = False,
     ) -> List[Dict[str, Any]]:
-        """
-        Returns messages containing Information Elements matching the search query.
-        When search_descriptions=True, also matches against Clause 9 IE raw description text.
-        """
         if not version_ids or not ie_query.strip():
             return self.get_messages_list(version_ids)
 
@@ -325,10 +326,6 @@ class NASDatabase:
         spec_number: Optional[str] = None,
         version_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Finds distinct NAS messages referencing an IE by exact Clause boundary or exact IE name,
-        scoped strictly to the active specification and versions.
-        """
         if not version_ids:
             return []
 
@@ -380,6 +377,8 @@ class NASDatabase:
                 sv.version,
                 i.iei,
                 i.ie_name,
+                i.field_path,
+                i.depth,
                 i.type_reference,
                 i.presence,
                 i.format,

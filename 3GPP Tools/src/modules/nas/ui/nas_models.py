@@ -8,8 +8,8 @@ from modules.nas.core.nas_db import parse_version_tuple
 
 class NASEvolutionMatrixModel(QAbstractTableModel):
     """
-    Pivots Information Elements across multiple versions while preserving
-    specification row order and applying optional IE name/type/description filtering.
+    Pivots Information Elements & ASN.1 Fields across multiple versions while
+    preserving specification row order, rendering indentation, and applying filtering.
     """
 
     def __init__(
@@ -33,13 +33,25 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             return
 
         df = self._raw_df.copy()
-        df["details"] = (
-            df["presence"].fillna("")
-            + " | "
-            + df["format"].fillna("")
-            + " | "
-            + df["length"].fillna("")
-        )
+
+        # Format details cell
+        if "depth" in df.columns and df["depth"].max() > 0:
+            # ASN.1 styling: Presence | Format
+            df["details"] = df["presence"].fillna("") + " | " + df["format"].fillna("")
+        else:
+            # NAS styling: Presence | Format | Length
+            df["details"] = (
+                df["presence"].fillna("")
+                + " | "
+                + df["format"].fillna("")
+                + " | "
+                + df["length"].fillna("")
+            )
+
+        if "field_path" not in df.columns:
+            df["field_path"] = df["ie_name"]
+        if "depth" not in df.columns:
+            df["depth"] = 0
 
         multiple_specs = df["spec_number"].nunique() > 1 if "spec_number" in df.columns else False
         if multiple_specs:
@@ -47,7 +59,6 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         else:
             df["ver_col"] = df["version"]
 
-        # Natural version sorting
         unique_vers = (
             df[["spec_number", "version", "ver_col"]].drop_duplicates()
             if "spec_number" in df.columns
@@ -58,28 +69,27 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         )["ver_col"].tolist()
         self._versions = sorted_ver_cols
 
-        # 1. Compute canonical specification row order for each distinct IE
+        # 1. Compute canonical specification order and max depth
         order_map = (
-            df.groupby(["iei", "ie_name", "type_reference"])["order_index"]
+            df.groupby(["iei", "ie_name", "field_path", "type_reference", "depth"])["order_index"]
             .min()
             .reset_index()
         )
 
-        # 2. Pivot: Rows = IEI + IE Name + Type, Columns = Version Col
+        # 2. Pivot: Rows = IEI + IE Name + Path + Type, Columns = Version Col
         pivot = df.pivot_table(
-            index=["iei", "ie_name", "type_reference"],
+            index=["iei", "ie_name", "field_path", "type_reference", "depth"],
             columns="ver_col",
             values="details",
             aggfunc="first",
         ).reset_index()
 
-        # 3. Merge order_map and sort rows strictly by specification order
+        # 3. Merge order_map and sort strictly by specification order
         merged = pd.merge(
-            pivot, order_map, on=["iei", "ie_name", "type_reference"], how="left"
+            pivot, order_map, on=["iei", "ie_name", "field_path", "type_reference", "depth"], how="left"
         )
         merged = merged.sort_values(by="order_index", ascending=True).reset_index(drop=True)
 
-        # 4. Drop order_index
         self._pivot_df = merged.drop(columns=["order_index"])
 
         for v in self._versions:
@@ -88,11 +98,12 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             else:
                 self._pivot_df[v] = self._pivot_df[v].fillna("-")
 
-        # 5. Apply IE Filtering (Name, Type, IEI, and optionally Clause 9 Description)
+        # 4. Apply IE Filtering (Name, Path, Type, IEI, or Description)
         if self._ie_filter and not self._pivot_df.empty:
             q = self._ie_filter
             mask = (
                 self._pivot_df["ie_name"].astype(str).str.lower().str.contains(q, na=False)
+                | self._pivot_df["field_path"].astype(str).str.lower().str.contains(q, na=False)
                 | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False)
                 | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False)
             )
@@ -103,12 +114,12 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
                     matching_keys = set(
                         zip(
                             desc_match_df["iei"].astype(str),
-                            desc_match_df["ie_name"].astype(str),
+                            desc_match_df["field_path"].astype(str),
                             desc_match_df["type_reference"].astype(str),
                         )
                     )
                     desc_mask = self._pivot_df.apply(
-                        lambda row: (str(row["iei"]), str(row["ie_name"]), str(row["type_reference"])) in matching_keys,
+                        lambda row: (str(row["iei"]), str(row["field_path"]), str(row["type_reference"])) in matching_keys,
                         axis=1,
                     )
                     mask = mask | desc_mask
@@ -119,7 +130,12 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         return len(self._pivot_df)
 
     def columnCount(self, parent=QModelIndex()) -> int:
-        return len(self._pivot_df.columns)
+        # Subtract helper columns (field_path, depth) when rendering columns
+        return len([c for c in self._pivot_df.columns if c not in ("field_path", "depth")])
+
+    def _get_visible_column_name(self, col: int) -> str:
+        visible_cols = [c for c in self._pivot_df.columns if c not in ("field_path", "depth")]
+        return visible_cols[col]
 
     def data(self, index: QModelIndex, role=Qt.DisplayRole) -> Any:
         if not index.isValid():
@@ -127,10 +143,23 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
 
         row = index.row()
         col = index.column()
-        val = self._pivot_df.iloc[row, col]
+        col_name = self._get_visible_column_name(col)
+        val = self._pivot_df.iloc[row][col_name]
 
         if role == Qt.DisplayRole:
+            if col_name == "ie_name":
+                depth = self._pivot_df.iloc[row].get("depth", 0)
+                if depth > 0:
+                    indent = "    " * (depth - 1) + "└─ "
+                    return f"{indent}{val}"
+                return str(val)
             return str(val) if pd.notna(val) else "-"
+
+        if role == Qt.ToolTipRole:
+            field_path = self._pivot_df.iloc[row].get("field_path", "")
+            if field_path:
+                return f"Path: {field_path}"
+            return None
 
         if role == Qt.TextAlignmentRole:
             if col >= 3:
@@ -138,7 +167,7 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             return Qt.AlignLeft | Qt.AlignVCenter
 
         if role == Qt.BackgroundRole and col >= 3:
-            current_ver_col = self._pivot_df.columns[col]
+            current_ver_col = col_name
             current_val = str(val)
 
             if current_ver_col in self._versions:
@@ -164,10 +193,10 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         self, section: int, orientation: Qt.Orientation, role=Qt.DisplayRole
     ) -> Any:
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            col_name = self._pivot_df.columns[section]
+            col_name = self._get_visible_column_name(section)
             header_map = {
-                "iei": "IEI",
-                "ie_name": "Information Element",
+                "iei": "IEI / ID",
+                "ie_name": "Field / Information Element",
                 "type_reference": "Type / Reference",
             }
             if col_name in header_map:
