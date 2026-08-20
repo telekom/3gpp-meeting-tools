@@ -310,11 +310,48 @@ class NASTab(QWidget):
         self.msg_search.textChanged.connect(lambda: self._msg_search_timer.start())
         msg_layout.addWidget(self.msg_search)
 
+        # IE Search Layout with Extended Description Search Toggle Button
+        ie_search_bar_layout = QHBoxLayout()
+        ie_search_bar_layout.setContentsMargins(0, 0, 0, 0)
+        ie_search_bar_layout.setSpacing(4)
+
         self.ie_search = QLineEdit()
         self.ie_search.setPlaceholderText("Filter by IE / Type (e.g. EPS bearer, NSSAI)...")
         self.ie_search.setClearButtonEnabled(True)
         self.ie_search.textChanged.connect(lambda: self._ie_search_timer.start())
-        msg_layout.addWidget(self.ie_search)
+        self.ie_search.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.ie_search.customContextMenuRequested.connect(self._on_ie_search_context_menu)
+        ie_search_bar_layout.addWidget(self.ie_search)
+
+        self.deep_search_btn = QPushButton("📖 Desc")
+        self.deep_search_btn.setCheckable(True)
+        self.deep_search_btn.setToolTip("Extended Search: Also search inside Clause 9 IE descriptions and coding definitions")
+        self.deep_search_btn.setFixedHeight(26)
+        self.deep_search_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                font-weight: bold;
+                color: #64748B;
+                background-color: #F8FAFC;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 2px 6px;
+            }
+            QPushButton:hover {
+                color: #0369A1;
+                background-color: #E0F2FE;
+                border-color: #0284C7;
+            }
+            QPushButton:checked {
+                color: #0369A1;
+                background-color: #E0F2FE;
+                border: 1.5px solid #0284C7;
+            }
+        """)
+        self.deep_search_btn.toggled.connect(self._on_deep_search_toggled)
+        ie_search_bar_layout.addWidget(self.deep_search_btn)
+
+        msg_layout.addLayout(ie_search_bar_layout)
 
         self.msg_list = QListWidget()
         self.msg_list.itemClicked.connect(self._on_message_clicked)
@@ -458,6 +495,7 @@ class NASTab(QWidget):
                 "checked_versions": checked_versions,
                 "msg_filter": self.msg_search.text(),
                 "ie_filter": self.ie_search.text(),
+                "search_descriptions": self.deep_search_btn.isChecked(),
                 "selected_message": self.current_selected_message_name or "",
                 "collapsed_specs": collapsed_specs,
             }
@@ -466,6 +504,35 @@ class NASTab(QWidget):
                 json.dump(config_data, f, indent=4)
         except Exception as e:
             logging.warning(f"Could not save NAS config to {self.config_path}: {e}")
+
+    # -------------------------------------------------------------------------
+    # Search Modes & Context Menus
+    # -------------------------------------------------------------------------
+
+    def _on_deep_search_toggled(self, checked: bool):
+        """Updates placeholder and triggers debounced message population."""
+        if checked:
+            self.ie_search.setPlaceholderText("Filter by IE, Type, or Description (e.g. emergency)...")
+            self.deep_search_btn.setText("📖 Desc: ON")
+        else:
+            self.ie_search.setPlaceholderText("Filter by IE / Type (e.g. EPS bearer, NSSAI)...")
+            self.deep_search_btn.setText("📖 Desc")
+
+        self._save_config()
+        self._populate_messages()
+
+    def _on_ie_search_context_menu(self, pos):
+        """Standard right-click menu for IE Search line edit with extended search toggle."""
+        menu = self.ie_search.createStandardContextMenu()
+        menu.addSeparator()
+
+        act_toggle = QAction("📖 Include Clause 9 Descriptions in Search", self)
+        act_toggle.setCheckable(True)
+        act_toggle.setChecked(self.deep_search_btn.isChecked())
+        act_toggle.toggled.connect(self.deep_search_btn.setChecked)
+        menu.addAction(act_toggle)
+
+        menu.exec_(self.ie_search.mapToGlobal(pos))
 
     # -------------------------------------------------------------------------
     # Version Tree Management
@@ -562,13 +629,15 @@ class NASTab(QWidget):
         self._recalculate_selected_versions()
         self._updating_checks = False
 
-        # Restore search text filters and active message
+        # Restore search text filters, deep search toggle, and active message
         if not self._initialized_filters:
             self._loading_config = True
             if "msg_filter" in saved_config:
                 self.msg_search.setText(saved_config["msg_filter"])
             if "ie_filter" in saved_config:
                 self.ie_search.setText(saved_config["ie_filter"])
+            if "search_descriptions" in saved_config:
+                self.deep_search_btn.setChecked(bool(saved_config["search_descriptions"]))
             if "selected_message" in saved_config and saved_config["selected_message"]:
                 self.current_selected_message_name = saved_config["selected_message"]
             self._loading_config = False
@@ -768,9 +837,14 @@ class NASTab(QWidget):
 
         ie_query = self.ie_search.text().strip()
         msg_query = self.msg_search.text().strip().lower()
+        search_desc = self.deep_search_btn.isChecked()
 
         if ie_query:
-            messages = self.db.get_messages_by_ie_search(ie_query, self.selected_version_ids)
+            messages = self.db.get_messages_by_ie_search(
+                ie_query,
+                self.selected_version_ids,
+                search_descriptions=search_desc
+            )
         else:
             messages = self.db.get_messages_list(self.selected_version_ids)
 
@@ -813,7 +887,9 @@ class NASTab(QWidget):
         self._save_config()
 
         ie_query = self.ie_search.text().strip()
-        title_suffix = f" (Filtered by IE: '{ie_query}')" if ie_query else ""
+        search_desc = self.deep_search_btn.isChecked()
+        desc_label = " (incl. Desc)" if search_desc and ie_query else ""
+        title_suffix = f" (Filtered by IE{desc_label}: '{ie_query}')" if ie_query else ""
 
         df = self.db.get_message_evolution_df(msg_name, self.selected_version_ids)
 
@@ -828,7 +904,7 @@ class NASTab(QWidget):
         spec_prefix = f" ({', '.join(specs)})" if specs else ""
         self.matrix_title.setText(f"Message{spec_prefix}: {msg_name}{title_suffix}")
 
-        model = NASEvolutionMatrixModel(df, ie_filter=ie_query)
+        model = NASEvolutionMatrixModel(df, ie_filter=ie_query, search_descriptions=search_desc)
         self.matrix_table.setModel(model)
         self.matrix_table.resizeColumnsToContents()
 
