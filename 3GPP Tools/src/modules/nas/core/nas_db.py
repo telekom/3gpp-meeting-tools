@@ -124,6 +124,7 @@ class NASDatabase:
             return False
 
     def wipe_database(self) -> bool:
+        """Drops all tables, re-initializes schemas, and flushes/vacuums the file to shrink it on disk."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -132,10 +133,29 @@ class NASDatabase:
                 cursor.execute("DROP TABLE IF EXISTS ie_definitions;")
                 cursor.execute("DROP TABLE IF EXISTS spec_versions;")
                 conn.commit()
+
             self._init_db()
+
+            # Reclaim freelist space and truncate WAL log to shrink the physical file
+            with self._get_connection() as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                conn.execute("VACUUM;")
+
             return True
         except Exception as e:
             self.logger.error(f"Failed to wipe NAS DB: {e}")
+            return False
+
+    def vacuum(self) -> bool:
+        """Manually defragments and reclaims disk space for nas_data.db."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                conn.execute("VACUUM;")
+                conn.execute("PRAGMA optimize;")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to vacuum NAS DB: {e}")
             return False
 
     def insert_parsed_spec(
