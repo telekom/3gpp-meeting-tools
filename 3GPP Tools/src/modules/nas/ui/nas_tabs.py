@@ -46,8 +46,11 @@ from modules.specifications.core.database import SpecsDatabase
 
 
 def get_spec_title(spec_number: str) -> str:
-    """Returns a descriptive title for common 3GPP specifications."""
+    """Returns a descriptive title for 3GPP NAS and ASN.1 specifications."""
     spec_titles = {
+        "38.331": "TS 38.331 (NR RRC)",
+        "36.331": "TS 36.331 (LTE RRC)",
+        "38.413": "TS 38.413 (NGAP)",
         "24.501": "TS 24.501 (5GS NAS)",
         "24.301": "TS 24.301 (EPS NAS)",
         "24.008": "TS 24.008 (Core Network)",
@@ -58,7 +61,7 @@ def get_spec_title(spec_number: str) -> str:
 
 
 class NASVersionSelectDialog(QDialog):
-    """Dialog allowing selection of TS 24.501 or TS 24.301 versions to fetch and ingest."""
+    """Dialog allowing selection of NAS (24.501/24.301) and RRC/NGAP (38.331/36.331/38.413) versions."""
 
     def __init__(
             self,
@@ -73,7 +76,7 @@ class NASVersionSelectDialog(QDialog):
         self.cache_dir = cache_dir
         self.selected_files_info: List[Dict[str, Any]] = []
 
-        self.setWindowTitle("Select 3GPP NAS Specification Version(s) to Ingest")
+        self.setWindowTitle("Select 3GPP Specification Version(s) to Ingest")
         self.resize(740, 480)
         self._setup_ui()
         self._load_available_versions()
@@ -85,6 +88,9 @@ class NASVersionSelectDialog(QDialog):
         top_bar.addWidget(QLabel("Specification:"))
 
         self.spec_combo = QComboBox()
+        self.spec_combo.addItem("TS 38.331 (NR RRC)", "38.331")
+        self.spec_combo.addItem("TS 36.331 (LTE RRC)", "36.331")
+        self.spec_combo.addItem("TS 38.413 (NGAP)", "38.413")
         self.spec_combo.addItem("TS 24.501 (5GS NAS)", "24.501")
         self.spec_combo.addItem("TS 24.301 (EPS NAS)", "24.301")
         self.spec_combo.currentIndexChanged.connect(self._load_available_versions)
@@ -101,7 +107,7 @@ class NASVersionSelectDialog(QDialog):
 
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Version", "Filename", "Local Cache", "NAS DB Status"])
+        self.table.setHorizontalHeaderLabels(["Version", "Filename", "Local Cache", "DB Status"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.ExtendedSelection)
@@ -249,7 +255,7 @@ class NASTab(QWidget):
         self.clear_ver_btn.clicked.connect(self._on_clear_version_clicked)
         toolbar.addWidget(self.clear_ver_btn)
 
-        self.wipe_db_btn = QPushButton("⚠️ Wipe NAS DB")
+        self.wipe_db_btn = QPushButton("⚠️ Wipe DB")
         self.wipe_db_btn.setStyleSheet("color: #D32F2F; font-weight: bold;")
         self.wipe_db_btn.clicked.connect(self._on_wipe_db_clicked)
         toolbar.addWidget(self.wipe_db_btn)
@@ -301,11 +307,11 @@ class NASTab(QWidget):
         ver_layout.addWidget(self.version_tree)
         left_layout.addWidget(ver_group)
 
-        msg_group = QGroupBox("NAS Messages")
+        msg_group = QGroupBox("Protocol Messages && SIBs")
         msg_layout = QVBoxLayout(msg_group)
 
         self.msg_search = QLineEdit()
-        self.msg_search.setPlaceholderText("Filter message name (e.g. ATTACH, REGISTRATION)...")
+        self.msg_search.setPlaceholderText("Filter message/SIB name (e.g. SIB1, Reconfig)...")
         self.msg_search.setClearButtonEnabled(True)
         self.msg_search.textChanged.connect(lambda: self._msg_search_timer.start())
         msg_layout.addWidget(self.msg_search)
@@ -316,7 +322,7 @@ class NASTab(QWidget):
         ie_search_bar_layout.setSpacing(4)
 
         self.ie_search = QLineEdit()
-        self.ie_search.setPlaceholderText("Filter by IE / Type (e.g. EPS bearer, NSSAI)...")
+        self.ie_search.setPlaceholderText("Filter by IE / Field (e.g. RadioBearer, CellGroup)...")
         self.ie_search.setClearButtonEnabled(True)
         self.ie_search.textChanged.connect(lambda: self._ie_search_timer.start())
         self.ie_search.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -325,7 +331,7 @@ class NASTab(QWidget):
 
         self.deep_search_btn = QPushButton("📖 Desc")
         self.deep_search_btn.setCheckable(True)
-        self.deep_search_btn.setToolTip("Extended Search: Also search inside Clause 9 IE descriptions and coding definitions")
+        self.deep_search_btn.setToolTip("Extended Search: Also search inside Clause 9 / ASN.1 field descriptions")
         self.deep_search_btn.setFixedHeight(26)
         self.deep_search_btn.setStyleSheet("""
             QPushButton {
@@ -383,7 +389,7 @@ class NASTab(QWidget):
         matrix_layout.addWidget(self.matrix_table)
         right_splitter.addWidget(matrix_widget)
 
-        inspector_group = QGroupBox("Clause 9 Structure && Coding Inspector")
+        inspector_group = QGroupBox("Structure && Field Descriptions Inspector")
         inspector_layout = QVBoxLayout(inspector_group)
         inspector_layout.setContentsMargins(8, 8, 8, 8)
 
@@ -399,7 +405,7 @@ class NASTab(QWidget):
         self.ie_usage_btn = QPushButton("Used in: 0 messages ▾")
         self.ie_usage_btn.setVisible(False)
         self.ie_usage_btn.setCursor(Qt.PointingHandCursor)
-        self.ie_usage_btn.setToolTip("View other NAS messages that contain this Information Element")
+        self.ie_usage_btn.setToolTip("View other messages that contain this Information Element")
         self.ie_usage_btn.setStyleSheet("""
             QPushButton {
                 font-size: 11px;
@@ -419,7 +425,7 @@ class NASTab(QWidget):
         insp_header.addWidget(self.ie_usage_btn)
 
         self.inspector_version_combo = QComboBox()
-        self.inspector_version_combo.setToolTip("Switch specification release for this Clause 9 definition")
+        self.inspector_version_combo.setToolTip("Switch specification release for this definition")
         self.inspector_version_combo.setStyleSheet("""
             QComboBox {
                 font-weight: bold;
@@ -441,7 +447,7 @@ class NASTab(QWidget):
         self.inspector_text = QTextEdit()
         self.inspector_text.setReadOnly(True)
         self.inspector_text.setPlaceholderText(
-            "Click on an Information Element above to inspect its Clause 9 details..."
+            "Click on an Information Element above to inspect its details and field descriptions..."
         )
         inspector_layout.addWidget(self.inspector_text)
         right_splitter.addWidget(inspector_group)
@@ -457,17 +463,15 @@ class NASTab(QWidget):
     # -------------------------------------------------------------------------
 
     def _load_config(self) -> Dict[str, Any]:
-        """Loads saved filter and version selections from nas_config.json."""
         if self.config_path.exists():
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                logging.warning(f"Could not load NAS config from {self.config_path}: {e}")
+                logging.warning(f"Could not load Protocol config from {self.config_path}: {e}")
         return {}
 
     def _save_config(self):
-        """Saves current filter and version configuration to nas_config.json."""
         if self._loading_config or self._updating_checks:
             return
 
@@ -503,30 +507,28 @@ class NASTab(QWidget):
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(config_data, f, indent=4)
         except Exception as e:
-            logging.warning(f"Could not save NAS config to {self.config_path}: {e}")
+            logging.warning(f"Could not save Protocol config to {self.config_path}: {e}")
 
     # -------------------------------------------------------------------------
     # Search Modes & Context Menus
     # -------------------------------------------------------------------------
 
     def _on_deep_search_toggled(self, checked: bool):
-        """Updates placeholder and triggers debounced message population."""
         if checked:
-            self.ie_search.setPlaceholderText("Filter by IE, Type, or Description (e.g. emergency)...")
+            self.ie_search.setPlaceholderText("Filter by Field or Description (e.g. emergency)...")
             self.deep_search_btn.setText("📖 Desc: ON")
         else:
-            self.ie_search.setPlaceholderText("Filter by IE / Type (e.g. EPS bearer, NSSAI)...")
+            self.ie_search.setPlaceholderText("Filter by IE / Field (e.g. RadioBearer, CellGroup)...")
             self.deep_search_btn.setText("📖 Desc")
 
         self._save_config()
         self._populate_messages()
 
     def _on_ie_search_context_menu(self, pos):
-        """Standard right-click menu for IE Search line edit with extended search toggle."""
         menu = self.ie_search.createStandardContextMenu()
         menu.addSeparator()
 
-        act_toggle = QAction("📖 Include Clause 9 Descriptions in Search", self)
+        act_toggle = QAction("📖 Include Descriptions in Search", self)
         act_toggle.setCheckable(True)
         act_toggle.setChecked(self.deep_search_btn.isChecked())
         act_toggle.toggled.connect(self.deep_search_btn.setChecked)
@@ -539,7 +541,6 @@ class NASTab(QWidget):
     # -------------------------------------------------------------------------
 
     def refresh_versions(self):
-        """Builds hierarchical specification tree with neutral theme text colors."""
         self._updating_checks = True
         self.version_tree.clear()
         versions = self.db.get_imported_versions()
@@ -558,7 +559,6 @@ class NASTab(QWidget):
         if saved_checked is not None:
             saved_tuples = {(item.get("spec_number"), item.get("version")) for item in saved_checked}
 
-        # Base application font metrics
         base_font = self.version_tree.font()
         bold_font = QFont(base_font)
         bold_font.setBold(True)
@@ -593,7 +593,6 @@ class NASTab(QWidget):
             spec_item.setForeground(0, text_color_header)
             spec_item.setCheckState(0, Qt.Checked)
 
-            # Sort versions within this spec descending
             sorted_v_list = sorted(spec_versions, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
 
             for v in sorted_v_list:
@@ -629,7 +628,6 @@ class NASTab(QWidget):
         self._recalculate_selected_versions()
         self._updating_checks = False
 
-        # Restore search text filters, deep search toggle, and active message
         if not self._initialized_filters:
             self._loading_config = True
             if "msg_filter" in saved_config:
@@ -646,7 +644,6 @@ class NASTab(QWidget):
         self._populate_messages()
 
     def _on_version_tree_item_changed(self, item: QTreeWidgetItem, column: int):
-        """Propagates check state changes across master, spec, and version levels."""
         if self._updating_checks:
             return
 
@@ -685,7 +682,6 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
 
     def _on_version_tree_context_menu(self, pos):
-        """Displays context menu to delete specific version or specification group."""
         item = self.version_tree.itemAt(pos)
         if not item:
             return
@@ -727,7 +723,6 @@ class NASTab(QWidget):
             menu.exec_(self.version_tree.viewport().mapToGlobal(pos))
 
     def _delete_single_version(self, spec_number: str, version: str):
-        """Deletes a single specification version from the database and updates views."""
         reply = QMessageBox.question(
             self,
             "Confirm Delete",
@@ -745,7 +740,6 @@ class NASTab(QWidget):
                 QMessageBox.warning(self, "Error", f"Failed to delete TS {spec_number} v{version}.")
 
     def _delete_spec_group(self, spec_number: str, spec_item: QTreeWidgetItem):
-        """Deletes all versions of a specific specification group from the database."""
         child_count = spec_item.childCount()
         reply = QMessageBox.question(
             self,
@@ -766,7 +760,6 @@ class NASTab(QWidget):
             self.log_msg.emit(f"🗑️ Deleted all versions of TS {spec_number} from database.", logging.INFO)
 
     def _update_parent_states(self):
-        """Updates partially checked / checked states for specification and root items."""
         total_version_count = 0
         total_checked_count = 0
 
@@ -801,7 +794,6 @@ class NASTab(QWidget):
                 all_item.setCheckState(0, Qt.PartiallyChecked)
 
     def _recalculate_selected_versions(self):
-        """Aggregates all selected database version IDs across active specification groups."""
         selected_ids = []
         for s_idx in range(1, self.version_tree.topLevelItemCount()):
             spec_item = self.version_tree.topLevelItem(s_idx)
@@ -916,29 +908,19 @@ class NASTab(QWidget):
         row = index.row()
         col = index.column()
 
-        ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "")
-        type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "")
+        ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "").strip().lstrip("└─ ")
+        type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "").strip()
 
         spec_num = getattr(self, "_current_message_spec", None)
         if col >= 3:
-            col_name = str(model._pivot_df.columns[col])
-            match_spec = re.search(r"24\.[0-9]{3}", col_name)
+            col_name = str(model._get_visible_column_name(col))
+            match_spec = re.search(r"(?:24|36|38)\.[0-9]{3}", col_name)
             if match_spec:
                 spec_num = match_spec.group(0)
 
-        match = re.search(r"((?:9|D\.6)(?:\.[0-9A-Za-z]+)+)", type_ref)
-        if not match:
-            self.inspector_title_lbl.setText(ie_name)
-            self.ie_usage_btn.setVisible(False)
-            self.inspector_version_combo.clear()
-            self._current_clause_defs.clear()
-            self._current_ie_clause = None
-            self._current_ie_name = ie_name
-            self._current_ie_spec = spec_num
-            self.inspector_text.setPlainText(f"Type / Reference: {type_ref}\n(No Clause 9 reference identified)")
-            return
+        match = re.search(r"((?:9|6|D\.6)(?:\.[0-9A-Za-z]+)+)", type_ref)
+        clause = match.group(1).strip() if match else ie_name
 
-        clause = match.group(1).strip()
         self._current_ie_clause = clause
         self._current_ie_name = ie_name
         self._current_ie_spec = spec_num
@@ -950,16 +932,16 @@ class NASTab(QWidget):
             defs = self.db.get_ie_definitions_by_clause(clause, version_ids=self.selected_version_ids)
 
         if not defs:
-            self.inspector_title_lbl.setText(f"Clause {clause} – {ie_name}")
+            self.inspector_title_lbl.setText(f"{ie_name} ({type_ref})")
             self.ie_usage_btn.setVisible(False)
             self.inspector_version_combo.clear()
             self._current_clause_defs.clear()
-            self.inspector_text.setPlainText(f"Clause {clause}\n(No definition found in database)")
+            self.inspector_text.setPlainText(f"Type / Reference: {type_ref}\n(No structure definition found)")
             return
 
         resolved_name = defs[0]["ie_name"]
         spec_badge = f" (TS {spec_num})" if spec_num else ""
-        self.inspector_title_lbl.setText(f"Clause {clause} – {resolved_name}{spec_badge}")
+        self.inspector_title_lbl.setText(f"{resolved_name}{spec_badge}")
         self._current_clause_defs = {f"{d['spec_number']} v{d['version']}": d for d in defs}
 
         containing_msgs = self.db.get_messages_using_ie(
@@ -980,7 +962,7 @@ class NASTab(QWidget):
 
         target_version_key: Optional[str] = None
         if col >= 3:
-            col_name = str(model._pivot_df.columns[col])
+            col_name = str(model._get_visible_column_name(col))
             clean_col = col_name.replace("TS ", "").strip()
             if clean_col in self._current_clause_defs:
                 target_version_key = clean_col
@@ -1041,7 +1023,7 @@ class NASTab(QWidget):
             }
         """)
 
-        header_title = f"Messages referencing Clause {clause}"
+        header_title = f"Messages referencing {name or clause}"
         if spec_num:
             header_title += f" [TS {spec_num}]"
         header_action = QAction(f"{header_title}:", self)
@@ -1066,8 +1048,8 @@ class NASTab(QWidget):
             menu.addAction(none_act)
 
         menu.addSeparator()
-        filter_action = QAction(f"🔍 Filter message list by this IE ({clause})", self)
-        filter_action.triggered.connect(lambda: self.ie_search.setText(clause))
+        filter_action = QAction(f"🔍 Filter message list by '{name or clause}'", self)
+        filter_action.triggered.connect(lambda: self.ie_search.setText(name or clause))
         menu.addAction(filter_action)
 
         menu.exec_(self.ie_usage_btn.mapToGlobal(self.ie_usage_btn.rect().bottomLeft()))
@@ -1082,11 +1064,11 @@ class NASTab(QWidget):
             return
 
         row = index.row()
-        ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "")
-        type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "")
+        ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "").strip().lstrip("└─ ")
+        type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "").strip()
 
-        match = re.search(r"((?:9|D\.6)(?:\.[0-9A-Za-z]+)+)", type_ref)
-        clause = match.group(1).strip() if match else ""
+        match = re.search(r"((?:9|6|D\.6)(?:\.[0-9A-Za-z]+)+)", type_ref)
+        clause = match.group(1).strip() if match else ie_name
         spec_num = getattr(self, "_current_message_spec", None)
 
         menu = QMenu(self)
@@ -1106,16 +1088,16 @@ class NASTab(QWidget):
             }
         """)
 
-        filter_term = clause if clause else ie_name
+        filter_term = ie_name if ie_name else clause
         act_filter = QAction(f"🔍 Filter message list for '{filter_term}'", self)
         act_filter.triggered.connect(lambda: self.ie_search.setText(filter_term))
         menu.addAction(act_filter)
 
-        act_inspect = QAction(f"📖 Inspect Definition ({clause or ie_name})", self)
+        act_inspect = QAction(f"📖 Inspect Definition ({filter_term})", self)
         act_inspect.triggered.connect(lambda: self._on_table_cell_clicked(index))
         menu.addAction(act_inspect)
 
-        if clause:
+        if clause or ie_name:
             containing_msgs = self.db.get_messages_using_ie(
                 clause=clause,
                 ie_name=ie_name,
@@ -1184,7 +1166,7 @@ class NASTab(QWidget):
     def _on_import_local_file_clicked(self):
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select 3GPP NAS Specification(s) (.docx)",
+            "Select 3GPP Specification(s) (.docx)",
             "",
             "Word Files (*.docx)",
         )
@@ -1237,7 +1219,7 @@ class NASTab(QWidget):
         self.fetch_btn.setEnabled(True)
         self.import_file_btn.setEnabled(True)
         self.log_msg.emit(
-            f"✅ Successfully ingested {spec_count} specification(s) ({msg_count} total messages).",
+            f"✅ Successfully ingested {spec_count} specification(s) ({msg_count} total messages/PDUs).",
             logging.INFO,
         )
         self.refresh_versions()
@@ -1281,7 +1263,7 @@ class NASTab(QWidget):
         reply = QMessageBox.critical(
             self,
             "Confirm Wipe",
-            "This will delete ALL imported NAS specifications and tables. Continue?",
+            "This will delete ALL imported specifications and tables. Continue?",
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
@@ -1296,4 +1278,4 @@ class NASTab(QWidget):
             self.msg_list.clear()
             self.matrix_table.setModel(None)
             self.inspector_text.clear()
-            self.log_msg.emit("🧹 NAS Database wiped.", logging.INFO)
+            self.log_msg.emit("🧹 Protocol Database wiped.", logging.INFO)

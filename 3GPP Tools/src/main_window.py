@@ -182,7 +182,7 @@ class DragDropUI(QMainWindow):
             )
         )
 
-        nas_db_path = get_project_root() / "nas_data.db"
+        nas_db_path = get_project_root() / "3gpp_protocol_data.db"
         self.nas_tab = NASTab(nas_db_path, db_path)
 
         self.tabs.addTab(self.code_tab, "📝 PlantUML")
@@ -191,7 +191,7 @@ class DragDropUI(QMainWindow):
         self.tabs.addTab(self.specs_tab, "📚 Specifications")
         self.tabs.addTab(self.work_items_tab, "📋 Work Items")
         self.tabs.addTab(self.meetings_tab, "🗓️ Meetings")
-        self.tabs.addTab(self.nas_tab, "🔬 NAS")
+        self.tabs.addTab(self.nas_tab, "🔬 Protocols")
         self.tabs.setEnabled(False)
 
         # Tab corner help link
