@@ -136,7 +136,6 @@ class NASDatabase:
 
             self._init_db()
 
-            # Reclaim freelist space and truncate WAL log to shrink the physical file
             with self._get_connection() as conn:
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
                 conn.execute("VACUUM;")
@@ -259,28 +258,60 @@ class NASDatabase:
             return [dict(row) for row in cursor.fetchall()]
 
     def get_messages_by_ie_search(
-        self, ie_query: str, version_ids: Optional[List[int]] = None
+        self,
+        ie_query: str,
+        version_ids: Optional[List[int]] = None,
+        search_descriptions: bool = False,
     ) -> List[Dict[str, Any]]:
+        """
+        Returns messages containing Information Elements matching the search query.
+        When search_descriptions=True, also matches against Clause 9 IE raw description text.
+        """
         if not version_ids or not ie_query.strip():
             return self.get_messages_list(version_ids)
 
         placeholders = ",".join("?" for _ in version_ids)
-        query = f"""
-            SELECT m.message_name, m.clause, GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number
-            FROM nas_messages m
-            JOIN message_ies i ON i.message_id = m.id
-            JOIN spec_versions sv ON m.version_id = sv.id
-            WHERE m.version_id IN ({placeholders})
-              AND (
-                  i.ie_name LIKE ? 
-                  OR i.type_reference LIKE ? 
-                  OR i.iei LIKE ?
-              )
-            GROUP BY m.message_name, m.clause
-            ORDER BY m.message_name ASC
-        """
         pattern = f"%{ie_query.strip()}%"
-        params = list(version_ids) + [pattern, pattern, pattern]
+
+        if search_descriptions:
+            query = f"""
+                SELECT m.message_name, m.clause, GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number
+                FROM nas_messages m
+                JOIN message_ies i ON i.message_id = m.id
+                JOIN spec_versions sv ON m.version_id = sv.id
+                LEFT JOIN ie_definitions d ON d.version_id = sv.id 
+                    AND (
+                        (d.clause != '' AND i.type_reference LIKE '%' || d.clause || '%')
+                        OR (d.ie_name != '' AND LOWER(TRIM(i.ie_name)) = LOWER(TRIM(d.ie_name)))
+                    )
+                WHERE m.version_id IN ({placeholders})
+                  AND (
+                      i.ie_name LIKE ? 
+                      OR i.type_reference LIKE ? 
+                      OR i.iei LIKE ?
+                      OR d.raw_description LIKE ?
+                      OR d.ie_name LIKE ?
+                  )
+                GROUP BY m.message_name, m.clause
+                ORDER BY m.message_name ASC
+            """
+            params = list(version_ids) + [pattern, pattern, pattern, pattern, pattern]
+        else:
+            query = f"""
+                SELECT m.message_name, m.clause, GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number
+                FROM nas_messages m
+                JOIN message_ies i ON i.message_id = m.id
+                JOIN spec_versions sv ON m.version_id = sv.id
+                WHERE m.version_id IN ({placeholders})
+                  AND (
+                      i.ie_name LIKE ? 
+                      OR i.type_reference LIKE ? 
+                      OR i.iei LIKE ?
+                  )
+                GROUP BY m.message_name, m.clause
+                ORDER BY m.message_name ASC
+            """
+            params = list(version_ids) + [pattern, pattern, pattern]
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -313,12 +344,10 @@ class NASDatabase:
         clean_name = ie_name.strip() if ie_name else ""
 
         if clean_clause:
-            # Match exact clause boundary (e.g., '9.11.3.47' but not '9.11.3.4' or '9.11.3.47A')
             regex_pattern = rf"(?<![0-9A-Za-z.]){re.escape(clean_clause)}(?![0-9A-Za-z.])"
             where_conditions.append("i.type_reference REGEXP ?")
             params.append(regex_pattern)
         elif clean_name:
-            # Exact case-insensitive match when clause reference is absent
             where_conditions.append("LOWER(TRIM(i.ie_name)) = LOWER(?)")
             params.append(clean_name)
         else:
@@ -355,10 +384,16 @@ class NASDatabase:
                 i.presence,
                 i.format,
                 i.length,
-                i.order_index
+                i.order_index,
+                d.raw_description AS ie_description
             FROM message_ies i
             JOIN nas_messages m ON i.message_id = m.id
             JOIN spec_versions sv ON m.version_id = sv.id
+            LEFT JOIN ie_definitions d ON d.version_id = sv.id
+                AND (
+                    (d.clause != '' AND i.type_reference LIKE '%' || d.clause || '%')
+                    OR (d.ie_name != '' AND LOWER(TRIM(i.ie_name)) = LOWER(TRIM(d.ie_name)))
+                )
             WHERE m.message_name = ? AND sv.id IN ({placeholders})
             ORDER BY i.order_index ASC
         """

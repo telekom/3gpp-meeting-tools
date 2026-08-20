@@ -9,13 +9,19 @@ from modules.nas.core.nas_db import parse_version_tuple
 class NASEvolutionMatrixModel(QAbstractTableModel):
     """
     Pivots Information Elements across multiple versions while preserving
-    specification row order and applying optional IE substring filtering.
+    specification row order and applying optional IE name/type/description filtering.
     """
 
-    def __init__(self, raw_df: pd.DataFrame = None, ie_filter: Optional[str] = None):
+    def __init__(
+        self,
+        raw_df: pd.DataFrame = None,
+        ie_filter: Optional[str] = None,
+        search_descriptions: bool = False,
+    ):
         super().__init__()
         self._raw_df = raw_df if raw_df is not None else pd.DataFrame()
         self._ie_filter = ie_filter.strip().lower() if ie_filter else None
+        self._search_descriptions = search_descriptions
         self._pivot_df = pd.DataFrame()
         self._versions: List[str] = []
         self._setup_matrix()
@@ -42,7 +48,11 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             df["ver_col"] = df["version"]
 
         # Natural version sorting
-        unique_vers = df[["spec_number", "version", "ver_col"]].drop_duplicates() if "spec_number" in df.columns else df[["version", "ver_col"]].drop_duplicates()
+        unique_vers = (
+            df[["spec_number", "version", "ver_col"]].drop_duplicates()
+            if "spec_number" in df.columns
+            else df[["version", "ver_col"]].drop_duplicates()
+        )
         sorted_ver_cols = unique_vers.sort_values(
             by="version", key=lambda s: s.map(parse_version_tuple)
         )["ver_col"].tolist()
@@ -78,7 +88,7 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             else:
                 self._pivot_df[v] = self._pivot_df[v].fillna("-")
 
-        # 5. Apply IE Row Filtering if active
+        # 5. Apply IE Filtering (Name, Type, IEI, and optionally Clause 9 Description)
         if self._ie_filter and not self._pivot_df.empty:
             q = self._ie_filter
             mask = (
@@ -86,6 +96,23 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
                 | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False)
                 | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False)
             )
+
+            if self._search_descriptions and "ie_description" in df.columns:
+                desc_match_df = df[df["ie_description"].astype(str).str.lower().str.contains(q, na=False)]
+                if not desc_match_df.empty:
+                    matching_keys = set(
+                        zip(
+                            desc_match_df["iei"].astype(str),
+                            desc_match_df["ie_name"].astype(str),
+                            desc_match_df["type_reference"].astype(str),
+                        )
+                    )
+                    desc_mask = self._pivot_df.apply(
+                        lambda row: (str(row["iei"]), str(row["ie_name"]), str(row["type_reference"])) in matching_keys,
+                        axis=1,
+                    )
+                    mask = mask | desc_mask
+
             self._pivot_df = self._pivot_df[mask].reset_index(drop=True)
 
     def rowCount(self, parent=QModelIndex()) -> int:
