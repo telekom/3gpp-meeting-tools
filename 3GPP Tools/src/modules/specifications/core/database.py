@@ -1,13 +1,15 @@
 # --- File: modules/specifications/core/database.py ---
-import sqlite3
+import logging
 from pathlib import Path
+import sqlite3
 
 
 class SpecsDatabase:
     def __init__(self, db_path: Path):
         self.db_path = db_path
+        self.logger = logging.getLogger(__name__)
         self._init_db()
-        self._cleanup_orphans()  # ---> NEW: Silently purge orphans on every startup!
+        self._cleanup_orphans()  # Purge orphans on startup
 
     def _get_connection(self):
         return sqlite3.connect(self.db_path, check_same_thread=False)
@@ -16,8 +18,7 @@ class SpecsDatabase:
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
-            # ---> UPGRADED: Enable concurrent Read/Write for background syncing!
-            # This prevents "database is locked" crashes during the Two-Pass sync.
+            # Enable concurrent Read/Write for background syncing
             cursor.execute('PRAGMA journal_mode=WAL;')
 
             cursor.execute('''
@@ -98,7 +99,7 @@ class SpecsDatabase:
                     WHERE id NOT IN (SELECT DISTINCT tech_id FROM spec_radio_tech_map WHERE tech_id IS NOT NULL)
                 ''')
 
-                # 2. Purge Orphaned Working Groups (Must check BOTH Primary and Secondary foreign keys!)
+                # 2. Purge Orphaned Working Groups (Check both Primary and Secondary foreign keys)
                 cursor.execute('''
                     DELETE FROM working_groups 
                     WHERE id NOT IN (SELECT DISTINCT primary_group_id FROM specifications WHERE primary_group_id IS NOT NULL)
@@ -112,7 +113,19 @@ class SpecsDatabase:
                 ''')
 
         except Exception as e:
-            print(f"Error during database garbage collection: {e}")
+            self.logger.error(f"Error during specifications garbage collection: {e}")
+
+    def vacuum(self) -> bool:
+        """Flushes WAL logs, defragments pages, and reclaims unused disk space."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                conn.execute("VACUUM;")
+                conn.execute("PRAGMA optimize;")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to vacuum Specs DB: {e}")
+            return False
 
     def get_filter_options(self) -> dict:
         options = {'series': [], 'techs': [], 'groups': [], 'types': []}
@@ -134,7 +147,7 @@ class SpecsDatabase:
                 options['types'] = [r[0] for r in cursor.fetchall() if r[0]]
 
         except Exception as e:
-            print(f"Error fetching filter options: {e}")
+            self.logger.error(f"Error fetching filter options: {e}")
         return options
 
     def insert_or_update_file(self, series_name, series_url, spec_number, spec_url, filename, version, file_url):
@@ -179,10 +192,11 @@ class SpecsDatabase:
 
             cursor.execute('SELECT id FROM specifications WHERE number = ?', (spec_number,))
             spec_row = cursor.fetchone()
-            if not spec_row: return
+            if not spec_row:
+                return
             spec_id = spec_row[0]
 
-            # Wipe the old mappings clean before saving the new ones!
+            # Clear previous mappings before saving new associations
             cursor.execute('DELETE FROM spec_radio_tech_map WHERE spec_id = ?', (spec_id,))
             cursor.execute('DELETE FROM spec_secondary_group_map WHERE spec_id = ?', (spec_id,))
 
@@ -304,7 +318,8 @@ class SpecsDatabase:
             cursor = conn.cursor()
             cursor.execute(query, (spec_number,))
             row = cursor.fetchone()
-            if not row: return {}
+            if not row:
+                return {}
 
             columns = [description[0] for description in cursor.description]
             details = dict(zip(columns, row))
@@ -312,7 +327,8 @@ class SpecsDatabase:
             if details.get('primary_group_id'):
                 cursor.execute('SELECT name FROM working_groups WHERE id = ?', (details['primary_group_id'],))
                 p_row = cursor.fetchone()
-                if p_row: details['primary_group'] = p_row[0]
+                if p_row:
+                    details['primary_group'] = p_row[0]
             details.pop('primary_group_id', None)
 
             cursor.execute('''
@@ -322,7 +338,8 @@ class SpecsDatabase:
                 WHERE s.number = ?
             ''', (spec_number,))
             techs = [r[0] for r in cursor.fetchall()]
-            if techs: details['radio_technology'] = ", ".join(techs)
+            if techs:
+                details['radio_technology'] = ", ".join(techs)
 
             cursor.execute('''
                 SELECT w.name FROM working_groups w
@@ -331,6 +348,7 @@ class SpecsDatabase:
                 WHERE s.number = ?
             ''', (spec_number,))
             sec_groups = [r[0] for r in cursor.fetchall()]
-            if sec_groups: details['secondary_groups'] = ", ".join(sec_groups)
+            if sec_groups:
+                details['secondary_groups'] = ", ".join(sec_groups)
 
             return details

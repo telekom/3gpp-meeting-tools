@@ -1,10 +1,34 @@
 import logging
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QLabel, QTextEdit, QListWidget, QDialog, QTreeWidget, QTreeWidgetItem, QHeaderView)
+import os
+from pathlib import Path
+import sqlite3
+from typing import Dict, List, Optional, Tuple, Any
+
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QTextEdit, QListWidget, QDialog, QTreeWidget, QTreeWidgetItem,
+    QHeaderView, QTableWidget, QTableWidgetItem, QMessageBox, QApplication
+)
 from PyQt5.QtCore import pyqtSignal, Qt, QObject
-from PyQt5.QtGui import QColor, QBrush
+from PyQt5.QtGui import QColor, QBrush, QFont
 
 from core.process_manager import ProcessManager
+from core.utils.paths import get_project_root
+
+
+# ==========================================
+# --- HELPER: FILE SIZE FORMATTER ---
+# ==========================================
+def format_file_size(size_bytes: int) -> str:
+    """Formats raw byte count into a human-readable string (KB, MB, GB)."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    for unit in ["KB", "MB", "GB"]:
+        size_bytes /= 1024.0
+        if size_bytes < 1024.0:
+            return f"{size_bytes:.2f} {unit}"
+    return f"{size_bytes:.2f} TB"
+
 
 # ==========================================
 # --- CUSTOM GUI LOG HANDLER ---
@@ -26,6 +50,280 @@ class GuiLogHandler(logging.Handler, QObject):
 
 
 # ==========================================
+# --- DATABASE MAINTENANCE DIALOG ---
+# ==========================================
+class DatabaseMaintenanceDialog(QDialog):
+    """
+    Provides inspection, space calculation, and manual VACUUM / WAL compaction
+    for all SQLite databases managed by the application.
+    """
+    log_msg = pyqtSignal(str, int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Database Maintenance & Compaction")
+        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        self.resize(720, 380)
+        self.setStyleSheet("background-color: #FAFAFA;")
+
+        self._setup_ui()
+        self._refresh_databases()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+
+        title = QLabel("🗄️ SQLite Database Maintenance")
+        title.setStyleSheet("font-size: 15px; font-weight: bold; color: #1E293B; margin-bottom: 2px;")
+        layout.addWidget(title)
+
+        desc = QLabel(
+            "SQLite preserves deleted pages on an internal freelist, meaning database files do not shrink "
+            "automatically. Compacting runs a full <b>VACUUM</b> and flushes Write-Ahead Logs (WAL) to reclaim "
+            "disk space and defragment indices."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #64748B; font-size: 12px; margin-bottom: 10px;")
+        layout.addWidget(desc)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["Database", "File Size", "WAL Log", "Status", "Action"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.table.verticalHeader().setDefaultSectionSize(32)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                gridline-color: #F1F5F9;
+            }
+            QHeaderView::section {
+                background-color: #F8FAFC;
+                padding: 4px 8px;
+                font-weight: bold;
+                color: #475569;
+                border: 1px solid #E2E8F0;
+            }
+        """)
+        layout.addWidget(self.table)
+
+        btn_layout = QHBoxLayout()
+
+        self.vacuum_all_btn = QPushButton("🧹 Compact All Databases")
+        self.vacuum_all_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1E5C99;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 6px 14px;
+            }
+            QPushButton:hover {
+                background-color: #15426E;
+            }
+        """)
+        self.vacuum_all_btn.clicked.connect(self._vacuum_all)
+
+        refresh_btn = QPushButton("🔄 Refresh")
+        refresh_btn.setFixedHeight(30)
+        refresh_btn.clicked.connect(self._refresh_databases)
+
+        close_btn = QPushButton("Close")
+        close_btn.setFixedHeight(30)
+        close_btn.setMinimumWidth(75)
+        close_btn.clicked.connect(self.accept)
+
+        btn_layout.addWidget(self.vacuum_all_btn)
+        btn_layout.addStretch()
+        btn_layout.addWidget(refresh_btn)
+        btn_layout.addWidget(close_btn)
+
+        layout.addLayout(btn_layout)
+
+    def _get_tracked_databases(self) -> List[Dict[str, Any]]:
+        """Identifies all standard databases in the application root and subdirectories."""
+        root = get_project_root()
+        candidate_files = [
+            {
+                "name": "3GPP Core Data (Specs, Meetings, Work Items)",
+                "path": root / "3gpp_data.db",
+            },
+            {
+                "name": "NAS Protocol Data (TS 24.501 & TS 24.301)",
+                "path": root / "nas_data.db",
+            },
+        ]
+
+        # Scan for any additional SQLite databases (e.g. personal notes or email caches)
+        for extra_db in root.glob("*.db"):
+            if extra_db not in [c["path"] for c in candidate_files] and not extra_db.name.endswith("-wal"):
+                candidate_files.append({
+                    "name": f"Auxiliary Database ({extra_db.name})",
+                    "path": extra_db,
+                })
+
+        return candidate_files
+
+    def _refresh_databases(self):
+        """Populates the table with current database sizes and WAL statuses."""
+        db_entries = self._get_tracked_databases()
+        self.table.setRowCount(0)
+
+        for row_idx, entry in enumerate(db_entries):
+            db_path: Path = entry["path"]
+            self.table.insertRow(row_idx)
+
+            # 1. Database Name & Tooltip Path
+            name_item = QTableWidgetItem(f"📁 {entry['name']}")
+            name_item.setToolTip(str(db_path))
+            name_item.setFont(QFont("", 9, QFont.Bold))
+            self.table.setItem(row_idx, 0, name_item)
+
+            if db_path.exists():
+                size = db_path.stat().st_size
+                size_item = QTableWidgetItem(format_file_size(size))
+                size_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row_idx, 1, size_item)
+
+                # Check for active WAL file
+                wal_file = Path(str(db_path) + "-wal")
+                if wal_file.exists() and wal_file.stat().st_size > 0:
+                    wal_text = f"🟡 Active ({format_file_size(wal_file.stat().st_size)})"
+                    wal_item = QTableWidgetItem(wal_text)
+                    wal_item.setForeground(QBrush(QColor("#B45309")))
+                else:
+                    wal_item = QTableWidgetItem("⚪ Clean")
+                    wal_item.setForeground(QBrush(QColor("#64748B")))
+                wal_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row_idx, 2, wal_item)
+
+                status_item = QTableWidgetItem("🟢 Ready")
+                status_item.setForeground(QBrush(QColor("#166534")))
+                status_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row_idx, 3, status_item)
+
+                # Action button
+                btn_compact = QPushButton("Compact")
+                btn_compact.setStyleSheet("""
+                    QPushButton {
+                        background-color: #F1F5F9;
+                        border: 1px solid #CBD5E1;
+                        border-radius: 3px;
+                        padding: 2px 10px;
+                        font-weight: bold;
+                        color: #0369A1;
+                    }
+                    QPushButton:hover {
+                        background-color: #E0F2FE;
+                        border-color: #0284C7;
+                    }
+                """)
+                btn_compact.clicked.connect(lambda _, p=db_path, r=row_idx: self._vacuum_single(p, r))
+                self.table.setCellWidget(row_idx, 4, btn_compact)
+
+            else:
+                empty_size = QTableWidgetItem("Not Created")
+                empty_size.setForeground(QBrush(QColor("#94A3B8")))
+                empty_size.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row_idx, 1, empty_size)
+
+                empty_wal = QTableWidgetItem("-")
+                empty_wal.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row_idx, 2, empty_wal)
+
+                empty_status = QTableWidgetItem("⚪ Inactive")
+                empty_status.setForeground(QBrush(QColor("#94A3B8")))
+                empty_status.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row_idx, 3, empty_status)
+
+                lbl_none = QLabel("—")
+                lbl_none.setAlignment(Qt.AlignCenter)
+                self.table.setCellWidget(row_idx, 4, lbl_none)
+
+    def _vacuum_database_file(self, db_path: Path) -> Tuple[bool, int, int, str]:
+        """
+        Executes WAL checkpointing and VACUUM on the specified SQLite database file.
+        Returns: (success, bytes_before, bytes_after, message)
+        """
+        if not db_path.exists():
+            return False, 0, 0, "File does not exist"
+
+        wal_file = Path(str(db_path) + "-wal")
+        bytes_before = db_path.stat().st_size + (wal_file.stat().st_size if wal_file.exists() else 0)
+
+        try:
+            conn = sqlite3.connect(str(db_path), check_same_thread=False)
+            try:
+                # 1. Truncate and flush all active Write-Ahead Log pages into the main DB file
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                # 2. Defragment and reclaim all unused freelist pages back to the operating system
+                conn.execute("VACUUM;")
+                # 3. Analyze tables for optimal query planning
+                conn.execute("PRAGMA optimize;")
+            finally:
+                conn.close()
+
+            bytes_after = db_path.stat().st_size + (wal_file.stat().st_size if wal_file.exists() else 0)
+            return True, bytes_before, bytes_after, "Success"
+        except Exception as e:
+            return False, bytes_before, bytes_before, str(e)
+
+    def _vacuum_single(self, db_path: Path, row_idx: int):
+        """Compacts an individual database and updates table status."""
+        status_item = self.table.item(row_idx, 3)
+        if status_item:
+            status_item.setText("⏳ Compacting...")
+            status_item.setForeground(QBrush(QColor("#0284C7")))
+        QApplication.processEvents()
+
+        success, before, after, msg = self._vacuum_database_file(db_path)
+
+        if success:
+            saved_bytes = max(0, before - after)
+            saved_str = f" (reclaimed {format_file_size(saved_bytes)})" if saved_bytes > 0 else " (already compact)"
+            logging.info(f"✅ Database compacted: {db_path.name}{saved_str}")
+        else:
+            logging.error(f"❌ Compaction error on {db_path.name}: {msg}")
+            QMessageBox.critical(self, "Compaction Error", f"Failed to compact {db_path.name}:\n{msg}")
+
+        self._refresh_databases()
+
+    def _vacuum_all(self):
+        """Compacts all existing tracked databases in sequence."""
+        db_entries = self._get_tracked_databases()
+        total_saved = 0
+        compacted_count = 0
+
+        self.vacuum_all_btn.setEnabled(False)
+        self.vacuum_all_btn.setText("⏳ Compacting...")
+        QApplication.processEvents()
+
+        for entry in db_entries:
+            db_path = entry["path"]
+            if db_path.exists():
+                success, before, after, msg = self._vacuum_database_file(db_path)
+                if success:
+                    compacted_count += 1
+                    total_saved += max(0, before - after)
+                else:
+                    logging.error(f"❌ Failed to compact {db_path.name}: {msg}")
+
+        self.vacuum_all_btn.setText("🧹 Compact All Databases")
+        self.vacuum_all_btn.setEnabled(True)
+        self._refresh_databases()
+
+        summary_msg = f"Compacted {compacted_count} database(s).\nTotal disk space reclaimed: {format_file_size(total_saved)}"
+        logging.info(f"✅ {summary_msg.replace(chr(10), ' ')}")
+        QMessageBox.information(self, "Compaction Complete", summary_msg)
+
+
+# ==========================================
 # --- PROCESS MANAGER DIALOG (ACCORDION) ---
 # ==========================================
 class ProcessManagerDialog(QDialog):
@@ -33,7 +331,7 @@ class ProcessManagerDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("COM Process Manager")
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
-        self.resize(650, 450)  # Made slightly wider to comfortably fit multiple buttons
+        self.resize(650, 450)
         self.setStyleSheet("background-color: #FAFAFA;")
 
         self.apps = {
@@ -54,15 +352,14 @@ class ProcessManagerDialog(QDialog):
         layout.addWidget(title)
 
         desc = QLabel(
-            "Expand an application to view individual documents. You can kill specific frozen documents or safely purge all headless background ghosts.")
+            "Expand an application to view individual documents. You can kill specific frozen documents or safely purge all headless background ghosts."
+        )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #666; margin-bottom: 10px;")
         layout.addWidget(desc)
 
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Application / Document", "Details", "Action"])
-
-        # --- FIX: Dynamic Column Sizing instead of hardcoded pixels ---
         self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -75,7 +372,6 @@ class ProcessManagerDialog(QDialog):
 
         btn_layout = QHBoxLayout()
 
-        # --- FIX: Removed fixed width cap so text can naturally expand ---
         refresh_btn = QPushButton("🔄 Refresh List")
         refresh_btn.setMinimumHeight(30)
         refresh_btn.clicked.connect(self._refresh_stats)
@@ -111,7 +407,6 @@ class ProcessManagerDialog(QDialog):
             ghosts = sum(1 for p in app_procs if p["IsGhost"])
 
             app_item = QTreeWidgetItem(self.tree)
-            # --- FIX: Removed the manual unicode arrow to prevent collision ---
             app_item.setText(0, f"{display_name}")
             app_item.setText(1, f"Total: {total} | Ghosts: {ghosts}")
             app_item.setForeground(0, QBrush(QColor("#333333")))
@@ -120,24 +415,23 @@ class ProcessManagerDialog(QDialog):
             font.setBold(True)
             app_item.setFont(0, font)
 
-            # --- FIX: Container to hold multiple buttons in the Action column ---
             action_widget = QWidget()
             act_layout = QHBoxLayout(action_widget)
             act_layout.setContentsMargins(0, 0, 0, 0)
             act_layout.setSpacing(5)
 
-            # 1. Global "Kill All" Button (Always visible)
             btn_kill_all = QPushButton("Kill All")
             btn_kill_all.setStyleSheet(
-                "background-color: #FDF4F0; color: #D83B01; border: 1px solid #F3C3B1; padding: 2px 8px; border-radius: 3px;")
+                "background-color: #FDF4F0; color: #D83B01; border: 1px solid #F3C3B1; padding: 2px 8px; border-radius: 3px;"
+            )
             btn_kill_all.clicked.connect(lambda _, app=exe_name: self._kill_all(app))
             act_layout.addWidget(btn_kill_all)
 
-            # 2. "Kill Ghosts" Button (Only if ghosts exist)
             if ghosts > 0:
                 btn_kill_ghosts = QPushButton("Kill Ghosts")
                 btn_kill_ghosts.setStyleSheet(
-                    "background-color: #FAFAFA; color: #555; border: 1px solid #CCC; padding: 2px 8px; border-radius: 3px;")
+                    "background-color: #FAFAFA; color: #555; border: 1px solid #CCC; padding: 2px 8px; border-radius: 3px;"
+                )
                 btn_kill_ghosts.clicked.connect(lambda _, app=exe_name: self._kill_ghosts(app))
                 act_layout.addWidget(btn_kill_ghosts)
 
@@ -161,7 +455,8 @@ class ProcessManagerDialog(QDialog):
 
                 btn_kill_single = QPushButton("Kill")
                 btn_kill_single.setStyleSheet(
-                    "background-color: #FAFAFA; color: #555; border: 1px solid #CCC; padding: 2px 8px; border-radius: 3px;")
+                    "background-color: #FAFAFA; color: #555; border: 1px solid #CCC; padding: 2px 8px; border-radius: 3px;"
+                )
                 btn_kill_single.clicked.connect(lambda _, pid=p['Id']: self._kill_single(pid))
                 self.tree.setItemWidget(child, 2, btn_kill_single)
 
@@ -186,6 +481,7 @@ class ConsolePanel(QWidget):
     update_requested = pyqtSignal()
     task_manager_requested = pyqtSignal()
     network_config_requested = pyqtSignal()
+    db_maintenance_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -204,6 +500,13 @@ class ConsolePanel(QWidget):
         self.task_btn.setStyleSheet("padding: 2px; font-size: 11px;")
         self.task_btn.setToolTip("Manage hanging background COM processes.")
         self.task_btn.clicked.connect(self.task_manager_requested.emit)
+
+        # ---> NEW: Database Maintenance Action Button <---
+        self.db_btn = QPushButton("🗄️ Database")
+        self.db_btn.setFixedSize(85, 24)
+        self.db_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.db_btn.setToolTip("Inspect database sizes, compact freelists (VACUUM), and flush WAL logs.")
+        self.db_btn.clicked.connect(self.db_maintenance_requested.emit)
 
         self.proxy_btn = QPushButton("📡 Proxy")
         self.proxy_btn.setFixedSize(70, 24)
@@ -231,6 +534,7 @@ class ConsolePanel(QWidget):
         header.addWidget(lbl)
         header.addStretch()
         header.addWidget(self.task_btn)
+        header.addWidget(self.db_btn)
         header.addWidget(self.proxy_btn)
         header.addWidget(self.net_cfg_btn)
         header.addWidget(self.update_btn)
@@ -260,9 +564,6 @@ class ConsolePanel(QWidget):
         html_msg = f'<span style="color: {color};">{message.replace(chr(10), "<br>")}</span>'
         self.console.append(html_msg)
 
-        # Remove QApplication.processEvents()
-
-        # Smoothly scroll to bottom without forcing a global UI lock
         scrollbar = self.console.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
@@ -329,6 +630,5 @@ class QueuePanel(QWidget):
         selected_items = self.queue_list.selectedItems()
         if not selected_items:
             return
-        # Pass the text (or indices) of selected items to the manager
         items_to_remove = [item.text() for item in selected_items]
         self.remove_requested.emit(items_to_remove)

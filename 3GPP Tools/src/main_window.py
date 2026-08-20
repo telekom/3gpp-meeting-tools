@@ -6,19 +6,20 @@ import webbrowser
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QTimer
-# Add the new thread underneath your other core imports
-from PyQt5.QtGui import QKeySequence
-from PyQt5.QtGui import QTextCursor
-# Add QLabel to your existing QtWidgets import list
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication, QDialog, QTabWidget, \
-    QPushButton, QShortcut, QLabel
+from PyQt5.QtGui import QKeySequence, QTextCursor
+from PyQt5.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication,
+    QDialog, QTabWidget, QPushButton, QShortcut, QLabel
+)
 
 from core.config.config import HELP_URL
 from core.network.session import NetworkConfigDialog
 from core.network.wifi_monitor import WifiMonitorThread
 from core.queue_manager import QueueManager
 from core.ui.ui_components import ProxyDialog, create_app_icon
-from core.ui.ui_panels import ConsolePanel, QueuePanel, ProcessManagerDialog, GuiLogHandler
+from core.ui.ui_panels import (
+    ConsolePanel, QueuePanel, ProcessManagerDialog, DatabaseMaintenanceDialog, GuiLogHandler
+)
 from core.utils.paths import get_project_root
 from modules.meetings.ui.ui_tabs import MeetingsTab
 from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
@@ -38,9 +39,7 @@ class DragDropUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("3GPP Delegate Tools")
-
         self.setWindowIcon(create_app_icon())
-
         self.resize(950, 750)
 
         self.jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
@@ -48,16 +47,14 @@ class DragDropUI(QMainWindow):
 
         self._setup_ui()
 
-        # ---> NEW: Attach the Global GUI Logger
+        # Global GUI Logger
         self.gui_logger = GuiLogHandler()
         self.gui_logger.setFormatter(logging.Formatter('%(message)s'))
         logging.getLogger().addHandler(self.gui_logger)
         self.gui_logger.log_emitted.connect(self.console_panel.log_message)
 
-        # --- Wire the Queue Manager directly to the UI ---
-        app_context = {
-            "jar_path": self.jar_path
-        }
+        # Wire Queue Manager
+        app_context = {"jar_path": self.jar_path}
         self.queue_manager = QueueManager(app_context=app_context)
         self.queue_manager.log_msg.connect(self.log_message)
         self.queue_manager.queue_updated.connect(self.queue_panel.update_list)
@@ -66,11 +63,8 @@ class DragDropUI(QMainWindow):
 
         self.queue_panel.remove_requested.connect(self.queue_manager.remove_items)
         self.queue_panel.clear_requested.connect(self.queue_manager.clear_queue)
-
-        # 1. Connect the Abort button click to the Queue Manager's new abort function
         self.queue_panel.abort_requested.connect(self.queue_manager.abort_current_task)
 
-        # 2. Toggle the Abort button state (enabled only when processing)
         self.queue_manager.processing_state_changed.connect(
             lambda is_proc, status: self.queue_panel.abort_btn.setEnabled(is_proc)
         )
@@ -89,7 +83,7 @@ class DragDropUI(QMainWindow):
 
         self._launch_init_thread(check_updates=False)
 
-        # ---> NEW: Start the Background WiFi Monitor <---
+        # Background WiFi Monitor
         self.wifi_monitor = WifiMonitorThread(self)
         self.wifi_monitor.status_updated.connect(self._update_network_indicator)
         self.wifi_monitor.start()
@@ -118,19 +112,18 @@ class DragDropUI(QMainWindow):
         self.code_tab.file_dropped.connect(self.extract_code_from_visio)
 
         self.batch_tab = BatchConvertTab()
-        # 👇 UPDATE this line to accept 'fmt' and pass it as 'target_format'
         self.batch_tab.files_dropped.connect(
             lambda paths, fmt: self.queue_manager.add_batch(paths, target_format=fmt)
         )
 
         self.word_tab = WordExtractorTab()
-
         self.word_tab.extract_visio_requested.connect(
             lambda fp: self.queue_manager.add_item(Path(fp), "extract_visio")
         )
         self.word_tab.split_doc_requested.connect(
-            lambda fp, pref, depth: self.queue_manager.add_item(Path(fp), "split_docx",
-                                                                {"prefix": pref, "depth": depth})
+            lambda fp, pref, depth: self.queue_manager.add_item(
+                Path(fp), "split_docx", {"prefix": pref, "depth": depth}
+            )
         )
         self.word_tab.compare_doc_requested.connect(
             lambda a, b, keep_open: self.queue_manager.add_item(
@@ -148,46 +141,26 @@ class DragDropUI(QMainWindow):
         )
 
         db_path = get_project_root() / "3gpp_data.db"
-
-        # Pass the db_path into the tab so the table can read it!
         self.specs_tab = SpecificationsTab(db_path)
-
-        # Existing Full Update Signal
         self.specs_tab.update_db_requested.connect(
             lambda force_meta: self.queue_manager.add_item(
                 Path("3GPP_Archive"),
                 "update_specs_db",
-                {
-                    "db_path": db_path,
-                    "force_metadata": force_meta,
-                    "target_specs": []  # Empty list triggers full update
-                }
+                {"db_path": db_path, "force_metadata": force_meta, "target_specs": []}
             )
         )
-
-        # NEW: Targeted Update Signal from Right-Click Menu
         self.specs_tab.update_specific_requested.connect(
             lambda target_specs, force_meta: self.queue_manager.add_item(
                 Path("3GPP_Archive_Targeted"),
                 "update_specs_db",
-                {
-                    "db_path": db_path,
-                    "force_metadata": force_meta,
-                    "target_specs": target_specs  # Pass the targeted list!
-                }
+                {"db_path": db_path, "force_metadata": force_meta, "target_specs": target_specs}
             )
         )
 
-        # Instantiate the tab
         self.meetings_tab = MeetingsTab(db_path)
-
-        # ---> NEW: Instantiate the Work Items Tab
         self.work_items_tab = WorkItemsTab(db_path)
-
-        # Wire the global TDoc request from the Work Items Tab directly into the Meetings Tab's controller
         self.work_items_tab.global_action_requested.connect(self.meetings_tab._handle_global_action_from_window)
 
-        # Connect the update signal to the QueueManager
         self.meetings_tab.update_db_requested.connect(
             lambda wg, docs, dyna: self.queue_manager.add_item(
                 Path("3GPP_Meetings"),
@@ -195,7 +168,6 @@ class DragDropUI(QMainWindow):
                 {"db_path": db_path, "sync_wg": wg, "sync_docs": docs, "sync_dyna": dyna}
             )
         )
-
         self.meetings_tab.update_specific_requested.connect(
             lambda target_list, wg, docs, dyna: self.queue_manager.add_item(
                 Path("3GPP_Meetings_Targeted"),
@@ -210,7 +182,6 @@ class DragDropUI(QMainWindow):
             )
         )
 
-        # NAS tab
         nas_db_path = get_project_root() / "nas_data.db"
         self.nas_tab = NASTab(nas_db_path, db_path)
 
@@ -223,20 +194,16 @@ class DragDropUI(QMainWindow):
         self.tabs.addTab(self.nas_tab, "🔬 NAS")
         self.tabs.setEnabled(False)
 
-        # --- TAB CORNER HELP WIDGET ---
+        # Tab corner help link
         self.help_btn = QPushButton("📖 Help (F1)")
-        # Make it look like a clean, borderless link instead of a chunky button
         self.help_btn.setStyleSheet("""
-                    QPushButton { border: none; background: transparent; color: #395396; font-weight: bold; padding: 4px 15px; }
-                    QPushButton:hover { color: #1E5C99; text-decoration: underline; }
-                """)
+            QPushButton { border: none; background: transparent; color: #395396; font-weight: bold; padding: 4px 15px; }
+            QPushButton:hover { color: #1E5C99; text-decoration: underline; }
+        """)
         self.help_btn.setCursor(Qt.PointingHandCursor)
         self.help_btn.clicked.connect(self.open_documentation)
-
-        # Inject it into the top right corner of the Tab Bar
         self.tabs.setCornerWidget(self.help_btn, Qt.TopRightCorner)
 
-        # Restore the F1 Global Shortcut
         self.help_shortcut = QShortcut(QKeySequence("F1"), self)
         self.help_shortcut.activated.connect(self.open_documentation)
 
@@ -249,10 +216,10 @@ class DragDropUI(QMainWindow):
         self.console_panel.proxy_requested.connect(self.open_proxy_settings)
         self.console_panel.network_config_requested.connect(lambda: NetworkConfigDialog(self).exec_())
         self.console_panel.update_requested.connect(self.check_for_jar_updates)
-
         self.console_panel.task_manager_requested.connect(self.open_task_manager)
+        # ---> Wire Database Maintenance Dialog Signal <---
+        self.console_panel.db_maintenance_requested.connect(self.open_db_maintenance)
 
-        # Logging
         self.specs_tab.log_msg.connect(self.console_panel.log_message)
         self.nas_tab.log_msg.connect(self.console_panel.log_message)
 
@@ -273,13 +240,24 @@ class DragDropUI(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("⏳ Initializing...")
 
-        # ---> NEW: Add the Network Indicator <---
         self.network_indicator = QLabel("📶 Checking Network...")
         self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
-        # A Permanent Widget anchors to the far right of the Status Bar
         self.status_bar.addPermanentWidget(self.network_indicator)
 
-    # --- THREAD MANAGEMENT ---
+    # --- DIALOG & THREAD MANAGEMENT ---
+    def open_db_maintenance(self):
+        """Spawns the Database Maintenance & Compaction dialog."""
+        dialog = DatabaseMaintenanceDialog(self)
+        dialog.exec_()
+
+    def open_task_manager(self):
+        """Spawns the COM Process Manager dialog as a non-blocking floating window."""
+        if not hasattr(self, 'task_manager_dialog') or not self.task_manager_dialog.isVisible():
+            self.task_manager_dialog = ProcessManagerDialog(self)
+            self.task_manager_dialog.show()
+        else:
+            self.task_manager_dialog.activateWindow()
+
     def _launch_init_thread(self, check_updates=False):
         self.init_thread = InitializationThread(self.jar_path, check_updates=check_updates)
         self.init_thread.ui_log_msg.connect(self.log_message)
@@ -315,7 +293,6 @@ class DragDropUI(QMainWindow):
 
     # --- UI INTERACTION LOGIC ---
     def open_documentation(self):
-        """Opens the configured README URL in the default web browser."""
         try:
             webbrowser.open(HELP_URL)
             self.log_message("🌐 Opened Documentation (README) in your web browser.", logging.INFO)
@@ -323,15 +300,15 @@ class DragDropUI(QMainWindow):
             self.log_message(f"❌ Failed to open documentation URL: {e}", logging.ERROR)
 
     def _update_system_status(self, is_processing: bool, status_text: str):
-        """Called dynamically by the QueueManager."""
         self.status_bar.showMessage(status_text)
         if is_processing:
-            self.batch_tab.set_state("busy",
-                                     "⚙️ Processing Queue...\n\nPlease wait until finished or drop more files to queue them.")
+            self.batch_tab.set_state(
+                "busy", "⚙️ Processing Queue...\n\nPlease wait until finished or drop more files to queue them."
+            )
         else:
-            # ---> NEW: Updated the idle text to mention bidirectional capabilities
-            self.batch_tab.set_state("ready",
-                                     "📥 Drag & Drop your .puml, .txt, .pptx, or .vsdx file(s) here\n\n(Batch converts between Visio & PowerPoint)")
+            self.batch_tab.set_state(
+                "ready", "📥 Drag & Drop your .puml, .txt, .pptx, or .vsdx file(s) here\n\n(Batch converts between Visio & PowerPoint)"
+            )
 
     def _set_editor_text(self, text):
         cursor = self.code_tab.text_input.textCursor()
@@ -398,7 +375,6 @@ class DragDropUI(QMainWindow):
             self.batch_tab.set_state("ready", "⏳ Re-initializing system checks...")
             self.status_bar.showMessage("⏳ Re-initializing...")
             self.tabs.setEnabled(False)
-
             self._launch_init_thread(check_updates=False)
 
     def check_for_jar_updates(self):
@@ -411,7 +387,8 @@ class DragDropUI(QMainWindow):
     def extract_code_from_visio(self, file_path):
         self.code_tab.text_input.clear()
         self.code_tab.text_input.setPlaceholderText(
-            f"⏳ Extracting source from {Path(file_path).name}...\nPlease wait...")
+            f"⏳ Extracting source from {Path(file_path).name}...\nPlease wait..."
+        )
         self.code_tab.text_input.setEnabled(False)
         self.log_message(f"📂 Reading embedded source from: {Path(file_path).name}")
         self.reader_thread = VisioReaderThread(file_path)
@@ -427,7 +404,8 @@ class DragDropUI(QMainWindow):
     def on_visio_code_error(self, error_msg):
         self.code_tab.text_input.setEnabled(True)
         self.code_tab.text_input.setPlaceholderText(
-            "Paste PlantUML code OR drop a generated .vsdx file here to extract its source...")
+            "Paste PlantUML code OR drop a generated .vsdx file here to extract its source..."
+        )
         self.log_message(f"❌ {error_msg}")
 
     def show_in_planttext(self):
@@ -444,14 +422,6 @@ class DragDropUI(QMainWindow):
         if self.last_out_path:
             QApplication.clipboard().setText(self.last_out_path)
             self.log_message(f"📋 Copied to clipboard: {self.last_out_path}")
-
-    def open_task_manager(self):
-        """Spawns the process manager as a non-blocking floating window."""
-        if not hasattr(self, 'task_manager_dialog') or not self.task_manager_dialog.isVisible():
-            self.task_manager_dialog = ProcessManagerDialog(self)
-            self.task_manager_dialog.show()
-        else:
-            self.task_manager_dialog.activateWindow()
 
     def _save_and_queue_pasted_text(self, target_format):
         raw_text = self.code_tab.get_text()
@@ -496,14 +466,12 @@ class DragDropUI(QMainWindow):
             if hasattr(self, 'specs_tab'):
                 self.specs_tab.refresh_table()
 
-        # ---> MOVED ABOVE THE GENERIC CATCH-ALL! <---
         elif out_path and out_path.startswith("MEETINGS_DB"):
             self.log_message("🔄 Reloading meetings table...", logging.INFO)
             if hasattr(self, 'meetings_tab'):
                 self.meetings_tab._populate_filters()
                 self.meetings_tab.refresh_table()
 
-        # Generic catch-all for actual file paths
         elif out_path:
             self.last_out_path = out_path
             self.code_tab.set_copy_path_enabled(True, out_path)
@@ -516,20 +484,13 @@ class DragDropUI(QMainWindow):
                 except Exception as e:
                     self.log_message(f"⚠️ Could not automatically open file: {e}")
             else:
-                # ---> NEW: Catch downloaded specs (PDFs, DOCX, ZIP) and log them to the terminal!
                 file_name = Path(out_path).name
                 self.log_message(f"✅ Successfully saved/downloaded: {file_name}", logging.INFO)
 
     def log_message(self, message: str, level=logging.INFO):
-        """
-        Routes explicit UI log signals into the standard Python logging module.
-        The GuiLogHandler will automatically catch this and route it back to the ConsolePanel.
-        """
         logging.log(level, message)
 
-    # ---> NEW: Add this method anywhere in the class <---
     def _update_network_indicator(self, ssid, is_3gpp, server_reachable):
-        """Dynamically styles the network label based on the background thread state."""
         if is_3gpp and server_reachable:
             self.network_indicator.setText(f"🟢 {ssid} (Local Server Active)")
             self.network_indicator.setStyleSheet("color: #2e7d32; font-weight: bold; padding: 0 10px;")
@@ -541,9 +502,8 @@ class DragDropUI(QMainWindow):
             self.network_indicator.setText(f"🌐 {display_name}")
             self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
 
-    # ---> MODIFIED: Update your existing closeEvent <---
     def closeEvent(self, event):
         self.save_cache()
         if hasattr(self, 'wifi_monitor'):
-            self.wifi_monitor.stop()  # Safely terminate the background network checks
+            self.wifi_monitor.stop()
         super().closeEvent(event)
