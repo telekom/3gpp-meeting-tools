@@ -36,7 +36,7 @@ from PyQt5.QtWidgets import (
 
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
-from modules.nas.core.parsing.nas_parser import NASDocxParser
+from modules.nas.core.parsing.nas_parser import ProtocolDocxDispatcher
 from modules.nas.core.nas_threads import (
     NASFetchAndImportThread,
     find_cached_spec_file,
@@ -1197,7 +1197,7 @@ class NASTab(QWidget):
 
         tasks = []
         for base_key, paths in grouped_tasks.items():
-            parser_temp = NASDocxParser(paths)
+            parser_temp = ProtocolDocxDispatcher(paths)
             spec_num = parser_temp.extract_spec_number()
             version = parser_temp.extract_version_from_filename()
             tasks.append({
