@@ -36,10 +36,8 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
 
         # Format details cell
         if "depth" in df.columns and df["depth"].max() > 0:
-            # ASN.1 styling: Presence | Format
             df["details"] = df["presence"].fillna("") + " | " + df["format"].fillna("")
         else:
-            # NAS styling: Presence | Format | Length
             df["details"] = (
                 df["presence"].fillna("")
                 + " | "
@@ -130,7 +128,6 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         return len(self._pivot_df)
 
     def columnCount(self, parent=QModelIndex()) -> int:
-        # Subtract helper columns (field_path, depth) when rendering columns
         return len([c for c in self._pivot_df.columns if c not in ("field_path", "depth")])
 
     def _get_visible_column_name(self, col: int) -> str:
