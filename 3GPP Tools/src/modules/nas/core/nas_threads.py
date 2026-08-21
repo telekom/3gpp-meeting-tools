@@ -9,7 +9,7 @@ from core.network.session import NetworkSession
 from core.utils.paths import get_project_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase
-from modules.nas.core.nas_parser import NASDocxParser
+from modules.nas.core.parsing.nas_parser import NASDocxParser
 from modules.word_tools.core.word_converter import convert_doc_to_docx
 
 

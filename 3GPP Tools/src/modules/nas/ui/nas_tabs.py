@@ -36,7 +36,7 @@ from PyQt5.QtWidgets import (
 
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
-from modules.nas.core.nas_parser import NASDocxParser
+from modules.nas.core.parsing.nas_parser import NASDocxParser
 from modules.nas.core.nas_threads import (
     NASFetchAndImportThread,
     find_cached_spec_file,
