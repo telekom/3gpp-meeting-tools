@@ -5,9 +5,12 @@ import re
 from pathlib import Path
 from typing import List, Optional, Callable, Tuple, Dict, Any, Set
 
-from modules.nas.core.parsing.protocol_parser_utils import extract_document_root, _extract_p_text, _extract_tc_text, \
-    _convert_table_to_html
-from modules.nas.core.parsing.protocol_parser_constants import TAG_BODY, TAG_P, TAG_TBL, TAG_TR, TAG_TC
+from modules.nas.core.parsing.protocol_parser_utils import (
+    extract_document_root, _extract_p_text, _extract_tc_text, _convert_table_to_html
+)
+from modules.nas.core.parsing.protocol_parser_constants import (
+    TAG_BODY, TAG_P, TAG_TBL, TAG_TR, TAG_TC
+)
 
 # --- Pre-compiled Regular Expressions ---
 RE_PART_INDEX = re.compile(r"_(\d+)_")
@@ -22,10 +25,6 @@ RE_STRIP_KEYWORDS = re.compile(r"\s+(?:OPTIONAL|MANDATORY|DEFAULT\s+[^,\s]+).*",
 
 # RAN3 Information Object Set (IOS) & ProtocolIE Constants Patterns
 RE_IE_ID_CONST = re.compile(r"^(id-[A-Za-z0-9\-]+)\s+(?:ProtocolIE-ID|INTEGER)\s*::=\s*(\d+)", re.MULTILINE)
-RE_OBJECT_SET = re.compile(
-    r"([A-Za-z0-9\-]+)\s+(?:[A-Za-z0-9\-]+-(?:PROTOCOL-IES|PROTOCOL-EXTENSION|PROTOCOL-IES-PAIR|PRIVATE-IES))\s*::=\s*\{([^}]+(?:\{[^}]*\}[^}]*)*)\}",
-    re.MULTILINE | re.DOTALL
-)
 RE_OBJECT_SET_ITEM = re.compile(
     r"\{\s*ID\s+([A-Za-z0-9\-]+)\s+CRITICALITY\s+([A-Za-z0-9\-]+)\s+(?:TYPE|EXTENSION)\s+([A-Za-z0-9\-]+(?:\s*\{[^}]*\})?)\s+PRESENCE\s+([A-Za-z0-9\-]+)\s*\}",
     re.DOTALL
@@ -157,7 +156,7 @@ class ASN1DocxParser:
         ie_definitions: List[Dict[str, Any]] = []
 
         is_rrc = "331" in self.spec_number
-        is_ngap = "413" in self.spec_number or "423" in self.spec_number or "413" in self.spec_number
+        is_ngap = any(k in self.spec_number for k in ["413", "423", "412", "473", "463"])
 
         for type_name, type_info in type_defs.items():
             clean_name = type_name.strip()
@@ -263,41 +262,96 @@ class ASN1DocxParser:
         return id_map
 
     def _extract_object_sets(self, asn1_text: str, id_map: Dict[str, str]) -> Dict[str, List[Dict[str, Any]]]:
-        """Extracts Information Object Sets containing { ID id-... CRITICALITY ... TYPE ... PRESENCE ... }."""
+        """
+        Extracts Information Object Sets using a deterministic bracket scanner
+        to eliminate regex catastrophic backtracking on large specifications.
+        """
         object_sets: Dict[str, List[Dict[str, Any]]] = {}
 
-        for os_match in RE_OBJECT_SET.finditer(asn1_text):
-            set_name = os_match.group(1).strip()
-            body_text = os_match.group(2)
+        # Remove single-line comments while preserving structure
+        clean_lines = [line.split("--")[0] for line in asn1_text.splitlines()]
+        cleaned_text = "\n".join(clean_lines)
 
-            fields: List[Dict[str, Any]] = []
-            for item_match in RE_OBJECT_SET_ITEM.finditer(body_text):
-                ie_id_name = item_match.group(1).strip()
-                crit = item_match.group(2).strip()
-                ftype = item_match.group(3).strip()
-                pres_str = item_match.group(4).strip().lower()
+        pos = 0
+        while True:
+            assign_idx = cleaned_text.find("::=", pos)
+            if assign_idx == -1:
+                break
 
-                presence = "M" if "mandatory" in pres_str else ("C" if "conditional" in pres_str else "O")
-                iei_val = id_map.get(ie_id_name, "")
-                clean_field_name = ie_id_name[3:] if ie_id_name.startswith("id-") else ie_id_name
+            # Find declaration header before ::=
+            header_part = cleaned_text[max(0, assign_idx - 120):assign_idx].strip()
+            tokens = header_part.split()
 
-                fields.append({
-                    "name": clean_field_name,
-                    "type": ftype,
-                    "presence": presence,
-                    "criticality": crit,
-                    "format": "IE",
-                    "iei": iei_val,
-                    "id_name": ie_id_name,
-                })
+            set_name = ""
+            is_object_set = False
 
-            if fields:
-                object_sets[set_name] = fields
+            if len(tokens) >= 2:
+                class_candidate = tokens[-1].upper()
+                name_candidate = tokens[-2]
+
+                if any(kw in class_candidate for kw in ("PROTOCOL-IES", "PROTOCOL-EXTENSION", "PROTOCOL-IES-PAIR", "PRIVATE-IES")):
+                    set_name = name_candidate
+                    is_object_set = True
+                elif name_candidate.endswith(("-IEs", "IEs", "-Extensions", "Extensions")):
+                    set_name = name_candidate
+                    is_object_set = True
+
+            # Locate opening brace after ::=
+            brace_start = cleaned_text.find("{", assign_idx)
+            next_assign = cleaned_text.find("::=", assign_idx + 3)
+
+            if brace_start != -1 and (next_assign == -1 or brace_start < next_assign):
+                depth = 0
+                brace_end = -1
+                for idx in range(brace_start, len(cleaned_text)):
+                    ch = cleaned_text[idx]
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            brace_end = idx
+                            break
+
+                if brace_end > brace_start:
+                    body_content = cleaned_text[brace_start + 1:brace_end]
+                    if is_object_set or "ID " in body_content:
+                        if not set_name and len(tokens) >= 1:
+                            set_name = tokens[-1]
+
+                        fields: List[Dict[str, Any]] = []
+                        for item_match in RE_OBJECT_SET_ITEM.finditer(body_content):
+                            ie_id_name = item_match.group(1).strip()
+                            crit = item_match.group(2).strip()
+                            ftype = item_match.group(3).strip()
+                            pres_str = item_match.group(4).strip().lower()
+
+                            presence = "M" if "mandatory" in pres_str else ("C" if "conditional" in pres_str else "O")
+                            iei_val = id_map.get(ie_id_name, "")
+                            clean_field_name = ie_id_name[3:] if ie_id_name.startswith("id-") else ie_id_name
+
+                            fields.append({
+                                "name": clean_field_name,
+                                "type": ftype,
+                                "presence": presence,
+                                "criticality": crit,
+                                "format": "IE",
+                                "iei": iei_val,
+                                "id_name": ie_id_name,
+                            })
+
+                        if fields and set_name:
+                            object_sets[set_name] = fields
+
+                    pos = brace_end + 1
+                    continue
+
+            pos = assign_idx + 3
 
         return object_sets
 
     def _extract_asn1_type_definitions(self, asn1_text: str) -> Dict[str, Dict[str, Any]]:
-        """Parses raw ASN.1 text into structured type definitions using a bracket-balanced scanner."""
+        """Parses raw ASN.1 text into structured type definitions with clean module boundary truncation."""
         type_defs: Dict[str, Dict[str, Any]] = {}
         clean_lines = [line.split("--")[0] for line in asn1_text.splitlines()]
         cleaned_text = "\n".join(clean_lines)
@@ -307,7 +361,14 @@ class ASN1DocxParser:
             type_name = match.group(1).strip()
             start_pos = match.end()
             end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(cleaned_text)
+
             raw_block = cleaned_text[match.start():end_pos].strip()
+
+            # Clean module boundary leak if 'END' is encountered
+            end_kw_idx = raw_block.find("\nEND")
+            if end_kw_idx != -1:
+                raw_block = raw_block[:end_kw_idx].strip()
+
             def_body = cleaned_text[start_pos:end_pos].strip()
 
             kind_match = RE_TYPE_KIND.match(def_body)
@@ -411,18 +472,18 @@ class ASN1DocxParser:
             new_visited = visited | {current_type}
             descs_for_type = field_individual_descs.get(current_type.lower(), {})
 
-            # Case A: current_type is an Object Set (e.g. AMFConfigurationUpdateAcknowledgeIEs)
+            # Case A: Direct Object Set (e.g. InitialUEMessage-IEs)
             if current_type in object_sets:
                 for f in object_sets[current_type]:
                     _process_field(f, path_prefix, depth, new_visited, descs_for_type)
                 return
 
-            # Case B: current_type is a Type Definition in type_defs
+            # Case B: Type Definition
             t_info = type_defs.get(current_type)
             if not t_info:
                 return
 
-            # Check if this type is a container alias (e.g. SEQUENCE OF ProtocolIE-SingleContainer { {Set} })
+            # Handle Container Alias (e.g. SEQUENCE OF ProtocolIE-SingleContainer { {Set} })
             raw_asn = t_info.get("raw_asn1", "")
             container_match = RE_CONTAINER_REF.search(raw_asn)
             if container_match and not t_info.get("fields"):
@@ -483,7 +544,6 @@ class ASN1DocxParser:
             elif clean_type in object_sets and depth < max_depth:
                 recurse(clean_type, full_path, depth + 1, visited_set)
             elif clean_type in type_defs and depth < max_depth:
-                # Recurse if it has direct fields or wraps an Object Set
                 target_t_info = type_defs[clean_type]
                 if target_t_info.get("fields") or RE_CONTAINER_REF.search(target_t_info.get("raw_asn1", "")):
                     recurse(clean_type, full_path, depth + 1, visited_set)
@@ -492,10 +552,12 @@ class ASN1DocxParser:
 
         # Fallback to <root_name>-IEs or <root_name>IEs if direct root returned empty
         if not result:
-            if f"{root_name}-IEs" in type_defs:
+            if f"{root_name}-IEs" in object_sets:
                 recurse(f"{root_name}-IEs", "", 0, set())
             elif f"{root_name}IEs" in object_sets:
                 recurse(f"{root_name}IEs", "", 0, set())
+            elif f"{root_name}-IEs" in type_defs:
+                recurse(f"{root_name}-IEs", "", 0, set())
 
         return result
 
