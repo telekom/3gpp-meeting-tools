@@ -284,10 +284,12 @@ class NASDatabase:
                     AND (
                         (d.clause != '' AND i.type_reference LIKE '%' || d.clause || '%')
                         OR (d.ie_name != '' AND LOWER(TRIM(i.ie_name)) = LOWER(TRIM(d.ie_name)))
+                        OR (d.ie_name != '' AND i.type_reference LIKE '%' || d.ie_name || '%')
                     )
                 WHERE m.version_id IN ({placeholders})
                   AND (
                       i.ie_name LIKE ? 
+                      OR i.field_path LIKE ?
                       OR i.type_reference LIKE ? 
                       OR i.iei LIKE ?
                       OR d.raw_description LIKE ?
@@ -296,7 +298,7 @@ class NASDatabase:
                 GROUP BY m.message_name, m.clause
                 ORDER BY m.message_name ASC
             """
-            params = list(version_ids) + [pattern, pattern, pattern, pattern, pattern]
+            params = list(version_ids) + [pattern, pattern, pattern, pattern, pattern, pattern]
         else:
             query = f"""
                 SELECT m.message_name, m.clause, GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number
@@ -306,13 +308,14 @@ class NASDatabase:
                 WHERE m.version_id IN ({placeholders})
                   AND (
                       i.ie_name LIKE ? 
+                      OR i.field_path LIKE ?
                       OR i.type_reference LIKE ? 
                       OR i.iei LIKE ?
                   )
                 GROUP BY m.message_name, m.clause
                 ORDER BY m.message_name ASC
             """
-            params = list(version_ids) + [pattern, pattern, pattern]
+            params = list(version_ids) + [pattern, pattern, pattern, pattern]
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -340,13 +343,14 @@ class NASDatabase:
         clean_clause = clause.strip() if clause else ""
         clean_name = ie_name.strip() if ie_name else ""
 
-        if clean_clause:
+        if clean_clause and re.match(r"^(?:9|6|D\.6)(?:\.[0-9A-Za-z]+)+$", clean_clause):
             regex_pattern = rf"(?<![0-9A-Za-z.]){re.escape(clean_clause)}(?![0-9A-Za-z.])"
             where_conditions.append("i.type_reference REGEXP ?")
             params.append(regex_pattern)
-        elif clean_name:
-            where_conditions.append("LOWER(TRIM(i.ie_name)) = LOWER(?)")
-            params.append(clean_name)
+        elif clean_name or clean_clause:
+            target = clean_name or clean_clause
+            where_conditions.append("(LOWER(TRIM(i.ie_name)) = LOWER(?) OR i.type_reference LIKE ?)")
+            params.extend([target, f"%{target}%"])
         else:
             return []
 
@@ -392,6 +396,7 @@ class NASDatabase:
                 AND (
                     (d.clause != '' AND i.type_reference LIKE '%' || d.clause || '%')
                     OR (d.ie_name != '' AND LOWER(TRIM(i.ie_name)) = LOWER(TRIM(d.ie_name)))
+                    OR (d.ie_name != '' AND i.type_reference LIKE '%' || d.ie_name || '%')
                 )
             WHERE m.message_name = ? AND sv.id IN ({placeholders})
             ORDER BY i.order_index ASC
@@ -404,16 +409,38 @@ class NASDatabase:
     def get_ie_definitions_by_clause(
         self,
         clause: str,
+        alt_name: str = "",
         spec_number: Optional[str] = None,
         version_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
-        query = """
+        """
+        Retrieves IE definitions matching by clause, IE name, or type reference case-insensitively.
+        """
+        params = []
+        where_parts = []
+
+        clean_c = clause.strip() if clause else ""
+        clean_alt = alt_name.strip() if alt_name else ""
+
+        if clean_c:
+            where_parts.append("(LOWER(TRIM(d.clause)) = LOWER(?) OR LOWER(TRIM(d.ie_name)) = LOWER(?))")
+            params.extend([clean_c, clean_c])
+
+        if clean_alt:
+            where_parts.append("(LOWER(TRIM(d.clause)) = LOWER(?) OR LOWER(TRIM(d.ie_name)) = LOWER(?))")
+            params.extend([clean_alt, clean_alt])
+
+        if not where_parts:
+            return []
+
+        where_sql = " OR ".join(where_parts)
+        query = f"""
             SELECT d.*, sv.version, sv.spec_number
             FROM ie_definitions d
             JOIN spec_versions sv ON d.version_id = sv.id
-            WHERE d.clause = ?
+            WHERE ({where_sql})
         """
-        params = [clause]
+
         if spec_number:
             query += " AND sv.spec_number = ?"
             params.append(spec_number.strip())

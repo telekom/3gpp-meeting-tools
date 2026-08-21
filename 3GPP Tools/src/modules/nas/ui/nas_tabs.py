@@ -911,6 +911,12 @@ class NASTab(QWidget):
         ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "").strip().lstrip("└─ ")
         type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "").strip()
 
+        # Clean type extraction (strips SetupRelease, SEQUENCE OF, and constraints)
+        clean_type = re.sub(r"^SetupRelease\s*\{\s*([A-Za-z0-9\-]+)\s*\}", r"\1", type_ref)
+        clean_type = re.sub(r"^SEQUENCE\s*(?:\(SIZE\s*\([^)]*\)\)\s*)?OF\s+([A-Za-z0-9\-]+)", r"\1", clean_type)
+        clean_type = re.sub(r"^OCTET STRING\s*\(CONTAINING\s+([A-Za-z0-9\-]+)\)", r"\1", clean_type)
+        clean_type = re.sub(r"[\(\{\[].*$", "", clean_type).strip()
+
         spec_num = getattr(self, "_current_message_spec", None)
         if col >= 3:
             col_name = str(model._get_visible_column_name(col))
@@ -925,18 +931,28 @@ class NASTab(QWidget):
         self._current_ie_name = ie_name
         self._current_ie_spec = spec_num
 
+        # Search for definition using clause, clean type name, and field name
         defs = self.db.get_ie_definitions_by_clause(
-            clause, spec_number=spec_num, version_ids=self.selected_version_ids
+            clause=clause,
+            alt_name=clean_type or ie_name,
+            spec_number=spec_num,
+            version_ids=self.selected_version_ids,
         )
+
         if not defs:
-            defs = self.db.get_ie_definitions_by_clause(clause, version_ids=self.selected_version_ids)
+            defs = self.db.get_ie_definitions_by_clause(
+                clause=clean_type or ie_name,
+                alt_name="",
+                spec_number=spec_num,
+                version_ids=self.selected_version_ids,
+            )
 
         if not defs:
             self.inspector_title_lbl.setText(f"{ie_name} ({type_ref})")
             self.ie_usage_btn.setVisible(False)
             self.inspector_version_combo.clear()
             self._current_clause_defs.clear()
-            self.inspector_text.setPlainText(f"Type / Reference: {type_ref}\n(No structure definition found)")
+            self.inspector_text.setPlainText(f"Type / Reference: {type_ref}\n(No structure definition found in database)")
             return
 
         resolved_name = defs[0]["ie_name"]
@@ -946,7 +962,7 @@ class NASTab(QWidget):
 
         containing_msgs = self.db.get_messages_using_ie(
             clause=clause,
-            ie_name=resolved_name,
+            ie_name=clean_type or resolved_name,
             spec_number=spec_num,
             version_ids=self.selected_version_ids,
         )
