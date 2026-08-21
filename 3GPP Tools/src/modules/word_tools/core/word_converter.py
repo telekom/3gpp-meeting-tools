@@ -11,6 +11,7 @@ import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.utils import get_proxies
+from modules.word_tools.core.sensitivity_label import set_sensitivity_label
 
 # Word WdSaveFormat Constants
 WD_FORMAT_DOC = 0
@@ -46,8 +47,8 @@ def convert_doc_to_docx(
 ) -> Path:
     """
     Synchronously converts a legacy Word 97-2003 (.doc) binary file to OpenXML (.docx).
-    Uses isolated local %TEMP% staging to completely bypass OneDrive sync interceptors,
-    followed by multi-stage SaveAs2 and clipboard-free FormattedText RAM cloning.
+    Bypasses format upgrade prompts, applies corporate sensitivity classification,
+    and isolates saves within %TEMP% to avoid OneDrive sync lock collisions.
     """
     log = logger or logging.getLogger(__name__)
     source = Path(doc_path).resolve()
@@ -110,7 +111,7 @@ def convert_doc_to_docx(
             doc = word.Documents.Open(
                 FileName=source_str,
                 ConfirmConversions=False,
-                ReadOnly=True,
+                ReadOnly=False,
                 AddToRecentFiles=False,
             )
         except Exception:
@@ -122,19 +123,23 @@ def convert_doc_to_docx(
                 doc = word.Documents.Open(
                     FileName=source_str,
                     ConfirmConversions=False,
-                    ReadOnly=False,
+                    ReadOnly=True,
                     AddToRecentFiles=False,
                 )
 
         if doc is None:
             raise RuntimeError(f"Word failed to acquire a valid document handle for {source.name}")
 
-        # 3. Apply Sensitivity Label if configured
+        # 3. In-memory format upgrade & Sensitivity Label application
         try:
-            from modules.word_tools.core.sensitivity_label import set_sensitivity_label
-            set_sensitivity_label(doc)
+            doc.Convert()
         except Exception:
             pass
+
+        try:
+            set_sensitivity_label(doc)
+        except Exception as sl_err:
+            log.warning(f"Could not set sensitivity label on {source.name}: {sl_err}")
 
         # 4. Primary Conversion: Direct SaveAs2 to isolated local temporary file
         try:
@@ -142,7 +147,7 @@ def convert_doc_to_docx(
             if temp_target.exists() and temp_target.stat().st_size > 0:
                 saved = True
         except Exception as err_save2:
-            log.debug(f"Direct SaveAs2 failed ({err_save2}). Trying default format...")
+            log.debug(f"Direct SaveAs2 (format 12) failed: {err_save2}")
 
         if not saved:
             try:
@@ -150,7 +155,7 @@ def convert_doc_to_docx(
                 if temp_target.exists() and temp_target.stat().st_size > 0:
                     saved = True
             except Exception as err_def:
-                log.debug(f"SaveAs2 default failed ({err_def}). Trying FormattedText clone...")
+                log.debug(f"SaveAs2 default failed: {err_def}")
 
         # 5. Secondary Conversion: Direct RAM FormattedText clone (clipboard-free)
         if not saved or not temp_target.exists() or temp_target.stat().st_size == 0:
@@ -158,13 +163,17 @@ def convert_doc_to_docx(
             new_doc = word.Documents.Add()
 
             try:
-                from modules.word_tools.core.sensitivity_label import set_sensitivity_label
                 set_sensitivity_label(new_doc)
             except Exception:
                 pass
 
-            # Duplicates complete formatting, tables, and Visio drawings directly in memory
             new_doc.Content.FormattedText = doc.Content.FormattedText
+
+            try:
+                set_sensitivity_label(new_doc)
+            except Exception:
+                pass
+
             new_doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
             new_doc.Close(SaveChanges=False)
             new_doc = None
@@ -172,7 +181,7 @@ def convert_doc_to_docx(
             if temp_target.exists() and temp_target.stat().st_size > 0:
                 saved = True
 
-        # 6. Tertiary Fallback: Fresh InsertFile stream transfer (ensuring source handle is closed)
+        # 6. Tertiary Fallback: Fresh InsertFile stream transfer
         if not saved or not temp_target.exists() or temp_target.stat().st_size == 0:
             log.info(f"Attempting detached InsertFile stream for {source.name}...")
             try:
@@ -182,7 +191,18 @@ def convert_doc_to_docx(
                 pass
 
             new_doc = word.Documents.Add()
+            try:
+                set_sensitivity_label(new_doc)
+            except Exception:
+                pass
+
             new_doc.Range(0, 0).InsertFile(FileName=source_str)
+
+            try:
+                set_sensitivity_label(new_doc)
+            except Exception:
+                pass
+
             new_doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
             new_doc.Close(SaveChanges=False)
             new_doc = None
@@ -190,7 +210,7 @@ def convert_doc_to_docx(
             if temp_target.exists() and temp_target.stat().st_size > 0:
                 saved = True
 
-        # 7. Finalize: Copy staging file to actual destination
+        # 7. Finalize: Move staging file to actual destination
         if not temp_target.exists() or temp_target.stat().st_size == 0:
             raise RuntimeError(f"Target .docx file was not generated for {source.name}")
 
@@ -302,6 +322,7 @@ class WordConverterThread(QThread):
 
             try:
                 word.AutomationSecurity = 1
+                word.Options.DoNotPromptForConvert = True
             except Exception:
                 pass
 
@@ -312,6 +333,11 @@ class WordConverterThread(QThread):
                     doc = word.ProtectedViewWindows.Item(1).Edit()
                 else:
                     raise
+
+            try:
+                set_sensitivity_label(doc)
+            except Exception:
+                pass
 
             self.ui_log_msg.emit(f"⏳ Converting and saving {out_name} to {self.target_format}...", logging.INFO)
 
