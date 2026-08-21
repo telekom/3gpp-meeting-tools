@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
 
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase
-from modules.nas.core.parsing.nas_parser import ProtocolDocxDispatcher
+from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.nas.core.nas_threads import NASFetchAndImportThread
 from modules.nas.ui.nas_components import NASInspectorWidget, NASVersionTreeWidget
 from modules.nas.ui.nas_dialogs import NASVersionSelectDialog
