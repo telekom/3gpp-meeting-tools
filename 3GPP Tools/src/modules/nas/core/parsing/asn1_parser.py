@@ -5,10 +5,9 @@ import re
 from pathlib import Path
 from typing import List, Optional, Callable, Tuple, Dict, Any, Set
 
-from modules.nas.core.parsing.protocol_parser_common import (
-    TAG_BODY, TAG_P, _extract_p_text, TAG_TBL, _convert_table_to_html,
-    TAG_TR, TAG_TC, _extract_tc_text, extract_document_root
-)
+from modules.nas.core.parsing.protocol_parser_utils import extract_document_root, _extract_p_text, _extract_tc_text, \
+    _convert_table_to_html
+from modules.nas.core.parsing.protocol_parser_constants import TAG_BODY, TAG_P, TAG_TBL, TAG_TR, TAG_TC
 
 # --- Pre-compiled Regular Expressions ---
 RE_PART_INDEX = re.compile(r"_(\d+)_")
