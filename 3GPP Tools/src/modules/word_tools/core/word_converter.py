@@ -1,6 +1,7 @@
 import logging
 import os
 from pathlib import Path
+import shutil
 import stat
 import tempfile
 from typing import Optional, Union
@@ -11,7 +12,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.utils import get_proxies
 
-# Word WdSaveFormat & WdOpenFormat Constants
+# Word WdSaveFormat Constants
 WD_FORMAT_DOC = 0
 WD_FORMAT_XML_DOCX = 12      # wdFormatXMLDocument (.docx)
 WD_FORMAT_DOC_DEFAULT = 16   # wdFormatDocumentDefault
@@ -44,9 +45,9 @@ def convert_doc_to_docx(
     logger: Optional[logging.Logger] = None,
 ) -> Path:
     """
-    Synchronously converts a legacy Word 97-2003 (.doc) binary file to OpenXML (.docx)
-    using Word COM automation with Protected View bypass, multi-stage SaveAs2 export,
-    and a clipboard-free InsertFile stream clone fallback.
+    Synchronously converts a legacy Word 97-2003 (.doc) binary file to OpenXML (.docx).
+    Uses isolated local %TEMP% staging to completely bypass OneDrive sync interceptors,
+    followed by multi-stage SaveAs2 and clipboard-free FormattedText RAM cloning.
     """
     log = logger or logging.getLogger(__name__)
     source = Path(doc_path).resolve()
@@ -61,7 +62,7 @@ def convert_doc_to_docx(
     if target.exists() and target.stat().st_size > 0:
         return target
 
-    # 1. Clean file locks and attributes
+    # 1. Clean attributes and prepare paths
     _sanitize_file_attributes(source)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
@@ -71,9 +72,22 @@ def convert_doc_to_docx(
         except Exception:
             pass
 
+    # Stage conversion in local %TEMP% to eliminate OneDrive co-authoring COM locks
+    temp_dir = Path(tempfile.gettempdir())
+    temp_target = temp_dir / f"stage_{source.stem}.docx"
+    if temp_target.exists():
+        try:
+            temp_target.unlink()
+        except Exception:
+            pass
+
+    source_str = os.path.normpath(str(source))
+    temp_target_str = os.path.normpath(str(temp_target))
+
     word = None
     doc = None
     new_doc = None
+    saved = False
 
     try:
         pythoncom.CoInitialize()
@@ -82,19 +96,19 @@ def convert_doc_to_docx(
         word.Visible = False
         word.DisplayAlerts = 0  # wdAlertsNone
 
-        # Optimize Word automation performance
         try:
             word.AutomationSecurity = 1  # msoAutomationSecurityLow
             word.Options.ConfirmConversions = False
+            word.Options.DoNotPromptForConvert = True
             word.Options.WarnBeforeSavingPrintingSendingMarkup = False
-            word.Options.SaveInterval = 0  # Disable AutoRecover background saves
+            word.Options.SaveInterval = 0  # Disable AutoRecover during batch automation
         except Exception:
             pass
 
-        # 2. Open Document in ReadOnly mode to prevent disk lock conflicts
+        # 2. Open source document
         try:
             doc = word.Documents.Open(
-                FileName=str(source),
+                FileName=source_str,
                 ConfirmConversions=False,
                 ReadOnly=True,
                 AddToRecentFiles=False,
@@ -105,9 +119,8 @@ def convert_doc_to_docx(
                 pv = word.ProtectedViewWindows.Item(1)
                 doc = pv.Edit()
             else:
-                # Retry with ReadOnly=False if required by local policy
                 doc = word.Documents.Open(
-                    FileName=str(source),
+                    FileName=source_str,
                     ConfirmConversions=False,
                     ReadOnly=False,
                     AddToRecentFiles=False,
@@ -118,61 +131,76 @@ def convert_doc_to_docx(
 
         # 3. Apply Sensitivity Label if configured
         try:
-            from modules.word_tools.core.sensitivity_label import apply_configured_sensitivity_label
-            apply_configured_sensitivity_label(doc)
+            from modules.word_tools.core.sensitivity_label import set_sensitivity_label
+            set_sensitivity_label(doc)
         except Exception:
             pass
 
-        # 4. Multi-Stage Direct SaveAs Pipeline
-        saved = False
-
-        # Stage 4a: Direct SaveAs2 with wdFormatXMLDocument (12)
+        # 4. Primary Conversion: Direct SaveAs2 to isolated local temporary file
         try:
-            doc.SaveAs2(FileName=str(target), FileFormat=WD_FORMAT_XML_DOCX)
-            if target.exists() and target.stat().st_size > 0:
+            doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
+            if temp_target.exists() and temp_target.stat().st_size > 0:
                 saved = True
-        except Exception as err_12:
-            log.debug(f"SaveAs2(FileFormat=12) failed for {source.name}: {err_12}")
+        except Exception as err_save2:
+            log.debug(f"Direct SaveAs2 failed ({err_save2}). Trying default format...")
 
-        # Stage 4b: Direct SaveAs2 with wdFormatDocumentDefault (16)
         if not saved:
             try:
-                doc.SaveAs2(FileName=str(target), FileFormat=WD_FORMAT_DOC_DEFAULT)
-                if target.exists() and target.stat().st_size > 0:
+                doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_DOC_DEFAULT)
+                if temp_target.exists() and temp_target.stat().st_size > 0:
                     saved = True
-            except Exception as err_16:
-                log.debug(f"SaveAs2(FileFormat=16) failed for {source.name}: {err_16}")
+            except Exception as err_def:
+                log.debug(f"SaveAs2 default failed ({err_def}). Trying FormattedText clone...")
 
-        # Stage 4c: Legacy SaveAs with wdFormatXMLDocument (12)
-        if not saved:
-            try:
-                doc.SaveAs(FileName=str(target), FileFormat=WD_FORMAT_XML_DOCX)
-                if target.exists() and target.stat().st_size > 0:
-                    saved = True
-            except Exception as err_save:
-                log.debug(f"SaveAs(FileFormat=12) failed for {source.name}: {err_save}")
-
-        # 5. Stage 5 Fallback: Clipboard-Free InsertFile Stream Clone
-        # Bypasses File Block, legacy templates, and clipboard buffer limits for massive specs with OLE Visio objects
-        if not saved or not target.exists() or target.stat().st_size == 0:
-            log.info(f"Attempting InsertFile stream transfer for {source.name}...")
+        # 5. Secondary Conversion: Direct RAM FormattedText clone (clipboard-free)
+        if not saved or not temp_target.exists() or temp_target.stat().st_size == 0:
+            log.info(f"Cloning formatted content stream for {source.name}...")
             new_doc = word.Documents.Add()
 
             try:
-                from modules.word_tools.core.sensitivity_label import apply_configured_sensitivity_label
-                apply_configured_sensitivity_label(new_doc)
+                from modules.word_tools.core.sensitivity_label import set_sensitivity_label
+                set_sensitivity_label(new_doc)
             except Exception:
                 pass
 
-            # Direct stream insertion without using the Windows clipboard
-            new_doc.Range(0, 0).InsertFile(FileName=str(source))
-            new_doc.SaveAs2(FileName=str(target), FileFormat=WD_FORMAT_XML_DOCX)
+            # Duplicates complete formatting, tables, and Visio drawings directly in memory
+            new_doc.Content.FormattedText = doc.Content.FormattedText
+            new_doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
             new_doc.Close(SaveChanges=False)
             new_doc = None
-            saved = True
 
-        if not target.exists() or target.stat().st_size == 0:
+            if temp_target.exists() and temp_target.stat().st_size > 0:
+                saved = True
+
+        # 6. Tertiary Fallback: Fresh InsertFile stream transfer (ensuring source handle is closed)
+        if not saved or not temp_target.exists() or temp_target.stat().st_size == 0:
+            log.info(f"Attempting detached InsertFile stream for {source.name}...")
+            try:
+                doc.Close(SaveChanges=False)
+                doc = None
+            except Exception:
+                pass
+
+            new_doc = word.Documents.Add()
+            new_doc.Range(0, 0).InsertFile(FileName=source_str)
+            new_doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
+            new_doc.Close(SaveChanges=False)
+            new_doc = None
+
+            if temp_target.exists() and temp_target.stat().st_size > 0:
+                saved = True
+
+        # 7. Finalize: Copy staging file to actual destination
+        if not temp_target.exists() or temp_target.stat().st_size == 0:
             raise RuntimeError(f"Target .docx file was not generated for {source.name}")
+
+        shutil.copy2(temp_target, target)
+        _sanitize_file_attributes(target)
+
+        try:
+            temp_target.unlink()
+        except Exception:
+            pass
 
         log.info(f"Successfully converted {source.name} -> {target.name}")
         return target
@@ -181,30 +209,26 @@ def convert_doc_to_docx(
         log.error(f"COM conversion failed for {source.name}: {e}")
         raise
     finally:
-        try:
-            if new_doc:
+        if new_doc:
+            try:
                 new_doc.Close(SaveChanges=False)
-        except Exception:
-            pass
+            except Exception:
+                pass
 
-        try:
-            if doc:
+        if doc:
+            try:
                 doc.Close(SaveChanges=False)
-        except Exception:
-            pass
+            except Exception:
+                pass
 
-        try:
-            if word and hasattr(word, "ProtectedViewWindows"):
-                while word.ProtectedViewWindows.Count > 0:
-                    word.ProtectedViewWindows.Item(1).Close()
-        except Exception:
-            pass
-
-        try:
-            if word:
+        if word:
+            try:
+                if hasattr(word, "ProtectedViewWindows"):
+                    while word.ProtectedViewWindows.Count > 0:
+                        word.ProtectedViewWindows.Item(1).Close()
                 word.Quit()
-        except Exception:
-            pass
+            except Exception:
+                pass
 
         pythoncom.CoUninitialize()
 
