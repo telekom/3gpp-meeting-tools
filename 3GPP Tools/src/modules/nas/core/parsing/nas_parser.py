@@ -4,16 +4,20 @@ import re
 from pathlib import Path
 from typing import Union, List, Optional, Callable, Tuple, Dict, Any
 
+try:
+    from lxml import etree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET
+
 from modules.nas.core.parsing.asn1_parser import ASN1DocxParser
 from modules.nas.core.parsing.protocol_parser_common import (
     TAG_BODY, TAG_P, _extract_p_text, TAG_TBL, _extract_tc_text,
     TAG_TC, _convert_table_to_html, TAG_TR, extract_document_root
 )
-from lxml import etree as ET
 from modules.specifications.utils.utils import file_version_to_version
 
 RE_PART_INDEX = re.compile(r"_(\d+)_")
-RE_SPEC_NUMBER = re.compile(r"(24|36|38)[._]?(301|501|331|413)")
+RE_SPEC_NUMBER = re.compile(r"(24|25|36|37|38)[._]?(301|501|331|413|423|412|473|463)")
 RE_VERSION_STEM = re.compile(r"-([a-zA-Z0-9]{3})(?:_\d+.*)?$")
 RE_CAPTION = re.compile(
     r"^Table\s+([8D]\.\d+(?:[\.\-/][0-9A-Za-z]+)*)\s*[:\.]\s*(.+?)(?:\s+message\s+content)?$",
@@ -227,12 +231,12 @@ class ProtocolDocxDispatcher:
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         spec_num = self.extract_spec_number()
 
-        # Route ASN.1 specifications (38.331, 36.331, 38.413)
-        if any(s in spec_num for s in ["38.331", "36.331", "38.413"]):
+        # Route ASN.1 specifications (38.331, 36.331, 38.413, 38.423, 36.413)
+        if any(s in spec_num for s in ["38.331", "36.331", "38.413", "38.423", "36.413", "38.473"]):
             parser = ASN1DocxParser(self.docx_paths, spec_number=spec_num)
             return parser.parse(progress_callback=progress_callback)
 
-        # Route NAS specifications (24.501, 24.301)
+        # Route NAS specifications (24.501, 24.301, 24.008)
         parser = NASDocxParser(self.docx_paths)
         messages, ie_definitions = parser.parse(progress_callback=progress_callback)
 

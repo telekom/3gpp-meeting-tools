@@ -10,13 +10,37 @@ from modules.nas.core.parsing.protocol_parser_common import (
     TAG_TR, TAG_TC, _extract_tc_text, extract_document_root
 )
 
+# --- Pre-compiled Regular Expressions ---
 RE_PART_INDEX = re.compile(r"_(\d+)_")
 RE_CLAUSE_HEADER = re.compile(r"^((?:6|9|D\.6)(?:\.[0-9A-Za-z]+)+)\s*(.*)$")
 RE_DESC_TABLE = re.compile(r"([A-Za-z0-9\-_]+)\s+field\s+descriptions", re.IGNORECASE)
+
+# Standard ASN.1 Type Declaration
 RE_TYPE_DECL = re.compile(r"([A-Za-z0-9\-]+)(?:\s*\{[^}]*\})?\s*::=\s*", re.MULTILINE)
 RE_TYPE_KIND = re.compile(r"^(SEQUENCE|CHOICE|ENUMERATED|BIT STRING|OCTET STRING|INTEGER|BOOLEAN)", re.IGNORECASE)
 RE_FIELD_LINE = re.compile(r"^([A-Za-z0-9\-]+)\s+(.+)$")
 RE_STRIP_KEYWORDS = re.compile(r"\s+(?:OPTIONAL|MANDATORY|DEFAULT\s+[^,\s]+).*", re.IGNORECASE)
+
+# RAN3 Information Object Set (IOS) & ProtocolIE Constants Patterns
+RE_IE_ID_CONST = re.compile(r"^(id-[A-Za-z0-9\-]+)\s+(?:ProtocolIE-ID|INTEGER)\s*::=\s*(\d+)", re.MULTILINE)
+RE_OBJECT_SET = re.compile(
+    r"([A-Za-z0-9\-]+)\s+(?:[A-Za-z0-9\-]+-(?:PROTOCOL-IES|PROTOCOL-EXTENSION|PROTOCOL-IES-PAIR|PRIVATE-IES))\s*::=\s*\{([^}]+(?:\{[^}]*\}[^}]*)*)\}",
+    re.MULTILINE | re.DOTALL
+)
+RE_OBJECT_SET_ITEM = re.compile(
+    r"\{\s*ID\s+([A-Za-z0-9\-]+)\s+CRITICALITY\s+([A-Za-z0-9\-]+)\s+(?:TYPE|EXTENSION)\s+([A-Za-z0-9\-]+(?:\s*\{[^}]*\})?)\s+PRESENCE\s+([A-Za-z0-9\-]+)\s*\}",
+    re.DOTALL
+)
+RE_CONTAINER_REF = re.compile(
+    r"Protocol(?:IE|Extension)-(?:Container|SingleContainer|ContainerList|ContainerPair)\s*\{[^}]*\{\s*([A-Za-z0-9\-]+)\s*\}\s*\}",
+    re.IGNORECASE
+)
+RE_ELEM_PROC_MSG = re.compile(
+    r"(?:INITIATING MESSAGE|SUCCESSFUL OUTCOME|UNSUCCESSFUL OUTCOME)\s+([A-Za-z0-9\-]+)",
+    re.MULTILINE
+)
+
+# ASN.1 Type unwrapping patterns
 RE_SETUP_RELEASE = re.compile(r"^SetupRelease\s*\{\s*([A-Za-z0-9\-]+)\s*\}")
 RE_SEQ_OF = re.compile(r"^SEQUENCE\s*(?:\(SIZE\s*\([^)]*\)\)\s*)?OF\s+([A-Za-z0-9\-]+)")
 RE_OCTET_CONTAINING = re.compile(r"^OCTET STRING\s*\(CONTAINING\s+([A-Za-z0-9\-]+)\)")
@@ -26,7 +50,7 @@ RE_STRIP_EXTRANEOUS = re.compile(r"[\(\{\[].*$")
 class ASN1DocxParser:
     """
     Extracts ASN.1 Message definitions, Information Elements, Sequence Fields,
-    and accompanying Field Description tables from 3GPP TS 38.331 / TS 36.331 / TS 38.413.
+    and Information Object Sets (IOS) from 3GPP TS 38.331, TS 36.331, and TS 38.413 (NGAP).
     """
 
     def __init__(self, docx_paths: List[Path], spec_number: str = "38.331"):
@@ -49,6 +73,7 @@ class ASN1DocxParser:
         total_files = len(self.docx_paths)
         current_clause_num = "6.2"
 
+        # 1. First Pass: Scan XML for ASN.1 blocks, Field Description Tables, and Headings
         for file_idx, docx_path in enumerate(self.docx_paths):
             if progress_callback:
                 progress = 10 + int(file_idx / max(1, total_files) * 40)
@@ -120,14 +145,20 @@ class ASN1DocxParser:
             full_asn1_module = self._fallback_extract_asn1()
 
         if progress_callback:
-            progress_callback("Parsing ASN.1 structures and building evolution records...", 60)
+            progress_callback("Parsing ASN.1 structures and Information Object Sets...", 60)
 
+        # 2. Extract Type Definitions, Information Object Sets, and ProtocolIE-IDs
+        id_map = self._extract_constant_ids(full_asn1_module)
+        object_sets = self._extract_object_sets(full_asn1_module, id_map)
         type_defs = self._extract_asn1_type_definitions(full_asn1_module)
+
+        # 3. Identify Top-Level PDUs / Elementary Procedures
+        known_pdu_messages = set(RE_ELEM_PROC_MSG.findall(full_asn1_module))
         messages: List[Dict[str, Any]] = []
         ie_definitions: List[Dict[str, Any]] = []
 
         is_rrc = "331" in self.spec_number
-        is_ngap = "413" in self.spec_number
+        is_ngap = "413" in self.spec_number or "423" in self.spec_number or "413" in self.spec_number
 
         for type_name, type_info in type_defs.items():
             clean_name = type_name.strip()
@@ -146,7 +177,19 @@ class ASN1DocxParser:
                     }
                 ) and not clean_name.endswith("-IEs") and not re.search(r"-v\d+[a-z]?-IEs$", clean_name)
             elif is_ngap:
-                is_message = clean_name.endswith(("Request", "Response", "Acknowledge", "UnsuccessfulOutcome"))
+                is_message = (
+                    clean_name in known_pdu_messages
+                    or clean_name.endswith((
+                        "Request", "Response", "Command", "Complete", "Failure",
+                        "Acknowledge", "Indication", "Confirm", "Notify", "Report",
+                        "Transfer", "Required", "Start", "Stop"
+                    ))
+                    or clean_name in {
+                        "Paging", "InitialUEMessage", "ErrorIndication", "HandoverNotify",
+                        "CellTrafficTrace", "TraceStart", "DeactivateTrace", "LocationReport",
+                        "LocationReportingControl", "RRCInactiveTransitionReport"
+                    }
+                ) and not clean_name.endswith("-IEs")
 
             raw_asn1_html = (
                 f'<pre style="background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 8px; '
@@ -180,8 +223,14 @@ class ASN1DocxParser:
                 "structure_table": json.dumps([]),
             })
 
+            # Unroll fields for top-level messages
             if is_message:
-                unrolled_fields = self._unroll_message_fields(clean_name, type_defs, field_individual_descs)
+                unrolled_fields = self._unroll_message_fields(
+                    root_name=clean_name,
+                    type_defs=type_defs,
+                    object_sets=object_sets,
+                    field_individual_descs=field_individual_descs,
+                )
                 if unrolled_fields:
                     messages.append({
                         "clause": assigned_clause,
@@ -201,11 +250,55 @@ class ASN1DocxParser:
                 if body is not None:
                     for p in body.findall(TAG_P):
                         t = _extract_p_text(p)
-                        if any(kw in t for kw in ("::=", "SEQUENCE", "CHOICE")):
+                        if any(kw in t for kw in ("::=", "SEQUENCE", "CHOICE", "NGAP-PROTOCOL-IES")):
                             collected.append(t)
         return "\n".join(collected)
 
+    def _extract_constant_ids(self, asn1_text: str) -> Dict[str, str]:
+        """Extracts ProtocolIE-ID integer constants (e.g. id-AMF-UE-NGAP-ID ::= 10)."""
+        id_map: Dict[str, str] = {}
+        for match in RE_IE_ID_CONST.finditer(asn1_text):
+            id_name = match.group(1).strip()
+            num_val = match.group(2).strip()
+            id_map[id_name] = num_val
+        return id_map
+
+    def _extract_object_sets(self, asn1_text: str, id_map: Dict[str, str]) -> Dict[str, List[Dict[str, Any]]]:
+        """Extracts Information Object Sets containing { ID id-... CRITICALITY ... TYPE ... PRESENCE ... }."""
+        object_sets: Dict[str, List[Dict[str, Any]]] = {}
+
+        for os_match in RE_OBJECT_SET.finditer(asn1_text):
+            set_name = os_match.group(1).strip()
+            body_text = os_match.group(2)
+
+            fields: List[Dict[str, Any]] = []
+            for item_match in RE_OBJECT_SET_ITEM.finditer(body_text):
+                ie_id_name = item_match.group(1).strip()
+                crit = item_match.group(2).strip()
+                ftype = item_match.group(3).strip()
+                pres_str = item_match.group(4).strip().lower()
+
+                presence = "M" if "mandatory" in pres_str else ("C" if "conditional" in pres_str else "O")
+                iei_val = id_map.get(ie_id_name, "")
+                clean_field_name = ie_id_name[3:] if ie_id_name.startswith("id-") else ie_id_name
+
+                fields.append({
+                    "name": clean_field_name,
+                    "type": ftype,
+                    "presence": presence,
+                    "criticality": crit,
+                    "format": "IE",
+                    "iei": iei_val,
+                    "id_name": ie_id_name,
+                })
+
+            if fields:
+                object_sets[set_name] = fields
+
+        return object_sets
+
     def _extract_asn1_type_definitions(self, asn1_text: str) -> Dict[str, Dict[str, Any]]:
+        """Parses raw ASN.1 text into structured type definitions using a bracket-balanced scanner."""
         type_defs: Dict[str, Dict[str, Any]] = {}
         clean_lines = [line.split("--")[0] for line in asn1_text.splitlines()]
         cleaned_text = "\n".join(clean_lines)
@@ -249,6 +342,7 @@ class ASN1DocxParser:
         return type_defs
 
     def _parse_sequence_fields(self, inner_asn1: str, parent_kind: str) -> List[Dict[str, Any]]:
+        """Extracts field records from inside a SEQUENCE or CHOICE definition block."""
         fields: List[Dict[str, Any]] = []
         cleaned = re.sub(r"\[\[|\]\]", " ", inner_asn1)
 
@@ -292,6 +386,7 @@ class ASN1DocxParser:
                     "type": ftype,
                     "presence": presence,
                     "format": parent_kind,
+                    "iei": "",
                 })
 
         return fields
@@ -300,61 +395,108 @@ class ASN1DocxParser:
             self,
             root_name: str,
             type_defs: Dict[str, Dict[str, Any]],
+            object_sets: Dict[str, List[Dict[str, Any]]],
             field_individual_descs: Dict[str, Dict[str, str]],
-            max_depth: int = 3,
+            max_depth: int = 4,
     ) -> List[Dict[str, Any]]:
+        """
+        Recursively unrolls sequence fields and Information Object Sets (IOS),
+        resolving ProtocolIE-Containers and binding field descriptions.
+        """
         result: List[Dict[str, Any]] = []
 
         def recurse(current_type: str, path_prefix: str, depth: int, visited: Set[str]):
             if depth > max_depth or current_type in visited:
                 return
 
-            t_info = type_defs.get(current_type)
-            if not t_info or not t_info["fields"]:
-                return
-
             new_visited = visited | {current_type}
             descs_for_type = field_individual_descs.get(current_type.lower(), {})
 
-            for f in t_info["fields"]:
-                fname = f["name"]
-                ftype = f["type"]
-                presence = f["presence"]
-                fmt = f["format"]
+            # Case A: current_type is an Object Set (e.g. AMFConfigurationUpdateAcknowledgeIEs)
+            if current_type in object_sets:
+                for f in object_sets[current_type]:
+                    _process_field(f, path_prefix, depth, new_visited, descs_for_type)
+                return
 
-                clean_type = RE_SETUP_RELEASE.sub(r"\1", ftype)
-                clean_type = RE_SEQ_OF.sub(r"\1", clean_type)
-                clean_type = RE_OCTET_CONTAINING.sub(r"\1", clean_type)
-                clean_type = RE_STRIP_EXTRANEOUS.sub("", clean_type).strip()
+            # Case B: current_type is a Type Definition in type_defs
+            t_info = type_defs.get(current_type)
+            if not t_info:
+                return
 
-                full_path = f"{path_prefix}.{fname}" if path_prefix else fname
-                field_desc = descs_for_type.get(fname.lower(), "")
+            # Check if this type is a container alias (e.g. SEQUENCE OF ProtocolIE-SingleContainer { {Set} })
+            raw_asn = t_info.get("raw_asn1", "")
+            container_match = RE_CONTAINER_REF.search(raw_asn)
+            if container_match and not t_info.get("fields"):
+                set_name = container_match.group(1).strip()
+                if set_name in object_sets:
+                    for f in object_sets[set_name]:
+                        _process_field(f, path_prefix, depth, new_visited, descs_for_type)
+                    return
 
-                if fname == "nonCriticalExtension" and clean_type in type_defs:
-                    recurse(clean_type, path_prefix, depth, new_visited)
-                    continue
+            for f in t_info.get("fields", []):
+                _process_field(f, path_prefix, depth, new_visited, descs_for_type)
 
-                result.append({
-                    "iei": "",
-                    "information_element": fname,
-                    "field_path": full_path,
-                    "depth": depth,
-                    "type_reference": ftype,
-                    "clean_type": clean_type,
-                    "presence": presence,
-                    "format": fmt,
-                    "length": "-",
-                    "field_description": field_desc,
-                })
+        def _process_field(f: Dict[str, Any], path_prefix: str, depth: int, visited_set: Set[str], descs_map: Dict[str, str]):
+            fname = f["name"]
+            ftype = f["type"]
+            presence = f.get("presence", "O")
+            fmt = f.get("format", "IE")
+            iei = f.get("iei", "")
 
-                if fname == "criticalExtensions" and clean_type in type_defs:
-                    recurse(clean_type, full_path, depth, new_visited)
-                elif clean_type in type_defs and depth < max_depth and not clean_type.endswith("List"):
-                    recurse(clean_type, full_path, depth + 1, new_visited)
+            # Check if ftype wraps an Object Set via ProtocolIE-Container
+            container_match = RE_CONTAINER_REF.search(ftype)
+            if container_match:
+                set_name = container_match.group(1).strip()
+                if set_name in object_sets:
+                    for set_field in object_sets[set_name]:
+                        _process_field(set_field, path_prefix, depth, visited_set, descs_map)
+                    return
+
+            # Extract clean type identifier
+            clean_type = RE_SETUP_RELEASE.sub(r"\1", ftype)
+            clean_type = RE_SEQ_OF.sub(r"\1", clean_type)
+            clean_type = RE_OCTET_CONTAINING.sub(r"\1", clean_type)
+            clean_type = RE_STRIP_EXTRANEOUS.sub("", clean_type).strip()
+
+            full_path = f"{path_prefix}.{fname}" if path_prefix else fname
+            field_desc = descs_map.get(fname.lower()) or descs_map.get(clean_type.lower(), "")
+
+            if fname == "nonCriticalExtension" and clean_type in type_defs:
+                recurse(clean_type, path_prefix, depth, visited_set)
+                return
+
+            result.append({
+                "iei": iei,
+                "information_element": fname,
+                "field_path": full_path,
+                "depth": depth,
+                "type_reference": ftype,
+                "clean_type": clean_type,
+                "presence": presence,
+                "format": fmt,
+                "length": "-",
+                "field_description": field_desc,
+            })
+
+            # Unroll nested criticalExtensions or sub-structures
+            if fname == "criticalExtensions" and clean_type in type_defs:
+                recurse(clean_type, full_path, depth, visited_set)
+            elif clean_type in object_sets and depth < max_depth:
+                recurse(clean_type, full_path, depth + 1, visited_set)
+            elif clean_type in type_defs and depth < max_depth:
+                # Recurse if it has direct fields or wraps an Object Set
+                target_t_info = type_defs[clean_type]
+                if target_t_info.get("fields") or RE_CONTAINER_REF.search(target_t_info.get("raw_asn1", "")):
+                    recurse(clean_type, full_path, depth + 1, visited_set)
 
         recurse(root_name, "", 0, set())
-        if not result and f"{root_name}-IEs" in type_defs:
-            recurse(f"{root_name}-IEs", "", 0, set())
+
+        # Fallback to <root_name>-IEs or <root_name>IEs if direct root returned empty
+        if not result:
+            if f"{root_name}-IEs" in type_defs:
+                recurse(f"{root_name}-IEs", "", 0, set())
+            elif f"{root_name}IEs" in object_sets:
+                recurse(f"{root_name}IEs", "", 0, set())
 
         return result
 
