@@ -2,19 +2,17 @@ import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union, Callable, Tuple
 
-from modules.nas.core.parsing.protocol_parser_constants import RE_PART_INDEX, RE_SPEC_NUMBER, RE_VERSION_STEM
+from modules.nas.core.parsing.protocol_parser_constants import (
+    RE_PART_INDEX, RE_SPEC_NUMBER, RE_VERSION_STEM
+)
 from modules.specifications.utils.utils import file_version_to_version
-from modules.nas.core.parsing.asn1_parser import ASN1DocxParser
+from modules.nas.core.parsing.rrc_asn1_parser import RRCAsn1Parser
+from modules.nas.core.parsing.ran3_asn1_parser import RAN3Asn1Parser
 from modules.nas.core.parsing.nas_parser import NASDocxParser
-
-try:
-    from lxml import etree as ET
-except ImportError:
-    import xml.etree.ElementTree as ET
 
 
 class ProtocolDocxDispatcher:
-    """Unified entry point and dispatcher routing docx files to NAS or ASN.1 parsers."""
+    """Unified entry point routing specifications to dedicated RRC, RAN3, or NAS parsers."""
 
     def __init__(self, docx_paths: Union[Path, str, List[Union[Path, str]]]):
         if isinstance(docx_paths, (str, Path)):
@@ -52,12 +50,17 @@ class ProtocolDocxDispatcher:
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         spec_num = self.extract_spec_number()
 
-        # Route ASN.1 specifications (38.331, 36.331, 38.413, 38.423, 36.413)
-        if any(s in spec_num for s in ["38.331", "36.331", "38.413", "38.423", "36.413", "38.473"]):
-            parser = ASN1DocxParser(self.docx_paths, spec_number=spec_num)
+        # 1. Route RAN2 RRC specifications (38.331, 36.331)
+        if any(s in spec_num for s in ["38.331", "36.331"]):
+            parser = RRCAsn1Parser(self.docx_paths, spec_number=spec_num)
             return parser.parse(progress_callback=progress_callback)
 
-        # Route NAS specifications (24.501, 24.301, 24.008)
+        # 2. Route RAN3 Object Set specifications (38.413, 38.423, 38.473, 38.463, 36.413)
+        if any(s in spec_num for s in ["38.413", "38.423", "38.473", "38.463", "36.413", "38.412"]):
+            parser = RAN3Asn1Parser(self.docx_paths, spec_number=spec_num)
+            return parser.parse(progress_callback=progress_callback)
+
+        # 3. Route standard NAS specifications (24.501, 24.301, 24.008)
         parser = NASDocxParser(self.docx_paths)
         messages, ie_definitions = parser.parse(progress_callback=progress_callback)
 
@@ -65,4 +68,3 @@ class ProtocolDocxDispatcher:
             progress_callback(f"Extracted {len(messages)} messages and {len(ie_definitions)} definitions.", 95)
 
         return messages, ie_definitions
-
