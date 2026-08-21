@@ -11,7 +11,7 @@ from modules.nas.core.parsing.protocol_parser_constants import (
 
 
 class RAN3Asn1Parser(BaseAsn1DocxParser):
-    """Dedicated parser for 3GPP RAN3 Specifications using Information Object Sets (NGAP, XnAP, S1AP, F1AP)."""
+    """Dedicated parser for 3GPP RAN3 Specifications (NGAP, XnAP, S1AP, F1AP)."""
 
     def parse(
             self, progress_callback: Optional[Callable[[str, int], None]] = None
@@ -33,8 +33,13 @@ class RAN3Asn1Parser(BaseAsn1DocxParser):
 
         for type_name, type_info in type_defs.items():
             clean_name = type_name.strip()
-            assigned_clause = clause_map.get(clean_name.lower()) or type_info.get("clause") or (
-                "9.2" if "Message" in clean_name else "9.3"
+            norm_key = self._normalize_key(clean_name)
+
+            assigned_clause = (
+                clause_map.get(norm_key)
+                or clause_map.get(clean_name.lower())
+                or type_info.get("clause")
+                or ("9.2" if "Message" in clean_name else "9.3")
             )
 
             is_message = (
@@ -52,7 +57,9 @@ class RAN3Asn1Parser(BaseAsn1DocxParser):
             ) and not clean_name.endswith("-IEs")
 
             desc_table_html = (
-                field_desc_tables.get(clean_name.lower())
+                field_desc_tables.get(norm_key)
+                or field_desc_tables.get(clean_name.lower())
+                or field_desc_tables.get(f"{norm_key}ies")
                 or field_desc_tables.get(f"{clean_name.lower()}-ies")
                 or field_desc_tables.get(f"{clean_name.lower()}ies")
                 or ""
@@ -83,7 +90,7 @@ class RAN3Asn1Parser(BaseAsn1DocxParser):
                     messages.append({
                         "clause": assigned_clause,
                         "message_name": clean_name,
-                        "table_caption": f"{clean_name} ASN.1 PDU Definition",
+                        "table_caption": f"{clean_name} (Clause {assigned_clause})",
                         "ies": unrolled,
                     })
 
@@ -97,10 +104,7 @@ class RAN3Asn1Parser(BaseAsn1DocxParser):
         return id_map
 
     def _extract_object_sets(self, asn1_text: str, id_map: Dict[str, str]) -> Dict[str, List[Dict[str, Any]]]:
-        """
-        Extracts Information Object Sets using a deterministic bracket scanner
-        to eliminate regex catastrophic backtracking on large specifications.
-        """
+        """Extracts Information Object Sets using bracket scanning."""
         object_sets: Dict[str, List[Dict[str, Any]]] = {}
         clean_lines = [line.split("--")[0] for line in asn1_text.splitlines()]
         cleaned_text = "\n".join(clean_lines)
@@ -197,15 +201,14 @@ class RAN3Asn1Parser(BaseAsn1DocxParser):
                 return
 
             new_visited = visited | {current_type}
-            descs_for_type = field_individual_descs.get(current_type.lower(), {})
+            norm_curr = self._normalize_key(current_type)
+            descs_for_type = field_individual_descs.get(norm_curr) or field_individual_descs.get(current_type.lower(), {})
 
-            # Case A: Direct Object Set (e.g. InitialUEMessage-IEs)
             if current_type in object_sets:
                 for f in object_sets[current_type]:
                     _process_field(f, path_prefix, depth, new_visited, descs_for_type)
                 return
 
-            # Case B: Type Definition
             t_info = type_defs.get(current_type)
             if not t_info:
                 return
@@ -229,7 +232,6 @@ class RAN3Asn1Parser(BaseAsn1DocxParser):
             fmt = f.get("format", "IE")
             iei = f.get("iei", "")
 
-            # Resolve ProtocolIE-Container wrapping
             container_match = RE_CONTAINER_REF.search(ftype)
             if container_match:
                 set_name = container_match.group(1).strip()
@@ -244,7 +246,9 @@ class RAN3Asn1Parser(BaseAsn1DocxParser):
             clean_type = RE_STRIP_EXTRANEOUS.sub("", clean_type).strip()
 
             full_path = f"{path_prefix}.{fname}" if path_prefix else fname
-            field_desc = descs_map.get(fname.lower()) or descs_map.get(clean_type.lower(), "")
+            norm_fname = self._normalize_key(fname)
+            norm_ctype = self._normalize_key(clean_type)
+            field_desc = descs_map.get(norm_fname) or descs_map.get(fname.lower()) or descs_map.get(norm_ctype) or ""
 
             result.append({
                 "iei": iei,

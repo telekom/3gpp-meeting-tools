@@ -166,7 +166,7 @@ class DatabaseMaintenanceDialog(QDialog):
                 "path": root / "3gpp_data.db",
             },
             {
-                "name": "NAS Protocol Data (TS 24.501 & TS 24.301)",
+                "name": "3GPP Protocol Data (NAS, NGAP, RRC, etc.)",
                 "path": root / "3gpp_protocol_data.db",
             },
         ]
