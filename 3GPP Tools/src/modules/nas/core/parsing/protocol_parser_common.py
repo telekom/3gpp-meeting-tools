@@ -1,4 +1,7 @@
 import html
+import zipfile
+from pathlib import Path
+from typing import Optional, List, Dict, Any
 
 try:
     from lxml import etree as ET
@@ -24,14 +27,27 @@ TAG_PPR = f"{W_NS}pPr"
 TAG_JC = f"{W_NS}jc"
 
 
-def _extract_p_text(p_elem) -> str:
+def extract_document_root(docx_path: Path) -> Optional[ET.Element]:
+    """Safely extracts and parses word/document.xml from a .docx zip archive."""
+    if not docx_path.exists():
+        return None
+    try:
+        with zipfile.ZipFile(docx_path, "r") as zf:
+            if "word/document.xml" not in zf.namelist():
+                return None
+            xml_bytes = zf.read("word/document.xml")
+            return ET.fromstring(xml_bytes)
+    except Exception:
+        return None
+
+
+def _extract_p_text(p_elem: ET.Element) -> str:
     """Extracts clean text from a <w:p> node, preserving spaces, tabs, and line breaks."""
-    text_pieces = []
+    text_pieces: List[str] = []
     for node in p_elem.iter():
         tag = node.tag
-        if tag == TAG_T:
-            if node.text:
-                text_pieces.append(node.text)
+        if tag == TAG_T and node.text:
+            text_pieces.append(node.text)
         elif tag == TAG_TAB:
             text_pieces.append(" ")
         elif tag in (TAG_BR, TAG_CR):
@@ -44,68 +60,99 @@ def _extract_p_text(p_elem) -> str:
     return " ".join(raw.split())
 
 
-def _extract_tc_text(tc_elem) -> str:
+def _extract_tc_text(tc_elem: ET.Element) -> str:
     """Extracts text from a table cell <w:tc>, joining multiple paragraphs with spaces."""
-    p_texts = []
-    for p in tc_elem.findall(TAG_P):
-        pt = _extract_p_text(p)
-        if pt:
-            p_texts.append(pt)
-    return " ".join(p_texts).strip()
+    p_texts = [_extract_p_text(p) for p in tc_elem.findall(TAG_P)]
+    return " ".join(pt for pt in p_texts if pt).strip()
 
 
-def _convert_table_to_html(tbl_elem, is_figure_diagram: bool = False) -> str:
-    """Converts a Word XML table into a styled HTML table supporting colspan and vertical alignment."""
+def _convert_table_to_html(tbl_elem: ET.Element, is_figure_diagram: bool = False) -> str:
+    """
+    Converts a Word XML table into a styled HTML table with full rowspan and colspan support.
+    Applies bit-grid styling if is_figure_diagram is True.
+    """
     rows = tbl_elem.findall(TAG_TR)
     if not rows:
         return ""
 
-    table_style = (
-        "border-collapse: collapse; margin: 8px 0; border: 1px solid #CBD5E1; "
-        "font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; width: 100%;"
-    )
-    html_parts = [f'<table border="1" cellspacing="0" cellpadding="4" style="{table_style}">']
-
-    for r_idx, row in enumerate(rows):
-        html_parts.append("<tr>")
-        cells = row.findall(TAG_TC)
-
-        for cell in cells:
-            tcPr = cell.find(TAG_TCPR)
+    # Phase 1: Parse cell metadata grid
+    grid: List[List[Dict[str, Any]]] = []
+    for row in rows:
+        row_cells = []
+        for cell in row.findall(TAG_TC):
+            tc_pr = cell.find(TAG_TCPR)
             colspan = 1
-            is_vmerge_continue = False
+            vmerge_status = "none"  # "restart", "continue", or "none"
 
-            if tcPr is not None:
-                gs = tcPr.find(TAG_GRIDSPAN)
+            if tc_pr is not None:
+                gs = tc_pr.find(TAG_GRIDSPAN)
                 if gs is not None:
                     val = gs.get(f"{W_NS}val")
                     if val and val.isdigit():
                         colspan = int(val)
 
-                vm = tcPr.find(TAG_VMERGE)
+                vm = tc_pr.find(TAG_VMERGE)
                 if vm is not None:
                     val = vm.get(f"{W_NS}val")
-                    if val != "restart":
-                        is_vmerge_continue = True
+                    vmerge_status = "restart" if val == "restart" else "continue"
 
-            if is_vmerge_continue:
+            row_cells.append({
+                "text": _extract_tc_text(cell),
+                "colspan": colspan,
+                "vmerge": vmerge_status,
+                "rowspan": 1,
+                "skip": False,
+            })
+        grid.append(row_cells)
+
+    # Phase 2: Resolve vertical merge rowspans
+    num_rows = len(grid)
+    for r_idx in range(num_rows):
+        for c_idx, cell_data in enumerate(grid[r_idx]):
+            if cell_data["vmerge"] == "restart":
+                span = 1
+                for next_r in range(r_idx + 1, num_rows):
+                    if c_idx < len(grid[next_r]) and grid[next_r][c_idx]["vmerge"] == "continue":
+                        span += 1
+                        grid[next_r][c_idx]["skip"] = True
+                    else:
+                        break
+                cell_data["rowspan"] = span
+            elif cell_data["vmerge"] == "continue" and not cell_data["skip"]:
+                cell_data["skip"] = True
+
+    # Phase 3: Build HTML string
+    table_font = "Consolas, 'Courier New', monospace" if is_figure_diagram else "'Segoe UI', Arial, sans-serif"
+    table_style = (
+        f"border-collapse: collapse; margin: 8px 0; border: 1px solid #CBD5E1; "
+        f"font-family: {table_font}; font-size: 11px; width: 100%;"
+    )
+    html_parts = [f'<table border="1" cellspacing="0" cellpadding="4" style="{table_style}">']
+
+    for r_idx, row_cells in enumerate(grid):
+        html_parts.append("<tr>")
+        for cell_data in row_cells:
+            if cell_data["skip"]:
                 continue
 
-            cell_text = html.escape(_extract_tc_text(cell))
             tag = "th" if r_idx == 0 else "td"
-            style_bits = ["border: 1px solid #E2E8F0;", "padding: 4px 6px;"]
+            style_bits = ["border: 1px solid #CBD5E1;", "padding: 4px 6px;"]
+
+            if is_figure_diagram:
+                style_bits.append("text-align: center;")
 
             if r_idx == 0:
                 style_bits.append("background-color: #F1F5F9; font-weight: bold; color: #1E293B;")
+            elif is_figure_diagram and r_idx % 2 == 1:
+                style_bits.append("background-color: #FAFAFA;")
 
-            colspan_attr = f' colspan="{colspan}"' if colspan > 1 else ""
+            colspan_attr = f' colspan="{cell_data["colspan"]}"' if cell_data["colspan"] > 1 else ""
+            rowspan_attr = f' rowspan="{cell_data["rowspan"]}"' if cell_data["rowspan"] > 1 else ""
             style_str = " ".join(style_bits)
-            html_parts.append(f'<{tag}{colspan_attr} style="{style_str}">{cell_text}</{tag}>')
+            escaped_text = html.escape(cell_data["text"])
 
+            html_parts.append(f'<{tag}{colspan_attr}{rowspan_attr} style="{style_str}">{escaped_text}</{tag}>')
         html_parts.append("</tr>")
 
     html_parts.append("</table>")
     return "".join(html_parts)
-
-
-

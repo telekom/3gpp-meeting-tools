@@ -9,7 +9,7 @@ from core.network.session import NetworkSession
 from core.utils.paths import get_project_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase
-from modules.nas.core.parsing.nas_parser import NASDocxParser
+from modules.nas.core.parsing.nas_parser import ProtocolDocxDispatcher
 from modules.word_tools.core.word_converter import convert_doc_to_docx
 
 
@@ -164,7 +164,7 @@ class NASFetchAndImportThread(QThread):
                         # Look for potential split sibling parts cached locally
                         base_prefix = re.sub(r"_\d+_.*$", "", cached_hit.stem)
                         siblings = list(cached_hit.parent.glob(f"{base_prefix}*.docx")) + list(cached_hit.parent.glob(f"{base_prefix}*.doc"))
-                        target_docs = sorted(list(set(siblings)), key=lambda p: NASDocxParser._extract_part_index(p.name))
+                        target_docs = sorted(list(set(siblings)), key=lambda p: ProtocolDocxDispatcher._extract_part_index(p.name))
                         emit_task_progress(f"Found cached document(s): {len(target_docs)} part(s)", 20)
                     else:
                         zip_path = spec_cache_dir / filename
@@ -198,7 +198,7 @@ class NASFetchAndImportThread(QThread):
                         converted_docs.append(doc_file)
 
                 # Initialize Parser with all parts
-                parser = NASDocxParser(converted_docs)
+                parser = ProtocolDocxDispatcher(converted_docs)
                 if not version:
                     version = parser.extract_version_from_filename()
 
