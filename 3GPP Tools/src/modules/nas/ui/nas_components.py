@@ -488,8 +488,8 @@ class NASInspectorWidget(QGroupBox):
         if self.db and current_spec in ("24.501", "24.301"):
             match = RE_NAS_CROSS_REF.search(base_html)
             if match:
-                target_clause = match.group(1).rstrip(".")
-                target_spec = match.group(2)
+                target_clause = match.group(1).rstrip(".[] ")
+                target_spec = match.group(2).strip()
 
                 if target_spec != current_spec:
                     ver_tuple = parse_version_tuple(current_ver_str)
@@ -502,19 +502,20 @@ class NASInspectorWidget(QGroupBox):
                         major_version=major_ver,
                     )
 
-                    if cross_def:
+                    if cross_def and cross_def.get("raw_description"):
+                        cross_body = cross_def.get("raw_description", "").strip()
                         cross_html = (
-                            f'<div style="margin-top: 14px; border: 1px solid #BAE6FD; background-color: #F0F9FF; border-radius: 6px; padding: 10px;">'
-                            f'<div style="margin-bottom: 8px; border-bottom: 1px solid #BAE6FD; padding-bottom: 6px;">'
+                            f'<div style="margin-top: 14px; border: 1.5px solid #0284C7; background-color: #F0F9FF; border-radius: 6px; padding: 12px;">'
+                            f'<div style="margin-bottom: 10px; border-bottom: 1px solid #BAE6FD; padding-bottom: 6px;">'
                             f'<span style="font-size: 12px; font-weight: bold; color: #0369A1;">'
                             f'🔗 Cross-Referenced from TS {target_spec} v{cross_def["version"]} (Clause {cross_def.get("clause", target_clause)})'
                             f'</span>'
-                            f'<span style="font-size: 10px; color: #0284C7; margin-left: 8px; background-color: #E0F2FE; padding: 1px 6px; border-radius: 3px; border: 1px solid #7DD3FC;">'
+                            f'<span style="font-size: 10px; color: #0284C7; margin-left: 8px; background-color: #E0F2FE; padding: 2px 6px; border-radius: 3px; border: 1px solid #7DD3FC;">'
                             f'Rel-{major_ver} latest'
                             f'</span>'
                             f'</div>'
-                            f'<div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 4px; padding: 8px;">'
-                            f'{cross_def.get("raw_description", "")}'
+                            f'<div style="background-color: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 4px; padding: 10px;">'
+                            f'{cross_body}'
                             f'</div>'
                             f'</div>'
                         )
