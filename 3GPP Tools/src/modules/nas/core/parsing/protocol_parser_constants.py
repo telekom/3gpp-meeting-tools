@@ -36,7 +36,7 @@ RE_MAJOR_BOUNDARY = re.compile(r"^(?:[1-8]|10|11|12|Annex\s+[A-Z])\b")
 # ASN.1 Declarations & IOS Sets
 RE_TYPE_DECL = re.compile(r"([A-Za-z0-9\-]+)(?:\s*\{[^}]*\})?\s*::=\s*", re.MULTILINE)
 RE_TYPE_KIND = re.compile(r"^(SEQUENCE|CHOICE|ENUMERATED|BIT STRING|OCTET STRING|INTEGER|BOOLEAN)", re.IGNORECASE)
-RE_FIELD_LINE = re.compile(r"^([A-Za-z0-9\-]+)\s+(.+)$")
+RE_FIELD_LINE = re.compile(r"^([A-Za-z0-9\-]+)\s+(.+)$", re.DOTALL)
 RE_STRIP_KEYWORDS = re.compile(r"\s+(?:OPTIONAL|MANDATORY|DEFAULT\s+[^,\s]+).*", re.IGNORECASE)
 RE_COND_NEED = re.compile(r"--\s*(Cond\s+[A-Za-z0-9\-]+|Need\s+[MNRS])", re.IGNORECASE)
 
