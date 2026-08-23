@@ -370,37 +370,65 @@ class NASDatabase:
             cursor.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
-    def get_message_evolution_df(self, message_name: str, version_ids: List[int]) -> pd.DataFrame:
+    def get_message_evolution_df(
+        self,
+        message_name: str,
+        version_ids: List[int],
+        include_descriptions: bool = False,
+    ) -> pd.DataFrame:
+        """
+        Fast retrieval of message evolution data across selected versions.
+        Omits raw HTML descriptions by default to keep query execution instantaneous.
+        """
         if not version_ids:
             return pd.DataFrame()
 
         placeholders = ",".join("?" for _ in version_ids)
-        query = f"""
-            SELECT 
-                sv.spec_number,
-                sv.version,
-                i.iei,
-                i.ie_name,
-                i.field_path,
-                i.depth,
-                i.type_reference,
-                i.presence,
-                i.format,
-                i.length,
-                i.order_index,
-                d.raw_description AS ie_description
-            FROM message_ies i
-            JOIN nas_messages m ON i.message_id = m.id
-            JOIN spec_versions sv ON m.version_id = sv.id
-            LEFT JOIN ie_definitions d ON d.version_id = sv.id
-                AND (
-                    (d.clause != '' AND i.type_reference LIKE '%' || d.clause || '%')
-                    OR (d.ie_name != '' AND LOWER(TRIM(i.ie_name)) = LOWER(TRIM(d.ie_name)))
-                    OR (d.ie_name != '' AND i.type_reference LIKE '%' || d.ie_name || '%')
-                )
-            WHERE m.message_name = ? AND sv.id IN ({placeholders})
-            ORDER BY i.order_index ASC
-        """
+
+        if include_descriptions:
+            query = f"""
+                SELECT 
+                    sv.spec_number,
+                    sv.version,
+                    i.iei,
+                    i.ie_name,
+                    i.field_path,
+                    i.depth,
+                    i.type_reference,
+                    i.presence,
+                    i.format,
+                    i.length,
+                    i.order_index,
+                    d.raw_description AS ie_description
+                FROM message_ies i
+                JOIN nas_messages m ON i.message_id = m.id
+                JOIN spec_versions sv ON m.version_id = sv.id
+                LEFT JOIN ie_definitions d ON d.version_id = sv.id
+                    AND (d.ie_name = i.ie_name OR d.clause = i.type_reference)
+                WHERE m.message_name = ? AND sv.id IN ({placeholders})
+                ORDER BY i.order_index ASC
+            """
+        else:
+            query = f"""
+                SELECT 
+                    sv.spec_number,
+                    sv.version,
+                    i.iei,
+                    i.ie_name,
+                    i.field_path,
+                    i.depth,
+                    i.type_reference,
+                    i.presence,
+                    i.format,
+                    i.length,
+                    i.order_index
+                FROM message_ies i
+                JOIN nas_messages m ON i.message_id = m.id
+                JOIN spec_versions sv ON m.version_id = sv.id
+                WHERE m.message_name = ? AND sv.id IN ({placeholders})
+                ORDER BY i.order_index ASC
+            """
+
         params = [message_name] + version_ids
 
         with self._get_connection() as conn:
