@@ -2,7 +2,7 @@ import html
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QFont
 from PyQt5.QtWidgets import (
     QAction,
@@ -11,16 +11,17 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
-    QMessageBox,
     QPushButton,
-    QTextEdit,
-    QTreeWidget,
+    QTextBrowser,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
+from PyQt5.QtWidgets import (
+    QTreeWidget,
+)
 
-from modules.nas.core.nas_db import parse_version_tuple
+from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
 from modules.nas.ui.nas_dialogs import get_spec_title
 
 
@@ -290,15 +291,22 @@ class NASVersionTreeWidget(QTreeWidget):
             menu.addAction(act_delete_spec)
             menu.exec_(self.viewport().mapToGlobal(pos))
 
+RE_NAS_CROSS_REF = re.compile(
+    r"(?:see\s+)?(?:subclause|clause|sub-clause)\s+([0-9A-Za-z\.]+)\s+in\s+(?:3GPP\s+)?TS\s+(24\.(?:301|501))",
+    re.IGNORECASE,
+)
+
 
 class NASInspectorWidget(QGroupBox):
-    """Renders Clause 9 diagrams, ASN.1 syntax blocks, and field description tables."""
+    """Renders Clause 9 diagrams, cross-specification references, and field description tables."""
 
     jump_to_message_requested = pyqtSignal(str)
     filter_by_ie_requested = pyqtSignal(str)
+    import_spec_requested = pyqtSignal(str, int)  # (spec_number, major_version)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, db: Optional[NASDatabase] = None, parent: Optional[QWidget] = None):
         super().__init__("Structure && Field Descriptions Inspector", parent)
+        self.db = db
         self._current_clause_defs: Dict[str, Dict[str, Any]] = {}
         self._current_ie_clause: Optional[str] = None
         self._current_ie_name: Optional[str] = None
@@ -307,6 +315,9 @@ class NASInspectorWidget(QGroupBox):
         self._updating_combo: bool = False
 
         self._setup_ui()
+
+    def set_database(self, db: NASDatabase):
+        self.db = db
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -363,12 +374,23 @@ class NASInspectorWidget(QGroupBox):
         insp_header.addWidget(self.version_combo)
         layout.addLayout(insp_header)
 
-        self.text_area = QTextEdit()
+        self.text_area = QTextBrowser()
         self.text_area.setReadOnly(True)
+        self.text_area.setOpenLinks(False)
+        self.text_area.setOpenExternalLinks(False)
+        self.text_area.anchorClicked.connect(self._on_anchor_clicked)
         self.text_area.setPlaceholderText(
             "Click on an Information Element above to inspect its details and field descriptions..."
         )
         layout.addWidget(self.text_area)
+
+    def _on_anchor_clicked(self, url: QUrl):
+        url_str = url.toString()
+        if url_str.startswith("action:import:"):
+            parts = url_str.replace("action:import:", "").split(":")
+            spec_num = parts[0]
+            major_ver = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+            self.import_spec_requested.emit(spec_num, major_ver)
 
     def display_definitions(
             self,
@@ -382,25 +404,17 @@ class NASInspectorWidget(QGroupBox):
             field_description: str = "",
             **kwargs,
     ):
-        """
-        Renders standalone definitions from the database or formats inline/anonymous ASN.1 definitions.
-        Accepts **kwargs for defensive backward compatibility with all caller parameter variations.
-        """
         self._current_ie_clause = clause
         self._current_ie_name = ie_name
         self._current_ie_spec = spec_number
         self._current_containing_msgs = containing_msgs
 
-        # 1. Handle Standalone Types Found in Database
-
-        # In NASInspectorWidget.display_definitions()
         if defs:
             resolved_name = defs[0]["ie_name"]
             spec_badge = f" (TS {spec_number})" if spec_number else ""
             self.title_lbl.setText(f"{resolved_name}{spec_badge}")
             self._current_clause_defs = {f"{d['spec_number']} v{d['version']}": d for d in defs}
 
-            # If containing_msgs is not yet ready, show loading state
             if containing_msgs:
                 num_msgs = len(containing_msgs)
                 self.usage_btn.setText(f"Used in: {num_msgs} message{'s' if num_msgs != 1 else ''} ▾")
@@ -437,10 +451,9 @@ class NASInspectorWidget(QGroupBox):
 
             self._updating_combo = False
             selected_def = self._current_clause_defs.get(target_version_key) or defs[0]
-            self.text_area.setHtml(selected_def["raw_description"])
+            self._render_selected_definition(selected_def)
             return
 
-        # 2. Handle Inline / Anonymous Types (ENUMERATED, INTEGER, BOOLEAN, BIT STRING, etc.)
         self.usage_btn.setVisible(False)
         self.version_combo.clear()
         self._current_clause_defs.clear()
@@ -466,6 +479,73 @@ class NASInspectorWidget(QGroupBox):
                 f"Type / Reference: {fallback_type_ref}\n(No structure definition found in database)"
             )
 
+    def _render_selected_definition(self, definition: Dict[str, Any]):
+        base_html = definition.get("raw_description", "")
+        current_spec = definition.get("spec_number", "")
+        current_ver_str = definition.get("version", "")
+
+        # Check for 4G <-> 5G cross-specification references
+        if self.db and current_spec in ("24.501", "24.301"):
+            match = RE_NAS_CROSS_REF.search(base_html)
+            if match:
+                target_clause = match.group(1).rstrip(".")
+                target_spec = match.group(2)
+
+                if target_spec != current_spec:
+                    ver_tuple = parse_version_tuple(current_ver_str)
+                    major_ver = ver_tuple[0] if ver_tuple else 15
+
+                    cross_def = self.db.get_cross_referenced_ie_definition(
+                        target_spec=target_spec,
+                        target_clause=target_clause,
+                        alt_name=definition.get("ie_name", ""),
+                        major_version=major_ver,
+                    )
+
+                    if cross_def:
+                        cross_html = (
+                            f'<div style="margin-top: 14px; border: 1px solid #BAE6FD; background-color: #F0F9FF; border-radius: 6px; padding: 10px;">'
+                            f'<div style="margin-bottom: 8px; border-bottom: 1px solid #BAE6FD; padding-bottom: 6px;">'
+                            f'<span style="font-size: 12px; font-weight: bold; color: #0369A1;">'
+                            f'🔗 Cross-Referenced from TS {target_spec} v{cross_def["version"]} (Clause {cross_def.get("clause", target_clause)})'
+                            f'</span>'
+                            f'<span style="font-size: 10px; color: #0284C7; margin-left: 8px; background-color: #E0F2FE; padding: 1px 6px; border-radius: 3px; border: 1px solid #7DD3FC;">'
+                            f'Rel-{major_ver} latest'
+                            f'</span>'
+                            f'</div>'
+                            f'<div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 4px; padding: 8px;">'
+                            f'{cross_def.get("raw_description", "")}'
+                            f'</div>'
+                            f'</div>'
+                        )
+                        base_html += cross_html
+                    else:
+                        missing_html = (
+                            f'<div style="margin-top: 14px; border: 1px solid #FCD34D; background-color: #FFFBEB; border-radius: 6px; padding: 10px; border-left: 4px solid #F59E0B; font-family: Segoe UI, sans-serif;">'
+                            f'<div style="font-weight: bold; color: #92400E; font-size: 12px; margin-bottom: 4px;">'
+                            f'ℹ️ Cross-Specification Reference: TS {target_spec} (Clause {target_clause})'
+                            f'</div>'
+                            f'<div style="color: #78350F; font-size: 11px; line-height: 1.5;">'
+                            f'This Information Element references <b>TS {target_spec} (Release {major_ver})</b>, which is not currently present in your local database.<br/>'
+                            f'<p style="margin-top: 6px; margin-bottom: 2px;">'
+                            f'<a href="action:import:{target_spec}:{major_ver}" style="display: inline-block; background-color: #0284C7; color: #FFFFFF; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 11px;">'
+                            f'📥 Import TS {target_spec} (Rel-{major_ver}) from 3GPP Archive'
+                            f'</a>'
+                            f'</p>'
+                            f'</div>'
+                            f'</div>'
+                        )
+                        base_html += missing_html
+
+        self.text_area.setHtml(base_html)
+
+    def _on_version_changed(self, index: int):
+        if self._updating_combo or index < 0:
+            return
+        version_key = self.version_combo.itemData(index)
+        if version_key in self._current_clause_defs:
+            self._render_selected_definition(self._current_clause_defs[version_key])
+
     @staticmethod
     def _render_inline_type_html(
         ie_name: str,
@@ -473,7 +553,6 @@ class NASInspectorWidget(QGroupBox):
         field_description: str = "",
         spec_number: Optional[str] = None,
     ) -> str:
-        """Constructs an Inspector view for inline ASN.1 types and primitive fields."""
         spec_title = f" (TS {spec_number})" if spec_number else ""
         header_html = (
             f'<h2 style="color: #0369A1; margin-top: 2px; margin-bottom: 8px; '
@@ -482,8 +561,6 @@ class NASInspectorWidget(QGroupBox):
         )
 
         clean_type_ref = re.sub(r"\s+", " ", type_ref).strip()
-
-        # Format inline ASN.1 block cleanly
         formatted_asn1 = f"{ie_name} ::= {clean_type_ref}"
         if "ENUMERATED" in clean_type_ref:
             enum_match = re.search(r"ENUMERATED\s*\{([^}]+)\}", clean_type_ref, re.IGNORECASE)
@@ -522,13 +599,6 @@ class NASInspectorWidget(QGroupBox):
         self.version_combo.clear()
         self.text_area.clear()
         self._current_clause_defs.clear()
-
-    def _on_version_changed(self, index: int):
-        if self._updating_combo or index < 0:
-            return
-        version_key = self.version_combo.itemData(index)
-        if version_key in self._current_clause_defs:
-            self.text_area.setHtml(self._current_clause_defs[version_key]["raw_description"])
 
     def _show_usage_menu(self):
         if not self._current_ie_clause:
@@ -591,7 +661,6 @@ class NASInspectorWidget(QGroupBox):
         menu.exec_(self.usage_btn.mapToGlobal(self.usage_btn.rect().bottomLeft()))
 
     def set_containing_messages(self, containing_msgs: List[Dict[str, Any]]):
-        """Asynchronously updates the usage button and containing messages list."""
         self._current_containing_msgs = containing_msgs
         num_msgs = len(containing_msgs)
         self.usage_btn.setText(f"Used in: {num_msgs} message{'s' if num_msgs != 1 else ''} ▾")

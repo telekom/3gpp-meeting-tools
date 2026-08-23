@@ -27,13 +27,14 @@ from PyQt5.QtWidgets import (
 )
 
 from modules.meetings.core.settings import MeetingsSettings
-from modules.nas.core.nas_db import NASDatabase
+from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.nas.core.nas_threads import NASFetchAndImportThread
 from modules.nas.ui.nas_components import NASInspectorWidget, NASVersionTreeWidget
 from modules.nas.ui.nas_dialogs import NASVersionSelectDialog
 from modules.nas.ui.nas_models import NASEvolutionMatrixModel
 from modules.specifications.core.database import SpecsDatabase
+from PyQt5.QtCore import QThread, pyqtSignal
 
 RE_SPEC_FROM_COL = re.compile(r"(?:24|36|38)\.[0-9]{3}")
 RE_CLAUSE_FROM_REF = re.compile(r"((?:9|6|D\.6)(?:\.[0-9A-Za-z]+)+)")
@@ -217,9 +218,10 @@ class NASTab(QWidget):
         matrix_layout.addWidget(self.matrix_table)
         right_splitter.addWidget(matrix_widget)
 
-        self.inspector = NASInspectorWidget()
+        self.inspector = NASInspectorWidget(db=self.db)
         self.inspector.jump_to_message_requested.connect(self._jump_to_message)
         self.inspector.filter_by_ie_requested.connect(lambda term: self.ie_search.setText(term))
+        self.inspector.import_spec_requested.connect(self._on_import_cross_ref_spec_requested)
         right_splitter.addWidget(self.inspector)
 
         right_splitter.setSizes([380, 320])
@@ -765,7 +767,38 @@ class NASTab(QWidget):
             self.inspector.clear_display()
             self.log_msg.emit("🧹 Protocol Database wiped.", logging.INFO)
 
-from PyQt5.QtCore import QThread, pyqtSignal
+    def _on_import_cross_ref_spec_requested(self, spec_number: str, major_version: int):
+        if not self.specs_db:
+            QMessageBox.warning(
+                self,
+                "Specs DB Unavailable",
+                "The 3GPP Specifications database (3gpp_data.db) is not configured or reachable.",
+            )
+            return
+
+        dialog = NASVersionSelectDialog(self.specs_db, self.db, self.cache_dir, self)
+
+        # Pre-select specification
+        for idx in range(dialog.spec_combo.count()):
+            if dialog.spec_combo.itemData(idx) == spec_number:
+                dialog.spec_combo.setCurrentIndex(idx)
+                break
+
+        # Pre-select matching release row
+        if major_version > 0:
+            dialog.table.clearSelection()
+            for row in range(dialog.table.rowCount()):
+                item = dialog.table.item(row, 0)
+                if item:
+                    data = item.data(Qt.UserRole) or {}
+                    ver_tuple = parse_version_tuple(data.get("version", ""))
+                    if ver_tuple and ver_tuple[0] == major_version:
+                        dialog.table.selectRow(row)
+                        dialog.table.scrollToItem(item)
+                        break
+
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_files_info:
+            self._start_batch_ingestion(dialog.selected_files_info)
 
 class ReverseLookupWorker(QThread):
     """Background worker to fetch message references without freezing the UI."""

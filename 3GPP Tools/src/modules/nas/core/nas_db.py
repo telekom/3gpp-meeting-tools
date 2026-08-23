@@ -471,3 +471,76 @@ class NASDatabase:
             rows = [dict(row) for row in cursor.fetchall()]
 
         return sorted(rows, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
+
+    def get_latest_spec_version_by_major(
+            self,
+            spec_number: str,
+            major_version: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Finds the most recent minor/patch version for a given spec number and major release."""
+        query = "SELECT id, spec_number, version, spec_type, import_date FROM spec_versions WHERE spec_number = ?"
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (spec_number.strip(),))
+            rows = [dict(r) for r in cursor.fetchall()]
+
+        if not rows:
+            return None
+
+        if major_version is not None:
+            rows = [
+                r for r in rows
+                if parse_version_tuple(r["version"]) and parse_version_tuple(r["version"])[0] == major_version
+            ]
+
+        if not rows:
+            return None
+
+        rows.sort(key=lambda r: parse_version_tuple(r["version"]), reverse=True)
+        return rows[0]
+
+    def get_cross_referenced_ie_definition(
+            self,
+            target_spec: str,
+            target_clause: str,
+            alt_name: str = "",
+            major_version: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves the IE definition from target_spec matching target_clause (or alt_name)
+        for the most recent minor version belonging to major_version.
+        """
+        latest_ver = self.get_latest_spec_version_by_major(target_spec, major_version)
+        if not latest_ver:
+            return None
+
+        clean_c = target_clause.strip() if target_clause else ""
+        clean_alt = alt_name.strip() if alt_name else ""
+
+        where_parts = []
+        params: List[Any] = [latest_ver["id"]]
+
+        if clean_c:
+            where_parts.append("(LOWER(TRIM(d.clause)) = LOWER(?) OR d.clause LIKE ?)")
+            params.extend([clean_c, f"%{clean_c}%"])
+
+        if clean_alt:
+            where_parts.append("LOWER(TRIM(d.ie_name)) = LOWER(?)")
+            params.append(clean_alt)
+
+        if not where_parts:
+            return None
+
+        where_sql = " OR ".join(where_parts)
+        query = f"""
+            SELECT d.*, sv.version, sv.spec_number
+            FROM ie_definitions d
+            JOIN spec_versions sv ON d.version_id = sv.id
+            WHERE sv.id = ? AND ({where_sql})
+            LIMIT 1
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+            return dict(row) if row else None
