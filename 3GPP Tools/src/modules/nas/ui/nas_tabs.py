@@ -196,12 +196,19 @@ class NASTab(QWidget):
         self.matrix_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1E293B;")
         matrix_layout.addWidget(self.matrix_title)
 
+        # Matrix Table Configuration
         self.matrix_table = QTableView()
         self.matrix_table.setAlternatingRowColors(True)
         self.matrix_table.setSelectionBehavior(QTableView.SelectRows)
         self.matrix_table.setSelectionMode(QTableView.SingleSelection)
-        self.matrix_table.verticalHeader().setDefaultSectionSize(26)
-        self.matrix_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.matrix_table.verticalHeader().setDefaultSectionSize(24)
+        self.matrix_table.verticalHeader().setVisible(False)
+
+        # Interactive columns with stretch on the IE name
+        h_header = self.matrix_table.horizontalHeader()
+        h_header.setHighlightSections(False)
+        h_header.setStretchLastSection(False)
+
         self.matrix_table.clicked.connect(self._on_table_cell_clicked)
         self.matrix_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.matrix_table.customContextMenuRequested.connect(self._on_matrix_context_menu)
@@ -418,7 +425,12 @@ class NASTab(QWidget):
         desc_label = " (incl. Desc)" if search_desc and ie_query else ""
         title_suffix = f" (Filtered by IE{desc_label}: '{ie_query}')" if ie_query else ""
 
-        df = self.db.get_message_evolution_df(msg_name, self.selected_version_ids)
+        # Fetch lightweight DataFrame without large HTML blobs
+        df = self.db.get_message_evolution_df(
+            message_name=msg_name,
+            version_ids=self.selected_version_ids,
+            include_descriptions=search_desc,
+        )
 
         specs = []
         if not df.empty and "spec_number" in df.columns:
@@ -433,7 +445,18 @@ class NASTab(QWidget):
 
         model = NASEvolutionMatrixModel(df, ie_filter=ie_query, search_descriptions=search_desc)
         self.matrix_table.setModel(model)
-        self.matrix_table.resizeColumnsToContents()
+
+        # Fast default column layout (avoids measuring thousands of rows synchronously)
+        h_header = self.matrix_table.horizontalHeader()
+        if model.columnCount() > 0:
+            h_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # IEI
+            h_header.setSectionResizeMode(1, QHeaderView.Stretch)           # Field Name
+            h_header.setSectionResizeMode(2, QHeaderView.Interactive)       # Type / Reference
+            self.matrix_table.setColumnWidth(2, 280)
+
+            for col in range(3, model.columnCount()):
+                h_header.setSectionResizeMode(col, QHeaderView.Interactive)
+                self.matrix_table.setColumnWidth(col, 130)
 
     def _on_table_cell_clicked(self, index):
         model = self.matrix_table.model()

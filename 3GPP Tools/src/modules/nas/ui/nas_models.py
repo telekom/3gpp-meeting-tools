@@ -32,19 +32,22 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             self._versions = []
             return
 
-        df = self._raw_df.copy()
+        df = self._raw_df
 
-        # Format details cell
-        if "depth" in df.columns and df["depth"].max() > 0:
-            df["details"] = df["presence"].fillna("") + " | " + df["format"].fillna("")
+        # Vectorized string formatting for details column
+        has_depth = "depth" in df.columns and (df["depth"] > 0).any()
+        if has_depth:
+            details_series = df["presence"].fillna("") + " | " + df["format"].fillna("")
         else:
-            df["details"] = (
-                df["presence"].fillna("")
-                + " | "
-                + df["format"].fillna("")
-                + " | "
-                + df["length"].fillna("")
+            details_series = (
+                    df["presence"].fillna("")
+                    + " | "
+                    + df["format"].fillna("")
+                    + " | "
+                    + df["length"].fillna("")
             )
+
+        df = df.assign(details=details_series)
 
         if "field_path" not in df.columns:
             df["field_path"] = df["ie_name"]
@@ -67,14 +70,13 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         )["ver_col"].tolist()
         self._versions = sorted_ver_cols
 
-        # 1. Compute canonical specification order and max depth
+        # 1. Compute canonical specification order
         order_map = (
-            df.groupby(["iei", "ie_name", "field_path", "type_reference", "depth"])["order_index"]
+            df.groupby(["iei", "ie_name", "field_path", "type_reference", "depth"], as_index=False)["order_index"]
             .min()
-            .reset_index()
         )
 
-        # 2. Pivot: Rows = IEI + IE Name + Path + Type, Columns = Version Col
+        # 2. Pivot version columns
         pivot = df.pivot_table(
             index=["iei", "ie_name", "field_path", "type_reference", "depth"],
             columns="ver_col",
@@ -82,12 +84,11 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             aggfunc="first",
         ).reset_index()
 
-        # 3. Merge order_map and sort strictly by specification order
+        # 3. Sort by canonical specification order
         merged = pd.merge(
             pivot, order_map, on=["iei", "ie_name", "field_path", "type_reference", "depth"], how="left"
         )
         merged = merged.sort_values(by="order_index", ascending=True).reset_index(drop=True)
-
         self._pivot_df = merged.drop(columns=["order_index"])
 
         for v in self._versions:
@@ -96,14 +97,14 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             else:
                 self._pivot_df[v] = self._pivot_df[v].fillna("-")
 
-        # 4. Apply IE Filtering (Name, Path, Type, IEI, or Description)
+        # 4. Filter search query
         if self._ie_filter and not self._pivot_df.empty:
             q = self._ie_filter
             mask = (
-                self._pivot_df["ie_name"].astype(str).str.lower().str.contains(q, na=False)
-                | self._pivot_df["field_path"].astype(str).str.lower().str.contains(q, na=False)
-                | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False)
-                | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False)
+                    self._pivot_df["ie_name"].astype(str).str.lower().str.contains(q, na=False)
+                    | self._pivot_df["field_path"].astype(str).str.lower().str.contains(q, na=False)
+                    | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False)
+                    | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False)
             )
 
             if self._search_descriptions and "ie_description" in df.columns:
@@ -117,7 +118,8 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
                         )
                     )
                     desc_mask = self._pivot_df.apply(
-                        lambda row: (str(row["iei"]), str(row["field_path"]), str(row["type_reference"])) in matching_keys,
+                        lambda row: (str(row["iei"]), str(row["field_path"]),
+                                     str(row["type_reference"])) in matching_keys,
                         axis=1,
                     )
                     mask = mask | desc_mask
