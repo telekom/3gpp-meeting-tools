@@ -507,36 +507,51 @@ class NASDatabase:
             major_version: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """
-        Retrieves the IE definition from target_spec matching target_clause (or alt_name)
+        Retrieves the primary IE definition from target_spec matching target_clause (or alt_name)
         for the most recent minor version belonging to major_version.
+        Prioritizes exact clause matches and substantive body content over index artifacts.
         """
         latest_ver = self.get_latest_spec_version_by_major(target_spec, major_version)
         if not latest_ver:
             return None
 
-        clean_c = target_clause.strip() if target_clause else ""
+        clean_c = target_clause.strip().rstrip(".") if target_clause else ""
         clean_alt = alt_name.strip() if alt_name else ""
 
         where_parts = []
         params: List[Any] = [latest_ver["id"]]
 
+        # 1. Exact clause or IE name match (highest priority)
         if clean_c:
-            where_parts.append("(LOWER(TRIM(d.clause)) = LOWER(?) OR d.clause LIKE ?)")
-            params.extend([clean_c, f"%{clean_c}%"])
-
+            where_parts.append("LOWER(TRIM(d.clause)) = LOWER(?)")
+            params.append(clean_c)
         if clean_alt:
             where_parts.append("LOWER(TRIM(d.ie_name)) = LOWER(?)")
             params.append(clean_alt)
+
+        # 2. Fallback to clause prefix / substring match if exact match is absent
+        if clean_c:
+            where_parts.append("d.clause LIKE ?")
+            params.append(f"%{clean_c}%")
 
         if not where_parts:
             return None
 
         where_sql = " OR ".join(where_parts)
+
+        # Order by content length descending so the full clause body wins over TOC/index artifacts
         query = f"""
             SELECT d.*, sv.version, sv.spec_number
             FROM ie_definitions d
             JOIN spec_versions sv ON d.version_id = sv.id
             WHERE sv.id = ? AND ({where_sql})
+            ORDER BY 
+                CASE 
+                    WHEN LOWER(TRIM(d.clause)) = LOWER('{clean_c}') THEN 1
+                    WHEN LOWER(TRIM(d.ie_name)) = LOWER('{clean_alt}') THEN 2
+                    ELSE 3
+                END ASC,
+                LENGTH(COALESCE(d.raw_description, '')) DESC
             LIMIT 1
         """
         with self._get_connection() as conn:
