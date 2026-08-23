@@ -8,7 +8,7 @@ from modules.nas.core.parsing.protocol_parser_constants import (
     TAG_BODY, TAG_P, TAG_TBL, TAG_TR, TAG_TC,
     RE_PART_INDEX, RE_CLAUSE_HEADER, RE_DESC_TABLE,
     RE_TYPE_DECL, RE_TYPE_KIND, RE_FIELD_LINE, RE_STRIP_KEYWORDS,
-    RE_MAJOR_BOUNDARY
+    RE_COND_NEED, RE_MAJOR_BOUNDARY
 )
 from modules.nas.core.parsing.protocol_parser_utils import (
     extract_document_root, _extract_p_text, _extract_tc_text, _convert_table_to_html
@@ -36,11 +36,6 @@ class BaseAsn1DocxParser:
     def _scan_xml_documents(
             self, progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> Tuple[str, Dict[str, str], Dict[str, Dict[str, str]], Dict[str, str]]:
-        """
-        Pass 1: Scans Word XML trees, extracting ASN.1 code blocks between
-        -- ASN1START and -- ASN1STOP, Clause 6.2/6.3/9.2/9.3 message and IE tables, prose,
-        clause headings, and field description tables.
-        """
         raw_asn1_blocks: List[str] = []
         field_desc_tables: Dict[str, str] = {}
         field_individual_descs: Dict[str, Dict[str, str]] = {}
@@ -113,7 +108,6 @@ class BaseAsn1DocxParser:
                         current_asn1_lines.append(p_text)
                         continue
 
-                    # Check for numbered Clause Headers (e.g., 6.3.2 Radio resource control information elements)
                     match_clause = RE_CLAUSE_HEADER.match(p_text)
                     if match_clause:
                         _finalize_section()
@@ -136,7 +130,6 @@ class BaseAsn1DocxParser:
                                 }
                         continue
 
-                    # Check for RRC-style dash headings (e.g., – RadioBearerConfig or – CellGroupConfig)
                     if p_text.startswith("–") or p_text.startswith("-"):
                         _finalize_section()
                         current_heading_name = p_text.lstrip("–- ").strip()
@@ -154,12 +147,10 @@ class BaseAsn1DocxParser:
                             }
                         continue
 
-                    # Section boundary detection
                     if RE_MAJOR_BOUNDARY.match(p_text) and not p_text.startswith(("9.", "6.")):
                         _finalize_section()
                         continue
 
-                    # Collect specification prose for active clause or dash section
                     if current_section_def:
                         if p_text.startswith(("Direction:", "Direction :")):
                             current_section_def["prose"].append(
@@ -181,7 +172,6 @@ class BaseAsn1DocxParser:
                 elif elem.tag == TAG_TBL:
                     tbl_html = _convert_table_to_html(elem)
 
-                    # 1. RRC style 'field descriptions' table
                     match_tbl = RE_DESC_TABLE.search(last_p_text)
                     rrc_target = match_tbl.group(1).strip() if match_tbl else ""
                     if rrc_target:
@@ -189,11 +179,9 @@ class BaseAsn1DocxParser:
                         field_desc_tables[rk] = tbl_html
                         field_desc_tables[self._normalize_key(rrc_target)] = tbl_html
 
-                    # 2. RAN3 / NAS Clause 9.2 & 9.3 structure tables / RRC sub-tables
                     if current_section_def and tbl_html:
                         current_section_def["tables"].append(tbl_html)
 
-                    # 3. Extract individual semantics descriptions for deep search and tooltips
                     rows = elem.findall(TAG_TR)
                     if rows:
                         header_cells = [_extract_tc_text(tc).lower() for tc in rows[0].findall(TAG_TC)]
@@ -245,42 +233,35 @@ class BaseAsn1DocxParser:
         return "\n".join(collected)
 
     def _extract_asn1_type_definitions(self, asn1_text: str) -> Dict[str, Dict[str, Any]]:
-        """Parses raw ASN.1 text into structured type definitions."""
+        """Parses raw ASN.1 text into structured type definitions, retaining full comments and inline structures."""
         type_defs: Dict[str, Dict[str, Any]] = {}
-        clean_lines = [line.split("--")[0] for line in asn1_text.splitlines()]
-        cleaned_text = "\n".join(clean_lines)
+        matches = list(RE_TYPE_DECL.finditer(asn1_text))
 
-        matches = list(RE_TYPE_DECL.finditer(cleaned_text))
         for i, match in enumerate(matches):
+            # Ensure ::= is not inside an ASN.1 comment
+            line_start = asn1_text.rfind("\n", 0, match.start())
+            line_start = 0 if line_start == -1 else line_start + 1
+            prefix_line = asn1_text[line_start:match.start()]
+            if "--" in prefix_line:
+                continue
+
             type_name = match.group(1).strip()
             start_pos = match.end()
-            end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(cleaned_text)
+            end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(asn1_text)
 
-            raw_block = cleaned_text[match.start():end_pos].strip()
-
+            raw_block = asn1_text[match.start():end_pos].strip()
             end_kw_idx = raw_block.find("\nEND")
             if end_kw_idx != -1:
                 raw_block = raw_block[:end_kw_idx].strip()
 
-            def_body = cleaned_text[start_pos:end_pos].strip()
-
+            def_body = asn1_text[start_pos:end_pos].strip()
             kind_match = RE_TYPE_KIND.match(def_body)
             type_kind = kind_match.group(1).upper() if kind_match else "TYPE"
             fields: List[Dict[str, Any]] = []
 
-            brace_start = def_body.find("{")
+            brace_start = self._find_first_structural_brace(def_body)
             if brace_start >= 0:
-                depth = 0
-                brace_end = -1
-                for idx, char in enumerate(def_body[brace_start:], start=brace_start):
-                    if char == "{":
-                        depth += 1
-                    elif char == "}":
-                        depth -= 1
-                        if depth == 0:
-                            brace_end = idx
-                            break
-
+                brace_end = self._find_matching_brace(def_body, brace_start)
                 if brace_end > brace_start:
                     inner_content = def_body[brace_start + 1:brace_end]
                     fields = self._parse_sequence_fields(inner_content, type_kind)
@@ -294,55 +275,207 @@ class BaseAsn1DocxParser:
 
         return type_defs
 
+    @staticmethod
+    def _find_first_structural_brace(text: str) -> int:
+        in_comment = False
+        i = 0
+        n = len(text)
+        while i < n:
+            c = text[i]
+            if not in_comment and c == '-' and i + 1 < n and text[i+1] == '-':
+                in_comment = True
+                i += 2
+                continue
+            elif in_comment:
+                if c == '\n':
+                    in_comment = False
+                elif c == '-' and i + 1 < n and text[i+1] == '-':
+                    in_comment = False
+                    i += 2
+                    continue
+                i += 1
+                continue
+            if c == '{':
+                return i
+            i += 1
+        return -1
+
+    @staticmethod
+    def _find_matching_brace(text: str, start_idx: int) -> int:
+        depth = 0
+        in_comment = False
+        i = start_idx
+        n = len(text)
+        while i < n:
+            c = text[i]
+            if not in_comment and c == '-' and i + 1 < n and text[i+1] == '-':
+                in_comment = True
+                i += 2
+                continue
+            elif in_comment:
+                if c == '\n':
+                    in_comment = False
+                elif c == '-' and i + 1 < n and text[i+1] == '-':
+                    in_comment = False
+                    i += 2
+                    continue
+                i += 1
+                continue
+
+            if c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+                if depth == 0:
+                    return i
+            i += 1
+        return -1
+
     def _parse_sequence_fields(self, inner_asn1: str, parent_kind: str) -> List[Dict[str, Any]]:
-        """Extracts field records from inside a SEQUENCE or CHOICE definition block."""
+        """Extracts field records while fully preserving inline SEQUENCE/CHOICE bodies and comments."""
         fields: List[Dict[str, Any]] = []
         cleaned = re.sub(r"\[\[|\]\]", " ", inner_asn1)
-
-        tokens, current = [], []
-        depth = p_depth = 0
-
-        for char in cleaned:
-            if char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-            elif char == "(":
-                p_depth += 1
-            elif char == ")":
-                p_depth -= 1
-
-            if char == "," and depth == 0 and p_depth == 0:
-                tokens.append("".join(current).strip())
-                current = []
-            else:
-                current.append(char)
-
-        if current:
-            tokens.append("".join(current).strip())
+        tokens = self._split_asn1_tokens(cleaned)
 
         for tok in tokens:
-            tok = " ".join(tok.split()).strip()
+            tok = tok.strip()
             if not tok or tok == "..." or tok.startswith("--"):
                 continue
 
             field_match = RE_FIELD_LINE.match(tok)
-            if field_match:
-                fname = field_match.group(1).strip()
-                rest = field_match.group(2).strip()
+            if not field_match:
+                continue
 
-                presence = "O" if "OPTIONAL" in rest else ("M" if parent_kind == "SEQUENCE" else "O")
-                ftype = RE_STRIP_KEYWORDS.sub("", rest).strip()
+            fname = field_match.group(1).strip()
+            rest = field_match.group(2).strip()
 
-                fields.append({
-                    "name": fname,
-                    "type": ftype,
-                    "presence": presence,
-                    "format": parent_kind,
-                    "iei": "",
-                })
+            # Handle inline SEQUENCE / CHOICE blocks without truncating inner keywords
+            if rest.startswith(("SEQUENCE", "CHOICE")) and "{" in rest:
+                brace_start = self._find_first_structural_brace(rest)
+                brace_end = self._find_matching_brace(rest, brace_start) if brace_start >= 0 else -1
+
+                if brace_start >= 0 and brace_end > brace_start:
+                    raw_type_body = rest[:brace_end + 1].strip()
+                    tail = rest[brace_end + 1:].strip()
+                    inner_body = rest[brace_start + 1:brace_end]
+
+                    # Parse presence and condition from trailing tail
+                    need_match = RE_COND_NEED.search(tail) or RE_COND_NEED.search(tok)
+                    if need_match:
+                        code = need_match.group(1).strip()
+                        presence = f"C ({code})" if "Cond" in code else f"O ({code})"
+                    elif "OPTIONAL" in tail.upper():
+                        presence = "O"
+                    else:
+                        presence = "M" if parent_kind == "SEQUENCE" else "O"
+
+                    child_kind = "SEQUENCE" if rest.startswith("SEQUENCE") else "CHOICE"
+                    nested_fields = self._parse_sequence_fields(inner_body, child_kind)
+
+                    fields.append({
+                        "name": fname,
+                        "type": raw_type_body,
+                        "presence": presence,
+                        "format": parent_kind,
+                        "raw_field": tok,
+                        "nested_fields": nested_fields,
+                        "iei": "",
+                    })
+                    continue
+
+            # Standard simple or parameterized fields
+            need_match = RE_COND_NEED.search(rest)
+            if need_match:
+                code = need_match.group(1).strip()
+                presence = f"C ({code})" if "Cond" in code else f"O ({code})"
+            elif "OPTIONAL" in rest.upper():
+                presence = "O"
+            else:
+                presence = "M" if parent_kind == "SEQUENCE" else "O"
+
+            # Strip outer keywords from simple type
+            clean_type_candidate = RE_STRIP_KEYWORDS.sub("", rest.split("--")[0]).strip()
+
+            fields.append({
+                "name": fname,
+                "type": clean_type_candidate,
+                "presence": presence,
+                "format": parent_kind,
+                "raw_field": tok,
+                "nested_fields": [],
+                "iei": "",
+            })
 
         return fields
+
+    def _split_asn1_tokens(self, text: str) -> List[str]:
+        """Splits comma-separated ASN.1 fields at depth 0, attaching trailing comments to the field token."""
+        tokens: List[str] = []
+        current: List[str] = []
+        depth = p_depth = b_depth = 0
+        in_comment = False
+        i = 0
+        n = len(text)
+
+        while i < n:
+            c = text[i]
+
+            if not in_comment and c == '-' and i + 1 < n and text[i+1] == '-':
+                in_comment = True
+                current.append(c)
+                current.append(text[i+1])
+                i += 2
+                continue
+            elif in_comment:
+                current.append(c)
+                if c == '\n':
+                    in_comment = False
+                elif c == '-' and i + 1 < n and text[i+1] == '-':
+                    current.append(text[i+1])
+                    i += 2
+                    in_comment = False
+                    continue
+                i += 1
+                continue
+
+            if c == '{':
+                depth += 1
+            elif c == '}':
+                depth = max(0, depth - 1)
+            elif c == '(':
+                p_depth += 1
+            elif c == ')':
+                p_depth = max(0, p_depth - 1)
+            elif c == '[':
+                b_depth += 1
+            elif c == ']':
+                b_depth = max(0, b_depth - 1)
+
+            if c == ',' and depth == 0 and p_depth == 0 and b_depth == 0:
+                current.append(c)
+                # Consume any trailing whitespace and single-line comment on the same line
+                j = i + 1
+                while j < n and text[j] in (' ', '\t'):
+                    current.append(text[j])
+                    j += 1
+                if j + 1 < n and text[j] == '-' and text[j+1] == '-':
+                    while j < n and text[j] != '\n':
+                        current.append(text[j])
+                        j += 1
+                tokens.append("".join(current).strip())
+                current = []
+                i = j
+                continue
+
+            current.append(c)
+            i += 1
+
+        if current:
+            tail = "".join(current).strip()
+            if tail:
+                tokens.append(tail)
+
+        return tokens
 
     def _build_inspector_html(
             self,
