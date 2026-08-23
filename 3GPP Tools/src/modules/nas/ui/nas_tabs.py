@@ -49,6 +49,8 @@ class NASTab(QWidget):
         self.nas_db_path = Path(nas_db_path)
         self.specs_db_path = Path(specs_db_path) if specs_db_path else None
         self.config_path = self.nas_db_path.parent / "nas_config.json"
+        self._reverse_lookup_worker: Optional[ReverseLookupWorker] = None
+        self._reverse_lookup_request_id: int = 0
 
         try:
             settings = MeetingsSettings()
@@ -467,19 +469,16 @@ class NASTab(QWidget):
         ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "").strip().lstrip("└─ ")
         type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "").strip()
 
-        # Extract field description and path from model if present
         field_desc = ""
         if hasattr(model, "_pivot_df") and not model._pivot_df.empty and row < len(model._pivot_df):
             row_data = model._pivot_df.iloc[row]
             field_desc = str(row_data.get("field_description", "") or "")
 
-        # Unwrap parameterized ASN.1 types
         clean_type = re.sub(r"^SetupRelease\s*\{\s*([A-Za-z0-9\-]+)\s*\}", r"\1", type_ref)
         clean_type = re.sub(r"^SEQUENCE\s*(?:\(SIZE\s*\([^)]*\)\)\s*)?OF\s+([A-Za-z0-9\-]+)", r"\1", clean_type)
         clean_type = re.sub(r"^OCTET STRING\s*\(\s*CONTAINING\s+([A-Za-z0-9\-]+)\s*\)", r"\1", clean_type)
         clean_type = re.sub(r"[\(\{\[].*$", "", clean_type).strip()
 
-        # Clean type reference for inline enumerations or integers
         if clean_type.upper() in ("ENUMERATED", "INTEGER", "BOOLEAN", "BIT STRING", "OCTET STRING", "NULL"):
             clean_type = ""
 
@@ -496,7 +495,7 @@ class NASTab(QWidget):
         match_clause = RE_CLAUSE_FROM_REF.search(type_ref)
         clause = match_clause.group(1).strip() if match_clause else ie_name
 
-        # Priority 1: Search by Clean Type Name (e.g., RadioBearerConfig, CipheringAlgorithm)
+        # Priority 1: Search by Clean Type Name
         defs = []
         if clean_type:
             defs = self.db.get_ie_definitions_by_clause(
@@ -516,26 +515,46 @@ class NASTab(QWidget):
                 version_ids=self.selected_version_ids,
             )
 
-        containing_msgs = []
-        if defs:
-            resolved_name = defs[0]["ie_name"]
-            containing_msgs = self.db.get_messages_using_ie(
-                clause=clause,
-                ie_name=clean_type or resolved_name,
-                spec_number=spec_num,
-                version_ids=self.selected_version_ids,
-            )
-
+        # 1. Immediately render the definition inspector (instant UI feedback)
         self.inspector.display_definitions(
             clause=clause,
             ie_name=clean_type or ie_name,
             spec_number=spec_num,
             defs=defs,
-            containing_msgs=containing_msgs,
+            containing_msgs=[],  # Populated asynchronously
             target_version_hint=target_version_hint,
             fallback_type_ref=type_ref,
             field_description=field_desc,
         )
+
+        # 2. Asynchronously query message references in background thread
+        if defs:
+            resolved_name = defs[0]["ie_name"]
+            search_target_name = clean_type or resolved_name
+
+            # Cancel previous running worker if active
+            if self._reverse_lookup_worker and self._reverse_lookup_worker.isRunning():
+                self._reverse_lookup_worker.terminate()
+                self._reverse_lookup_worker.wait()
+
+            self._reverse_lookup_request_id += 1
+            current_req_id = self._reverse_lookup_request_id
+
+            self._reverse_lookup_worker = ReverseLookupWorker(
+                db=self.db,
+                clause=clause,
+                ie_name=search_target_name,
+                spec_number=spec_num,
+                version_ids=self.selected_version_ids,
+                request_id=current_req_id,
+            )
+            self._reverse_lookup_worker.results_ready.connect(self._on_reverse_lookup_finished)
+            self._reverse_lookup_worker.start()
+
+    def _on_reverse_lookup_finished(self, containing_msgs: List[Dict[str, Any]], req_id: int):
+        # Discard outdated requests if the user clicked another cell before completion
+        if req_id == self._reverse_lookup_request_id:
+            self.inspector.set_containing_messages(containing_msgs)
 
     def _on_matrix_context_menu(self, pos):
         model = self.matrix_table.model()
@@ -745,3 +764,30 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
             self.inspector.clear_display()
             self.log_msg.emit("🧹 Protocol Database wiped.", logging.INFO)
+
+from PyQt5.QtCore import QThread, pyqtSignal
+
+class ReverseLookupWorker(QThread):
+    """Background worker to fetch message references without freezing the UI."""
+    results_ready = pyqtSignal(list, int)  # results, request_id
+
+    def __init__(self, db: NASDatabase, clause: str, ie_name: str, spec_number: Optional[str], version_ids: List[int], request_id: int):
+        super().__init__()
+        self.db = db
+        self.clause = clause
+        self.ie_name = ie_name
+        self.spec_number = spec_number
+        self.version_ids = version_ids
+        self.request_id = request_id
+
+    def run(self):
+        try:
+            results = self.db.get_messages_using_ie(
+                clause=self.clause,
+                ie_name=self.ie_name,
+                spec_number=self.spec_number,
+                version_ids=self.version_ids,
+            )
+            self.results_ready.emit(results, self.request_id)
+        except Exception:
+            self.results_ready.emit([], self.request_id)
