@@ -1,3 +1,5 @@
+import html
+import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -377,60 +379,134 @@ class NASInspectorWidget(QGroupBox):
             containing_msgs: List[Dict[str, Any]],
             target_version_hint: Optional[str] = None,
             fallback_type_ref: str = "",
+            field_description: str = "",
+            **kwargs,
     ):
+        """
+        Renders standalone definitions from the database or formats inline/anonymous ASN.1 definitions.
+        Accepts **kwargs for defensive backward compatibility with all caller parameter variations.
+        """
         self._current_ie_clause = clause
         self._current_ie_name = ie_name
         self._current_ie_spec = spec_number
         self._current_containing_msgs = containing_msgs
 
-        if not defs:
-            self.title_lbl.setText(f"{ie_name} ({fallback_type_ref})")
-            self.usage_btn.setVisible(False)
+        # 1. Handle Standalone Types Found in Database
+        if defs:
+            resolved_name = defs[0]["ie_name"]
+            spec_badge = f" (TS {spec_number})" if spec_number else ""
+            self.title_lbl.setText(f"{resolved_name}{spec_badge}")
+            self._current_clause_defs = {f"{d['spec_number']} v{d['version']}": d for d in defs}
+
+            num_msgs = len(containing_msgs)
+            self.usage_btn.setText(f"Used in: {num_msgs} message{'s' if num_msgs != 1 else ''} ▾")
+            self.usage_btn.setVisible(True)
+
+            self._updating_combo = True
             self.version_combo.clear()
-            self._current_clause_defs.clear()
+            for d in defs:
+                key_name = f"TS {d['spec_number']} v{d['version']}"
+                self.version_combo.addItem(key_name, f"{d['spec_number']} v{d['version']}")
+
+            target_version_key: Optional[str] = None
+            if target_version_hint:
+                clean_hint = target_version_hint.replace("TS ", "").strip()
+                if clean_hint in self._current_clause_defs:
+                    target_version_key = clean_hint
+                else:
+                    for k in self._current_clause_defs:
+                        if target_version_hint in k or k.endswith(f"v{target_version_hint}"):
+                            target_version_key = k
+                            break
+
+            if not target_version_key and defs:
+                target_version_key = f"{defs[0]['spec_number']} v{defs[0]['version']}"
+
+            for idx in range(self.version_combo.count()):
+                if self.version_combo.itemData(idx) == target_version_key:
+                    self.version_combo.setCurrentIndex(idx)
+                    break
+
+            self._updating_combo = False
+            selected_def = self._current_clause_defs.get(target_version_key) or defs[0]
+            self.text_area.setHtml(selected_def["raw_description"])
+            return
+
+        # 2. Handle Inline / Anonymous Types (ENUMERATED, INTEGER, BOOLEAN, BIT STRING, etc.)
+        self.usage_btn.setVisible(False)
+        self.version_combo.clear()
+        self._current_clause_defs.clear()
+
+        spec_badge = f" (TS {spec_number})" if spec_number else ""
+        self.title_lbl.setText(f"{ie_name}{spec_badge}")
+
+        is_inline_type = any(
+            fallback_type_ref.strip().upper().startswith(kw)
+            for kw in ("ENUMERATED", "INTEGER", "BOOLEAN", "BIT STRING", "OCTET STRING", "NULL", "CHOICE", "SEQUENCE")
+        )
+
+        if is_inline_type or fallback_type_ref:
+            html_output = self._render_inline_type_html(
+                ie_name=ie_name,
+                type_ref=fallback_type_ref,
+                field_description=field_description,
+                spec_number=spec_number,
+            )
+            self.text_area.setHtml(html_output)
+        else:
             self.text_area.setPlainText(
                 f"Type / Reference: {fallback_type_ref}\n(No structure definition found in database)"
             )
-            return
 
-        resolved_name = defs[0]["ie_name"]
-        spec_badge = f" (TS {spec_number})" if spec_number else ""
-        self.title_lbl.setText(f"{resolved_name}{spec_badge}")
-        self._current_clause_defs = {f"{d['spec_number']} v{d['version']}": d for d in defs}
+    @staticmethod
+    def _render_inline_type_html(
+        ie_name: str,
+        type_ref: str,
+        field_description: str = "",
+        spec_number: Optional[str] = None,
+    ) -> str:
+        """Constructs an Inspector view for inline ASN.1 types and primitive fields."""
+        spec_title = f" (TS {spec_number})" if spec_number else ""
+        header_html = (
+            f'<h2 style="color: #0369A1; margin-top: 2px; margin-bottom: 8px; '
+            f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
+            f'{html.escape(ie_name)}{spec_title}</h2>'
+        )
 
-        num_msgs = len(containing_msgs)
-        self.usage_btn.setText(f"Used in: {num_msgs} message{'s' if num_msgs != 1 else ''} ▾")
-        self.usage_btn.setVisible(True)
+        clean_type_ref = re.sub(r"\s+", " ", type_ref).strip()
 
-        self._updating_combo = True
-        self.version_combo.clear()
-        for d in defs:
-            key_name = f"TS {d['spec_number']} v{d['version']}"
-            self.version_combo.addItem(key_name, f"{d['spec_number']} v{d['version']}")
+        # Format inline ASN.1 block cleanly
+        formatted_asn1 = f"{ie_name} ::= {clean_type_ref}"
+        if "ENUMERATED" in clean_type_ref:
+            enum_match = re.search(r"ENUMERATED\s*\{([^}]+)\}", clean_type_ref, re.IGNORECASE)
+            if enum_match:
+                inner_vals = [v.strip() for v in enum_match.group(1).split(",") if v.strip()]
+                indented_vals = ",\n    ".join(inner_vals)
+                formatted_asn1 = f"{ie_name} ::= ENUMERATED {{\n    {indented_vals}\n}}"
 
-        target_version_key: Optional[str] = None
-        if target_version_hint:
-            clean_hint = target_version_hint.replace("TS ", "").strip()
-            if clean_hint in self._current_clause_defs:
-                target_version_key = clean_hint
-            else:
-                for k in self._current_clause_defs:
-                    if target_version_hint in k or k.endswith(f"v{target_version_hint}"):
-                        target_version_key = k
-                        break
+        asn1_html = (
+            f'<div style="margin-bottom: 10px;">'
+            f'<div style="font-size: 11px; font-weight: bold; color: #475569; margin-bottom: 3px;">Inline ASN.1 Definition:</div>'
+            f'<pre style="background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 8px; '
+            f'border-radius: 4px; font-family: Consolas, monospace; font-size: 11px; color: #0F172A; '
+            f'white-space: pre-wrap; margin: 0;">{html.escape(formatted_asn1)}</pre>'
+            f'</div>'
+        )
 
-        if not target_version_key and defs:
-            target_version_key = f"{defs[0]['spec_number']} v{defs[0]['version']}"
+        desc_html = ""
+        if field_description and field_description.strip():
+            desc_html = (
+                f'<div style="margin-top: 8px;">'
+                f'<div style="font-size: 11px; font-weight: bold; color: #475569; margin-bottom: 4px;">'
+                f'Field Description & Semantics:</div>'
+                f'<div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 3px solid #0284C7; '
+                f'padding: 8px; border-radius: 3px; font-family: Segoe UI, sans-serif; font-size: 11px; color: #334155; line-height: 1.4;">'
+                f'{html.escape(field_description)}'
+                f'</div>'
+                f'</div>'
+            )
 
-        for idx in range(self.version_combo.count()):
-            if self.version_combo.itemData(idx) == target_version_key:
-                self.version_combo.setCurrentIndex(idx)
-                break
-
-        self._updating_combo = False
-
-        selected_def = self._current_clause_defs.get(target_version_key) or defs[0]
-        self.text_area.setHtml(selected_def["raw_description"])
+        return f"{header_html}{asn1_html}{desc_html}"
 
     def clear_display(self):
         self.title_lbl.setText("No Information Element selected")

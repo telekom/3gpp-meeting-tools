@@ -467,11 +467,21 @@ class NASTab(QWidget):
         ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "").strip().lstrip("└─ ")
         type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "").strip()
 
+        # Extract field description and path from model if present
+        field_desc = ""
+        if hasattr(model, "_pivot_df") and not model._pivot_df.empty and row < len(model._pivot_df):
+            row_data = model._pivot_df.iloc[row]
+            field_desc = str(row_data.get("field_description", "") or "")
+
         # Unwrap parameterized ASN.1 types
         clean_type = re.sub(r"^SetupRelease\s*\{\s*([A-Za-z0-9\-]+)\s*\}", r"\1", type_ref)
         clean_type = re.sub(r"^SEQUENCE\s*(?:\(SIZE\s*\([^)]*\)\)\s*)?OF\s+([A-Za-z0-9\-]+)", r"\1", clean_type)
         clean_type = re.sub(r"^OCTET STRING\s*\(\s*CONTAINING\s+([A-Za-z0-9\-]+)\s*\)", r"\1", clean_type)
         clean_type = re.sub(r"[\(\{\[].*$", "", clean_type).strip()
+
+        # Clean type reference for inline enumerations or integers
+        if clean_type.upper() in ("ENUMERATED", "INTEGER", "BOOLEAN", "BIT STRING", "OCTET STRING", "NULL"):
+            clean_type = ""
 
         spec_num = getattr(self, "_current_message_spec", None)
         target_version_hint = None
@@ -486,7 +496,7 @@ class NASTab(QWidget):
         match_clause = RE_CLAUSE_FROM_REF.search(type_ref)
         clause = match_clause.group(1).strip() if match_clause else ie_name
 
-        # Priority 1: Search by Clean Type Name (e.g., RadioBearerConfig)
+        # Priority 1: Search by Clean Type Name (e.g., RadioBearerConfig, CipheringAlgorithm)
         defs = []
         if clean_type:
             defs = self.db.get_ie_definitions_by_clause(
@@ -497,7 +507,8 @@ class NASTab(QWidget):
             )
 
         # Priority 2: Search by Field Name / Clause
-        if not defs:
+        if not defs and clause and not any(
+                clause.upper().startswith(k) for k in ("ENUMERATED", "INTEGER", "BOOLEAN", "BIT STRING")):
             defs = self.db.get_ie_definitions_by_clause(
                 clause=clause,
                 alt_name=ie_name,
@@ -523,6 +534,7 @@ class NASTab(QWidget):
             containing_msgs=containing_msgs,
             target_version_hint=target_version_hint,
             fallback_type_ref=type_ref,
+            field_description=field_desc,
         )
 
     def _on_matrix_context_menu(self, pos):
