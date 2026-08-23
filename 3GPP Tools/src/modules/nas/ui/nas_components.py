@@ -392,14 +392,22 @@ class NASInspectorWidget(QGroupBox):
         self._current_containing_msgs = containing_msgs
 
         # 1. Handle Standalone Types Found in Database
+
+        # In NASInspectorWidget.display_definitions()
         if defs:
             resolved_name = defs[0]["ie_name"]
             spec_badge = f" (TS {spec_number})" if spec_number else ""
             self.title_lbl.setText(f"{resolved_name}{spec_badge}")
             self._current_clause_defs = {f"{d['spec_number']} v{d['version']}": d for d in defs}
 
-            num_msgs = len(containing_msgs)
-            self.usage_btn.setText(f"Used in: {num_msgs} message{'s' if num_msgs != 1 else ''} ▾")
+            # If containing_msgs is not yet ready, show loading state
+            if containing_msgs:
+                num_msgs = len(containing_msgs)
+                self.usage_btn.setText(f"Used in: {num_msgs} message{'s' if num_msgs != 1 else ''} ▾")
+                self.usage_btn.setEnabled(True)
+            else:
+                self.usage_btn.setText("Used in: ... ▾")
+                self.usage_btn.setEnabled(False)
             self.usage_btn.setVisible(True)
 
             self._updating_combo = True
@@ -581,3 +589,11 @@ class NASInspectorWidget(QGroupBox):
         menu.addAction(filter_action)
 
         menu.exec_(self.usage_btn.mapToGlobal(self.usage_btn.rect().bottomLeft()))
+
+    def set_containing_messages(self, containing_msgs: List[Dict[str, Any]]):
+        """Asynchronously updates the usage button and containing messages list."""
+        self._current_containing_msgs = containing_msgs
+        num_msgs = len(containing_msgs)
+        self.usage_btn.setText(f"Used in: {num_msgs} message{'s' if num_msgs != 1 else ''} ▾")
+        self.usage_btn.setVisible(True)
+        self.usage_btn.setEnabled(True)

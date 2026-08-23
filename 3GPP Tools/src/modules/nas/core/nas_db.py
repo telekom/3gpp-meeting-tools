@@ -96,8 +96,12 @@ class NASDatabase:
                     )
                 """)
 
+                # In modules/nas/core/nas_db.py -> inside _init_db()
+
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_msg_ver ON nas_messages(version_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_msg ON message_ies(message_id);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_name ON message_ies(ie_name);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_type ON message_ies(type_reference);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_ver ON ie_definitions(version_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_name ON ie_definitions(ie_name);")
                 conn.commit()
