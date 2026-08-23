@@ -38,6 +38,9 @@ RE_TYPE_DECL = re.compile(r"([A-Za-z0-9\-]+)(?:\s*\{[^}]*\})?\s*::=\s*", re.MULT
 RE_TYPE_KIND = re.compile(r"^(SEQUENCE|CHOICE|ENUMERATED|BIT STRING|OCTET STRING|INTEGER|BOOLEAN)", re.IGNORECASE)
 RE_FIELD_LINE = re.compile(r"^([A-Za-z0-9\-]+)\s+(.+)$")
 RE_STRIP_KEYWORDS = re.compile(r"\s+(?:OPTIONAL|MANDATORY|DEFAULT\s+[^,\s]+).*", re.IGNORECASE)
+RE_COND_NEED = re.compile(r"--\s*(Cond\s+[A-Za-z0-9\-]+|Need\s+[MNRS])", re.IGNORECASE)
+
+# RAN3 Information Object Sets
 RE_IE_ID_CONST = re.compile(r"^(id-[A-Za-z0-9\-]+)\s+(?:ProtocolIE-ID|INTEGER)\s*::=\s*(\d+)", re.MULTILINE)
 RE_OBJECT_SET_ITEM = re.compile(
     r"\{\s*ID\s+([A-Za-z0-9\-]+)\s+CRITICALITY\s+([A-Za-z0-9\-]+)\s+(?:TYPE|EXTENSION)\s+([A-Za-z0-9\-]+(?:\s*\{[^}]*\})?)\s+PRESENCE\s+([A-Za-z0-9\-]+)\s*\}",
@@ -52,8 +55,9 @@ RE_ELEM_PROC_MSG = re.compile(
     re.MULTILINE
 )
 
-# Unwrapping Patterns
-RE_SETUP_RELEASE = re.compile(r"^SetupRelease\s*\{\s*([A-Za-z0-9\-]+)\s*\}")
-RE_SEQ_OF = re.compile(r"^SEQUENCE\s*(?:\(SIZE\s*\([^)]*\)\)\s*)?OF\s+([A-Za-z0-9\-]+)")
-RE_OCTET_CONTAINING = re.compile(r"^OCTET STRING\s*\(CONTAINING\s+([A-Za-z0-9\-]+)\)")
+# RRC Structural Unwrapping Patterns
+RE_SETUP_RELEASE = re.compile(r"SetupRelease\s*\{\s*([A-Za-z0-9\-]+)\s*\}", re.IGNORECASE)
+RE_SEQ_OF = re.compile(r"SEQUENCE\s*(?:\(SIZE\s*\([^)]*\)\)\s*)?OF\s+([A-Za-z0-9\-]+)", re.IGNORECASE)
+RE_OCTET_CONTAINING = re.compile(r"OCTET\s+STRING\s*\(\s*CONTAINING\s+([A-Za-z0-9\-]+)\s*\)", re.IGNORECASE)
+RE_CRITICAL_EXT_IES = re.compile(r"\b([A-Za-z0-9\-]+-IEs)\b")
 RE_STRIP_EXTRANEOUS = re.compile(r"[\(\{\[].*$")
