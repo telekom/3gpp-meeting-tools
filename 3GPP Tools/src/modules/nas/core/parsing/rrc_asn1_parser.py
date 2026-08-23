@@ -189,7 +189,11 @@ class RRCAsn1Parser(BaseAsn1DocxParser):
                     code = need_match.group(1).strip()
                     presence = f"C ({code})" if "Cond" in code else f"O ({code})"
 
-                clean_type = self._unwrap_clean_type(ftype)
+                # Normalize inline enum/integer spacing
+                normalized_ftype = re.sub(r"\bENUMERATED\s*\{", "ENUMERATED { ", ftype)
+                normalized_ftype = re.sub(r"\}\s*$", " }", normalized_ftype)
+                clean_type = self._unwrap_clean_type(normalized_ftype)
+
                 full_path = f"{path_prefix}.{fname}" if path_prefix else fname
                 field_desc = _get_description(current_type, fname, clean_type)
 
@@ -218,7 +222,7 @@ class RRCAsn1Parser(BaseAsn1DocxParser):
                     "information_element": fname,
                     "field_path": full_path,
                     "depth": depth,
-                    "type_reference": ftype,
+                    "type_reference": normalized_ftype,
                     "clean_type": clean_type,
                     "presence": presence,
                     "format": fmt,
