@@ -467,9 +467,10 @@ class NASTab(QWidget):
         ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "").strip().lstrip("└─ ")
         type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "").strip()
 
+        # Unwrap parameterized ASN.1 types
         clean_type = re.sub(r"^SetupRelease\s*\{\s*([A-Za-z0-9\-]+)\s*\}", r"\1", type_ref)
         clean_type = re.sub(r"^SEQUENCE\s*(?:\(SIZE\s*\([^)]*\)\)\s*)?OF\s+([A-Za-z0-9\-]+)", r"\1", clean_type)
-        clean_type = re.sub(r"^OCTET STRING\s*\(CONTAINING\s+([A-Za-z0-9\-]+)\)", r"\1", clean_type)
+        clean_type = re.sub(r"^OCTET STRING\s*\(\s*CONTAINING\s+([A-Za-z0-9\-]+)\s*\)", r"\1", clean_type)
         clean_type = re.sub(r"[\(\{\[].*$", "", clean_type).strip()
 
         spec_num = getattr(self, "_current_message_spec", None)
@@ -485,17 +486,21 @@ class NASTab(QWidget):
         match_clause = RE_CLAUSE_FROM_REF.search(type_ref)
         clause = match_clause.group(1).strip() if match_clause else ie_name
 
-        defs = self.db.get_ie_definitions_by_clause(
-            clause=clause,
-            alt_name=clean_type or ie_name,
-            spec_number=spec_num,
-            version_ids=self.selected_version_ids,
-        )
+        # Priority 1: Search by Clean Type Name (e.g., RadioBearerConfig)
+        defs = []
+        if clean_type:
+            defs = self.db.get_ie_definitions_by_clause(
+                clause=clean_type,
+                alt_name=ie_name,
+                spec_number=spec_num,
+                version_ids=self.selected_version_ids,
+            )
 
+        # Priority 2: Search by Field Name / Clause
         if not defs:
             defs = self.db.get_ie_definitions_by_clause(
-                clause=clean_type or ie_name,
-                alt_name="",
+                clause=clause,
+                alt_name=ie_name,
                 spec_number=spec_num,
                 version_ids=self.selected_version_ids,
             )
@@ -512,7 +517,7 @@ class NASTab(QWidget):
 
         self.inspector.display_definitions(
             clause=clause,
-            ie_name=ie_name,
+            ie_name=clean_type or ie_name,
             spec_number=spec_num,
             defs=defs,
             containing_msgs=containing_msgs,

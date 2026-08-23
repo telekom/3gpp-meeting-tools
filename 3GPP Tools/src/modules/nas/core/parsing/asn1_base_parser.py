@@ -16,7 +16,7 @@ from modules.nas.core.parsing.protocol_parser_utils import (
 
 
 class BaseAsn1DocxParser:
-    """Base class for 3GPP ASN.1 specification parsing with Clause 9.2/9.3 prose and table extraction."""
+    """Base class for 3GPP ASN.1 specification parsing with Clause 9.2/9.3 and Clause 6.2/6.3 prose and table extraction."""
 
     def __init__(self, docx_paths: List[Path], spec_number: str = "38.331"):
         self.docx_paths = sorted(docx_paths, key=self._extract_part_index)
@@ -38,7 +38,7 @@ class BaseAsn1DocxParser:
     ) -> Tuple[str, Dict[str, str], Dict[str, Dict[str, str]], Dict[str, str]]:
         """
         Pass 1: Scans Word XML trees, extracting ASN.1 code blocks between
-        -- ASN1START and -- ASN1STOP, Clause 9.2/9.3 message and IE tables, prose,
+        -- ASN1START and -- ASN1STOP, Clause 6.2/6.3/9.2/9.3 message and IE tables, prose,
         clause headings, and field description tables.
         """
         raw_asn1_blocks: List[str] = []
@@ -113,7 +113,7 @@ class BaseAsn1DocxParser:
                         current_asn1_lines.append(p_text)
                         continue
 
-                    # Check for numbered Clause Headers (e.g., 9.2.5.1 INITIAL UE MESSAGE or 9.3.1.16 User Location Information)
+                    # Check for numbered Clause Headers (e.g., 6.3.2 Radio resource control information elements)
                     match_clause = RE_CLAUSE_HEADER.match(p_text)
                     if match_clause:
                         _finalize_section()
@@ -127,7 +127,7 @@ class BaseAsn1DocxParser:
                             if norm_t:
                                 clause_map[norm_t] = current_clause_num
 
-                            if current_clause_num.startswith(("9.2", "9.3", "6.2", "6.3", "D.6")):
+                            if current_clause_num.startswith(("9.2", "9.3", "6.2", "6.3", "6.6", "D.6")):
                                 current_section_def = {
                                     "clause": current_clause_num,
                                     "name": clause_title,
@@ -136,7 +136,7 @@ class BaseAsn1DocxParser:
                                 }
                         continue
 
-                    # Check for RRC-style dash headings (e.g., – CellGroupConfig)
+                    # Check for RRC-style dash headings (e.g., – RadioBearerConfig or – CellGroupConfig)
                     if p_text.startswith("–") or p_text.startswith("-"):
                         _finalize_section()
                         current_heading_name = p_text.lstrip("–- ").strip()
@@ -145,6 +145,13 @@ class BaseAsn1DocxParser:
                             clause_map[current_heading_name.lower()] = current_clause_num
                             if norm_h:
                                 clause_map[norm_h] = current_clause_num
+
+                            current_section_def = {
+                                "clause": current_clause_num,
+                                "name": current_heading_name,
+                                "prose": [],
+                                "tables": [],
+                            }
                         continue
 
                     # Section boundary detection
@@ -152,7 +159,7 @@ class BaseAsn1DocxParser:
                         _finalize_section()
                         continue
 
-                    # Collect specification prose and directions for active clause
+                    # Collect specification prose for active clause or dash section
                     if current_section_def:
                         if p_text.startswith(("Direction:", "Direction :")):
                             current_section_def["prose"].append(
@@ -165,7 +172,7 @@ class BaseAsn1DocxParser:
                                 f'padding: 4px 8px; margin: 4px 0; font-size: 11px; color: #455A64;">'
                                 f'{html.escape(p_text)}</div>'
                             )
-                        elif not p_text.startswith(("Table ", "Figure ")) and len(current_section_def["prose"]) < 6:
+                        elif not p_text.startswith(("Table ", "Figure ")) and len(current_section_def["prose"]) < 8:
                             current_section_def["prose"].append(
                                 f'<p style="margin: 3px 0; line-height: 1.4; color: #334155; '
                                 f'font-size: 11px;">{html.escape(p_text)}</p>'
@@ -182,7 +189,7 @@ class BaseAsn1DocxParser:
                         field_desc_tables[rk] = tbl_html
                         field_desc_tables[self._normalize_key(rrc_target)] = tbl_html
 
-                    # 2. RAN3 / NAS Clause 9.2 & 9.3 structure tables
+                    # 2. RAN3 / NAS Clause 9.2 & 9.3 structure tables / RRC sub-tables
                     if current_section_def and tbl_html:
                         current_section_def["tables"].append(tbl_html)
 

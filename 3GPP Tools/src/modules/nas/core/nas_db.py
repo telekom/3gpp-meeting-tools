@@ -92,13 +92,14 @@ class NASDatabase:
                         raw_description TEXT,
                         structure_table TEXT,
                         FOREIGN KEY(version_id) REFERENCES spec_versions(id) ON DELETE CASCADE,
-                        UNIQUE(version_id, clause)
+                        UNIQUE(version_id, ie_name)
                     )
                 """)
 
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_msg_ver ON nas_messages(version_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_msg ON message_ies(message_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_ver ON ie_definitions(version_id);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_name ON ie_definitions(ie_name);")
                 conn.commit()
         except Exception as e:
             self.logger.error(f"Error initializing Protocol DB: {e}")
@@ -145,18 +146,6 @@ class NASDatabase:
             return True
         except Exception as e:
             self.logger.error(f"Failed to wipe Protocol DB: {e}")
-            return False
-
-    def vacuum(self) -> bool:
-        """Manually defragments and reclaims disk space for protocol database."""
-        try:
-            with self._get_connection() as conn:
-                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-                conn.execute("VACUUM;")
-                conn.execute("PRAGMA optimize;")
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to vacuum DB: {e}")
             return False
 
     def insert_parsed_spec(
@@ -376,15 +365,11 @@ class NASDatabase:
         version_ids: List[int],
         include_descriptions: bool = False,
     ) -> pd.DataFrame:
-        """
-        Fast retrieval of message evolution data across selected versions.
-        Omits raw HTML descriptions by default to keep query execution instantaneous.
-        """
+        """Fast retrieval of message evolution data without heavy HTML blobs."""
         if not version_ids:
             return pd.DataFrame()
 
         placeholders = ",".join("?" for _ in version_ids)
-
         if include_descriptions:
             query = f"""
                 SELECT 
@@ -441,9 +426,7 @@ class NASDatabase:
         spec_number: Optional[str] = None,
         version_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Retrieves IE definitions matching by clause, IE name, or type reference case-insensitively.
-        """
+        """Retrieves IE definitions matching by clause or IE name case-insensitively."""
         params = []
         where_parts = []
 
