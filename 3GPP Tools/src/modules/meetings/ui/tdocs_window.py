@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import urllib.parse
 import webbrowser
 from pathlib import Path
 
@@ -129,10 +130,10 @@ class TDocsWindow(QWidget):
             refresh_menu.addAction("🔄 Refresh Excel && Revisions", self._refresh_both)
         self.refresh_btn.setMenu(refresh_menu)
 
-        # Dynamic Resources Button & Menu
         self.folder_btn = QPushButton("🗂️ Resources")
         self.folder_btn.setStyleSheet(style_btn())
-        self.folder_btn.setToolTip("Access local cache folders, on-site server pages, export reports, and remote FTP directories.")
+        self.folder_btn.setToolTip(
+            "Access local cache folders, on-site server pages, export reports, and remote FTP directories.")
 
         self.folder_menu = QMenu(self)
         self.folder_menu.aboutToShow.connect(self._populate_resources_menu)
@@ -175,7 +176,8 @@ class TDocsWindow(QWidget):
 
         self.instant_fetch_input = QLineEdit()
         self.instant_fetch_input.setPlaceholderText("Instant Fetch...")
-        self.instant_fetch_input.setToolTip("Instantly fetch a TDoc, bypassing the table entirely. Press Enter to launch.")
+        self.instant_fetch_input.setToolTip(
+            "Instantly fetch a TDoc, bypassing the table entirely. Press Enter to launch.")
         self.instant_fetch_input.setText(self._get_tdoc_prefix())
         self.instant_fetch_input.setFixedWidth(120)
         self.instant_fetch_input.returnPressed.connect(self._on_instant_fetch)
@@ -205,21 +207,20 @@ class TDocsWindow(QWidget):
         layout.addLayout(header_layout)
 
     def _populate_resources_menu(self):
-        """Dynamically populates the Resources menu based on active network reachability."""
         self.folder_menu.clear()
 
-        # --- 1. Local Hard Drive Cache Folders ---
+        # 1. Local Hard Drive Cache Folders
         self.folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
         if self.is_sa2:
             self.folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
 
         self.folder_menu.addSeparator()
 
-        # --- 2. Diagnostics & Export Utilities ---
+        # 2. Diagnostics & Export Utilities
         self.folder_menu.addAction("⚠️ View Unmatched Companies", self._show_unmatched_companies)
         self.folder_menu.addAction("📝 Export Markdown Reports", self._export_reports)
 
-        # --- 3. Local On-Site Server (10.10.10.10) ---
+        # 3. Local On-Site Server (10.10.10.10)
         if NetworkState.get_instance().is_local_active():
             self.folder_menu.addSeparator()
             wg_name = self.mtg_info.get("wg_name", "").upper()
@@ -227,13 +228,17 @@ class TDocsWindow(QWidget):
 
             self.folder_menu.addAction("🟢 Local Server: Main WG Folder", lambda u=local_base: webbrowser.open(u))
             self.folder_menu.addAction("🟢 Local Server: Docs Folder", lambda u=f"{local_base}/Docs": webbrowser.open(u))
-            self.folder_menu.addAction("🟢 Local Server: Inbox Folder", lambda u=f"{local_base}/Inbox": webbrowser.open(u))
+            self.folder_menu.addAction("🟢 Local Server: Inbox Folder",
+                                       lambda u=f"{local_base}/Inbox": webbrowser.open(u))
             if self.is_sa2:
-                self.folder_menu.addAction("🟢 Local Server: Revisions Folder", lambda u=f"{local_base}/Inbox/Revisions": webbrowser.open(u))
-                self.folder_menu.addAction("🟢 Local Server: TdocsByAgenda.htm", lambda u=f"{local_base}/TdocsByAgenda.htm": webbrowser.open(u))
-            self.folder_menu.addAction("🟢 Local Server: Home (10.10.10.10)", lambda: webbrowser.open("http://10.10.10.10/"))
+                self.folder_menu.addAction("🟢 Local Server: Revisions Folder",
+                                           lambda u=f"{local_base}/Inbox/Revisions": webbrowser.open(u))
+                self.folder_menu.addAction("🟢 Local Server: TdocsByAgenda.htm",
+                                           lambda u=f"{local_base}/TdocsByAgenda.htm": webbrowser.open(u))
+            self.folder_menu.addAction("🟢 Local Server: Home (10.10.10.10)",
+                                       lambda: webbrowser.open("http://10.10.10.10/"))
 
-        # --- 4. Remote Web & FTP Archive Paths ---
+        # 4. Remote Web & FTP Archive Paths
         self.folder_menu.addSeparator()
         if self.main_ftp_url:
             self.folder_menu.addAction("🌐 Web FTP: Main Folder", lambda: webbrowser.open(self.main_ftp_url))
@@ -494,12 +499,57 @@ class TDocsWindow(QWidget):
             return
         revisions = self.model.revisions.get(base_tdoc, [])
         build_action_menu(self.table, base_tdoc, self.docs_ftp_url, self.revisions_url, revisions, self.meeting_dir,
-                          self._trigger_download_thread, self._export_llm_single, QCursor.pos())
+                          self._trigger_download_thread, self._export_llm_single, self._compose_email_draft,
+                          QCursor.pos())
 
     def _show_related_menu(self, target_tdoc: str, pos: QPoint):
         build_related_menu(self, target_tdoc, self.model.valid_tdocs, self.docs_ftp_url, self.revisions_url,
                            self._scroll_to_tdoc, self._trigger_download_thread, self._export_llm_single,
-                           self.global_action_requested.emit, pos)
+                           self.global_action_requested.emit, self._compose_email_draft, pos)
+
+    def _compose_email_draft(self, tdoc_id: str):
+        """Generates a standardized 3GPP email subject and opens a new draft in the default email client."""
+        row_data = next((r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == tdoc_id.upper()),
+                        None)
+
+        # Fallback to base TDoc metadata if drafting for a newly introduced revision
+        if not row_data:
+            match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
+            base_tdoc = match.group(1).upper() if match else tdoc_id.upper()
+            row_data = next((r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == base_tdoc), {})
+
+        wg = str(self.mtg_info.get("wg_name", "")).strip().upper()
+        mtg_num = str(self.mtg_info.get("meeting_number", "")).strip()
+        ai = str(row_data.get("Agenda Item", "")).strip()
+        title = str(row_data.get("Title", "")).strip()
+
+        # Build standardized 3GPP bracketed tag: e.g. [SA2#176, 20.6.1.1]
+        tag_parts = []
+        if wg and mtg_num:
+            tag_parts.append(f"{wg}#{mtg_num}")
+        elif wg or mtg_num:
+            tag_parts.append(f"{wg}{mtg_num}")
+
+        if ai and ai.upper() not in ["N/A", "NONE", "UNKNOWN", ""]:
+            tag_parts.append(ai)
+
+        tag_str = f"[{', '.join(tag_parts)}] " if tag_parts else ""
+        subject = f"{tag_str}{tdoc_id} {title}".strip()
+
+        # Encode URL parameters and launch shell mail handler
+        encoded_subject = urllib.parse.quote(subject, safe='')
+        mailto_url = f"mailto:?subject={encoded_subject}"
+
+        try:
+            if hasattr(os, 'startfile'):
+                os.startfile(mailto_url)
+            else:
+                webbrowser.open(mailto_url)
+            logging.info(f"📧 [Email Draft] Opened new email draft with subject: '{subject}'")
+        except Exception as e:
+            logging.warning(f"Failed to launch email client automatically: {e}")
+            QApplication.clipboard().setText(subject)
+            QToolTip.showText(QCursor.pos(), "📋 Subject copied to clipboard!", self)
 
     def _show_cell_popup(self, index):
         if not index.isValid():
