@@ -1,15 +1,15 @@
 # --- File: src/modules/meetings/core/tdocs_threads.py ---
+import json
 import logging
 import re
-import json
 from pathlib import Path
 
 import requests
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.network.session import NetworkSession
-from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
+from modules.meetings.core.tdocs_parser import TDocsParser
 
 
 class TDocsRevisionsFetcherThread(QThread):
@@ -29,8 +29,10 @@ class TDocsRevisionsFetcherThread(QThread):
             response.raise_for_status()
 
             html = response.text
-            pattern = re.compile(r'href=["\']?(?:[^"\'>]*/)?(([A-Za-z0-9\-]+)(r\d+[a-zA-Z]?)\.zip)["\']?',
-                                 re.IGNORECASE)
+            pattern = re.compile(
+                r'href=["\']?(?:[^"\'>]*/)?(([A-Za-z0-9\-]+)(r\d+[a-zA-Z]?)\.zip)["\']?',
+                re.IGNORECASE,
+            )
             matches = pattern.findall(html)
 
             revisions = {}
@@ -45,7 +47,9 @@ class TDocsRevisionsFetcherThread(QThread):
             for k in revisions:
                 revisions[k].sort()
 
-            logging.info(f"✅ [Revisions Sync] Discovered revisions for {len(revisions)} base TDocs.")
+            logging.info(
+                f"✅ [Revisions Sync] Discovered revisions for {len(revisions)} base TDocs."
+            )
 
             if self.meeting_dir:
                 try:
@@ -61,7 +65,9 @@ class TDocsRevisionsFetcherThread(QThread):
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
-                logging.warning(f"⚠️ [Revisions Sync] Revisions directory 404 Not Found at {self.url}")
+                logging.warning(
+                    f"⚠️ [Revisions Sync] Revisions directory 404 Not Found at {self.url}"
+                )
                 self.finished.emit(True, {}, "No Revisions folder found.")
             else:
                 logging.error(f"❌ [Revisions Sync] HTTP Error: {e}")
@@ -74,11 +80,20 @@ class TDocsRevisionsFetcherThread(QThread):
 class TDocActionThread(QThread):
     finished_action = pyqtSignal(str, bool, str)
 
-    def __init__(self, base_tdoc: str, target_filename: str, base_urls, meeting_dir: Path, open_file: bool = True):
+    def __init__(
+        self,
+        base_tdoc: str,
+        target_filename: str,
+        base_urls,
+        meeting_dir: Path,
+        open_file: bool = True,
+    ):
         super().__init__()
         self.base_tdoc = base_tdoc
         self.target_filename = target_filename
-        self.base_urls = base_urls if isinstance(base_urls, list) else [base_urls]
+        self.base_urls = (
+            base_urls if isinstance(base_urls, list) else [base_urls]
+        )
         self.tdoc_dir = meeting_dir / base_tdoc
         self.open_file = open_file
         self.extracted_doc_paths = []
@@ -88,23 +103,31 @@ class TDocActionThread(QThread):
         last_err = "No valid URLs provided."
 
         logging.info("-" * 65)
-        logging.info(f"🚀 [Action Thread] Initiating retrieval for '{self.target_filename}'")
-        logging.info(f"📋 [Priority Queue] Evaluating {len(self.base_urls)} candidate route(s):")
+        logging.info(
+            f"🚀 [Action Thread] Initiating retrieval for '{self.target_filename}'"
+        )
+        logging.info(
+            f"📋 [Priority Queue] Evaluating {len(self.base_urls)} candidate route(s):"
+        )
         for idx, u in enumerate(self.base_urls, 1):
             logging.info(f"   [{idx}] {u}")
         logging.info("-" * 65)
 
         for idx, url in enumerate(self.base_urls, 1):
             try:
-                logging.info(f"➡️ [Route {idx}/{len(self.base_urls)}] Trying: {url}/{self.target_filename}.zip")
-
-                # Fast 6s timeout so on-site fallbacks switch immediately
-                self.extracted_doc_paths = TDocFileHandler.download_and_extract_tdoc(
-                    self.target_filename, url, self.tdoc_dir, timeout=6
+                logging.info(
+                    f"➡️ [Route {idx}/{len(self.base_urls)}] Trying: {url}/{self.target_filename}.zip"
+                )
+                self.extracted_doc_paths = (
+                    TDocFileHandler.download_and_extract_tdoc(
+                        self.target_filename, url, self.tdoc_dir, timeout=6
+                    )
                 )
                 if self.extracted_doc_paths:
                     success = True
-                    logging.info(f"🎯 [MATCH] Successfully acquired '{self.target_filename}' from Route [{idx}].")
+                    logging.info(
+                        f"🎯 [MATCH] Successfully acquired '{self.target_filename}' from Route [{idx}]."
+                    )
                     break
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 404:
@@ -125,19 +148,30 @@ class TDocActionThread(QThread):
 
         if not success:
             logging.error(
-                f"❌ [FETCH FAILED] All {len(self.base_urls)} candidate routes exhausted for '{self.target_filename}'.")
-            self.finished_action.emit(self.base_tdoc, False, f"Could not retrieve document.\nLast error: {last_err}")
+                f"❌ [FETCH FAILED] All {len(self.base_urls)} candidate routes exhausted for '{self.target_filename}'."
+            )
+            self.finished_action.emit(
+                self.base_tdoc,
+                False,
+                f"Could not retrieve document.\nLast error: {last_err}",
+            )
             return
 
         if self.open_file:
-            import os, webbrowser
+            import os
+            import webbrowser
+
             for doc in self.extracted_doc_paths:
-                if hasattr(os, 'startfile'):
+                if hasattr(os, "startfile"):
                     os.startfile(str(doc))
                 else:
                     webbrowser.open(f"file:///{doc}")
 
-        msg = "Opened successfully." if self.open_file else "Downloaded & Added successfully."
+        msg = (
+            "Opened successfully."
+            if self.open_file
+            else "Downloaded & Added successfully."
+        )
         self.finished_action.emit(self.base_tdoc, True, msg)
 
 
@@ -145,44 +179,100 @@ class TdocsByAgendaThread(QThread):
     ui_log_msg = pyqtSignal(str, int)
     finished = pyqtSignal(bool, dict)
 
-    def __init__(self, meeting_ftp_url: str, local_folder: Path):
+    def __init__(self, candidate_urls, local_folder: Path):
         super().__init__()
-        self.meeting_ftp_url = meeting_ftp_url
+        # Accept either a single string URL or a list of candidate folder URLs
+        self.candidate_urls = (
+            candidate_urls
+            if isinstance(candidate_urls, list)
+            else [candidate_urls]
+        )
         self.local_folder = local_folder
 
     def run(self):
+        session = NetworkSession.get_instance()
+        NetworkSession.apply_humanness(session)
+
+        logging.info("=" * 65)
+        logging.info("📄 [TdocsByAgenda Sync] Starting agenda retrieval...")
+        logging.info(
+            f"📋 [Priority Queue] Evaluating {len(self.candidate_urls)} candidate directory routes:"
+        )
+        for idx, u in enumerate(self.candidate_urls, 1):
+            logging.info(f"   [{idx}] {u}")
+        logging.info("=" * 65)
+
+        pattern = re.compile(
+            r'href=["\']?([^"\'>]*tdocsbyagenda[^"\'>]*\.html?)["\']?',
+            re.IGNORECASE,
+        )
+        found_target_url = None
+        last_error = "No candidate routes provided."
+
+        for idx, folder_url in enumerate(self.candidate_urls, 1):
+            clean_url = folder_url.rstrip("/")
+            logging.info(
+                f"🔍 [Route {idx}/{len(self.candidate_urls)}] Scanning directory for TdocsByAgenda: {clean_url}"
+            )
+
+            try:
+                response = session.get(clean_url, timeout=6)
+                if response.status_code != 200:
+                    logging.info(
+                        f"   ↳ ❌ HTTP {response.status_code} at {clean_url}"
+                    )
+                    continue
+
+                matches = pattern.findall(response.text)
+                if matches:
+                    target_filename = matches[-1].split("/")[-1]
+                    found_target_url = f"{clean_url}/{target_filename}"
+                    logging.info(
+                        f"🎯 [MATCH] Found agenda file '{target_filename}' at {clean_url}"
+                    )
+                    break
+                else:
+                    logging.info(
+                        f"   ↳ ⚠️ Directory accessible but no TdocsByAgenda.htm link found."
+                    )
+
+            except Exception as e:
+                last_error = str(e)
+                logging.warning(
+                    f"   ↳ ⏱️ Directory check failed for {clean_url}: {e}"
+                )
+                continue
+
+        if not found_target_url:
+            logging.error(
+                f"❌ [TdocsByAgenda Sync Failed] Could not find TdocsByAgenda in any candidate location. Last error: {last_error}"
+            )
+            self.finished.emit(False, {})
+            return
+
         try:
-            self.ui_log_msg.emit("⏳ Initiating TdocsByAgenda Sync...", logging.INFO)
-            clean_base_url = self.meeting_ftp_url.rstrip('/')
-
-            session = NetworkSession.get_instance()
-            NetworkSession.apply_humanness(session)
-
-            self.ui_log_msg.emit(f"🔍 Searching FTP for TdocsByAgenda file at {clean_base_url}...", logging.INFO)
-            response = session.get(clean_base_url, timeout=15)
-            response.raise_for_status()
-
-            pattern = re.compile(r'href=["\']?([^"\'>]*tdocsbyagenda[^"\'>]*\.html?)["\']?', re.IGNORECASE)
-            matches = pattern.findall(response.text)
-
-            if not matches:
-                self.ui_log_msg.emit("❌ Could not find any TdocsByAgenda file on the FTP server.", logging.ERROR)
-                self.finished.emit(False, {})
-                return
-
-            target_filename = matches[-1].split('/')[-1]
-            agenda_url = f"{clean_base_url}/{target_filename}"
-
             agenda_dir = self.local_folder / "Agenda"
             agenda_dir.mkdir(parents=True, exist_ok=True)
             agenda_path = agenda_dir / "TdocsByAgenda.htm"
 
-            self.ui_log_msg.emit(f"⬇️ Downloading: {agenda_url}", logging.INFO)
-            NetworkSession.download_file(agenda_url, agenda_path)
+            logging.info(
+                f"⬇️ [Downloading Agenda] Fetching: {found_target_url}"
+            )
+            NetworkSession.download_file(found_target_url, agenda_path)
+            logging.info(
+                f"💾 [Agenda Saved] Saved locally to: {agenda_path.resolve()}"
+            )
 
-            agenda_data = TDocsParser.parse_tdocs_by_agenda(str(agenda_path), self.ui_log_msg)
+            agenda_data = TDocsParser.parse_tdocs_by_agenda(
+                str(agenda_path), self.ui_log_msg
+            )
+            logging.info(
+                f"✅ [Parsing Complete] Successfully parsed {len(agenda_data)} items from TdocsByAgenda."
+            )
             self.finished.emit(True, agenda_data)
 
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Failed to sync TdocsByAgenda: {str(e)}", logging.ERROR)
+            logging.error(
+                f"❌ [TdocsByAgenda Parse Failed] Error downloading/parsing: {e}"
+            )
             self.finished.emit(False, {})
