@@ -151,8 +151,9 @@ class WorkItemsDatabase:
             logging.error(f"Error fetching WI filter options: {e}")
         return options
 
-    def search_work_items(self, search_term: str = None, releases: list = None, wg_names: list = None) -> list:
-        """Searches Work Items by text, multiple releases, and multiple working groups."""
+    def search_work_items(self, search_term: str = None, releases: list = None,
+                          wg_names: list = None, status: str = "all") -> list:
+        """Searches Work Items by text, multiple releases, multiple working groups, and completion status."""
 
         # Inject the system creation_date into the concatenated string using ':::' so Python can sort it later
         query = """
@@ -189,6 +190,12 @@ class WorkItemsDatabase:
             query += " AND (wi.acronym LIKE ? OR wi.name LIKE ? OR wi.code LIKE ?)"
             term = f"%{search_term}%"
             params.extend([term, term, term])
+
+        # Filter by completion status based on end_date
+        if status == "finished":
+            query += " AND (wi.end_date IS NOT NULL AND TRIM(wi.end_date) != '' AND date(wi.end_date) < date('now'))"
+        elif status == "active":
+            query += " AND (wi.end_date IS NULL OR TRIM(wi.end_date) == '' OR date(wi.end_date) >= date('now'))"
 
         # Group by code so GROUP_CONCAT bundles remarks per work item
         query += " GROUP BY wi.code ORDER BY CAST(wi.code AS INTEGER) DESC"
@@ -276,7 +283,6 @@ class WorkItemsDatabase:
                 ))
 
         try:
-            # The 'with' block acts as an atomic transaction
             with self._get_connection() as conn:
                 cursor = conn.cursor()
 
