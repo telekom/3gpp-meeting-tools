@@ -1,4 +1,4 @@
-# --- File: modules/specs_db/ui_tabs.py ---
+# --- File: src/modules/specifications/ui/ui_tabs.py ---
 import json
 import os
 import re
@@ -231,7 +231,6 @@ class SpecificationsTab(QWidget):
             targets = dialog.get_targets()
             if targets:
                 force_meta = self.force_meta_checkbox.isChecked()
-                # Emits the exact same signal used by the right-click menu and Filtered Sync!
                 self.update_specific_requested.emit(targets, force_meta)
 
     def _show_context_menu(self, position):
@@ -255,12 +254,10 @@ class SpecificationsTab(QWidget):
     def _show_spec_info(self, spec_num: str):
         details = self.db.get_spec_details(spec_num)
 
-        # --- FIX: Fallback if the database strictly stored the base number ---
         if not details and "-" in spec_num:
             base_num = spec_num.split("-")[0]
             details = self.db.get_spec_details(base_num)
             if details:
-                # Graft the part number back onto the details dictionary for the UI display
                 details['number'] = spec_num
 
         dialog = SpecInfoDialog(details or {}, self)
@@ -290,7 +287,7 @@ class SpecificationsTab(QWidget):
         def _process_and_open():
             extracted_docs = []
 
-            # 1. Flat Extraction (If zip exists and hasn't been extracted yet)
+            # 1. Flat Extraction
             if zip_path.exists():
                 try:
                     with zipfile.ZipFile(zip_path, 'r') as z:
@@ -308,7 +305,7 @@ class SpecificationsTab(QWidget):
                     QMessageBox.warning(self, "Extraction Error", f"Failed to extract archive:\n{e}")
                     return
 
-            # Fallback: Find existing word docs on disk if zip didn't provide them
+            # Fallback: Find existing word docs on disk
             if not extracted_docs:
                 extracted_docs = list(spec_dl_dir.glob(f"{stem}*.doc*"))
 
@@ -320,16 +317,16 @@ class SpecificationsTab(QWidget):
             try:
                 from modules.word_tools.core.word_converter import WordConverterThread
             except ImportError as e:
-                QMessageBox.warning(self, "Import Error", f"Could not import your existing word_converter:\n{e}")
+                QMessageBox.warning(self, "Import Error", f"Could not import word_converter:\n{e}")
                 return
 
-            # 2. Smart Conversion & Opening
+            # 2. Smart Conversion & Opening (Includes TXT)
             for doc_path in extracted_docs:
                 try:
                     if doc_type == 'word':
                         os.startfile(str(doc_path))
 
-                    elif doc_type in ('pdf', 'html'):
+                    elif doc_type in ('pdf', 'html', 'txt'):
                         target_ext = f".{doc_type}"
                         target_path = doc_path.with_suffix(target_ext)
 
@@ -348,7 +345,6 @@ class SpecificationsTab(QWidget):
                                 except Exception as e:
                                     print(f"Error opening converted file: {e}")
 
-                                # Guard against deleted C++ Qt objects
                                 try:
                                     if not sip.isdeleted(c):
                                         c.currentIndexChanged.emit(c.currentIndex())
@@ -363,7 +359,6 @@ class SpecificationsTab(QWidget):
                             def cleanup(t=conv_thread, b=btn, txt=orig_text):
                                 if t in self._download_threads:
                                     self._download_threads.remove(t)
-                                # Guard against deleted C++ Qt objects
                                 try:
                                     if not sip.isdeleted(b) and not b.isEnabled():
                                         b.setText(txt)
@@ -391,6 +386,8 @@ class SpecificationsTab(QWidget):
             target_exists = any(spec_dl_dir.glob(f"{stem}*.pdf"))
         elif doc_type == 'html':
             target_exists = any(spec_dl_dir.glob(f"{stem}*.html"))
+        elif doc_type == 'txt':
+            target_exists = any(spec_dl_dir.glob(f"{stem}*.txt"))
 
         # If target exists, OR Word doc exists, OR zip exists... process locally!
         if target_exists or word_exists or zip_path.exists():
@@ -423,10 +420,8 @@ class SpecificationsTab(QWidget):
                 except RuntimeError:
                     pass
 
-                # Extract files FIRST...
                 _process_and_open()
 
-                # THEN force UI refresh if widget is still alive
                 try:
                     if not sip.isdeleted(combo):
                         combo.currentIndexChanged.emit(idx)
@@ -458,7 +453,6 @@ class SpecificationsTab(QWidget):
         spec_dl_dir = Path(self.dl_dir_input.text().strip()) / c_data['spec_num']
         zip_path = spec_dl_dir / c_data['fname']
 
-        # If the file already exists, gracefully open the directory for the user
         if zip_path.exists():
             try:
                 os.startfile(str(spec_dl_dir))
@@ -466,7 +460,6 @@ class SpecificationsTab(QWidget):
                 QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
             return
 
-        # Prepare directory and UI for download
         spec_dl_dir.mkdir(parents=True, exist_ok=True)
 
         idx = combo.currentIndex()
@@ -477,7 +470,6 @@ class SpecificationsTab(QWidget):
         btn.setText("⏳...")
         btn.setEnabled(False)
 
-        # Initialize background download thread
         thread = SpecDownloadThread(c_data['url'], zip_path)
         thread.ui_log_msg.connect(self._handle_converter_log)
 
@@ -491,7 +483,6 @@ class SpecificationsTab(QWidget):
                         c_data['is_downloaded'] = True
                         combo.setItemData(idx, c_data)
                     combo.setEnabled(True)
-                    # Trigger the UI styling update to turn the ZIP button green
                     combo.currentIndexChanged.emit(idx)
             except RuntimeError:
                 pass
@@ -574,9 +565,6 @@ class SpecificationsTab(QWidget):
             for row in specs:
                 series, spec_num, title, spec_type, filename, version, url = row
 
-                # Safely extracts multipart specs like -01 from the filename
-                # and appends it to the base database number. Necessary for specifications like TR 23.801-01 (6G study),
-                # as there is also a 23.801 specification
                 if filename:
                     part_match = re.search(r'\d{4,5}-(\d{1,2})(?:[-_.]|$)', filename)
                     if part_match and "-" not in spec_num:
@@ -662,7 +650,6 @@ class SpecificationsTab(QWidget):
                 # --- COLUMN 2: Documents Action Bar ---
                 version_combo = QComboBox()
 
-                # Type-safe semantic version parser
                 def parse_ver(v_str):
                     return [(0, int(x)) if x.isdigit() else (1, str(x)) for x in str(v_str).split('.')]
 
@@ -680,14 +667,15 @@ class SpecificationsTab(QWidget):
                 word_btn = QPushButton("📝 Word")
                 pdf_btn = QPushButton("📕 PDF")
                 html_btn = QPushButton("🌐 HTML")
-                zip_btn = QPushButton("📥 ZIP")  # <--- NEW: Add the ZIP button
+                txt_btn = QPushButton("📄 TXT")
+                zip_btn = QPushButton("📥 ZIP")
 
-                for b in (word_btn, pdf_btn, html_btn):
+                for b in (word_btn, pdf_btn, html_btn, txt_btn):
                     b.setCursor(Qt.PointingHandCursor)
 
                 # ---> 3-STATE DYNAMIC UI CHECKER
                 def _update_btn_state(index_ignore=0, c=version_combo, wb=word_btn, pb=pdf_btn, hb=html_btn,
-                                      zb=zip_btn):
+                                      tb=txt_btn, zb=zip_btn):
                     c_data = c.currentData()
                     if not c_data: return
 
@@ -698,58 +686,60 @@ class SpecificationsTab(QWidget):
                     word_exists = any(current_dir.glob(f"{stem}*.doc*"))
                     pdf_exists = any(current_dir.glob(f"{stem}*.pdf"))
                     html_exists = any(current_dir.glob(f"{stem}*.html"))
+                    txt_exists = any(current_dir.glob(f"{stem}*.txt"))
 
                     def style_btn(btn, exists, icon, name):
                         if exists:
                             btn.setText(f"{icon} {name} ✅")
                             btn.setStyleSheet("""
-                                                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
-                                                                QPushButton:hover { background-color: #C8E6C9; }
-                                                            """)
+                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
+                                QPushButton:hover { background-color: #C8E6C9; }
+                            """)
                         elif word_exists or zip_exists:
                             action = "Extract" if name == "Word" else "Convert"
                             btn.setText(f"⚙️ {action}")
                             btn.setStyleSheet("""
-                                                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; } 
-                                                                QPushButton:hover { background-color: #FFE0B2; }
-                                                            """)
+                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; } 
+                                QPushButton:hover { background-color: #FFE0B2; }
+                            """)
                         else:
                             btn.setText(f"⬇️ Get {name}")
                             btn.setStyleSheet("""
-                                                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
-                                                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
-                                                            """)
+                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
+                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
+                            """)
 
                     style_btn(wb, word_exists, "📝", "Word")
                     style_btn(pb, pdf_exists, "📕", "PDF")
                     style_btn(hb, html_exists, "🌐", "HTML")
+                    style_btn(tb, txt_exists, "📄", "TXT")
 
-                    # <--- NEW: Custom style check purely for the ZIP download state
                     if zip_exists:
                         zb.setText("📥 ZIP ✅")
                         zb.setStyleSheet("""
-                                            QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
-                                            QPushButton:hover { background-color: #C8E6C9; }
-                                        """)
+                            QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
+                            QPushButton:hover { background-color: #C8E6C9; }
+                        """)
                     else:
                         zb.setText("⬇️ Get ZIP")
                         zb.setStyleSheet("""
-                                            QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
-                                            QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
-                                        """)
+                            QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
+                            QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
+                        """)
 
                 # Bind the UI style updater
                 version_combo.currentIndexChanged.connect(_update_btn_state)
                 _update_btn_state()
 
-                # Bind the specific buttons to the specific document extensions
+                # Bind buttons
                 word_btn.clicked.connect(
                     lambda _, c=version_combo, b=word_btn: self._handle_document_action(c, 'word', b))
                 pdf_btn.clicked.connect(lambda _, c=version_combo, b=pdf_btn: self._handle_document_action(c, 'pdf', b))
                 html_btn.clicked.connect(
                     lambda _, c=version_combo, b=html_btn: self._handle_document_action(c, 'html', b))
-                zip_btn.clicked.connect(lambda _, c=version_combo, b=zip_btn: self._handle_zip_action(c,
-                                                                                                      b))  # <--- NEW: Connect the ZIP button
+                txt_btn.clicked.connect(
+                    lambda _, c=version_combo, b=txt_btn: self._handle_document_action(c, 'txt', b))
+                zip_btn.clicked.connect(lambda _, c=version_combo, b=zip_btn: self._handle_zip_action(c, b))
 
                 cell_widget = QWidget()
                 layout = QHBoxLayout(cell_widget)
@@ -760,7 +750,8 @@ class SpecificationsTab(QWidget):
                 layout.addWidget(word_btn)
                 layout.addWidget(pdf_btn)
                 layout.addWidget(html_btn)
-                layout.addWidget(zip_btn)  # <--- NEW: Add to layout
+                layout.addWidget(txt_btn)
+                layout.addWidget(zip_btn)
 
                 self.table.setCellWidget(row_idx, 2, cell_widget)
 
