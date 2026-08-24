@@ -22,9 +22,10 @@ class TDocsRevisionsFetcherThread(QThread):
 
     def run(self):
         try:
+            logging.info(f"🔍 [Revisions Sync] Fetching revision listings from: {self.url}")
             session = NetworkSession.get_instance()
             NetworkSession.apply_humanness(session)
-            response = session.get(self.url, timeout=30)
+            response = session.get(self.url, timeout=15)
             response.raise_for_status()
 
             html = response.text
@@ -44,6 +45,8 @@ class TDocsRevisionsFetcherThread(QThread):
             for k in revisions:
                 revisions[k].sort()
 
+            logging.info(f"✅ [Revisions Sync] Discovered revisions for {len(revisions)} base TDocs.")
+
             if self.meeting_dir:
                 try:
                     agenda_dir = self.meeting_dir / "Agenda"
@@ -58,14 +61,16 @@ class TDocsRevisionsFetcherThread(QThread):
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
+                logging.warning(f"⚠️ [Revisions Sync] Revisions directory 404 Not Found at {self.url}")
                 self.finished.emit(True, {}, "No Revisions folder found.")
             else:
+                logging.error(f"❌ [Revisions Sync] HTTP Error: {e}")
                 self.finished.emit(False, {}, str(e))
         except Exception as e:
+            logging.error(f"❌ [Revisions Sync] Network Exception: {e}")
             self.finished.emit(False, {}, str(e))
 
 
-# --- Inside: src/modules/meetings/core/tdocs_threads.py ---
 class TDocActionThread(QThread):
     finished_action = pyqtSignal(str, bool, str)
 
@@ -73,7 +78,6 @@ class TDocActionThread(QThread):
         super().__init__()
         self.base_tdoc = base_tdoc
         self.target_filename = target_filename
-        # Accept a single URL (legacy) or a priority list of URLs
         self.base_urls = base_urls if isinstance(base_urls, list) else [base_urls]
         self.tdoc_dir = meeting_dir / base_tdoc
         self.open_file = open_file
@@ -83,25 +87,45 @@ class TDocActionThread(QThread):
         success = False
         last_err = "No valid URLs provided."
 
-        for url in self.base_urls:
+        logging.info("-" * 65)
+        logging.info(f"🚀 [Action Thread] Initiating retrieval for '{self.target_filename}'")
+        logging.info(f"📋 [Priority Queue] Evaluating {len(self.base_urls)} candidate route(s):")
+        for idx, u in enumerate(self.base_urls, 1):
+            logging.info(f"   [{idx}] {u}")
+        logging.info("-" * 65)
+
+        for idx, url in enumerate(self.base_urls, 1):
             try:
+                logging.info(f"➡️ [Route {idx}/{len(self.base_urls)}] Trying: {url}/{self.target_filename}.zip")
+
+                # Fast 6s timeout so on-site fallbacks switch immediately
                 self.extracted_doc_paths = TDocFileHandler.download_and_extract_tdoc(
-                    self.target_filename, url, self.tdoc_dir
+                    self.target_filename, url, self.tdoc_dir, timeout=6
                 )
                 if self.extracted_doc_paths:
                     success = True
-                    break  # Break out of the fallback loop on success!
+                    logging.info(f"🎯 [MATCH] Successfully acquired '{self.target_filename}' from Route [{idx}].")
+                    break
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 404:
                     last_err = f"404 Not Found at {url}"
-                    continue  # File isn't here, try the next fallback URL!
-                last_err = str(e)
+                    logging.info(f"   ↳ ❌ [404] Not present on route: {url}")
+                    continue
+                last_err = f"HTTP {e.response.status_code} Error: {e}"
+                logging.warning(f"   ↳ ⚠️ [HTTP ERROR] {last_err}")
+                continue
+            except requests.exceptions.ConnectTimeout:
+                last_err = f"Connection timed out at {url}"
+                logging.warning(f"   ↳ ⏱️ [TIMEOUT] Route unreachable: {url}")
                 continue
             except Exception as e:
                 last_err = str(e)
+                logging.warning(f"   ↳ ⚠️ [ERROR] Failed route {url}: {e}")
                 continue
 
         if not success:
+            logging.error(
+                f"❌ [FETCH FAILED] All {len(self.base_urls)} candidate routes exhausted for '{self.target_filename}'.")
             self.finished_action.emit(self.base_tdoc, False, f"Could not retrieve document.\nLast error: {last_err}")
             return
 
@@ -134,8 +158,8 @@ class TdocsByAgendaThread(QThread):
             session = NetworkSession.get_instance()
             NetworkSession.apply_humanness(session)
 
-            self.ui_log_msg.emit("🔍 Searching FTP for TdocsByAgenda file...", logging.INFO)
-            response = session.get(clean_base_url, timeout=30)
+            self.ui_log_msg.emit(f"🔍 Searching FTP for TdocsByAgenda file at {clean_base_url}...", logging.INFO)
+            response = session.get(clean_base_url, timeout=15)
             response.raise_for_status()
 
             pattern = re.compile(r'href=["\']?([^"\'>]*tdocsbyagenda[^"\'>]*\.html?)["\']?', re.IGNORECASE)

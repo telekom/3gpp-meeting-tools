@@ -27,24 +27,29 @@ class URLRouter:
     def build_priority_url_list(wg_name: str, folder_name: str, main_ftp_url: str, is_active_sync: bool) -> list:
         """
         Builds the fallback ordered list of base folder URLs to search for a TDoc.
+
+        Notes on 3GPP hierarchy:
+        - Local on-site (10.10.10.10) is always flattened to the active meeting (no meeting subfolder).
+        - Live SYNC uses https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{WG}/
+        - Archive web FTP requires the full meeting folder subpath.
         """
         urls = []
         wg_upper = wg_name.upper()
         main_ftp_clean = main_ftp_url.rstrip('/') if main_ftp_url else ""
-        folder_clean = folder_name.strip('/') if folder_name else ""
 
         # -----------------------------------------------------
-        # TIER 1: The Local Server (10.10.10.10)
+        # TIER 1: The Local On-Site Server (10.10.10.10)
+        # Flattened directly under the WG base path
         # -----------------------------------------------------
         if NetworkState.get_instance().is_local_active():
-            local_base = f"{URLRouter._get_local_server_base(wg_name)}/{folder_clean}"
+            local_base = URLRouter._get_local_server_base(wg_name)
             if wg_upper == "SA2":
                 urls.append(f"{local_base}/Inbox/Revisions")
             urls.append(f"{local_base}/Inbox")
             urls.append(f"{local_base}/Docs")
 
         # -----------------------------------------------------
-        # TIER 2: The Live Meeting SYNC Folder
+        # TIER 2: The Live Meeting SYNC Folder (Public Web)
         # -----------------------------------------------------
         if is_active_sync:
             sync_wg = "SA3LI" if wg_upper == "SA3LI" else wg_upper
