@@ -23,13 +23,12 @@ class TDocActionMenu(QMenu):
 
 
 def build_action_menu(parent_widget, base_tdoc, docs_ftp_url, revisions_url, revisions_list, meeting_dir,
-                      download_callback, llm_export_callback, global_pos):
+                      download_callback, llm_export_callback, email_callback, global_pos):
     menu = TDocActionMenu(parent_widget)
     menu.setStyleSheet("QMenu { font-size: 13px; }")
     menu.setToolTipsVisible(True)
 
-    docs_url = docs_ftp_url if docs_ftp_url.startswith("http") else "https://www.3gpp.org/ftp/" + docs_ftp_url.lstrip(
-        '/')
+    docs_url = docs_ftp_url if docs_ftp_url.startswith("http") else "https://www.3gpp.org/ftp/" + docs_ftp_url.lstrip('/')
     base_zip = meeting_dir / base_tdoc / f"{base_tdoc}.zip"
 
     act_base = menu.addAction(f"🗎 Open Base: {base_tdoc}" + ("  (Local)" if base_zip.exists() else ""))
@@ -55,10 +54,27 @@ def build_action_menu(parent_widget, base_tdoc, docs_ftp_url, revisions_url, rev
     act_3gu.setToolTip("Open the detailed 3GU portal page for this contribution.")
     act_3gu.triggered.connect(lambda _, t=base_tdoc: webbrowser.open(
         f"https://portal.3gpp.org/ngppapp/CreateTDoc.aspx?mode=view&contributionUid={t}"))
-    # ------------------------
 
     act_folder = menu.addAction("📂 Open Local Folder")
     act_folder.triggered.connect(lambda _, d=(meeting_dir / base_tdoc): __open_folder(d))
+
+    # --- Draft Email Action ---
+    if not revisions_list:
+        act_email = menu.addAction(f"📧 Draft Email ({base_tdoc})")
+        act_email.setToolTip("Open a new email draft with pre-populated 3GPP bracketed subject line.")
+        act_email.triggered.connect(lambda _, t=base_tdoc: email_callback(t))
+    else:
+        email_menu = TDocActionMenu(f"📧 Draft Email...", parent_widget)
+        email_menu.setToolTipsVisible(True)
+        menu.addMenu(email_menu)
+
+        act_email_base = email_menu.addAction(f"🗎 Base: {base_tdoc}")
+        act_email_base.triggered.connect(lambda _, t=base_tdoc: email_callback(t))
+
+        for rev in revisions_list:
+            target_filename = f"{base_tdoc}{rev}"
+            act_email_rev = email_menu.addAction(f"📝 Revision: {target_filename}")
+            act_email_rev.triggered.connect(lambda _, t=target_filename: email_callback(t))
 
     menu.addSeparator()
     compare_menu = TDocActionMenu("⚖️ Add to Comparison Cart...", parent_widget)
@@ -88,7 +104,7 @@ def build_action_menu(parent_widget, base_tdoc, docs_ftp_url, revisions_url, rev
 
 
 def build_related_menu(parent_widget, target_tdoc, valid_tdocs, docs_ftp_url, revisions_url, scroll_callback,
-                       download_callback, llm_export_callback, global_req_callback, global_pos):
+                       download_callback, llm_export_callback, global_req_callback, email_callback, global_pos):
     menu = QMenu(parent_widget)
     menu.setStyleSheet("QMenu { font-size: 13px; }")
 
@@ -107,6 +123,9 @@ def build_related_menu(parent_widget, target_tdoc, valid_tdocs, docs_ftp_url, re
             lambda _, t=target_tdoc: webbrowser.open(
                 f"https://portal.3gpp.org/ngppapp/CreateTDoc.aspx?mode=view&contributionUid={t}")
         )
+
+        menu.addAction(f"📧 Draft Email: {target_tdoc}").triggered.connect(
+            lambda: email_callback(target_tdoc))
 
         menu.addAction(f"⚖️ Add to Comparison Cart: {target_tdoc}").triggered.connect(
             lambda: download_callback(base_tdoc, target_tdoc, dl_url, True))
