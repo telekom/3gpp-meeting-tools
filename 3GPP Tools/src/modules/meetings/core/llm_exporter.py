@@ -1,10 +1,10 @@
 # --- File: src/modules/meetings/core/llm_exporter.py ---
-import os
+import logging
 import re
+from pathlib import Path
+
 import pythoncom
 import win32com.client
-import logging
-from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
@@ -12,11 +12,21 @@ from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 LLM_EXTRACTOR_VERSION = "1.0.0"
 
 
+def sanitize_filename(name: str) -> str:
+    """Sanitize strings for safe filesystem paths by replacing invalid characters."""
+    if not name:
+        return "Unknown"
+    # Replace slashes, backslashes, colons, and illegal Windows characters with an underscore
+    sanitized = re.sub(r'[\\/*?:"<>|]', '_', str(name).strip())
+    # Clean up redundant consecutive underscores and whitespace
+    sanitized = re.sub(r'_+', '_', sanitized)
+    return sanitized.strip(' ._') or "Unknown"
+
+
 class LLMExporterThread(QThread):
     finished = pyqtSignal(bool, str)
     progress = pyqtSignal(str)
 
-    # ---> THE FIX: Add system_prompt parameter to the initialization
     def __init__(self, meeting_dir: Path, tdocs_list: list, docs_ftp_url: str, revisions_url: str,
                  is_bulk: bool = True, max_chars: int = 200000, system_prompt: str = ""):
         super().__init__()
@@ -55,12 +65,16 @@ class LLMExporterThread(QThread):
 
             for tdoc_data in self.tdocs_list:
                 tdoc_id = str(tdoc_data.get("TDoc", "")).strip()
-                if not tdoc_id: continue
+                if not tdoc_id:
+                    continue
 
                 base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
                 base_tdoc = base_match.group(1).upper() if base_match else tdoc_id.upper()
 
-                ai = str(tdoc_data.get("Agenda Item", "Unknown")).replace(" ", "_")
+                # Clean and sanitize Agenda Item to prevent invalid path separators (e.g., 'N/A' -> 'N_A')
+                raw_ai = str(tdoc_data.get("Agenda Item", "Unknown")).strip()
+                ai = sanitize_filename(raw_ai.replace(" ", "_"))
+
                 doc_type = str(tdoc_data.get("Type", "Other"))
 
                 if "CR" in doc_type or "pCR" in doc_type:
@@ -102,6 +116,7 @@ class LLMExporterThread(QThread):
                         md_content = self._extract_from_word(word_app, doc_path, doc_type)
 
                         if md_content:
+                            cache_file.parent.mkdir(parents=True, exist_ok=True)
                             with open(cache_file, "w", encoding="utf-8") as f:
                                 f.write(md_content)
                     else:
@@ -110,8 +125,10 @@ class LLMExporterThread(QThread):
                         logging.warning(f"[LLM Exporter] {warn_msg}")
                         md_content = warn_msg
 
-                if ai not in corpus: corpus[ai] = {}
-                if category not in corpus[ai]: corpus[ai][category] = []
+                if ai not in corpus:
+                    corpus[ai] = {}
+                if category not in corpus[ai]:
+                    corpus[ai][category] = []
 
                 header = f"# TDoc: {tdoc_id}\n**Title:** {tdoc_data.get('Title', '')}\n**Source:** {tdoc_data.get('Source', '')}\n\n"
 
@@ -121,8 +138,6 @@ class LLMExporterThread(QThread):
             if self.is_bulk:
                 for ai, categories in corpus.items():
                     for category, contents in categories.items():
-
-                        # ---> THE FIX: Dynamically inject the user-configured system prompt
                         context_header = (
                             f"# 3GPP LLM Corpus\n"
                             f"**Agenda Item:** {ai}\n"
@@ -145,7 +160,11 @@ class LLMExporterThread(QThread):
 
                             if len(current_text) + len(tdoc_text) > self.max_chars and has_content:
                                 suffix = f"_Part{chunk_idx}"
-                                mega_file = self.export_dir / f"AI_{ai}_Agreed_{category}{suffix}.md"
+                                safe_ai = sanitize_filename(ai)
+                                safe_cat = sanitize_filename(category)
+                                mega_file = self.export_dir / f"AI_{safe_ai}_Agreed_{safe_cat}{suffix}.md"
+
+                                mega_file.parent.mkdir(parents=True, exist_ok=True)
                                 with open(mega_file, "w", encoding="utf-8") as f:
                                     f.write(current_text)
                                 saved_files.append(mega_file.name)
@@ -159,14 +178,18 @@ class LLMExporterThread(QThread):
 
                         if has_content:
                             suffix = f"_Part{chunk_idx}" if chunk_idx > 1 else ""
-                            mega_file = self.export_dir / f"AI_{ai}_Agreed_{category}{suffix}.md"
+                            safe_ai = sanitize_filename(ai)
+                            safe_cat = sanitize_filename(category)
+                            mega_file = self.export_dir / f"AI_{safe_ai}_Agreed_{safe_cat}{suffix}.md"
+
+                            mega_file.parent.mkdir(parents=True, exist_ok=True)
                             with open(mega_file, "w", encoding="utf-8") as f:
                                 f.write(current_text)
                             saved_files.append(mega_file.name)
 
                 self.finished.emit(True, f"Generated {len(saved_files)} Mega-Files (Chunked) in:\n{self.export_dir}")
             else:
-                self.finished.emit(True, f"Exported single TDoc to local cache:\n{cache_file}")
+                self.finished.emit(True, f"Export completed for individual files.")
 
         except Exception as e:
             logging.error(f"[LLM Exporter] Critical thread failure: {e}", exc_info=True)
@@ -175,17 +198,19 @@ class LLMExporterThread(QThread):
             if word_app:
                 try:
                     word_app.Quit()
-                except:
+                except Exception:
                     pass
             pythoncom.CoUninitialize()
 
     def _find_word_doc(self, folder: Path, tdoc_id: str):
-        if not folder.exists(): return None
+        if not folder.exists():
+            return None
         for ext in [".docx", ".doc"]:
             files = list(folder.glob(f"*{ext}"))
             if files:
                 for f in files:
-                    if tdoc_id.lower() in f.name.lower(): return f
+                    if tdoc_id.lower() in f.name.lower():
+                        return f
                 return files[0]
         return None
 
@@ -223,12 +248,13 @@ class LLMExporterThread(QThread):
 
             for para in doc.Paragraphs:
                 text = para.Range.Text.strip('\r\x07\x0b ')
-                if not text: continue
+                if not text:
+                    continue
 
                 style_name = ""
                 try:
                     style_name = para.Style.NameLocal
-                except:
+                except Exception:
                     pass
 
                 if boundary_trigger.search(text):
@@ -262,8 +288,10 @@ class LLMExporterThread(QThread):
                                     deleted.append(rev.Range.Text.strip('\r\x07\x0b '))
 
                             prefix = ""
-                            if inserted: prefix += f"[INSERTED: {', '.join(inserted)}] "
-                            if deleted: prefix += f"[DELETED: {', '.join(deleted)}] "
+                            if inserted:
+                                prefix += f"[INSERTED: {', '.join(inserted)}] "
+                            if deleted:
+                                prefix += f"[DELETED: {', '.join(deleted)}] "
                             md_lines.append(f"{prefix}{text}")
                         else:
                             md_lines.append(text)
@@ -283,5 +311,5 @@ class LLMExporterThread(QThread):
             if doc:
                 try:
                     doc.Close(SaveChanges=False)
-                except:
+                except Exception:
                     pass
