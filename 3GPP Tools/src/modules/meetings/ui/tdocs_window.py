@@ -59,11 +59,13 @@ class TDocsWindow(QWidget):
         self.is_sa2_electronic = self.is_sa2 and is_electronic
 
         main_ftp = self.mtg_info.get("url_key", "")
-        if main_ftp and not main_ftp.startswith("http"): main_ftp = "https://www.3gpp.org/ftp/" + main_ftp.lstrip('/')
+        if main_ftp and not main_ftp.startswith("http"):
+            main_ftp = "https://www.3gpp.org/ftp/" + main_ftp.lstrip('/')
         self.main_ftp_url = main_ftp
 
         docs_ftp = self.mtg_info.get("docs_folder_url", "")
-        if docs_ftp and not docs_ftp.startswith("http"): docs_ftp = "https://www.3gpp.org/ftp/" + docs_ftp.lstrip('/')
+        if docs_ftp and not docs_ftp.startswith("http"):
+            docs_ftp = "https://www.3gpp.org/ftp/" + docs_ftp.lstrip('/')
         self.docs_ftp_url = docs_ftp
 
         self.revisions_url = self.main_ftp_url.rstrip('/') + '/INBOX/Revisions/' if (
@@ -91,15 +93,13 @@ class TDocsWindow(QWidget):
         title_lbl.setToolTip("Electronic Meeting (eMeeting)" if is_electronic else "In-Person Meeting (Face-to-Face)")
         title_lbl.setCursor(Qt.WhatsThisCursor)
 
-        # ---> NEW: Routing Indicator
         self.routing_indicator = QLabel("⚪ Routing...")
         self.routing_indicator.setStyleSheet("font-weight: bold; padding: 2px 6px; border-radius: 4px;")
 
-        # Poll the network status every 2 seconds
         self.routing_timer = QTimer(self)
         self.routing_timer.timeout.connect(self._update_routing_indicator)
         self.routing_timer.start(2000)
-        self._update_routing_indicator()  # Call immediately on boot
+        self._update_routing_indicator()
 
         self.last_mod_lbl = QLabel(self._get_mod_date_str())
         self.last_mod_lbl.setStyleSheet("font-size: 11px; color: #999999; margin-right: 15px; font-style: italic;")
@@ -122,33 +122,21 @@ class TDocsWindow(QWidget):
 
         refresh_menu = QMenu(self)
         refresh_menu.addAction("📗 Refresh Excel List", self._refresh_excel)
-        if self.is_sa2: refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
+        if self.is_sa2:
+            refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
         if self.is_sa2_electronic:
             refresh_menu.addAction("📝 Refresh Revisions", lambda: self._refresh_revisions(silent=False))
             refresh_menu.addAction("🔄 Refresh Excel && Revisions", self._refresh_both)
         self.refresh_btn.setMenu(refresh_menu)
 
+        # Dynamic Resources Button & Menu
         self.folder_btn = QPushButton("🗂️ Resources")
         self.folder_btn.setStyleSheet(style_btn())
-        self.folder_btn.setToolTip("Access local cache folders, export reports, and remote FTP directories.")
+        self.folder_btn.setToolTip("Access local cache folders, on-site server pages, export reports, and remote FTP directories.")
 
-        folder_menu = QMenu(self)
-        folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
-        folder_menu.addSeparator()
-
-        # ---> NEW: Unmatched Companies Action
-        folder_menu.addAction("⚠️ View Unmatched Companies", self._show_unmatched_companies)
-        folder_menu.addSeparator()
-
-        folder_menu.addAction("📝 Export Markdown Reports", self._export_reports)
-        folder_menu.addSeparator()
-        if self.is_sa2: folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
-        folder_menu.addSeparator()
-        if self.main_ftp_url: folder_menu.addAction("🌐 FTP: Main Folder", lambda: webbrowser.open(self.main_ftp_url))
-        if self.docs_ftp_url: folder_menu.addAction("🌐 FTP: Docs Folder", lambda: webbrowser.open(self.docs_ftp_url))
-        if self.revisions_url: folder_menu.addAction("🌐 FTP: Revisions Folder",
-                                                     lambda: webbrowser.open(self.revisions_url))
-        self.folder_btn.setMenu(folder_menu)
+        self.folder_menu = QMenu(self)
+        self.folder_menu.aboutToShow.connect(self._populate_resources_menu)
+        self.folder_btn.setMenu(self.folder_menu)
 
         self.excel_btn = QPushButton("📗 Excel")
         self.excel_btn.setStyleSheet(style_btn())
@@ -185,16 +173,13 @@ class TDocsWindow(QWidget):
         self.count_lbl = QLabel(f"Showing {count} of {count} TDocs")
         self.count_lbl.setStyleSheet("font-size: 13px; color: #666;")
 
-        # ---> NEW: Instant Fetch UI
         self.instant_fetch_input = QLineEdit()
         self.instant_fetch_input.setPlaceholderText("Instant Fetch...")
-        self.instant_fetch_input.setToolTip(
-            "Instantly fetch a TDoc, bypassing the table entirely. Press Enter to launch.")
+        self.instant_fetch_input.setToolTip("Instantly fetch a TDoc, bypassing the table entirely. Press Enter to launch.")
         self.instant_fetch_input.setText(self._get_tdoc_prefix())
         self.instant_fetch_input.setFixedWidth(120)
         self.instant_fetch_input.returnPressed.connect(self._on_instant_fetch)
 
-        # Place cursor at the end of the pre-filled text
         self.instant_fetch_input.setFocus()
         self.instant_fetch_input.setCursorPosition(len(self.instant_fetch_input.text()))
 
@@ -219,18 +204,56 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.count_lbl)
         layout.addLayout(header_layout)
 
+    def _populate_resources_menu(self):
+        """Dynamically populates the Resources menu based on active network reachability."""
+        self.folder_menu.clear()
+
+        # --- 1. Local Hard Drive Cache Folders ---
+        self.folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
+        if self.is_sa2:
+            self.folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
+
+        self.folder_menu.addSeparator()
+
+        # --- 2. Diagnostics & Export Utilities ---
+        self.folder_menu.addAction("⚠️ View Unmatched Companies", self._show_unmatched_companies)
+        self.folder_menu.addAction("📝 Export Markdown Reports", self._export_reports)
+
+        # --- 3. Local On-Site Server (10.10.10.10) ---
+        if NetworkState.get_instance().is_local_active():
+            self.folder_menu.addSeparator()
+            wg_name = self.mtg_info.get("wg_name", "").upper()
+            local_base = URLRouter._get_local_server_base(wg_name)
+
+            self.folder_menu.addAction("🟢 Local Server: Main WG Folder", lambda u=local_base: webbrowser.open(u))
+            self.folder_menu.addAction("🟢 Local Server: Docs Folder", lambda u=f"{local_base}/Docs": webbrowser.open(u))
+            self.folder_menu.addAction("🟢 Local Server: Inbox Folder", lambda u=f"{local_base}/Inbox": webbrowser.open(u))
+            if self.is_sa2:
+                self.folder_menu.addAction("🟢 Local Server: Revisions Folder", lambda u=f"{local_base}/Inbox/Revisions": webbrowser.open(u))
+                self.folder_menu.addAction("🟢 Local Server: TdocsByAgenda.htm", lambda u=f"{local_base}/TdocsByAgenda.htm": webbrowser.open(u))
+            self.folder_menu.addAction("🟢 Local Server: Home (10.10.10.10)", lambda: webbrowser.open("http://10.10.10.10/"))
+
+        # --- 4. Remote Web & FTP Archive Paths ---
+        self.folder_menu.addSeparator()
+        if self.main_ftp_url:
+            self.folder_menu.addAction("🌐 Web FTP: Main Folder", lambda: webbrowser.open(self.main_ftp_url))
+        if self.docs_ftp_url:
+            self.folder_menu.addAction("🌐 Web FTP: Docs Folder", lambda: webbrowser.open(self.docs_ftp_url))
+        if self.revisions_url:
+            self.folder_menu.addAction("🌐 Web FTP: Revisions Folder", lambda: webbrowser.open(self.revisions_url))
+
     def _trigger_download_thread(self, base_tdoc: str, target_filename: str, legacy_url: str = None,
                                  is_silent_compare: bool = False):
         self.model.set_loading(base_tdoc, True)
 
-        # ---> THE FIX: Safely read the injected flag
         is_active = self.mtg_info.get("is_active_sync", False)
 
         url_list = URLRouter.build_priority_url_list(
             self.mtg_info.get("wg_name", ""),
             self.mtg_info.get("folder_name") or self.mtg_info.get("meeting_number", ""),
             self.main_ftp_url,
-            is_active
+            is_active,
+            target_filename=target_filename
         )
 
         thread = TDocActionThread(base_tdoc, target_filename, url_list, self.meeting_dir,
@@ -243,7 +266,6 @@ class TDocsWindow(QWidget):
         thread.start()
 
     def _setup_filters(self, layout):
-        # ---> SETUP DEBOUNCE TIMER FOR SEARCH
         self.search_timer = QTimer(self)
         self.search_timer.setSingleShot(True)
         self.search_timer.setInterval(300)
@@ -251,19 +273,19 @@ class TDocsWindow(QWidget):
 
         filter_frame = QFrame()
         filter_frame.setStyleSheet(
-            "QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 8px; } QLabel { font-weight: bold; color: #555; border: none; } QLineEdit, QComboBox { padding: 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; }")
+            "QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 8px; } "
+            "QLabel { font-weight: bold; color: #555; border: none; } "
+            "QLineEdit, QComboBox { padding: 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; }"
+        )
         filter_layout = QHBoxLayout(filter_frame)
 
         filter_layout.addWidget(QLabel("🔍 Search:"))
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search TDoc number, title, source, or abstract...")
         self.search_input.setToolTip("Search across TDoc numbers, titles, sources, or abstracts.")
-
-        # Route through the debounce timer!
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
         filter_layout.addWidget(self.search_input)
 
-        # ---> NEW: Add the Company filter
         self.company_combo = CheckableComboBox("Company")
         self.company_combo.setToolTip("Filter by contributing companies.")
         self.company_combo.selectionChanged.connect(self._on_company_changed)
@@ -311,7 +333,9 @@ class TDocsWindow(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
         self.table.setStyleSheet(
-            "QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; } QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }")
+            "QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; } "
+            "QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }"
+        )
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
         self.table.verticalHeader().setDefaultSectionSize(48)
 
@@ -366,15 +390,17 @@ class TDocsWindow(QWidget):
                         self.model.revisions = json.load(f)
                         self.model.dataChanged.emit(self.model.index(0, 0),
                                                     self.model.index(self.model.rowCount() - 1, 0))
-                except:
-                    if self.revisions_url: self._refresh_revisions(silent=True)
+                except Exception:
+                    if self.revisions_url:
+                        self._refresh_revisions(silent=True)
             else:
-                if self.revisions_url: self._refresh_revisions(silent=True)
+                if self.revisions_url:
+                    self._refresh_revisions(silent=True)
 
     def _get_mod_date_str(self):
         try:
             return f"List last updated: {datetime.datetime.fromtimestamp(os.path.getmtime(self.filepath)).strftime('%Y-%m-%d %H:%M')}"
-        except:
+        except Exception:
             return "List last updated: Unknown"
 
     def _apply_search_filter(self):
@@ -415,10 +441,8 @@ class TDocsWindow(QWidget):
         unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in self.model._data)),
                             key=natural_sort_key)
         unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in self.model._data)))
-
         unique_my_statuses = sorted(list(set(sanitize(r.get("My Status", "")) for r in self.model._data)))
 
-        # Pull the pre-calculated companies, flatten the list, and alphabetize it
         unique_companies = set()
         for r in self.model._data:
             unique_companies.update(r.get("_Sanitized_Companies", ["Other"]))
@@ -449,11 +473,11 @@ class TDocsWindow(QWidget):
             self.chk_no_comments.blockSignals(False)
             self.proxy.setNoCommentsFilter(False)
 
-        # Loop now includes self.company_combo
         for combo in [self.company_combo, self.type_combo, self.ai_combo, self.status_combo, self.my_status_combo]:
             combo.blockSignals(True)
             combo.model().item(0).setCheckState(Qt.Checked)
-            for i in range(1, combo.model().rowCount()): combo.model().item(i).setCheckState(Qt.Checked)
+            for i in range(1, combo.model().rowCount()):
+                combo.model().item(i).setCheckState(Qt.Checked)
             combo.updateText()
             combo.blockSignals(False)
 
@@ -466,7 +490,8 @@ class TDocsWindow(QWidget):
         QTimer.singleShot(0, self._update_count_label)
 
     def _handle_tdoc_action(self, base_tdoc: str):
-        if base_tdoc in self.model.loading_tdocs or not self.docs_ftp_url: return
+        if base_tdoc in self.model.loading_tdocs or not self.docs_ftp_url:
+            return
         revisions = self.model.revisions.get(base_tdoc, [])
         build_action_menu(self.table, base_tdoc, self.docs_ftp_url, self.revisions_url, revisions, self.meeting_dir,
                           self._trigger_download_thread, self._export_llm_single, QCursor.pos())
@@ -477,9 +502,11 @@ class TDocsWindow(QWidget):
                            self.global_action_requested.emit, pos)
 
     def _show_cell_popup(self, index):
-        if not index.isValid(): return
+        if not index.isValid():
+            return
         col_name = self.model._headers[index.column()]
-        if col_name not in ["Secretary Remarks", "Title", "Source", "Abstract", "My Notes", "My Status"]: return
+        if col_name not in ["Secretary Remarks", "Title", "Source", "Abstract", "My Notes", "My Status"]:
+            return
 
         row_data = self.model._data[self.proxy.mapToSource(index).row()]
         tdoc_id = row_data.get("TDoc", "")
@@ -519,7 +546,8 @@ class TDocsWindow(QWidget):
             self.stats_btn.setEnabled(True)
         if success:
             QMessageBox.information(self, "Export Complete", f"Successfully generated:\n{msg}")
-            if hasattr(os, 'startfile'): os.startfile(str(msg))
+            if hasattr(os, 'startfile'):
+                os.startfile(str(msg))
         else:
             QMessageBox.warning(self, "Export Failed", msg)
 
@@ -544,9 +572,11 @@ class TDocsWindow(QWidget):
                 self.global_action_requested.emit(base_tdoc, 'open_meeting')
 
     def _on_tdoc_action_finished(self, tdoc: str, success: bool, msg: str, thread: TDocActionThread):
-        if tdoc in self.active_threads: del self.active_threads[tdoc]
+        if tdoc in self.active_threads:
+            del self.active_threads[tdoc]
         self.model.set_loading(tdoc, False)
-        if not success: return QMessageBox.warning(self, f"Action Failed: {tdoc}", msg)
+        if not success:
+            return QMessageBox.warning(self, f"Action Failed: {tdoc}", msg)
         if getattr(thread, "is_silent_compare", False):
             files = getattr(thread, "extracted_doc_paths", [])
             if files:
@@ -555,26 +585,26 @@ class TDocsWindow(QWidget):
                 QMessageBox.warning(self, "Compare Failed", "No Word document found in TDoc ZIP.")
 
     def _refresh_both(self):
-        self._refresh_excel();
+        self._refresh_excel()
         self._refresh_revisions(silent=True)
 
     def _refresh_excel(self):
-        if not self.mtg_info.get("mtg_id"): return QMessageBox.warning(self, "Missing ID",
-                                                                       "Cannot refresh: Missing 3GPP Portal ID.")
-        self.refresh_btn.setText("⏳ Downloading...");
+        if not self.mtg_info.get("mtg_id"):
+            return QMessageBox.warning(self, "Missing ID", "Cannot refresh: Missing 3GPP Portal ID.")
+        self.refresh_btn.setText("⏳ Downloading...")
         self.refresh_btn.setEnabled(False)
         self.dl_thread = TDocsDownloaderThread(self.mtg_info.get("mtg_id"), self.meeting_dir, self)
         self.dl_thread.finished.connect(self._on_refresh_excel_finished)
         self.dl_thread.start()
 
     def _on_refresh_excel_finished(self, success: bool, result: str, mtg_id: str):
-        self.refresh_btn.setText("🔄 Refresh");
+        self.refresh_btn.setText("🔄 Refresh")
         self.refresh_btn.setEnabled(True)
         if success:
             self.filepath = result
             if new_data := TDocsParser.parse_tdocs_excel(self.filepath):
-                self.model.update_data(new_data);
-                self._refresh_comboboxes();
+                self.model.update_data(new_data)
+                self._refresh_comboboxes()
                 self.last_mod_lbl.setText(self._get_mod_date_str())
             else:
                 QMessageBox.warning(self, "Parse Error", "Downloaded, but could not parse the Excel file.")
@@ -582,7 +612,8 @@ class TDocsWindow(QWidget):
             QMessageBox.critical(self, "Download Error", f"Failed to refresh TDocs:\n{result}")
 
     def _refresh_revisions(self, silent=False):
-        if not self.revisions_url: return
+        if not self.revisions_url:
+            return
         self.rev_thread = TDocsRevisionsFetcherThread(self.revisions_url, self.meeting_dir)
         self.rev_thread.finished.connect(lambda s, d, m: self._on_revisions_fetched(s, d, m, silent))
         self.rev_thread.start()
@@ -592,7 +623,7 @@ class TDocsWindow(QWidget):
             self.model.revisions = data
             self.model.dataChanged.emit(self.model.index(0, 0), self.model.index(self.model.rowCount() - 1, 0))
             if not silent:
-                self.refresh_btn.setText(f"✅ {len(data)} Revs");
+                self.refresh_btn.setText(f"✅ {len(data)} Revs")
                 QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
         elif not silent:
             QMessageBox.warning(self, "Revisions Error", f"Failed to sync revisions:\n{msg}")
@@ -605,20 +636,15 @@ class TDocsWindow(QWidget):
 
         is_active = self.mtg_info.get("is_active_sync", False)
 
-        # Build candidate folder list for TdocsByAgenda.htm
         candidate_urls = []
-
-        # 1. Local Server (10.10.10.10)
         if NetworkState.get_instance().is_local_active():
             local_base = URLRouter._get_local_server_base(wg_name)
             candidate_urls.append(local_base)
 
-        # 2. Live Meeting SYNC Folder
         if is_active:
             sync_wg = "SA3LI" if wg_name == "SA3LI" else wg_name
             candidate_urls.append(f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{sync_wg}")
 
-        # 3. Standard Meeting Archive Folder
         if main_url:
             candidate_urls.append(main_url)
 
@@ -632,12 +658,12 @@ class TDocsWindow(QWidget):
 
     def _on_agenda_fetched(self, success: bool, agenda_data: dict):
         if success and agenda_data:
-            self.model.merge_agenda_data(agenda_data);
+            self.model.merge_agenda_data(agenda_data)
             self._refresh_comboboxes()
-            self.refresh_btn.setText(f"✅ {len(agenda_data)} Merged");
+            self.refresh_btn.setText(f"✅ {len(agenda_data)} Merged")
             QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
         else:
-            self.refresh_btn.setText("🔄 Refresh");
+            self.refresh_btn.setText("🔄 Refresh")
             QMessageBox.warning(self, "Error", "Failed to parse TdocsByAgenda.htm.")
 
     def _open_meeting_folder(self):
@@ -659,7 +685,6 @@ class TDocsWindow(QWidget):
         layout.addWidget(QLabel(
             "The following raw 'Source' strings were not recognized by the CompanySanitizer and were grouped as 'Other'.\n\nYou can copy these to update your REGEX dictionary:"))
 
-        # A Read-Only Text Edit allows easy highlighting and copying
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
         text_edit.setPlainText("\n".join(unmatched))
@@ -683,23 +708,17 @@ class TDocsWindow(QWidget):
             if r.get("TDoc")}, self.mtg_info.get("start_date", ""), self.mtg_info.get("end_date", ""))
 
         self.email_window.tdoc_open_requested.connect(self._open_tdoc_from_signal)
-
-        # ---> THE FIX: Hook up the brand new Double Click Jump Signal!
         self.email_window.tdoc_jump_requested.connect(self._jump_to_tdoc_from_signal)
-
         self.email_window.show()
 
     def _open_tdoc_from_signal(self, tdoc_id: str):
-        # 1. Bring the TRUE main application window back to the front
         main_app_window = self.window()
         main_app_window.setWindowState(main_app_window.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
         main_app_window.raise_()
         main_app_window.activateWindow()
 
-        # 2. Visually scroll to the base TDoc in the table
         self._scroll_to_tdoc(tdoc_id)
 
-        # 3. Determine if this is a Revision or a Base TDoc to pick the right FTP folder
         is_rev = re.search(r'(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
         target_url = self.revisions_url if is_rev and self.revisions_url else self.docs_ftp_url
 
@@ -707,37 +726,35 @@ class TDocsWindow(QWidget):
             QMessageBox.warning(self, "Missing URL", "No FTP URL available to download this document.")
             return
 
-        # 4. Extract the base TDoc name (e.g., S2-261234) for thread tracking
         match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
         base_tdoc = match.group(1).upper() if match else tdoc_id.upper()
 
-        # 5. Trigger the download!
         self._trigger_download_thread(base_tdoc, tdoc_id, target_url, is_silent_compare=False)
 
     def _jump_to_tdoc_from_signal(self, tdoc_id: str):
-        # 1. Bring the TRUE main application window back to the front
         main_app_window = self.window()
         main_app_window.setWindowState(main_app_window.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
         main_app_window.raise_()
         main_app_window.activateWindow()
 
-        # 2. Visually scroll to the base TDoc in the table
         self._scroll_to_tdoc(tdoc_id)
 
     def _copy_table_selection(self):
         indexes = sorted(self.table.selectionModel().selectedIndexes(), key=lambda x: (x.row(), x.column()))
-        if not indexes: return
+        if not indexes:
+            return
         lines, current_line, current_row = [], [], indexes[0].row()
         for idx in indexes:
             if idx.row() != current_row:
-                lines.append("\t".join(current_line));
-                current_line = [];
+                lines.append("\t".join(current_line))
+                current_line = []
                 current_row = idx.row()
             cell_text = str(idx.data(Qt.UserRole) or "").strip()
-            if not cell_text: cell_text = str(idx.data(Qt.DisplayRole) or "").strip()
+            if not cell_text:
+                cell_text = str(idx.data(Qt.DisplayRole) or "").strip()
             current_line.append(cell_text)
         lines.append("\t".join(current_line))
-        QApplication.clipboard().setText("\n".join(lines));
+        QApplication.clipboard().setText("\n".join(lines))
         QToolTip.showText(QCursor.pos(), "📋 Copied to clipboard!", self.table)
 
     def _export_llm_visible(self):
@@ -773,7 +790,8 @@ class TDocsWindow(QWidget):
 
     def _export_llm_single(self, tdoc_id: str):
         row_data = next((r for r in self.model._data if r.get("TDoc") == tdoc_id), None)
-        if not row_data: return
+        if not row_data:
+            return
 
         config = StatisticsSettingsDialog().load_config()
         max_chars = config.get("llm_max_chars", 200000)
@@ -805,15 +823,12 @@ class TDocsWindow(QWidget):
             QMessageBox.warning(self, "Export Failed", msg)
 
     def _get_tdoc_prefix(self):
-        """Smartly pre-fills the WP part and the year (e.g., 'S2-26')."""
-        # 1. Try to extract from the actual first_tdoc
         first_tdoc = self.mtg_info.get("first_tdoc", "")
         if first_tdoc:
             match = re.match(r'^([A-Z0-9]+-\d{2})', first_tdoc.upper())
             if match:
                 return match.group(1)
 
-        # 2. Fallback: Map the WG and Year manually
         wg = self.mtg_info.get("wg_name", "").upper()
         start_date = self.mtg_info.get("start_date", "")
         year_str = start_date[2:4] if len(start_date) >= 4 else datetime.datetime.now().strftime("%y")
@@ -827,10 +842,7 @@ class TDocsWindow(QWidget):
         return f"{prefix}-{year_str}"
 
     def _update_routing_indicator(self):
-        """Polls the NetworkState and updates the visual indicator badge."""
         net_state = NetworkState.get_instance()
-
-        # ---> THE FIX: Safely read the injected flag
         is_active = self.mtg_info.get("is_active_sync", False)
 
         if net_state.is_local_active():
@@ -850,7 +862,6 @@ class TDocsWindow(QWidget):
             self.routing_indicator.setToolTip("Downloads are routed through the standard 3GPP web archive.")
 
     def _on_instant_fetch(self):
-        """Triggered when Enter is pressed in the Instant Fetch box."""
         tdoc_str = self.instant_fetch_input.text().strip()
         match = re.match(r'^([A-Za-z0-9]+-\d+)(r\d+[a-zA-Z]?)?$', tdoc_str, re.IGNORECASE)
         if not match:
@@ -861,6 +872,4 @@ class TDocsWindow(QWidget):
         target_filename = (base_tdoc + (match.group(2) or "")).upper()
 
         logging.info(f"🚀 [Instant Fetch] Requested {target_filename}. Engaging Smart Router...")
-
-        # Fire the download using the Smart Router!
         self._trigger_download_thread(base_tdoc, target_filename, legacy_url=None, is_silent_compare=False)
