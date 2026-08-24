@@ -598,12 +598,35 @@ class TDocsWindow(QWidget):
             QMessageBox.warning(self, "Revisions Error", f"Failed to sync revisions:\n{msg}")
 
     def _fetch_tdocs_by_agenda(self):
-        url_key = self.mtg_info.get("url_key", "")
-        if not url_key: return
+        wg_name = self.mtg_info.get("wg_name", "").upper()
+        main_url = self.mtg_info.get("url_key", "")
+        if main_url and not main_url.startswith("http"):
+            main_url = f"https://www.3gpp.org/ftp/{main_url.lstrip('/')}"
+
+        is_active = self.mtg_info.get("is_active_sync", False)
+
+        # Build candidate folder list for TdocsByAgenda.htm
+        candidate_urls = []
+
+        # 1. Local Server (10.10.10.10)
+        if NetworkState.get_instance().is_local_active():
+            local_base = URLRouter._get_local_server_base(wg_name)
+            candidate_urls.append(local_base)
+
+        # 2. Live Meeting SYNC Folder
+        if is_active:
+            sync_wg = "SA3LI" if wg_name == "SA3LI" else wg_name
+            candidate_urls.append(f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{sync_wg}")
+
+        # 3. Standard Meeting Archive Folder
+        if main_url:
+            candidate_urls.append(main_url)
+
+        if not candidate_urls:
+            return QMessageBox.warning(self, "No URL Available", "Cannot sync agenda: No valid meeting URL found.")
+
         self.refresh_btn.setText("⏳ Parsing HTML...")
-        self.agenda_thread = TdocsByAgendaThread(
-            url_key if url_key.startswith("http") else f"https://www.3gpp.org/ftp/{url_key.lstrip('/')}",
-            self.meeting_dir)
+        self.agenda_thread = TdocsByAgendaThread(candidate_urls, self.meeting_dir)
         self.agenda_thread.finished.connect(self._on_agenda_fetched)
         self.agenda_thread.start()
 
