@@ -14,6 +14,7 @@ from modules.puml2visio.plugin_loader import register_puml2visio_plugin
 from main_window import DragDropUI
 from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
 from modules.puml2visio.utils.paths import get_puml2visio_asset_path
+from modules.spec_search.plugin_loader import register_spec_search_plugin
 from modules.specifications.plugin_loader import register_specs_plugin
 
 from modules.word_tools.plugin_loader import register_word_plugin
@@ -51,6 +52,7 @@ if __name__ == '__main__':
     register_word_plugin()
     register_specs_plugin()
     register_meetings_plugin()
+    register_spec_search_plugin()
 
     app = QApplication(sys.argv)
     app.setWindowIcon(create_app_icon())
