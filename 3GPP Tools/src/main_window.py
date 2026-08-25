@@ -30,6 +30,7 @@ from modules.puml2visio.ui.ui_tabs import CodeEditorTab, BatchConvertTab
 from modules.puml2visio.utils.paths import get_puml2visio_asset_path
 from modules.puml2visio.utils.utils import encode_plantuml, InitializationThread
 from modules.specifications.ui.ui_tabs import SpecificationsTab
+from modules.spec_search.ui.spec_search_tabs import SpecSearchTab
 from modules.word_tools.ui.word_tabs import WordExtractorTab
 from modules.work_items.ui.ui_tabs import WorkItemsTab
 from modules.nas.ui.nas_tabs import NASTab
@@ -185,10 +186,14 @@ class DragDropUI(QMainWindow):
         nas_db_path = get_project_root() / "3gpp_protocol_data.db"
         self.nas_tab = NASTab(nas_db_path, db_path)
 
+        spec_search_db_path = get_project_root() / "3gpp_spec_search.db"
+        self.spec_search_tab = SpecSearchTab(spec_search_db_path, db_path)
+
         self.tabs.addTab(self.code_tab, "📝 PlantUML")
         self.tabs.addTab(self.batch_tab, "🔄 Visio")
         self.tabs.addTab(self.word_tab, "📘 Word")
         self.tabs.addTab(self.specs_tab, "📚 Specifications")
+        self.tabs.addTab(self.spec_search_tab, "🔎 Spec Search")
         self.tabs.addTab(self.work_items_tab, "📋 Work Items")
         self.tabs.addTab(self.meetings_tab, "🗓️ Meetings")
         self.tabs.addTab(self.nas_tab, "🔬 Protocols")
@@ -217,11 +222,12 @@ class DragDropUI(QMainWindow):
         self.console_panel.network_config_requested.connect(lambda: NetworkConfigDialog(self).exec_())
         self.console_panel.update_requested.connect(self.check_for_jar_updates)
         self.console_panel.task_manager_requested.connect(self.open_task_manager)
-        # ---> Wire Database Maintenance Dialog Signal <---
+        # Wire Database Maintenance Dialog Signal
         self.console_panel.db_maintenance_requested.connect(self.open_db_maintenance)
 
         self.specs_tab.log_msg.connect(self.console_panel.log_message)
         self.nas_tab.log_msg.connect(self.console_panel.log_message)
+        self.spec_search_tab.log_msg.connect(self.console_panel.log_message)
 
         self.queue_panel = QueuePanel()
 
