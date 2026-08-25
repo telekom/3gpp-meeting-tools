@@ -286,8 +286,12 @@ class TDocsWindow(QWidget):
 
         filter_layout.addWidget(QLabel("🔍 Search:"))
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search TDoc number, title, source, or abstract...")
-        self.search_input.setToolTip("Search across TDoc numbers, titles, sources, or abstracts.")
+        self.search_input.setPlaceholderText('Search (e.g., "Baseline" -"discussed in call" or -draft)...')
+        self.search_input.setToolTip(
+            "Search across TDoc numbers, titles, sources, or abstracts.\n"
+            "• Use quotes for exact phrases: \"KI#11\"\n"
+            "• Prefix with '-' or '!' to exclude: -draft or -\"discussed in call\""
+        )
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
         filter_layout.addWidget(self.search_input)
 
