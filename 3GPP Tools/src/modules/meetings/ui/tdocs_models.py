@@ -1,4 +1,3 @@
-# --- File: src/modules/meetings/ui/tdocs_models.py ---
 import re
 from pathlib import Path
 from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyModel
@@ -351,7 +350,8 @@ class TDocsTableModel(QAbstractTableModel):
 class TDocsFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.global_filter = ""
+        self.include_terms = []
+        self.exclude_terms = []
         self.type_filters = set()
         self.status_filters = set()
         self.ai_filters = set()
@@ -359,12 +359,33 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.my_status_filters = set()
         self.filter_no_comments = False
 
+    def _parse_query(self, query: str):
+        """
+        Parses search queries into positive and negative tokens.
+        Supports single words, quoted multi-word phrases, and '-' or '!' negation prefixes.
+        Example: Baseline -"discussed in call" -draft -> (+['baseline'], -['discussed in call', 'draft'])
+        """
+        includes = []
+        excludes = []
+        pattern = r'(-|!)?(?:["\']([^"\']*)["\']|(\S+))'
+        for match in re.finditer(pattern, query):
+            is_neg, quoted, unquoted = match.groups()
+            term = (quoted if quoted is not None else unquoted).lower().strip()
+            if not term:
+                continue
+            if is_neg:
+                excludes.append(term)
+            else:
+                includes.append(term)
+        return includes, excludes
+
     def setNoCommentsFilter(self, enabled: bool):
         self.filter_no_comments = enabled
         self.invalidateFilter()
 
     def setGlobalFilter(self, text):
-        self.global_filter = str(text).lower().strip()
+        query = str(text).strip()
+        self.include_terms, self.exclude_terms = self._parse_query(query)
         self.invalidateFilter()
 
     def setTypeFilters(self, types):
@@ -396,7 +417,6 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 
     def filterAcceptsRow(self, source_row, source_parent):
         model = self.sourceModel()
-
         if not model:
             return False
 
@@ -406,24 +426,38 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
                 return False
 
         # Apply standard metadata filters
-        if model.data(model.index(source_row, 4, source_parent), Qt.UserRole) not in self.type_filters: return False
-        if model.data(model.index(source_row, 10, source_parent), Qt.UserRole) not in self.ai_filters: return False
-        if model.data(model.index(source_row, 11, source_parent), Qt.UserRole) not in self.status_filters: return False
-        if model.data(model.index(source_row, 8, source_parent), Qt.UserRole) not in self.my_status_filters: return False
+        if model.data(model.index(source_row, 4, source_parent), Qt.UserRole) not in self.type_filters:
+            return False
+        if model.data(model.index(source_row, 10, source_parent), Qt.UserRole) not in self.ai_filters:
+            return False
+        if model.data(model.index(source_row, 11, source_parent), Qt.UserRole) not in self.status_filters:
+            return False
+        if model.data(model.index(source_row, 8, source_parent), Qt.UserRole) not in self.my_status_filters:
+            return False
 
-        # Apply the high-performance Company Filter check without the bypass
-        # If company_filters is empty, intersection returns empty, correctly hiding the row!
+        # Apply Company Filter
         row_companies = model.data(model.index(source_row, 3, source_parent), Qt.UserRole + 3)
         if not row_companies or not self.company_filters.intersection(row_companies):
             return False
 
-        if self.global_filter:
-            match_found = False
+        # Text search (Inclusion & Exclusion) across searchable columns
+        if self.include_terms or self.exclude_terms:
+            searchable_parts = []
             for col in [1, 2, 3, 6, 7, 9, 12]:
                 data = model.data(model.index(source_row, col, source_parent), Qt.UserRole)
-                if data and self.global_filter in str(data).lower():
-                    match_found = True
-                    break
-            if not match_found: return False
+                if data:
+                    searchable_parts.append(str(data).lower())
+
+            row_text = " ".join(searchable_parts)
+
+            # 1. Exclusion check: Any match rejects the row immediately
+            for exc in self.exclude_terms:
+                if exc in row_text:
+                    return False
+
+            # 2. Inclusion check: All positive terms must be present
+            for inc in self.include_terms:
+                if inc not in row_text:
+                    return False
 
         return True
