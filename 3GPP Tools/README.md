@@ -2,7 +2,7 @@
 
 An advanced, component-based desktop IDE designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
 
-Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, track NAS and ASN.1 (RRC / NGAP) protocol message evolutions, search arbitrary substrings across specification releases using FTS5 trigram indexing with "First Added" detection, manage local SQLite databases with built-in compaction tools, and seamlessly navigate, filter, and synchronize the vast 3GPP meeting, specification, and work item archives locally.
+Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, track NAS and ASN.1 (RRC / NGAP) protocol message evolutions, search arbitrary substrings across specification releases using FTS5 trigram indexing with "First Added" and cutoff date detection, manage local SQLite databases with built-in compaction tools, and seamlessly navigate, filter, and synchronize the vast 3GPP meeting, specification, and work item archives locally.
 
 ---
 
@@ -19,29 +19,45 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ## <a id="features"></a>✨ Features
 
 ### 🔎 3GPP Specification Full-Text & Substring Search Engine
-* **FTS5 Trigram Substring Search:**
+* **FTS5 Trigram Substring Search & Chronological Tracking:**
   * **Arbitrary Substring Matching:** Powered by an embedded SQLite Full-Text Search (FTS5) engine configured with a 3-character Trigram tokenizer (`tokenize="trigram"`). Enables near-instantaneous search for exact phrases, field substrings, acronyms, or protocol constants across millions of words without full-table scan delays.
   * **Targeted Release & Clause Filtering:** Filter queries by specific clause patterns (e.g., `5.2`, `8.1.4`, `Annex A`) or execute cross-specification queries across all active releases simultaneously.
 * **Release Evolution Matrix & "First Added" Text Tracking:**
-  * **Chronological Release Diffing:** Pivots search hits across releases to immediately visualize text presence and modifications over time.
+  * **Per-Specification Tabbed Matrix Visualization:** Automatically isolates search results into dedicated per-specification tabs (e.g., `TS 23.501 (32)`, `TS 23.502 (20)`). This prevents sparse empty matrices, eliminates colliding clause numbers, and preserves clean chronological column ordering per document.
   * **"First Added" Identification:** Automatically determines the exact earliest release where matching text was introduced, rendering clear visual indicators:
     * 🟢 **`🟢 Added`**: Highlighted in soft green to indicate the exact version where text first appeared in that clause.
     * ⚪ **`✓ Present`**: Retained and present in subsequent releases.
     * 🔴 **`✗ Removed`**: Highlighted in soft red when text present in a previous release was deleted in that version.
     * ➖ **`-`**: Clause not matching or not present in that release.
-* **High-Performance Direct XML Clause Parsing:**
-  * **Direct `lxml` Ingestion:** Parses Word `.docx` specification archives directly at the XML layer (`document.xml`) without requiring Microsoft Word COM automation runtime overhead.
-  * **Automatic Clause Segmentation:** Slices documents by numbered headings (`Heading 1` through `Heading 6`) and annexes, associating all nested paragraphs and tables with their respective clause numbers.
-  * **Multi-Part & Legacy Support:** Seamlessly unzips split specification archives (e.g., `_s00_s04`, `_s05_s08`) and automatically converts legacy binary `.doc` files to OpenXML `.docx` prior to indexing.
-* **Interactive Clause Content Inspector:**
-  * **Live Match Highlighting:** Selecting any cell in the evolution matrix renders the full clause content with all matched search terms highlighted in bright yellow.
-  * **Complete Context Inspection:** Inspect surrounding clause text, tables, and notes directly inside the application without opening external Word viewers.
+* **Date Cutoff Analysis:**
+  * **Official Release Date Storage:** Tracks official 3GPP portal upload and publication dates across all indexed specification releases.
+  * **Post-cutoff date Additions Filter:** Toggle the **🎯 Date Cutoff** selector to highlight text introduced after a target date:
+    * ⚡ **`⚡ Post-Cutoff Added`**: Highlighted in soft amber/yellow to clearly identify text additions introduced after cutoff dates.
+    * **Exclusive Filter Mode:** Check **Show Only Post-Cutoff Additions** to hide clauses where matching text was already present prior to the selected priority date (filtering out prior art).
+* **Universal Specification Ingestion Dialog:**
+  * **Unrestricted Catalog Access:** Master-detail browser spanning all ~1,500+ specifications across Series 01 through 55 and all Working Groups (RAN1–4, SA1–6, CT1–4).
+  * **Live Search & Presets:** Filter by keyword, topic, or specification number with built-in quick presets for core 3GPP specifications.
+  * **Explicit Checkbox Selection:** Dedicated checkbox column for unambiguous selection tracking with dynamic count badges (`Selected: N version(s)`).
+  * **Smart Batch Selectors:** One-click helpers including **`⚡ Select All Unindexed`**, **`⭐ Select Latest per Release`** (supporting both decimal and 3-digit lettered versions like `i40` / `g30`), **`☑️ Select All`**, and **`◻️ Clear`**.
+  * **Revision-Mark Filtering:** Automatically discards 3GPP Word change-mark files (`-rm` / `_rm`) during unzipping and local imports, ensuring only clean (`-cl`) specification text is indexed.
+* **Multi-Part Split Document Parsing:**
+  * **Split Document Sequencing:** Automatically detects, sequences, and unifies modern multi-part specification archives (e.g., `_s00_s04.docx`, `_s05_s08.docx`, `_s09_s14.docx`) into a single consolidated release model in SQLite.
+  * **High-Performance XML Extraction:** Direct `lxml` parsing extracts document structure directly from OpenXML without Microsoft Word COM runtime overhead.
+  * **Intelligent Heading & TOC Sanitization:** Distinguishes genuine 3GPP headings from numbered procedure call flow steps and strips Table of Contents (TOC) dot leaders and stub entries.
+* **Rich Clause Content Inspector:**
+  * **💡 Key Match Excerpt:** Dedicated callout banner at the top of the inspector displaying the exact matching paragraph and surrounding sentence context.
+  * **Interactive Term Navigation:** **`[ ◀ Prev ]`** and **`[ Next ▶ ]`** buttons with an active match counter (`🎯 N Match(es)`) and auto-scroll to match locations.
+  * **One-Click Citation Copy:** **`[ 📋 Copy Citation ]`** button formats and copies complete clause text with official 3GPP document headers, versions, and release dates.
+* **Persistent Search Configuration:**
+  * Active search queries, clause filters, cutoff dates, and exact checked specification versions are automatically persisted to `spec_search_config.json` and restored across application sessions.
+* **Non-Blocking Database Maintenance:**
+  * Background `SpecSearchWipeWorker` thread enables fast, freeze-free database resets with automatic checkpointing and SQLite schema reconstruction.
 
 ### 🔬 3GPP Protocol Evolution Matrix & Inspector (NAS & ASN.1 / RRC / NGAP)
 * **Comprehensive Multi-Protocol Ingestion:**
   * **NAS Protocols:** Complete support for **5GS NAS (TS 24.501)** and **EPS NAS (TS 24.301)**[cite: 2].
   * **ASN.1 Protocols:** Native support for **NR RRC (TS 38.331)**, **LTE RRC (TS 36.331)**, and **NGAP (TS 38.413)**.
-  * **Release 20+ Multi-Part Document Ingestion:** Automatically detects, sequences, and parses modern split 3GPP specifications (e.g., `24501-k00.zip` split across `_s00_s04`, `_s06_s08`, `_s09_s10`, etc.) by aggregating all clause sub-documents into a single unified release model.
+  * **Release 20+ Multi-Part Document Ingestion:** Automatically detects, sequences, and parses modern split 3GPP specifications by aggregating all clause sub-documents into a single unified release model.
   * **Automated Legacy `.doc` Conversion:** Automatically converts older binary Word 97–2003 `.doc` specifications to `.docx` via headless COM automation with Protected View bypass and NTFS Zone Identifier unblocking before parsing.
   * **High-Performance XML Parsing:** Direct `lxml` extraction parses message definition tables, ASN.1 syntax blocks, and field description tables directly from `.docx` archives without requiring Word runtime overhead.
 * **Evolution Matrix & Visual Diffing:**
@@ -171,18 +187,21 @@ python src/main_tools.py
 ### 🔎 3GPP Specification Full-Text & Evolution Search
 1. Navigate to the **🔎 Spec Search** tab.
 2. **Importing Specifications:**
-   * Click **📥 Import from Specs DB** to select specification releases from `3gpp_data.db` (e.g., `24.501`, `38.331`, `23.501`, `33.501`). Missing files will download and unzip from the 3GPP FTP archive automatically.
-   * Click **📁 Import Local .docx** to ingest single or split `.docx` files directly from your disk.
+   * Click **📥 Import from Specs DB** to open the universal specification browser. Select any 3GPP document (Series 01–55) or filter by Working Group. Missing archives download and extract from the 3GPP FTP server automatically.
+   * Use **`⚡ Select All Unindexed`** or **`⭐ Select Latest per Release`** to batch-select versions with checkboxes.
+   * Click **📁 Import Local .docx** to ingest single or multi-part split documents (`_s00_s04.docx`, `_s05_s08.docx`) directly from your drive.
 3. **Executing Substring Searches:**
-   * Type any exact phrase, substring, or keyword into the main search bar (e.g., `"initial registration"`, `"PDU session"`, `"disaster roaming"`). Search queries with 3 or more characters automatically leverage the $O(1)$ FTS5 trigram index.
-   * Optionally enter a clause number in the **Filter clause** field (e.g., `5.2`, `8.2.4`) to narrow results to specific sections.
-4. **Tracking Text Introduction & Evolution:**
-   * Review the **Release Evolution Matrix**. Each row represents a matching clause, with columns arranged in chronological release order.
-   * Look for 🟢 **`🟢 Added`** markers to identify the exact specification version where that text was first introduced into the standard.
-   * Look for 🔴 **`✗ Removed`** markers to identify where text present in previous releases was deprecated or deleted.
+   * Type any exact phrase or keyword into the search bar (e.g., `"slice replacement"`, `"ATSSS"`, `"emergency"`). Search queries with 3 or more characters automatically execute across the FTS5 trigram index.
+   * Optionally enter a clause number in the **Filter clause** field (e.g., `5.2`, `4.3.2`) to focus on specific sections.
+4. **Date Cutoff & "First Added" Text Analysis:**
+   * Review the **Release Evolution Matrix** displayed in per-specification tabs (e.g., `TS 23.501 (32)`, `TS 23.502 (20)`).
+   * Toggle **🎯 Date Cutoff** and select a cutoff date. Text introduced after that date will be highlighted with ⚡ **`⚡ Post-Cutoff Added`**.
+   * Check **Show Only Post-Cutoff Additions** to filter out older prior art and show only clauses containing post-cutoff date modifications.
 5. **Inspecting Matching Clause Content:**
-   * Click any row or cell in the matrix to load the complete clause text into the **Clause Content Inspector**.
-   * All occurrences of your search query will be highlighted in yellow within the full context of the clause.
+   * Click any cell in the matrix to load the clause into the **Clause Content Inspector**.
+   * The **💡 Key Match Excerpt** callout at the top highlights the matching paragraph with surrounding sentence context.
+   * Use **`[ ◀ Prev ]`** and **`[ Next ▶ ]`** to cycle between match occurrences in long clauses.
+   * Click **`[ 📋 Copy Citation ]`** to copy the formatted text with 3GPP document, version, and release date metadata directly to your clipboard.
 
 ### 🔬 3GPP Protocols Evolution Matrix (NAS & ASN.1 / RRC / NGAP)
 1. Navigate to the **🔬 Protocols** (or **🔬 NAS**) tab.
