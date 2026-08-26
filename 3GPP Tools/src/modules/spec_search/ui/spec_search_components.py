@@ -6,11 +6,10 @@ import html
 import re
 from typing import Any, Dict, List, Optional
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QFont
+from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QAction,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QMenu,
     QTextBrowser,
@@ -24,7 +23,7 @@ from modules.spec_search.core.spec_search_db import parse_version_tuple
 
 
 class SpecSearchVersionTreeWidget(QTreeWidget):
-    """Tri-state checkable tree grouping indexed specification releases."""
+    """Tri-state checkable tree grouping indexed specification releases with release dates."""
 
     selection_changed = pyqtSignal()
     delete_version_requested = pyqtSignal(str, str)
@@ -89,8 +88,15 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
             sorted_vers = sorted(specs_map[spec_num], key=lambda x: parse_version_tuple(x["version"]), reverse=True)
             for v in sorted_vers:
                 child = QTreeWidgetItem(spec_item)
-                child.setText(0, f"v{v['version']}")
-                child.setData(0, Qt.UserRole, {"type": "version", "id": v["id"], "spec_number": spec_num, "version": v["version"]})
+                date_label = f" ({v['release_date']})" if v.get("release_date") else ""
+                child.setText(0, f"v{v['version']}{date_label}")
+                child.setData(0, Qt.UserRole, {
+                    "type": "version",
+                    "id": v["id"],
+                    "spec_number": spec_num,
+                    "version": v["version"],
+                    "release_date": v.get("release_date", ""),
+                })
                 child.setFlags(child.flags() | Qt.ItemIsUserCheckable)
                 child.setFont(0, base_font)
 
@@ -205,13 +211,26 @@ class SpecClauseInspector(QGroupBox):
         self.browser.setPlaceholderText("Select a cell in the matrix to view the full clause text with highlighted matches...")
         layout.addWidget(self.browser)
 
-    def display_clause(self, clause_number: str, clause_title: str, spec_number: str, version: str, content: str, search_query: str = ""):
-        self.title_lbl.setText(f"TS {spec_number} v{version} - Clause {clause_number}: {clause_title}")
+    def display_clause(
+        self,
+        clause_number: str,
+        clause_title: str,
+        spec_number: str,
+        version: str,
+        content: str,
+        release_date: Optional[str] = None,
+        search_query: str = "",
+    ):
+        date_str = f" ({release_date})" if release_date else ""
+        self.title_lbl.setText(f"TS {spec_number} v{version}{date_str} - Clause {clause_number}: {clause_title}")
 
         escaped = html.escape(content)
         if search_query.strip():
             pattern = re.compile(re.escape(html.escape(search_query.strip())), re.IGNORECASE)
-            escaped = pattern.sub(lambda m: f'<mark style="background-color: #FEF08A; font-weight: bold; padding: 1px 3px; border-radius: 2px;">{m.group(0)}</mark>', escaped)
+            escaped = pattern.sub(
+                lambda m: f'<mark style="background-color: #FEF08A; font-weight: bold; padding: 1px 3px; border-radius: 2px;">{m.group(0)}</mark>',
+                escaped,
+            )
 
         formatted_html = f"""
         <div style="font-family: Segoe UI, sans-serif; font-size: 11px; line-height: 1.5; color: #1E293B;">

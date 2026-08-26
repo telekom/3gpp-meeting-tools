@@ -1,6 +1,6 @@
 """
 Specification Search Database Engine.
-Manages metadata tables, full-text trigram indices (FTS5), and chronological release diffs.
+Manages metadata tables, release dates, full-text trigram indices (FTS5), and chronological release diffs.
 """
 
 import logging
@@ -26,7 +26,7 @@ def parse_version_tuple(version_str: str) -> tuple:
 
 
 class SpecSearchDatabase:
-    """SQLite database manager for 3GPP Specification Full-Text and Substring Indexing."""
+    """SQLite database manager for 3GPP Specification Full-Text and Substring Indexing with Release Date tracking."""
 
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
@@ -52,6 +52,7 @@ class SpecSearchDatabase:
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         spec_number TEXT NOT NULL,
                         version TEXT NOT NULL,
+                        release_date TEXT,
                         import_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         total_clauses INTEGER DEFAULT 0,
                         total_chars INTEGER DEFAULT 0,
@@ -89,12 +90,20 @@ class SpecSearchDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_clause_ver ON spec_clauses(version_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_clause_num ON spec_clauses(clause_number);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ver_spec ON indexed_versions(spec_number);")
+
+                # Dynamic schema migration for older search databases
+                cursor.execute("PRAGMA table_info(indexed_versions);")
+                cols = [col["name"] for col in cursor.fetchall()]
+                if "release_date" not in cols:
+                    cursor.execute("ALTER TABLE indexed_versions ADD COLUMN release_date TEXT;")
+
                 conn.commit()
         except Exception as e:
             self.logger.error(f"Failed to initialize Spec Search DB: {e}")
 
     def get_imported_versions(self) -> List[Dict[str, Any]]:
-        query = "SELECT id, spec_number, version, import_date, total_clauses, total_chars FROM indexed_versions"
+        """Returns all imported versions sorted chronologically with release dates."""
+        query = "SELECT id, spec_number, version, release_date, import_date, total_clauses, total_chars FROM indexed_versions"
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query)
@@ -106,8 +115,9 @@ class SpecSearchDatabase:
         spec_number: str,
         version: str,
         clauses: List[Dict[str, Any]],
+        release_date: Optional[str] = None,
     ) -> bool:
-        """Batch inserts clauses and populates the FTS5 trigram index atomically."""
+        """Batch inserts clauses, release date, and populates the FTS5 trigram index atomically."""
         if not clauses:
             return False
 
@@ -131,10 +141,10 @@ class SpecSearchDatabase:
                 total_chars = sum(len(c.get("content", "")) for c in clauses)
                 cursor.execute(
                     """
-                    INSERT INTO indexed_versions (spec_number, version, total_clauses, total_chars)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO indexed_versions (spec_number, version, release_date, total_clauses, total_chars)
+                    VALUES (?, ?, ?, ?, ?)
                 """,
-                    (spec_number, version, len(clauses), total_chars),
+                    (spec_number, version, release_date, len(clauses), total_chars),
                 )
                 version_id = cursor.lastrowid
 
@@ -202,20 +212,16 @@ class SpecSearchDatabase:
     ) -> pd.DataFrame:
         """
         Executes substring matching across selected specification versions using SQLite FTS5.
-        Returns a DataFrame containing clause metadata, version details, and hit snippets.
+        Returns a DataFrame containing clause metadata, version details, release dates, and hit snippets.
         """
         if not version_ids or not query_str.strip():
             return pd.DataFrame()
 
         clean_query = query_str.strip()
-        # Trigram matching requires at least 3 characters
         if len(clean_query) < 3:
-            # Fallback to standard LIKE scan if query < 3 characters
             return self._search_like_fallback(clean_query, version_ids, clause_filter)
 
         placeholders = ",".join("?" for _ in version_ids)
-
-        # Clean and 100% compatible across all Python 3.x versions:
         sanitized_query = clean_query.replace('"', '""')
         escaped_query = f'"{sanitized_query}"'
 
@@ -223,6 +229,7 @@ class SpecSearchDatabase:
             SELECT 
                 f.spec_number,
                 f.version,
+                v.release_date,
                 f.clause_number,
                 f.clause_title,
                 f.version_id,
@@ -231,6 +238,7 @@ class SpecSearchDatabase:
                 c.order_index
             FROM spec_fts f
             JOIN spec_clauses c ON f.clause_pk = c.id
+            JOIN indexed_versions v ON f.version_id = v.id
             WHERE f.version_id IN ({placeholders})
               AND spec_fts MATCH ?
         """
@@ -260,6 +268,7 @@ class SpecSearchDatabase:
             SELECT 
                 v.spec_number,
                 v.version,
+                v.release_date,
                 c.clause_number,
                 c.clause_title,
                 c.version_id,
@@ -285,7 +294,7 @@ class SpecSearchDatabase:
 
     def get_clause_content(self, clause_pk: int) -> Optional[Dict[str, Any]]:
         query = """
-            SELECT c.*, v.spec_number, v.version
+            SELECT c.*, v.spec_number, v.version, v.release_date
             FROM spec_clauses c
             JOIN indexed_versions v ON c.version_id = v.id
             WHERE c.id = ?
@@ -300,7 +309,7 @@ class SpecSearchDatabase:
         self, spec_number: str, version: str, clause_number: str
     ) -> Optional[Dict[str, Any]]:
         query = """
-            SELECT c.*, v.spec_number, v.version
+            SELECT c.*, v.spec_number, v.version, v.release_date
             FROM spec_clauses c
             JOIN indexed_versions v ON c.version_id = v.id
             WHERE v.spec_number = ? AND v.version = ? AND c.clause_number = ?

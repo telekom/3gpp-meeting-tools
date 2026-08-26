@@ -19,7 +19,7 @@ from modules.word_tools.core.word_converter import convert_doc_to_docx
 
 
 class SpecSearchImportThread(QThread):
-    """Background worker to fetch, extract, and index multiple specification versions."""
+    """Background worker to fetch, extract, and index multiple specification versions with release dates."""
 
     progress = pyqtSignal(str, int)
     finished_success = pyqtSignal(int, int)  # specs_count, total_clauses
@@ -50,6 +50,7 @@ class SpecSearchImportThread(QThread):
             version = task.get("version", "")
             filename = task.get("filename", "")
             file_url = task.get("file_url", "")
+            release_date = task.get("release_date") or task.get("upload_date")
             local_docx_input = task.get("local_docx_paths") or task.get("local_docx_path")
 
             base_progress = int((t_idx / total_tasks) * 100)
@@ -126,9 +127,9 @@ class SpecSearchImportThread(QThread):
                     progress_callback=lambda msg, p: emit_task_progress(msg, 60 + int(p * 0.25))
                 )
 
-                # Index in SQLite
+                # Index in SQLite with release date
                 emit_task_progress(f"Indexing {len(clauses)} clauses into Trigram DB...", 90)
-                success = self.db.insert_parsed_spec(spec_number, version, clauses)
+                success = self.db.insert_parsed_spec(spec_number, version, clauses, release_date=release_date)
                 if success:
                     successful_specs += 1
                     total_clauses_indexed += len(clauses)

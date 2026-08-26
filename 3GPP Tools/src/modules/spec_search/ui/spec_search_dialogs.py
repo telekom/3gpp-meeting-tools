@@ -1,34 +1,40 @@
 """
 Specification and Release Selection Dialog.
-Allows selecting any TS/TR specification from 3gpp_data.db to index.
+Provides universal master-detail browsing, dynamic series & WG filtering,
+spec title search, and fast batch release selection for any 3GPP specification.
 """
 
+import logging
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from modules.nas.core.nas_db import parse_version_tuple
 from modules.nas.core.nas_threads import find_cached_spec_file
-from modules.spec_search.core.spec_search_db import SpecSearchDatabase
+from modules.spec_search.core.spec_search_db import SpecSearchDatabase, parse_version_tuple
 from modules.specifications.core.database import SpecsDatabase
 
 
 class SpecSearchVersionSelectDialog(QDialog):
-    """Dialog to pick versions across any 3GPP specification."""
+    """Universal Dialog to browse, filter, inspect dates, and batch-select releases across all 3GPP specifications."""
 
     def __init__(
         self,
@@ -41,117 +47,400 @@ class SpecSearchVersionSelectDialog(QDialog):
         self.specs_db = specs_db
         self.search_db = search_db
         self.cache_dir = cache_dir
+        self.logger = logging.getLogger(__name__)
         self.selected_files_info: List[Dict[str, Any]] = []
 
-        self.setWindowTitle("Select 3GPP Specification Versions to Index")
-        self.resize(760, 500)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(200)
+        self._search_timer.timeout.connect(self._load_specifications_list)
+
+        self.setWindowTitle("📥 Ingest Specification Releases into Text Search DB")
+        self.resize(1080, 640)
         self._setup_ui()
-        self._load_available_versions()
+        self._populate_dynamic_filters()
+        self._load_specifications_list()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
 
-        top_bar = QHBoxLayout()
-        top_bar.addWidget(QLabel("Specification:"))
+        # ---------------------------------------------------------------------
+        # Top Filter Bar: Keyword / Title Search, Series Filter, WG Filter
+        # ---------------------------------------------------------------------
+        filter_bar = QHBoxLayout()
 
-        self.spec_combo = QComboBox()
-        self.spec_combo.setEditable(True)
-        # Pre-populate prominent specifications
-        for spec in ["24.501", "24.301", "38.331", "36.331", "38.413", "23.501", "23.502", "33.501", "29.500"]:
-            self.spec_combo.addItem(f"TS {spec}", spec)
+        filter_bar.addWidget(QLabel("🔍 Spec / Title:"))
+        self.spec_search_input = QLineEdit()
+        self.spec_search_input.setPlaceholderText("Search spec #, title, or topic (e.g. 38.211, 23.501, V2X, emergency, slicing)...")
+        self.spec_search_input.setClearButtonEnabled(True)
+        self.spec_search_input.textChanged.connect(lambda: self._search_timer.start())
+        filter_bar.addWidget(self.spec_search_input, stretch=3)
 
-        self.spec_combo.currentIndexChanged.connect(self._load_available_versions)
-        self.spec_combo.lineEdit().returnPressed.connect(self._on_spec_custom_typed)
-        top_bar.addWidget(self.spec_combo)
-        top_bar.addStretch()
-        layout.addLayout(top_bar)
+        filter_bar.addWidget(QLabel("Series:"))
+        self.series_combo = QComboBox()
+        self.series_combo.currentIndexChanged.connect(self._load_specifications_list)
+        filter_bar.addWidget(self.series_combo, stretch=1)
 
-        info_lbl = QLabel("Select versions to index into the Full-Text search engine (Ctrl+Click / Shift+Click):")
-        info_lbl.setStyleSheet("color: #475569; font-size: 11px;")
-        layout.addWidget(info_lbl)
+        filter_bar.addWidget(QLabel("WG:"))
+        self.wg_combo = QComboBox()
+        self.wg_combo.currentIndexChanged.connect(self._load_specifications_list)
+        filter_bar.addWidget(self.wg_combo, stretch=1)
 
-        self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Version", "Filename", "Local Cache", "Search DB Status"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.ExtendedSelection)
-        self.table.itemDoubleClicked.connect(self._on_item_double_clicked)
-        layout.addWidget(self.table)
+        layout.addLayout(filter_bar)
 
+        # ---------------------------------------------------------------------
+        # Main Splitter (Left: Specs List, Right: Versions List)
+        # ---------------------------------------------------------------------
+        splitter = QSplitter(Qt.Horizontal)
+
+        # --- Left Panel: Specifications Browser ---
+        left_group = QGroupBox("1. Select Specification(s)")
+        left_layout = QVBoxLayout(left_group)
+        left_layout.setContentsMargins(6, 8, 6, 6)
+
+        self.lbl_specs_count = QLabel("Loading specifications...")
+        self.lbl_specs_count.setStyleSheet("color: #475569; font-size: 11px;")
+        left_layout.addWidget(self.lbl_specs_count)
+
+        self.specs_table = QTableWidget()
+        self.specs_table.setColumnCount(4)
+        self.specs_table.setHorizontalHeaderLabels(["Spec", "WG", "Releases", "Title"])
+        s_header = self.specs_table.horizontalHeader()
+        s_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        s_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        s_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        s_header.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.specs_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.specs_table.setSelectionMode(QTableWidget.ExtendedSelection)
+        self.specs_table.itemSelectionChanged.connect(self._on_spec_selection_changed)
+        left_layout.addWidget(self.specs_table)
+        splitter.addWidget(left_group)
+
+        # --- Right Panel: Versions & Ingestion Control ---
+        right_group = QGroupBox("2. Select Specification Releases to Index")
+        right_layout = QVBoxLayout(right_group)
+        right_layout.setContentsMargins(6, 8, 6, 6)
+
+        batch_bar = QHBoxLayout()
+        self.btn_sel_unindexed = QPushButton("⚡ Select All Unindexed")
+        self.btn_sel_unindexed.clicked.connect(self._select_unindexed)
+        batch_bar.addWidget(self.btn_sel_unindexed)
+
+        self.btn_sel_latest = QPushButton("⭐ Select Latest per Release")
+        self.btn_sel_latest.clicked.connect(self._select_latest_per_release)
+        batch_bar.addWidget(self.btn_sel_latest)
+
+        self.btn_sel_all = QPushButton("☑️ Select All")
+        self.btn_sel_all.clicked.connect(self._select_all_visible)
+        batch_bar.addWidget(self.btn_sel_all)
+
+        self.btn_desel = QPushButton("◻️ Clear")
+        self.btn_desel.clicked.connect(self._deselect_all)
+        batch_bar.addWidget(self.btn_desel)
+
+        batch_bar.addStretch()
+        self.lbl_selected_count = QLabel("Selected: 0 version(s)")
+        self.lbl_selected_count.setStyleSheet("font-weight: bold; color: #0284C7;")
+        batch_bar.addWidget(self.lbl_selected_count)
+        right_layout.addLayout(batch_bar)
+
+        self.versions_table = QTableWidget()
+        self.versions_table.setColumnCount(6)
+        self.versions_table.setHorizontalHeaderLabels([
+            "Spec", "Version", "Release Date", "Filename", "Local Cache", "Search DB Status"
+        ])
+        v_header = self.versions_table.horizontalHeader()
+        v_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        v_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        v_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        v_header.setSectionResizeMode(3, QHeaderView.Stretch)
+        v_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        v_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.versions_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.versions_table.setSelectionMode(QTableWidget.ExtendedSelection)
+        self.versions_table.itemSelectionChanged.connect(self._update_selected_count)
+        self.versions_table.itemDoubleClicked.connect(self._on_version_double_clicked)
+        right_layout.addWidget(self.versions_table)
+        splitter.addWidget(right_group)
+
+        splitter.setSizes([420, 640])
+        layout.addWidget(splitter)
+
+        # ---------------------------------------------------------------------
+        # Dialog Action Buttons
+        # ---------------------------------------------------------------------
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btn_box.button(QDialogButtonBox.Ok).setText("📥 Fetch && Index Selected")
+        self.ok_btn = btn_box.button(QDialogButtonBox.Ok)
+        self.ok_btn.setText("📥 Ingest Selected Releases")
         btn_box.accepted.connect(self._on_accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
 
-    def _on_spec_custom_typed(self):
-        typed = self.spec_combo.currentText().replace("TS", "").strip()
-        self.spec_combo.setCurrentText(typed)
-        self._load_available_versions()
+    # -------------------------------------------------------------------------
+    # Data Population & Filtering
+    # -------------------------------------------------------------------------
 
-    def _load_available_versions(self):
-        spec_num = self.spec_combo.currentData() or self.spec_combo.currentText().replace("TS", "").strip()
-        spec_files = self.specs_db.search_files(spec_number=spec_num)
+    def _populate_dynamic_filters(self):
+        """Loads all actual Series and Working Groups dynamically from the database."""
+        options = self.specs_db.get_filter_options()
 
-        imported_entries = {
-            (v["spec_number"], v["version"]) for v in self.search_db.get_imported_versions()
-        }
+        self.series_combo.blockSignals(True)
+        self.series_combo.clear()
+        self.series_combo.addItem("All Series", "")
+        for s in options.get("series", []):
+            self.series_combo.addItem(f"Series {s}", s)
+        self.series_combo.blockSignals(False)
 
-        spec_files = sorted(
-            spec_files,
-            key=lambda row: parse_version_tuple(row[5]),
-            reverse=True,
-        )
+        self.wg_combo.blockSignals(True)
+        self.wg_combo.clear()
+        self.wg_combo.addItem("All Working Groups", "")
+        for g in options.get("groups", []):
+            self.wg_combo.addItem(g, g)
+        self.wg_combo.blockSignals(False)
 
-        self.table.setRowCount(0)
+    def _load_specifications_list(self):
+        """Queries specifications matching the active filters and populates the left table."""
+        search_kw = self.spec_search_input.text().strip()
+        series_filter = self.series_combo.currentData()
+        wg_filter = self.wg_combo.currentData()
 
-        for row_idx, row_data in enumerate(spec_files):
-            _, s_num, _, _, filename, version, url = row_data
-            self.table.insertRow(row_idx)
+        query = """
+            SELECT sp.number, sp.title, sp.type, s.name AS series_name, p_grp.name AS wg_name, COUNT(f.id) AS file_count
+            FROM specifications sp
+            JOIN series s ON sp.series_id = s.id
+            LEFT JOIN working_groups p_grp ON sp.primary_group_id = p_grp.id
+            LEFT JOIN files f ON f.spec_id = sp.id
+            WHERE 1=1
+        """
+        params: List[Any] = []
 
-            v_item = QTableWidgetItem(f"v{version}")
-            v_item.setData(
-                Qt.UserRole,
-                {
-                    "spec_number": s_num,
-                    "version": version,
-                    "filename": filename,
-                    "file_url": url,
-                },
+        if series_filter:
+            query += " AND s.name = ?"
+            params.append(str(series_filter))
+
+        if wg_filter:
+            query += " AND p_grp.name = ?"
+            params.append(str(wg_filter))
+
+        if search_kw:
+            search_pat = f"%{search_kw}%"
+            query += " AND (sp.number LIKE ? OR sp.title LIKE ? OR (sp.type || ' ' || sp.number) LIKE ?)"
+            params.extend([search_pat, search_pat, search_pat])
+
+        query += " GROUP BY sp.id HAVING file_count > 0 ORDER BY CAST(s.name AS INTEGER) ASC, sp.number ASC"
+
+        try:
+            with self.specs_db._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, params)
+                spec_rows = cursor.fetchall()
+        except Exception as e:
+            self.logger.error(f"Error fetching specs summary: {e}")
+            spec_rows = []
+
+        self.specs_table.setUpdatesEnabled(False)
+        self.specs_table.blockSignals(True)
+        self.specs_table.clearContents()
+        self.specs_table.setRowCount(len(spec_rows))
+
+        for r_idx, row in enumerate(spec_rows):
+            spec_num, title, sp_type, series_name, wg_name, file_count = row
+            display_type = sp_type if sp_type else "TS"
+
+            # Spec Number
+            s_item = QTableWidgetItem(f"{display_type} {spec_num}")
+            s_item.setData(Qt.UserRole, spec_num)
+            self.specs_table.setItem(r_idx, 0, s_item)
+
+            # Working Group
+            wg_item = QTableWidgetItem(wg_name or "-")
+            self.specs_table.setItem(r_idx, 1, wg_item)
+
+            # Releases count
+            rel_item = QTableWidgetItem(str(file_count))
+            rel_item.setTextAlignment(Qt.AlignCenter)
+            self.specs_table.setItem(r_idx, 2, rel_item)
+
+            # Title
+            t_item = QTableWidgetItem(title or "")
+            t_item.setToolTip(f"{display_type} {spec_num}: {title}")
+            self.specs_table.setItem(r_idx, 3, t_item)
+
+        self.specs_table.setUpdatesEnabled(True)
+        self.specs_table.blockSignals(False)
+        self.lbl_specs_count.setText(f"Found {len(spec_rows)} specification(s)")
+
+        # Auto-select first specification or clear right pane
+        if len(spec_rows) > 0:
+            self.specs_table.selectRow(0)
+        else:
+            self.versions_table.setRowCount(0)
+            self._update_selected_count()
+
+    def _on_spec_selection_changed(self):
+        """Fires when user selects one or more specifications in the left table."""
+        selected_spec_rows = sorted(list(set(item.row() for item in self.specs_table.selectedItems())))
+        if not selected_spec_rows:
+            self.versions_table.setRowCount(0)
+            self._update_selected_count()
+            return
+
+        selected_spec_numbers = [
+            str(self.specs_table.item(r, 0).data(Qt.UserRole))
+            for r in selected_spec_rows
+            if self.specs_table.item(r, 0)
+        ]
+
+        self._load_versions_for_specs(selected_spec_numbers)
+
+    def _load_versions_for_specs(self, spec_numbers: List[str]):
+        """Populates the right table with all releases for the selected specification(s)."""
+        if not spec_numbers:
+            self.versions_table.setRowCount(0)
+            self._update_selected_count()
+            return
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            placeholders = ",".join("?" for _ in spec_numbers)
+            query = f"""
+                SELECT sp.number, sp.title, sp.type, f.filename, f.version, f.url, f.upload_date
+                FROM files f
+                JOIN specifications sp ON f.spec_id = sp.id
+                WHERE sp.number IN ({placeholders})
+            """
+            with self.specs_db._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, spec_numbers)
+                file_rows = cursor.fetchall()
+
+            imported_entries = {
+                (v["spec_number"], v["version"]) for v in self.search_db.get_imported_versions()
+            }
+
+            # Sort chronologically (newest versions first)
+            sorted_files = sorted(
+                file_rows,
+                key=lambda r: (r[0], parse_version_tuple(r[4])),
+                reverse=True,
             )
-            self.table.setItem(row_idx, 0, v_item)
-            self.table.setItem(row_idx, 1, QTableWidgetItem(filename))
 
-            cached_file = find_cached_spec_file(filename, s_num)
-            if cached_file:
-                cache_text = f"🟢 Cached ({cached_file.suffix[1:].upper()})"
-                cache_item = QTableWidgetItem(cache_text)
-                cache_item.setForeground(Qt.darkGreen)
-            else:
-                cache_item = QTableWidgetItem("🌐 Remote (FTP)")
-                cache_item.setForeground(Qt.darkGray)
-            self.table.setItem(row_idx, 2, cache_item)
+            self.versions_table.setUpdatesEnabled(False)
+            self.versions_table.blockSignals(True)
+            self.versions_table.clearContents()
+            self.versions_table.setRowCount(len(sorted_files))
 
-            in_db = (s_num, version) in imported_entries
-            db_item = QTableWidgetItem("✅ Indexed" if in_db else "⚪ Ready")
-            if in_db:
-                db_item.setForeground(Qt.blue)
-            self.table.setItem(row_idx, 3, db_item)
+            for row_idx, row_data in enumerate(sorted_files):
+                s_num, title, sp_type, filename, version, url, upload_date = row_data
+                display_type = sp_type if sp_type else "TS"
 
-    def _on_item_double_clicked(self, item: QTableWidgetItem):
+                # Spec Number
+                s_item = QTableWidgetItem(f"{display_type} {s_num}")
+                s_item.setData(
+                    Qt.UserRole,
+                    {
+                        "spec_number": s_num,
+                        "version": version,
+                        "filename": filename,
+                        "file_url": url,
+                        "release_date": upload_date or "",
+                    },
+                )
+                self.versions_table.setItem(row_idx, 0, s_item)
+
+                # Version
+                v_item = QTableWidgetItem(f"v{version}")
+                self.versions_table.setItem(row_idx, 1, v_item)
+
+                # Release Date
+                date_str = str(upload_date) if upload_date else "-"
+                d_item = QTableWidgetItem(date_str)
+                if not upload_date:
+                    d_item.setForeground(Qt.gray)
+                self.versions_table.setItem(row_idx, 2, d_item)
+
+                # Filename
+                f_item = QTableWidgetItem(filename)
+                f_item.setToolTip(f"{title}\n{filename}")
+                self.versions_table.setItem(row_idx, 3, f_item)
+
+                # Cache status
+                cached_file = find_cached_spec_file(filename, s_num)
+                if cached_file:
+                    c_item = QTableWidgetItem(f"🟢 Cached ({cached_file.suffix[1:].upper()})")
+                    c_item.setForeground(Qt.darkGreen)
+                else:
+                    c_item = QTableWidgetItem("🌐 Remote (FTP)")
+                    c_item.setForeground(Qt.darkGray)
+                self.versions_table.setItem(row_idx, 4, c_item)
+
+                # Search DB Status
+                in_db = (s_num, version) in imported_entries
+                db_item = QTableWidgetItem("✅ Indexed" if in_db else "⚪ Ready")
+                if in_db:
+                    db_item.setForeground(Qt.blue)
+                self.versions_table.setItem(row_idx, 5, db_item)
+
+            self.versions_table.setUpdatesEnabled(True)
+            self.versions_table.blockSignals(False)
+            self._update_selected_count()
+
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    # -------------------------------------------------------------------------
+    # Batch Selection Actions
+    # -------------------------------------------------------------------------
+
+    def _update_selected_count(self):
+        sel_rows = set(item.row() for item in self.versions_table.selectedItems())
+        self.lbl_selected_count.setText(f"Selected: {len(sel_rows)} version(s)")
+
+    def _select_unindexed(self):
+        self.versions_table.clearSelection()
+        for r in range(self.versions_table.rowCount()):
+            status_item = self.versions_table.item(r, 5)
+            if status_item and "Ready" in status_item.text():
+                self.versions_table.selectRow(r)
+
+    def _select_latest_per_release(self):
+        """Selects the latest release version for each major Release (Rel-15, Rel-16, Rel-17, Rel-18, etc.)."""
+        self.versions_table.clearSelection()
+        seen_major_releases = set()
+        for r in range(self.versions_table.rowCount()):
+            v_item = self.versions_table.item(r, 1)
+            s_item = self.versions_table.item(r, 0)
+            if not v_item or not s_item:
+                continue
+            spec = s_item.text()
+            ver = v_item.text().lstrip("v")
+            major = ver.split(".")[0] if "." in ver else ver
+            key = (spec, major)
+            if key not in seen_major_releases:
+                seen_major_releases.add(key)
+                self.versions_table.selectRow(r)
+
+    def _select_all_visible(self):
+        self.versions_table.selectAll()
+
+    def _deselect_all(self):
+        self.versions_table.clearSelection()
+
+    def _on_version_double_clicked(self, item: QTableWidgetItem):
         row = item.row()
-        self.selected_files_info = [self.table.item(row, 0).data(Qt.UserRole)]
+        self.selected_files_info = [self.versions_table.item(row, 0).data(Qt.UserRole)]
         self.accept()
 
     def _on_accept(self):
-        selected_rows = sorted(list(set(item.row() for item in self.table.selectedItems())))
+        selected_rows = sorted(list(set(item.row() for item in self.versions_table.selectedItems())))
         if not selected_rows:
             QMessageBox.warning(self, "Selection Required", "Please select at least one version to index.")
             return
 
         self.selected_files_info = [
-            self.table.item(row, 0).data(Qt.UserRole)
+            self.versions_table.item(row, 0).data(Qt.UserRole)
             for row in selected_rows
         ]
         self.accept()
