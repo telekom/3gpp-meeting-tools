@@ -1,14 +1,13 @@
-# --- File: modules/specifications/core/scraper.py ---
 import logging
 import re
 from typing import Dict, List, Tuple
-
-import requests
-from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
+
+import requests
+from bs4 import BeautifulSoup
 
 from core.network.session import NetworkSession
 from modules.specifications.utils.utils import file_version_to_version
@@ -31,8 +30,23 @@ class SpecsCrawlerThread(QThread):
         self.session: requests.Session = NetworkSession.get_instance()
         self.spec_folder_pattern: re.Pattern = re.compile(r'^(\d{2}\.\d{2,3}(?:-[a-zA-Z0-9]+)?)/?$')
         self.version_pattern: re.Pattern = re.compile(r'-([a-zA-Z0-9]{3})\.zip$')
-        self.date_pattern: re.Pattern = re.compile(r'\b(19\d\d|20\d\d)-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b')
-        self.ver_str_pattern: re.Pattern = re.compile(r'\b(\d{1,2}\.\d{1,2}\.\d{1,2})\b')
+
+        # Support YYYY-MM-DD, YYYY/MM/DD, and DD-MM-YYYY / DD.MM.YYYY
+        self.date_pattern: re.Pattern = re.compile(
+            r'\b(?:(19\d\d|20\d\d)[-/](0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])|(0[1-9]|[12]\d|3[01])[./-](0[1-9]|1[0-2])[./-](19\d\d|20\d\d))\b'
+        )
+        self.ver_str_pattern: re.Pattern = re.compile(r'\bv?(\d{1,2}\.\d{1,2}\.\d{1,2})\b', re.IGNORECASE)
+
+    def _normalize_date(self, raw_date: str) -> str:
+        """Standardizes extracted date string to YYYY-MM-DD format."""
+        clean = raw_date.strip().replace('/', '-').replace('.', '-')
+        parts = clean.split('-')
+        if len(parts) == 3:
+            if len(parts[0]) == 4:  # YYYY-MM-DD
+                return f"{parts[0]}-{parts[1].zfill(2)}-{parts[2].zfill(2)}"
+            elif len(parts[2]) == 4:  # DD-MM-YYYY -> YYYY-MM-DD
+                return f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
+        return clean
 
     def fetch_links(self, url: str) -> List[Tuple[str, str]]:
         try:
@@ -64,11 +78,17 @@ class SpecsCrawlerThread(QThread):
             'radio_technology': '', 'radio_technologies_list': [],
             'primary_group': '',
             'secondary_groups_raw': '', 'secondary_groups_list': [],
-            'version_dates': {}  # Maps "20.0.0" -> "2026-06-29"
+            'version_dates': {}
         }
 
         try:
+            self.ui_log_msg.emit(f"🔍 Fetching DynaReport: {url}", logging.INFO)
             html_text: str = NetworkSession.get_html(url=url, timeout=15)
+
+            if not html_text:
+                self.ui_log_msg.emit(f"⚠️ Empty response received from DynaReport for {spec_number}", logging.WARNING)
+                return metadata
+
             soup: BeautifulSoup = BeautifulSoup(html_text, 'html.parser')
 
             def get_by_id(keyword: str) -> str:
@@ -77,11 +97,14 @@ class SpecsCrawlerThread(QThread):
 
             def get_field(*label_texts: str) -> str:
                 for label_text in label_texts:
-                    tags = soup.find_all(lambda tag: tag.name in ['td', 'th', 'span', 'b', 'strong', 'div', 'label']
-                                                     and tag.get_text(strip=True).strip(':').lower() == label_text.lower())
+                    tags = soup.find_all(
+                        lambda tag: tag.name in ['td', 'th', 'span', 'b', 'strong', 'div', 'label']
+                                    and tag.get_text(strip=True).strip(':').lower() == label_text.lower()
+                    )
                     for tag in tags:
                         sibling = tag.find_next_sibling(
-                            lambda t: t.name in ['td', 'span', 'div'] and t.get_text(strip=True))
+                            lambda t: t.name in ['td', 'span', 'div'] and t.get_text(strip=True)
+                        )
                         if sibling:
                             return sibling.get_text(strip=True)
 
@@ -91,8 +114,11 @@ class SpecsCrawlerThread(QThread):
                             if next_cell:
                                 return next_cell.get_text(strip=True)
 
-                        next_el = tag.find_next(lambda t: t.name in ['td', 'span', 'div', 'a'] and t.get_text(
-                            strip=True) and t not in tag.descendants)
+                        next_el = tag.find_next(
+                            lambda t: t.name in ['td', 'span', 'div', 'a']
+                                      and t.get_text(strip=True)
+                                      and t not in tag.descendants
+                        )
                         if next_el:
                             val = next_el.get_text(strip=True)
                             if len(val) < 200:
@@ -158,13 +184,18 @@ class SpecsCrawlerThread(QThread):
 
                 if ver_match and date_match:
                     version_str = ver_match.group(1)
-                    date_str = date_match.group(0)
+                    date_str = self._normalize_date(date_match.group(0))
                     version_dates[version_str] = date_str
 
             metadata['version_dates'] = version_dates
 
+            if version_dates:
+                self.ui_log_msg.emit(f"📅 Extracted {len(version_dates)} release dates for {spec_number}", logging.INFO)
+            else:
+                self.ui_log_msg.emit(f"⚠️ No release dates found in DynaReport for {spec_number}", logging.WARNING)
+
         except Exception as e:
-            logging.warning(f"Metadata fetch failed for {spec_number} at {url}: {e}")
+            self.ui_log_msg.emit(f"❌ Metadata fetch error for {spec_number} at {url}: {e}", logging.ERROR)
 
         return metadata
 
@@ -198,8 +229,7 @@ class SpecsCrawlerThread(QThread):
             # GATHER DIRECTORIES
             # ==========================================
             if self.target_specs:
-                self.ui_log_msg.emit(f"⏳ Starting Targeted Update for: {', '.join(self.target_specs)}...",
-                                     logging.INFO)
+                self.ui_log_msg.emit(f"⏳ Starting Targeted Update for: {', '.join(self.target_specs)}...", logging.INFO)
 
                 for target in self.target_specs:
                     if '.' not in target:
@@ -224,7 +254,9 @@ class SpecsCrawlerThread(QThread):
                         series_folder = f"{series_number}_series"
                         series_url = urljoin(self.root_url, f"{series_folder}/")
                         spec_url = urljoin(series_url, f"{target}/")
-                        needs_meta = self.force_metadata_update or self.db.needs_metadata(target)
+
+                        # For targeted single specs, always fetch metadata to refresh dates
+                        needs_meta = True if self.force_metadata_update else (self.db.needs_metadata(target) or True)
                         spec_tasks.append((series_number, series_url, target, spec_url, needs_meta))
             else:
                 self.ui_log_msg.emit("⏳ Mapping directories in parallel... (This is fast)", logging.INFO)
@@ -242,7 +274,7 @@ class SpecsCrawlerThread(QThread):
                 with ThreadPoolExecutor(max_workers=15) as executor:
                     future_to_series = {
                         executor.submit(self.fetch_links, s_url if s_url.endswith('/') else s_url + '/'): (
-                            s_name, s_url)
+                        s_name, s_url)
                         for s_name, s_url in series_links
                     }
 
@@ -270,8 +302,10 @@ class SpecsCrawlerThread(QThread):
             completed: int = 0
 
             with ThreadPoolExecutor(max_workers=15) as executor:
-                futures = {executor.submit(self.fetch_spec_files, task[0], task[1], task[2], task[3]): task for task in
-                           spec_tasks}
+                futures = {
+                    executor.submit(self.fetch_spec_files, task[0], task[1], task[2], task[3]): task
+                    for task in spec_tasks
+                }
 
                 for future in as_completed(futures):
                     completed += 1
@@ -304,12 +338,16 @@ class SpecsCrawlerThread(QThread):
 
             if specs_needing_meta:
                 self.ui_log_msg.emit(
-                    f"⏳ Pass 2: Fetching portal metadata & release dates for {len(specs_needing_meta)} specifications...", logging.INFO)
+                    f"⏳ Pass 2: Fetching portal metadata & release dates for {len(specs_needing_meta)} specifications...",
+                    logging.INFO
+                )
                 completed_meta: int = 0
 
                 with ThreadPoolExecutor(max_workers=10) as executor:
-                    meta_futures = {executor.submit(self.fetch_metadata_from_dynareport, task[2]): task for task in
-                                    specs_needing_meta}
+                    meta_futures = {
+                        executor.submit(self.fetch_metadata_from_dynareport, task[2]): task
+                        for task in specs_needing_meta
+                    }
 
                     for future in as_completed(meta_futures):
                         task = meta_futures[future]
@@ -327,8 +365,15 @@ class SpecsCrawlerThread(QThread):
                                     self.db.update_spec_metadata(spec_num, metadata)
                                 if metadata.get('version_dates'):
                                     self.db.update_file_dates(spec_num, metadata['version_dates'])
+                                    self.ui_log_msg.emit(
+                                        f"💾 Updated {len(metadata['version_dates'])} dates in DB for {spec_num}",
+                                        logging.INFO)
                         except Exception as e:
-                            self.ui_log_msg.emit(f"❌ Metadata error for {spec_num}: {e}", logging.ERROR)
+                            self.ui_log_msg.emit(f"❌ Metadata DB update error for {spec_num}: {e}", logging.ERROR)
+            else:
+                self.ui_log_msg.emit(
+                    "ℹ️ Pass 2 skipped: All specifications already have cached metadata. Check 'Force Metadata' to refresh.",
+                    logging.INFO)
 
             self.ui_log_msg.emit("✅ 3GPP Database Update Fully Complete!", logging.INFO)
             self.finished_path.emit("SPECS_DB_PASS_TWO")
