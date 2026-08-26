@@ -1,5 +1,6 @@
 """
 Main Tab for Specification Substring Search, Release Evolution Tracking, and Cutoff Date Analysis.
+Visualizes multi-specification search results in dedicated per-specification tabs.
 """
 
 import json
@@ -21,6 +22,7 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -30,7 +32,7 @@ from core.utils.paths import get_project_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase
-from modules.spec_search.core.spec_search_threads import SpecSearchImportThread, SpecSearchQueryWorker
+from modules.spec_search.core.spec_search_threads import SpecSearchImportThread, SpecSearchQueryWorker, is_change_mark_file
 from modules.spec_search.ui.spec_search_components import SpecClauseInspector, SpecSearchVersionTreeWidget
 from modules.spec_search.ui.spec_search_dialogs import SpecSearchVersionSelectDialog
 from modules.spec_search.ui.spec_search_models import SpecEvolutionMatrixModel
@@ -38,7 +40,7 @@ from modules.specifications.core.database import SpecsDatabase
 
 
 class SpecSearchTab(QWidget):
-    """Main Search Tab: Tree, Query Inputs, Cutoff Date Filter, Evolution Matrix, and Inspector."""
+    """Main Search Tab: Tree, Query Inputs, Cutoff Date Filter, Tabbed Evolution Matrix, and Inspector."""
 
     log_msg = pyqtSignal(str, int)
 
@@ -73,7 +75,9 @@ class SpecSearchTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        # Toolbar
+        # ---------------------------------------------------------------------
+        # Top Toolbar
+        # ---------------------------------------------------------------------
         toolbar = QHBoxLayout()
         self.fetch_btn = QPushButton("📥 Import from Specs DB")
         self.fetch_btn.clicked.connect(self._on_fetch_clicked)
@@ -99,7 +103,9 @@ class SpecSearchTab(QWidget):
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
-        # Splitter Layout
+        # ---------------------------------------------------------------------
+        # Main Splitter Layout (Left: Version Tree, Right: Tabs & Inspector)
+        # ---------------------------------------------------------------------
         main_splitter = QSplitter(Qt.Horizontal)
 
         # Left Panel: Versions Tree
@@ -117,7 +123,7 @@ class SpecSearchTab(QWidget):
         left_layout.addWidget(tree_group)
         main_splitter.addWidget(left_widget)
 
-        # Right Panel: Search Controls, Matrix Table, Inspector
+        # Right Panel: Search Controls, Tabbed Evolution Matrix, Inspector
         right_splitter = QSplitter(Qt.Vertical)
 
         matrix_widget = QWidget()
@@ -127,7 +133,7 @@ class SpecSearchTab(QWidget):
         # Row 1: Search substring & Clause Filter
         search_bar_layout = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search exact substring or phrase (e.g. 'initial registration', 'emergency', 'PDU session')...")
+        self.search_input.setPlaceholderText("Search exact substring or phrase (e.g. 'slice replacement', 'emergency', 'PDU session')...")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(lambda: self._search_timer.start())
         search_bar_layout.addWidget(self.search_input)
@@ -140,11 +146,11 @@ class SpecSearchTab(QWidget):
         search_bar_layout.addWidget(self.clause_filter_input)
         matrix_layout.addLayout(search_bar_layout)
 
-        # Row 2: Cutoff Date Bar
+        # Row 2: Cutoff Date Filter Bar
         cutoff_date_bar = QHBoxLayout()
-        self.chk_cutoff_date = QCheckBox("🎯 Date Cutoff:")
-        self.chk_cutoff_date.toggled.connect(self._on_cutoff_date_filter_toggled)
-        cutoff_date_bar.addWidget(self.chk_cutoff_date)
+        self.chk_filing_date = QCheckBox("🎯 Date Cutoff:")
+        self.chk_filing_date.toggled.connect(self._on_cutoff_date_filter_toggled)
+        cutoff_date_bar.addWidget(self.chk_filing_date)
 
         self.cutoff_date_edit = QDateEdit()
         self.cutoff_date_edit.setCalendarPopup(True)
@@ -167,20 +173,16 @@ class SpecSearchTab(QWidget):
         self.matrix_title.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B; margin-top: 4px;")
         matrix_layout.addWidget(self.matrix_title)
 
-        self.matrix_table = QTableView()
-        self.matrix_table.setAlternatingRowColors(True)
-        self.matrix_table.setSelectionBehavior(QTableView.SelectRows)
-        self.matrix_table.setSelectionMode(QTableView.SingleSelection)
-        self.matrix_table.verticalHeader().setDefaultSectionSize(24)
-        self.matrix_table.verticalHeader().setVisible(False)
-        self.matrix_table.clicked.connect(self._on_table_clicked)
-        matrix_layout.addWidget(self.matrix_table)
+        # Tabbed Container for Per-Specification Matrices
+        self.spec_results_tabs = QTabWidget()
+        self.spec_results_tabs.setDocumentMode(True)
+        matrix_layout.addWidget(self.spec_results_tabs)
         right_splitter.addWidget(matrix_widget)
 
         self.inspector = SpecClauseInspector()
         right_splitter.addWidget(self.inspector)
 
-        right_splitter.setSizes([400, 250])
+        right_splitter.setSizes([420, 240])
         main_splitter.addWidget(right_splitter)
         main_splitter.setSizes([260, 690])
         layout.addWidget(main_splitter)
@@ -203,7 +205,7 @@ class SpecSearchTab(QWidget):
         clause_filter = self.clause_filter_input.text().strip()
 
         if not self.selected_version_ids or not query:
-            self.matrix_table.setModel(None)
+            self.spec_results_tabs.clear()
             self.matrix_title.setText("Type a query above to see Release Evolution Matrix")
             self.inspector.clear_display()
             return
@@ -230,34 +232,73 @@ class SpecSearchTab(QWidget):
             return
 
         query = self.search_input.text().strip()
+        self.spec_results_tabs.clear()
+
         if df.empty:
-            self.matrix_table.setModel(None)
             self.matrix_title.setText(f"No matching clauses found for '{query}' across selected releases.")
             self.inspector.clear_display()
             return
 
-        cutoff_date = self.cutoff_date_edit.date().toString("yyyy-MM-dd") if self.chk_cutoff_date.isChecked() else None
-        only_post_date = self.chk_post_date_only.isChecked() if self.chk_cutoff_date.isChecked() else False
+        cutoff_date = self.cutoff_date_edit.date().toString("yyyy-MM-dd") if self.chk_filing_date.isChecked() else None
+        only_post_date = self.chk_post_date_only.isChecked() if self.chk_filing_date.isChecked() else False
 
-        model = SpecEvolutionMatrixModel(
-            raw_df=df,
-            cutoff_date=cutoff_date,
-            only_added_after_cutoff=only_post_date,
+        total_clauses_count = 0
+        specs_with_hits = 0
+
+        # Group results by Specification Number to populate individual tabs
+        grouped_specs = sorted(df["spec_number"].unique())
+
+        for spec_num in grouped_specs:
+            spec_df = df[df["spec_number"] == spec_num].copy()
+
+            model = SpecEvolutionMatrixModel(
+                raw_df=spec_df,
+                cutoff_date=cutoff_date,
+                only_added_after_cutoff=only_post_date,
+            )
+
+            # Skip tab if all clauses were filtered out by the cutoff date
+            if model.rowCount() == 0:
+                continue
+
+            specs_with_hits += 1
+            total_clauses_count += model.rowCount()
+
+            # Build Table View for this Specification
+            table = QTableView()
+            table.setAlternatingRowColors(True)
+            table.setSelectionBehavior(QTableView.SelectRows)
+            table.setSelectionMode(QTableView.SingleSelection)
+            table.verticalHeader().setDefaultSectionSize(24)
+            table.verticalHeader().setVisible(False)
+            table.setModel(model)
+
+            # Column Sizing
+            h_header = table.horizontalHeader()
+            h_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            h_header.setSectionResizeMode(1, QHeaderView.Stretch)
+            for c in range(2, model.columnCount()):
+                h_header.setSectionResizeMode(c, QHeaderView.Interactive)
+                table.setColumnWidth(c, 110)
+
+            # Connect Table Selection
+            table.clicked.connect(lambda idx, s=spec_num, t=table: self._on_tab_table_clicked(idx, s, t))
+
+            tab_title = f"TS {spec_num} ({model.rowCount()})"
+            self.spec_results_tabs.addTab(table, tab_title)
+
+        if specs_with_hits == 0:
+            self.matrix_title.setText(f"No matching clauses found for '{query}' matching the active date cutoff.")
+            self.inspector.clear_display()
+            return
+
+        date_suffix = f" (Cutoff: ≥ {cutoff_date})" if cutoff_date and only_post_date else ""
+        self.matrix_title.setText(
+            f"Found matches in {total_clauses_count} clause(s) across {specs_with_hits} specification(s) for query: '{query}'{date_suffix}"
         )
-        self.matrix_table.setModel(model)
 
-        h_header = self.matrix_table.horizontalHeader()
-        h_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        h_header.setSectionResizeMode(1, QHeaderView.Stretch)
-        for c in range(2, model.columnCount()):
-            h_header.setSectionResizeMode(c, QHeaderView.Interactive)
-            self.matrix_table.setColumnWidth(c, 120)
-
-        date_suffix = f" (Post-Date Cutoff: ≥ {cutoff_date})" if cutoff_date and only_post_date else ""
-        self.matrix_title.setText(f"Found matches in {len(model._pivot_df)} clause(s) for query: '{query}'{date_suffix}")
-
-    def _on_table_clicked(self, index):
-        model = self.matrix_table.model()
+    def _on_tab_table_clicked(self, index, spec_num: str, table: QTableView):
+        model = table.model()
         if not model:
             return
 
@@ -266,24 +307,21 @@ class SpecSearchTab(QWidget):
         clause_title = str(model.data(model.index(row, 1), Qt.DisplayRole) or "").strip()
         query = self.search_input.text().strip()
 
-        # Resolve target version
+        # Resolve target version from column header
         if col >= 2:
             ver_header = str(model._version_cols[col - 2])
         else:
             ver_header = str(model._version_cols[0])
 
-        spec_match = re.search(r"TS\s+([0-9\.]+)", ver_header)
         ver_match = re.search(r"v([0-9\.]+)", ver_header)
-
-        spec_num = spec_match.group(1) if spec_match else ""
         version = ver_match.group(1) if ver_match else ver_header.lstrip("v")
 
         # Fetch clause content
-        clause_data = self.db.get_clause_content_by_spec_ver(spec_num, version, clause_num) if spec_num else None
+        clause_data = self.db.get_clause_content_by_spec_ver(spec_num, version, clause_num)
         if not clause_data:
-            df = getattr(model, "_raw_df", None)
-            if df is not None and not df.empty:
-                matches = df[(df["clause_number"] == clause_num) & (df["version"] == version)]
+            raw_df = getattr(model, "_raw_df", None)
+            if raw_df is not None and not raw_df.empty:
+                matches = raw_df[(raw_df["clause_number"] == clause_num) & (raw_df["version"] == version)]
                 if not matches.empty:
                     pk = int(matches.iloc[0]["clause_pk"])
                     clause_data = self.db.get_clause_content(pk)
@@ -324,9 +362,6 @@ class SpecSearchTab(QWidget):
         if not paths:
             return
 
-        from modules.spec_search.core.spec_search_threads import is_change_mark_file
-
-        # Filter out revision marked (-rm) files
         clean_paths = [p for p in paths if not is_change_mark_file(p)]
         if len(clean_paths) < len(paths):
             skipped = len(paths) - len(clean_paths)
@@ -336,7 +371,6 @@ class SpecSearchTab(QWidget):
         for fp in clean_paths:
             p = Path(fp)
             base_key = re.sub(r"_\d+_.*$", "", p.stem)
-            # Remove clean suffix if present so grouping matches the base version
             base_key = re.sub(r"[-_]cl$", "", base_key, flags=re.IGNORECASE)
             grouped.setdefault(base_key, []).append(p)
 
@@ -419,6 +453,6 @@ class SpecSearchTab(QWidget):
         if QMessageBox.critical(self, "Confirm Wipe", "Delete all indexed specification clauses?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
             self.db.wipe_database()
             self.refresh_versions()
-            self.matrix_table.setModel(None)
+            self.spec_results_tabs.clear()
             self.inspector.clear_display()
             self.log_msg.emit("🧹 Specification Search DB wiped.", logging.INFO)
