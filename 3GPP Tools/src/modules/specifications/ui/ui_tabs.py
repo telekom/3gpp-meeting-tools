@@ -563,7 +563,8 @@ class SpecificationsTab(QWidget):
 
             grouped_specs = {}
             for row in specs:
-                series, spec_num, title, spec_type, filename, version, url = row
+                # ---> Unpack upload_date from search_files()
+                series, spec_num, title, spec_type, filename, version, url, upload_date = row
 
                 if filename:
                     part_match = re.search(r'\d{4,5}-(\d{1,2})(?:[-_.]|$)', filename)
@@ -576,7 +577,7 @@ class SpecificationsTab(QWidget):
                         'type': spec_type if spec_type else "",
                         'versions': []
                     }
-                grouped_specs[spec_num]['versions'].append((version, url, filename))
+                grouped_specs[spec_num]['versions'].append((version, url, filename, upload_date))
 
             total_found = len(grouped_specs)
             rendered_specs = list(grouped_specs.items())[:100]
@@ -602,18 +603,18 @@ class SpecificationsTab(QWidget):
                 action_btn.setToolTip("Specification Actions")
                 action_btn.setCursor(Qt.PointingHandCursor)
                 action_btn.setStyleSheet("""
-                    QPushButton { border: none; background: transparent; color: #555; font-size: 20px; font-weight: bold; padding-bottom: 4px; }
-                    QPushButton:hover { color: #0078D7; }
-                    QPushButton::menu-indicator { image: none; width: 0px; }
-                """)
+                        QPushButton { border: none; background: transparent; color: #555; font-size: 20px; font-weight: bold; padding-bottom: 4px; }
+                        QPushButton:hover { color: #0078D7; }
+                        QPushButton::menu-indicator { image: none; width: 0px; }
+                    """)
 
                 menu = QMenu(self)
                 menu.setStyleSheet("""
-                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
-                    QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
-                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-                    QMenu::item:disabled { color: #AAAAAA; } 
-                """)
+                        QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
+                        QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
+                        QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+                        QMenu::item:disabled { color: #AAAAAA; } 
+                    """)
 
                 info_action = menu.addAction("ℹ️  View Details")
                 info_action.triggered.connect(lambda _, s=spec_num: self._show_spec_info(s))
@@ -655,12 +656,18 @@ class SpecificationsTab(QWidget):
 
                 sorted_versions = sorted(data['versions'], key=lambda x: parse_ver(x[0]), reverse=True)
 
-                for ver, url, fname in sorted_versions:
+                for ver, url, fname, u_date in sorted_versions:
                     zip_path = spec_target_dir / fname
                     is_dl = zip_path.exists()
                     status = "✅ " if is_dl else ""
-                    version_combo.addItem(f"{status}v{ver}", userData={
-                        'url': url, 'fname': fname, 'spec_num': spec_num, 'is_downloaded': is_dl
+
+                    # ---> Format display text with portal date if present
+                    date_label = f" ({u_date})" if u_date else ""
+                    display_text = f"{status}v{ver}{date_label}"
+
+                    version_combo.addItem(display_text, userData={
+                        'url': url, 'fname': fname, 'spec_num': spec_num,
+                        'is_downloaded': is_dl, 'upload_date': u_date
                     })
 
                 # Action Buttons
@@ -673,7 +680,6 @@ class SpecificationsTab(QWidget):
                 for b in (word_btn, pdf_btn, html_btn, txt_btn):
                     b.setCursor(Qt.PointingHandCursor)
 
-                # ---> 3-STATE DYNAMIC UI CHECKER
                 def _update_btn_state(index_ignore=0, c=version_combo, wb=word_btn, pb=pdf_btn, hb=html_btn,
                                       tb=txt_btn, zb=zip_btn):
                     c_data = c.currentData()
@@ -692,22 +698,22 @@ class SpecificationsTab(QWidget):
                         if exists:
                             btn.setText(f"{icon} {name} ✅")
                             btn.setStyleSheet("""
-                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
-                                QPushButton:hover { background-color: #C8E6C9; }
-                            """)
+                                    QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
+                                    QPushButton:hover { background-color: #C8E6C9; }
+                                """)
                         elif word_exists or zip_exists:
                             action = "Extract" if name == "Word" else "Convert"
                             btn.setText(f"⚙️ {action}")
                             btn.setStyleSheet("""
-                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; } 
-                                QPushButton:hover { background-color: #FFE0B2; }
-                            """)
+                                    QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; } 
+                                    QPushButton:hover { background-color: #FFE0B2; }
+                                """)
                         else:
                             btn.setText(f"⬇️ Get {name}")
                             btn.setStyleSheet("""
-                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
-                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
-                            """)
+                                    QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
+                                    QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
+                                """)
 
                     style_btn(wb, word_exists, "📝", "Word")
                     style_btn(pb, pdf_exists, "📕", "PDF")
@@ -717,21 +723,19 @@ class SpecificationsTab(QWidget):
                     if zip_exists:
                         zb.setText("📥 ZIP ✅")
                         zb.setStyleSheet("""
-                            QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
-                            QPushButton:hover { background-color: #C8E6C9; }
-                        """)
+                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
+                                QPushButton:hover { background-color: #C8E6C9; }
+                            """)
                     else:
                         zb.setText("⬇️ Get ZIP")
                         zb.setStyleSheet("""
-                            QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
-                            QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
-                        """)
+                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
+                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
+                            """)
 
-                # Bind the UI style updater
                 version_combo.currentIndexChanged.connect(_update_btn_state)
                 _update_btn_state()
 
-                # Bind buttons
                 word_btn.clicked.connect(
                     lambda _, c=version_combo, b=word_btn: self._handle_document_action(c, 'word', b))
                 pdf_btn.clicked.connect(lambda _, c=version_combo, b=pdf_btn: self._handle_document_action(c, 'pdf', b))

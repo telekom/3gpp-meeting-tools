@@ -31,6 +31,8 @@ class SpecsCrawlerThread(QThread):
         self.session: requests.Session = NetworkSession.get_instance()
         self.spec_folder_pattern: re.Pattern = re.compile(r'^(\d{2}\.\d{2,3}(?:-[a-zA-Z0-9]+)?)/?$')
         self.version_pattern: re.Pattern = re.compile(r'-([a-zA-Z0-9]{3})\.zip$')
+        self.date_pattern: re.Pattern = re.compile(r'\b(19\d\d|20\d\d)-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b')
+        self.ver_str_pattern: re.Pattern = re.compile(r'\b(\d{1,2}\.\d{1,2}\.\d{1,2})\b')
 
     def fetch_links(self, url: str) -> List[Tuple[str, str]]:
         try:
@@ -61,7 +63,8 @@ class SpecsCrawlerThread(QThread):
             'title': '', 'type': '', 'initial_release': '',
             'radio_technology': '', 'radio_technologies_list': [],
             'primary_group': '',
-            'secondary_groups_raw': '', 'secondary_groups_list': []
+            'secondary_groups_raw': '', 'secondary_groups_list': [],
+            'version_dates': {}  # Maps "20.0.0" -> "2026-06-29"
         }
 
         try:
@@ -75,23 +78,25 @@ class SpecsCrawlerThread(QThread):
             def get_field(*label_texts: str) -> str:
                 for label_text in label_texts:
                     tags = soup.find_all(lambda tag: tag.name in ['td', 'th', 'span', 'b', 'strong', 'div', 'label']
-                                                     and tag.get_text(strip=True).strip(
-                        ':').lower() == label_text.lower())
+                                                     and tag.get_text(strip=True).strip(':').lower() == label_text.lower())
                     for tag in tags:
                         sibling = tag.find_next_sibling(
                             lambda t: t.name in ['td', 'span', 'div'] and t.get_text(strip=True))
-                        if sibling: return sibling.get_text(strip=True)
+                        if sibling:
+                            return sibling.get_text(strip=True)
 
                         parent_cell = tag.find_parent(['td', 'th'])
                         if parent_cell:
                             next_cell = parent_cell.find_next_sibling(['td', 'th'])
-                            if next_cell: return next_cell.get_text(strip=True)
+                            if next_cell:
+                                return next_cell.get_text(strip=True)
 
                         next_el = tag.find_next(lambda t: t.name in ['td', 'span', 'div', 'a'] and t.get_text(
                             strip=True) and t not in tag.descendants)
                         if next_el:
                             val = next_el.get_text(strip=True)
-                            if len(val) < 200: return val
+                            if len(val) < 200:
+                                return val
                 return ''
 
             metadata['title'] = get_by_id('lbltitle') or get_field('Title', 'Specification Title')
@@ -119,8 +124,6 @@ class SpecsCrawlerThread(QThread):
                     metadata['primary_group'] = p_match.group(1).replace(' ', '').upper()
                 else:
                     metadata['primary_group'] = raw_primary.strip()
-            else:
-                metadata['primary_group'] = ''
 
             raw_sec_groups = get_by_id('lblsecondarywg') or get_field('Secondary responsible groups', 'Secondary WG')
             metadata['secondary_groups_raw'] = raw_sec_groups
@@ -139,7 +142,26 @@ class SpecsCrawlerThread(QThread):
 
             if not metadata['title']:
                 title_tag = soup.find('h1') or soup.find('h2')
-                if title_tag: metadata['title'] = title_tag.get_text(strip=True)
+                if title_tag:
+                    metadata['title'] = title_tag.get_text(strip=True)
+
+            # --- Parse Portal Upload Dates from Releases / Versions Table ---
+            version_dates = {}
+            for row in soup.find_all('tr'):
+                cells = row.find_all(['td', 'th'])
+                if len(cells) < 2:
+                    continue
+
+                row_text = " ".join([c.get_text(strip=True) for c in cells])
+                ver_match = self.ver_str_pattern.search(row_text)
+                date_match = self.date_pattern.search(row_text)
+
+                if ver_match and date_match:
+                    version_str = ver_match.group(1)
+                    date_str = date_match.group(0)
+                    version_dates[version_str] = date_str
+
+            metadata['version_dates'] = version_dates
 
         except Exception as e:
             logging.warning(f"Metadata fetch failed for {spec_number} at {url}: {e}")
@@ -155,7 +177,8 @@ class SpecsCrawlerThread(QThread):
             if clean_file_name.endswith('.zip'):
                 version_str: str = ""
                 match = self.version_pattern.search(clean_file_name)
-                if match: version_str = file_version_to_version(match.group(1))
+                if match:
+                    version_str = file_version_to_version(match.group(1))
                 files_to_save.append((clean_file_name, version_str, file_url))
 
         return {
@@ -166,20 +189,20 @@ class SpecsCrawlerThread(QThread):
 
     def run(self) -> None:
         try:
-            if not self.root_url.endswith('/'): self.root_url += '/'
+            if not self.root_url.endswith('/'):
+                self.root_url += '/'
 
             spec_tasks: List[Tuple[str, str, str, str, bool]] = []
 
-            # --- 1. Gather all directories ---
-            # --- 1. Gather all directories ---
+            # ==========================================
+            # GATHER DIRECTORIES
+            # ==========================================
             if self.target_specs:
                 self.ui_log_msg.emit(f"⏳ Starting Targeted Update for: {', '.join(self.target_specs)}...",
                                      logging.INFO)
 
                 for target in self.target_specs:
-                    # Check if the user entered a series (e.g., "23") or a specific spec (e.g., "23.501")
                     if '.' not in target:
-                        # --- SERIES FETCH LOGIC ---
                         series_number = target
                         series_folder = f"{series_number}_series"
                         series_url = urljoin(self.root_url, f"{series_folder}/")
@@ -192,17 +215,16 @@ class SpecsCrawlerThread(QThread):
                             match = self.spec_folder_pattern.search(folder_name)
                             if match:
                                 clean_spec_number: str = match.group(1)
-                                if not spec_url.endswith('/'): spec_url += '/'
+                                if not spec_url.endswith('/'):
+                                    spec_url += '/'
                                 needs_meta = self.force_metadata_update or self.db.needs_metadata(clean_spec_number)
                                 spec_tasks.append((series_number, series_url, clean_spec_number, spec_url, needs_meta))
                     else:
-                        # --- SPECIFIC SPEC LOGIC ---
                         series_number = target.split('.')[0]
                         series_folder = f"{series_number}_series"
                         series_url = urljoin(self.root_url, f"{series_folder}/")
                         spec_url = urljoin(series_url, f"{target}/")
                         needs_meta = self.force_metadata_update or self.db.needs_metadata(target)
-
                         spec_tasks.append((series_number, series_url, target, spec_url, needs_meta))
             else:
                 self.ui_log_msg.emit("⏳ Mapping directories in parallel... (This is fast)", logging.INFO)
@@ -210,12 +232,8 @@ class SpecsCrawlerThread(QThread):
                 raw_links = self.fetch_links(self.root_url)
                 series_links = []
 
-                # ---> UPGRADED: Bulletproof Folder Name Isolation
                 for href, url in raw_links:
-                    # Isolate the exact folder name from the absolute URL to prevent path matching errors
                     folder_name = [x for x in url.split('/') if x][-1]
-
-                    # Strictly match 2 or 3 digits followed by "_series"
                     match = re.search(r'^(\d{2,3})_series$', folder_name.lower())
                     if match:
                         clean_series_number = match.group(1)
@@ -233,12 +251,12 @@ class SpecsCrawlerThread(QThread):
                         specs = future.result()
 
                         for href, spec_url in specs:
-                            # Isolate the clean spec folder name (e.g. "23.501")
                             folder_name: str = [x for x in spec_url.split('/') if x][-1]
                             match = self.spec_folder_pattern.search(folder_name)
                             if match:
                                 clean_spec_number: str = match.group(1)
-                                if not spec_url.endswith('/'): spec_url += '/'
+                                if not spec_url.endswith('/'):
+                                    spec_url += '/'
                                 needs_meta = self.force_metadata_update or self.db.needs_metadata(clean_spec_number)
                                 spec_tasks.append((s_name, s_url, clean_spec_number, spec_url, needs_meta))
 
@@ -265,7 +283,8 @@ class SpecsCrawlerThread(QThread):
                         files = result['files']
                         spec_num = result['spec_number']
 
-                        if not files: continue
+                        if not files:
+                            continue
 
                         for f_name, f_ver, f_url in files:
                             self.db.insert_or_update_file(
@@ -275,18 +294,17 @@ class SpecsCrawlerThread(QThread):
                     except Exception as e:
                         self.ui_log_msg.emit(f"❌ File fetch error: {e}", logging.ERROR)
 
-            # ---> EMIT: Files loaded! Unblock the UI for the user through the QueueManager
             self.ui_log_msg.emit("✅ Pass 1 Complete. Unblocking interface...", logging.INFO)
             self.finished_path.emit("SPECS_DB_PASS_ONE")
 
             # ==========================================
-            # PASS 2: SLOW METADATA SYNC (BACKGROUND)
+            # PASS 2: PORTAL METADATA & DATES SYNC
             # ==========================================
             specs_needing_meta = [task for task in spec_tasks if task[4]]
 
             if specs_needing_meta:
                 self.ui_log_msg.emit(
-                    f"⏳ Pass 2: Fetching deep metadata for {len(specs_needing_meta)} specifications...", logging.INFO)
+                    f"⏳ Pass 2: Fetching portal metadata & release dates for {len(specs_needing_meta)} specifications...", logging.INFO)
                 completed_meta: int = 0
 
                 with ThreadPoolExecutor(max_workers=10) as executor:
@@ -304,8 +322,11 @@ class SpecsCrawlerThread(QThread):
 
                         try:
                             metadata = future.result()
-                            if metadata and metadata.get('title'):
-                                self.db.update_spec_metadata(spec_num, metadata)
+                            if metadata:
+                                if metadata.get('title'):
+                                    self.db.update_spec_metadata(spec_num, metadata)
+                                if metadata.get('version_dates'):
+                                    self.db.update_file_dates(spec_num, metadata['version_dates'])
                         except Exception as e:
                             self.ui_log_msg.emit(f"❌ Metadata error for {spec_num}: {e}", logging.ERROR)
 
