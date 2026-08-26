@@ -2,6 +2,7 @@
 import logging
 from pathlib import Path
 import sqlite3
+from typing import Dict, List, Optional
 
 
 class SpecsDatabase:
@@ -9,7 +10,7 @@ class SpecsDatabase:
         self.db_path = db_path
         self.logger = logging.getLogger(__name__)
         self._init_db()
-        self._cleanup_orphans()  # Purge orphans on startup
+        self._cleanup_orphans()
 
     def _get_connection(self):
         return sqlite3.connect(self.db_path, check_same_thread=False)
@@ -17,8 +18,6 @@ class SpecsDatabase:
     def _init_db(self):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-
-            # Enable concurrent Read/Write for background syncing
             cursor.execute('PRAGMA journal_mode=WAL;')
 
             cursor.execute('''
@@ -58,6 +57,7 @@ class SpecsDatabase:
                     filename TEXT,
                     version TEXT,
                     url TEXT,
+                    upload_date TEXT,
                     UNIQUE(spec_id, version),
                     FOREIGN KEY(spec_id) REFERENCES specifications(id)
                 )
@@ -87,36 +87,33 @@ class SpecsDatabase:
                 )
             ''')
 
+            # Dynamic migration: Ensure upload_date exists on older local databases
+            cursor.execute("PRAGMA table_info(files)")
+            file_cols = [col[1] for col in cursor.fetchall()]
+            if 'upload_date' not in file_cols:
+                cursor.execute("ALTER TABLE files ADD COLUMN upload_date TEXT")
+
     def _cleanup_orphans(self):
-        """Removes any working groups, radio technologies, or series that are no longer linked to any specification."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-
-                # 1. Purge Orphaned Radio Technologies
                 cursor.execute('''
                     DELETE FROM radio_technologies 
                     WHERE id NOT IN (SELECT DISTINCT tech_id FROM spec_radio_tech_map WHERE tech_id IS NOT NULL)
                 ''')
-
-                # 2. Purge Orphaned Working Groups (Check both Primary and Secondary foreign keys)
                 cursor.execute('''
                     DELETE FROM working_groups 
                     WHERE id NOT IN (SELECT DISTINCT primary_group_id FROM specifications WHERE primary_group_id IS NOT NULL)
                       AND id NOT IN (SELECT DISTINCT group_id FROM spec_secondary_group_map WHERE group_id IS NOT NULL)
                 ''')
-
-                # 3. Purge Orphaned Series
                 cursor.execute('''
                     DELETE FROM series 
                     WHERE id NOT IN (SELECT DISTINCT series_id FROM specifications WHERE series_id IS NOT NULL)
                 ''')
-
         except Exception as e:
             self.logger.error(f"Error during specifications garbage collection: {e}")
 
     def vacuum(self) -> bool:
-        """Flushes WAL logs, defragments pages, and reclaims unused disk space."""
         try:
             with self._get_connection() as conn:
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
@@ -132,7 +129,6 @@ class SpecsDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-
                 cursor.execute("SELECT name FROM series ORDER BY CAST(name AS INTEGER)")
                 options['series'] = [r[0] for r in cursor.fetchall() if r[0]]
 
@@ -145,12 +141,13 @@ class SpecsDatabase:
                 cursor.execute(
                     "SELECT DISTINCT type FROM specifications WHERE type IS NOT NULL AND type != '' ORDER BY type")
                 options['types'] = [r[0] for r in cursor.fetchall() if r[0]]
-
         except Exception as e:
             self.logger.error(f"Error fetching filter options: {e}")
         return options
 
-    def insert_or_update_file(self, series_name, series_url, spec_number, spec_url, filename, version, file_url):
+    def insert_or_update_file(self, series_name: str, series_url: str, spec_number: str,
+                              spec_url: str, filename: str, version: str, file_url: str,
+                              upload_date: Optional[str] = None):
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('INSERT OR IGNORE INTO series (name, url) VALUES (?, ?)', (series_name, series_url))
@@ -165,11 +162,35 @@ class SpecsDatabase:
             spec_id = cursor.fetchone()[0]
 
             cursor.execute('''
-                INSERT OR REPLACE INTO files (spec_id, filename, version, url)
-                VALUES (?, ?, ?, ?)
-            ''', (spec_id, filename, version, file_url))
+                INSERT INTO files (spec_id, filename, version, url, upload_date)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(spec_id, version) DO UPDATE SET
+                    filename = excluded.filename,
+                    url = excluded.url,
+                    upload_date = COALESCE(excluded.upload_date, files.upload_date)
+            ''', (spec_id, filename, version, file_url, upload_date))
 
-    def update_spec_metadata(self, spec_number, metadata):
+    def update_file_dates(self, spec_number: str, version_date_map: Dict[str, str]):
+        """Batch-updates the portal upload dates for all matched versions of a specification."""
+        if not version_date_map:
+            return
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM specifications WHERE number = ?', (spec_number,))
+            spec_row = cursor.fetchone()
+            if not spec_row:
+                return
+            spec_id = spec_row[0]
+
+            for version, date_str in version_date_map.items():
+                clean_ver = version.lstrip('v').strip()
+                cursor.execute('''
+                    UPDATE files 
+                    SET upload_date = ?
+                    WHERE spec_id = ? AND (version = ? OR version = ?)
+                ''', (date_str, spec_id, clean_ver, f"v{clean_ver}"))
+
+    def update_spec_metadata(self, spec_number: str, metadata: dict):
         with self._get_connection() as conn:
             cursor = conn.cursor()
             primary_group_id = None
@@ -196,7 +217,6 @@ class SpecsDatabase:
                 return
             spec_id = spec_row[0]
 
-            # Clear previous mappings before saving new associations
             cursor.execute('DELETE FROM spec_radio_tech_map WHERE spec_id = ?', (spec_id,))
             cursor.execute('DELETE FROM spec_secondary_group_map WHERE spec_id = ?', (spec_id,))
 
@@ -225,7 +245,7 @@ class SpecsDatabase:
     def search_files(self, spec_number: str = None, release_version: str = None,
                      series: str = None, tech: str = None, group: str = None, spec_type: str = None) -> list:
         query = """
-            SELECT DISTINCT s.name, sp.number, sp.title, sp.type, f.filename, f.version, f.url
+            SELECT DISTINCT s.name, sp.number, sp.title, sp.type, f.filename, f.version, f.url, f.upload_date
             FROM files f
             JOIN specifications sp ON f.spec_id = sp.id
             JOIN series s ON sp.series_id = s.id
@@ -289,10 +309,8 @@ class SpecsDatabase:
         if series:
             series_list = [s.strip() for s in series.split(',') if s.strip()]
             if series_list:
-                clauses = []
-                for s in series_list:
-                    clauses.append("sp.number LIKE ?")
-                    params.append(f"{s}.%")
+                clauses = [f"sp.number LIKE ?" for _ in series_list]
+                params.extend([f"{s}.%" for s in series_list])
                 query += f" AND ({' OR '.join(clauses)})"
 
         if tech:
