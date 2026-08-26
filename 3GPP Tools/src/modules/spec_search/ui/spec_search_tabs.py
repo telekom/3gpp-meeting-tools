@@ -318,14 +318,26 @@ class SpecSearchTab(QWidget):
             self._start_batch_ingestion(dialog.selected_files_info)
 
     def _on_import_local_clicked(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, "Select Specification Document(s) (.docx)", "", "Word Files (*.docx)")
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Specification Document(s) (.docx)", "", "Word Files (*.docx)"
+        )
         if not paths:
             return
 
+        from modules.spec_search.core.spec_search_threads import is_change_mark_file
+
+        # Filter out revision marked (-rm) files
+        clean_paths = [p for p in paths if not is_change_mark_file(p)]
+        if len(clean_paths) < len(paths):
+            skipped = len(paths) - len(clean_paths)
+            self.log_msg.emit(f"ℹ️ Skipped {skipped} revision mark (-rm) file(s).", logging.INFO)
+
         grouped: Dict[str, List[Path]] = {}
-        for fp in paths:
+        for fp in clean_paths:
             p = Path(fp)
             base_key = re.sub(r"_\d+_.*$", "", p.stem)
+            # Remove clean suffix if present so grouping matches the base version
+            base_key = re.sub(r"[-_]cl$", "", base_key, flags=re.IGNORECASE)
             grouped.setdefault(base_key, []).append(p)
 
         tasks = []
