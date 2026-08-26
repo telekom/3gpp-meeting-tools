@@ -1,6 +1,6 @@
 """
 UI Components: Version Tree Widget and Rich Clause Content Inspector with match excerpts,
-term navigation, and one-click citation copying.
+term navigation, one-click citation copying, and persistent selection state.
 """
 
 import html
@@ -56,6 +56,10 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
         self.customContextMenuRequested.connect(self._on_context_menu)
 
     def populate(self, versions: List[Dict[str, Any]], saved_checked: Optional[List[Dict[str, Any]]] = None):
+        """
+        Populates the tree with indexed specifications and releases.
+        Restores check states from saved_checked (if provided), or defaults to all checked.
+        """
         self._updating_checks = True
         self.clear()
 
@@ -64,7 +68,11 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
             self.selection_changed.emit()
             return
 
-        saved_tuples = {(i.get("spec_number"), i.get("version")) for i in saved_checked} if saved_checked else None
+        saved_tuples = (
+            {(str(i.get("spec_number")), str(i.get("version"))) for i in saved_checked if i}
+            if saved_checked is not None
+            else None
+        )
 
         base_font = self.font()
         bold_font = QFont(base_font)
@@ -75,7 +83,6 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
         all_item.setData(0, Qt.UserRole, {"type": "all"})
         all_item.setFlags(all_item.flags() | Qt.ItemIsUserCheckable)
         all_item.setFont(0, bold_font)
-        all_item.setCheckState(0, Qt.Checked)
 
         specs_map: Dict[str, List[Dict[str, Any]]] = {}
         for v in versions:
@@ -87,7 +94,6 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
             spec_item.setData(0, Qt.UserRole, {"type": "spec", "spec_number": spec_num})
             spec_item.setFlags(spec_item.flags() | Qt.ItemIsUserCheckable)
             spec_item.setFont(0, bold_font)
-            spec_item.setCheckState(0, Qt.Checked)
 
             sorted_vers = sorted(specs_map[spec_num], key=lambda x: parse_version_tuple(x["version"]), reverse=True)
             for v in sorted_vers:
@@ -104,7 +110,12 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
                 child.setFlags(child.flags() | Qt.ItemIsUserCheckable)
                 child.setFont(0, base_font)
 
-                is_checked = (spec_num, v["version"]) in saved_tuples if saved_tuples else True
+                # If saved_checked was provided, restore exact check state; otherwise default to Checked
+                if saved_tuples is not None:
+                    is_checked = (str(spec_num), str(v["version"])) in saved_tuples
+                else:
+                    is_checked = True
+
                 child.setCheckState(0, Qt.Checked if is_checked else Qt.Unchecked)
 
             spec_item.setExpanded(True)
@@ -126,6 +137,7 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
         return selected_ids
 
     def get_checked_versions_info(self) -> List[Dict[str, Any]]:
+        """Returns list of all checked specification versions for state persistence."""
         checked = []
         for s_idx in range(1, self.topLevelItemCount()):
             spec_item = self.topLevelItem(s_idx)
@@ -133,7 +145,10 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
                 child = spec_item.child(c_idx)
                 if child.checkState(0) == Qt.Checked:
                     d = child.data(0, Qt.UserRole) or {}
-                    checked.append({"spec_number": d.get("spec_number"), "version": d.get("version")})
+                    checked.append({
+                        "spec_number": str(d.get("spec_number", "")),
+                        "version": str(d.get("version", "")),
+                    })
         return checked
 
     def _on_item_changed(self, item: QTreeWidgetItem, column: int):
@@ -163,13 +178,28 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
         self.selection_changed.emit()
 
     def _update_parent_states(self):
+        total_children = 0
+        total_checked = 0
+
         for s_idx in range(1, self.topLevelItemCount()):
             spec_item = self.topLevelItem(s_idx)
             c_cnt = spec_item.childCount()
             if c_cnt == 0:
                 continue
             checked = sum(1 for i in range(c_cnt) if spec_item.child(i).checkState(0) == Qt.Checked)
-            spec_item.setCheckState(0, Qt.Checked if checked == c_cnt else (Qt.Unchecked if checked == 0 else Qt.PartiallyChecked))
+            total_children += c_cnt
+            total_checked += checked
+            spec_item.setCheckState(
+                0, Qt.Checked if checked == c_cnt else (Qt.Unchecked if checked == 0 else Qt.PartiallyChecked)
+            )
+
+        # Update root "All Indexed Specifications" item
+        if self.topLevelItemCount() > 0:
+            all_item = self.topLevelItem(0)
+            if total_children > 0:
+                all_item.setCheckState(
+                    0, Qt.Checked if total_checked == total_children else (Qt.Unchecked if total_checked == 0 else Qt.PartiallyChecked)
+                )
 
     def _on_context_menu(self, pos):
         item = self.itemAt(pos)
@@ -262,11 +292,9 @@ class SpecClauseInspector(QGroupBox):
         header_title = f"TS {spec_number} v{version}{date_str} - Clause {clause_number}: {clause_title}"
         self.title_lbl.setText(header_title)
 
-        # Save clean citation string
         self._last_citation_text = f"3GPP TS {spec_number} v{version}{date_str}, Clause {clause_number} ({clause_title}):\n\n{content}"
         self.btn_copy.setEnabled(True)
 
-        # Count match hits
         match_count = 0
         if self._current_search_query:
             match_count = len(re.findall(re.escape(self._current_search_query), content, re.IGNORECASE))
@@ -281,12 +309,10 @@ class SpecClauseInspector(QGroupBox):
             self.btn_prev.setEnabled(False)
             self.btn_next.setEnabled(False)
 
-        # Extract Key Match Excerpt
         excerpt_html = ""
         if self._current_search_query and match_count > 0:
             excerpt_html = self._generate_match_excerpt(content, self._current_search_query)
 
-        # Format full document HTML with highlighted search terms
         escaped_content = html.escape(content)
         if self._current_search_query:
             pattern = re.compile(re.escape(html.escape(self._current_search_query)), re.IGNORECASE)
@@ -308,12 +334,10 @@ class SpecClauseInspector(QGroupBox):
         """
         self.browser.setHtml(formatted_html)
 
-        # Auto-scroll to first occurrence
         if self._current_search_query and match_count > 0:
             self._find_next()
 
     def _generate_match_excerpt(self, full_text: str, query: str) -> str:
-        """Extracts surrounding paragraph context around the match to show at the top."""
         paragraphs = full_text.split("\n")
         matched_paras = [p for p in paragraphs if query.lower() in p.lower()]
 
