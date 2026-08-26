@@ -1,6 +1,6 @@
 """
 Extracts plain-text clauses from 3GPP .docx specification documents directly via lxml.
-Accurately distinguishes true Clause Headings (Heading 1-6, Annexes) from numbered procedure steps.
+Accurately strips Table of Contents (TOC), dot leaders, and front-matter stubs.
 """
 
 import logging
@@ -26,7 +26,7 @@ from modules.nas.core.parsing.protocol_parser_utils import (
     extract_document_root,
 )
 
-# Multi-level clause headings (e.g., '4.1', '5.2.3.1', '4.3.2.2.1')
+# Multi-level clause headings (e.g., '4.1', '5.2.3.1', '5.32.1')
 RE_SUBCLAUSE_HEADER = re.compile(
     r"^(?:(?:clause|subclause)\s+)?((?:[1-9]\d*(?:\.\d+)+))\s*[:\.\t\s]+(.+)$",
     re.IGNORECASE,
@@ -43,15 +43,18 @@ RE_ANNEX_HEADER = re.compile(
     re.IGNORECASE,
 )
 
-# Disqualify common procedure step / list patterns from being treated as clause titles
+# Disqualify procedure steps and list items
 RE_PROCEDURE_STEP_EXCLUDE = re.compile(
     r"^(?:From\s+\w+\s+to\s+\w+|The\s+\w+\s+shall|If\s+the|When\s+the|In\s+order|Step\s+\d+|[a-z]\))",
     re.IGNORECASE,
 )
 
+# Identifies Table of Contents dot leaders and trailing page numbers
+RE_TOC_PAGE_NUMBER = re.compile(r"(?:\.{3,}|\t+|\s{3,})\d+$|\s+\d{1,4}$")
+
 
 def _get_paragraph_style(p_elem: ET.Element) -> str:
-    """Extracts the OpenXML paragraph style identifier (e.g. 'Heading1', 'heading 2', 'ANNEX')."""
+    """Extracts the OpenXML paragraph style identifier."""
     for child in p_elem:
         if child.tag.endswith("pPr"):
             for sub in child:
@@ -60,6 +63,26 @@ def _get_paragraph_style(p_elem: ET.Element) -> str:
                         if k.endswith("val") or k == "val":
                             return str(v).lower()
     return ""
+
+
+def _is_toc_paragraph(p_elem: ET.Element, p_text: str, p_style: str) -> bool:
+    """Detects whether a paragraph belongs to the Table of Contents."""
+    # 1. Check style names
+    if any(toc_key in p_style for toc_key in ["toc", "contents", "table of contents"]):
+        return True
+
+    # 2. Check for Word field codes or dot leaders
+    xml_str = ET.tostring(p_elem, encoding="utf-8").decode("utf-8", errors="ignore")
+    if "TOC \\" in xml_str or "PAGEREF " in xml_str or "fldSimple" in xml_str or 'w:leader="dot"' in xml_str:
+        return True
+
+    # 3. Check for dot leaders / trailing page numbers without heading styles
+    if RE_TOC_PAGE_NUMBER.search(p_text.strip()):
+        is_true_heading_style = any(h in p_style for h in ["heading", "h1", "h2", "h3", "h4", "h5", "h6", "annex", "ti"])
+        if not is_true_heading_style:
+            return True
+
+    return False
 
 
 class SpecDocxExtractor:
@@ -98,6 +121,9 @@ class SpecDocxExtractor:
                 "text_fragments": [],
             }
 
+            # Flag to ignore front matter before Foreword or Clause 1 Scope
+            past_front_matter = False
+
             for elem in list(body):
                 if elem.tag == TAG_P:
                     p_text = _extract_p_text(elem)
@@ -105,6 +131,19 @@ class SpecDocxExtractor:
                         continue
 
                     p_style = _get_paragraph_style(elem)
+
+                    # Check for start of document body
+                    if not past_front_matter:
+                        p_lower = p_text.strip().lower()
+                        if p_lower.startswith("1 scope") or p_lower == "scope" or p_lower.startswith("foreword"):
+                            past_front_matter = True
+                        elif _is_toc_paragraph(elem, p_text, p_style):
+                            continue
+
+                    # Skip Table of Contents entries even if encountered later
+                    if _is_toc_paragraph(elem, p_text, p_style):
+                        continue
+
                     is_heading_style = any(h in p_style for h in ["heading", "h1", "h2", "h3", "h4", "h5", "h6", "annex", "ti"])
 
                     # Check for Heading/Clause boundary
@@ -121,14 +160,15 @@ class SpecDocxExtractor:
                         c_num = match_annex.group(1).strip()
                         c_title = match_annex.group(2).strip() or "Annex"
                     elif match_subclause:
-                        # Ensure it's not a false positive procedure step (e.g., '1.1 From UE to...')
                         title_cand = match_subclause.group(2).strip()
+                        title_cand = RE_TOC_PAGE_NUMBER.sub("", title_cand).strip()
                         if is_heading_style or not RE_PROCEDURE_STEP_EXCLUDE.match(title_cand):
                             is_new_clause = True
                             c_num = match_subclause.group(1).strip()
                             c_title = title_cand
                     elif match_toplevel and (is_heading_style or p_style in ["title", "h1"]):
                         title_cand = match_toplevel.group(2).strip()
+                        title_cand = RE_TOC_PAGE_NUMBER.sub("", title_cand).strip()
                         if not RE_PROCEDURE_STEP_EXCLUDE.match(title_cand):
                             is_new_clause = True
                             c_num = match_toplevel.group(1).strip()
@@ -155,7 +195,8 @@ class SpecDocxExtractor:
 
     def _finalize_clause(self, current_clause: Dict[str, Any], clauses_list: List[Dict[str, Any]]):
         content = "\n".join(current_clause["text_fragments"]).strip()
-        if content:
+        # Ensure we do not save empty stubs or 0-length front matter
+        if content and len(content) > 10:
             clauses_list.append({
                 "clause_number": current_clause["clause_number"],
                 "clause_title": current_clause["clause_title"],
