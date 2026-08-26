@@ -1,17 +1,21 @@
 """
-UI Components: Version Tree Widget and Clause Content Inspector with live term highlighting.
+UI Components: Version Tree Widget and Rich Clause Content Inspector with match excerpts,
+term navigation, and one-click citation copying.
 """
 
 import html
 import re
 from typing import Any, Dict, List, Optional
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QTextCursor
 from PyQt5.QtWidgets import (
     QAction,
+    QApplication,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QMenu,
+    QPushButton,
     QTextBrowser,
     QTreeWidget,
     QTreeWidgetItem,
@@ -192,23 +196,55 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
 
 
 class SpecClauseInspector(QGroupBox):
-    """Renders full specification clause content with highlighted matches."""
+    """Renders rich clause content with context excerpts, match navigation, and citation copying."""
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__("Clause Content Inspector", parent)
+        self._current_search_query = ""
+        self._last_citation_text = ""
         self._setup_ui()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
+        # Top Control Bar
+        header_bar = QHBoxLayout()
         self.title_lbl = QLabel("No clause selected")
         self.title_lbl.setStyleSheet("font-weight: bold; color: #0284C7; font-size: 12px;")
-        layout.addWidget(self.title_lbl)
+        header_bar.addWidget(self.title_lbl, stretch=1)
 
+        self.match_badge = QLabel("")
+        self.match_badge.setStyleSheet("font-weight: bold; color: #B45309; background-color: #FEF3C7; padding: 2px 6px; border-radius: 4px;")
+        self.match_badge.setVisible(False)
+        header_bar.addWidget(self.match_badge)
+
+        self.btn_prev = QPushButton("◀ Prev")
+        self.btn_prev.setToolTip("Jump to previous match in clause")
+        self.btn_prev.clicked.connect(self._find_prev)
+        self.btn_prev.setEnabled(False)
+        header_bar.addWidget(self.btn_prev)
+
+        self.btn_next = QPushButton("Next ▶")
+        self.btn_next.setToolTip("Jump to next match in clause")
+        self.btn_next.clicked.connect(self._find_next)
+        self.btn_next.setEnabled(False)
+        header_bar.addWidget(self.btn_next)
+
+        self.btn_copy = QPushButton("📋 Copy Citation")
+        self.btn_copy.setToolTip("Copy clause citation and text to clipboard")
+        self.btn_copy.clicked.connect(self._copy_citation)
+        self.btn_copy.setEnabled(False)
+        header_bar.addWidget(self.btn_copy)
+
+        layout.addLayout(header_bar)
+
+        # Document Browser
         self.browser = QTextBrowser()
         self.browser.setReadOnly(True)
-        self.browser.setPlaceholderText("Select a cell in the matrix to view the full clause text with highlighted matches...")
+        self.browser.setOpenExternalLinks(True)
+        self.browser.setPlaceholderText("Select a cell in the evolution matrix above to inspect the full clause content and match context...")
         layout.addWidget(self.browser)
 
     def display_clause(
@@ -221,25 +257,115 @@ class SpecClauseInspector(QGroupBox):
         release_date: Optional[str] = None,
         search_query: str = "",
     ):
+        self._current_search_query = search_query.strip()
         date_str = f" ({release_date})" if release_date else ""
-        self.title_lbl.setText(f"TS {spec_number} v{version}{date_str} - Clause {clause_number}: {clause_title}")
+        header_title = f"TS {spec_number} v{version}{date_str} - Clause {clause_number}: {clause_title}"
+        self.title_lbl.setText(header_title)
 
-        escaped = html.escape(content)
-        if search_query.strip():
-            pattern = re.compile(re.escape(html.escape(search_query.strip())), re.IGNORECASE)
-            escaped = pattern.sub(
-                lambda m: f'<mark style="background-color: #FEF08A; font-weight: bold; padding: 1px 3px; border-radius: 2px;">{m.group(0)}</mark>',
-                escaped,
+        # Save clean citation string
+        self._last_citation_text = f"3GPP TS {spec_number} v{version}{date_str}, Clause {clause_number} ({clause_title}):\n\n{content}"
+        self.btn_copy.setEnabled(True)
+
+        # Count match hits
+        match_count = 0
+        if self._current_search_query:
+            match_count = len(re.findall(re.escape(self._current_search_query), content, re.IGNORECASE))
+
+        if match_count > 0:
+            self.match_badge.setText(f"🎯 {match_count} Match(es)")
+            self.match_badge.setVisible(True)
+            self.btn_prev.setEnabled(True)
+            self.btn_next.setEnabled(True)
+        else:
+            self.match_badge.setVisible(False)
+            self.btn_prev.setEnabled(False)
+            self.btn_next.setEnabled(False)
+
+        # Extract Key Match Excerpt (Surrounding Paragraph/Sentence Context)
+        excerpt_html = ""
+        if self._current_search_query:
+            excerpt_html = self._generate_match_excerpt(content, self._current_search_query)
+
+        # Format full document HTML
+        escaped_content = html.escape(content)
+        if self._current_search_query:
+            pattern = re.compile(re.escape(html.escape(self._current_search_query)), re.IGNORECASE)
+            escaped_content = pattern.sub(
+                lambda m: f'<mark style="background-color: #FEF08A; font-weight: bold; padding: 1px 4px; border-radius: 2px; color: #0F172A;">{m.group(0)}</mark>',
+                escaped_content,
             )
 
         formatted_html = f"""
-        <div style="font-family: Segoe UI, sans-serif; font-size: 11px; line-height: 1.5; color: #1E293B;">
-            <h3 style="color: #0369A1; margin-bottom: 8px;">{clause_number} {html.escape(clause_title)}</h3>
-            <pre style="white-space: pre-wrap; font-family: Segoe UI, sans-serif; font-size: 11px; color: #334155;">{escaped}</pre>
-        </div>
+        <html>
+        <body style="font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; line-height: 1.6; color: #1E293B; margin: 4px;">
+            {excerpt_html}
+            <div style="border-bottom: 2px solid #E2E8F0; margin: 10px 0 8px 0; padding-bottom: 4px;">
+                <span style="color: #0369A1; font-weight: bold; font-size: 13px;">{clause_number} {html.escape(clause_title)}</span>
+            </div>
+            <pre style="white-space: pre-wrap; font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #334155; line-height: 1.5;">{escaped_content}</pre>
+        </body>
+        </html>
         """
         self.browser.setHtml(formatted_html)
 
+        # Auto-scroll to first occurrence
+        if self._current_search_query:
+            self._find_next()
+
+    def _generate_match_excerpt(self, full_text: str, query: str) -> str:
+        """Extracts surrounding paragraph context around the first match to show at the top."""
+        paragraphs = full_text.split("\n")
+        matched_paras = [p for p in paragraphs if query.lower() in p.lower()]
+
+        if not matched_paras:
+            return ""
+
+        excerpt = matched_paras[0].strip()
+        escaped_excerpt = html.escape(excerpt)
+        pattern = re.compile(re.escape(html.escape(query)), re.IGNORECASE)
+        highlighted_excerpt = pattern.sub(
+            lambda m: f'<mark style="background-color: #FEF08A; font-weight: bold; padding: 1px 4px; border-radius: 2px; color: #0F172A;">{m.group(0)}</mark>',
+            escaped_excerpt,
+        )
+
+        return f"""
+        <div style="background-color: #F8FAFC; border-left: 4px solid #0284C7; border: 1px solid #E2E8F0; border-left-width: 4px; border-radius: 4px; padding: 8px 10px; margin-bottom: 12px;">
+            <div style="font-weight: bold; color: #0369A1; font-size: 11px; margin-bottom: 4px;">💡 Key Match Excerpt & Context:</div>
+            <div style="color: #1E293B; font-size: 11px; font-style: normal; line-height: 1.5;">{highlighted_excerpt}</div>
+        </div>
+        """
+
+    def _find_next(self):
+        if not self._current_search_query:
+            return
+        found = self.browser.find(self._current_search_query)
+        if not found:
+            # Wrap around to start
+            self.browser.moveCursor(QTextCursor.Start)
+            self.browser.find(self._current_search_query)
+
+    def _find_prev(self):
+        if not self._current_search_query:
+            return
+        found = self.browser.find(self._current_search_query, QTextBrowser.FindBackward)
+        if not found:
+            # Wrap around to end
+            self.browser.moveCursor(QTextCursor.End)
+            self.browser.find(self._current_search_query, QTextBrowser.FindBackward)
+
+    def _copy_citation(self):
+        if self._last_citation_text:
+            QApplication.clipboard().setText(self._last_citation_text)
+            self.btn_copy.setText("✅ Copied!")
+            QApplication.processEvents()
+            self.btn_copy.setText("📋 Copy Citation")
+
     def clear_display(self):
         self.title_lbl.setText("No clause selected")
+        self.match_badge.setVisible(False)
+        self.btn_prev.setEnabled(False)
+        self.btn_next.setEnabled(False)
+        self.btn_copy.setEnabled(False)
         self.browser.clear()
+        self._current_search_query = ""
+        self._last_citation_text = ""
