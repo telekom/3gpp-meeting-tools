@@ -1,6 +1,7 @@
 """
 Main Tab for Specification Substring Search, Release Evolution Tracking, and Cutoff Date Analysis.
-Visualizes multi-specification search results in dedicated per-specification tabs.
+Visualizes multi-specification search results in dedicated per-specification tabs with automatic
+persistence of active filters and selected specification versions.
 """
 
 import json
@@ -68,19 +69,28 @@ class SpecSearchTab(QWidget):
         self._current_req_id: int = 0
         self.selected_version_ids: List[int] = []
 
+        # Debounce timer for search execution
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(300)
         self._search_timer.timeout.connect(self._execute_search)
 
+        # Debounce timer for saving filter/selection state
+        self._save_config_timer = QTimer(self)
+        self._save_config_timer.setSingleShot(True)
+        self._save_config_timer.setInterval(500)
+        self._save_config_timer.timeout.connect(self._save_config)
+
         self._setup_ui()
-        self.refresh_versions()
+        self._load_config_and_refresh()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
 
+        # ---------------------------------------------------------------------
         # Toolbar
+        # ---------------------------------------------------------------------
         toolbar = QHBoxLayout()
         self.fetch_btn = QPushButton("📥 Import from Specs DB")
         self.fetch_btn.clicked.connect(self._on_fetch_clicked)
@@ -106,7 +116,9 @@ class SpecSearchTab(QWidget):
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
-        # Splitter Layout
+        # ---------------------------------------------------------------------
+        # Splitter Layout (Left: Version Tree, Right: Tabs & Inspector)
+        # ---------------------------------------------------------------------
         main_splitter = QSplitter(Qt.Horizontal)
 
         # Left Panel: Versions Tree
@@ -136,14 +148,14 @@ class SpecSearchTab(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search exact substring or phrase (e.g. 'slice replacement', 'emergency', 'PDU session')...")
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.textChanged.connect(lambda: self._search_timer.start())
+        self.search_input.textChanged.connect(self._on_filter_changed)
         search_bar_layout.addWidget(self.search_input)
 
         self.clause_filter_input = QLineEdit()
         self.clause_filter_input.setPlaceholderText("Filter clause (e.g. 5.2, 8.1)...")
         self.clause_filter_input.setFixedWidth(160)
         self.clause_filter_input.setClearButtonEnabled(True)
-        self.clause_filter_input.textChanged.connect(lambda: self._search_timer.start())
+        self.clause_filter_input.textChanged.connect(self._on_filter_changed)
         search_bar_layout.addWidget(self.clause_filter_input)
         matrix_layout.addLayout(search_bar_layout)
 
@@ -158,13 +170,13 @@ class SpecSearchTab(QWidget):
         self.cutoff_date_edit.setDisplayFormat("yyyy-MM-dd")
         self.cutoff_date_edit.setDate(QDate.currentDate().addYears(-3))
         self.cutoff_date_edit.setEnabled(False)
-        self.cutoff_date_edit.dateChanged.connect(lambda: self._search_timer.start())
+        self.cutoff_date_edit.dateChanged.connect(self._on_filter_changed)
         cutoff_date_bar.addWidget(self.cutoff_date_edit)
 
         self.chk_post_date_only = QCheckBox("Show Only Post-Cutoff Additions")
         self.chk_post_date_only.setToolTip("Hides clauses where matching text was already present prior to the selected date.")
         self.chk_post_date_only.setEnabled(False)
-        self.chk_post_date_only.toggled.connect(lambda: self._search_timer.start())
+        self.chk_post_date_only.toggled.connect(self._on_filter_changed)
         cutoff_date_bar.addWidget(self.chk_post_date_only)
 
         cutoff_date_bar.addStretch()
@@ -188,18 +200,97 @@ class SpecSearchTab(QWidget):
         main_splitter.setSizes([260, 690])
         layout.addWidget(main_splitter)
 
+    # -------------------------------------------------------------------------
+    # Configuration Persistence
+    # -------------------------------------------------------------------------
+
+    def _save_config(self):
+        """Saves active search text, clause filter, cutoff dates, and checked specification versions."""
+        try:
+            checked_versions = self.version_tree.get_checked_versions_info()
+            config_data = {
+                "search_query": self.search_input.text(),
+                "clause_filter": self.clause_filter_input.text(),
+                "enable_cutoff": self.chk_filing_date.isChecked(),
+                "cutoff_date": self.cutoff_date_edit.date().toString("yyyy-MM-dd"),
+                "only_post_cutoff": self.chk_post_date_only.isChecked(),
+                "checked_versions": checked_versions,
+            }
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(config_data, f, indent=4)
+        except Exception as e:
+            logging.error(f"Failed to save spec search config: {e}")
+
+    def _load_config(self) -> dict:
+        """Loads saved specification search settings from JSON."""
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logging.error(f"Failed to read spec search config: {e}")
+        return {}
+
+    def _load_config_and_refresh(self):
+        """Restores UI filter inputs, populates the tree with saved checkboxes, and runs search."""
+        config = self._load_config()
+        versions = self.db.get_imported_versions()
+
+        saved_checked = config.get("checked_versions", None) if config else None
+        self.version_tree.populate(versions, saved_checked=saved_checked)
+        self.selected_version_ids = self.version_tree.get_selected_version_ids()
+
+        if config:
+            # Block signals while restoring to avoid redundant triggers
+            self.search_input.blockSignals(True)
+            self.clause_filter_input.blockSignals(True)
+            self.chk_filing_date.blockSignals(True)
+            self.cutoff_date_edit.blockSignals(True)
+            self.chk_post_date_only.blockSignals(True)
+
+            self.search_input.setText(config.get("search_query", ""))
+            self.clause_filter_input.setText(config.get("clause_filter", ""))
+
+            enable_cutoff = config.get("enable_cutoff", False)
+            self.chk_filing_date.setChecked(enable_cutoff)
+            self.cutoff_date_edit.setEnabled(enable_cutoff)
+            self.chk_post_date_only.setEnabled(enable_cutoff)
+
+            saved_date = config.get("cutoff_date", "")
+            if saved_date:
+                d = QDate.fromString(saved_date, "yyyy-MM-dd")
+                if d.isValid():
+                    self.cutoff_date_edit.setDate(d)
+
+            self.chk_post_date_only.setChecked(config.get("only_post_cutoff", False))
+
+            self.search_input.blockSignals(False)
+            self.clause_filter_input.blockSignals(False)
+            self.chk_filing_date.blockSignals(False)
+            self.cutoff_date_edit.blockSignals(False)
+            self.chk_post_date_only.blockSignals(False)
+
+        # Trigger search if a saved query exists
+        if self.search_input.text().strip():
+            self._execute_search()
+
+    def _on_filter_changed(self):
+        self._search_timer.start()
+        self._save_config_timer.start()
+
     def _on_cutoff_date_filter_toggled(self, checked: bool):
         self.cutoff_date_edit.setEnabled(checked)
         self.chk_post_date_only.setEnabled(checked)
+        self._on_filter_changed()
+
+    def _on_version_selection_changed(self):
+        self.selected_version_ids = self.version_tree.get_selected_version_ids()
         self._search_timer.start()
+        self._save_config_timer.start()
 
     # -------------------------------------------------------------------------
     # Search Execution
     # -------------------------------------------------------------------------
-
-    def _on_version_selection_changed(self):
-        self.selected_version_ids = self.version_tree.get_selected_version_ids()
-        self._execute_search()
 
     def _execute_search(self):
         query = self.search_input.text().strip()
@@ -342,7 +433,12 @@ class SpecSearchTab(QWidget):
 
     def refresh_versions(self):
         versions = self.db.get_imported_versions()
-        self.version_tree.populate(versions)
+        saved_checked = self.version_tree.get_checked_versions_info()
+        if not saved_checked:
+            cfg = self._load_config()
+            saved_checked = cfg.get("checked_versions") if cfg else None
+
+        self.version_tree.populate(versions, saved_checked=saved_checked)
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
 
     def _on_fetch_clicked(self):
@@ -415,6 +511,7 @@ class SpecSearchTab(QWidget):
         self.import_local_btn.setEnabled(True)
         self.log_msg.emit(f"✅ Indexed {specs_count} specification(s) ({clauses_count} total clauses).", logging.INFO)
         self.refresh_versions()
+        self._save_config()
 
     def _on_import_error(self, err: str):
         self.progress_bar.setVisible(False)
@@ -427,6 +524,7 @@ class SpecSearchTab(QWidget):
         if QMessageBox.question(self, "Confirm Delete", f"Delete TS {spec_number} v{version}?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
             self.db.clear_version(spec_number, version)
             self.refresh_versions()
+            self._save_config()
             self._execute_search()
 
     def _delete_spec_group(self, spec_number: str, count: int):
@@ -435,6 +533,7 @@ class SpecSearchTab(QWidget):
                 if item.get("spec_number") == spec_number:
                     self.db.clear_version(spec_number, item["version"])
             self.refresh_versions()
+            self._save_config()
             self._execute_search()
 
     def _on_clear_version_clicked(self):
@@ -446,6 +545,7 @@ class SpecSearchTab(QWidget):
             for item in checked:
                 self.db.clear_version(item["spec_number"], item["version"])
             self.refresh_versions()
+            self._save_config()
             self._execute_search()
 
     def _on_wipe_db_clicked(self):
@@ -485,6 +585,7 @@ class SpecSearchTab(QWidget):
         self.spec_results_tabs.clear()
         self.inspector.clear_display()
         self.matrix_title.setText("Type a query above to see Release Evolution Matrix")
+        self._save_config()
         self.log_msg.emit("🧹 Specification Search DB wiped successfully.", logging.INFO)
 
     def _on_wipe_db_error(self, err: str):
