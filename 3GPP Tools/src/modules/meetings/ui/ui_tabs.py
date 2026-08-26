@@ -863,29 +863,47 @@ class MeetingsTab(QWidget):
 
     def _update_last_meeting_btn(self):
         """Dynamically updates the 'Open Last Meeting' button text and tooltip."""
-        last_id, last_num = self.settings.get_last_meeting()
+        last_id, last_num, last_wg = self.settings.get_last_meeting()
+
+        # Backward compatibility fallback: resolve WG from DB if absent from older config files
+        if last_id and last_num and not last_wg:
+            results = self.db.search_meetings(search_term=last_num)
+            matched = next((m for m in results if m.get("mtg_id") == last_id), None)
+            if matched:
+                last_wg = matched.get("wg_name")
+
         if last_num:
-            self.btn_open_last.setText(f"🚀 Open Last Meeting ({last_num})")
-            self.btn_open_last.setToolTip(f"Instantly resume working on meeting {last_num}")
+            display_tag = f"{last_wg}#{last_num}" if last_wg else f"{last_num}"
+            self.btn_open_last.setText(f"🚀 Open Last Meeting ({display_tag})")
+            self.btn_open_last.setToolTip(f"Instantly resume working on meeting {display_tag}")
         else:
             self.btn_open_last.setText("🚀 Open Last Meeting")
             self.btn_open_last.setToolTip("No recent meeting history found. Please open a meeting first.")
 
     def _open_last_meeting(self):
         try:
-            last_id, last_num = self.settings.get_last_meeting()
+            last_id, last_num, last_wg = self.settings.get_last_meeting()
 
             if not last_id or not last_num:
                 QMessageBox.information(self, "No History",
                                         "No recent meeting history found. Please open a meeting first.")
                 return
 
-            results = self.db.search_meetings(search_term=last_num)
+            # Target search using WG filter when available
+            wg_filter = [last_wg] if last_wg else None
+            results = self.db.search_meetings(wg_name=wg_filter, search_term=last_num)
             target_meeting = next((m for m in results if m.get("mtg_id") == last_id), None)
+
+            # Global fallback search if meeting was not matched under WG
+            if not target_meeting:
+                results = self.db.search_meetings(search_term=last_num)
+                target_meeting = next((m for m in results if m.get("mtg_id") == last_id), None)
+
+            display_tag = f"{last_wg}#{last_num}" if last_wg else f"'{last_num}'"
 
             if not target_meeting:
                 QMessageBox.warning(self, "Not Found",
-                                    f"Meeting '{last_num}' could not be found in the database.\nIt may have been cleared or the database was updated.")
+                                    f"Meeting {display_tag} could not be found in the database.\nIt may have been cleared or the database was updated.")
                 return
 
             filepath = self._get_tdoc_list_path(target_meeting)
@@ -893,8 +911,7 @@ class MeetingsTab(QWidget):
             if filepath and filepath.exists():
                 self._open_tdocs_window(target_meeting, str(filepath))
             else:
-                dummy_btn = QPushButton()
-                self._download_and_open_tdocs(target_meeting, dummy_btn)
+                self._download_and_open_tdocs(target_meeting, 0)
 
         except Exception as e:
             QMessageBox.critical(self, "Launch Error", f"Could not open last meeting:\n{e}")

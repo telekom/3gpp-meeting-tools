@@ -44,6 +44,7 @@ class MeetingsSettings:
 
             data['last_mtg_id'] = mtg_info.get("mtg_id")
             data['last_mtg_number'] = mtg_info.get("meeting_number")
+            data['last_mtg_wg'] = mtg_info.get("wg_name") or mtg_info.get("wg", "")
 
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
@@ -51,15 +52,15 @@ class MeetingsSettings:
             print(f"Error saving last meeting state: {e}")
 
     def get_last_meeting(self) -> tuple:
-        """Returns (last_id, last_num). Returns (None, None) if missing."""
+        """Returns (last_id, last_num, last_wg). Returns (None, None, None) if missing."""
         if not self.config_file.exists():
-            return None, None
+            return None, None, None
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            return data.get("last_mtg_id"), data.get("last_mtg_number")
+            return data.get("last_mtg_id"), data.get("last_mtg_number"), data.get("last_mtg_wg")
         except Exception:
-            return None, None
+            return None, None, None
 
     def save_filters(self, filters: dict):
         try:
