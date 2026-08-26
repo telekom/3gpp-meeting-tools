@@ -1,5 +1,6 @@
 """
 Background QThread workers for asynchronous FTP downloading, DOCX extraction, and fast query execution.
+Filters out 3GPP revision mark (-rm) files during extraction and indexing.
 """
 
 import logging
@@ -16,6 +17,15 @@ from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatch
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase
 from modules.spec_search.core.spec_text_extractor import SpecDocxExtractor
 from modules.word_tools.core.word_converter import convert_doc_to_docx
+
+
+def is_change_mark_file(file_path_or_name: Any) -> bool:
+    """
+    Identifies 3GPP Word change/revision-marked documents (-rm).
+    Matches patterns like '24501-i40-rm.docx', '38331-h20_rm.doc', or 'spec_s00_s04-rm.docx'.
+    """
+    stem = Path(str(file_path_or_name)).stem.lower()
+    return bool(re.search(r"[-_]rm(?=[-._]|$)", stem, re.IGNORECASE))
 
 
 class SpecSearchImportThread(QThread):
@@ -63,11 +73,14 @@ class SpecSearchImportThread(QThread):
             try:
                 target_docs: List[Path] = []
 
-                # 1. Local files
+                # 1. Local files (filter out any -rm files)
                 if local_docx_input:
                     if isinstance(local_docx_input, list):
-                        target_docs = [Path(p) for p in local_docx_input if Path(p).exists()]
-                    elif Path(local_docx_input).exists():
+                        target_docs = [
+                            Path(p) for p in local_docx_input
+                            if Path(p).exists() and not is_change_mark_file(p)
+                        ]
+                    elif Path(local_docx_input).exists() and not is_change_mark_file(local_docx_input):
                         target_docs = [Path(local_docx_input)]
 
                 # 2. Cache Lookup / FTP Download
@@ -81,14 +94,18 @@ class SpecSearchImportThread(QThread):
                     if cached_hit and cached_hit.suffix.lower() == ".zip":
                         zip_to_extract = cached_hit
                     elif cached_hit and cached_hit.suffix.lower() in [".docx", ".doc"]:
-                        base_prefix = re.sub(r"_\d+_.*$", "", cached_hit.stem)
-                        siblings = list(cached_hit.parent.glob(f"{base_prefix}*.docx")) + list(
-                            cached_hit.parent.glob(f"{base_prefix}*.doc")
-                        )
-                        target_docs = sorted(
-                            list(set(siblings)),
-                            key=lambda p: ProtocolDocxDispatcher._extract_part_index(p.name),
-                        )
+                        if not is_change_mark_file(cached_hit.name):
+                            base_prefix = re.sub(r"_\d+_.*$", "", cached_hit.stem)
+                            siblings = list(cached_hit.parent.glob(f"{base_prefix}*.docx")) + list(
+                                cached_hit.parent.glob(f"{base_prefix}*.doc")
+                            )
+                            target_docs = [
+                                p for p in set(siblings)
+                                if not is_change_mark_file(p.name)
+                            ]
+                            target_docs.sort(
+                                key=lambda p: ProtocolDocxDispatcher._extract_part_index(p.name)
+                            )
                     else:
                         zip_path = spec_cache_dir / filename
                         emit_task_progress(f"Downloading {filename} from 3GPP FTP...", 20)
@@ -99,17 +116,22 @@ class SpecSearchImportThread(QThread):
                         emit_task_progress(f"Extracting {zip_to_extract.name}...", 35)
                         with zipfile.ZipFile(zip_to_extract, "r") as zf:
                             for member in zf.namelist():
+                                # Ignore macOS metadata and any revision mark (-rm) documents
                                 if (
                                     member.lower().endswith((".docx", ".doc"))
                                     and not member.startswith("._")
                                     and "__MACOSX" not in member
+                                    and not is_change_mark_file(member)
                                 ):
                                     zf.extract(member, spec_cache_dir)
                                     target_docs.append(spec_cache_dir / member)
 
                 if not target_docs:
-                    self.progress.emit(f"⚠️ Could not locate Word file for {filename}. Skipping...", base_progress)
+                    self.progress.emit(f"⚠️ Could not locate clean Word file for {filename}. Skipping...", base_progress)
                     continue
+
+                # Final guard against revision mark files
+                target_docs = [p for p in target_docs if not is_change_mark_file(p.name)]
 
                 # Convert legacy .doc to .docx if necessary
                 converted_docs: List[Path] = []
