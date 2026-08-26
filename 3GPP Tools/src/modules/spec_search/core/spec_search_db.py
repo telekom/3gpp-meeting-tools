@@ -341,19 +341,47 @@ class SpecSearchDatabase:
             return False
 
     def wipe_database(self) -> bool:
+        """
+        Wipes all indexed specifications and resets the database schema.
+        Attempts fast file-level unlinking, falling back to SQL drops if file locks exist.
+        """
         try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("DROP TABLE IF EXISTS spec_fts;")
-                cursor.execute("DROP TABLE IF EXISTS spec_clauses;")
-                cursor.execute("DROP TABLE IF EXISTS indexed_versions;")
-                conn.commit()
+            # 1. Checkpoint and close active handles
+            try:
+                with self._get_connection() as conn:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            except Exception:
+                pass
 
+            # 2. Fast file unlink (near instantaneous)
+            wiped_files = False
+            try:
+                wal_file = Path(str(self.db_path) + "-wal")
+                shm_file = Path(str(self.db_path) + "-shm")
+
+                if self.db_path.exists():
+                    self.db_path.unlink()
+                if wal_file.exists():
+                    wal_file.unlink()
+                if shm_file.exists():
+                    shm_file.unlink()
+                wiped_files = True
+            except (PermissionError, OSError):
+                wiped_files = False
+
+            # 3. Fallback to standard SQL table drops if file is locked
+            if not wiped_files:
+                with self._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("DROP TABLE IF EXISTS spec_fts;")
+                    cursor.execute("DROP TABLE IF EXISTS spec_clauses;")
+                    cursor.execute("DROP TABLE IF EXISTS indexed_versions;")
+                    conn.commit()
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                    conn.execute("VACUUM;")
+
+            # 4. Re-initialize fresh schema
             self._init_db()
-
-            with self._get_connection() as conn:
-                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-                conn.execute("VACUUM;")
             return True
         except Exception as e:
             self.logger.error(f"Failed to wipe Spec Search DB: {e}")
