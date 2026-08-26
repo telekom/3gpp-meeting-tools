@@ -7,7 +7,7 @@ import html
 import re
 from typing import Any, Dict, List, Optional
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont, QTextCursor
+from PyQt5.QtGui import QFont, QTextCursor, QTextDocument
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -346,10 +346,10 @@ class SpecClauseInspector(QGroupBox):
     def _find_prev(self):
         if not self._current_search_query:
             return
-        found = self.browser.find(self._current_search_query, QTextBrowser.FindBackward)
+        found = self.browser.find(self._current_search_query, QTextDocument.FindBackward)
         if not found:
             self.browser.moveCursor(QTextCursor.End)
-            self.browser.find(self._current_search_query, QTextBrowser.FindBackward)
+            self.browser.find(self._current_search_query, QTextDocument.FindBackward)
 
     def _copy_citation(self):
         if self._last_citation_text:
