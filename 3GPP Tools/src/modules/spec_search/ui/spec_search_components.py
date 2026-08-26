@@ -281,12 +281,12 @@ class SpecClauseInspector(QGroupBox):
             self.btn_prev.setEnabled(False)
             self.btn_next.setEnabled(False)
 
-        # Extract Key Match Excerpt (Surrounding Paragraph/Sentence Context)
+        # Extract Key Match Excerpt
         excerpt_html = ""
-        if self._current_search_query:
+        if self._current_search_query and match_count > 0:
             excerpt_html = self._generate_match_excerpt(content, self._current_search_query)
 
-        # Format full document HTML
+        # Format full document HTML with highlighted search terms
         escaped_content = html.escape(content)
         if self._current_search_query:
             pattern = re.compile(re.escape(html.escape(self._current_search_query)), re.IGNORECASE)
@@ -309,11 +309,11 @@ class SpecClauseInspector(QGroupBox):
         self.browser.setHtml(formatted_html)
 
         # Auto-scroll to first occurrence
-        if self._current_search_query:
+        if self._current_search_query and match_count > 0:
             self._find_next()
 
     def _generate_match_excerpt(self, full_text: str, query: str) -> str:
-        """Extracts surrounding paragraph context around the first match to show at the top."""
+        """Extracts surrounding paragraph context around the match to show at the top."""
         paragraphs = full_text.split("\n")
         matched_paras = [p for p in paragraphs if query.lower() in p.lower()]
 
@@ -340,7 +340,6 @@ class SpecClauseInspector(QGroupBox):
             return
         found = self.browser.find(self._current_search_query)
         if not found:
-            # Wrap around to start
             self.browser.moveCursor(QTextCursor.Start)
             self.browser.find(self._current_search_query)
 
@@ -349,7 +348,6 @@ class SpecClauseInspector(QGroupBox):
             return
         found = self.browser.find(self._current_search_query, QTextBrowser.FindBackward)
         if not found:
-            # Wrap around to end
             self.browser.moveCursor(QTextCursor.End)
             self.browser.find(self._current_search_query, QTextBrowser.FindBackward)
 

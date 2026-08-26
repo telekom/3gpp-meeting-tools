@@ -32,7 +32,12 @@ from core.utils.paths import get_project_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase
-from modules.spec_search.core.spec_search_threads import SpecSearchImportThread, SpecSearchQueryWorker, is_change_mark_file
+from modules.spec_search.core.spec_search_threads import (
+    SpecSearchImportThread,
+    SpecSearchQueryWorker,
+    SpecSearchWipeWorker,
+    is_change_mark_file,
+)
 from modules.spec_search.ui.spec_search_components import SpecClauseInspector, SpecSearchVersionTreeWidget
 from modules.spec_search.ui.spec_search_dialogs import SpecSearchVersionSelectDialog
 from modules.spec_search.ui.spec_search_models import SpecEvolutionMatrixModel
@@ -75,9 +80,7 @@ class SpecSearchTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        # ---------------------------------------------------------------------
-        # Top Toolbar
-        # ---------------------------------------------------------------------
+        # Toolbar
         toolbar = QHBoxLayout()
         self.fetch_btn = QPushButton("📥 Import from Specs DB")
         self.fetch_btn.clicked.connect(self._on_fetch_clicked)
@@ -103,9 +106,7 @@ class SpecSearchTab(QWidget):
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
-        # ---------------------------------------------------------------------
-        # Main Splitter Layout (Left: Version Tree, Right: Tabs & Inspector)
-        # ---------------------------------------------------------------------
+        # Splitter Layout
         main_splitter = QSplitter(Qt.Horizontal)
 
         # Left Panel: Versions Tree
@@ -130,7 +131,7 @@ class SpecSearchTab(QWidget):
         matrix_layout = QVBoxLayout(matrix_widget)
         matrix_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Row 1: Search substring & Clause Filter
+        # Search substring & Clause Filter
         search_bar_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search exact substring or phrase (e.g. 'slice replacement', 'emergency', 'PDU session')...")
@@ -146,7 +147,7 @@ class SpecSearchTab(QWidget):
         search_bar_layout.addWidget(self.clause_filter_input)
         matrix_layout.addLayout(search_bar_layout)
 
-        # Row 2: Cutoff Date Filter Bar
+        # Cutoff Date Filter Bar
         cutoff_date_bar = QHBoxLayout()
         self.chk_filing_date = QCheckBox("🎯 Date Cutoff:")
         self.chk_filing_date.toggled.connect(self._on_cutoff_date_filter_toggled)
@@ -245,7 +246,6 @@ class SpecSearchTab(QWidget):
         total_clauses_count = 0
         specs_with_hits = 0
 
-        # Group results by Specification Number to populate individual tabs
         grouped_specs = sorted(df["spec_number"].unique())
 
         for spec_num in grouped_specs:
@@ -257,14 +257,12 @@ class SpecSearchTab(QWidget):
                 only_added_after_cutoff=only_post_date,
             )
 
-            # Skip tab if all clauses were filtered out by the cutoff date
             if model.rowCount() == 0:
                 continue
 
             specs_with_hits += 1
             total_clauses_count += model.rowCount()
 
-            # Build Table View for this Specification
             table = QTableView()
             table.setAlternatingRowColors(True)
             table.setSelectionBehavior(QTableView.SelectRows)
@@ -273,7 +271,6 @@ class SpecSearchTab(QWidget):
             table.verticalHeader().setVisible(False)
             table.setModel(model)
 
-            # Column Sizing
             h_header = table.horizontalHeader()
             h_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
             h_header.setSectionResizeMode(1, QHeaderView.Stretch)
@@ -281,7 +278,6 @@ class SpecSearchTab(QWidget):
                 h_header.setSectionResizeMode(c, QHeaderView.Interactive)
                 table.setColumnWidth(c, 110)
 
-            # Connect Table Selection
             table.clicked.connect(lambda idx, s=spec_num, t=table: self._on_tab_table_clicked(idx, s, t))
 
             tab_title = f"TS {spec_num} ({model.rowCount()})"
@@ -307,7 +303,7 @@ class SpecSearchTab(QWidget):
         clause_title = str(model.data(model.index(row, 1), Qt.DisplayRole) or "").strip()
         query = self.search_input.text().strip()
 
-        # Resolve target version from column header
+        # Resolve target version header
         if col >= 2:
             ver_header = str(model._version_cols[col - 2])
         else:
@@ -316,15 +312,18 @@ class SpecSearchTab(QWidget):
         ver_match = re.search(r"v([0-9\.]+)", ver_header)
         version = ver_match.group(1) if ver_match else ver_header.lstrip("v")
 
-        # Fetch clause content
-        clause_data = self.db.get_clause_content_by_spec_ver(spec_num, version, clause_num)
+        # 1. Fetch by direct SQLite primary key (clause_pk)
+        clause_data = None
+        target_pk = model.get_clause_pk(row, ver_header)
+        if target_pk is None:
+            target_pk = model.get_row_first_pk(row)
+
+        if target_pk is not None:
+            clause_data = self.db.get_clause_content(target_pk)
+
+        # 2. Fallback to longest content query by spec/version/clause
         if not clause_data:
-            raw_df = getattr(model, "_raw_df", None)
-            if raw_df is not None and not raw_df.empty:
-                matches = raw_df[(raw_df["clause_number"] == clause_num) & (raw_df["version"] == version)]
-                if not matches.empty:
-                    pk = int(matches.iloc[0]["clause_pk"])
-                    clause_data = self.db.get_clause_content(pk)
+            clause_data = self.db.get_clause_content_by_spec_ver(spec_num, version, clause_num)
 
         if clause_data:
             self.inspector.display_clause(
@@ -450,9 +449,51 @@ class SpecSearchTab(QWidget):
             self._execute_search()
 
     def _on_wipe_db_clicked(self):
-        if QMessageBox.critical(self, "Confirm Wipe", "Delete all indexed specification clauses?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
-            self.db.wipe_database()
-            self.refresh_versions()
-            self.spec_results_tabs.clear()
-            self.inspector.clear_display()
-            self.log_msg.emit("🧹 Specification Search DB wiped.", logging.INFO)
+        if QMessageBox.critical(
+            self,
+            "Confirm Wipe",
+            "Delete all indexed specification clauses and full-text indexes?",
+            QMessageBox.Yes | QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+
+        if self._query_worker and self._query_worker.isRunning():
+            self._query_worker.terminate()
+            self._query_worker.wait()
+
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        self.wipe_db_btn.setEnabled(False)
+        self.fetch_btn.setEnabled(False)
+        self.import_local_btn.setEnabled(False)
+        self.clear_ver_btn.setEnabled(False)
+
+        self._wipe_worker = SpecSearchWipeWorker(self.db)
+        self._wipe_worker.finished_success.connect(self._on_wipe_db_success)
+        self._wipe_worker.error.connect(self._on_wipe_db_error)
+        self._wipe_worker.start()
+
+    def _on_wipe_db_success(self):
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 100)
+        self.wipe_db_btn.setEnabled(True)
+        self.fetch_btn.setEnabled(True)
+        self.import_local_btn.setEnabled(True)
+        self.clear_ver_btn.setEnabled(True)
+
+        self.refresh_versions()
+        self.spec_results_tabs.clear()
+        self.inspector.clear_display()
+        self.matrix_title.setText("Type a query above to see Release Evolution Matrix")
+        self.log_msg.emit("🧹 Specification Search DB wiped successfully.", logging.INFO)
+
+    def _on_wipe_db_error(self, err: str):
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 100)
+        self.wipe_db_btn.setEnabled(True)
+        self.fetch_btn.setEnabled(True)
+        self.import_local_btn.setEnabled(True)
+        self.clear_ver_btn.setEnabled(True)
+
+        QMessageBox.critical(self, "Wipe Error", f"Failed to wipe search database: {err}")
+        self.log_msg.emit(f"❌ Wipe error: {err}", logging.ERROR)

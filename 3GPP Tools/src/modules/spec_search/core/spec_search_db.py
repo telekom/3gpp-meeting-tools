@@ -91,7 +91,7 @@ class SpecSearchDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_clause_num ON spec_clauses(clause_number);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ver_spec ON indexed_versions(spec_number);")
 
-                # Dynamic schema migration for older search databases
+                # Dynamic migration for older databases
                 cursor.execute("PRAGMA table_info(indexed_versions);")
                 cols = [col["name"] for col in cursor.fetchall()]
                 if "release_date" not in cols:
@@ -293,6 +293,7 @@ class SpecSearchDatabase:
             return pd.read_sql_query(sql, conn, params=params)
 
     def get_clause_content(self, clause_pk: int) -> Optional[Dict[str, Any]]:
+        """Fetches full clause content by direct primary key."""
         query = """
             SELECT c.*, v.spec_number, v.version, v.release_date
             FROM spec_clauses c
@@ -308,11 +309,13 @@ class SpecSearchDatabase:
     def get_clause_content_by_spec_ver(
         self, spec_number: str, version: str, clause_number: str
     ) -> Optional[Dict[str, Any]]:
+        """Fetches the longest matching clause content for a given specification and version."""
         query = """
             SELECT c.*, v.spec_number, v.version, v.release_date
             FROM spec_clauses c
             JOIN indexed_versions v ON c.version_id = v.id
             WHERE v.spec_number = ? AND v.version = ? AND c.clause_number = ?
+            ORDER BY c.content_length DESC, c.id DESC
             LIMIT 1
         """
         with self._get_connection() as conn:
@@ -341,19 +344,14 @@ class SpecSearchDatabase:
             return False
 
     def wipe_database(self) -> bool:
-        """
-        Wipes all indexed specifications and resets the database schema.
-        Attempts fast file-level unlinking, falling back to SQL drops if file locks exist.
-        """
+        """Wipes all indexed specifications and resets the database schema."""
         try:
-            # 1. Checkpoint and close active handles
             try:
                 with self._get_connection() as conn:
                     conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
             except Exception:
                 pass
 
-            # 2. Fast file unlink (near instantaneous)
             wiped_files = False
             try:
                 wal_file = Path(str(self.db_path) + "-wal")
@@ -369,7 +367,6 @@ class SpecSearchDatabase:
             except (PermissionError, OSError):
                 wiped_files = False
 
-            # 3. Fallback to standard SQL table drops if file is locked
             if not wiped_files:
                 with self._get_connection() as conn:
                     cursor = conn.cursor()
@@ -380,7 +377,6 @@ class SpecSearchDatabase:
                     conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
                     conn.execute("VACUUM;")
 
-            # 4. Re-initialize fresh schema
             self._init_db()
             return True
         except Exception as e:

@@ -1,6 +1,6 @@
 """
-Background QThread workers for asynchronous FTP downloading, DOCX extraction, and fast query execution.
-Filters out 3GPP revision mark (-rm) files during extraction and indexing.
+Background QThread workers for asynchronous FTP downloading, DOCX extraction,
+database wiping, and fast query execution.
 """
 
 import logging
@@ -26,6 +26,27 @@ def is_change_mark_file(file_path_or_name: Any) -> bool:
     """
     stem = Path(str(file_path_or_name)).stem.lower()
     return bool(re.search(r"[-_]rm(?=[-._]|$)", stem, re.IGNORECASE))
+
+
+class SpecSearchWipeWorker(QThread):
+    """Background worker to wipe and recreate the search database without freezing the UI."""
+
+    finished_success = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, db: SpecSearchDatabase):
+        super().__init__()
+        self.db = db
+
+    def run(self):
+        try:
+            success = self.db.wipe_database()
+            if success:
+                self.finished_success.emit()
+            else:
+                self.error.emit("Failed to wipe search database.")
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class SpecSearchImportThread(QThread):
