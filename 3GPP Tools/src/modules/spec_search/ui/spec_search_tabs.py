@@ -1,5 +1,5 @@
 """
-Main Tab for Specification Substring Search and Release Evolution Tracking.
+Main Tab for Specification Substring Search, Release Evolution Tracking, and Cutoff Date Analysis.
 """
 
 import json
@@ -7,8 +7,10 @@ import logging
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QDate, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
+    QCheckBox,
+    QDateEdit,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -36,7 +38,7 @@ from modules.specifications.core.database import SpecsDatabase
 
 
 class SpecSearchTab(QWidget):
-    """Main Search Tab: Tree, Query Inputs, Evolution Matrix, and Inspector."""
+    """Main Search Tab: Tree, Query Inputs, Cutoff Date Filter, Evolution Matrix, and Inspector."""
 
     log_msg = pyqtSignal(str, int)
 
@@ -122,6 +124,7 @@ class SpecSearchTab(QWidget):
         matrix_layout = QVBoxLayout(matrix_widget)
         matrix_layout.setContentsMargins(0, 0, 0, 0)
 
+        # Row 1: Search substring & Clause Filter
         search_bar_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search exact substring or phrase (e.g. 'initial registration', 'emergency', 'PDU session')...")
@@ -131,11 +134,34 @@ class SpecSearchTab(QWidget):
 
         self.clause_filter_input = QLineEdit()
         self.clause_filter_input.setPlaceholderText("Filter clause (e.g. 5.2, 8.1)...")
-        self.clause_filter_input.setFixedWidth(180)
+        self.clause_filter_input.setFixedWidth(160)
         self.clause_filter_input.setClearButtonEnabled(True)
         self.clause_filter_input.textChanged.connect(lambda: self._search_timer.start())
         search_bar_layout.addWidget(self.clause_filter_input)
         matrix_layout.addLayout(search_bar_layout)
+
+        # Row 2: Cutoff Date Bar
+        cutoff_date_bar = QHBoxLayout()
+        self.chk_cutoff_date = QCheckBox("🎯 Date Cutoff:")
+        self.chk_cutoff_date.toggled.connect(self._on_cutoff_date_filter_toggled)
+        cutoff_date_bar.addWidget(self.chk_cutoff_date)
+
+        self.cutoff_date_edit = QDateEdit()
+        self.cutoff_date_edit.setCalendarPopup(True)
+        self.cutoff_date_edit.setDisplayFormat("yyyy-MM-dd")
+        self.cutoff_date_edit.setDate(QDate.currentDate().addYears(-3))
+        self.cutoff_date_edit.setEnabled(False)
+        self.cutoff_date_edit.dateChanged.connect(lambda: self._search_timer.start())
+        cutoff_date_bar.addWidget(self.cutoff_date_edit)
+
+        self.chk_post_date_only = QCheckBox("Show Only Post-Cutoff Additions")
+        self.chk_post_date_only.setToolTip("Hides clauses where matching text was already present prior to the selected date.")
+        self.chk_post_date_only.setEnabled(False)
+        self.chk_post_date_only.toggled.connect(lambda: self._search_timer.start())
+        cutoff_date_bar.addWidget(self.chk_post_date_only)
+
+        cutoff_date_bar.addStretch()
+        matrix_layout.addLayout(cutoff_date_bar)
 
         self.matrix_title = QLabel("Type a query above to see Release Evolution Matrix")
         self.matrix_title.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B; margin-top: 4px;")
@@ -158,6 +184,11 @@ class SpecSearchTab(QWidget):
         main_splitter.addWidget(right_splitter)
         main_splitter.setSizes([260, 690])
         layout.addWidget(main_splitter)
+
+    def _on_cutoff_date_filter_toggled(self, checked: bool):
+        self.cutoff_date_edit.setEnabled(checked)
+        self.chk_post_date_only.setEnabled(checked)
+        self._search_timer.start()
 
     # -------------------------------------------------------------------------
     # Search Execution
@@ -205,7 +236,14 @@ class SpecSearchTab(QWidget):
             self.inspector.clear_display()
             return
 
-        model = SpecEvolutionMatrixModel(df)
+        cutoff_date = self.cutoff_date_edit.date().toString("yyyy-MM-dd") if self.chk_cutoff_date.isChecked() else None
+        only_post_date = self.chk_post_date_only.isChecked() if self.chk_cutoff_date.isChecked() else False
+
+        model = SpecEvolutionMatrixModel(
+            raw_df=df,
+            cutoff_date=cutoff_date,
+            only_added_after_cutoff=only_post_date,
+        )
         self.matrix_table.setModel(model)
 
         h_header = self.matrix_table.horizontalHeader()
@@ -213,9 +251,10 @@ class SpecSearchTab(QWidget):
         h_header.setSectionResizeMode(1, QHeaderView.Stretch)
         for c in range(2, model.columnCount()):
             h_header.setSectionResizeMode(c, QHeaderView.Interactive)
-            self.matrix_table.setColumnWidth(c, 110)
+            self.matrix_table.setColumnWidth(c, 120)
 
-        self.matrix_title.setText(f"Found matches in {len(model._pivot_df)} clause(s) for query: '{query}'")
+        date_suffix = f" (Post-Date Cutoff: ≥ {cutoff_date})" if cutoff_date and only_post_date else ""
+        self.matrix_title.setText(f"Found matches in {len(model._pivot_df)} clause(s) for query: '{query}'{date_suffix}")
 
     def _on_table_clicked(self, index):
         model = self.matrix_table.model()
@@ -242,7 +281,6 @@ class SpecSearchTab(QWidget):
         # Fetch clause content
         clause_data = self.db.get_clause_content_by_spec_ver(spec_num, version, clause_num) if spec_num else None
         if not clause_data:
-            # Fallback search across any matching version
             df = getattr(model, "_raw_df", None)
             if df is not None and not df.empty:
                 matches = df[(df["clause_number"] == clause_num) & (df["version"] == version)]
@@ -256,6 +294,7 @@ class SpecSearchTab(QWidget):
                 clause_title=clause_title,
                 spec_number=clause_data.get("spec_number", spec_num),
                 version=clause_data.get("version", version),
+                release_date=clause_data.get("release_date"),
                 content=clause_data.get("content", ""),
                 search_query=query,
             )
@@ -299,6 +338,7 @@ class SpecSearchTab(QWidget):
                 "version": version,
                 "filename": f"{base_key}.docx",
                 "file_url": "",
+                "release_date": "",
                 "local_docx_paths": p_list,
             })
 
