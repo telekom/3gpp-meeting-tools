@@ -43,6 +43,10 @@ from modules.spec_search.ui.spec_search_components import SpecClauseInspector, S
 from modules.spec_search.ui.spec_search_dialogs import SpecSearchVersionSelectDialog
 from modules.spec_search.ui.spec_search_models import SpecEvolutionMatrixModel
 from modules.specifications.core.database import SpecsDatabase
+from modules.spec_search.ui.spec_search_dialogs import (
+    SpecClauseDiffDialog,
+    SpecSearchVersionSelectDialog,
+)
 
 
 class SpecSearchTab(QWidget):
@@ -193,6 +197,7 @@ class SpecSearchTab(QWidget):
         right_splitter.addWidget(matrix_widget)
 
         self.inspector = SpecClauseInspector()
+        self.inspector.compare_clause_requested.connect(self._open_clause_diff_dialog)
         right_splitter.addWidget(self.inspector)
 
         right_splitter.setSizes([420, 240])
@@ -598,3 +603,15 @@ class SpecSearchTab(QWidget):
 
         QMessageBox.critical(self, "Wipe Error", f"Failed to wipe search database: {err}")
         self.log_msg.emit(f"❌ Wipe error: {err}", logging.ERROR)
+
+    def _open_clause_diff_dialog(self, spec_num: str, version: str, clause_num: str, clause_title: str):
+        """Opens the interactive clause comparison dialog for LLM export."""
+        dialog = SpecClauseDiffDialog(
+            db=self.db,
+            spec_number=spec_num,
+            current_version=version,
+            clause_number=clause_num,
+            clause_title=clause_title,
+            parent=self,
+        )
+        dialog.exec_()

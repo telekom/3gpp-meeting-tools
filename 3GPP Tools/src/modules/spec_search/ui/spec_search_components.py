@@ -226,12 +226,18 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
 
 
 class SpecClauseInspector(QGroupBox):
-    """Renders rich clause content with context excerpts, match navigation, and citation copying."""
+    """Renders rich clause content with context excerpts, match navigation, citation copying, and LLM comparison."""
+
+    compare_clause_requested = pyqtSignal(str, str, str, str)  # spec_number, version, clause_number, clause_title
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__("Clause Content Inspector", parent)
         self._current_search_query = ""
         self._last_citation_text = ""
+        self._current_spec = ""
+        self._current_version = ""
+        self._current_clause_num = ""
+        self._current_clause_title = ""
         self._setup_ui()
 
     def _setup_ui(self):
@@ -268,6 +274,32 @@ class SpecClauseInspector(QGroupBox):
         self.btn_copy.setEnabled(False)
         header_bar.addWidget(self.btn_copy)
 
+        # Dedicated LLM Diff Button
+        self.btn_llm_diff = QPushButton("🤖 Compare Clause for LLM")
+        self.btn_llm_diff.setToolTip("Compare this clause with another version and generate an LLM analysis prompt with hierarchical context.")
+        self.btn_llm_diff.setStyleSheet("""
+            QPushButton {
+                font-weight: bold;
+                background-color: #EDE9FE;
+                color: #6D28D9;
+                border: 1px solid #DDD6FE;
+                padding: 2px 8px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #DDD6FE;
+                color: #5B21B6;
+            }
+            QPushButton:disabled {
+                background-color: #F3F4F6;
+                color: #9CA3AF;
+                border: 1px solid #E5E7EB;
+            }
+        """)
+        self.btn_llm_diff.clicked.connect(self._on_llm_diff_clicked)
+        self.btn_llm_diff.setEnabled(False)
+        header_bar.addWidget(self.btn_llm_diff)
+
         layout.addLayout(header_bar)
 
         # Document Browser
@@ -287,13 +319,19 @@ class SpecClauseInspector(QGroupBox):
         release_date: Optional[str] = None,
         search_query: str = "",
     ):
+        self._current_spec = spec_number
+        self._current_version = version
+        self._current_clause_num = clause_number
+        self._current_clause_title = clause_title
         self._current_search_query = search_query.strip()
+
         date_str = f" ({release_date})" if release_date else ""
         header_title = f"TS {spec_number} v{version}{date_str} - Clause {clause_number}: {clause_title}"
         self.title_lbl.setText(header_title)
 
         self._last_citation_text = f"3GPP TS {spec_number} v{version}{date_str}, Clause {clause_number} ({clause_title}):\n\n{content}"
         self.btn_copy.setEnabled(True)
+        self.btn_llm_diff.setEnabled(True)
 
         match_count = 0
         if self._current_search_query:
@@ -336,6 +374,15 @@ class SpecClauseInspector(QGroupBox):
 
         if self._current_search_query and match_count > 0:
             self._find_next()
+
+    def _on_llm_diff_clicked(self):
+        if self._current_spec and self._current_clause_num:
+            self.compare_clause_requested.emit(
+                self._current_spec,
+                self._current_version,
+                self._current_clause_num,
+                self._current_clause_title,
+            )
 
     def _generate_match_excerpt(self, full_text: str, query: str) -> str:
         paragraphs = full_text.split("\n")
@@ -388,6 +435,11 @@ class SpecClauseInspector(QGroupBox):
         self.btn_prev.setEnabled(False)
         self.btn_next.setEnabled(False)
         self.btn_copy.setEnabled(False)
+        self.btn_llm_diff.setEnabled(False)
         self.browser.clear()
         self._current_search_query = ""
         self._last_citation_text = ""
+        self._current_spec = ""
+        self._current_version = ""
+        self._current_clause_num = ""
+        self._current_clause_title = ""
