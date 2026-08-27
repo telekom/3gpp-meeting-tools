@@ -113,7 +113,7 @@ class NASVersionSelectDialog(QDialog):
         self.table.setRowCount(0)
 
         for row_idx, row_data in enumerate(spec_files):
-            _, s_num, _, _, filename, version, url = row_data
+            _, s_num, _, _, filename, version, url, specification_upload_date = row_data
             self.table.insertRow(row_idx)
 
             v_item = QTableWidgetItem(f"v{version}")
