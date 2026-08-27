@@ -37,6 +37,14 @@ class ReadOnlyViewerDialog(QDialog):
         btn_layout.addWidget(copy_btn)
         layout.addLayout(btn_layout)
 
+# Define the master status list
+MY_STATUS_OPTIONS = [
+    "⚪ Neutral",
+    "🔵 My TDoc",
+    "🟢 Support",
+    "🔴 Object",
+    "🟡 Monitor"
+]
 
 class InteractiveNotesDialog(QDialog):
     def __init__(self, parent, tdoc_id, row_data, db_save_callback):
@@ -60,12 +68,13 @@ class InteractiveNotesDialog(QDialog):
         status_layout = QHBoxLayout()
         status_layout.addWidget(QLabel("<b>My Status:</b>"))
         self.status_combo = QComboBox()
-        self.status_combo.addItems(["⚪ Neutral", "🟢 Support", "🔴 Object", "🟡 Monitor"])
+        self.status_combo.addItems(MY_STATUS_OPTIONS)
         self.status_combo.setStyleSheet("padding: 4px; border: 1px solid #CCC; background: white;")
 
         curr_status = row_data.get("My Status", "⚪ Neutral").replace("🔄 ", "").strip()
         self.status_combo.setCurrentText(
-            curr_status if curr_status in ["⚪ Neutral", "🟢 Support", "🔴 Object", "🟡 Monitor"] else "⚪ Neutral")
+            curr_status if curr_status in MY_STATUS_OPTIONS else "⚪ Neutral"
+        )
 
         status_layout.addWidget(self.status_combo)
         status_layout.addStretch()
@@ -76,13 +85,15 @@ class InteractiveNotesDialog(QDialog):
         clean_notes = row_data.get("My Notes", "").replace("🔄 [From Base]: ", "").replace("🔄 [From Base]", "").strip()
         self.my_notes.setPlainText(clean_notes)
         self.my_notes.setStyleSheet(
-            "font-size: 13px; padding: 10px; background-color: white; border: 1px solid #005A9E;")
+            "font-size: 13px; padding: 10px; background-color: white; border: 1px solid #005A9E;"
+        )
         layout.addWidget(self.my_notes)
 
         btn_layout = QHBoxLayout()
         save_btn = QPushButton("💾 Save Notes")
         save_btn.setStyleSheet(
-            "padding: 6px 15px; font-weight: bold; background-color: #0C6B0C; color: white; border-radius: 4px;")
+            "padding: 6px 15px; font-weight: bold; background-color: #0C6B0C; color: white; border-radius: 4px;"
+        )
         save_btn.clicked.connect(self._on_save_clicked)
 
         btn_layout.addStretch()
@@ -90,18 +101,12 @@ class InteractiveNotesDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def _on_save_clicked(self):
-        """Extracts the updated values and triggers the save callback."""
-        # 1. Grab the currently selected status
         status = self.status_combo.currentText()
-
-        # 2. Grab the updated text from the notes box
         notes = self.my_notes.toPlainText()
 
-        # 3. Trigger the database save callback passed from tdocs_window.py
         if self.db_save_callback:
             self.db_save_callback(self.tdoc_id, status, notes)
 
-        # 4. Close the dialog window
         self.accept()
 
 

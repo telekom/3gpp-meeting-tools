@@ -575,6 +575,7 @@ class TDocsWindow(QWidget):
         self.db.upsert(tdoc_id, status, notes)
         self.model.user_data = self.db.get_all()
         self.model.apply_user_data_refresh()
+        self._refresh_comboboxes()
 
     def _export_reports(self):
         self.export_thread = MarkdownExporterThread(self.meeting_dir, self.model._data, self.docs_ftp_url,
