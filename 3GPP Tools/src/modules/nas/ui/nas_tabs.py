@@ -481,10 +481,13 @@ class NASTab(QWidget):
         desc_label = " (incl. Desc)" if search_desc and ie_query else ""
         title_suffix = f" (Filtered by IE{desc_label}: '{ie_query}')" if ie_query else ""
 
+        # Only pull descriptions from DB if searching with active deep search
+        need_descriptions = search_desc and bool(ie_query)
+
         df = self.db.get_message_evolution_df(
             message_name=msg_name,
             version_ids=self.selected_version_ids,
-            include_descriptions=search_desc,
+            include_descriptions=need_descriptions,
         )
 
         specs = []
@@ -498,12 +501,15 @@ class NASTab(QWidget):
         spec_prefix = f" ({', '.join(specs)})" if specs else ""
         self.matrix_title.setText(f"Message{spec_prefix}: {msg_name}{title_suffix}")
 
-        model = NASEvolutionMatrixModel(df, ie_filter=ie_query, search_descriptions=search_desc)
+        model = NASEvolutionMatrixModel(df, ie_filter=ie_query, search_descriptions=need_descriptions)
         self.matrix_table.setModel(model)
 
         h_header = self.matrix_table.horizontalHeader()
         if model.columnCount() > 0:
-            h_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            # Avoid ResizeToContents on large datasets
+            h_header.setSectionResizeMode(0, QHeaderView.Interactive)
+            self.matrix_table.setColumnWidth(0, 75)
+
             h_header.setSectionResizeMode(1, QHeaderView.Stretch)
             h_header.setSectionResizeMode(2, QHeaderView.Interactive)
             self.matrix_table.setColumnWidth(2, 280)
