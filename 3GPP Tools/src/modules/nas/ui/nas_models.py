@@ -1,15 +1,21 @@
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 import pandas as pd
 from PyQt5.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt5.QtGui import QBrush, QColor
 
 from modules.nas.core.nas_db import parse_version_tuple
 
+# Pre-allocated brush constants to eliminate GC overhead during rendering
+BRUSH_ADDED = QBrush(QColor("#E8F5E9"))      # Soft Green
+BRUSH_REMOVED = QBrush(QColor("#FFEBEE"))    # Soft Red
+BRUSH_MODIFIED = QBrush(QColor("#FFF9C4"))   # Soft Yellow
+
 
 class NASEvolutionMatrixModel(QAbstractTableModel):
     """
     Pivots Information Elements & ASN.1 Fields across multiple versions while
     preserving specification row order, rendering indentation, and applying filtering.
+    Optimized with fast in-memory structures for instant rendering of large RRC/NAS tables.
     """
 
     def __init__(
@@ -24,12 +30,25 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         self._search_descriptions = search_descriptions
         self._pivot_df = pd.DataFrame()
         self._versions: List[str] = []
+
+        # Fast memory caches for O(1) cell access
+        self._visible_columns: List[str] = []
+        self._data_matrix: List[List[str]] = []
+        self._depth_list: List[int] = []
+        self._tooltip_list: List[str] = []
+        self._bg_brush_matrix: List[List[Optional[QBrush]]] = []
+
         self._setup_matrix()
 
     def _setup_matrix(self):
         if self._raw_df.empty:
             self._pivot_df = pd.DataFrame()
             self._versions = []
+            self._visible_columns = []
+            self._data_matrix = []
+            self._depth_list = []
+            self._tooltip_list = []
+            self._bg_brush_matrix = []
             return
 
         df = self._raw_df
@@ -40,11 +59,11 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             details_series = df["presence"].fillna("") + " | " + df["format"].fillna("")
         else:
             details_series = (
-                    df["presence"].fillna("")
-                    + " | "
-                    + df["format"].fillna("")
-                    + " | "
-                    + df["length"].fillna("")
+                df["presence"].fillna("")
+                + " | "
+                + df["format"].fillna("")
+                + " | "
+                + df["length"].fillna("")
             )
 
         df = df.assign(details=details_series)
@@ -101,12 +120,13 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         if self._ie_filter and not self._pivot_df.empty:
             q = self._ie_filter
             mask = (
-                    self._pivot_df["ie_name"].astype(str).str.lower().str.contains(q, na=False)
-                    | self._pivot_df["field_path"].astype(str).str.lower().str.contains(q, na=False)
-                    | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False)
-                    | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False)
+                self._pivot_df["ie_name"].astype(str).str.lower().str.contains(q, na=False)
+                | self._pivot_df["field_path"].astype(str).str.lower().str.contains(q, na=False)
+                | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False)
+                | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False)
             )
 
+            # Vectorized description match
             if self._search_descriptions and "ie_description" in df.columns:
                 desc_match_df = df[df["ie_description"].astype(str).str.lower().str.contains(q, na=False)]
                 if not desc_match_df.empty:
@@ -117,24 +137,76 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
                             desc_match_df["type_reference"].astype(str),
                         )
                     )
-                    desc_mask = self._pivot_df.apply(
-                        lambda row: (str(row["iei"]), str(row["field_path"]),
-                                     str(row["type_reference"])) in matching_keys,
-                        axis=1,
+                    row_keys = list(
+                        zip(
+                            self._pivot_df["iei"].astype(str),
+                            self._pivot_df["field_path"].astype(str),
+                            self._pivot_df["type_reference"].astype(str),
+                        )
                     )
+                    desc_mask = pd.Series([k in matching_keys for k in row_keys], index=self._pivot_df.index)
                     mask = mask | desc_mask
 
             self._pivot_df = self._pivot_df[mask].reset_index(drop=True)
 
+        # 5. Pre-build fast access caches
+        self._build_fast_caches()
+
+    def _build_fast_caches(self):
+        self._visible_columns = [c for c in self._pivot_df.columns if c not in ("field_path", "depth")]
+        num_rows = len(self._pivot_df)
+        num_cols = len(self._visible_columns)
+
+        if num_rows == 0:
+            self._data_matrix = []
+            self._depth_list = []
+            self._tooltip_list = []
+            self._bg_brush_matrix = []
+            return
+
+        self._depth_list = self._pivot_df.get("depth", pd.Series([0] * num_rows)).fillna(0).astype(int).tolist()
+        self._tooltip_list = self._pivot_df.get("field_path", pd.Series([""] * num_rows)).fillna("").astype(str).tolist()
+
+        # Build raw string matrix
+        raw_columns_data = [self._pivot_df[col].fillna("-").astype(str).tolist() for col in self._visible_columns]
+        self._data_matrix = [
+            [raw_columns_data[c][r] for c in range(num_cols)]
+            for r in range(num_rows)
+        ]
+
+        # Precompute visual diff brushes
+        self._bg_brush_matrix = [[None] * num_cols for _ in range(num_rows)]
+        ver_col_indices = [
+            (c_idx, self._visible_columns[c_idx])
+            for c_idx in range(3, num_cols)
+            if self._visible_columns[c_idx] in self._versions
+        ]
+
+        for c_idx, ver_col in ver_col_indices:
+            v_idx = self._versions.index(ver_col)
+            if v_idx > 0:
+                prev_ver_col = self._versions[v_idx - 1]
+                if prev_ver_col in self._visible_columns:
+                    prev_c_idx = self._visible_columns.index(prev_ver_col)
+                    for r_idx in range(num_rows):
+                        current_val = self._data_matrix[r_idx][c_idx]
+                        prev_val = self._data_matrix[r_idx][prev_c_idx]
+
+                        if prev_val == "-" and current_val != "-":
+                            self._bg_brush_matrix[r_idx][c_idx] = BRUSH_ADDED
+                        elif prev_val != "-" and current_val == "-":
+                            self._bg_brush_matrix[r_idx][c_idx] = BRUSH_REMOVED
+                        elif prev_val != current_val and prev_val != "-" and current_val != "-":
+                            self._bg_brush_matrix[r_idx][c_idx] = BRUSH_MODIFIED
+
     def rowCount(self, parent=QModelIndex()) -> int:
-        return len(self._pivot_df)
+        return len(self._data_matrix)
 
     def columnCount(self, parent=QModelIndex()) -> int:
-        return len([c for c in self._pivot_df.columns if c not in ("field_path", "depth")])
+        return len(self._visible_columns)
 
     def _get_visible_column_name(self, col: int) -> str:
-        visible_cols = [c for c in self._pivot_df.columns if c not in ("field_path", "depth")]
-        return visible_cols[col]
+        return self._visible_columns[col] if 0 <= col < len(self._visible_columns) else ""
 
     def data(self, index: QModelIndex, role=Qt.DisplayRole) -> Any:
         if not index.isValid():
@@ -142,49 +214,28 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
 
         row = index.row()
         col = index.column()
-        col_name = self._get_visible_column_name(col)
-        val = self._pivot_df.iloc[row][col_name]
 
         if role == Qt.DisplayRole:
-            if col_name == "ie_name":
-                depth = self._pivot_df.iloc[row].get("depth", 0)
+            val = self._data_matrix[row][col]
+            if col == 1:
+                depth = self._depth_list[row]
                 if depth > 0:
-                    indent = "    " * (depth - 1) + "└─ "
-                    return f"{indent}{val}"
-                return str(val)
-            return str(val) if pd.notna(val) else "-"
+                    return f"{'    ' * (depth - 1)}└─ {val}"
+            return val
+
+        if role == Qt.BackgroundRole:
+            if col >= 3:
+                return self._bg_brush_matrix[row][col]
+            return None
 
         if role == Qt.ToolTipRole:
-            field_path = self._pivot_df.iloc[row].get("field_path", "")
-            if field_path:
-                return f"Path: {field_path}"
-            return None
+            field_path = self._tooltip_list[row]
+            return f"Path: {field_path}" if field_path else None
 
         if role == Qt.TextAlignmentRole:
             if col >= 3:
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
-
-        if role == Qt.BackgroundRole and col >= 3:
-            current_ver_col = col_name
-            current_val = str(val)
-
-            if current_ver_col in self._versions:
-                v_idx = self._versions.index(current_ver_col)
-                if v_idx > 0:
-                    prev_ver_col = self._versions[v_idx - 1]
-                    prev_val = str(self._pivot_df.iloc[row][prev_ver_col])
-
-                    if prev_val == "-" and current_val != "-":
-                        return QBrush(QColor("#E8F5E9"))  # Added
-                    elif prev_val != "-" and current_val == "-":
-                        return QBrush(QColor("#FFEBEE"))  # Removed
-                    elif (
-                        prev_val != current_val
-                        and prev_val != "-"
-                        and current_val != "-"
-                    ):
-                        return QBrush(QColor("#FFF9C4"))  # Modified
 
         return None
 

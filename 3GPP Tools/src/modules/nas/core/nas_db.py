@@ -44,6 +44,7 @@ class NASDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+                # Existing table definitions...
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS spec_versions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,7 +55,6 @@ class NASDatabase:
                         UNIQUE(spec_number, version)
                     )
                 """)
-
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS nas_messages (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,7 +65,6 @@ class NASDatabase:
                         FOREIGN KEY(version_id) REFERENCES spec_versions(id) ON DELETE CASCADE
                     )
                 """)
-
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS message_ies (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,7 +81,6 @@ class NASDatabase:
                         FOREIGN KEY(message_id) REFERENCES nas_messages(id) ON DELETE CASCADE
                     )
                 """)
-
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS ie_definitions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,14 +94,19 @@ class NASDatabase:
                     )
                 """)
 
+                # Optimized Indices
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_msg_ver ON nas_messages(version_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_msg_name ON nas_messages(message_name);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_msg_name_ver ON nas_messages(message_name, version_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_msg ON message_ies(message_id);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_msg_order ON message_ies(message_id, order_index);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_name ON message_ies(ie_name);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_type ON message_ies(type_reference);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_ver ON ie_definitions(version_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_name ON ie_definitions(ie_name);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_clause ON ie_definitions(clause);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_ver_name ON ie_definitions(version_id, ie_name);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_ver_clause ON ie_definitions(version_id, clause);")
                 conn.commit()
         except Exception as e:
             self.logger.error(f"Error initializing Protocol DB: {e}")
@@ -392,16 +395,17 @@ class NASDatabase:
             return [dict(row) for row in cursor.fetchall()]
 
     def get_message_evolution_df(
-        self,
-        message_name: str,
-        version_ids: List[int],
-        include_descriptions: bool = False,
+            self,
+            message_name: str,
+            version_ids: List[int],
+            include_descriptions: bool = False,
     ) -> pd.DataFrame:
         if not version_ids:
             return pd.DataFrame()
 
         placeholders = ",".join("?" for _ in version_ids)
         if include_descriptions:
+            # Separate indexed LEFT JOINs avoid non-indexed Cartesian OR loops
             query = f"""
                 SELECT 
                     sv.spec_number,
@@ -415,15 +419,13 @@ class NASDatabase:
                     i.format,
                     i.length,
                     i.order_index,
-                    d.raw_description AS ie_description
+                    COALESCE(d1.raw_description, d2.raw_description, d3.raw_description) AS ie_description
                 FROM message_ies i
                 JOIN nas_messages m ON i.message_id = m.id
                 JOIN spec_versions sv ON m.version_id = sv.id
-                LEFT JOIN ie_definitions d ON d.version_id = sv.id
-                    AND (
-                        (d.ie_name != '' AND (d.ie_name = i.ie_name OR d.ie_name = i.type_reference))
-                        OR (d.clause != '' AND d.clause = i.type_reference)
-                    )
+                LEFT JOIN ie_definitions d1 ON d1.version_id = sv.id AND d1.ie_name = i.ie_name AND d1.ie_name != ''
+                LEFT JOIN ie_definitions d2 ON d2.version_id = sv.id AND d2.ie_name = i.type_reference AND d2.ie_name != ''
+                LEFT JOIN ie_definitions d3 ON d3.version_id = sv.id AND d3.clause = i.type_reference AND d3.clause != ''
                 WHERE m.message_name = ? AND sv.id IN ({placeholders})
                 ORDER BY i.order_index ASC
             """
