@@ -382,3 +382,62 @@ class SpecSearchDatabase:
         except Exception as e:
             self.logger.error(f"Failed to wipe Spec Search DB: {e}")
             return False
+
+    def get_versions_for_spec(self, spec_number: str) -> List[Dict[str, Any]]:
+        """Returns all imported versions for a specific specification sorted chronologically."""
+        query = """
+            SELECT id, spec_number, version, release_date, import_date, total_clauses, total_chars 
+            FROM indexed_versions 
+            WHERE spec_number = ?
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (spec_number,))
+            rows = [dict(row) for row in cursor.fetchall()]
+        return sorted(rows, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
+
+    def get_clause_hierarchy(self, spec_number: str, version: str, clause_number: str) -> List[Dict[str, Any]]:
+        """
+        Retrieves the chain of parent ancestor clauses for hierarchical context.
+        E.g., for '4.3.2.2.1', returns the records for '4', '4.3', '4.3.2', and '4.3.2.2'.
+        """
+        parts = clause_number.strip().split(".")
+        if len(parts) <= 1:
+            return []
+
+        ancestor_nums = [".".join(parts[:i]) for i in range(1, len(parts))]
+        placeholders = ",".join("?" for _ in ancestor_nums)
+
+        query = f"""
+            SELECT c.clause_number, c.clause_title, c.content, c.order_index
+            FROM spec_clauses c
+            JOIN indexed_versions v ON c.version_id = v.id
+            WHERE v.spec_number = ? AND v.version = ? AND c.clause_number IN ({placeholders})
+            ORDER BY c.order_index ASC
+        """
+        params = [spec_number, version] + ancestor_nums
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_branch_clauses(self, spec_number: str, version: str, clause_number: str) -> List[Dict[str, Any]]:
+        """
+        Retrieves sibling and child clauses sharing the same immediate parent procedure.
+        """
+        parts = clause_number.strip().split(".")
+        parent_prefix = ".".join(parts[:-1]) if len(parts) > 1 else clause_number
+
+        query = """
+            SELECT c.clause_number, c.clause_title, c.content, c.order_index
+            FROM spec_clauses c
+            JOIN indexed_versions v ON c.version_id = v.id
+            WHERE v.spec_number = ? AND v.version = ? 
+              AND (c.clause_number = ? OR c.clause_number LIKE ?)
+            ORDER BY c.order_index ASC
+        """
+        params = [spec_number, version, parent_prefix, f"{parent_prefix}.%"]
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
