@@ -96,14 +96,14 @@ class NASDatabase:
                     )
                 """)
 
-                # In modules/nas/core/nas_db.py -> inside _init_db()
-
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_msg_ver ON nas_messages(version_id);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_msg_name ON nas_messages(message_name);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_msg ON message_ies(message_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_name ON message_ies(ie_name);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_type ON message_ies(type_reference);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_ver ON ie_definitions(version_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_name ON ie_definitions(ie_name);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_def_clause ON ie_definitions(clause);")
                 conn.commit()
         except Exception as e:
             self.logger.error(f"Error initializing Protocol DB: {e}")
@@ -131,7 +131,6 @@ class NASDatabase:
             return False
 
     def wipe_database(self) -> bool:
-        """Drops all tables, re-initializes schemas, and vacuums the file to reclaim disk space."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -261,37 +260,66 @@ class NASDatabase:
         version_ids: Optional[List[int]] = None,
         search_descriptions: bool = False,
     ) -> List[Dict[str, Any]]:
+        """
+        Searches messages matching an IE name, field path, or clause 9 / ASN.1 description.
+        Optimized with Common Table Expressions (CTE) to avoid full cross-join table scans in ASN.1.
+        """
         if not version_ids or not ie_query.strip():
             return self.get_messages_list(version_ids)
 
+        clean_query = ie_query.strip()
         placeholders = ",".join("?" for _ in version_ids)
-        pattern = f"%{ie_query.strip()}%"
+        pattern = f"%{clean_query}%"
 
-        if search_descriptions:
+        # If search query is only 1 character, perform direct indexed IE/Type search to prevent full table cross-joins
+        if search_descriptions and len(clean_query) >= 2:
             query = f"""
-                SELECT m.message_name, m.clause, GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number
-                FROM nas_messages m
-                JOIN message_ies i ON i.message_id = m.id
-                JOIN spec_versions sv ON m.version_id = sv.id
-                LEFT JOIN ie_definitions d ON d.version_id = sv.id 
-                    AND (
-                        (d.clause != '' AND i.type_reference LIKE '%' || d.clause || '%')
-                        OR (d.ie_name != '' AND LOWER(TRIM(i.ie_name)) = LOWER(TRIM(d.ie_name)))
-                        OR (d.ie_name != '' AND i.type_reference LIKE '%' || d.ie_name || '%')
-                    )
-                WHERE m.version_id IN ({placeholders})
-                  AND (
-                      i.ie_name LIKE ? 
-                      OR i.field_path LIKE ?
-                      OR i.type_reference LIKE ? 
-                      OR i.iei LIKE ?
-                      OR d.raw_description LIKE ?
-                      OR d.ie_name LIKE ?
-                  )
-                GROUP BY m.message_name, m.clause
-                ORDER BY m.message_name ASC
+                WITH matched_defs AS (
+                    SELECT version_id, ie_name, clause
+                    FROM ie_definitions
+                    WHERE version_id IN ({placeholders})
+                      AND (raw_description LIKE ? OR ie_name LIKE ?)
+                ),
+                matching_messages AS (
+                    -- 1. Direct Information Element / ASN.1 Field Name Matches
+                    SELECT m.id AS message_id, m.version_id, m.message_name, m.clause
+                    FROM nas_messages m
+                    JOIN message_ies i ON i.message_id = m.id
+                    WHERE m.version_id IN ({placeholders})
+                      AND (
+                          i.ie_name LIKE ? 
+                          OR i.field_path LIKE ?
+                          OR i.type_reference LIKE ? 
+                          OR i.iei LIKE ?
+                      )
+
+                    UNION
+
+                    -- 2. Matches via Associated Clause 9 or ASN.1 Field Descriptions
+                    SELECT m.id AS message_id, m.version_id, m.message_name, m.clause
+                    FROM nas_messages m
+                    JOIN message_ies i ON i.message_id = m.id
+                    JOIN matched_defs d ON d.version_id = m.version_id
+                        AND (
+                            i.ie_name = d.ie_name
+                            OR i.type_reference = d.ie_name
+                            OR i.type_reference = d.clause
+                            OR (d.clause != '' AND i.type_reference = d.clause)
+                            OR (length(d.ie_name) >= 4 AND instr(i.type_reference, d.ie_name) > 0)
+                        )
+                    WHERE m.version_id IN ({placeholders})
+                )
+                SELECT mm.message_name, mm.clause, GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number
+                FROM matching_messages mm
+                JOIN spec_versions sv ON mm.version_id = sv.id
+                GROUP BY mm.message_name, mm.clause
+                ORDER BY mm.message_name ASC
             """
-            params = list(version_ids) + [pattern, pattern, pattern, pattern, pattern, pattern]
+            params = (
+                list(version_ids) + [pattern, pattern]
+                + list(version_ids) + [pattern, pattern, pattern, pattern]
+                + list(version_ids)
+            )
         else:
             query = f"""
                 SELECT m.message_name, m.clause, GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number
@@ -369,7 +397,6 @@ class NASDatabase:
         version_ids: List[int],
         include_descriptions: bool = False,
     ) -> pd.DataFrame:
-        """Fast retrieval of message evolution data without heavy HTML blobs."""
         if not version_ids:
             return pd.DataFrame()
 
@@ -393,7 +420,10 @@ class NASDatabase:
                 JOIN nas_messages m ON i.message_id = m.id
                 JOIN spec_versions sv ON m.version_id = sv.id
                 LEFT JOIN ie_definitions d ON d.version_id = sv.id
-                    AND (d.ie_name = i.ie_name OR d.clause = i.type_reference)
+                    AND (
+                        (d.ie_name != '' AND (d.ie_name = i.ie_name OR d.ie_name = i.type_reference))
+                        OR (d.clause != '' AND d.clause = i.type_reference)
+                    )
                 WHERE m.message_name = ? AND sv.id IN ({placeholders})
                 ORDER BY i.order_index ASC
             """
@@ -430,7 +460,6 @@ class NASDatabase:
         spec_number: Optional[str] = None,
         version_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
-        """Retrieves IE definitions matching by clause or IE name case-insensitively."""
         params = []
         where_parts = []
 
@@ -473,11 +502,10 @@ class NASDatabase:
         return sorted(rows, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
 
     def get_latest_spec_version_by_major(
-            self,
-            spec_number: str,
-            major_version: Optional[int] = None,
+        self,
+        spec_number: str,
+        major_version: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Finds the most recent minor/patch version for a given spec number and major release."""
         query = "SELECT id, spec_number, version, spec_type, import_date FROM spec_versions WHERE spec_number = ?"
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -500,17 +528,12 @@ class NASDatabase:
         return rows[0]
 
     def get_cross_referenced_ie_definition(
-            self,
-            target_spec: str,
-            target_clause: str,
-            alt_name: str = "",
-            major_version: Optional[int] = None,
+        self,
+        target_spec: str,
+        target_clause: str,
+        alt_name: str = "",
+        major_version: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
-        """
-        Retrieves the primary IE definition from target_spec matching target_clause (or alt_name)
-        for the most recent minor version belonging to major_version.
-        Prioritizes exact clause matches and substantive body content over index artifacts.
-        """
         latest_ver = self.get_latest_spec_version_by_major(target_spec, major_version)
         if not latest_ver:
             return None
@@ -521,7 +544,6 @@ class NASDatabase:
         where_parts = []
         params: List[Any] = [latest_ver["id"]]
 
-        # 1. Exact clause or IE name match (highest priority)
         if clean_c:
             where_parts.append("LOWER(TRIM(d.clause)) = LOWER(?)")
             params.append(clean_c)
@@ -529,7 +551,6 @@ class NASDatabase:
             where_parts.append("LOWER(TRIM(d.ie_name)) = LOWER(?)")
             params.append(clean_alt)
 
-        # 2. Fallback to clause prefix / substring match if exact match is absent
         if clean_c:
             where_parts.append("d.clause LIKE ?")
             params.append(f"%{clean_c}%")
@@ -539,7 +560,6 @@ class NASDatabase:
 
         where_sql = " OR ".join(where_parts)
 
-        # Order by content length descending so the full clause body wins over TOC/index artifacts
         query = f"""
             SELECT d.*, sv.version, sv.spec_number
             FROM ie_definitions d

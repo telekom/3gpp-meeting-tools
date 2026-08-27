@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
     QDialog,
@@ -28,16 +28,51 @@ from PyQt5.QtWidgets import (
 
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
-from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.nas.core.nas_threads import NASFetchAndImportThread
+from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.nas.ui.nas_components import NASInspectorWidget, NASVersionTreeWidget
 from modules.nas.ui.nas_dialogs import NASVersionSelectDialog
 from modules.nas.ui.nas_models import NASEvolutionMatrixModel
 from modules.specifications.core.database import SpecsDatabase
-from PyQt5.QtCore import QThread, pyqtSignal
 
 RE_SPEC_FROM_COL = re.compile(r"(?:24|36|38)\.[0-9]{3}")
 RE_CLAUSE_FROM_REF = re.compile(r"((?:9|6|D\.6)(?:\.[0-9A-Za-z]+)+)")
+
+
+class NASMessageListWorker(QThread):
+    """Background worker to query message lists without freezing the UI."""
+
+    results_ready = pyqtSignal(list, int)  # (messages, request_id)
+
+    def __init__(
+            self,
+            db: NASDatabase,
+            ie_query: str,
+            version_ids: List[int],
+            search_desc: bool,
+            request_id: int,
+    ):
+        super().__init__()
+        self.db = db
+        self.ie_query = ie_query
+        self.version_ids = version_ids
+        self.search_desc = search_desc
+        self.request_id = request_id
+
+    def run(self):
+        try:
+            if self.ie_query:
+                messages = self.db.get_messages_by_ie_search(
+                    ie_query=self.ie_query,
+                    version_ids=self.version_ids,
+                    search_descriptions=self.search_desc,
+                )
+            else:
+                messages = self.db.get_messages_list(self.version_ids)
+            self.results_ready.emit(messages, self.request_id)
+        except Exception as e:
+            logging.error(f"Error querying messages in background: {e}")
+            self.results_ready.emit([], self.request_id)
 
 
 class NASTab(QWidget):
@@ -50,8 +85,11 @@ class NASTab(QWidget):
         self.nas_db_path = Path(nas_db_path)
         self.specs_db_path = Path(specs_db_path) if specs_db_path else None
         self.config_path = self.nas_db_path.parent / "nas_config.json"
+
         self._reverse_lookup_worker: Optional[ReverseLookupWorker] = None
         self._reverse_lookup_request_id: int = 0
+        self._msg_query_worker: Optional[NASMessageListWorker] = None
+        self._msg_query_req_id: int = 0
 
         try:
             settings = MeetingsSettings()
@@ -74,12 +112,12 @@ class NASTab(QWidget):
 
         self._msg_search_timer = QTimer(self)
         self._msg_search_timer.setSingleShot(True)
-        self._msg_search_timer.setInterval(250)
+        self._msg_search_timer.setInterval(200)
         self._msg_search_timer.timeout.connect(self._on_search_timer_timeout)
 
         self._ie_search_timer = QTimer(self)
         self._ie_search_timer.setSingleShot(True)
-        self._ie_search_timer.setInterval(250)
+        self._ie_search_timer.setInterval(200)
         self._ie_search_timer.timeout.connect(self._on_search_timer_timeout)
 
         self._setup_ui()
@@ -199,7 +237,6 @@ class NASTab(QWidget):
         self.matrix_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1E293B;")
         matrix_layout.addWidget(self.matrix_title)
 
-        # Matrix Table Configuration
         self.matrix_table = QTableView()
         self.matrix_table.setAlternatingRowColors(True)
         self.matrix_table.setSelectionBehavior(QTableView.SelectRows)
@@ -207,7 +244,6 @@ class NASTab(QWidget):
         self.matrix_table.verticalHeader().setDefaultSectionSize(24)
         self.matrix_table.verticalHeader().setVisible(False)
 
-        # Interactive columns with stretch on the IE name
         h_header = self.matrix_table.horizontalHeader()
         h_header.setHighlightSections(False)
         h_header.setStretchLastSection(False)
@@ -367,10 +403,8 @@ class NASTab(QWidget):
         self._populate_messages()
 
     def _populate_messages(self):
-        target_msg_name = self.current_selected_message_name
-        self.msg_list.clear()
-
         if not self.selected_version_ids:
+            self.msg_list.clear()
             self.matrix_table.setModel(None)
             self.matrix_title.setText("Select a Message to View Evolution Matrix")
             self.inspector.clear_display()
@@ -378,20 +412,36 @@ class NASTab(QWidget):
             return
 
         ie_query = self.ie_search.text().strip()
-        msg_query = self.msg_search.text().strip().lower()
         search_desc = self.deep_search_btn.isChecked()
 
-        if ie_query:
-            messages = self.db.get_messages_by_ie_search(
-                ie_query,
-                self.selected_version_ids,
-                search_descriptions=search_desc,
-            )
-        else:
-            messages = self.db.get_messages_list(self.selected_version_ids)
+        self._msg_query_req_id += 1
+        req_id = self._msg_query_req_id
+
+        if self._msg_query_worker and self._msg_query_worker.isRunning():
+            self._msg_query_worker.terminate()
+            self._msg_query_worker.wait()
+
+        self._msg_query_worker = NASMessageListWorker(
+            db=self.db,
+            ie_query=ie_query,
+            version_ids=self.selected_version_ids,
+            search_desc=search_desc,
+            request_id=req_id,
+        )
+        self._msg_query_worker.results_ready.connect(self._on_message_list_ready)
+        self._msg_query_worker.start()
+
+    def _on_message_list_ready(self, messages: List[Dict[str, Any]], req_id: int):
+        if req_id != self._msg_query_req_id:
+            return
+
+        msg_query = self.msg_search.text().strip().lower()
+        target_msg_name = self.current_selected_message_name
+
+        self.msg_list.blockSignals(True)
+        self.msg_list.clear()
 
         target_item = None
-
         for m in messages:
             msg_name = m["message_name"]
             spec_num = m.get("spec_number", "")
@@ -407,6 +457,8 @@ class NASTab(QWidget):
             self.msg_list.addItem(item)
             if target_msg_name and msg_name == target_msg_name:
                 target_item = item
+
+        self.msg_list.blockSignals(False)
 
         if target_item:
             self.msg_list.setCurrentItem(target_item)
@@ -429,7 +481,6 @@ class NASTab(QWidget):
         desc_label = " (incl. Desc)" if search_desc and ie_query else ""
         title_suffix = f" (Filtered by IE{desc_label}: '{ie_query}')" if ie_query else ""
 
-        # Fetch lightweight DataFrame without large HTML blobs
         df = self.db.get_message_evolution_df(
             message_name=msg_name,
             version_ids=self.selected_version_ids,
@@ -450,12 +501,11 @@ class NASTab(QWidget):
         model = NASEvolutionMatrixModel(df, ie_filter=ie_query, search_descriptions=search_desc)
         self.matrix_table.setModel(model)
 
-        # Fast default column layout (avoids measuring thousands of rows synchronously)
         h_header = self.matrix_table.horizontalHeader()
         if model.columnCount() > 0:
-            h_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # IEI
-            h_header.setSectionResizeMode(1, QHeaderView.Stretch)           # Field Name
-            h_header.setSectionResizeMode(2, QHeaderView.Interactive)       # Type / Reference
+            h_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            h_header.setSectionResizeMode(1, QHeaderView.Stretch)
+            h_header.setSectionResizeMode(2, QHeaderView.Interactive)
             self.matrix_table.setColumnWidth(2, 280)
 
             for col in range(3, model.columnCount()):
@@ -497,7 +547,6 @@ class NASTab(QWidget):
         match_clause = RE_CLAUSE_FROM_REF.search(type_ref)
         clause = match_clause.group(1).strip() if match_clause else ie_name
 
-        # Priority 1: Search by Clean Type Name
         defs = []
         if clean_type:
             defs = self.db.get_ie_definitions_by_clause(
@@ -507,9 +556,9 @@ class NASTab(QWidget):
                 version_ids=self.selected_version_ids,
             )
 
-        # Priority 2: Search by Field Name / Clause
         if not defs and clause and not any(
-                clause.upper().startswith(k) for k in ("ENUMERATED", "INTEGER", "BOOLEAN", "BIT STRING")):
+                clause.upper().startswith(k) for k in ("ENUMERATED", "INTEGER", "BOOLEAN", "BIT STRING")
+        ):
             defs = self.db.get_ie_definitions_by_clause(
                 clause=clause,
                 alt_name=ie_name,
@@ -517,24 +566,21 @@ class NASTab(QWidget):
                 version_ids=self.selected_version_ids,
             )
 
-        # 1. Immediately render the definition inspector (instant UI feedback)
         self.inspector.display_definitions(
             clause=clause,
             ie_name=clean_type or ie_name,
             spec_number=spec_num,
             defs=defs,
-            containing_msgs=[],  # Populated asynchronously
+            containing_msgs=[],
             target_version_hint=target_version_hint,
             fallback_type_ref=type_ref,
             field_description=field_desc,
         )
 
-        # 2. Asynchronously query message references in background thread
         if defs:
             resolved_name = defs[0]["ie_name"]
             search_target_name = clean_type or resolved_name
 
-            # Cancel previous running worker if active
             if self._reverse_lookup_worker and self._reverse_lookup_worker.isRunning():
                 self._reverse_lookup_worker.terminate()
                 self._reverse_lookup_worker.wait()
@@ -554,7 +600,6 @@ class NASTab(QWidget):
             self._reverse_lookup_worker.start()
 
     def _on_reverse_lookup_finished(self, containing_msgs: List[Dict[str, Any]], req_id: int):
-        # Discard outdated requests if the user clicked another cell before completion
         if req_id == self._reverse_lookup_request_id:
             self.inspector.set_containing_messages(containing_msgs)
 
@@ -778,13 +823,11 @@ class NASTab(QWidget):
 
         dialog = NASVersionSelectDialog(self.specs_db, self.db, self.cache_dir, self)
 
-        # Pre-select specification
         for idx in range(dialog.spec_combo.count()):
             if dialog.spec_combo.itemData(idx) == spec_number:
                 dialog.spec_combo.setCurrentIndex(idx)
                 break
 
-        # Pre-select matching release row
         if major_version > 0:
             dialog.table.clearSelection()
             for row in range(dialog.table.rowCount()):
@@ -800,11 +843,21 @@ class NASTab(QWidget):
         if dialog.exec_() == QDialog.Accepted and dialog.selected_files_info:
             self._start_batch_ingestion(dialog.selected_files_info)
 
+
 class ReverseLookupWorker(QThread):
     """Background worker to fetch message references without freezing the UI."""
-    results_ready = pyqtSignal(list, int)  # results, request_id
 
-    def __init__(self, db: NASDatabase, clause: str, ie_name: str, spec_number: Optional[str], version_ids: List[int], request_id: int):
+    results_ready = pyqtSignal(list, int)
+
+    def __init__(
+            self,
+            db: NASDatabase,
+            clause: str,
+            ie_name: str,
+            spec_number: Optional[str],
+            version_ids: List[int],
+            request_id: int,
+    ):
         super().__init__()
         self.db = db
         self.clause = clause
