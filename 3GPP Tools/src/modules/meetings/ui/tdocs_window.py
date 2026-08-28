@@ -45,7 +45,6 @@ class DropOverlayWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Allows all drag and mouse events to pass directly to the parent TDocsWindow
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.hide()
 
@@ -69,9 +68,9 @@ class DropOverlayWidget(QWidget):
         icon_lbl.setStyleSheet("font-size: 48px; border: none; background: transparent;")
         icon_lbl.setAlignment(Qt.AlignCenter)
 
-        text_lbl = QLabel("<b>Drop Chairman's Notes / Agenda file to import</b><br>"
+        text_lbl = QLabel("<b>Drop Chairman's Notes / Agenda file(s) to import</b><br>"
                           "<span style='font-size: 12px; color: #555;'>"
-                          "Supports <code>.docx</code>, <code>.doc</code>, and <code>.htm</code> files</span>")
+                          "Supports single or multiple <code>.docx</code>, <code>.doc</code>, and <code>.htm</code> files</span>")
         text_lbl.setStyleSheet("font-size: 16px; color: #005A9E; border: none; background: transparent;")
         text_lbl.setAlignment(Qt.AlignCenter)
 
@@ -96,6 +95,14 @@ class TDocsWindow(QWidget):
         self.filepath = filepath
         self.meeting_dir = Path(filepath).parent.parent
         self.active_threads = {}
+
+        # Import Queue State
+        self._import_queue = []
+        self._is_importing_agenda = False
+        self._total_import_batch_count = 0
+        self._import_accumulated_merged = 0
+        self._import_success_files = []
+        self._import_failed_files = []
 
         # Enable Drag & Drop
         self.setAcceptDrops(True)
@@ -1019,37 +1026,69 @@ class TDocsWindow(QWidget):
         if hasattr(self, 'drop_overlay'):
             self.drop_overlay.hide()
 
+        valid_files = []
         for url in event.mimeData().urls():
             file_path = Path(url.toLocalFile())
             if file_path.suffix.lower() in ['.docx', '.doc', '.htm', '.html']:
-                self._process_imported_agenda_file(file_path)
-                event.acceptProposedAction()
-                return
+                valid_files.append(file_path)
+
+        if valid_files:
+            event.acceptProposedAction()
+            self._process_imported_agenda_files(valid_files)
+        else:
+            event.ignore()
 
     def _import_word_agenda_dialog(self):
         agenda_dir = self.meeting_dir / "Agenda"
         start_dir = str(agenda_dir) if agenda_dir.exists() else str(self.meeting_dir)
 
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select TDocsByAgenda Word File",
+            "Select TDocsByAgenda / Chairman's Notes File(s)",
             start_dir,
-            "Word Documents (*.docx *.doc);;DOCX Files (*.docx);;DOC Files (*.doc);;HTML Files (*.htm *.html);;All Files (*.*)"
+            "Supported Files (*.docx *.doc *.htm *.html);;Word Documents (*.docx *.doc);;DOCX Files (*.docx);;DOC Files (*.doc);;HTML Files (*.htm *.html);;All Files (*.*)"
         )
-        if file_path:
-            self._process_imported_agenda_file(Path(file_path))
+        if file_paths:
+            self._process_imported_agenda_files([Path(p) for p in file_paths])
 
     def _process_imported_agenda_file(self, source_path: Path):
-        """Dispatches file staging, LibreOffice conversion, and parsing to a background QThread."""
-        if not source_path.exists():
-            QMessageBox.warning(self, "File Not Found", f"Cannot find file:\n{source_path}")
+        """Single-file compatibility wrapper."""
+        self._process_imported_agenda_files([source_path])
+
+    def _process_imported_agenda_files(self, source_paths: list):
+        """Queues single or multiple agenda/notes files for sequential processing."""
+        valid_paths = [p for p in source_paths if p.exists()]
+        if not valid_paths:
+            QMessageBox.warning(self, "Files Not Found", "None of the specified files exist on disk.")
             return
 
-        self.refresh_btn.setEnabled(False)
-        self.refresh_btn.setText("⏳ Importing...")
+        self._import_queue.extend(valid_paths)
 
-        self.word_import_thread = WordAgendaImporterThread(source_path, self.meeting_dir)
-        self.word_import_thread.progress.connect(self._on_word_import_progress)
+        if not self._is_importing_agenda:
+            self._total_import_batch_count = len(self._import_queue)
+            self._import_accumulated_merged = 0
+            self._import_success_files = []
+            self._import_failed_files = []
+            self._is_importing_agenda = True
+            self._process_next_in_import_queue()
+
+    def _process_next_in_import_queue(self):
+        """Processes the next file in the queue or finalizes the batch import."""
+        if not self._import_queue:
+            self._finalize_import_batch()
+            return
+
+        current_file = self._import_queue.pop(0)
+        current_idx = self._total_import_batch_count - len(self._import_queue)
+
+        self.refresh_btn.setEnabled(False)
+        self.refresh_btn.setText(f"⏳ ({current_idx}/{self._total_import_batch_count}) Importing...")
+
+        self.word_import_thread = WordAgendaImporterThread(current_file, self.meeting_dir)
+        self.word_import_thread.progress.connect(
+            lambda msg, idx=current_idx, tot=self._total_import_batch_count: self._on_word_import_progress(
+                f"({idx}/{tot}) {msg}")
+        )
         self.word_import_thread.finished.connect(self._on_word_import_finished)
         self.word_import_thread.start()
 
@@ -1057,25 +1096,55 @@ class TDocsWindow(QWidget):
         self.refresh_btn.setText(f"⏳ {msg}"[:32])
 
     def _on_word_import_finished(self, success: bool, agenda_data: dict, filename: str, error_msg: str):
+        if success and agenda_data:
+            self.model.merge_agenda_data(agenda_data)
+            self._import_accumulated_merged += len(agenda_data)
+            self._import_success_files.append((filename, len(agenda_data)))
+        else:
+            self._import_failed_files.append((filename, error_msg or "No valid TDocs table found"))
+
+        # Advance to the next item in the queue
+        self._process_next_in_import_queue()
+
+    def _finalize_import_batch(self):
+        """Cleans up UI state and displays a completion summary dialog."""
+        self._is_importing_agenda = False
         self.refresh_btn.setEnabled(True)
         self.refresh_btn.setText("🔄 Refresh")
 
-        if success and agenda_data:
-            self.model.merge_agenda_data(agenda_data)
+        if self._import_accumulated_merged > 0:
             self._refresh_comboboxes()
-            self.refresh_btn.setText(f"✅ {len(agenda_data)} Merged")
+            self.refresh_btn.setText(f"✅ {self._import_accumulated_merged} Merged")
             QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
-            QMessageBox.information(
-                self,
-                "Import Successful",
-                f"Saved to Agenda/\nSuccessfully merged {len(agenda_data)} TDocs from:\n{filename}",
-            )
+
+        # Single-file feedback
+        if self._total_import_batch_count == 1:
+            if self._import_success_files:
+                fname, count = self._import_success_files[0]
+                QMessageBox.information(
+                    self,
+                    "Import Successful",
+                    f"Saved to Agenda/\nSuccessfully merged {count} TDocs from:\n{fname}",
+                )
+            else:
+                fname, err = self._import_failed_files[0]
+                QMessageBox.warning(self, "Import Failed", f"Failed to import {fname}:\n{err}")
+            return
+
+        # Multi-file batch feedback
+        summary_lines = [
+            f"Batch import completed for {self._total_import_batch_count} files.",
+            f"• Successfully imported: {len(self._import_success_files)} file(s)",
+            f"• Total TDocs merged: {self._import_accumulated_merged}\n"
+        ]
+
+        if self._import_failed_files:
+            summary_lines.append(f"⚠️ Failures ({len(self._import_failed_files)}):")
+            for fname, err in self._import_failed_files:
+                summary_lines.append(f"  - {fname}: {err}")
+            QMessageBox.warning(self, "Batch Import Completed with Warnings", "\n".join(summary_lines))
         else:
-            QMessageBox.warning(
-                self,
-                "Import Failed",
-                error_msg or f"No valid TDocs table could be extracted from:\n{filename}",
-            )
+            QMessageBox.information(self, "Batch Import Successful", "\n".join(summary_lines))
 
 
     def _download_chair_notes(self):
