@@ -1,3 +1,4 @@
+# --- File: src/modules/word_tools/ui/word_tabs.py ---
 import webbrowser
 from pathlib import Path
 
@@ -5,10 +6,12 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QStackedWidget,
@@ -20,9 +23,12 @@ import win32com.client
 import pythoncom
 
 from core.ui.ui_components import InteractiveDropLabel
+from modules.word_tools.core.word_config import WordConfig
 from modules.word_tools.core.libreoffice_converter import (
     LIBREOFFICE_DOWNLOAD_URL,
     is_libreoffice_available,
+    find_libreoffice_executable,
+    resolve_soffice_binary,
 )
 
 
@@ -140,28 +146,32 @@ class WordExtractorTab(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # LibreOffice Missing Notification Banner
+        # LibreOffice Status & Path Configuration Banner
         self.status_banner = QWidget()
         banner_layout = QHBoxLayout(self.status_banner)
         banner_layout.setContentsMargins(10, 8, 10, 8)
 
         self.banner_icon = QLabel("⚠️")
-        self.banner_text = QLabel(
-            "<b>LibreOffice is not installed.</b> Direct conversion and fallback conversion of legacy .doc files "
-            "require LibreOffice."
-        )
+        self.banner_text = QLabel()
         self.banner_text.setWordWrap(True)
-        self.banner_text.setStyleSheet("color: #B78103;")
 
-        self.install_btn = QPushButton("📥 Install LibreOffice")
-        self.install_btn.setStyleSheet(
+        self.locate_btn = QPushButton("📂 Locate Executable")
+        self.locate_btn.setToolTip("Select soffice.exe or LibreOfficePortable.exe from your disk")
+        self.locate_btn.setStyleSheet(
+            "font-weight: bold; background-color: #0284C7; color: white; padding: 4px 10px; border-radius: 4px;"
+        )
+        self.locate_btn.clicked.connect(self._browse_for_libreoffice)
+
+        self.download_btn = QPushButton("📥 Download Portable")
+        self.download_btn.setStyleSheet(
             "font-weight: bold; background-color: #2e7d32; color: white; padding: 4px 10px; border-radius: 4px;"
         )
-        self.install_btn.clicked.connect(lambda: webbrowser.open(LIBREOFFICE_DOWNLOAD_URL))
+        self.download_btn.clicked.connect(lambda: webbrowser.open(LIBREOFFICE_DOWNLOAD_URL))
 
         banner_layout.addWidget(self.banner_icon)
         banner_layout.addWidget(self.banner_text, 1)
-        banner_layout.addWidget(self.install_btn)
+        banner_layout.addWidget(self.locate_btn)
+        banner_layout.addWidget(self.download_btn)
         layout.addWidget(self.status_banner)
 
         # Operation Switcher
@@ -291,20 +301,62 @@ class WordExtractorTab(QWidget):
         self.op_combo.currentIndexChanged.connect(self.stack.setCurrentIndex)
 
     def _check_libreoffice_status(self):
-        if is_libreoffice_available():
-            self.status_banner.setVisible(False)
+        soffice_bin = find_libreoffice_executable()
+        if soffice_bin:
+            self.status_banner.setStyleSheet(
+                "background-color: #E8F5E9; border: 1px solid #A5D6A7; border-radius: 4px;"
+            )
+            self.banner_icon.setText("🟢")
+            self.banner_text.setText(
+                f"<b>LibreOffice Ready:</b> Using <code>{soffice_bin}</code>"
+            )
+            self.banner_text.setStyleSheet("color: #1B5E20;")
+            self.locate_btn.setText("⚙️ Change Path")
+            self.download_btn.setVisible(False)
         else:
             self.status_banner.setStyleSheet(
                 "background-color: #FFF3E0; border: 1px solid #FFE082; border-radius: 4px;"
             )
-            self.status_banner.setVisible(True)
+            self.banner_icon.setText("⚠️")
+            self.banner_text.setText(
+                "<b>LibreOffice not detected.</b> If you use LibreOffice Portable, click 'Locate Executable' to select it."
+            )
+            self.banner_text.setStyleSheet("color: #B78103;")
+            self.locate_btn.setText("📂 Locate Executable")
+            self.download_btn.setVisible(True)
+
+    def _browse_for_libreoffice(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select LibreOffice Binary or Portable Launcher",
+            "",
+            "LibreOffice Executable (*soffice.exe *LibreOfficePortable.exe *.exe);;All Files (*.*)",
+        )
+        if not file_path:
+            return
+
+        resolved = resolve_soffice_binary(file_path)
+        if resolved:
+            WordConfig.set_libreoffice_path(str(resolved))
+            self._check_libreoffice_status()
+            QMessageBox.information(
+                self,
+                "LibreOffice Configured",
+                f"Successfully linked LibreOffice executable:\n{resolved}",
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Invalid Executable",
+                "Could not locate a working 'soffice.exe' inside the selected file or its directory.\n"
+                "Please select 'soffice.exe' or 'LibreOfficePortable.exe'.",
+            )
 
     def _on_lo_dropped(self, files):
         if not is_libreoffice_available():
             self._check_libreoffice_status()
         for f in files:
             if f:
-                # "docx_libreoffice" routes strictly to the LibreOffice CLI engine
                 self.convert_doc_requested.emit(f, "docx_libreoffice")
 
     def _trigger_comparison(self):

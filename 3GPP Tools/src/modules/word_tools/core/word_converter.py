@@ -1,3 +1,4 @@
+# --- File: src/modules/word_tools/core/word_converter.py ---
 import logging
 import os
 from pathlib import Path
@@ -203,7 +204,7 @@ def convert_doc_to_docx(
 ) -> Path:
     """
     Automated Primary Entry Point: Tries Word COM conversion first.
-    If Word fails (e.g. security blocks, macros, COM errors), seamlessly falls back to LibreOffice.
+    If Word fails (e.g., security policies, macros, COM errors), seamlessly falls back to LibreOffice.
     """
     log = logger or logging.getLogger(__name__)
     source = Path(doc_path).resolve()
@@ -211,7 +212,7 @@ def convert_doc_to_docx(
     try:
         return convert_doc_to_docx_word(source, output_path=output_path, logger=log)
     except Exception as word_err:
-        log.warning(f"Word COM conversion failed for '{source.name}' ({word_err}). Initiating LibreOffice fallback...")
+        log.warning(f"Word COM conversion failed for '{source.name}' ({word_err}). Falling back to LibreOffice...")
         try:
             return convert_doc_to_docx_libreoffice(source, output_path=output_path, logger=log)
         except Exception as lo_err:
@@ -238,7 +239,7 @@ class WordConverterThread(QThread):
         super().__init__()
         self.doc_source = doc_source
         self.target_format = target_format.lower().replace(".", "").strip()
-        self.engine = engine.lower().strip()  # "auto", "libreoffice", or "word"
+        self.engine = engine.lower().strip()
 
     def _resolve_path(self, input_str: str) -> str:
         if not input_str:
@@ -286,7 +287,7 @@ class WordConverterThread(QThread):
                 self.finished_path.emit(str(out_path))
                 return
 
-            # 3. Standard Word COM Export Pipeline for non-doc conversions
+            # 3. Standard Word COM Export Pipeline
             self._run_word_export(source)
 
         except Exception as e:
