@@ -12,6 +12,11 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.utils import get_proxies
 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
+from modules.word_tools.core.libreoffice_converter import (
+    convert_doc_to_docx_libreoffice,
+    is_libreoffice_available,
+    get_libreoffice_missing_msg,
+)
 
 # Word WdSaveFormat Constants
 WD_FORMAT_DOC = 0
@@ -40,16 +45,12 @@ def _sanitize_file_attributes(file_path: Path) -> None:
         pass
 
 
-def convert_doc_to_docx(
+def convert_doc_to_docx_word(
     doc_path: Union[str, Path],
     output_path: Optional[Union[str, Path]] = None,
     logger: Optional[logging.Logger] = None,
 ) -> Path:
-    """
-    Synchronously converts a legacy Word 97-2003 (.doc) binary file to OpenXML (.docx).
-    Bypasses format upgrade prompts, applies corporate sensitivity classification,
-    and isolates saves within %TEMP% to avoid OneDrive sync lock collisions.
-    """
+    """Synchronously converts a legacy .doc to .docx using Microsoft Word COM automation."""
     log = logger or logging.getLogger(__name__)
     source = Path(doc_path).resolve()
 
@@ -63,7 +64,6 @@ def convert_doc_to_docx(
     if target.exists() and target.stat().st_size > 0:
         return target
 
-    # 1. Clean attributes and prepare paths
     _sanitize_file_attributes(source)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
@@ -73,7 +73,6 @@ def convert_doc_to_docx(
         except Exception:
             pass
 
-    # Stage conversion in local %TEMP% to eliminate OneDrive co-authoring COM locks
     temp_dir = Path(tempfile.gettempdir())
     temp_target = temp_dir / f"stage_{source.stem}.docx"
     if temp_target.exists():
@@ -95,18 +94,17 @@ def convert_doc_to_docx(
 
         word = win32com.client.DispatchEx("Word.Application")
         word.Visible = False
-        word.DisplayAlerts = 0  # wdAlertsNone
+        word.DisplayAlerts = 0
 
         try:
             word.AutomationSecurity = 1  # msoAutomationSecurityLow
             word.Options.ConfirmConversions = False
             word.Options.DoNotPromptForConvert = True
             word.Options.WarnBeforeSavingPrintingSendingMarkup = False
-            word.Options.SaveInterval = 0  # Disable AutoRecover during batch automation
+            word.Options.SaveInterval = 0
         except Exception:
             pass
 
-        # 2. Open source document
         try:
             doc = word.Documents.Open(
                 FileName=source_str,
@@ -116,7 +114,6 @@ def convert_doc_to_docx(
             )
         except Exception:
             if hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
-                log.info(f"Unlocking Protected View window for {source.name}...")
                 pv = word.ProtectedViewWindows.Item(1)
                 doc = pv.Edit()
             else:
@@ -130,7 +127,6 @@ def convert_doc_to_docx(
         if doc is None:
             raise RuntimeError(f"Word failed to acquire a valid document handle for {source.name}")
 
-        # 3. In-memory format upgrade & Sensitivity Label application
         try:
             doc.Convert()
         except Exception:
@@ -138,109 +134,57 @@ def convert_doc_to_docx(
 
         try:
             set_sensitivity_label(doc)
-        except Exception as sl_err:
-            log.warning(f"Could not set sensitivity label on {source.name}: {sl_err}")
+        except Exception:
+            pass
 
-        # 4. Primary Conversion: Direct SaveAs2 to isolated local temporary file
         try:
             doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
             if temp_target.exists() and temp_target.stat().st_size > 0:
                 saved = True
-        except Exception as err_save2:
-            log.debug(f"Direct SaveAs2 (format 12) failed: {err_save2}")
+        except Exception:
+            pass
 
         if not saved:
             try:
                 doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_DOC_DEFAULT)
                 if temp_target.exists() and temp_target.stat().st_size > 0:
                     saved = True
-            except Exception as err_def:
-                log.debug(f"SaveAs2 default failed: {err_def}")
-
-        # 5. Secondary Conversion: Direct RAM FormattedText clone (clipboard-free)
-        if not saved or not temp_target.exists() or temp_target.stat().st_size == 0:
-            log.info(f"Cloning formatted content stream for {source.name}...")
-            new_doc = word.Documents.Add()
-
-            try:
-                set_sensitivity_label(new_doc)
             except Exception:
                 pass
 
+        if not saved or not temp_target.exists() or temp_target.stat().st_size == 0:
+            new_doc = word.Documents.Add()
             new_doc.Content.FormattedText = doc.Content.FormattedText
-
-            try:
-                set_sensitivity_label(new_doc)
-            except Exception:
-                pass
-
             new_doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
             new_doc.Close(SaveChanges=False)
             new_doc = None
-
             if temp_target.exists() and temp_target.stat().st_size > 0:
                 saved = True
 
-        # 6. Tertiary Fallback: Fresh InsertFile stream transfer
-        if not saved or not temp_target.exists() or temp_target.stat().st_size == 0:
-            log.info(f"Attempting detached InsertFile stream for {source.name}...")
-            try:
-                doc.Close(SaveChanges=False)
-                doc = None
-            except Exception:
-                pass
-
-            new_doc = word.Documents.Add()
-            try:
-                set_sensitivity_label(new_doc)
-            except Exception:
-                pass
-
-            new_doc.Range(0, 0).InsertFile(FileName=source_str)
-
-            try:
-                set_sensitivity_label(new_doc)
-            except Exception:
-                pass
-
-            new_doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
-            new_doc.Close(SaveChanges=False)
-            new_doc = None
-
-            if temp_target.exists() and temp_target.stat().st_size > 0:
-                saved = True
-
-        # 7. Finalize: Move staging file to actual destination
         if not temp_target.exists() or temp_target.stat().st_size == 0:
-            raise RuntimeError(f"Target .docx file was not generated for {source.name}")
+            raise RuntimeError(f"MS Word failed to write target .docx for {source.name}")
 
         shutil.copy2(temp_target, target)
         _sanitize_file_attributes(target)
-
         try:
             temp_target.unlink()
         except Exception:
             pass
 
-        log.info(f"Successfully converted {source.name} -> {target.name}")
+        log.info(f"Successfully converted via MS Word: {source.name} -> {target.name}")
         return target
 
-    except Exception as e:
-        log.error(f"COM conversion failed for {source.name}: {e}")
-        raise
     finally:
         if new_doc:
             try:
                 new_doc.Close(SaveChanges=False)
             except Exception:
                 pass
-
         if doc:
             try:
                 doc.Close(SaveChanges=False)
             except Exception:
                 pass
-
         if word:
             try:
                 if hasattr(word, "ProtectedViewWindows"):
@@ -249,8 +193,30 @@ def convert_doc_to_docx(
                 word.Quit()
             except Exception:
                 pass
-
         pythoncom.CoUninitialize()
+
+
+def convert_doc_to_docx(
+    doc_path: Union[str, Path],
+    output_path: Optional[Union[str, Path]] = None,
+    logger: Optional[logging.Logger] = None,
+) -> Path:
+    """
+    Automated Primary Entry Point: Tries Word COM conversion first.
+    If Word fails (e.g. security blocks, macros, COM errors), seamlessly falls back to LibreOffice.
+    """
+    log = logger or logging.getLogger(__name__)
+    source = Path(doc_path).resolve()
+
+    try:
+        return convert_doc_to_docx_word(source, output_path=output_path, logger=log)
+    except Exception as word_err:
+        log.warning(f"Word COM conversion failed for '{source.name}' ({word_err}). Initiating LibreOffice fallback...")
+        try:
+            return convert_doc_to_docx_libreoffice(source, output_path=output_path, logger=log)
+        except Exception as lo_err:
+            log.error(f"Both Word and LibreOffice conversions failed for '{source.name}'. LibreOffice error: {lo_err}")
+            raise
 
 
 class WordConverterThread(QThread):
@@ -268,21 +234,19 @@ class WordConverterThread(QThread):
         "doc": WD_FORMAT_DOC,
     }
 
-    def __init__(self, doc_source: str, target_format: str):
+    def __init__(self, doc_source: str, target_format: str, engine: str = "auto"):
         super().__init__()
         self.doc_source = doc_source
-        self.target_format = target_format.lower().replace(".", "")
+        self.target_format = target_format.lower().replace(".", "").strip()
+        self.engine = engine.lower().strip()  # "auto", "libreoffice", or "word"
 
     def _resolve_path(self, input_str: str) -> str:
         if not input_str:
-            raise ValueError("Input document is empty. Please select a valid file, open document, or URL.")
+            raise ValueError("Input document is empty. Please select a valid file or URL.")
 
         if input_str.startswith("http://") or input_str.startswith("https://"):
             if "sharepoint.com" in input_str.lower() or "onedrive" in input_str.lower():
-                self.ui_log_msg.emit(
-                    "🔗 Corporate link detected. Delegating secure authentication to MS Word...",
-                    logging.INFO,
-                )
+                self.ui_log_msg.emit("🔗 Corporate link detected. Delegating authentication to MS Word...", logging.INFO)
                 return input_str.split("?")[0] if "?web=" in input_str else input_str
 
             self.ui_log_msg.emit("⏳ Downloading document via proxy...", logging.INFO)
@@ -298,24 +262,51 @@ class WordConverterThread(QThread):
         return input_str
 
     def run(self):
-        word = None
-        doc = None
         try:
-            pythoncom.CoInitialize()
-
-            self.ui_log_msg.emit(f"⏳ Preparing document for {self.target_format.upper()} conversion...", logging.INFO)
             source_path = self._resolve_path(self.doc_source)
             source = Path(source_path).resolve()
             _sanitize_file_attributes(source)
 
+            # 1. Explicit LibreOffice Engine Request
+            if self.engine == "libreoffice" or (source.suffix.lower() == ".doc" and self.target_format == "docx_libreoffice"):
+                if not is_libreoffice_available():
+                    self.ui_log_msg.emit(get_libreoffice_missing_msg(), logging.ERROR)
+                    return
+                self.ui_log_msg.emit(f"⏳ Converting '{source.name}' to .docx using Headless LibreOffice...", logging.INFO)
+                out_path = convert_doc_to_docx_libreoffice(source)
+                self.ui_log_msg.emit(f"✅ Conversion complete: {out_path.name}", logging.INFO)
+                self.finished_path.emit(str(out_path))
+                return
+
+            # 2. Automated Auto-Fallback for .doc -> .docx
+            if source.suffix.lower() == ".doc" and self.target_format == "docx":
+                self.ui_log_msg.emit(f"⏳ Converting '{source.name}' to .docx (Word primary, LibreOffice fallback)...", logging.INFO)
+                out_path = convert_doc_to_docx(source)
+                self.ui_log_msg.emit(f"✅ Conversion complete: {out_path.name}", logging.INFO)
+                self.finished_path.emit(str(out_path))
+                return
+
+            # 3. Standard Word COM Export Pipeline for non-doc conversions
+            self._run_word_export(source)
+
+        except Exception as e:
+            self.ui_log_msg.emit(f"❌ Conversion Error: {str(e)}", logging.ERROR)
+        finally:
+            self.finished.emit()
+
+    def _run_word_export(self, source: Path):
+        word = None
+        doc = None
+        try:
+            pythoncom.CoInitialize()
             out_dir = source.parent
-            out_name = source.stem + f".{self.target_format}"
+            out_name = f"{source.stem}.{self.target_format}"
             out_path = str(out_dir / out_name)
 
             if self.target_format not in self.FORMAT_MAP:
                 raise ValueError(f"Unsupported conversion format: {self.target_format}")
 
-            self.ui_log_msg.emit(f"⏳ Spawning detached Word Converter Engine for {out_name}...", logging.INFO)
+            self.ui_log_msg.emit(f"⏳ Spawning Word Converter Engine for {out_name}...", logging.INFO)
             word = win32com.client.DispatchEx("Word.Application")
             word.Visible = False
             word.DisplayAlerts = 0
@@ -345,7 +336,6 @@ class WordConverterThread(QThread):
                 export_format = WD_FORMAT_PDF if self.target_format == "pdf" else WD_FORMAT_XPS
                 word.Options.UpdateFieldsAtPrint = False
                 word.Options.UpdateLinksAtPrint = False
-
                 doc.ExportAsFixedFormat(
                     OutputFileName=out_path,
                     ExportFormat=export_format,
@@ -360,8 +350,6 @@ class WordConverterThread(QThread):
             self.ui_log_msg.emit(f"✅ Conversion complete: {out_name}", logging.INFO)
             self.finished_path.emit(out_path)
 
-        except Exception as e:
-            self.ui_log_msg.emit(f"❌ Conversion Error: {str(e)}", logging.ERROR)
         finally:
             try:
                 if doc:
@@ -370,6 +358,4 @@ class WordConverterThread(QThread):
                     word.Quit()
             except Exception:
                 pass
-
             pythoncom.CoUninitialize()
-            self.finished.emit()
