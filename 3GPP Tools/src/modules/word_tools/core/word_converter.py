@@ -1,4 +1,3 @@
-# --- File: src/modules/word_tools/core/word_converter.py ---
 import logging
 import os
 from pathlib import Path
@@ -15,6 +14,7 @@ from core.utils.utils import get_proxies
 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
 from modules.word_tools.core.libreoffice_converter import (
     convert_doc_to_docx_libreoffice,
+    convert_document_libreoffice,
     is_libreoffice_available,
     get_libreoffice_missing_msg,
 )
@@ -203,8 +203,8 @@ def convert_doc_to_docx(
     logger: Optional[logging.Logger] = None,
 ) -> Path:
     """
-    Automated Primary Entry Point: Tries Word COM conversion first.
-    If Word fails (e.g., security policies, macros, COM errors), seamlessly falls back to LibreOffice.
+    Primary Entry Point: Tries Word COM conversion first.
+    If and only if Word fails, falls back to LibreOffice.
     """
     log = logger or logging.getLogger(__name__)
     source = Path(doc_path).resolve()
@@ -273,22 +273,26 @@ class WordConverterThread(QThread):
                 if not is_libreoffice_available():
                     self.ui_log_msg.emit(get_libreoffice_missing_msg(), logging.ERROR)
                     return
-                self.ui_log_msg.emit(f"⏳ Converting '{source.name}' to .docx using Headless LibreOffice...", logging.INFO)
-                out_path = convert_doc_to_docx_libreoffice(source)
+                self.ui_log_msg.emit(f"⏳ Converting '{source.name}' to .{self.target_format} using Headless LibreOffice...", logging.INFO)
+                out_path = convert_document_libreoffice(source, target_format=self.target_format)
                 self.ui_log_msg.emit(f"✅ Conversion complete: {out_path.name}", logging.INFO)
                 self.finished_path.emit(str(out_path))
                 return
 
-            # 2. Automated Auto-Fallback for .doc -> .docx
-            if source.suffix.lower() == ".doc" and self.target_format == "docx":
-                self.ui_log_msg.emit(f"⏳ Converting '{source.name}' to .docx (Word primary, LibreOffice fallback)...", logging.INFO)
-                out_path = convert_doc_to_docx(source)
-                self.ui_log_msg.emit(f"✅ Conversion complete: {out_path.name}", logging.INFO)
-                self.finished_path.emit(str(out_path))
-                return
-
-            # 3. Standard Word COM Export Pipeline
-            self._run_word_export(source)
+            # 2. Automated Word-First Pipeline with LibreOffice Fallback
+            try:
+                self._run_word_export(source)
+            except Exception as word_err:
+                if self.engine != "word" and is_libreoffice_available() and self.target_format in ("docx", "pdf", "html", "rtf", "txt"):
+                    self.ui_log_msg.emit(
+                        f"⚠️ Word COM conversion failed ({word_err}). Initiating LibreOffice fallback...",
+                        logging.WARNING,
+                    )
+                    out_path = convert_document_libreoffice(source, target_format=self.target_format)
+                    self.ui_log_msg.emit(f"✅ Conversion complete (via LibreOffice): {out_path.name}", logging.INFO)
+                    self.finished_path.emit(str(out_path))
+                else:
+                    raise word_err
 
         except Exception as e:
             self.ui_log_msg.emit(f"❌ Conversion Error: {str(e)}", logging.ERROR)
