@@ -6,7 +6,6 @@ import re
 import urllib.parse
 import webbrowser
 from pathlib import Path
-import shutil
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint
 from PyQt5.QtGui import QCursor
@@ -15,7 +14,15 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QPushButton, QMessageBox, QMenu, QApplication,
                              QToolTip, QCheckBox, QDialog, QTextEdit, QFileDialog)
 
+from core.network.network_state import NetworkState
+from modules.emails.ui.email_window import EmailManagerWindow
+from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
 from modules.meetings.core.compare_manager import ComparisonManager
+from modules.meetings.core.excel_exporter import ExcelExporterThread
+from modules.meetings.core.llm_exporter import LLMExporterThread
+from modules.meetings.core.markdown_exporter import MarkdownExporterThread
+from modules.meetings.core.stats.exporter_thread import StatisticsExporterThread
+from modules.meetings.core.tdocs_db import TDocsDatabase
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.core.tdocs_threads import (
@@ -24,20 +31,16 @@ from modules.meetings.core.tdocs_threads import (
     TdocsByAgendaThread,
     WordAgendaImporterThread,
 )
-from modules.meetings.core.tdocs_db import TDocsDatabase
-from modules.meetings.core.markdown_exporter import MarkdownExporterThread
-from modules.meetings.core.stats.exporter_thread import StatisticsExporterThread
-
+from modules.meetings.core.url_router import URLRouter
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
-from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
+from modules.meetings.ui.tdocs_dialogs import (
+    ReadOnlyViewerDialog,
+    InteractiveNotesDialog,
+    StatisticsSettingsDialog, ExcelExportDialog
+)
 from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu
-from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog, InteractiveNotesDialog, StatisticsSettingsDialog
-from modules.emails.ui.email_window import EmailManagerWindow
-from modules.meetings.core.llm_exporter import LLMExporterThread
-from core.network.network_state import NetworkState
-from modules.meetings.core.url_router import URLRouter
-from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
+from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
 
 
 class DropOverlayWidget(QWidget):
@@ -200,20 +203,20 @@ class TDocsWindow(QWidget):
         self.folder_menu.aboutToShow.connect(self._populate_resources_menu)
         self.folder_btn.setMenu(self.folder_menu)
 
-        self.excel_btn = QPushButton("📗 Excel")
+        self.excel_btn = QPushButton("📗 Original Excel")
         self.excel_btn.setStyleSheet(style_btn())
-        self.excel_btn.setToolTip("Open the underlying Excel TDocs list downloaded from 3GPP.")
+        self.excel_btn.setToolTip("Open the raw, underlying 3GPP Excel TDocs list.")
         self.excel_btn.clicked.connect(self._open_excel)
 
-        self.llm_btn = QPushButton("🤖 Export Visible to LLM")
-        self.llm_btn.setStyleSheet(style_btn())
-        self.llm_btn.setToolTip("Compiles all currently filtered TDocs into AI-grouped Mega-Files for Gemini")
-        self.llm_btn.clicked.connect(self._export_llm_visible)
-
-        self.export_btn = QPushButton("📝 Export")
+        self.export_btn = QPushButton("📤 Export ▾")
         self.export_btn.setStyleSheet(style_btn())
-        self.export_btn.setToolTip("Export the current filtered list to a formatted Markdown report.")
-        self.export_btn.clicked.connect(self._export_reports)
+        self.export_btn.setToolTip("Export the TDocs table to Excel, LLM Markdown corpus, or summary reports.")
+
+        export_menu = QMenu(self)
+        export_menu.addAction("📊 Export to Excel (.xlsx)...", self._open_excel_export_dialog)
+        export_menu.addAction("🤖 Export Visible to LLM (Corpus)", self._export_llm_visible)
+        export_menu.addAction("📝 Export Markdown Summary Reports", self._export_reports)
+        self.export_btn.setMenu(export_menu)
 
         self.stats_btn = QPushButton("📊 Statistics")
         self.stats_btn.setStyleSheet(style_btn())
@@ -258,7 +261,6 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.refresh_btn)
         header_layout.addWidget(self.folder_btn)
         header_layout.addWidget(self.excel_btn)
-        header_layout.addWidget(self.llm_btn)
         header_layout.addWidget(self.export_btn)
         header_layout.addWidget(self.stats_btn)
         header_layout.addWidget(self.stats_cfg_btn)
@@ -1198,3 +1200,75 @@ class TDocsWindow(QWidget):
     def _open_chair_notes_folder(self):
         """Opens the local Agenda/ChairNotes folder in the OS file explorer."""
         _open_folder(self.meeting_dir / "Agenda" / "ChairNotes")
+
+    def _open_excel_export_dialog(self):
+        visible_count = self.proxy.rowCount()
+        total_count = self.model.rowCount()
+
+        dialog = ExcelExportDialog(self, visible_count, total_count)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        selected_columns = dialog.get_selected_columns()
+        is_visible_only = dialog.is_visible_only()
+        auto_open = dialog.should_auto_open()
+
+        # Extract target rows
+        if is_visible_only:
+            rows_to_export = []
+            for r in range(self.proxy.rowCount()):
+                source_idx = self.proxy.mapToSource(self.proxy.index(r, 0))
+                rows_to_export.append(self.model._data[source_idx.row()])
+        else:
+            rows_to_export = list(self.model._data)
+
+        if not rows_to_export:
+            QMessageBox.warning(self, "No Data", "There are no rows available to export.")
+            return
+
+        # Default suggested filename
+        wg = str(self.mtg_info.get("wg_name", "3GPP")).strip().replace(" ", "_")
+        mtg = str(self.mtg_info.get("meeting_number", "")).strip()
+        scope_str = "Filtered" if is_visible_only else "All"
+        default_filename = f"TDocs_{wg}_{mtg}_{scope_str}.xlsx"
+        default_target = self.meeting_dir / "Export" / default_filename
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save TDocs Excel Export",
+            str(default_target),
+            "Excel Workbook (*.xlsx)"
+        )
+
+        if not save_path:
+            return
+
+        self.export_btn.setText("⏳ Exporting Excel...")
+        self.export_btn.setEnabled(False)
+
+        self.excel_exporter_thread = ExcelExporterThread(
+            Path(save_path),
+            rows_to_export,
+            selected_columns,
+            self.mtg_info,
+            auto_open=auto_open
+        )
+        self.excel_exporter_thread.progress.connect(self._on_excel_export_progress)
+        self.excel_exporter_thread.finished.connect(
+            lambda success, msg, auto=auto_open: self._on_excel_export_finished(success, msg, auto)
+        )
+        self.excel_exporter_thread.start()
+
+    def _on_excel_export_progress(self, msg: str):
+        self.export_btn.setText(f"⏳ {msg}"[:25])
+
+    def _on_excel_export_finished(self, success: bool, msg: str, auto_open: bool):
+        self.export_btn.setText("📤 Export ▾")
+        self.export_btn.setEnabled(True)
+
+        if success:
+            QMessageBox.information(self, "Export Complete", f"Successfully exported TDocs to:\n{msg}")
+            if auto_open:
+                _open_folder(Path(msg))
+        else:
+            QMessageBox.warning(self, "Export Failed", f"Failed to export Excel:\n{msg}")
