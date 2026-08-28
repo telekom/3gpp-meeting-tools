@@ -157,6 +157,7 @@ To run this application natively or build it from source, you must have the foll
 4. **Java Runtime Environment (JRE) 11+** (Required for the local PlantUML generation engine)
 5. *(Optional but Recommended)* **Microsoft Visio** (To view generated `.vsdx` files)
 6. *(Optional but Recommended)* **Microsoft PowerPoint** (For `.pptx` conversions)
+7. *(Optional but Recommended)* **LibreOffice (Installed or Portable)** (Required for safe, macro-free conversion of legacy Word 97–2003 `.doc` files to `.docx`. If using the portable version, link `LibreOfficePortable.exe` using the **📂 Locate Executable** button in the Word tab.)
 
 ---
 
