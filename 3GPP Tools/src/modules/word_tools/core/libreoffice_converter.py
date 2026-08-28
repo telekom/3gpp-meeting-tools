@@ -1,3 +1,5 @@
+# --- File: src/modules/word_tools/core/libreoffice_converter.py ---
+import json
 import logging
 import os
 import platform
@@ -7,18 +9,17 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional, Union
-import json
 
 from modules.word_tools.core.word_config import WordConfig
 
 LIBREOFFICE_DOWNLOAD_URL = "https://portableapps.com/apps/office/libreoffice_portable"
 
-# Explicit JSON filter options for deterministic link & bookmark export
+# Optimized PDF filter preserving links, document bookmarks, and navigation hierarchy
 PDF_FILTER_OPTIONS = {
     "ExportBookmarks": {"type": "boolean", "value": "true"},
     "ExportBookmarksToPDFDestination": {"type": "boolean", "value": "true"},
     "ConvertOOoTargetToPDFTarget": {"type": "boolean", "value": "true"},
-    "OpenBookmarkLevels": {"type": "integer", "value": "-1"},  # -1 = fully expanded
+    "OpenBookmarkLevels": {"type": "integer", "value": "-1"},
 }
 
 LO_EXPORT_FILTERS = {
@@ -26,9 +27,34 @@ LO_EXPORT_FILTERS = {
     "doc": "doc:MS Word 97",
     "pdf": f"pdf:writer_pdf_Export:{json.dumps(PDF_FILTER_OPTIONS, separators=(',', ':'))}",
     "html": "html:HTML (StarWriter)",
+    "htm": "html:HTML (StarWriter)",
     "rtf": "rtf:Rich Text Format",
     "txt": "txt:Text (encoded)",
 }
+
+# Configuration to suppress printer polling and network lookups
+LO_NO_PRINTER_CONFIG = """<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <item oor:path="/org.openoffice.Office.Common/Save/Document">
+    <prop oor:name="LoadPrinterSetup" oor:type="xs:boolean"><value>false</value></prop>
+  </item>
+  <item oor:path="/org.openoffice.Office.Writer/Layout/Other">
+    <prop oor:name="LoadPrinterSetup" oor:type="xs:boolean"><value>false</value></prop>
+  </item>
+  <item oor:path="/org.openoffice.Office.Common/Print/Option">
+    <prop oor:name="PrinterIndependentLayout" oor:type="xs:string"><value>enabled</value></prop>
+  </item>
+</oor:items>
+"""
+
+
+def _normalize_target_format(raw_format: str) -> str:
+    """Sanitizes compound format tags (e.g. 'docx_libreoffice' -> 'docx')."""
+    fmt = raw_format.lower().replace(".", "").strip()
+    for suffix in ("_libreoffice", "_word", "_com", "_headless"):
+        if fmt.endswith(suffix):
+            fmt = fmt[: -len(suffix)]
+    return fmt or "docx"
 
 
 def resolve_soffice_binary(candidate_path: Union[str, Path]) -> Optional[Path]:
@@ -38,11 +64,9 @@ def resolve_soffice_binary(candidate_path: Union[str, Path]) -> Optional[Path]:
 
     path = Path(candidate_path).resolve()
 
-    # 1. Direct soffice executable
     if path.is_file() and path.name.lower().startswith("soffice"):
         return path
 
-    # 2. PortableApps launcher
     if path.is_file() and "portable" in path.name.lower():
         portable_subpaths = [
             path.parent / "App" / "libreoffice" / "program" / "soffice.exe",
@@ -53,7 +77,6 @@ def resolve_soffice_binary(candidate_path: Union[str, Path]) -> Optional[Path]:
             if sub.is_file():
                 return sub.resolve()
 
-    # 3. Directory selection
     if path.is_dir():
         dir_subpaths = [
             path / "program" / "soffice.exe",
@@ -143,6 +166,14 @@ def _sanitize_file_attributes(file_path: Path) -> None:
         pass
 
 
+def _prepare_isolated_profile(profile_dir: Path) -> None:
+    """Pre-seeds an isolated user profile that completely suppresses printer connections."""
+    user_config_dir = profile_dir / "user"
+    user_config_dir.mkdir(parents=True, exist_ok=True)
+    config_file = user_config_dir / "registrymodifications.xcu"
+    config_file.write_text(LO_NO_PRINTER_CONFIG, encoding="utf-8")
+
+
 def convert_document_libreoffice(
     source_path: Union[str, Path],
     target_format: str = "docx",
@@ -150,12 +181,12 @@ def convert_document_libreoffice(
     logger: Optional[logging.Logger] = None,
 ) -> Path:
     """
-    Converts a document to the specified target format using headless LibreOffice.
-    Supports docx, doc, pdf, html, rtf, and txt.
+    Converts a document to the specified format using headless LibreOffice with an
+    isolated profile to avoid printer connection hangs and profile locks.
     """
     log = logger or logging.getLogger(__name__)
     source = Path(source_path).resolve()
-    target_ext = target_format.lower().replace(".", "").strip()
+    target_ext = _normalize_target_format(target_format)
 
     if not source.exists():
         raise FileNotFoundError(f"Source document not found: {source}")
@@ -184,10 +215,18 @@ def convert_document_libreoffice(
         except Exception:
             pass
 
-    temp_dir = Path(tempfile.mkdtemp(prefix="3gpp_lo_conv_"))
+    temp_work_dir = Path(tempfile.mkdtemp(prefix="3gpp_lo_conv_"))
+    temp_profile_dir = temp_work_dir / "profile"
+    temp_out_dir = temp_work_dir / "out"
+    temp_out_dir.mkdir(parents=True, exist_ok=True)
+
     try:
+        _prepare_isolated_profile(temp_profile_dir)
+        profile_uri = temp_profile_dir.as_uri()
+
         cmd = [
             str(soffice_bin),
+            f"-env:UserInstallation={profile_uri}",
             "--headless",
             "--invisible",
             "--nodefault",
@@ -199,7 +238,7 @@ def convert_document_libreoffice(
             filter_spec,
             str(source),
             "--outdir",
-            str(temp_dir),
+            str(temp_out_dir),
         ]
 
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if platform.system() == "Windows" else 0
@@ -213,7 +252,7 @@ def convert_document_libreoffice(
             creationflags=creation_flags,
         )
 
-        expected_file = temp_dir / f"{source.stem}.{target_ext}"
+        expected_file = temp_out_dir / f"{source.stem}.{target_ext}"
         if not expected_file.exists() or expected_file.stat().st_size == 0:
             err_details = proc.stderr.strip() or proc.stdout.strip()
             raise RuntimeError(
@@ -226,7 +265,7 @@ def convert_document_libreoffice(
         return target
 
     finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        shutil.rmtree(temp_work_dir, ignore_errors=True)
 
 
 def convert_doc_to_docx_libreoffice(
