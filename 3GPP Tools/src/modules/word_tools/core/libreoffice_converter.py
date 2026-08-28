@@ -1,4 +1,3 @@
-# --- File: src/modules/word_tools/core/libreoffice_converter.py ---
 import logging
 import os
 import platform
@@ -8,17 +7,32 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional, Union
+import json
 
 from modules.word_tools.core.word_config import WordConfig
 
 LIBREOFFICE_DOWNLOAD_URL = "https://portableapps.com/apps/office/libreoffice_portable"
 
+# Explicit JSON filter options for deterministic link & bookmark export
+PDF_FILTER_OPTIONS = {
+    "ExportBookmarks": {"type": "boolean", "value": "true"},
+    "ExportBookmarksToPDFDestination": {"type": "boolean", "value": "true"},
+    "ConvertOOoTargetToPDFTarget": {"type": "boolean", "value": "true"},
+    "OpenBookmarkLevels": {"type": "integer", "value": "-1"},  # -1 = fully expanded
+}
+
+LO_EXPORT_FILTERS = {
+    "docx": "docx:MS Word 2007 XML",
+    "doc": "doc:MS Word 97",
+    "pdf": f"pdf:writer_pdf_Export:{json.dumps(PDF_FILTER_OPTIONS, separators=(',', ':'))}",
+    "html": "html:HTML (StarWriter)",
+    "rtf": "rtf:Rich Text Format",
+    "txt": "txt:Text (encoded)",
+}
+
 
 def resolve_soffice_binary(candidate_path: Union[str, Path]) -> Optional[Path]:
-    """
-    Validates a file or directory path. If given LibreOfficePortable.exe or an
-    extracted PortableApps folder, resolves the internal soffice.exe binary.
-    """
+    """Validates a file or directory path and resolves the internal soffice binary."""
     if not candidate_path:
         return None
 
@@ -28,7 +42,7 @@ def resolve_soffice_binary(candidate_path: Union[str, Path]) -> Optional[Path]:
     if path.is_file() and path.name.lower().startswith("soffice"):
         return path
 
-    # 2. PortableApps launcher (e.g., LibreOfficePortable.exe)
+    # 2. PortableApps launcher
     if path.is_file() and "portable" in path.name.lower():
         portable_subpaths = [
             path.parent / "App" / "libreoffice" / "program" / "soffice.exe",
@@ -39,7 +53,7 @@ def resolve_soffice_binary(candidate_path: Union[str, Path]) -> Optional[Path]:
             if sub.is_file():
                 return sub.resolve()
 
-    # 3. Directory selection (user selected the root install/portable folder)
+    # 3. Directory selection
     if path.is_dir():
         dir_subpaths = [
             path / "program" / "soffice.exe",
@@ -59,26 +73,18 @@ def resolve_soffice_binary(candidate_path: Union[str, Path]) -> Optional[Path]:
 
 
 def find_libreoffice_executable() -> Optional[Path]:
-    """
-    Finds the soffice binary by checking:
-    1. Saved JSON configuration (custom / portable path)
-    2. System PATH
-    3. Standard OS installation directories
-    """
-    # 1. Check custom path in word_config.json
+    """Locates the soffice binary from JSON configuration, system PATH, or default OS paths."""
     custom_path = WordConfig.get_libreoffice_path()
     if custom_path:
         resolved = resolve_soffice_binary(custom_path)
         if resolved:
             return resolved
 
-    # 2. Check system PATH
     for binary_name in ("soffice", "soffice.exe", "libreoffice"):
         found = shutil.which(binary_name)
         if found:
             return Path(found).resolve()
 
-    # 3. Standard Windows paths
     if platform.system() == "Windows":
         candidates = [
             Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "LibreOffice" / "program" / "soffice.exe",
@@ -89,13 +95,11 @@ def find_libreoffice_executable() -> Optional[Path]:
             if candidate.is_file():
                 return candidate.resolve()
 
-    # 4. macOS bundle
     elif platform.system() == "Darwin":
         mac_path = Path("/Applications/LibreOffice.app/Contents/MacOS/soffice")
         if mac_path.is_file():
             return mac_path.resolve()
 
-    # 5. Linux paths
     elif platform.system() == "Linux":
         linux_paths = [
             Path("/usr/bin/soffice"),
@@ -139,22 +143,27 @@ def _sanitize_file_attributes(file_path: Path) -> None:
         pass
 
 
-def convert_doc_to_docx_libreoffice(
-    doc_path: Union[str, Path],
+def convert_document_libreoffice(
+    source_path: Union[str, Path],
+    target_format: str = "docx",
     output_path: Optional[Union[str, Path]] = None,
     logger: Optional[logging.Logger] = None,
 ) -> Path:
-    """Synchronously converts legacy .doc to .docx using headless LibreOffice."""
+    """
+    Converts a document to the specified target format using headless LibreOffice.
+    Supports docx, doc, pdf, html, rtf, and txt.
+    """
     log = logger or logging.getLogger(__name__)
-    source = Path(doc_path).resolve()
+    source = Path(source_path).resolve()
+    target_ext = target_format.lower().replace(".", "").strip()
 
     if not source.exists():
         raise FileNotFoundError(f"Source document not found: {source}")
 
-    if source.suffix.lower() == ".docx":
+    if source.suffix.lower() == f".{target_ext}":
         return source
 
-    target = Path(output_path).resolve() if output_path else source.with_suffix(".docx")
+    target = Path(output_path).resolve() if output_path else source.with_suffix(f".{target_ext}")
     if target.exists() and target.stat().st_size > 0:
         return target
 
@@ -163,6 +172,8 @@ def convert_doc_to_docx_libreoffice(
         err_msg = get_libreoffice_missing_msg()
         log.error(err_msg)
         raise RuntimeError(err_msg)
+
+    filter_spec = LO_EXPORT_FILTERS.get(target_ext, target_ext)
 
     _sanitize_file_attributes(source)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -173,7 +184,7 @@ def convert_doc_to_docx_libreoffice(
         except Exception:
             pass
 
-    temp_dir = Path(tempfile.mkdtemp(prefix="3gpp_lo_doc2docx_"))
+    temp_dir = Path(tempfile.mkdtemp(prefix="3gpp_lo_conv_"))
     try:
         cmd = [
             str(soffice_bin),
@@ -185,7 +196,7 @@ def convert_doc_to_docx_libreoffice(
             "--nologo",
             "--norestore",
             "--convert-to",
-            "docx:MS Word 2007 XML",
+            filter_spec,
             str(source),
             "--outdir",
             str(temp_dir),
@@ -202,11 +213,11 @@ def convert_doc_to_docx_libreoffice(
             creationflags=creation_flags,
         )
 
-        expected_file = temp_dir / f"{source.stem}.docx"
+        expected_file = temp_dir / f"{source.stem}.{target_ext}"
         if not expected_file.exists() or expected_file.stat().st_size == 0:
             err_details = proc.stderr.strip() or proc.stdout.strip()
             raise RuntimeError(
-                f"LibreOffice failed to convert {source.name} to .docx (exit code {proc.returncode}). {err_details}"
+                f"LibreOffice failed to convert {source.name} to .{target_ext} (exit code {proc.returncode}). {err_details}"
             )
 
         shutil.copy2(expected_file, target)
@@ -216,3 +227,17 @@ def convert_doc_to_docx_libreoffice(
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def convert_doc_to_docx_libreoffice(
+    doc_path: Union[str, Path],
+    output_path: Optional[Union[str, Path]] = None,
+    logger: Optional[logging.Logger] = None,
+) -> Path:
+    """Backwards-compatible wrapper for .doc -> .docx conversions via LibreOffice."""
+    return convert_document_libreoffice(
+        source_path=doc_path,
+        target_format="docx",
+        output_path=output_path,
+        logger=logger,
+    )
