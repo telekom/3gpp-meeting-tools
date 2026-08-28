@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Union
 
-LIBREOFFICE_DOWNLOAD_URL = "https://www.libreoffice.org/download/"
+LIBREOFFICE_DOWNLOAD_URL = "https://portableapps.com/apps/office/libreoffice_portable"
 
 
 def find_libreoffice_executable() -> Optional[Path]:
