@@ -1,4 +1,3 @@
-# --- File: src/modules/meetings/ui/tdocs_window.py ---
 import datetime
 import json
 import logging
@@ -8,7 +7,6 @@ import urllib.parse
 import webbrowser
 from pathlib import Path
 import shutil
-import subprocess
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint
 from PyQt5.QtGui import QCursor
@@ -40,12 +38,45 @@ from modules.meetings.core.llm_exporter import LLMExporterThread
 from core.network.network_state import NetworkState
 from modules.meetings.core.url_router import URLRouter
 
-# Import existing LibreOffice conversion pipeline
-from modules.word_tools.core.libreoffice_converter import (
-    convert_doc_to_docx_libreoffice,
-    is_libreoffice_available,
-    get_libreoffice_missing_msg
-)
+
+class DropOverlayWidget(QWidget):
+    """Semi-transparent visual overlay displayed when hovering files over the window."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Allows all drag and mouse events to pass directly to the parent TDocsWindow
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.hide()
+
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignCenter)
+
+        card = QFrame()
+        card.setStyleSheet("""
+            QFrame {
+                background-color: rgba(240, 248, 255, 0.94);
+                border: 3px dashed #005A9E;
+                border-radius: 16px;
+                padding: 30px;
+            }
+        """)
+        card_layout = QVBoxLayout(card)
+        card_layout.setAlignment(Qt.AlignCenter)
+        card_layout.setSpacing(10)
+
+        icon_lbl = QLabel("📥")
+        icon_lbl.setStyleSheet("font-size: 48px; border: none; background: transparent;")
+        icon_lbl.setAlignment(Qt.AlignCenter)
+
+        text_lbl = QLabel("<b>Drop Chairman's Notes / Agenda file to import</b><br>"
+                          "<span style='font-size: 12px; color: #555;'>"
+                          "Supports <code>.docx</code>, <code>.doc</code>, and <code>.htm</code> files</span>")
+        text_lbl.setStyleSheet("font-size: 16px; color: #005A9E; border: none; background: transparent;")
+        text_lbl.setAlignment(Qt.AlignCenter)
+
+        card_layout.addWidget(icon_lbl)
+        card_layout.addWidget(text_lbl)
+        layout.addWidget(card)
 
 
 def _open_folder(p: Path):
@@ -103,6 +134,9 @@ class TDocsWindow(QWidget):
         self._setup_filters(main_layout)
         self._setup_table(main_layout, tdocs_data, user_data)
         self._setup_cache()
+
+        # Visual Drop Overlay Setup
+        self.drop_overlay = DropOverlayWidget(self)
 
     def _setup_header(self, layout, title, is_electronic, count):
         header_layout = QHBoxLayout()
@@ -947,8 +981,25 @@ class TDocsWindow(QWidget):
         logging.info(f"🚀 [Instant Fetch] Requested {target_filename}. Engaging Smart Router...")
         self._trigger_download_thread(base_tdoc, target_filename, legacy_url=None, is_silent_compare=False)
 
-    # --- Drag & Drop Support ---
+    # --- Drag & Drop Visual Events ---
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'drop_overlay'):
+            self.drop_overlay.setGeometry(self.rect())
+
     def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                ext = Path(url.toLocalFile()).suffix.lower()
+                if ext in ['.docx', '.doc', '.htm', '.html']:
+                    self.drop_overlay.setGeometry(self.rect())
+                    self.drop_overlay.show()
+                    self.drop_overlay.raise_()
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dragMoveEvent(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 ext = Path(url.toLocalFile()).suffix.lower()
@@ -957,7 +1008,15 @@ class TDocsWindow(QWidget):
                     return
         event.ignore()
 
+    def dragLeaveEvent(self, event):
+        if hasattr(self, 'drop_overlay'):
+            self.drop_overlay.hide()
+        event.accept()
+
     def dropEvent(self, event):
+        if hasattr(self, 'drop_overlay'):
+            self.drop_overlay.hide()
+
         for url in event.mimeData().urls():
             file_path = Path(url.toLocalFile())
             if file_path.suffix.lower() in ['.docx', '.doc', '.htm', '.html']:
@@ -993,11 +1052,9 @@ class TDocsWindow(QWidget):
         self.word_import_thread.start()
 
     def _on_word_import_progress(self, msg: str):
-        """Updates the toolbar button text with background conversion progress."""
         self.refresh_btn.setText(f"⏳ {msg}"[:32])
 
     def _on_word_import_finished(self, success: bool, agenda_data: dict, filename: str, error_msg: str):
-        """Re-enables the UI and merges parsed data into the table model upon thread completion."""
         self.refresh_btn.setEnabled(True)
         self.refresh_btn.setText("🔄 Refresh")
 
