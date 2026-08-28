@@ -37,6 +37,7 @@ from modules.emails.ui.email_window import EmailManagerWindow
 from modules.meetings.core.llm_exporter import LLMExporterThread
 from core.network.network_state import NetworkState
 from modules.meetings.core.url_router import URLRouter
+from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
 
 
 class DropOverlayWidget(QWidget):
@@ -177,6 +178,7 @@ class TDocsWindow(QWidget):
         if self.is_sa2:
             refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
             refresh_menu.addAction("📝 Import Word Document (.docx / .doc)...", self._import_word_agenda_dialog)
+            refresh_menu.addAction("📥 Download Chairman's Notes", self._download_chair_notes)
         if self.is_sa2_electronic:
             refresh_menu.addAction("📝 Refresh Revisions", lambda: self._refresh_revisions(silent=False))
             refresh_menu.addAction("🔄 Refresh Excel && Revisions", self._refresh_both)
@@ -1074,3 +1076,50 @@ class TDocsWindow(QWidget):
                 "Import Failed",
                 error_msg or f"No valid TDocs table could be extracted from:\n{filename}",
             )
+
+    def _download_chair_notes(self):
+        """Asynchronously downloads all Chairman's Notes from /Inbox/Chair_Notes to the local Agenda folder."""
+        wg_name = self.mtg_info.get("wg_name", "").upper()
+        main_url = self.mtg_info.get("url_key", "")
+        if main_url and not main_url.startswith("http"):
+            main_url = f"https://www.3gpp.org/ftp/{main_url.lstrip('/')}"
+
+        is_active = self.mtg_info.get("is_active_sync", False)
+
+        candidate_urls = []
+        if NetworkState.get_instance().is_local_active():
+            local_base = URLRouter._get_local_server_base(wg_name)
+            candidate_urls.append(local_base)
+
+        if is_active:
+            sync_wg = "SA3LI" if wg_name == "SA3LI" else wg_name
+            candidate_urls.append(f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{sync_wg}")
+
+        if main_url:
+            candidate_urls.append(main_url)
+
+        if not candidate_urls:
+            return QMessageBox.warning(self, "No URL Available",
+                                       "Cannot download Chairman's Notes: No valid meeting URL found.")
+
+        self.refresh_btn.setEnabled(False)
+        self.refresh_btn.setText("⏳ Downloading Notes...")
+
+        agenda_dir = self.meeting_dir / "Agenda"
+        self.chair_notes_thread = ChairNotesDownloaderThread(candidate_urls, agenda_dir)
+        self.chair_notes_thread.progress.connect(lambda msg: self.refresh_btn.setText(f"⏳ {msg}"[:30]))
+        self.chair_notes_thread.finished.connect(self._on_chair_notes_finished)
+        self.chair_notes_thread.start()
+
+    def _on_chair_notes_finished(self, success: bool, count: int, files: list, msg: str):
+        self.refresh_btn.setEnabled(True)
+        self.refresh_btn.setText("🔄 Refresh")
+
+        if success and count > 0:
+            self.refresh_btn.setText(f"✅ {count} Notes")
+            QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
+            QMessageBox.information(self, "Chairman's Notes Downloaded", msg)
+        elif success and count == 0:
+            QMessageBox.information(self, "Chairman's Notes", msg)
+        else:
+            QMessageBox.warning(self, "Download Failed", msg)
