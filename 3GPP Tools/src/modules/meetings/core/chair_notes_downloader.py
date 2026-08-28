@@ -13,20 +13,20 @@ from core.network.session import NetworkSession
 class ChairNotesDownloaderThread(QThread):
     """
     Asynchronously crawls /Inbox/Chair_Notes directory listings across candidate URLs,
-    filters files containing 'ChairNotes', and downloads them to the meeting Agenda folder.
+    filters files containing 'ChairNotes', and downloads them to a dedicated subfolder.
     """
     progress = pyqtSignal(str)
     # finished emits: (success: bool, downloaded_count: int, downloaded_files: list, message: str)
     finished = pyqtSignal(bool, int, list, str)
 
-    def __init__(self, candidate_base_urls: list, agenda_dir: Path, parent=None):
+    def __init__(self, candidate_base_urls: list, target_dir: Path, parent=None):
         super().__init__(parent)
         self.candidate_base_urls = candidate_base_urls
-        self.agenda_dir = Path(agenda_dir)
+        self.target_dir = Path(target_dir)
 
     def run(self):
         try:
-            self.agenda_dir.mkdir(parents=True, exist_ok=True)
+            self.target_dir.mkdir(parents=True, exist_ok=True)
             session = NetworkSession.get_instance()
             NetworkSession.apply_humanness(session)
 
@@ -72,13 +72,13 @@ class ChairNotesDownloaderThread(QThread):
                 self.finished.emit(True, 0, [], "Connected to Chair_Notes folder, but no matching ChairNotes files were found.")
                 return
 
-            # 3. Download files asynchronously
+            # 3. Download files asynchronously into the target subfolder
             downloaded = []
             total_files = len(files_to_download)
 
             for idx, (filename, file_url) in enumerate(files_to_download, 1):
                 self.progress.emit(f"({idx}/{total_files}) Downloading {filename[:25]}...")
-                dest_path = self.agenda_dir / filename
+                dest_path = self.target_dir / filename
 
                 try:
                     dl_resp = session.get(file_url, stream=True, timeout=60)
@@ -95,7 +95,7 @@ class ChairNotesDownloaderThread(QThread):
                     logging.error(f"[ChairNotes] Error downloading {filename}: {dl_err}")
 
             success = len(downloaded) > 0
-            msg = f"Downloaded {len(downloaded)} Chairman's Notes files to:\n{self.agenda_dir}"
+            msg = f"Downloaded {len(downloaded)} Chairman's Notes files to:\n{self.target_dir}"
             self.finished.emit(success, len(downloaded), downloaded, msg)
 
         except Exception as ex:
@@ -107,22 +107,21 @@ class ChairNotesDownloaderThread(QThread):
         soup = BeautifulSoup(html, "html.parser")
         file_map = {}
 
-        # Parse ASP.NET checkbox input tags: <input type="checkbox" class="downloadInput" value="...doc">
+        # Parse ASP.NET checkbox input tags: <input type="checkbox" class="downloadInput" value="...doc">[cite: 1]
         for inp in soup.find_all("input", class_="downloadInput"):
             val = inp.get("value", "").strip()
-            if val and "chairnotes" in val.lower() and not val.startswith("~$"):
+            if val and "chairnotes" in val.lower() and not val.startswith("~$"):  #[cite: 1]
                 file_map[val] = f"{base_url.rstrip('/')}/{urllib.parse.quote(val)}"
 
-        # Parse anchor tags: <a href="...">...</a>
+        # Parse anchor tags: <a href="...">...</a>[cite: 1]
         for a in soup.find_all("a", href=True):
             href = a["href"].strip()
-            # Extract raw filename from URL or anchor text
             parsed_name = urllib.parse.unquote(os.path.basename(href))
             link_text = a.get_text().strip()
             target_name = parsed_name if parsed_name else link_text
 
             if target_name and "chairnotes" in target_name.lower():
-                # Filter out temporary Word lock files and folders
+                # Ignore temporary Word lock files and directory navigation links[cite: 1]
                 if target_name.startswith("~$") or target_name.upper() in ["OLDER", "PARENT DIRECTORY"]:
                     continue
 
