@@ -1077,8 +1077,9 @@ class TDocsWindow(QWidget):
                 error_msg or f"No valid TDocs table could be extracted from:\n{filename}",
             )
 
+
     def _download_chair_notes(self):
-        """Asynchronously downloads all Chairman's Notes from /Inbox/Chair_Notes to the local Agenda folder."""
+        """Asynchronously downloads all Chairman's Notes into Agenda/ChairNotes/."""
         wg_name = self.mtg_info.get("wg_name", "").upper()
         main_url = self.mtg_info.get("url_key", "")
         if main_url and not main_url.startswith("http"):
@@ -1105,8 +1106,9 @@ class TDocsWindow(QWidget):
         self.refresh_btn.setEnabled(False)
         self.refresh_btn.setText("⏳ Downloading Notes...")
 
-        agenda_dir = self.meeting_dir / "Agenda"
-        self.chair_notes_thread = ChairNotesDownloaderThread(candidate_urls, agenda_dir)
+        # Target subfolder
+        chair_notes_dir = self.meeting_dir / "Agenda" / "ChairNotes"
+        self.chair_notes_thread = ChairNotesDownloaderThread(candidate_urls, chair_notes_dir)
         self.chair_notes_thread.progress.connect(lambda msg: self.refresh_btn.setText(f"⏳ {msg}"[:30]))
         self.chair_notes_thread.finished.connect(self._on_chair_notes_finished)
         self.chair_notes_thread.start()
@@ -1123,3 +1125,7 @@ class TDocsWindow(QWidget):
             QMessageBox.information(self, "Chairman's Notes", msg)
         else:
             QMessageBox.warning(self, "Download Failed", msg)
+
+    def _open_chair_notes_folder(self):
+        """Opens the local Agenda/ChairNotes folder in the OS file explorer."""
+        _open_folder(self.meeting_dir / "Agenda" / "ChairNotes")

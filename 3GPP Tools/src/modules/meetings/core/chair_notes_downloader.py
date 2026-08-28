@@ -13,10 +13,10 @@ from core.network.session import NetworkSession
 class ChairNotesDownloaderThread(QThread):
     """
     Asynchronously crawls /Inbox/Chair_Notes directory listings across candidate URLs,
-    filters files containing 'ChairNotes', and downloads them to a dedicated subfolder.
+    filters files containing 'ChairNotes', and downloads them to Agenda/ChairNotes/.
     """
     progress = pyqtSignal(str)
-    # finished emits: (success: bool, downloaded_count: int, downloaded_files: list, message: str)
+    # Emits: (success: bool, downloaded_count: int, downloaded_files: list, message: str)
     finished = pyqtSignal(bool, int, list, str)
 
     def __init__(self, candidate_base_urls: list, target_dir: Path, parent=None):
@@ -41,7 +41,7 @@ class ChairNotesDownloaderThread(QThread):
             target_dir_url = None
             html_content = ""
 
-            # 1. Probe candidate endpoints to locate the active Chair_Notes folder
+            # 1. Locate the active Chair_Notes folder across priority endpoints
             for base_url in self.candidate_base_urls:
                 if not base_url:
                     continue
@@ -65,14 +65,14 @@ class ChairNotesDownloaderThread(QThread):
                 self.finished.emit(False, 0, [], "Could not locate an active /Inbox/Chair_Notes folder on available servers.")
                 return
 
-            # 2. Parse HTML listing for files matching 'ChairNotes'
+            # 2. Extract valid Chairman's Notes files
             files_to_download = self._parse_file_list(html_content, target_dir_url)
 
             if not files_to_download:
                 self.finished.emit(True, 0, [], "Connected to Chair_Notes folder, but no matching ChairNotes files were found.")
                 return
 
-            # 3. Download files asynchronously into the target subfolder
+            # 3. Stream downloads to Agenda/ChairNotes/
             downloaded = []
             total_files = len(files_to_download)
 
@@ -90,7 +90,7 @@ class ChairNotesDownloaderThread(QThread):
                                 f.write(chunk)
 
                     downloaded.append(filename)
-                    logging.info(f"[ChairNotes] Successfully saved: {dest_path}")
+                    logging.info(f"[ChairNotes] Saved: {dest_path}")
                 except Exception as dl_err:
                     logging.error(f"[ChairNotes] Error downloading {filename}: {dl_err}")
 
@@ -103,17 +103,17 @@ class ChairNotesDownloaderThread(QThread):
             self.finished.emit(False, 0, [], f"Error downloading Chairman's Notes: {ex}")
 
     def _parse_file_list(self, html: str, base_url: str) -> list:
-        """Extracts and validates ChairNotes filenames and absolute URLs from HTML directory listings."""
+        """Extracts and validates ChairNotes filenames and URLs from HTML directory listings."""
         soup = BeautifulSoup(html, "html.parser")
         file_map = {}
 
-        # Parse ASP.NET checkbox input tags: <input type="checkbox" class="downloadInput" value="...doc">[cite: 1]
+        # 1. Check ASP.NET checkbox input controls: value="ChairNotes_Andy_...doc"
         for inp in soup.find_all("input", class_="downloadInput"):
             val = inp.get("value", "").strip()
-            if val and "chairnotes" in val.lower() and not val.startswith("~$"):  #[cite: 1]
+            if val and "chairnotes" in val.lower() and not val.startswith("~$"):
                 file_map[val] = f"{base_url.rstrip('/')}/{urllib.parse.quote(val)}"
 
-        # Parse anchor tags: <a href="...">...</a>[cite: 1]
+        # 2. Check standard anchor tags: href=".../ChairNotes_...doc"
         for a in soup.find_all("a", href=True):
             href = a["href"].strip()
             parsed_name = urllib.parse.unquote(os.path.basename(href))
@@ -121,7 +121,7 @@ class ChairNotesDownloaderThread(QThread):
             target_name = parsed_name if parsed_name else link_text
 
             if target_name and "chairnotes" in target_name.lower():
-                # Ignore temporary Word lock files and directory navigation links[cite: 1]
+                # Filter out temporary Word lock files and navigation folders
                 if target_name.startswith("~$") or target_name.upper() in ["OLDER", "PARENT DIRECTORY"]:
                     continue
 
