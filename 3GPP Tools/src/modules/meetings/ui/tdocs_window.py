@@ -7,13 +7,15 @@ import re
 import urllib.parse
 import webbrowser
 from pathlib import Path
+import shutil
+import subprocess
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
                              QHeaderView, QLabel, QLineEdit, QFrame,
                              QPushButton, QMessageBox, QMenu, QApplication,
-                             QToolTip, QCheckBox, QDialog, QTextEdit)
+                             QToolTip, QCheckBox, QDialog, QTextEdit, QFileDialog)
 
 from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
@@ -50,6 +52,9 @@ class TDocsWindow(QWidget):
         self.filepath = filepath
         self.meeting_dir = Path(filepath).parent.parent
         self.active_threads = {}
+
+        # Enable Drag & Drop
+        self.setAcceptDrops(True)
 
         self.db = TDocsDatabase(self.meeting_dir / "Agenda" / "user_tdocs.db")
         user_data = self.db.get_all()
@@ -125,6 +130,7 @@ class TDocsWindow(QWidget):
         refresh_menu.addAction("📗 Refresh Excel List", self._refresh_excel)
         if self.is_sa2:
             refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
+            refresh_menu.addAction("📝 Import Word Document (.docx / .doc)...", self._import_word_agenda_dialog)
         if self.is_sa2_electronic:
             refresh_menu.addAction("📝 Refresh Revisions", lambda: self._refresh_revisions(silent=False))
             refresh_menu.addAction("🔄 Refresh Excel && Revisions", self._refresh_both)
@@ -928,3 +934,111 @@ class TDocsWindow(QWidget):
 
         logging.info(f"🚀 [Instant Fetch] Requested {target_filename}. Engaging Smart Router...")
         self._trigger_download_thread(base_tdoc, target_filename, legacy_url=None, is_silent_compare=False)
+
+    # --- Drag & Drop Handlers ---
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                ext = Path(url.toLocalFile()).suffix.lower()
+                if ext in ['.docx', '.doc', '.htm', '.html']:
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            file_path = Path(url.toLocalFile())
+            if file_path.suffix.lower() in ['.docx', '.doc', '.htm', '.html']:
+                self._process_imported_agenda_file(file_path)
+                event.acceptProposedAction()
+                return
+
+    def _import_word_agenda_dialog(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select TDocsByAgenda Word File",
+            str(self.meeting_dir),
+            "Word Documents (*.docx *.doc);;HTML Files (*.htm *.html);;All Files (*.*)"
+        )
+        if file_path:
+            self._process_imported_agenda_file(Path(file_path))
+
+    def _process_imported_agenda_file(self, source_path: Path):
+        """Copies the imported file to the meeting's Agenda folder, converts if needed, and merges."""
+        if not source_path.exists():
+            QMessageBox.warning(self, "File Not Found", f"Cannot find source file:\n{source_path}")
+            return
+
+        agenda_dir = self.meeting_dir / "Agenda"
+        agenda_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Copy file to the meeting's local Agenda folder if not already there
+        target_path = agenda_dir / source_path.name
+        if source_path.resolve() != target_path.resolve():
+            try:
+                shutil.copy2(str(source_path), str(target_path))
+            except Exception as e:
+                QMessageBox.warning(self, "Copy Failed", f"Failed to copy file to {agenda_dir}:\n{e}")
+                return
+
+        ext = target_path.suffix.lower()
+        agenda_data = {}
+
+        # 2. Convert and parse based on file extension
+        if ext == '.doc':
+            docx_path = self._convert_doc_to_docx(target_path)
+            if docx_path and docx_path.exists():
+                agenda_data = TDocsParser.parse_tdocs_from_docx(str(docx_path))
+            else:
+                QMessageBox.warning(self, "Conversion Failed", f"Could not convert {target_path.name} to .docx.")
+                return
+        elif ext == '.docx':
+            agenda_data = TDocsParser.parse_tdocs_from_docx(str(target_path))
+        elif ext in ['.htm', '.html']:
+            agenda_data = TDocsParser.parse_tdocs_by_agenda(str(target_path))
+
+        # 3. Merge parsed records into the active table model
+        if agenda_data:
+            self.model.merge_agenda_data(agenda_data)
+            self._refresh_comboboxes()
+            self.refresh_btn.setText(f"✅ {len(agenda_data)} Merged")
+            QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
+            QMessageBox.information(
+                self,
+                "Import Successful",
+                f"Copied to {agenda_dir.name}/\nMerged {len(agenda_data)} TDocs from {target_path.name}"
+            )
+        else:
+            QMessageBox.warning(self, "Import Failed",
+                                f"No valid TDocs table could be extracted from:\n{target_path.name}")
+
+    def _convert_doc_to_docx(self, doc_path: Path) -> Path:
+        """Converts legacy .doc to .docx inside the same directory using Word COM or LibreOffice."""
+        target_docx = doc_path.with_suffix('.docx')
+
+        # 1. Windows Word COM Automation
+        try:
+            import win32com.client as win32
+            word = win32.gencache.EnsureDispatch('Word.Application')
+            word.Visible = False
+            word.DisplayAlerts = False
+            doc = word.Documents.Open(str(doc_path), ReadOnly=True)
+            doc.SaveAs(str(target_docx), FileFormat=16)  # 16 = wdFormatXMLDocument (.docx)
+            doc.Close(False)
+            return target_docx
+        except Exception:
+            pass
+
+        # 2. Headless LibreOffice fallback
+        soffice_bin = shutil.which("soffice") or shutil.which("libreoffice")
+        if soffice_bin:
+            try:
+                subprocess.run([
+                    soffice_bin, '--headless', '--convert-to', 'docx',
+                    str(doc_path), '--outdir', str(doc_path.parent)
+                ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                return target_docx
+            except Exception:
+                pass
+
+        return None

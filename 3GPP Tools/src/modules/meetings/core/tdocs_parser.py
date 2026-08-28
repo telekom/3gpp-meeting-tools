@@ -5,6 +5,8 @@ import openpyxl
 import logging
 import json
 import os
+from pathlib import Path
+import docx
 
 
 class TDocsParser:
@@ -183,3 +185,95 @@ class TDocsParser:
             if ui_logger: ui_logger.emit(f"❌ Error parsing HTML: {str(e)}", logging.ERROR)
 
         return data
+
+    @staticmethod
+    def parse_tdocs_from_docx(docx_path: str) -> dict:
+        """
+        Parses 3GPP SA2 document lists (TdocsByAgenda / Chair's Notes) from a .docx table.
+        Returns a dictionary compatible with TDocsTableModel.merge_agenda_data().
+        """
+        path = Path(docx_path)
+        if not path.exists():
+            logging.error(f"[TDocsParser] File not found: {docx_path}")
+            return {}
+
+        try:
+            doc = docx.Document(str(path))
+        except Exception as e:
+            logging.error(f"[TDocsParser] Failed to open docx file '{docx_path}': {e}")
+            return {}
+
+        agenda_data = {}
+
+        for table in doc.tables:
+            if len(table.rows) < 2:
+                continue
+
+            # Identify header row and map column indexes
+            header_cells = [cell.text.strip().lower() for cell in table.rows[0].cells]
+            col_map = {}
+
+            for idx, text in enumerate(header_cells):
+                clean_text = text.replace("\n", " ").strip()
+                if clean_text in ['td#', 'td #', 'tdoc', 'td no', 'td no.', 'temporary document']:
+                    col_map['tdoc'] = idx
+                elif clean_text in ['subject', 'title']:
+                    col_map['title'] = idx
+                elif clean_text in ['source']:
+                    col_map['source'] = idx
+                elif clean_text in ['type']:
+                    col_map['type'] = idx
+                elif clean_text in ['doc for', 'for']:
+                    col_map['for'] = idx
+                elif clean_text in ['comments', 'comment', 'secretary remarks']:
+                    col_map['comments'] = idx
+                elif clean_text in ['result', 'status']:
+                    col_map['result'] = idx
+                elif clean_text in ['ai', 'agenda item']:
+                    col_map['ai'] = idx
+
+            # Must have at least a TD column to be a valid TDocs table
+            if 'tdoc' not in col_map:
+                continue
+
+            current_ai = 'N/A'
+
+            for row in table.rows[1:]:
+                cells = [c.text.strip() for c in row.cells]
+                if not cells or len(cells) <= col_map['tdoc']:
+                    continue
+
+                tdoc_id = cells[col_map['tdoc']].strip()
+
+                # Track current Agenda Item across multi-row sub-headers
+                if 'ai' in col_map and col_map['ai'] < len(cells):
+                    ai_val = cells[col_map['ai']].strip()
+                    if ai_val and ai_val != '-':
+                        current_ai = ai_val
+
+                # Skip header repetitions, non-TDoc placeholder rows, and separators
+                if not tdoc_id or tdoc_id == '-' or not re.match(r'^[A-Za-z0-9]+-\d+', tdoc_id):
+                    continue
+
+                tdoc_id = tdoc_id.upper()
+                title = cells[col_map['title']] if 'title' in col_map and col_map['title'] < len(cells) else ''
+                source = cells[col_map['source']] if 'source' in col_map and col_map['source'] < len(cells) else ''
+                doc_type = cells[col_map['type']] if 'type' in col_map and col_map['type'] < len(cells) else ''
+                doc_for = cells[col_map['for']] if 'for' in col_map and col_map['for'] < len(cells) else ''
+                comments = cells[col_map['comments']] if 'comments' in col_map and col_map['comments'] < len(
+                    cells) else ''
+                result = cells[col_map['result']] if 'result' in col_map and col_map['result'] < len(cells) else ''
+
+                agenda_data[tdoc_id] = {
+                    'Title': title,
+                    'Source': source,
+                    'Type': doc_type,
+                    'For': doc_for,
+                    'Comments': comments,
+                    'Result': result,
+                    'Agenda Item': current_ai,
+                    'e-mail_Discussion': ''
+                }
+
+        logging.info(f"[TDocsParser] Successfully parsed {len(agenda_data)} TDocs from {path.name}")
+        return agenda_data
