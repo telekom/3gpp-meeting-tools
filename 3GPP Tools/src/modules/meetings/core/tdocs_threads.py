@@ -2,6 +2,8 @@
 import json
 import logging
 import re
+import os
+import shutil
 from pathlib import Path
 
 import requests
@@ -10,6 +12,12 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.network.session import NetworkSession
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdocs_parser import TDocsParser
+
+from modules.word_tools.core.libreoffice_converter import (
+    convert_doc_to_docx_libreoffice,
+    is_libreoffice_available,
+    get_libreoffice_missing_msg,
+)
 
 
 class TDocsRevisionsFetcherThread(QThread):
@@ -276,3 +284,91 @@ class TdocsByAgendaThread(QThread):
                 f"❌ [TdocsByAgenda Parse Failed] Error downloading/parsing: {e}"
             )
             self.finished.emit(False, {})
+
+def _unblock_file(path: Path):
+    """Removes NTFS Mark-of-the-Web alternate data stream on Windows."""
+    if os.name == "nt":
+        zone_stream = Path(f"{path.resolve()}:Zone.Identifier")
+        try:
+            if zone_stream.exists():
+                zone_stream.unlink()
+        except Exception:
+            pass
+
+
+class WordAgendaImporterThread(QThread):
+    """
+    Background worker that stages an imported Chairman's Notes/TDocs file,
+    converts legacy .doc files to .docx via LibreOffice, and parses the table.
+    """
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(bool, dict, str, str)  # (success, agenda_data, filename, error_message)
+
+    def __init__(self, source_path: Path, meeting_dir: Path):
+        super().__init__()
+        self.source_path = Path(source_path)
+        self.meeting_dir = Path(meeting_dir)
+
+    def run(self):
+        try:
+            if not self.source_path.exists():
+                self.finished.emit(False, {}, self.source_path.name, f"File not found:\n{self.source_path}")
+                return
+
+            self.progress.emit("Staging file...")
+            agenda_dir = self.meeting_dir / "Agenda"
+            agenda_dir.mkdir(parents=True, exist_ok=True)
+
+            target_path = agenda_dir / self.source_path.name
+            if self.source_path.resolve() != target_path.resolve():
+                try:
+                    shutil.copy2(str(self.source_path), str(target_path))
+                except Exception as e:
+                    self.finished.emit(False, {}, self.source_path.name, f"Failed to copy file to {agenda_dir}:\n{e}")
+                    return
+
+            _unblock_file(target_path)
+
+            ext = target_path.suffix.lower()
+            agenda_data = {}
+
+            if ext == ".doc":
+                if not is_libreoffice_available():
+                    self.finished.emit(False, {}, target_path.name, get_libreoffice_missing_msg())
+                    return
+
+                self.progress.emit("Converting via LibreOffice...")
+                try:
+                    docx_path = convert_doc_to_docx_libreoffice(
+                        doc_path=target_path,
+                        output_path=target_path.with_suffix(".docx"),
+                    )
+                    if not docx_path or not docx_path.exists():
+                        self.finished.emit(False, {}, target_path.name, "LibreOffice conversion produced no output file.")
+                        return
+
+                    self.progress.emit("Parsing converted document...")
+                    agenda_data = TDocsParser.parse_tdocs_from_docx(str(docx_path))
+                except Exception as e:
+                    self.finished.emit(False, {}, target_path.name, f"LibreOffice conversion failed:\n{e}")
+                    return
+
+            elif ext == ".docx":
+                self.progress.emit("Parsing .docx table...")
+                agenda_data = TDocsParser.parse_tdocs_from_docx(str(target_path))
+
+            elif ext in [".htm", ".html"]:
+                self.progress.emit("Parsing HTML agenda...")
+                agenda_data = TDocsParser.parse_tdocs_by_agenda(str(target_path))
+
+            if not agenda_data:
+                self.finished.emit(
+                    False, {}, target_path.name, f"No valid TDocs table could be extracted from:\n{target_path.name}"
+                )
+                return
+
+            self.finished.emit(True, agenda_data, target_path.name, "")
+
+        except Exception as e:
+            logging.error(f"[WordAgendaImporterThread] Import failed: {e}", exc_info=True)
+            self.finished.emit(False, {}, self.source_path.name, str(e))

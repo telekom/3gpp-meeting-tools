@@ -20,7 +20,12 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
 from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
-from modules.meetings.core.tdocs_threads import TDocsRevisionsFetcherThread, TDocActionThread, TdocsByAgendaThread
+from modules.meetings.core.tdocs_threads import (
+    TDocsRevisionsFetcherThread,
+    TDocActionThread,
+    TdocsByAgendaThread,
+    WordAgendaImporterThread,
+)
 from modules.meetings.core.tdocs_db import TDocsDatabase
 from modules.meetings.core.markdown_exporter import MarkdownExporterThread
 from modules.meetings.core.stats.exporter_thread import StatisticsExporterThread
@@ -974,48 +979,29 @@ class TDocsWindow(QWidget):
             self._process_imported_agenda_file(Path(file_path))
 
     def _process_imported_agenda_file(self, source_path: Path):
-        """Copies the file to the local meeting Agenda/ folder, converts via LibreOffice if needed, and merges."""
+        """Dispatches file staging, LibreOffice conversion, and parsing to a background QThread."""
         if not source_path.exists():
             QMessageBox.warning(self, "File Not Found", f"Cannot find file:\n{source_path}")
             return
 
-        agenda_dir = self.meeting_dir / "Agenda"
-        agenda_dir.mkdir(parents=True, exist_ok=True)
+        self.refresh_btn.setEnabled(False)
+        self.refresh_btn.setText("⏳ Importing...")
 
-        target_path = agenda_dir / source_path.name
-        if source_path.resolve() != target_path.resolve():
-            try:
-                shutil.copy2(str(source_path), str(target_path))
-            except Exception as e:
-                QMessageBox.warning(self, "Copy Failed", f"Failed to copy file to {agenda_dir}:\n{e}")
-                return
+        self.word_import_thread = WordAgendaImporterThread(source_path, self.meeting_dir)
+        self.word_import_thread.progress.connect(self._on_word_import_progress)
+        self.word_import_thread.finished.connect(self._on_word_import_finished)
+        self.word_import_thread.start()
 
-        ext = target_path.suffix.lower()
-        agenda_data = {}
+    def _on_word_import_progress(self, msg: str):
+        """Updates the toolbar button text with background conversion progress."""
+        self.refresh_btn.setText(f"⏳ {msg}"[:32])
 
-        if ext == '.doc':
-            if not is_libreoffice_available():
-                QMessageBox.warning(self, "LibreOffice Required", get_libreoffice_missing_msg())
-                return
+    def _on_word_import_finished(self, success: bool, agenda_data: dict, filename: str, error_msg: str):
+        """Re-enables the UI and merges parsed data into the table model upon thread completion."""
+        self.refresh_btn.setEnabled(True)
+        self.refresh_btn.setText("🔄 Refresh")
 
-            try:
-                docx_path = convert_doc_to_docx_libreoffice(
-                    doc_path=target_path,
-                    output_path=target_path.with_suffix('.docx')
-                )
-                if docx_path and docx_path.exists():
-                    agenda_data = TDocsParser.parse_tdocs_from_docx(str(docx_path))
-            except Exception as e:
-                QMessageBox.critical(self, "Conversion Failed", f"LibreOffice conversion failed:\n{e}")
-                return
-
-        elif ext == '.docx':
-            agenda_data = TDocsParser.parse_tdocs_from_docx(str(target_path))
-
-        elif ext in ['.htm', '.html']:
-            agenda_data = TDocsParser.parse_tdocs_by_agenda(str(target_path))
-
-        if agenda_data:
+        if success and agenda_data:
             self.model.merge_agenda_data(agenda_data)
             self._refresh_comboboxes()
             self.refresh_btn.setText(f"✅ {len(agenda_data)} Merged")
@@ -1023,8 +1009,11 @@ class TDocsWindow(QWidget):
             QMessageBox.information(
                 self,
                 "Import Successful",
-                f"Saved to {agenda_dir.name}/\nSuccessfully merged {len(agenda_data)} TDocs from:\n{target_path.name}"
+                f"Saved to Agenda/\nSuccessfully merged {len(agenda_data)} TDocs from:\n{filename}",
             )
         else:
-            QMessageBox.warning(self, "Import Failed",
-                                f"No valid TDocs table could be extracted from:\n{target_path.name}")
+            QMessageBox.warning(
+                self,
+                "Import Failed",
+                error_msg or f"No valid TDocs table could be extracted from:\n{filename}",
+            )
