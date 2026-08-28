@@ -316,7 +316,7 @@ class WordAgendaImporterThread(QThread):
                 return
 
             self.progress.emit("Staging file...")
-            agenda_dir = self.meeting_dir / "Agenda"
+            agenda_dir = self.meeting_dir / "Agenda" / "ChairNotes"
             agenda_dir.mkdir(parents=True, exist_ok=True)
 
             target_path = agenda_dir / self.source_path.name
