@@ -152,7 +152,6 @@ class SpecificationsTab(QWidget):
 
         sync_layout.addWidget(QLabel("<b>🌐 Network Sync:</b>"))
 
-        # Consolidate Full, Quick, Filtered Sync, and Force Metadata into a single menu button
         self.sync_menu_btn = QPushButton("🌐 Sync & Fetch ▾")
         self.sync_menu_btn.setCursor(Qt.PointingHandCursor)
         self.sync_menu_btn.setStyleSheet("""
@@ -604,7 +603,7 @@ class SpecificationsTab(QWidget):
 
                 self.table.setItem(row_idx, 1, QTableWidgetItem(data["title"] if data["title"] else "Unknown Title"))
 
-                # --- COLUMN 2: Documents Action Bar ---
+                # --- COLUMN 2: Documents Action Bar (Option 1: Smart Action Button) ---
                 version_combo = QComboBox()
 
                 def parse_ver(v_str):
@@ -630,16 +629,20 @@ class SpecificationsTab(QWidget):
                         },
                     )
 
-                word_btn = QPushButton("📝 Word")
-                pdf_btn = QPushButton("📕 PDF")
-                html_btn = QPushButton("🌐 HTML")
-                txt_btn = QPushButton("📄 TXT")
-                zip_btn = QPushButton("📥 ZIP")
+                # Unified Smart Action Button & Formats Menu
+                doc_action_btn = QPushButton()
+                doc_action_btn.setCursor(Qt.PointingHandCursor)
 
-                for b in (word_btn, pdf_btn, html_btn, txt_btn):
-                    b.setCursor(Qt.PointingHandCursor)
+                doc_menu = QMenu(self)
+                doc_menu.setStyleSheet("""
+                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
+                    QMenu::item { padding: 6px 22px 6px 14px; color: #333333; font-size: 12px; }
+                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+                    QMenu::separator { height: 1px; background-color: #E2E8F0; margin: 4px 0; }
+                """)
+                doc_action_btn.setMenu(doc_menu)
 
-                def _update_btn_state(index_ignore=0, c=version_combo, wb=word_btn, pb=pdf_btn, hb=html_btn, tb=txt_btn, zb=zip_btn):
+                def _update_btn_state(index_ignore=0, c=version_combo, btn=doc_action_btn, menu=doc_menu):
                     c_data = c.currentData()
                     if not c_data:
                         return
@@ -653,65 +656,89 @@ class SpecificationsTab(QWidget):
                     html_exists = any(current_dir.glob(f"{stem}*.html"))
                     txt_exists = any(current_dir.glob(f"{stem}*.txt"))
 
-                    def style_btn(btn, exists, icon, name):
-                        if exists:
-                            btn.setText(f"{icon} {name} ✅")
-                            btn.setStyleSheet("""
-                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; }
-                                QPushButton:hover { background-color: #C8E6C9; }
-                            """)
-                        elif word_exists or zip_exists:
-                            action = "Extract" if name == "Word" else "Convert"
-                            btn.setText(f"⚙️ {action}")
-                            btn.setStyleSheet("""
-                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; }
-                                QPushButton:hover { background-color: #FFE0B2; }
-                            """)
-                        else:
-                            btn.setText(f"⬇️ Get {name}")
-                            btn.setStyleSheet("""
-                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; }
-                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
-                            """)
-
-                    style_btn(wb, word_exists, "📝", "Word")
-                    style_btn(pb, pdf_exists, "📕", "PDF")
-                    style_btn(hb, html_exists, "🌐", "HTML")
-                    style_btn(tb, txt_exists, "📄", "TXT")
-
-                    if zip_exists:
-                        zb.setText("📥 ZIP ✅")
-                        zb.setStyleSheet("""
-                            QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; }
+                    # Style primary button based on status
+                    if word_exists:
+                        btn.setText("📝 Open Word ▾")
+                        btn.setStyleSheet("""
+                            QPushButton {
+                                padding: 4px 10px;
+                                font-size: 11px;
+                                font-weight: bold;
+                                background-color: #E8F5E9;
+                                color: #2E7D32;
+                                border: 1px solid #2E7D32;
+                                border-radius: 4px;
+                            }
                             QPushButton:hover { background-color: #C8E6C9; }
                         """)
-                    else:
-                        zb.setText("⬇️ Get ZIP")
-                        zb.setStyleSheet("""
-                            QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; }
-                            QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
+                    elif zip_exists:
+                        btn.setText("⚙️ Extract Word ▾")
+                        btn.setStyleSheet("""
+                            QPushButton {
+                                padding: 4px 10px;
+                                font-size: 11px;
+                                font-weight: bold;
+                                background-color: #FFF3E0;
+                                color: #E65100;
+                                border: 1px solid #FFB74D;
+                                border-radius: 4px;
+                            }
+                            QPushButton:hover { background-color: #FFE0B2; }
                         """)
+                    else:
+                        btn.setText("⬇️ Get Word ▾")
+                        btn.setStyleSheet("""
+                            QPushButton {
+                                padding: 4px 10px;
+                                font-size: 11px;
+                                font-weight: bold;
+                                background-color: #EBF3FB;
+                                color: #0066CC;
+                                border: 1px solid #B0D0F0;
+                                border-radius: 4px;
+                            }
+                            QPushButton:hover { background-color: #D6E8FA; border-color: #0066CC; }
+                        """)
+
+                    # Re-populate dropdown menu with format items and statuses
+                    menu.clear()
+
+                    word_label = "📝 Open Word Document" if word_exists else ("⚙️ Extract Word Document" if zip_exists else "⬇️ Download & Open Word")
+                    act_word = menu.addAction(f"{word_label} {'✅' if word_exists else ''}".strip())
+                    act_word.triggered.connect(lambda: self._handle_document_action(c, "word", btn))
+
+                    pdf_label = "📕 Open PDF" if pdf_exists else ("⚙️ Convert to PDF" if (word_exists or zip_exists) else "⬇️ Get & Convert to PDF")
+                    act_pdf = menu.addAction(f"{pdf_label} {'✅' if pdf_exists else ''}".strip())
+                    act_pdf.triggered.connect(lambda: self._handle_document_action(c, "pdf", btn))
+
+                    html_label = "🌐 Open HTML" if html_exists else ("⚙️ Convert to HTML" if (word_exists or zip_exists) else "⬇️ Get & Convert to HTML")
+                    act_html = menu.addAction(f"{html_label} {'✅' if html_exists else ''}".strip())
+                    act_html.triggered.connect(lambda: self._handle_document_action(c, "html", btn))
+
+                    txt_label = "📄 Open TXT" if txt_exists else ("⚙️ Convert to TXT" if (word_exists or zip_exists) else "⬇️ Get & Convert to TXT")
+                    act_txt = menu.addAction(f"{txt_label} {'✅' if txt_exists else ''}".strip())
+                    act_txt.triggered.connect(lambda: self._handle_document_action(c, "txt", btn))
+
+                    menu.addSeparator()
+
+                    zip_label = "📦 Show ZIP Archive ✅" if zip_exists else "📥 Download ZIP Archive"
+                    act_zip = menu.addAction(zip_label)
+                    act_zip.triggered.connect(lambda: self._handle_zip_action(c, btn))
+
+                    act_dir = menu.addAction("📂 Open Local Folder")
+                    act_dir.triggered.connect(lambda _, s=c_data["spec_num"]: self._open_spec_folder(s))
 
                 version_combo.currentIndexChanged.connect(_update_btn_state)
                 _update_btn_state()
 
-                word_btn.clicked.connect(lambda _, c=version_combo, b=word_btn: self._handle_document_action(c, "word", b))
-                pdf_btn.clicked.connect(lambda _, c=version_combo, b=pdf_btn: self._handle_document_action(c, "pdf", b))
-                html_btn.clicked.connect(lambda _, c=version_combo, b=html_btn: self._handle_document_action(c, "html", b))
-                txt_btn.clicked.connect(lambda _, c=version_combo, b=txt_btn: self._handle_document_action(c, "txt", b))
-                zip_btn.clicked.connect(lambda _, c=version_combo, b=zip_btn: self._handle_zip_action(c, b))
-
                 cell_widget = QWidget()
                 layout = QHBoxLayout(cell_widget)
                 layout.setContentsMargins(0, 0, 0, 0)
-                layout.setSpacing(4)
+                layout.setSpacing(6)
 
                 layout.addWidget(version_combo)
-                layout.addWidget(word_btn)
-                layout.addWidget(pdf_btn)
-                layout.addWidget(html_btn)
-                layout.addWidget(txt_btn)
-                layout.addWidget(zip_btn)
+                layout.addWidget(doc_action_btn)
+                layout.addStretch()
 
                 self.table.setCellWidget(row_idx, 2, cell_widget)
 
@@ -846,6 +873,10 @@ class SpecificationsTab(QWidget):
             combo.setItemText(idx, "⏳ Downloading...")
             combo.setEnabled(False)
 
+            if not sip.isdeleted(btn):
+                btn.setText("⏳ Downloading...")
+                btn.setEnabled(False)
+
             thread = SpecDownloadThread(c_data["url"], zip_path)
             thread.ui_log_msg.connect(self._handle_converter_log)
 
@@ -859,6 +890,8 @@ class SpecificationsTab(QWidget):
                             c_data_inner["is_downloaded"] = True
                             combo.setItemData(idx, c_data_inner)
                         combo.setEnabled(True)
+                    if not sip.isdeleted(btn):
+                        btn.setEnabled(True)
                 except RuntimeError:
                     pass
 
@@ -875,6 +908,9 @@ class SpecificationsTab(QWidget):
                     if not sip.isdeleted(combo):
                         combo.setItemText(idx, "❌ Error")
                         combo.setEnabled(True)
+                    if not sip.isdeleted(btn):
+                        btn.setEnabled(True)
+                        combo.currentIndexChanged.emit(idx)
                 except RuntimeError:
                     pass
                 QMessageBox.critical(self, "Download Failed", f"Network error:\n{err}")
@@ -910,8 +946,9 @@ class SpecificationsTab(QWidget):
         combo.setItemText(idx, "⏳ Downloading...")
         combo.setEnabled(False)
 
-        btn.setText("⏳...")
-        btn.setEnabled(False)
+        if not sip.isdeleted(btn):
+            btn.setText("⏳ Downloading...")
+            btn.setEnabled(False)
 
         thread = SpecDownloadThread(c_data["url"], zip_path)
         thread.ui_log_msg.connect(self._handle_converter_log)
@@ -926,6 +963,8 @@ class SpecificationsTab(QWidget):
                         c_data_inner["is_downloaded"] = True
                         combo.setItemData(idx, c_data_inner)
                     combo.setEnabled(True)
+                if not sip.isdeleted(btn):
+                    btn.setEnabled(True)
                     combo.currentIndexChanged.emit(idx)
             except RuntimeError:
                 pass
@@ -936,8 +975,8 @@ class SpecificationsTab(QWidget):
                     combo.setItemText(idx, "❌ Error")
                     combo.setEnabled(True)
                 if not sip.isdeleted(btn):
-                    btn.setText("⬇️ Get ZIP")
                     btn.setEnabled(True)
+                    combo.currentIndexChanged.emit(idx)
             except RuntimeError:
                 pass
             QMessageBox.critical(self, "Download Failed", f"Network error:\n{err}")
