@@ -1,16 +1,17 @@
+# --- File: src/modules/specifications/ui/dialogs.py ---
 import webbrowser
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLabel, QPushButton,
-    QHBoxLayout, QComboBox, QLineEdit, QFrame
+    QHBoxLayout, QComboBox, QLineEdit, QFrame, QScrollArea, QWidget
 )
 
 from modules.specifications.core.database import SpecsDatabase
 
 
 class SpecInfoDialog(QDialog):
-    """Modernized Specification Details Dialog with clickable links and DynaReport integration."""
+    """Modernized Specification Details Dialog with clickable links, related WIs, and DynaReport integration."""
 
     def __init__(self, details: dict, parent=None):
         super().__init__(parent)
@@ -19,7 +20,7 @@ class SpecInfoDialog(QDialog):
         title = details.get('title', 'No Title Available')
 
         self.setWindowTitle(f"Specification Details: {spec_num}")
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(560)
         self.setStyleSheet("""
             QDialog {
                 background-color: #F8F9FA;
@@ -53,6 +54,32 @@ class SpecInfoDialog(QDialog):
             }
             QPushButton#primaryActionBtn:hover {
                 background-color: #0052A3;
+            }
+            QPushButton#wiChipBtn {
+                background-color: #F0F4F8;
+                border: 1px solid #D2E3FC;
+                border-radius: 12px;
+                padding: 3px 10px;
+                font-size: 11px;
+                color: #1967D2;
+                font-weight: bold;
+            }
+            QPushButton#wiChipBtn:hover {
+                background-color: #E8F0FE;
+                border-color: #1967D2;
+            }
+            QPushButton#wiChipPrimaryBtn {
+                background-color: #E6F4EA;
+                border: 1px solid #CEEAD6;
+                border-radius: 12px;
+                padding: 3px 10px;
+                font-size: 11px;
+                color: #137333;
+                font-weight: bold;
+            }
+            QPushButton#wiChipPrimaryBtn:hover {
+                background-color: #CEEAD6;
+                border-color: #137333;
             }
         """)
 
@@ -135,11 +162,40 @@ class SpecInfoDialog(QDialog):
             dyna_label.setTextInteractionFlags(Qt.TextBrowserInteraction | Qt.TextSelectableByMouse)
             form.addRow(self._make_key_label("DynaReport:"), dyna_label)
 
-        # Any extra unhandled metadata keys
+        # --- Related Work Items Row ---
+        related_wis = details.get('related_wis', [])
+        if related_wis:
+            wi_container = QWidget()
+            wi_layout = QHBoxLayout(wi_container)
+            wi_layout.setContentsMargins(0, 0, 0, 0)
+            wi_layout.setSpacing(6)
+
+            for wi in related_wis:
+                code = wi.get('wi_code', '')
+                acronym = wi.get('acronym', '')
+                is_primary = wi.get('is_primary', False)
+                label_text = f"⭐ {acronym} ({code})" if (is_primary and acronym) else (f"{acronym} ({code})" if acronym else f"WI #{code}")
+
+                btn = QPushButton(label_text)
+                btn.setObjectName("wiChipPrimaryBtn" if is_primary else "wiChipBtn")
+                btn.setCursor(Qt.PointingHandCursor)
+                tooltip = f"{wi.get('name', '')}\nCode: {code}\nClick to open 3GPP Work Item page"
+                btn.setToolTip(tooltip.strip())
+                btn.clicked.connect(lambda _, c=code: webbrowser.open(
+                    f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={c}"
+                ))
+                wi_layout.addWidget(btn)
+
+            wi_layout.addStretch()
+            form.addRow(self._make_key_label("Related WIs:"), wi_container)
+        else:
+            self._add_row(form, "Related WIs", "-")
+
+        # Excluded internal keys
         excluded_keys = {
             'id', 'series_id', 'number', 'type', 'title',
             'url', 'primary_group', 'secondary_groups',
-            'radio_technology', 'radio_tech', 'initial_release'
+            'radio_technology', 'radio_tech', 'initial_release', 'related_wis'
         }
         for key, value in details.items():
             if key not in excluded_keys and value:
@@ -354,7 +410,7 @@ class TargetedSyncDialog(QDialog):
         btn_layout = QHBoxLayout()
         self.fetch_btn = QPushButton("🚀 Fetch Now")
         self.fetch_btn.clicked.connect(self.accept)
-        self.fetch_btn.setEnabled(False)  # Disabled until they type something
+        self.fetch_btn.setEnabled(False)
 
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
@@ -364,10 +420,8 @@ class TargetedSyncDialog(QDialog):
         btn_layout.addWidget(self.fetch_btn)
         layout.addLayout(btn_layout)
 
-        # Enable the button only if there is text
         self.input_field.textChanged.connect(lambda t: self.fetch_btn.setEnabled(bool(t.strip())))
 
     def get_targets(self) -> list:
         raw_text = self.input_field.text()
-        # Split by comma, strip whitespace, and ignore empty strings
         return [t.strip() for t in raw_text.split(',') if t.strip()]
