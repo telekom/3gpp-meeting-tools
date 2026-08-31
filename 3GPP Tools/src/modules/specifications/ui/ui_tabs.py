@@ -469,6 +469,12 @@ class SpecificationsTab(QWidget):
                 os.startfile(str(target_dir))
             except Exception as e:
                 QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
+        else:
+            QMessageBox.information(
+                self,
+                "Folder Not Found",
+                f"No downloaded files found for {spec_num}.\nDownload a document first to create the local folder."
+            )
 
     def _open_web_report(self, spec_num: str):
         clean_number = spec_num.replace(".", "")
@@ -583,7 +589,7 @@ class SpecificationsTab(QWidget):
                 folder_action.triggered.connect(lambda _, s=spec_num: self._open_spec_folder(s))
 
                 def _update_menu_state(act=folder_action, path=spec_target_dir):
-                    if path.exists():
+                    if path.exists() and any(path.iterdir()):
                         act.setText("📂  Open Local Folder")
                         act.setEnabled(True)
                     else:
@@ -591,6 +597,7 @@ class SpecificationsTab(QWidget):
                         act.setEnabled(False)
 
                 menu.aboutToShow.connect(_update_menu_state)
+                _update_menu_state()  # Initialize state immediately
                 action_btn.setMenu(menu)
 
                 display_num = f"{data['type']} {spec_num}".strip()
@@ -638,6 +645,7 @@ class SpecificationsTab(QWidget):
                     QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
                     QMenu::item { padding: 6px 22px 6px 14px; color: #333333; font-size: 12px; }
                     QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+                    QMenu::item:disabled { color: #AAAAAA; }
                     QMenu::separator { height: 1px; background-color: #E2E8F0; margin: 4px 0; }
                 """)
                 doc_action_btn.setMenu(doc_menu)
@@ -655,6 +663,7 @@ class SpecificationsTab(QWidget):
                     pdf_exists = any(current_dir.glob(f"{stem}*.pdf"))
                     html_exists = any(current_dir.glob(f"{stem}*.html"))
                     txt_exists = any(current_dir.glob(f"{stem}*.txt"))
+                    dir_has_files = current_dir.exists() and any(current_dir.iterdir())
 
                     # Style primary button based on status
                     if word_exists:
@@ -725,8 +734,13 @@ class SpecificationsTab(QWidget):
                     act_zip = menu.addAction(zip_label)
                     act_zip.triggered.connect(lambda: self._handle_zip_action(c, btn))
 
-                    act_dir = menu.addAction("📂 Open Local Folder")
-                    act_dir.triggered.connect(lambda _, s=c_data["spec_num"]: self._open_spec_folder(s))
+                    if dir_has_files:
+                        act_dir = menu.addAction("📂 Open Local Folder")
+                        act_dir.setEnabled(True)
+                        act_dir.triggered.connect(lambda _, s=c_data["spec_num"]: self._open_spec_folder(s))
+                    else:
+                        act_dir = menu.addAction("📁 Folder Not Created")
+                        act_dir.setEnabled(False)
 
                 version_combo.currentIndexChanged.connect(_update_btn_state)
                 _update_btn_state()
