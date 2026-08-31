@@ -1,23 +1,43 @@
 # --- File: src/modules/specifications/ui/ui_tabs.py ---
 import json
+import logging
 import os
 import re
-import zipfile
 import webbrowser
-import logging
+import zipfile
 from pathlib import Path
 
 from PyQt5 import sip
-from PyQt5.QtCore import pyqtSignal, Qt, QTimer
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QLabel, QCheckBox, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QLineEdit, QComboBox, QMenu, QAbstractItemView,
-                             QFileDialog, QMessageBox, QFrame)
+from PyQt5.QtCore import QTimer, Qt, pyqtSignal
+from PyQt5.QtWidgets import (
+    QAbstractItemView,
+    QAction,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.ui.components import HoverMenuButton
+from modules.specifications.ui.dialogs import (
+    AdvancedSyncDialog,
+    SpecInfoDialog,
+    TableFilterDialog,
+    TargetedSyncDialog,
+)
 from modules.specifications.ui.threads import SpecDownloadThread
-from modules.specifications.ui.dialogs import SpecInfoDialog, AdvancedSyncDialog, TableFilterDialog, TargetedSyncDialog
 
 
 class SpecificationsTab(QWidget):
@@ -31,51 +51,83 @@ class SpecificationsTab(QWidget):
         self._download_threads = []
 
         self.config_file = db_path.parent / "specs_config.json"
-        self.default_dl_dir = self._load_settings()
 
-        self.table_filters = {'series': '', 'tech': '', 'group': '', 'spec_type': 'Any'}
+        # Defaults
+        self.default_dl_dir = str(Path.home() / "3GPP_SA2_Meeting_Helper" / "specs")
+        self.table_filters = {"series": "", "tech": "", "group": "", "spec_type": "Any"}
+        self.saved_search = ""
+        self.saved_version = ""
+        self.saved_downloaded_only = False
 
+        # Load persisted settings
+        self._load_settings()
+
+        # Timers
         self.search_timer = QTimer()
         self.search_timer.setSingleShot(True)
-        self.search_timer.setInterval(400)
+        self.search_timer.setInterval(350)
         self.search_timer.timeout.connect(self.refresh_table)
+
+        self.save_settings_timer = QTimer()
+        self.save_settings_timer.setSingleShot(True)
+        self.save_settings_timer.setInterval(800)
+        self.save_settings_timer.timeout.connect(self._save_settings)
 
         self._setup_ui()
         self.refresh_table()
 
-    def _load_settings(self) -> str:
-        fallback = str(Path.home() / "3GPP_SA2_Meeting_Helper" / "specs")
+    # ==========================================
+    # --- CONFIG / PERSISTENCE ---
+    # ==========================================
+    def _load_settings(self):
         if self.config_file.exists():
             try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
+                with open(self.config_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    return data.get('download_dir', fallback)
-            except Exception:
-                pass
-        return fallback
+                    self.default_dl_dir = data.get("download_dir", self.default_dl_dir)
+                    self.saved_search = data.get("search_query", "")
+                    self.saved_version = data.get("version_query", "")
+                    self.saved_downloaded_only = data.get("downloaded_only", False)
+                    saved_filters = data.get("table_filters", {})
+                    if isinstance(saved_filters, dict):
+                        self.table_filters.update(saved_filters)
+            except Exception as e:
+                print(f"Error loading specs_config.json: {e}")
 
     def _save_settings(self):
         try:
             current_dir = self.dl_dir_input.text().strip()
-            data = {'download_dir': current_dir}
-            with open(self.config_file, 'w', encoding='utf-8') as f:
+            data = {
+                "download_dir": current_dir,
+                "search_query": self.spec_search_input.text().strip(),
+                "version_query": self.version_search_input.text().strip(),
+                "downloaded_only": self.downloaded_only_cb.isChecked(),
+                "table_filters": self.table_filters,
+            }
+            with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
-            print(f"Error saving config: {e}")
+            print(f"Error saving specs_config.json: {e}")
 
+    # ==========================================
+    # --- UI SETUP ---
+    # ==========================================
     def _setup_ui(self):
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(5, 10, 5, 5)
+        main_layout.setContentsMargins(8, 10, 8, 8)
+        main_layout.setSpacing(6)
 
         # --- ROW 1: Download Path ---
         dir_layout = QHBoxLayout()
+        dir_layout.setSpacing(6)
+
         self.dl_dir_input = QLineEdit(self.default_dl_dir)
-        self.dl_dir_input.setToolTip(
-            "The local directory where all downloaded 3GPP specifications are saved and extracted.")
+        self.dl_dir_input.setToolTip("The local directory where all downloaded 3GPP specifications are saved and extracted.")
         self.dl_dir_input.editingFinished.connect(self._save_settings)
 
         browse_btn = QPushButton("📂 Browse...")
         browse_btn.setToolTip("Select a new local folder to store your downloaded specifications.")
+        browse_btn.setCursor(Qt.PointingHandCursor)
         browse_btn.clicked.connect(self._browse_dir)
 
         open_dir_btn = QPushButton("↗️ Open")
@@ -94,31 +146,58 @@ class SpecificationsTab(QWidget):
         line1.setFrameShadow(QFrame.Sunken)
         main_layout.addWidget(line1)
 
-        # --- ROW 2: Network Actions ---
+        # --- ROW 2: Unified Network Sync Toolbar ---
         sync_layout = QHBoxLayout()
+        sync_layout.setSpacing(8)
+
         sync_layout.addWidget(QLabel("<b>🌐 Network Sync:</b>"))
 
-        self.full_sync_btn = QPushButton("🔄 Full Sync")
-        self.full_sync_btn.setToolTip(
-            "Synchronize the entire 3GPP specification database from the FTP server (takes a while).")
-        self.full_sync_btn.clicked.connect(lambda: self.update_db_requested.emit(self.force_meta_checkbox.isChecked()))
-        sync_layout.addWidget(self.full_sync_btn)
+        # Consolidate Full, Quick, Filtered Sync, and Force Metadata into a single menu button
+        self.sync_menu_btn = QPushButton("🌐 Sync & Fetch ▾")
+        self.sync_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.sync_menu_btn.setStyleSheet("""
+            QPushButton {
+                font-weight: bold;
+                background-color: #0066CC;
+                color: #FFFFFF;
+                border: 1px solid #0055AA;
+                border-radius: 4px;
+                padding: 5px 12px;
+            }
+            QPushButton:hover {
+                background-color: #0052A3;
+            }
+        """)
 
-        self.target_sync_btn = QPushButton("🎯 Quick Fetch")
-        self.target_sync_btn.setToolTip(
-            "Instantly download specific specs or series (e.g., '23.501' or '23') without a full sync.")
-        self.target_sync_btn.clicked.connect(self._open_targeted_sync)
-        sync_layout.addWidget(self.target_sync_btn)
+        sync_menu = QMenu(self)
+        sync_menu.setStyleSheet("""
+            QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
+            QMenu::item { padding: 6px 20px 6px 15px; color: #333333; }
+            QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+        """)
 
-        self.adv_sync_btn = QPushButton("⚙️ Filtered Sync")
-        self.adv_sync_btn.setToolTip("Sync only specific portions of the database based on Series, Tech, or Group.")
-        self.adv_sync_btn.clicked.connect(self._open_advanced_sync)
-        sync_layout.addWidget(self.adv_sync_btn)
+        quick_action = sync_menu.addAction("🎯 Quick Fetch (By Spec or Series)...")
+        quick_action.setToolTip("Instantly download specific specs or series (e.g., '23.501' or '23') directly.")
+        quick_action.triggered.connect(self._open_targeted_sync)
 
-        self.force_meta_checkbox = QCheckBox("Force Metadata")
-        self.force_meta_checkbox.setToolTip(
-            "Force the scraper to re-download HTML metadata even if it already exists in the database.")
-        sync_layout.addWidget(self.force_meta_checkbox)
+        scoped_action = sync_menu.addAction("⚙️ Scoped Sync (By WG / Series)...")
+        scoped_action.setToolTip("Sync only specific portions of the database based on Series, Tech, or Group.")
+        scoped_action.triggered.connect(self._open_advanced_sync)
+
+        full_action = sync_menu.addAction("🔄 Full Database Sync (All Series)...")
+        full_action.setToolTip("Synchronize the entire 3GPP specification database from the FTP server.")
+        full_action.triggered.connect(lambda: self.update_db_requested.emit(self.force_meta_action.isChecked()))
+
+        sync_menu.addSeparator()
+
+        self.force_meta_action = QAction("Force Re-download Metadata", self)
+        self.force_meta_action.setCheckable(True)
+        self.force_meta_action.setChecked(False)
+        self.force_meta_action.setToolTip("Force the scraper to re-download HTML metadata even if it already exists.")
+        sync_menu.addAction(self.force_meta_action)
+
+        self.sync_menu_btn.setMenu(sync_menu)
+        sync_layout.addWidget(self.sync_menu_btn)
 
         self.bg_sync_label = QLabel("⏳ Fetching deep metadata in background...")
         self.bg_sync_label.setStyleSheet("color: #E65100; font-weight: bold; font-style: italic;")
@@ -126,54 +205,85 @@ class SpecificationsTab(QWidget):
         sync_layout.addWidget(self.bg_sync_label)
 
         sync_layout.addStretch()
-
         main_layout.addLayout(sync_layout)
 
-        # --- ROW 3: Local Table Search ---
+        # --- ROW 3: Local Search & Main Filters ---
         search_layout = QHBoxLayout()
-        search_layout.addWidget(QLabel("<b>🔍 Local Search:</b>"))
+        search_layout.setSpacing(6)
+
+        search_layout.addWidget(QLabel("<b>🔍 Search:</b>"))
 
         self.spec_search_input = QLineEdit()
         self.spec_search_input.setPlaceholderText("Spec Number or Title...")
-        self.spec_search_input.setToolTip(
-            "Filter the table instantly by specification number (e.g., '23.501') or title keywords.")
-        self.spec_search_input.textChanged.connect(lambda text: self.search_timer.start())
-        search_layout.addWidget(self.spec_search_input)
+        self.spec_search_input.setText(self.saved_search)
+        self.spec_search_input.setToolTip("Filter instantly by specification number (e.g., '23.501') or title keywords.")
+        self.spec_search_input.textChanged.connect(self._on_search_changed)
+        search_layout.addWidget(self.spec_search_input, stretch=2)
 
         search_layout.addWidget(QLabel("Ver:"))
         self.version_search_input = QLineEdit()
         self.version_search_input.setPlaceholderText("e.g. 15.")
+        self.version_search_input.setText(self.saved_version)
         self.version_search_input.setToolTip("Filter the table by release version (e.g., '15' or '16.2').")
-        self.version_search_input.setFixedWidth(60)
-        self.version_search_input.textChanged.connect(lambda text: self.search_timer.start())
+        self.version_search_input.setFixedWidth(70)
+        self.version_search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self.version_search_input)
+
+        self.downloaded_only_cb = QCheckBox("💾 Downloaded Only")
+        self.downloaded_only_cb.setToolTip("Show only specifications that currently have local cached files.")
+        self.downloaded_only_cb.setChecked(self.saved_downloaded_only)
+        self.downloaded_only_cb.toggled.connect(self._on_search_changed)
+        search_layout.addWidget(self.downloaded_only_cb)
 
         self.filter_btn = QPushButton("⚙️ Table Filters")
         self.filter_btn.setToolTip("Apply advanced filters (Series, Technology, Group) to the local table.")
         self.filter_btn.setCursor(Qt.PointingHandCursor)
         self.filter_btn.clicked.connect(self._open_table_filters)
+        search_layout.addWidget(self.filter_btn)
 
         self.clear_filter_btn = QPushButton("❌")
         self.clear_filter_btn.setCursor(Qt.PointingHandCursor)
         self.clear_filter_btn.setToolTip("Clear all active table filters.")
-        self.clear_filter_btn.setFixedWidth(24)
+        self.clear_filter_btn.setFixedWidth(26)
         self.clear_filter_btn.setVisible(False)
         self.clear_filter_btn.clicked.connect(self._clear_table_filters)
-
-        search_layout.addWidget(self.filter_btn)
         search_layout.addWidget(self.clear_filter_btn)
+
         main_layout.addLayout(search_layout)
 
-        # --- Results Header ---
+        # --- ROW 4: Quick Series Preset Chips & Status Banner ---
+        chips_layout = QHBoxLayout()
+        chips_layout.setSpacing(4)
+
+        chips_label = QLabel("Presets:")
+        chips_label.setStyleSheet("color: #718096; font-size: 11px; font-weight: bold;")
+        chips_layout.addWidget(chips_label)
+
+        self.chip_buttons = {}
+        preset_chips = [
+            ("All", ""),
+            ("23 (SA2)", "23"),
+            ("38 (RAN)", "38"),
+            ("24 (CT)", "24"),
+            ("36 (LTE)", "36"),
+        ]
+
+        for label, series_val in preset_chips:
+            chip = QPushButton(label)
+            chip.setCursor(Qt.PointingHandCursor)
+            chip.clicked.connect(lambda _, s=series_val: self._on_chip_clicked(s))
+            self.chip_buttons[series_val] = chip
+            chips_layout.addWidget(chip)
+
+        chips_layout.addStretch()
+
         self.count_label = QLabel("Showing 0 specifications")
-        self.count_label.setStyleSheet("font-weight: bold; color: #555555; margin-top: 5px;")
+        self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
+        chips_layout.addWidget(self.count_label)
 
-        header_layout = QHBoxLayout()
-        header_layout.addStretch()
-        header_layout.addWidget(self.count_label)
-        main_layout.addLayout(header_layout)
+        main_layout.addLayout(chips_layout)
 
-        # --- Data Table ---
+        # --- ROW 5: Data Table ---
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Specification", "Title", "Version / Documents"])
@@ -191,6 +301,58 @@ class SpecificationsTab(QWidget):
 
         main_layout.addWidget(self.table)
         self.setLayout(main_layout)
+
+        self._update_filter_ui()
+        self._update_chip_styles()
+
+    # ==========================================
+    # --- EVENT HANDLERS & FILTERS ---
+    # ==========================================
+    def _on_search_changed(self):
+        self.search_timer.start()
+        self.save_settings_timer.start()
+
+    def _on_chip_clicked(self, series_val: str):
+        if self.table_filters.get("series") == series_val and series_val != "":
+            self.table_filters["series"] = ""
+        else:
+            self.table_filters["series"] = series_val
+
+        self._update_chip_styles()
+        self._update_filter_ui()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
+    def _update_chip_styles(self):
+        current_series = self.table_filters.get("series", "")
+        for series_val, chip in self.chip_buttons.items():
+            is_active = (current_series == series_val) or (not current_series and series_val == "")
+            if is_active:
+                chip.setStyleSheet("""
+                    QPushButton {
+                        padding: 2px 8px;
+                        font-size: 11px;
+                        font-weight: bold;
+                        background-color: #0066CC;
+                        color: white;
+                        border: 1px solid #0055AA;
+                        border-radius: 10px;
+                    }
+                """)
+            else:
+                chip.setStyleSheet("""
+                    QPushButton {
+                        padding: 2px 8px;
+                        font-size: 11px;
+                        background-color: #F0F4F8;
+                        color: #2D3748;
+                        border: 1px solid #D2E3FC;
+                        border-radius: 10px;
+                    }
+                    QPushButton:hover {
+                        background-color: #E2E8F0;
+                    }
+                """)
 
     def set_bg_sync_active(self, is_active: bool):
         self.bg_sync_label.setVisible(is_active)
@@ -222,7 +384,7 @@ class SpecificationsTab(QWidget):
         if dialog.exec_():
             target_specs = dialog.matching_specs
             if target_specs:
-                force_meta = self.force_meta_checkbox.isChecked()
+                force_meta = self.force_meta_action.isChecked()
                 self.update_specific_requested.emit(target_specs, force_meta)
 
     def _open_targeted_sync(self):
@@ -230,12 +392,51 @@ class SpecificationsTab(QWidget):
         if dialog.exec_():
             targets = dialog.get_targets()
             if targets:
-                force_meta = self.force_meta_checkbox.isChecked()
+                force_meta = self.force_meta_action.isChecked()
                 self.update_specific_requested.emit(targets, force_meta)
+
+    def _open_table_filters(self):
+        dialog = TableFilterDialog(self.db, self.table_filters, self)
+        if dialog.exec_():
+            self.table_filters = dialog.get_filters()
+            self._update_filter_ui()
+            self._update_chip_styles()
+            self.save_settings_timer.start()
+            self.refresh_table()
+
+    def _clear_table_filters(self):
+        self.table_filters = {"series": "", "tech": "", "group": "", "spec_type": "Any"}
+        self._update_filter_ui()
+        self._update_chip_styles()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
+    def _update_filter_ui(self):
+        active_count = 0
+        if self.table_filters.get("series"):
+            active_count += 1
+        if self.table_filters.get("tech"):
+            active_count += 1
+        if self.table_filters.get("group"):
+            active_count += 1
+        if self.table_filters.get("spec_type", "Any") != "Any":
+            active_count += 1
+
+        if active_count > 0:
+            self.filter_btn.setText(f"⚙️ Filters ({active_count})")
+            self.filter_btn.setStyleSheet(
+                "background-color: #E1F0FF; color: #0078D7; font-weight: bold; border: 1px solid #0078D7;"
+            )
+            self.clear_filter_btn.setVisible(True)
+        else:
+            self.filter_btn.setText("⚙️ Table Filters")
+            self.filter_btn.setStyleSheet("")
+            self.clear_filter_btn.setVisible(False)
 
     def _show_context_menu(self, position):
         selected_rows = self.table.selectionModel().selectedRows()
-        if not selected_rows: return
+        if not selected_rows:
+            return
 
         menu = QMenu()
         update_action = menu.addAction(f"🔄 Update selected ({len(selected_rows)} specifications)")
@@ -248,17 +449,16 @@ class SpecificationsTab(QWidget):
                 display_text = widget.findChild(QLabel).text()
                 spec_num = display_text.split(" ")[-1]
                 target_specs.append(spec_num)
-            force_meta = self.force_meta_checkbox.isChecked()
+            force_meta = self.force_meta_action.isChecked()
             self.update_specific_requested.emit(target_specs, force_meta)
 
     def _show_spec_info(self, spec_num: str):
         details = self.db.get_spec_details(spec_num)
-
         if not details and "-" in spec_num:
             base_num = spec_num.split("-")[0]
             details = self.db.get_spec_details(base_num)
             if details:
-                details['number'] = spec_num
+                details["number"] = spec_num
 
         dialog = SpecInfoDialog(details or {}, self)
         dialog.exec_()
@@ -272,17 +472,263 @@ class SpecificationsTab(QWidget):
                 QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
 
     def _open_web_report(self, spec_num: str):
-        clean_number = spec_num.replace('.', '')
+        clean_number = spec_num.replace(".", "")
         url = f"https://www.3gpp.org/DynaReport/{clean_number}.htm"
         webbrowser.open(url)
 
+    # ==========================================
+    # --- TABLE REFRESH & RENDERING ---
+    # ==========================================
+    def refresh_table(self):
+        try:
+            spec_query = self.spec_search_input.text().strip()
+            version_query = self.version_search_input.text().strip()
+            downloaded_only = self.downloaded_only_cb.isChecked()
+            base_dl_dir = Path(self.dl_dir_input.text().strip())
+
+            is_filtered = any(
+                [
+                    self.table_filters["series"],
+                    self.table_filters["tech"],
+                    self.table_filters["group"],
+                    self.table_filters["spec_type"] != "Any",
+                ]
+            )
+
+            # Query database
+            specs = self.db.search_files(
+                spec_number=spec_query if spec_query else None,
+                release_version=version_query if version_query else None,
+                **self.table_filters,
+            )
+
+            self.table.setRowCount(0)
+
+            grouped_specs = {}
+            for row in specs:
+                series, spec_num, title, spec_type, filename, version, url, upload_date = row
+                if filename:
+                    part_match = re.search(r"\d{4,5}-(\d{1,2})(?:[-_.]|$)", filename)
+                    if part_match and "-" not in spec_num:
+                        spec_num = f"{spec_num}-{part_match.group(1)}"
+
+                if spec_num not in grouped_specs:
+                    grouped_specs[spec_num] = {
+                        "title": title,
+                        "type": spec_type if spec_type else "",
+                        "versions": [],
+                    }
+                grouped_specs[spec_num]["versions"].append((version, url, filename, upload_date))
+
+            # Filter for Downloaded Only if enabled
+            if downloaded_only and base_dl_dir.exists():
+                filtered_grouped = {}
+                for s_num, s_data in grouped_specs.items():
+                    s_dir = base_dl_dir / s_num
+                    if s_dir.exists() and any(s_dir.iterdir()):
+                        filtered_grouped[s_num] = s_data
+                grouped_specs = filtered_grouped
+
+            total_found = len(grouped_specs)
+            rendered_specs = list(grouped_specs.items())[:100]
+
+            if not spec_query and not version_query and not is_filtered and not downloaded_only:
+                self.count_label.setText(
+                    f"Showing top {len(rendered_specs)} specifications (Type or select a chip to narrow down)"
+                )
+                self.count_label.setStyleSheet("font-weight: bold; color: #0066CC;")
+            elif total_found > 100:
+                self.count_label.setText(
+                    f"⚠️ Showing top 100 of {total_found} specifications. Narrow down query for more."
+                )
+                self.count_label.setStyleSheet("font-weight: bold; color: #D83B01;")
+            else:
+                self.count_label.setText(f"Showing {total_found} specifications")
+                self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
+
+            for row_idx, (spec_num, data) in enumerate(rendered_specs):
+                self.table.insertRow(row_idx)
+                spec_target_dir = base_dl_dir / spec_num
+
+                spec_widget = QWidget()
+                spec_layout = QHBoxLayout(spec_widget)
+                spec_layout.setContentsMargins(5, 0, 5, 0)
+
+                action_btn = HoverMenuButton("⋮")
+                action_btn.setFixedSize(24, 24)
+                action_btn.setToolTip("Specification Actions")
+                action_btn.setCursor(Qt.PointingHandCursor)
+                action_btn.setStyleSheet("""
+                    QPushButton { border: none; background: transparent; color: #555; font-size: 20px; font-weight: bold; padding-bottom: 4px; }
+                    QPushButton:hover { color: #0078D7; }
+                    QPushButton::menu-indicator { image: none; width: 0px; }
+                """)
+
+                menu = QMenu(self)
+                menu.setStyleSheet("""
+                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
+                    QMenu::item { padding: 5px 20px 5px 15px; color: #333333; }
+                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+                    QMenu::item:disabled { color: #AAAAAA; }
+                """)
+
+                info_action = menu.addAction("ℹ️  View Details")
+                info_action.triggered.connect(lambda _, s=spec_num: self._show_spec_info(s))
+
+                web_action = menu.addAction("🌐  Open 3GPP Web Report")
+                web_action.triggered.connect(lambda _, s=spec_num: self._open_web_report(s))
+
+                menu.addSeparator()
+
+                folder_action = menu.addAction("📂  Open Local Folder")
+                folder_action.triggered.connect(lambda _, s=spec_num: self._open_spec_folder(s))
+
+                def _update_menu_state(act=folder_action, path=spec_target_dir):
+                    if path.exists():
+                        act.setText("📂  Open Local Folder")
+                        act.setEnabled(True)
+                    else:
+                        act.setText("📁  Folder Not Created")
+                        act.setEnabled(False)
+
+                menu.aboutToShow.connect(_update_menu_state)
+                action_btn.setMenu(menu)
+
+                display_num = f"{data['type']} {spec_num}".strip()
+                spec_label = QLabel(display_num)
+
+                spec_layout.addWidget(action_btn)
+                spec_layout.addWidget(spec_label)
+                spec_layout.addStretch()
+                self.table.setCellWidget(row_idx, 0, spec_widget)
+
+                self.table.setItem(row_idx, 1, QTableWidgetItem(data["title"] if data["title"] else "Unknown Title"))
+
+                # --- COLUMN 2: Documents Action Bar ---
+                version_combo = QComboBox()
+
+                def parse_ver(v_str):
+                    return [(0, int(x)) if x.isdigit() else (1, str(x)) for x in str(v_str).split(".")]
+
+                sorted_versions = sorted(data["versions"], key=lambda x: parse_ver(x[0]), reverse=True)
+
+                for ver, url, fname, u_date in sorted_versions:
+                    zip_path = spec_target_dir / fname
+                    is_dl = zip_path.exists()
+                    status = "✅ " if is_dl else ""
+                    date_label = f" ({u_date})" if u_date else ""
+                    display_text = f"{status}v{ver}{date_label}"
+
+                    version_combo.addItem(
+                        display_text,
+                        userData={
+                            "url": url,
+                            "fname": fname,
+                            "spec_num": spec_num,
+                            "is_downloaded": is_dl,
+                            "upload_date": u_date,
+                        },
+                    )
+
+                word_btn = QPushButton("📝 Word")
+                pdf_btn = QPushButton("📕 PDF")
+                html_btn = QPushButton("🌐 HTML")
+                txt_btn = QPushButton("📄 TXT")
+                zip_btn = QPushButton("📥 ZIP")
+
+                for b in (word_btn, pdf_btn, html_btn, txt_btn):
+                    b.setCursor(Qt.PointingHandCursor)
+
+                def _update_btn_state(index_ignore=0, c=version_combo, wb=word_btn, pb=pdf_btn, hb=html_btn, tb=txt_btn, zb=zip_btn):
+                    c_data = c.currentData()
+                    if not c_data:
+                        return
+
+                    current_dir = Path(self.dl_dir_input.text().strip()) / c_data["spec_num"]
+                    stem = Path(c_data["fname"]).stem
+                    zip_exists = (current_dir / c_data["fname"]).exists()
+
+                    word_exists = any(current_dir.glob(f"{stem}*.doc*"))
+                    pdf_exists = any(current_dir.glob(f"{stem}*.pdf"))
+                    html_exists = any(current_dir.glob(f"{stem}*.html"))
+                    txt_exists = any(current_dir.glob(f"{stem}*.txt"))
+
+                    def style_btn(btn, exists, icon, name):
+                        if exists:
+                            btn.setText(f"{icon} {name} ✅")
+                            btn.setStyleSheet("""
+                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; }
+                                QPushButton:hover { background-color: #C8E6C9; }
+                            """)
+                        elif word_exists or zip_exists:
+                            action = "Extract" if name == "Word" else "Convert"
+                            btn.setText(f"⚙️ {action}")
+                            btn.setStyleSheet("""
+                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; }
+                                QPushButton:hover { background-color: #FFE0B2; }
+                            """)
+                        else:
+                            btn.setText(f"⬇️ Get {name}")
+                            btn.setStyleSheet("""
+                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; }
+                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
+                            """)
+
+                    style_btn(wb, word_exists, "📝", "Word")
+                    style_btn(pb, pdf_exists, "📕", "PDF")
+                    style_btn(hb, html_exists, "🌐", "HTML")
+                    style_btn(tb, txt_exists, "📄", "TXT")
+
+                    if zip_exists:
+                        zb.setText("📥 ZIP ✅")
+                        zb.setStyleSheet("""
+                            QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; }
+                            QPushButton:hover { background-color: #C8E6C9; }
+                        """)
+                    else:
+                        zb.setText("⬇️ Get ZIP")
+                        zb.setStyleSheet("""
+                            QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; }
+                            QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
+                        """)
+
+                version_combo.currentIndexChanged.connect(_update_btn_state)
+                _update_btn_state()
+
+                word_btn.clicked.connect(lambda _, c=version_combo, b=word_btn: self._handle_document_action(c, "word", b))
+                pdf_btn.clicked.connect(lambda _, c=version_combo, b=pdf_btn: self._handle_document_action(c, "pdf", b))
+                html_btn.clicked.connect(lambda _, c=version_combo, b=html_btn: self._handle_document_action(c, "html", b))
+                txt_btn.clicked.connect(lambda _, c=version_combo, b=txt_btn: self._handle_document_action(c, "txt", b))
+                zip_btn.clicked.connect(lambda _, c=version_combo, b=zip_btn: self._handle_zip_action(c, b))
+
+                cell_widget = QWidget()
+                layout = QHBoxLayout(cell_widget)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.setSpacing(4)
+
+                layout.addWidget(version_combo)
+                layout.addWidget(word_btn)
+                layout.addWidget(pdf_btn)
+                layout.addWidget(html_btn)
+                layout.addWidget(txt_btn)
+                layout.addWidget(zip_btn)
+
+                self.table.setCellWidget(row_idx, 2, cell_widget)
+
+        except Exception as e:
+            print(f"Error during refresh_table: {e}")
+
+    # ==========================================
+    # --- DOCUMENT FETCH & EXTRACTION ---
+    # ==========================================
     def _handle_document_action(self, combo: QComboBox, doc_type: str, btn: QPushButton):
         c_data = combo.currentData()
-        if not c_data: return
+        if not c_data:
+            return
 
-        spec_dl_dir = Path(self.dl_dir_input.text().strip()) / c_data['spec_num']
-        zip_path = spec_dl_dir / c_data['fname']
-        stem = Path(c_data['fname']).stem
+        spec_dl_dir = Path(self.dl_dir_input.text().strip()) / c_data["spec_num"]
+        zip_path = spec_dl_dir / c_data["fname"]
+        stem = Path(c_data["fname"]).stem
 
         def _process_and_open():
             extracted_docs = []
@@ -290,11 +736,12 @@ class SpecificationsTab(QWidget):
             # 1. Flat Extraction
             if zip_path.exists():
                 try:
-                    with zipfile.ZipFile(zip_path, 'r') as z:
+                    with zipfile.ZipFile(zip_path, "r") as z:
                         for member in z.namelist():
-                            if '__MACOSX' in member or member.startswith('._'): continue
+                            if "__MACOSX" in member or member.startswith("._"):
+                                continue
 
-                            if member.lower().endswith(('.doc', '.docx')):
+                            if member.lower().endswith((".doc", ".docx")):
                                 target_file = spec_dl_dir / Path(member).name
                                 if not target_file.exists():
                                     target_file.write_bytes(z.read(member))
@@ -320,13 +767,13 @@ class SpecificationsTab(QWidget):
                 QMessageBox.warning(self, "Import Error", f"Could not import word_converter:\n{e}")
                 return
 
-            # 2. Smart Conversion & Opening (Includes TXT)
+            # 2. Smart Conversion & Opening
             for doc_path in extracted_docs:
                 try:
-                    if doc_type == 'word':
+                    if doc_type == "word":
                         os.startfile(str(doc_path))
 
-                    elif doc_type in ('pdf', 'html', 'txt'):
+                    elif doc_type in ("pdf", "html", "txt"):
                         target_ext = f".{doc_type}"
                         target_path = doc_path.with_suffix(target_ext)
 
@@ -376,24 +823,22 @@ class SpecificationsTab(QWidget):
                 except Exception as e:
                     QMessageBox.warning(self, "Open Error", f"Could not open/convert {doc_type.upper()}:\n{e}")
 
-        # --- The Workflow Logic Gates ---
+        # Workflow Logic Gates
         word_exists = any(spec_dl_dir.glob(f"{stem}*.doc*"))
         target_exists = False
 
-        if doc_type == 'word':
+        if doc_type == "word":
             target_exists = word_exists
-        elif doc_type == 'pdf':
+        elif doc_type == "pdf":
             target_exists = any(spec_dl_dir.glob(f"{stem}*.pdf"))
-        elif doc_type == 'html':
+        elif doc_type == "html":
             target_exists = any(spec_dl_dir.glob(f"{stem}*.html"))
-        elif doc_type == 'txt':
+        elif doc_type == "txt":
             target_exists = any(spec_dl_dir.glob(f"{stem}*.txt"))
 
-        # If target exists, OR Word doc exists, OR zip exists... process locally!
         if target_exists or word_exists or zip_path.exists():
             _process_and_open()
         else:
-            # Download zip from internet first
             spec_dl_dir.mkdir(parents=True, exist_ok=True)
 
             idx = combo.currentIndex()
@@ -401,21 +846,18 @@ class SpecificationsTab(QWidget):
             combo.setItemText(idx, "⏳ Downloading...")
             combo.setEnabled(False)
 
-            thread = SpecDownloadThread(c_data['url'], zip_path)
+            thread = SpecDownloadThread(c_data["url"], zip_path)
             thread.ui_log_msg.connect(self._handle_converter_log)
 
             def _on_success(zp):
-                clean_text = orig_text.replace('✅ ', '').replace('⚙️ ', '').replace('⬇️ ', '').strip()
-
+                clean_text = orig_text.replace("✅ ", "").replace("⚙️ ", "").replace("⬇️ ", "").strip()
                 try:
                     if not sip.isdeleted(combo):
                         combo.setItemText(idx, f"✅ {clean_text}")
-
-                        c_data = combo.itemData(idx)
-                        if c_data:
-                            c_data['is_downloaded'] = True
-                            combo.setItemData(idx, c_data)
-
+                        c_data_inner = combo.itemData(idx)
+                        if c_data_inner:
+                            c_data_inner["is_downloaded"] = True
+                            combo.setItemData(idx, c_data_inner)
                         combo.setEnabled(True)
                 except RuntimeError:
                     pass
@@ -442,16 +884,17 @@ class SpecificationsTab(QWidget):
 
             self._download_threads.append(thread)
             thread.finished.connect(
-                lambda t=thread: self._download_threads.remove(t) if t in self._download_threads else None)
+                lambda t=thread: self._download_threads.remove(t) if t in self._download_threads else None
+            )
             thread.start()
 
     def _handle_zip_action(self, combo: QComboBox, btn: QPushButton):
-        """Dedicated action to just download the ZIP archive without opening/extracting files."""
         c_data = combo.currentData()
-        if not c_data: return
+        if not c_data:
+            return
 
-        spec_dl_dir = Path(self.dl_dir_input.text().strip()) / c_data['spec_num']
-        zip_path = spec_dl_dir / c_data['fname']
+        spec_dl_dir = Path(self.dl_dir_input.text().strip()) / c_data["spec_num"]
+        zip_path = spec_dl_dir / c_data["fname"]
 
         if zip_path.exists():
             try:
@@ -470,18 +913,18 @@ class SpecificationsTab(QWidget):
         btn.setText("⏳...")
         btn.setEnabled(False)
 
-        thread = SpecDownloadThread(c_data['url'], zip_path)
+        thread = SpecDownloadThread(c_data["url"], zip_path)
         thread.ui_log_msg.connect(self._handle_converter_log)
 
         def _on_success(zp):
-            clean_text = orig_text.replace('✅ ', '').replace('⚙️ ', '').replace('⬇️ ', '').strip()
+            clean_text = orig_text.replace("✅ ", "").replace("⚙️ ", "").replace("⬇️ ", "").strip()
             try:
                 if not sip.isdeleted(combo):
                     combo.setItemText(idx, f"✅ {clean_text}")
-                    c_data = combo.itemData(idx)
-                    if c_data:
-                        c_data['is_downloaded'] = True
-                        combo.setItemData(idx, c_data)
+                    c_data_inner = combo.itemData(idx)
+                    if c_data_inner:
+                        c_data_inner["is_downloaded"] = True
+                        combo.setItemData(idx, c_data_inner)
                     combo.setEnabled(True)
                     combo.currentIndexChanged.emit(idx)
             except RuntimeError:
@@ -504,267 +947,9 @@ class SpecificationsTab(QWidget):
 
         self._download_threads.append(thread)
         thread.finished.connect(
-            lambda t=thread: self._download_threads.remove(t) if t in self._download_threads else None)
+            lambda t=thread: self._download_threads.remove(t) if t in self._download_threads else None
+        )
         thread.start()
 
-    def _open_table_filters(self):
-        dialog = TableFilterDialog(self.db, self.table_filters, self)
-        if dialog.exec_():
-            self.table_filters = dialog.get_filters()
-            self._update_filter_ui()
-            self.refresh_table()
-
-    def _clear_table_filters(self):
-        self.table_filters = {'series': '', 'tech': '', 'group': '', 'spec_type': 'Any'}
-        self._update_filter_ui()
-        self.refresh_table()
-
-    def _update_filter_ui(self):
-        active_count = 0
-        if self.table_filters['series']: active_count += 1
-        if self.table_filters['tech']: active_count += 1
-        if self.table_filters['group']: active_count += 1
-        if self.table_filters['spec_type'] != 'Any': active_count += 1
-
-        if active_count > 0:
-            self.filter_btn.setText(f"⚙️ Filters ({active_count})")
-            self.filter_btn.setStyleSheet(
-                "background-color: #E1F0FF; color: #0078D7; font-weight: bold; border: 1px solid #0078D7;")
-            self.clear_filter_btn.setVisible(True)
-        else:
-            self.filter_btn.setText("⚙️ Table Filters")
-            self.filter_btn.setStyleSheet("")
-            self.clear_filter_btn.setVisible(False)
-
-    def refresh_table(self):
-        try:
-            spec_query = self.spec_search_input.text().strip()
-            version_query = self.version_search_input.text().strip()
-            base_dl_dir = Path(self.dl_dir_input.text().strip())
-
-            is_filtered = any([
-                self.table_filters['series'], self.table_filters['tech'],
-                self.table_filters['group'], self.table_filters['spec_type'] != 'Any'
-            ])
-
-            if not spec_query and not version_query and not is_filtered:
-                self.table.setRowCount(0)
-                self.count_label.setText("⌨️ Type a specification number or apply a Filter to begin...")
-                self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
-                return
-
-            specs = self.db.search_files(
-                spec_number=spec_query if spec_query else None,
-                release_version=version_query if version_query else None,
-                **self.table_filters
-            )
-
-            self.table.setRowCount(0)
-
-            grouped_specs = {}
-            for row in specs:
-                # ---> Unpack upload_date from search_files()
-                series, spec_num, title, spec_type, filename, version, url, upload_date = row
-
-                if filename:
-                    part_match = re.search(r'\d{4,5}-(\d{1,2})(?:[-_.]|$)', filename)
-                    if part_match and "-" not in spec_num:
-                        spec_num = f"{spec_num}-{part_match.group(1)}"
-
-                if spec_num not in grouped_specs:
-                    grouped_specs[spec_num] = {
-                        'title': title,
-                        'type': spec_type if spec_type else "",
-                        'versions': []
-                    }
-                grouped_specs[spec_num]['versions'].append((version, url, filename, upload_date))
-
-            total_found = len(grouped_specs)
-            rendered_specs = list(grouped_specs.items())[:100]
-
-            if total_found > 100:
-                self.count_label.setText(
-                    f"⚠️ Showing top 100 of {total_found} specifications. Keep typing to narrow down.")
-                self.count_label.setStyleSheet("font-weight: bold; color: #D83B01;")
-            else:
-                self.count_label.setText(f"Showing {total_found} specifications")
-                self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
-
-            for row_idx, (spec_num, data) in enumerate(rendered_specs):
-                self.table.insertRow(row_idx)
-                spec_target_dir = base_dl_dir / spec_num
-
-                spec_widget = QWidget()
-                spec_layout = QHBoxLayout(spec_widget)
-                spec_layout.setContentsMargins(5, 0, 5, 0)
-
-                action_btn = HoverMenuButton("⋮")
-                action_btn.setFixedSize(24, 24)
-                action_btn.setToolTip("Specification Actions")
-                action_btn.setCursor(Qt.PointingHandCursor)
-                action_btn.setStyleSheet("""
-                        QPushButton { border: none; background: transparent; color: #555; font-size: 20px; font-weight: bold; padding-bottom: 4px; }
-                        QPushButton:hover { color: #0078D7; }
-                        QPushButton::menu-indicator { image: none; width: 0px; }
-                    """)
-
-                menu = QMenu(self)
-                menu.setStyleSheet("""
-                        QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
-                        QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
-                        QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-                        QMenu::item:disabled { color: #AAAAAA; } 
-                    """)
-
-                info_action = menu.addAction("ℹ️  View Details")
-                info_action.triggered.connect(lambda _, s=spec_num: self._show_spec_info(s))
-
-                web_action = menu.addAction("🌐  Open 3GPP Web Report")
-                web_action.triggered.connect(lambda _, s=spec_num: self._open_web_report(s))
-
-                menu.addSeparator()
-
-                folder_action = menu.addAction("📂  Open Local Folder")
-                folder_action.triggered.connect(lambda _, s=spec_num: self._open_spec_folder(s))
-
-                def _update_menu_state(act=folder_action, path=spec_target_dir):
-                    if path.exists():
-                        act.setText("📂  Open Local Folder")
-                        act.setEnabled(True)
-                    else:
-                        act.setText("📁  Folder Not Created")
-                        act.setEnabled(False)
-
-                menu.aboutToShow.connect(_update_menu_state)
-                action_btn.setMenu(menu)
-
-                display_num = f"{data['type']} {spec_num}".strip()
-                spec_label = QLabel(display_num)
-
-                spec_layout.addWidget(action_btn)
-                spec_layout.addWidget(spec_label)
-                spec_layout.addStretch()
-                self.table.setCellWidget(row_idx, 0, spec_widget)
-
-                self.table.setItem(row_idx, 1, QTableWidgetItem(data['title'] if data['title'] else "Unknown Title"))
-
-                # --- COLUMN 2: Documents Action Bar ---
-                version_combo = QComboBox()
-
-                def parse_ver(v_str):
-                    return [(0, int(x)) if x.isdigit() else (1, str(x)) for x in str(v_str).split('.')]
-
-                sorted_versions = sorted(data['versions'], key=lambda x: parse_ver(x[0]), reverse=True)
-
-                for ver, url, fname, u_date in sorted_versions:
-                    zip_path = spec_target_dir / fname
-                    is_dl = zip_path.exists()
-                    status = "✅ " if is_dl else ""
-
-                    # ---> Format display text with portal date if present
-                    date_label = f" ({u_date})" if u_date else ""
-                    display_text = f"{status}v{ver}{date_label}"
-
-                    version_combo.addItem(display_text, userData={
-                        'url': url, 'fname': fname, 'spec_num': spec_num,
-                        'is_downloaded': is_dl, 'upload_date': u_date
-                    })
-
-                # Action Buttons
-                word_btn = QPushButton("📝 Word")
-                pdf_btn = QPushButton("📕 PDF")
-                html_btn = QPushButton("🌐 HTML")
-                txt_btn = QPushButton("📄 TXT")
-                zip_btn = QPushButton("📥 ZIP")
-
-                for b in (word_btn, pdf_btn, html_btn, txt_btn):
-                    b.setCursor(Qt.PointingHandCursor)
-
-                def _update_btn_state(index_ignore=0, c=version_combo, wb=word_btn, pb=pdf_btn, hb=html_btn,
-                                      tb=txt_btn, zb=zip_btn):
-                    c_data = c.currentData()
-                    if not c_data: return
-
-                    current_dir = Path(self.dl_dir_input.text().strip()) / c_data['spec_num']
-                    stem = Path(c_data['fname']).stem
-                    zip_exists = (current_dir / c_data['fname']).exists()
-
-                    word_exists = any(current_dir.glob(f"{stem}*.doc*"))
-                    pdf_exists = any(current_dir.glob(f"{stem}*.pdf"))
-                    html_exists = any(current_dir.glob(f"{stem}*.html"))
-                    txt_exists = any(current_dir.glob(f"{stem}*.txt"))
-
-                    def style_btn(btn, exists, icon, name):
-                        if exists:
-                            btn.setText(f"{icon} {name} ✅")
-                            btn.setStyleSheet("""
-                                    QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
-                                    QPushButton:hover { background-color: #C8E6C9; }
-                                """)
-                        elif word_exists or zip_exists:
-                            action = "Extract" if name == "Word" else "Convert"
-                            btn.setText(f"⚙️ {action}")
-                            btn.setStyleSheet("""
-                                    QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; border-radius: 3px; } 
-                                    QPushButton:hover { background-color: #FFE0B2; }
-                                """)
-                        else:
-                            btn.setText(f"⬇️ Get {name}")
-                            btn.setStyleSheet("""
-                                    QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
-                                    QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
-                                """)
-
-                    style_btn(wb, word_exists, "📝", "Word")
-                    style_btn(pb, pdf_exists, "📕", "PDF")
-                    style_btn(hb, html_exists, "🌐", "HTML")
-                    style_btn(tb, txt_exists, "📄", "TXT")
-
-                    if zip_exists:
-                        zb.setText("📥 ZIP ✅")
-                        zb.setStyleSheet("""
-                                QPushButton { padding: 4px 6px; font-size: 11px; font-weight: bold; background-color: #E8F5E9; color: #2E7D32; border: 1px solid #2E7D32; border-radius: 3px; } 
-                                QPushButton:hover { background-color: #C8E6C9; }
-                            """)
-                    else:
-                        zb.setText("⬇️ Get ZIP")
-                        zb.setStyleSheet("""
-                                QPushButton { padding: 4px 6px; font-size: 11px; background-color: transparent; color: #555; border: 1px solid #CCC; border-radius: 3px; } 
-                                QPushButton:hover { background-color: #E1F0FF; color: #0078D7; border: 1px solid #0078D7; }
-                            """)
-
-                version_combo.currentIndexChanged.connect(_update_btn_state)
-                _update_btn_state()
-
-                word_btn.clicked.connect(
-                    lambda _, c=version_combo, b=word_btn: self._handle_document_action(c, 'word', b))
-                pdf_btn.clicked.connect(lambda _, c=version_combo, b=pdf_btn: self._handle_document_action(c, 'pdf', b))
-                html_btn.clicked.connect(
-                    lambda _, c=version_combo, b=html_btn: self._handle_document_action(c, 'html', b))
-                txt_btn.clicked.connect(
-                    lambda _, c=version_combo, b=txt_btn: self._handle_document_action(c, 'txt', b))
-                zip_btn.clicked.connect(lambda _, c=version_combo, b=zip_btn: self._handle_zip_action(c, b))
-
-                cell_widget = QWidget()
-                layout = QHBoxLayout(cell_widget)
-                layout.setContentsMargins(0, 0, 0, 0)
-                layout.setSpacing(4)
-
-                layout.addWidget(version_combo)
-                layout.addWidget(word_btn)
-                layout.addWidget(pdf_btn)
-                layout.addWidget(html_btn)
-                layout.addWidget(txt_btn)
-                layout.addWidget(zip_btn)
-
-                self.table.setCellWidget(row_idx, 2, cell_widget)
-
-        except Exception as e:
-            print(f"Error during refresh_table: {e}")
-
     def _handle_converter_log(self, msg: str, level: int):
-        """
-        Receives log messages from background conversion threads.
-        Relays them to the main window so they can be displayed in the UI Console.
-        """
         self.log_msg.emit(msg, level)
