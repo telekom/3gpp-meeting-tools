@@ -1,39 +1,189 @@
+import webbrowser
+
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLabel, QPushButton, QHBoxLayout, QComboBox, QLineEdit
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLabel, QPushButton,
+    QHBoxLayout, QComboBox, QLineEdit, QFrame
+)
 
 from modules.specifications.core.database import SpecsDatabase
 
 
 class SpecInfoDialog(QDialog):
+    """Modernized Specification Details Dialog with clickable links and DynaReport integration."""
+
     def __init__(self, details: dict, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Specification Details: {details.get('number', '')}")
-        self.setMinimumWidth(450)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; }")
+        spec_num = details.get('number', 'Unknown')
+        spec_type = details.get('type', 'TS')
+        title = details.get('title', 'No Title Available')
+
+        self.setWindowTitle(f"Specification Details: {spec_num}")
+        self.setMinimumWidth(520)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #F8F9FA;
+            }
+            QFrame#cardFrame {
+                background-color: #FFFFFF;
+                border: 1px solid #E2E8F0;
+                border-radius: 8px;
+            }
+            QLabel {
+                font-size: 13px;
+                color: #2D3748;
+            }
+            QPushButton {
+                padding: 6px 14px;
+                font-size: 12px;
+                border-radius: 4px;
+                border: 1px solid #CBD5E0;
+                background-color: #FFFFFF;
+                color: #2D3748;
+            }
+            QPushButton:hover {
+                background-color: #EDF2F7;
+                border-color: #A0AEC0;
+            }
+            QPushButton#primaryActionBtn {
+                background-color: #0066CC;
+                color: #FFFFFF;
+                border: 1px solid #0055AA;
+                font-weight: bold;
+            }
+            QPushButton#primaryActionBtn:hover {
+                background-color: #0052A3;
+            }
+        """)
 
         layout = QVBoxLayout(self)
-        form = QFormLayout()
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # --- 1. HEADER CARD ---
+        header_card = QFrame()
+        header_card.setObjectName("cardFrame")
+        header_layout = QVBoxLayout(header_card)
+        header_layout.setContentsMargins(14, 12, 14, 12)
+        header_layout.setSpacing(6)
+
+        title_row = QHBoxLayout()
+        type_badge = QLabel(f"<b>{spec_type}</b>")
+        type_badge.setStyleSheet("""
+            background-color: #EBF8FF;
+            color: #2B6CB0;
+            border: 1px solid #BEE3F8;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 12px;
+            font-weight: bold;
+        """)
+
+        number_label = QLabel(f"<b>{spec_num}</b>")
+        number_label.setStyleSheet("font-size: 17px; color: #1A202C; font-weight: bold;")
+        number_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        title_row.addWidget(type_badge)
+        title_row.addWidget(number_label)
+        title_row.addStretch()
+        header_layout.addLayout(title_row)
+
+        desc_label = QLabel(title)
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("color: #4A5568; font-size: 13px; line-height: 1.4;")
+        desc_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        header_layout.addWidget(desc_label)
+
+        layout.addWidget(header_card)
+
+        # --- 2. DETAILS & LINKS CARD ---
+        details_card = QFrame()
+        details_card.setObjectName("cardFrame")
+        form = QFormLayout(details_card)
+        form.setContentsMargins(14, 14, 14, 14)
+        form.setSpacing(10)
         form.setLabelAlignment(Qt.AlignRight)
 
+        # Generate URLs
+        clean_number = spec_num.split("-")[0].replace('.', '').strip()
+        dynareport_url = f"https://www.3gpp.org/DynaReport/{clean_number}.htm" if clean_number else ""
+        ftp_url = details.get('url', '')
+
+        # Standard metadata fields
+        primary_group = details.get('primary_group') or '-'
+        sec_groups = details.get('secondary_groups') or '-'
+        tech = details.get('radio_technology') or details.get('radio_tech') or '-'
+        init_rel = details.get('initial_release') or '-'
+
+        self._add_row(form, "Primary Group", primary_group)
+        self._add_row(form, "Secondary Groups", sec_groups)
+        self._add_row(form, "Radio Technology", tech)
+        self._add_row(form, "Initial Release", init_rel)
+
+        # Clickable FTP Archive Link
+        if ftp_url:
+            ftp_label = QLabel(f'<a href="{ftp_url}" style="color: #0066CC; text-decoration: none;">{ftp_url}</a>')
+            ftp_label.setOpenExternalLinks(True)
+            ftp_label.setTextInteractionFlags(Qt.TextBrowserInteraction | Qt.TextSelectableByMouse)
+            form.addRow(self._make_key_label("FTP Archive:"), ftp_label)
+
+        # Clickable DynaReport Link
+        if dynareport_url:
+            dyna_label = QLabel(f'<a href="{dynareport_url}" style="color: #0066CC; text-decoration: none;">'
+                                f'Open 3GPP Portal Report ({clean_number}.htm) ↗</a>')
+            dyna_label.setOpenExternalLinks(True)
+            dyna_label.setTextInteractionFlags(Qt.TextBrowserInteraction | Qt.TextSelectableByMouse)
+            form.addRow(self._make_key_label("DynaReport:"), dyna_label)
+
+        # Any extra unhandled metadata keys
+        excluded_keys = {
+            'id', 'series_id', 'number', 'type', 'title',
+            'url', 'primary_group', 'secondary_groups',
+            'radio_technology', 'radio_tech', 'initial_release'
+        }
         for key, value in details.items():
-            if key in ('id', 'series_id') or not value:
-                continue
+            if key not in excluded_keys and value:
+                display_key = key.replace('_', ' ').title()
+                self._add_row(form, display_key, str(value))
 
-            display_key = key.replace('_', ' ').title()
-            val_label = QLabel(str(value))
-            val_label.setWordWrap(True)
-            val_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            key_label = QLabel(f"<b>{display_key}:</b>")
-            key_label.setStyleSheet("color: #444;")
-            form.addRow(key_label, val_label)
+        layout.addWidget(details_card)
 
-        layout.addLayout(form)
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.accept)
+        # --- 3. ACTION BUTTONS ---
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+
+        if dynareport_url:
+            dynareport_btn = QPushButton("🌐 Open DynaReport")
+            dynareport_btn.setObjectName("primaryActionBtn")
+            dynareport_btn.setCursor(Qt.PointingHandCursor)
+            dynareport_btn.clicked.connect(lambda: webbrowser.open(dynareport_url))
+            btn_layout.addWidget(dynareport_btn)
+
+        if ftp_url:
+            ftp_btn = QPushButton("📂 Open FTP Archive")
+            ftp_btn.setCursor(Qt.PointingHandCursor)
+            ftp_btn.clicked.connect(lambda: webbrowser.open(ftp_url))
+            btn_layout.addWidget(ftp_btn)
+
         btn_layout.addStretch()
+
+        close_btn = QPushButton("Close")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.accept)
         btn_layout.addWidget(close_btn)
+
         layout.addLayout(btn_layout)
+
+    def _make_key_label(self, text: str) -> QLabel:
+        lbl = QLabel(f"<b>{text}</b>")
+        lbl.setStyleSheet("color: #718096; font-size: 12px;")
+        return lbl
+
+    def _add_row(self, form: QFormLayout, label_text: str, value_text: str):
+        val_label = QLabel(value_text)
+        val_label.setWordWrap(True)
+        val_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        form.addRow(self._make_key_label(f"{label_text}:"), val_label)
 
 
 class AdvancedSyncDialog(QDialog):
