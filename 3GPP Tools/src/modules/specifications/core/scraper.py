@@ -1,3 +1,4 @@
+# --- File: src/modules/specifications/core/scraper.py ---
 import logging
 import re
 from typing import Dict, List, Tuple
@@ -78,7 +79,8 @@ class SpecsCrawlerThread(QThread):
             'radio_technology': '', 'radio_technologies_list': [],
             'primary_group': '',
             'secondary_groups_raw': '', 'secondary_groups_list': [],
-            'version_dates': {}
+            'version_dates': {},
+            'related_wis': []
         }
 
         try:
@@ -171,6 +173,33 @@ class SpecsCrawlerThread(QThread):
                 if title_tag:
                     metadata['title'] = title_tag.get_text(strip=True)
 
+            # --- Parse Related Work Items Table ---
+            related_wis = []
+            wi_grid = soup.find(id=re.compile(r'relatedWiGrid', re.IGNORECASE))
+            if wi_grid:
+                rows = wi_grid.find_all('tr', class_=re.compile(r'rgRow|rgAltRow'))
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) >= 3:
+                        uid_text = cells[0].get_text(strip=True)
+                        acronym_text = cells[1].get_text(strip=True)
+                        name_text = cells[2].get_text(strip=True)
+                        row_classes = row.get("class", [])
+                        is_primary = "rgSelectedRow" in row_classes or "selected" in row_classes
+
+                        # Validate UID format (numeric 4 to 8 digits)
+                        if uid_text.isdigit() and len(uid_text) >= 4:
+                            related_wis.append({
+                                'code': uid_text,
+                                'acronym': acronym_text,
+                                'title': name_text,
+                                'is_primary': is_primary
+                            })
+
+            metadata['related_wis'] = related_wis
+            if related_wis:
+                self.ui_log_msg.emit(f"🔗 Extracted {len(related_wis)} related WI(s) for {spec_number}", logging.INFO)
+
             # --- Parse Portal Upload Dates from Releases / Versions Table ---
             version_dates = {}
             for row in soup.find_all('tr'):
@@ -255,7 +284,7 @@ class SpecsCrawlerThread(QThread):
                         series_url = urljoin(self.root_url, f"{series_folder}/")
                         spec_url = urljoin(series_url, f"{target}/")
 
-                        # For targeted single specs, always fetch metadata to refresh dates
+                        # For targeted single specs, always fetch metadata to refresh dates and WIs
                         needs_meta = True if self.force_metadata_update else (self.db.needs_metadata(target) or True)
                         spec_tasks.append((series_number, series_url, target, spec_url, needs_meta))
             else:
@@ -332,13 +361,13 @@ class SpecsCrawlerThread(QThread):
             self.finished_path.emit("SPECS_DB_PASS_ONE")
 
             # ==========================================
-            # PASS 2: PORTAL METADATA & DATES SYNC
+            # PASS 2: PORTAL METADATA, DATES & WIS SYNC
             # ==========================================
             specs_needing_meta = [task for task in spec_tasks if task[4]]
 
             if specs_needing_meta:
                 self.ui_log_msg.emit(
-                    f"⏳ Pass 2: Fetching portal metadata & release dates for {len(specs_needing_meta)} specifications...",
+                    f"⏳ Pass 2: Fetching portal metadata, release dates & related WIs for {len(specs_needing_meta)} specifications...",
                     logging.INFO
                 )
                 completed_meta: int = 0
@@ -363,6 +392,8 @@ class SpecsCrawlerThread(QThread):
                             if metadata:
                                 if metadata.get('title'):
                                     self.db.update_spec_metadata(spec_num, metadata)
+                                if metadata.get('related_wis'):
+                                    self.db.update_spec_wis(spec_num, metadata['related_wis'])
                                 if metadata.get('version_dates'):
                                     self.db.update_file_dates(spec_num, metadata['version_dates'])
                                     self.ui_log_msg.emit(

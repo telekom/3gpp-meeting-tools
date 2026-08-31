@@ -1,3 +1,4 @@
+# --- File: src/modules/work_items/core/wi_database.py ---
 import re
 import sqlite3
 from pathlib import Path
@@ -57,7 +58,29 @@ class WorkItemsDatabase:
 
     def get_all_work_items(self) -> list:
         """Fetches all work items to populate the UI table, ordered by code descending numerically."""
-        query = "SELECT code, acronym, name, latest_wid, release, start_date, end_date FROM work_items ORDER BY CAST(code AS INTEGER) DESC"
+        query = """
+            SELECT wi.code, wi.acronym, wi.name, wi.latest_wid, wi.release, wi.start_date, wi.end_date,
+                   rem.remarks,
+                   grp.wg_names,
+                   COALESCE(sp.spec_count, 0) AS spec_count
+            FROM work_items wi
+            LEFT JOIN (
+                SELECT wi_code, GROUP_CONCAT(creation_date || ':::' || remark, '|||') AS remarks
+                FROM wi_remarks GROUP BY wi_code
+            ) rem ON wi.code = rem.wi_code
+            LEFT JOIN (
+                SELECT m.wi_code, GROUP_CONCAT(w.name, ', ') AS wg_names
+                FROM wi_group_map m
+                JOIN working_groups w ON m.group_id = w.id
+                GROUP BY m.wi_code
+            ) grp ON wi.code = grp.wi_code
+            LEFT JOIN (
+                SELECT wi_code, COUNT(spec_id) AS spec_count
+                FROM spec_wi_map
+                GROUP BY wi_code
+            ) sp ON wi.code = sp.wi_code
+            ORDER BY CAST(wi.code AS INTEGER) DESC
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -67,6 +90,27 @@ class WorkItemsDatabase:
         except Exception as e:
             import logging
             logging.error(f"Failed to fetch Work Items: {e}")
+            return []
+
+    def get_linked_specs_for_wi(self, wi_code: str) -> list:
+        """Retrieves all specifications impacted by a given Work Item code."""
+        query = """
+            SELECT sp.number, sp.title, sp.type, s.name AS series_name, m.is_primary
+            FROM spec_wi_map m
+            JOIN specifications sp ON m.spec_id = sp.id
+            JOIN series s ON sp.series_id = s.id
+            WHERE m.wi_code = ?
+            ORDER BY m.is_primary DESC, CAST(s.name AS INTEGER) ASC, sp.number ASC
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (wi_code,))
+                cols = [col[0] for col in cursor.description]
+                return [dict(zip(cols, row)) for row in cursor.fetchall()]
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to fetch linked specs for WI {wi_code}: {e}")
             return []
 
     def upsert_work_items(self, wg_name: str, items: list):
@@ -90,7 +134,6 @@ class WorkItemsDatabase:
             wi_data = []
             map_data = []
             for item in items:
-                # Provide empty strings for fields we aren't scraping yet
                 wi_data.append((
                     item['code'], item['acronym'], item['name'], '', item['release'], '', ''
                 ))
@@ -101,12 +144,12 @@ class WorkItemsDatabase:
                 INSERT INTO work_items (code, acronym, name, latest_wid, release, start_date, end_date)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(code) DO UPDATE SET
-                    acronym=excluded.acronym,
-                    name=excluded.name,
-                    release=excluded.release
+                    acronym = CASE WHEN (excluded.acronym IS NOT NULL AND excluded.acronym != '') THEN excluded.acronym ELSE work_items.acronym END,
+                    name = CASE WHEN (excluded.name IS NOT NULL AND excluded.name != '') THEN excluded.name ELSE work_items.name END,
+                    release = CASE WHEN (excluded.release IS NOT NULL AND excluded.release != '') THEN excluded.release ELSE work_items.release END
             ''', wi_data)
 
-            # 3. Bulk UPSERT the mapping (Many-to-Many Relationship)
+            # 3. Bulk UPSERT the mapping
             cursor.executemany('''
                 INSERT OR IGNORE INTO wi_group_map (wi_code, group_id)
                 VALUES (?, ?)
@@ -125,7 +168,6 @@ class WorkItemsDatabase:
                 cursor.execute("SELECT DISTINCT release FROM work_items WHERE release IS NOT NULL AND release != ''")
                 raw_releases = [str(r[0]).strip() for r in cursor.fetchall()]
 
-                # Custom sort: Numbers descending, R99 at the absolute bottom
                 def release_sort_key(rel):
                     if rel.upper() == 'R99':
                         return -1
@@ -154,31 +196,43 @@ class WorkItemsDatabase:
     def search_work_items(self, search_term: str = None, releases: list = None,
                           wg_names: list = None, status: str = "all") -> list:
         """Searches Work Items by text, multiple releases, multiple working groups, and completion status."""
-
-        # Inject the system creation_date into the concatenated string using ':::' so Python can sort it later
         query = """
             SELECT wi.code, wi.acronym, wi.name, wi.latest_wid, wi.release, wi.start_date, wi.end_date,
-                   GROUP_CONCAT(r.creation_date || ':::' || r.remark, '|||') AS remarks 
+                   rem.remarks,
+                   grp.wg_names,
+                   COALESCE(sp.spec_count, 0) AS spec_count
             FROM work_items wi
-            LEFT JOIN wi_remarks r ON wi.code = r.wi_code
+            LEFT JOIN (
+                SELECT wi_code, GROUP_CONCAT(creation_date || ':::' || remark, '|||') AS remarks
+                FROM wi_remarks GROUP BY wi_code
+            ) rem ON wi.code = rem.wi_code
+            LEFT JOIN (
+                SELECT m.wi_code, GROUP_CONCAT(w.name, ', ') AS wg_names
+                FROM wi_group_map m
+                JOIN working_groups w ON m.group_id = w.id
+                GROUP BY m.wi_code
+            ) grp ON wi.code = grp.wi_code
+            LEFT JOIN (
+                SELECT wi_code, COUNT(spec_id) AS spec_count
+                FROM spec_wi_map
+                GROUP BY wi_code
+            ) sp ON wi.code = sp.wi_code
         """
         params = []
 
-        # Check if we need to actively filter by Working Group
         filter_by_wg = wg_names and 'ALL' not in wg_names and len(wg_names) > 0
 
-        # If filtering by WG, join the mapping tables
         if filter_by_wg:
             query += """
-                JOIN wi_group_map m ON wi.code = m.wi_code
-                JOIN working_groups w ON m.group_id = w.id
+                JOIN wi_group_map filter_m ON wi.code = filter_m.wi_code
+                JOIN working_groups filter_w ON filter_m.group_id = filter_w.id
             """
 
         query += " WHERE 1=1"
 
         if filter_by_wg:
             placeholders = ','.join(['?'] * len(wg_names))
-            query += f" AND w.name IN ({placeholders})"
+            query += f" AND filter_w.name IN ({placeholders})"
             params.extend(wg_names)
 
         if releases and 'ALL' not in releases and len(releases) > 0:
@@ -197,7 +251,6 @@ class WorkItemsDatabase:
         elif status == "active":
             query += " AND (wi.end_date IS NULL OR TRIM(wi.end_date) == '' OR date(wi.end_date) >= date('now'))"
 
-        # Group by code so GROUP_CONCAT bundles remarks per work item
         query += " GROUP BY wi.code ORDER BY CAST(wi.code AS INTEGER) DESC"
 
         try:
@@ -216,10 +269,9 @@ class WorkItemsDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                # Clean up foreign key relations first
                 cursor.execute("DELETE FROM wi_group_map WHERE wi_code = ?", (code,))
                 cursor.execute("DELETE FROM wi_remarks WHERE wi_code = ?", (code,))
-                # Delete the main work item record
+                cursor.execute("DELETE FROM spec_wi_map WHERE wi_code = ?", (code,))
                 cursor.execute("DELETE FROM work_items WHERE code = ?", (code,))
                 conn.commit()
         except Exception as e:
@@ -233,11 +285,11 @@ class WorkItemsDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                # Use placeholders for safe SQL parameter binding
                 placeholders = ','.join(['?'] * len(code_list))
 
                 cursor.execute(f"DELETE FROM wi_group_map WHERE wi_code IN ({placeholders})", code_list)
                 cursor.execute(f"DELETE FROM wi_remarks WHERE wi_code IN ({placeholders})", code_list)
+                cursor.execute(f"DELETE FROM spec_wi_map WHERE wi_code IN ({placeholders})", code_list)
                 cursor.execute(f"DELETE FROM work_items WHERE code IN ({placeholders})", code_list)
 
                 conn.commit()
@@ -262,7 +314,6 @@ class WorkItemsDatabase:
         remark_tuples = []
         wi_codes_to_clear = []
 
-        # Prepare our data for batch execution
         for meta in metadata_list:
             wi_code = meta.get('code')
             wi_codes_to_clear.append((wi_code,))
@@ -274,7 +325,6 @@ class WorkItemsDatabase:
                 wi_code
             ))
 
-            # Extract parsed remarks for batch insertion
             for remark in meta.get('remarks', []):
                 remark_tuples.append((
                     wi_code,
@@ -297,7 +347,7 @@ class WorkItemsDatabase:
 
                 logging.info(f"Database UPDATE for work_items affected {cursor.rowcount} row(s).")
 
-                # 2. Delete existing remarks for these specific WIs to prevent duplicates
+                # 2. Delete existing remarks for these specific WIs
                 cursor.executemany('''
                     DELETE FROM wi_remarks WHERE wi_code = ?
                 ''', wi_codes_to_clear)

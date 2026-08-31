@@ -1,4 +1,4 @@
-# --- File: modules/specifications/core/database.py ---
+# --- File: src/modules/specifications/core/database.py ---
 import logging
 from pathlib import Path
 import sqlite3
@@ -86,6 +86,18 @@ class SpecsDatabase:
                     FOREIGN KEY(group_id) REFERENCES working_groups(id)
                 )
             ''')
+
+            # Relation table mapping specifications to Work Items
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS spec_wi_map (
+                    spec_id INTEGER,
+                    wi_code TEXT,
+                    is_primary BOOLEAN DEFAULT 0,
+                    UNIQUE(spec_id, wi_code),
+                    FOREIGN KEY(spec_id) REFERENCES specifications(id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_spec_wi_code ON spec_wi_map(wi_code);')
 
             # Dynamic migration: Ensure upload_date exists on older local databases
             cursor.execute("PRAGMA table_info(files)")
@@ -189,6 +201,68 @@ class SpecsDatabase:
                     SET upload_date = ?
                     WHERE spec_id = ? AND (version = ? OR version = ?)
                 ''', (date_str, spec_id, clean_ver, f"v{clean_ver}"))
+
+    def update_spec_wis(self, spec_number: str, wis_list: List[Dict]):
+        """
+        Maps related Work Items to a specification and inserts stubs into work_items
+        if the WI has not been fully synchronized yet.
+        """
+        if not wis_list:
+            return
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM specifications WHERE number = ?', (spec_number,))
+            spec_row = cursor.fetchone()
+            if not spec_row:
+                return
+            spec_id = spec_row[0]
+
+            # Clear existing mappings for this spec to prevent stale links
+            cursor.execute('DELETE FROM spec_wi_map WHERE spec_id = ?', (spec_id,))
+
+            for wi in wis_list:
+                code = str(wi.get('code', '')).strip()
+                if not code:
+                    continue
+
+                acronym = wi.get('acronym', '')
+                title = wi.get('title', '')
+                is_primary = 1 if wi.get('is_primary') else 0
+
+                # 1. Stub insertion in work_items if not already present
+                cursor.execute('''
+                    INSERT INTO work_items (code, acronym, name, latest_wid, release, start_date, end_date)
+                    VALUES (?, ?, ?, '', '', '', '')
+                    ON CONFLICT(code) DO UPDATE SET
+                        acronym = CASE WHEN (acronym IS NULL OR acronym = '') THEN excluded.acronym ELSE acronym END,
+                        name = CASE WHEN (name IS NULL OR name = '') THEN excluded.name ELSE name END
+                ''', (code, acronym, title))
+
+                # 2. Map specification to WI
+                cursor.execute('''
+                    INSERT OR REPLACE INTO spec_wi_map (spec_id, wi_code, is_primary)
+                    VALUES (?, ?, ?)
+                ''', (spec_id, code, is_primary))
+
+    def get_spec_wis(self, spec_number: str) -> List[Dict]:
+        """Fetches all Work Items mapped to a given specification."""
+        query = """
+            SELECT m.wi_code, m.is_primary, 
+                   COALESCE(w.acronym, '') AS acronym, 
+                   COALESCE(w.name, '') AS name, 
+                   COALESCE(w.release, '') AS release
+            FROM spec_wi_map m
+            JOIN specifications s ON m.spec_id = s.id
+            LEFT JOIN work_items w ON m.wi_code = w.code
+            WHERE s.number = ?
+            ORDER BY m.is_primary DESC, m.wi_code ASC
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (spec_number,))
+            cols = [c[0] for c in cursor.description]
+            return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
     def update_spec_metadata(self, spec_number: str, metadata: dict):
         with self._get_connection() as conn:
@@ -368,5 +442,8 @@ class SpecsDatabase:
             sec_groups = [r[0] for r in cursor.fetchall()]
             if sec_groups:
                 details['secondary_groups'] = ", ".join(sec_groups)
+
+            # Attach linked Work Items
+            details['related_wis'] = self.get_spec_wis(spec_number)
 
             return details

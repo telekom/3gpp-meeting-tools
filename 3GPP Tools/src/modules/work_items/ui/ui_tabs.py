@@ -1,3 +1,4 @@
+# --- File: src/modules/work_items/ui/ui_tabs.py ---
 import webbrowser
 from pathlib import Path
 import logging
@@ -7,7 +8,7 @@ from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTableView, QHeaderView, QPushButton, QProgressBar,
                              QMessageBox, QLineEdit, QMenu, QStyle, QApplication,
-                             QStyledItemDelegate, QComboBox)
+                             QStyledItemDelegate, QComboBox, QDialog, QListWidget, QListWidgetItem)
 
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
@@ -117,11 +118,53 @@ class RemarksDelegate(QStyledItemDelegate):
         return super().editorEvent(event, model, option, index)
 
 
+class LinkedSpecsDialog(QDialog):
+    """Dialog displaying all specifications linked to a given Work Item."""
+    def __init__(self, wi_code: str, acronym: str, specs: list, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Linked Specifications for WI {acronym} ({wi_code})")
+        self.resize(500, 320)
+        self.setStyleSheet("""
+            QDialog { background-color: #FAFAFA; }
+            QListWidget { border: 1px solid #DCDCDC; border-radius: 4px; background-color: #FFF; }
+            QListWidget::item { padding: 8px; border-bottom: 1px solid #F0F0F0; }
+            QListWidget::item:hover { background-color: #EBF8FF; }
+        """)
+
+        layout = QVBoxLayout(self)
+        header = QLabel(f"<b>Specifications Impacted by Work Item {acronym} ({wi_code}):</b>")
+        header.setStyleSheet("font-size: 13px; color: #2D3748; margin-bottom: 4px;")
+        layout.addWidget(header)
+
+        self.list_widget = QListWidget()
+        if specs:
+            for sp in specs:
+                num = sp.get('number', '')
+                title = sp.get('title', 'No Title')
+                spec_type = sp.get('type', 'TS')
+                is_pri = " [Primary Spec]" if sp.get('is_primary') else ""
+                item_text = f"📄 {spec_type} {num}{is_pri}\n   {title}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.UserRole, num)
+                self.list_widget.addItem(item)
+        else:
+            self.list_widget.addItem("No linked specifications recorded in local DB.")
+
+        layout.addWidget(self.list_widget)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+
+
 class WorkItemsTableModel(QAbstractTableModel):
     def __init__(self, data=None):
         super().__init__()
         self._data = data or []
-        self._headers = ["Code", "Acronym", "Name", "Latest WID", "Release", "Start Date", "End Date", "Remarks"]
+        self._headers = ["Code", "Acronym", "Name", "WG", "Latest WID", "Release", "Specs", "Start Date", "End Date", "Remarks"]
 
     def data(self, index, role):
         if not index.isValid():
@@ -132,12 +175,16 @@ class WorkItemsTableModel(QAbstractTableModel):
         if role == Qt.DisplayRole or role == Qt.UserRole:
             key_map = {
                 "Code": "code", "Acronym": "acronym", "Name": "name",
-                "Latest WID": "latest_wid", "Release": "release",
-                "Start Date": "start_date", "End Date": "end_date",
+                "WG": "wg_names", "Latest WID": "latest_wid", "Release": "release",
+                "Specs": "spec_count", "Start Date": "start_date", "End Date": "end_date",
                 "Remarks": "remarks"
             }
             if col_name == "Remarks" and role == Qt.DisplayRole:
                 return ""
+
+            if col_name == "Specs" and role == Qt.DisplayRole:
+                cnt = row.get("spec_count", 0)
+                return f"📑 {cnt}" if cnt > 0 else "-"
 
             val = row.get(key_map.get(col_name, ""), "")
             return str(val).strip() if val is not None else ""
@@ -349,13 +396,15 @@ class WorkItemsTab(QWidget):
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
 
+        # Column 4 is "Latest WID"
         self.wid_delegate = WidDelegate(self.table)
         self.wid_delegate.link_clicked.connect(self._log_and_forward_action)
         self.wid_delegate.link_clicked.connect(self.global_action_requested.emit)
-        self.table.setItemDelegateForColumn(3, self.wid_delegate)
+        self.table.setItemDelegateForColumn(4, self.wid_delegate)
 
-        header.setSectionResizeMode(7, QHeaderView.Stretch)
-        self.table.setItemDelegateForColumn(7, RemarksDelegate(self.table))
+        # Column 9 is "Remarks"
+        header.setSectionResizeMode(9, QHeaderView.Stretch)
+        self.table.setItemDelegateForColumn(9, RemarksDelegate(self.table))
 
         main_layout.addWidget(self.table)
 
@@ -443,19 +492,31 @@ class WorkItemsTab(QWidget):
         wi_code_list = [code for code in wi_code_list if code]
 
         if len_indexes == 1:
+            row_idx = selected_indexes[0].row()
             wi_code = wi_code_list[0]
+            acronym = self.table_model.data(self.table_model.index(row_idx, 1), Qt.DisplayRole)
+            name = self.table_model.data(self.table_model.index(row_idx, 2), Qt.DisplayRole)
+            wg = self.table_model.data(self.table_model.index(row_idx, 3), Qt.DisplayRole)
+            rel = self.table_model.data(self.table_model.index(row_idx, 5), Qt.DisplayRole)
+
             if not wi_code:
                 return
 
-            wi_page_action = menu.addAction("🌐 Open WI Page")
-            specs_action = menu.addAction("📂 Specifications Resulting from this WI")
-            crs_action = menu.addAction("📄 CRs Related to this WI")
+            wi_page_action = menu.addAction("🌐 Open WI Page (Portal)")
+            local_specs_action = menu.addAction("📑 View Linked Specifications in DB")
+            specs_action = menu.addAction("📂 Specifications Resulting from this WI (Web)")
+            crs_action = menu.addAction("📄 CRs Related to this WI (Web)")
+            menu.addSeparator()
+            citation_action = menu.addAction("📋 Copy WI Citation")
+            menu.addSeparator()
             update_action = menu.addAction("🔄 Update WI")
             delete_action = menu.addAction("🗑️ Delete this Work Item")
         else:
             wi_page_action = None
+            local_specs_action = None
             specs_action = None
             crs_action = None
+            citation_action = None
             wi_code = None
             update_action = menu.addAction(f"🔄 Update WIs ({len_indexes} WIs)")
             delete_action = menu.addAction(f"🗑️ Delete selected Work Items ({len_indexes} WIs)")
@@ -466,12 +527,19 @@ class WorkItemsTab(QWidget):
             if action == wi_page_action:
                 url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
                 webbrowser.open(url)
+            elif action == local_specs_action:
+                specs = self.db.get_linked_specs_for_wi(wi_code)
+                dialog = LinkedSpecsDialog(wi_code, acronym, specs, self)
+                dialog.exec_()
             elif action == specs_action:
                 url = f"https://portal.3gpp.org/Specifications.aspx?q=1&WiUid={wi_code}"
                 webbrowser.open(url)
             elif action == crs_action:
                 url = f"https://portal.3gpp.org/ChangeRequests.aspx?q=1&workitem={wi_code}"
                 webbrowser.open(url)
+            elif action == citation_action:
+                citation = f"WI {wi_code}: {acronym} — {name} ({rel}, {wg})"
+                QApplication.clipboard().setText(citation)
             elif action == delete_action:
                 confirm = QMessageBox.question(
                     self,
