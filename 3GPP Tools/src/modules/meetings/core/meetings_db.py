@@ -192,8 +192,7 @@ class MeetingsDatabase:
                 m_num = m_num or ""
                 new_m_num = new_m_num or ""
 
-                # --- THE CRITICAL FIX: Safe SQLite Null Handling ---
-                # Converts empty strings to NULL to prevent UNIQUE constraint crashes!
+                # Safe SQLite Null Handling
                 db_url_key = url_key.strip() if url_key and url_key.strip() else None
 
                 final_m_num = new_m_num if new_m_num else m_num
@@ -249,7 +248,6 @@ class MeetingsDatabase:
                                         new_m_num, new_m_num, sort_n, sort_n, is_ah, is_e, db_url_key, db_url_key,
                                         row_id))
                     except sqlite3.IntegrityError:
-                        # Safety Net: If 3GPP data has duplicate URLs, update metadata but leave the URL alone!
                         cursor.execute('''
                                             UPDATE meetings 
                                             SET mtg_id = CASE WHEN ? != '' THEN ? ELSE mtg_id END,
@@ -268,6 +266,119 @@ class MeetingsDatabase:
 
             conn.commit()
 
+    def upsert_single_meeting(self, data: dict) -> bool:
+        """Inserts or completely updates a single meeting entry in the database."""
+        wg_name = data.get("wg_name", "").strip()
+        if not wg_name:
+            return False
+
+        wg_id = self.get_or_create_wg(wg_name)
+        meeting_number = data.get("meeting_number", "").strip()
+        folder_name = data.get("folder_name", "").strip() or meeting_number
+        name = data.get("name", "").strip()
+        location = data.get("location", "").strip()
+        start_date = data.get("start_date", "").strip()
+        end_date = data.get("end_date", "").strip()
+        mtg_id = str(data.get("mtg_id", "")).strip()
+
+        # Clean and normalize url_key
+        url_key = data.get("url_key", "").strip()
+        if url_key.startswith("https://www.3gpp.org/ftp/"):
+            url_key = url_key.replace("https://www.3gpp.org/ftp/", "")
+        elif url_key.startswith("http://www.3gpp.org/ftp/"):
+            url_key = url_key.replace("http://www.3gpp.org/ftp/", "")
+        url_key = url_key.strip('/')
+        db_url_key = url_key if url_key else None
+
+        docs_folder_url = data.get("docs_folder_url", "").strip()
+        if not docs_folder_url and db_url_key:
+            docs_folder_url = f"https://www.3gpp.org/ftp/{db_url_key}/Docs/"
+
+        first_tdoc = data.get("first_tdoc", "").strip()
+        first_tdoc_prefix = data.get("first_tdoc_prefix", "").strip()
+        first_tdoc_num = int(data.get("first_tdoc_num") or 0)
+        if first_tdoc and not first_tdoc_prefix:
+            m = re.match(r'^([A-Za-z0-9]+)-?(\d+)', first_tdoc)
+            if m:
+                first_tdoc_prefix = m.group(1).upper()
+                first_tdoc_num = int(m.group(2))
+
+        last_tdoc = data.get("last_tdoc", "").strip()
+        last_tdoc_prefix = data.get("last_tdoc_prefix", "").strip()
+        last_tdoc_num = int(data.get("last_tdoc_num") or 0)
+        if last_tdoc and not last_tdoc_prefix:
+            m = re.match(r'^([A-Za-z0-9]+)-?(\d+)', last_tdoc)
+            if m:
+                last_tdoc_prefix = m.group(1).upper()
+                last_tdoc_num = int(m.group(2))
+
+        sort_num = self._extract_sort_num(meeting_number)
+        is_ad_hoc, is_electronic = self._get_meeting_flags(meeting_number)
+        if data.get("is_ad_hoc") is not None:
+            is_ad_hoc = int(bool(data.get("is_ad_hoc")))
+        if data.get("is_electronic") is not None:
+            is_electronic = int(bool(data.get("is_electronic")))
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            row_id = None
+
+            # 1. Match by url_key
+            if db_url_key:
+                cursor.execute("SELECT id FROM meetings WHERE LOWER(RTRIM(url_key, '/')) = LOWER(RTRIM(?, '/'))",
+                               (db_url_key,))
+                res = cursor.fetchone()
+                if res: row_id = res[0]
+
+            # 2. Match by mtg_id
+            if not row_id and mtg_id:
+                cursor.execute("SELECT id FROM meetings WHERE mtg_id = ?", (mtg_id,))
+                res = cursor.fetchone()
+                if res: row_id = res[0]
+
+            # 3. Match by WG + Meeting number
+            if not row_id and meeting_number:
+                cursor.execute("SELECT id FROM meetings WHERE wg_id = ? AND UPPER(meeting_number) = UPPER(?)",
+                               (wg_id, meeting_number))
+                res = cursor.fetchone()
+                if res: row_id = res[0]
+
+            if row_id:
+                cursor.execute('''
+                    UPDATE meetings
+                    SET wg_id = ?, folder_name = ?, meeting_number = ?, name = ?, location = ?,
+                        start_date = ?, end_date = ?, url_key = ?, docs_folder_url = ?,
+                        first_tdoc = ?, first_tdoc_prefix = ?, first_tdoc_num = ?,
+                        last_tdoc = ?, last_tdoc_prefix = ?, last_tdoc_num = ?,
+                        sort_number = ?, is_ad_hoc = ?, is_electronic = ?, mtg_id = ?
+                    WHERE id = ?
+                ''', (
+                    wg_id, folder_name, meeting_number, name, location,
+                    start_date, end_date, db_url_key, docs_folder_url,
+                    first_tdoc, first_tdoc_prefix, first_tdoc_num,
+                    last_tdoc, last_tdoc_prefix, last_tdoc_num,
+                    sort_num, is_ad_hoc, is_electronic, mtg_id,
+                    row_id
+                ))
+            else:
+                cursor.execute('''
+                    INSERT INTO meetings (
+                        wg_id, folder_name, meeting_number, name, location,
+                        start_date, end_date, url_key, docs_folder_url,
+                        first_tdoc, first_tdoc_prefix, first_tdoc_num,
+                        last_tdoc, last_tdoc_prefix, last_tdoc_num,
+                        sort_number, is_ad_hoc, is_electronic, mtg_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    wg_id, folder_name, meeting_number, name, location,
+                    start_date, end_date, db_url_key, docs_folder_url,
+                    first_tdoc, first_tdoc_prefix, first_tdoc_num,
+                    last_tdoc, last_tdoc_prefix, last_tdoc_num,
+                    sort_num, is_ad_hoc, is_electronic, mtg_id
+                ))
+            conn.commit()
+        return True
+
     def search_meetings(self, wg_name=None, search_term=None, location=None, date_from=None, date_to=None,
                         adhoc_filter=None, type_filter=None):
         query = '''
@@ -278,27 +389,17 @@ class MeetingsDatabase:
         '''
         params = []
 
-        # --- UPDATED MULTI-SELECT WG FILTER LOGIC ---
         if wg_name is not None:
-            # Ensure wg_name is a list (this safely handles legacy string calls)
             if isinstance(wg_name, str):
                 wg_name = [wg_name]
-
-            # 1. FAST FAIL: If the list is completely empty, the user deselected everything.
-            # Return an empty list instantly so no meetings are shown!
             if len(wg_name) == 0:
                 return []
-
-            # 2. Filter out the legacy "All WGs" placeholder if it exists in the selection
             valid_wgs = [wg for wg in wg_name if wg != "All WGs"]
-
             if valid_wgs:
-                # Create dynamic placeholders (e.g., "?,?,?") based on the number of selected WGs
                 placeholders = ','.join('?' * len(valid_wgs))
                 query += f" AND w.name IN ({placeholders})"
                 params.extend(valid_wgs)
 
-        # --- EXISTING FILTERS ---
         if search_term:
             query += " AND (m.meeting_number LIKE ? OR m.name LIKE ?)"
             params.extend([f"%{search_term}%", f"%{search_term}%"])
@@ -353,21 +454,14 @@ class MeetingsDatabase:
             conn.commit()
 
     def is_active_sync_meeting(self, wg_name: str, start_date: str, end_date: str, is_electronic: int) -> bool:
-        """
-        Determines if a F2F meeting should link to the active SYNC folder.
-        True if currently happening, OR if it finished but no newer meeting has started yet.
-        """
-        # 1. Skip if it is an electronic meeting or missing critical date metadata
         if is_electronic == 1 or not start_date or not end_date:
             return False
 
         today = datetime.date.today().strftime("%Y-%m-%d")
 
-        # 2. Is the meeting happening right now?
         if start_date <= today <= end_date:
             return True
 
-        # 3. Did it finish, and the next meeting hasn't started yet?
         if today > end_date:
             query = '''
                 SELECT m.id 
@@ -381,18 +475,12 @@ class MeetingsDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, (wg_name, start_date, today))
-                # If no newer meeting has started, this one is still the active SYNC meeting
                 if not cursor.fetchone():
                     return True
 
         return False
 
     def find_meeting_by_tdoc(self, tdoc_str: str) -> dict:
-        """
-        Attempts to find the meeting where a specific TDoc was presented.
-        Expects a format like 'S2-2605740' or 'R1-2601234r1'.
-        """
-        # Match pattern like "S2-2605740" (ignoring revisions for the search)
         match = re.match(r'^([A-Za-z0-9]+)-?(\d+)', tdoc_str.strip(), re.IGNORECASE)
         if not match:
             return {}
@@ -400,7 +488,6 @@ class MeetingsDatabase:
         prefix = match.group(1).upper()
         num = int(match.group(2))
 
-        # Find a meeting where the prefix matches and the TDoc number falls within the known bounds
         query = '''
             SELECT m.*, w.name as wg_name 
             FROM meetings m
