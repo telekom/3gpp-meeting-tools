@@ -189,7 +189,12 @@ class NetworkSession:
             status_forcelist=[429, 500, 502, 504],  # REMOVED 503 so Cloudflare doesn't trap us
             allowed_methods=["GET"]
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        adapter = HTTPAdapter(
+            pool_connections=25,  # Number of distinct host pools to cache
+            pool_maxsize=50,  # Max connections to keep open per host pool
+            pool_block=True,  # Forces threads to wait until a connection is freed
+            max_retries=retry_strategy
+        )
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         return session

@@ -8,7 +8,7 @@ from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTableView, QHeaderView, QPushButton, QProgressBar,
                              QMessageBox, QLineEdit, QMenu, QStyle, QApplication,
-                             QStyledItemDelegate, QComboBox, QDialog, QListWidget, QListWidgetItem)
+                             QStyledItemDelegate, QComboBox, QDialog, QListWidget, QListWidgetItem, QFrame, QScrollArea)
 
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
@@ -119,45 +119,181 @@ class RemarksDelegate(QStyledItemDelegate):
 
 
 class LinkedSpecsDialog(QDialog):
-    """Dialog displaying all specifications linked to a given Work Item."""
+    """Modernized Dialog displaying all specifications linked to a given Work Item."""
+
     def __init__(self, wi_code: str, acronym: str, specs: list, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Linked Specifications for WI {acronym} ({wi_code})")
-        self.resize(500, 320)
+        title_str = f"Linked Specifications for WI {acronym} ({wi_code})" if acronym else f"Linked Specifications for WI #{wi_code}"
+        self.setWindowTitle(title_str)
+        self.setMinimumWidth(580)
+        self.setMinimumHeight(380)
         self.setStyleSheet("""
-            QDialog { background-color: #FAFAFA; }
-            QListWidget { border: 1px solid #DCDCDC; border-radius: 4px; background-color: #FFF; }
-            QListWidget::item { padding: 8px; border-bottom: 1px solid #F0F0F0; }
-            QListWidget::item:hover { background-color: #EBF8FF; }
+            QDialog {
+                background-color: #F8F9FA;
+            }
+            QFrame#specCard {
+                background-color: #FFFFFF;
+                border: 1px solid #E2E8F0;
+                border-radius: 6px;
+            }
+            QFrame#specCard:hover {
+                border-color: #CBD5E0;
+                background-color: #FAFCFF;
+            }
+            QLabel {
+                color: #2D3748;
+            }
+            QPushButton {
+                padding: 4px 10px;
+                font-size: 11px;
+                border-radius: 4px;
+                border: 1px solid #CBD5E0;
+                background-color: #FFFFFF;
+                color: #2D3748;
+            }
+            QPushButton:hover {
+                background-color: #EDF2F7;
+                border-color: #A0AEC0;
+            }
+            QScrollArea {
+                border: 1px solid #E2E8F0;
+                border-radius: 6px;
+                background-color: #FFFFFF;
+            }
         """)
 
         layout = QVBoxLayout(self)
-        header = QLabel(f"<b>Specifications Impacted by Work Item {acronym} ({wi_code}):</b>")
-        header.setStyleSheet("font-size: 13px; color: #2D3748; margin-bottom: 4px;")
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # Header Title
+        header_text = (
+            f"Specifications Impacted by Work Item <b>{acronym}</b> ({wi_code}):"
+            if acronym else f"Specifications Impacted by Work Item <b>#{wi_code}</b>:"
+        )
+        header = QLabel(header_text)
+        header.setStyleSheet("font-size: 14px; color: #1A202C;")
+        header.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(header)
 
-        self.list_widget = QListWidget()
+        # Scrollable container for specification cards
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background-color: transparent;")
+        cards_layout = QVBoxLayout(scroll_content)
+        cards_layout.setContentsMargins(8, 8, 8, 8)
+        cards_layout.setSpacing(8)
+
         if specs:
             for sp in specs:
-                num = sp.get('number', '')
-                title = sp.get('title', 'No Title')
+                num = sp.get('number', 'Unknown')
+                title = sp.get('title', 'No Title Available')
                 spec_type = sp.get('type', 'TS')
-                is_pri = " [Primary Spec]" if sp.get('is_primary') else ""
-                item_text = f"📄 {spec_type} {num}{is_pri}\n   {title}"
-                item = QListWidgetItem(item_text)
-                item.setData(Qt.UserRole, num)
-                self.list_widget.addItem(item)
+                series_name = sp.get('series_name', num.split('.')[0] if '.' in num else '')
+                is_pri = bool(sp.get('is_primary', False))
+
+                card = self._create_spec_card(num, title, spec_type, series_name, is_pri)
+                cards_layout.addWidget(card)
         else:
-            self.list_widget.addItem("No linked specifications recorded in local DB.")
+            no_data = QLabel("No linked specifications recorded in the local database for this Work Item.")
+            no_data.setStyleSheet("color: #718096; font-style: italic; padding: 25px;")
+            no_data.setAlignment(Qt.AlignCenter)
+            cards_layout.addWidget(no_data)
 
-        layout.addWidget(self.list_widget)
+        cards_layout.addStretch()
+        scroll_area.setWidget(scroll_content)
+        layout.addWidget(scroll_area)
 
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
+        # Footer Bar
+        footer_layout = QHBoxLayout()
+        count_lbl = QLabel(f"<b>Total:</b> {len(specs)} specification(s)")
+        count_lbl.setStyleSheet("color: #718096; font-size: 12px;")
+        footer_layout.addWidget(count_lbl)
+        footer_layout.addStretch()
+
         close_btn = QPushButton("Close")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet("padding: 6px 16px; font-size: 12px; font-weight: bold;")
         close_btn.clicked.connect(self.accept)
-        btn_layout.addWidget(close_btn)
-        layout.addLayout(btn_layout)
+        footer_layout.addWidget(close_btn)
+
+        layout.addLayout(footer_layout)
+
+    def _create_spec_card(self, num: str, title: str, spec_type: str, series_name: str, is_primary: bool) -> QFrame:
+        card = QFrame()
+        card.setObjectName("specCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 10, 12, 10)
+        card_layout.setSpacing(6)
+
+        # Top row: Type badge, Spec Number, Primary badge, Action Buttons
+        top_row = QHBoxLayout()
+        top_row.setSpacing(8)
+
+        type_badge = QLabel(f"<b>{spec_type}</b>")
+        type_badge.setStyleSheet("""
+            background-color: #EBF8FF;
+            color: #2B6CB0;
+            border: 1px solid #BEE3F8;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 11px;
+            font-weight: bold;
+        """)
+        top_row.addWidget(type_badge)
+
+        num_lbl = QLabel(f"<b>{num}</b>")
+        num_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #1A202C;")
+        num_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        top_row.addWidget(num_lbl)
+
+        if is_primary:
+            pri_badge = QLabel("⭐ Primary Spec")
+            pri_badge.setStyleSheet("""
+                background-color: #FEFCBF;
+                color: #744210;
+                border: 1px solid #F6E05E;
+                border-radius: 4px;
+                padding: 2px 6px;
+                font-size: 11px;
+                font-weight: bold;
+            """)
+            top_row.addWidget(pri_badge)
+
+        top_row.addStretch()
+
+        # Direct URLs
+        clean_num = num.split("-")[0].replace('.', '').strip()
+        dyna_url = f"https://www.3gpp.org/DynaReport/{clean_num}.htm" if clean_num else ""
+        ftp_url = f"https://www.3gpp.org/ftp/Specs/archive/{series_name}_series/{num}/" if series_name else ""
+
+        if dyna_url:
+            dyna_btn = QPushButton("🌐 DynaReport")
+            dyna_btn.setToolTip(f"Open 3GPP Portal DynaReport for {num} in browser")
+            dyna_btn.setCursor(Qt.PointingHandCursor)
+            dyna_btn.clicked.connect(lambda: webbrowser.open(dyna_url))
+            top_row.addWidget(dyna_btn)
+
+        if ftp_url:
+            ftp_btn = QPushButton("📂 FTP Archive")
+            ftp_btn.setToolTip(f"Open 3GPP FTP archive directory for {num}")
+            ftp_btn.setCursor(Qt.PointingHandCursor)
+            ftp_btn.clicked.connect(lambda: webbrowser.open(ftp_url))
+            top_row.addWidget(ftp_btn)
+
+        card_layout.addLayout(top_row)
+
+        # Full Multi-line Wrapped Title
+        title_lbl = QLabel(title)
+        title_lbl.setWordWrap(True)
+        title_lbl.setStyleSheet("font-size: 12px; color: #4A5568; line-height: 1.4;")
+        title_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        card_layout.addWidget(title_lbl)
+
+        return card
 
 
 class WorkItemsTableModel(QAbstractTableModel):
