@@ -650,7 +650,7 @@ class SpecificationsTab(QWidget):
                 # --- COLUMN 2: Documents Action Bar ---
                 version_combo = QComboBox()
                 version_combo.setFixedWidth(195)
-                version_combo.setFixedHeight(26)
+                version_combo.setFixedHeight(28)  # Adjusted to 28px
 
                 def parse_ver(v_str):
                     return [(0, int(x)) if x.isdigit() else (1, str(x)) for x in str(v_str).split(".")]
@@ -676,18 +676,18 @@ class SpecificationsTab(QWidget):
                     )
 
                 doc_action_btn = QPushButton()
-                doc_action_btn.setFixedWidth(145)
-                doc_action_btn.setFixedHeight(26)
+                doc_action_btn.setFixedWidth(150)  # Expanded to 150px
+                doc_action_btn.setFixedHeight(28)  # Adjusted to 28px
                 doc_action_btn.setCursor(Qt.PointingHandCursor)
 
                 doc_menu = QMenu(self)
                 doc_menu.setStyleSheet("""
-                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
-                    QMenu::item { padding: 6px 22px 6px 14px; color: #333333; font-size: 12px; }
-                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-                    QMenu::item:disabled { color: #AAAAAA; }
-                    QMenu::separator { height: 1px; background-color: #E2E8F0; margin: 4px 0; }
-                """)
+                                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
+                                    QMenu::item { padding: 6px 22px 6px 14px; color: #333333; font-size: 12px; }
+                                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+                                    QMenu::item:disabled { color: #AAAAAA; }
+                                    QMenu::separator { height: 1px; background-color: #E2E8F0; margin: 4px 0; }
+                                """)
                 doc_action_btn.setMenu(doc_menu)
 
                 def _update_btn_state(index_ignore=0, c=version_combo, btn=doc_action_btn, menu=doc_menu):
@@ -705,61 +705,67 @@ class SpecificationsTab(QWidget):
                     txt_exists = any(current_dir.glob(f"{stem}*.txt"))
                     dir_ready = current_dir.exists() and any(current_dir.iterdir())
 
+                    base_style = """
+                                        QPushButton {
+                                            font-size: 11px;
+                                            font-weight: bold;
+                                            padding: 2px 8px;
+                                            border-radius: 4px;
+                                            text-align: center;
+                                        }
+                                        QPushButton::menu-indicator { image: none; width: 0px; }
+                                    """
+
                     if word_exists:
                         btn.setText("📝 Open Word ▾")
-                        btn.setStyleSheet("""
-                            QPushButton {
-                                font-size: 11px;
-                                font-weight: bold;
-                                background-color: #E8F5E9;
-                                color: #2E7D32;
-                                border: 1px solid #2E7D32;
-                                border-radius: 4px;
-                            }
-                            QPushButton:hover { background-color: #C8E6C9; }
-                        """)
+                        btn.setStyleSheet(base_style + """
+                                            QPushButton {
+                                                background-color: #E8F5E9;
+                                                color: #2E7D32;
+                                                border: 1px solid #2E7D32;
+                                            }
+                                            QPushButton:hover { background-color: #C8E6C9; }
+                                        """)
                     elif zip_exists:
                         btn.setText("⚙️ Extract Word ▾")
-                        btn.setStyleSheet("""
-                            QPushButton {
-                                font-size: 11px;
-                                font-weight: bold;
-                                background-color: #FFF3E0;
-                                color: #E65100;
-                                border: 1px solid #FFB74D;
-                                border-radius: 4px;
-                            }
-                            QPushButton:hover { background-color: #FFE0B2; }
-                        """)
+                        btn.setStyleSheet(base_style + """
+                                            QPushButton {
+                                                background-color: #FFF3E0;
+                                                color: #E65100;
+                                                border: 1px solid #FFB74D;
+                                            }
+                                            QPushButton:hover { background-color: #FFE0B2; }
+                                        """)
                     else:
                         btn.setText("⬇️ Get Word ▾")
-                        btn.setStyleSheet("""
-                            QPushButton {
-                                font-size: 11px;
-                                font-weight: bold;
-                                background-color: #EBF3FB;
-                                color: #0066CC;
-                                border: 1px solid #B0D0F0;
-                                border-radius: 4px;
-                            }
-                            QPushButton:hover { background-color: #D6E8FA; border-color: #0066CC; }
-                        """)
+                        btn.setStyleSheet(base_style + """
+                                            QPushButton {
+                                                background-color: #EBF3FB;
+                                                color: #0066CC;
+                                                border: 1px solid #B0D0F0;
+                                            }
+                                            QPushButton:hover { background-color: #D6E8FA; border-color: #0066CC; }
+                                        """)
 
                     menu.clear()
 
-                    word_label = "📝 Open Word Document" if word_exists else ("⚙️ Extract Word Document" if zip_exists else "⬇️ Download & Open Word")
+                    word_label = "📝 Open Word Document" if word_exists else (
+                        "⚙️ Extract Word Document" if zip_exists else "⬇️ Download & Open Word")
                     act_word = menu.addAction(f"{word_label} {'✅' if word_exists else ''}".strip())
                     act_word.triggered.connect(lambda: self._handle_document_action(c, "word", btn))
 
-                    pdf_label = "📕 Open PDF" if pdf_exists else ("⚙️ Convert to PDF" if (word_exists or zip_exists) else "⬇️ Get & Convert to PDF")
+                    pdf_label = "📕 Open PDF" if pdf_exists else (
+                        "⚙️ Convert to PDF" if (word_exists or zip_exists) else "⬇️ Get & Convert to PDF")
                     act_pdf = menu.addAction(f"{pdf_label} {'✅' if pdf_exists else ''}".strip())
                     act_pdf.triggered.connect(lambda: self._handle_document_action(c, "pdf", btn))
 
-                    html_label = "🌐 Open HTML" if html_exists else ("⚙️ Convert to HTML" if (word_exists or zip_exists) else "⬇️ Get & Convert to HTML")
+                    html_label = "🌐 Open HTML" if html_exists else (
+                        "⚙️ Convert to HTML" if (word_exists or zip_exists) else "⬇️ Get & Convert to HTML")
                     act_html = menu.addAction(f"{html_label} {'✅' if html_exists else ''}".strip())
                     act_html.triggered.connect(lambda: self._handle_document_action(c, "html", btn))
 
-                    txt_label = "📄 Open TXT" if txt_exists else ("⚙️ Convert to TXT" if (word_exists or zip_exists) else "⬇️ Get & Convert to TXT")
+                    txt_label = "📄 Open TXT" if txt_exists else (
+                        "⚙️ Convert to TXT" if (word_exists or zip_exists) else "⬇️ Get & Convert to TXT")
                     act_txt = menu.addAction(f"{txt_label} {'✅' if txt_exists else ''}".strip())
                     act_txt.triggered.connect(lambda: self._handle_document_action(c, "txt", btn))
 
