@@ -34,6 +34,7 @@ from modules.specifications.ui.components import HoverMenuButton
 from modules.specifications.ui.dialogs import (
     AdvancedSyncDialog,
     SpecInfoDialog,
+    SpecsConfigDialog,
     TableFilterDialog,
     TargetedSyncDialog,
 )
@@ -54,6 +55,7 @@ class SpecificationsTab(QWidget):
 
         # Defaults
         self.default_dl_dir = str(Path.home() / "3GPP_SA2_Meeting_Helper" / "specs")
+        self.download_dir = self.default_dl_dir
         self.table_filters = {"series": "", "tech": "", "group": "", "spec_type": "Any"}
         self.saved_search = ""
         self.saved_version = ""
@@ -84,7 +86,7 @@ class SpecificationsTab(QWidget):
             try:
                 with open(self.config_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    self.default_dl_dir = data.get("download_dir", self.default_dl_dir)
+                    self.download_dir = data.get("download_dir", self.default_dl_dir)
                     self.saved_search = data.get("search_query", "")
                     self.saved_version = data.get("version_query", "")
                     self.saved_downloaded_only = data.get("downloaded_only", False)
@@ -93,12 +95,13 @@ class SpecificationsTab(QWidget):
                         self.table_filters.update(saved_filters)
             except Exception as e:
                 print(f"Error loading specs_config.json: {e}")
+        else:
+            self.download_dir = self.default_dl_dir
 
     def _save_settings(self):
         try:
-            current_dir = self.dl_dir_input.text().strip()
             data = {
-                "download_dir": current_dir,
+                "download_dir": self.download_dir,
                 "search_query": self.spec_search_input.text().strip(),
                 "version_query": self.version_search_input.text().strip(),
                 "downloaded_only": self.downloaded_only_cb.isChecked(),
@@ -114,43 +117,14 @@ class SpecificationsTab(QWidget):
     # ==========================================
     def _setup_ui(self):
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(8, 10, 8, 8)
+        main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(6)
 
-        # --- ROW 1: Download Path ---
-        dir_layout = QHBoxLayout()
-        dir_layout.setSpacing(6)
+        # --- ROW 1: Network Sync & Configuration Toolbar ---
+        toolbar_layout = QHBoxLayout()
+        toolbar_layout.setSpacing(8)
 
-        self.dl_dir_input = QLineEdit(self.default_dl_dir)
-        self.dl_dir_input.setToolTip("The local directory where all downloaded 3GPP specifications are saved and extracted.")
-        self.dl_dir_input.editingFinished.connect(self._save_settings)
-
-        browse_btn = QPushButton("📂 Browse...")
-        browse_btn.setToolTip("Select a new local folder to store your downloaded specifications.")
-        browse_btn.setCursor(Qt.PointingHandCursor)
-        browse_btn.clicked.connect(self._browse_dir)
-
-        open_dir_btn = QPushButton("↗️ Open")
-        open_dir_btn.setToolTip("Open the base download folder in Windows Explorer.")
-        open_dir_btn.setCursor(Qt.PointingHandCursor)
-        open_dir_btn.clicked.connect(self._open_download_dir)
-
-        dir_layout.addWidget(QLabel("💾 Download Path:"))
-        dir_layout.addWidget(self.dl_dir_input)
-        dir_layout.addWidget(browse_btn)
-        dir_layout.addWidget(open_dir_btn)
-        main_layout.addLayout(dir_layout)
-
-        line1 = QFrame()
-        line1.setFrameShape(QFrame.HLine)
-        line1.setFrameShadow(QFrame.Sunken)
-        main_layout.addWidget(line1)
-
-        # --- ROW 2: Unified Network Sync Toolbar ---
-        sync_layout = QHBoxLayout()
-        sync_layout.setSpacing(8)
-
-        sync_layout.addWidget(QLabel("<b>🌐 Network Sync:</b>"))
+        toolbar_layout.addWidget(QLabel("<b>🌐 Network Sync:</b>"))
 
         self.sync_menu_btn = QPushButton("🌐 Sync & Fetch ▾")
         self.sync_menu_btn.setCursor(Qt.PointingHandCursor)
@@ -195,18 +169,38 @@ class SpecificationsTab(QWidget):
         self.force_meta_action.setToolTip("Force the scraper to re-download HTML metadata even if it already exists.")
         sync_menu.addAction(self.force_meta_action)
 
+        sync_menu.addSeparator()
+        config_action = sync_menu.addAction("⚙️ Download Settings...")
+        config_action.triggered.connect(self._open_settings_dialog)
+
+        open_folder_action = sync_menu.addAction("📂 Open Base Download Directory")
+        open_folder_action.triggered.connect(self._open_download_dir)
+
         self.sync_menu_btn.setMenu(sync_menu)
-        sync_layout.addWidget(self.sync_menu_btn)
+        toolbar_layout.addWidget(self.sync_menu_btn)
+
+        # Toolbar quick-action buttons
+        self.settings_btn = QPushButton("⚙️ Settings")
+        self.settings_btn.setToolTip("Configure the local specifications download folder and paths.")
+        self.settings_btn.setCursor(Qt.PointingHandCursor)
+        self.settings_btn.clicked.connect(self._open_settings_dialog)
+        toolbar_layout.addWidget(self.settings_btn)
+
+        self.open_dir_btn = QPushButton("↗️ Open Folder")
+        self.open_dir_btn.setToolTip("Open the local specifications storage directory in Explorer.")
+        self.open_dir_btn.setCursor(Qt.PointingHandCursor)
+        self.open_dir_btn.clicked.connect(self._open_download_dir)
+        toolbar_layout.addWidget(self.open_dir_btn)
 
         self.bg_sync_label = QLabel("⏳ Fetching deep metadata in background...")
         self.bg_sync_label.setStyleSheet("color: #E65100; font-weight: bold; font-style: italic;")
         self.bg_sync_label.setVisible(False)
-        sync_layout.addWidget(self.bg_sync_label)
+        toolbar_layout.addWidget(self.bg_sync_label)
 
-        sync_layout.addStretch()
-        main_layout.addLayout(sync_layout)
+        toolbar_layout.addStretch()
+        main_layout.addLayout(toolbar_layout)
 
-        # --- ROW 3: Local Search & Main Filters ---
+        # --- ROW 2: Local Search & Main Filters ---
         search_layout = QHBoxLayout()
         search_layout.setSpacing(6)
 
@@ -252,7 +246,7 @@ class SpecificationsTab(QWidget):
 
         main_layout.addLayout(search_layout)
 
-        # --- ROW 4: Quick Series Preset Chips & Status Banner ---
+        # --- ROW 3: Quick Series Preset Chips & Status Banner ---
         chips_layout = QHBoxLayout()
         chips_layout.setSpacing(4)
 
@@ -294,7 +288,7 @@ class SpecificationsTab(QWidget):
 
         main_layout.addLayout(chips_layout)
 
-        # --- ROW 5: Data Table ---
+        # --- ROW 4: Data Table ---
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Specification", "Title", "Version / Documents"])
@@ -322,6 +316,15 @@ class SpecificationsTab(QWidget):
     # ==========================================
     # --- EVENT HANDLERS & FILTERS ---
     # ==========================================
+    def _open_settings_dialog(self):
+        dialog = SpecsConfigDialog(self.download_dir, self)
+        if dialog.exec_():
+            new_path = dialog.get_download_path()
+            if new_path and new_path != self.download_dir:
+                self.download_dir = new_path
+                self._save_settings()
+                self.refresh_table()
+
     def _on_search_changed(self):
         self.search_timer.start()
         self.save_settings_timer.start()
@@ -373,15 +376,8 @@ class SpecificationsTab(QWidget):
         if not is_active:
             self.refresh_table()
 
-    def _browse_dir(self):
-        new_dir = QFileDialog.getExistingDirectory(self, "Select Download Directory", self.dl_dir_input.text())
-        if new_dir:
-            self.dl_dir_input.setText(new_dir)
-            self._save_settings()
-            self.refresh_table()
-
     def _open_download_dir(self):
-        target_dir = Path(self.dl_dir_input.text().strip())
+        target_dir = Path(self.download_dir)
         if not target_dir.exists():
             try:
                 target_dir.mkdir(parents=True, exist_ok=True)
@@ -478,7 +474,7 @@ class SpecificationsTab(QWidget):
         dialog.exec_()
 
     def _open_spec_folder(self, spec_num: str):
-        target_dir = Path(self.dl_dir_input.text().strip()) / spec_num
+        target_dir = Path(self.download_dir) / spec_num
         if target_dir.exists() and any(target_dir.iterdir()):
             try:
                 os.startfile(str(target_dir))
@@ -504,7 +500,7 @@ class SpecificationsTab(QWidget):
             spec_query = self.spec_search_input.text().strip()
             version_query = self.version_search_input.text().strip()
             downloaded_only = self.downloaded_only_cb.isChecked()
-            base_dl_dir = Path(self.dl_dir_input.text().strip())
+            base_dl_dir = Path(self.download_dir)
 
             is_filtered = any(
                 [
@@ -651,7 +647,7 @@ class SpecificationsTab(QWidget):
                 # --- COLUMN 1: Title ---
                 self.table.setItem(row_idx, 1, QTableWidgetItem(data["title"] if data["title"] else "Unknown Title"))
 
-                # --- COLUMN 2: Documents Action Bar (Strict Fixed Widths) ---
+                # --- COLUMN 2: Documents Action Bar ---
                 version_combo = QComboBox()
                 version_combo.setFixedWidth(195)
                 version_combo.setFixedHeight(26)
@@ -699,7 +695,7 @@ class SpecificationsTab(QWidget):
                     if not c_data:
                         return
 
-                    current_dir = Path(self.dl_dir_input.text().strip()) / c_data["spec_num"]
+                    current_dir = Path(self.download_dir) / c_data["spec_num"]
                     stem = Path(c_data["fname"]).stem
                     zip_exists = (current_dir / c_data["fname"]).exists()
 
@@ -806,14 +802,13 @@ class SpecificationsTab(QWidget):
         if not c_data:
             return
 
-        spec_dl_dir = Path(self.dl_dir_input.text().strip()) / c_data["spec_num"]
+        spec_dl_dir = Path(self.download_dir) / c_data["spec_num"]
         zip_path = spec_dl_dir / c_data["fname"]
         stem = Path(c_data["fname"]).stem
 
         def _process_and_open():
             extracted_docs = []
 
-            # 1. Flat Extraction
             if zip_path.exists():
                 try:
                     with zipfile.ZipFile(zip_path, "r") as z:
@@ -832,7 +827,6 @@ class SpecificationsTab(QWidget):
                     QMessageBox.warning(self, "Extraction Error", f"Failed to extract archive:\n{e}")
                     return
 
-            # Fallback: Find existing word docs on disk
             if not extracted_docs:
                 extracted_docs = list(spec_dl_dir.glob(f"{stem}*.doc*"))
 
@@ -840,14 +834,12 @@ class SpecificationsTab(QWidget):
                 QMessageBox.warning(self, "Not Found", "No Word documents found on disk or inside the zip archive.")
                 return
 
-            # Lazy-load Converter
             try:
                 from modules.word_tools.core.word_converter import WordConverterThread
             except ImportError as e:
                 QMessageBox.warning(self, "Import Error", f"Could not import word_converter:\n{e}")
                 return
 
-            # 2. Smart Conversion & Opening
             for doc_path in extracted_docs:
                 try:
                     if doc_type == "word":
@@ -903,7 +895,6 @@ class SpecificationsTab(QWidget):
                 except Exception as e:
                     QMessageBox.warning(self, "Open Error", f"Could not open/convert {doc_type.upper()}:\n{e}")
 
-        # Workflow Logic Gates
         word_exists = any(spec_dl_dir.glob(f"{stem}*.doc*"))
         target_exists = False
 
@@ -982,7 +973,7 @@ class SpecificationsTab(QWidget):
         if not c_data:
             return
 
-        spec_dl_dir = Path(self.dl_dir_input.text().strip()) / c_data["spec_num"]
+        spec_dl_dir = Path(self.download_dir) / c_data["spec_num"]
         zip_path = spec_dl_dir / c_data["fname"]
 
         if zip_path.exists():
