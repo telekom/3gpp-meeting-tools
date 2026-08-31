@@ -1,14 +1,16 @@
-# --- File: src/modules/work_items/ui/ui_tabs.py ---
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 import logging
 
 from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QTimer, QEvent, QRect, pyqtSignal
 from PyQt5.QtGui import QColor, QPalette
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QTableView, QHeaderView, QPushButton, QProgressBar,
-                             QMessageBox, QLineEdit, QMenu, QStyle, QApplication,
-                             QStyledItemDelegate, QComboBox, QDialog, QListWidget, QListWidgetItem, QFrame, QScrollArea)
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableView, QHeaderView,
+    QPushButton, QProgressBar, QMessageBox, QLineEdit, QMenu, QStyle,
+    QApplication, QStyledItemDelegate, QComboBox, QDialog, QFrame,
+    QScrollArea, QFormLayout
+)
 
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
@@ -17,11 +19,8 @@ from modules.work_items.core.wi_settings import WorkItemsSettings
 
 
 class WidDelegate(QStyledItemDelegate):
-    """Custom delegate to render the Latest WID as a clickable hyperlink."""
+    """Renders the Latest WID as a clickable hyperlink."""
     link_clicked = pyqtSignal(str, str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
 
     def paint(self, painter, option, index):
         QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
@@ -46,16 +45,53 @@ class WidDelegate(QStyledItemDelegate):
         if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             text = index.data(Qt.DisplayRole)
             if text:
-                logging.info(f"🚀 Emitting link_clicked signal for '{text}'...")
                 self.link_clicked.emit(text, "open_doc")
                 return True
-            else:
-                logging.warning("⚠️ Clicked, but no text found in cell.")
+        return super().editorEvent(event, model, option, index)
+
+
+class SpecsDelegate(QStyledItemDelegate):
+    """Renders the linked specifications count as a clickable pill button."""
+    specs_clicked = pyqtSignal(int)
+
+    def paint(self, painter, option, index):
+        QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
+        text = index.data(Qt.DisplayRole)
+        if not text or text == "-":
+            painter.save()
+            painter.setPen(QColor("#A0AEC0"))
+            painter.drawText(option.rect, Qt.AlignCenter, "-")
+            painter.restore()
+            return
+
+        badge_rect = QRect(option.rect.left() + 4, option.rect.top() + 3, option.rect.width() - 8, option.rect.height() - 6)
+
+        painter.save()
+        painter.setRenderHint(painter.Antialiasing)
+        painter.setBrush(QColor("#E8F0FE"))
+        painter.setPen(QColor("#D2E3FC"))
+        painter.drawRoundedRect(badge_rect, 10, 10)
+
+        painter.setPen(QColor("#1967D2"))
+        font = option.font
+        font.setBold(True)
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
+        painter.setFont(font)
+        painter.drawText(badge_rect, Qt.AlignCenter, text)
+        painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            text = index.data(Qt.DisplayRole)
+            if text and text != "-":
+                self.specs_clicked.emit(index.row())
+                return True
         return super().editorEvent(event, model, option, index)
 
 
 class RemarksDelegate(QStyledItemDelegate):
-    """Custom delegate to draw the latest remark text and a clickable '💬' history button."""
+    """Draws the latest remark text with a clickable '💬 N' history bubble."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.button_width = 45
@@ -80,7 +116,7 @@ class RemarksDelegate(QStyledItemDelegate):
         latest_remark = remarks_list[0]
         count = len(remarks_list)
 
-        text_rect = option.rect.adjusted(5, 0, -(self.button_width + 10), 0)
+        text_rect = option.rect.adjusted(6, 0, -(self.button_width + 10), 0)
         if option.state & QStyle.State_Selected:
             painter.setPen(option.palette.color(QPalette.HighlightedText))
         else:
@@ -108,7 +144,7 @@ class RemarksDelegate(QStyledItemDelegate):
                     menu = QMenu()
                     menu.setStyleSheet("""
                         QMenu { background-color: #FAFAFA; border: 1px solid #CCC; } 
-                        QMenu::item { padding: 5px 20px 5px 15px; color: #333333; } 
+                        QMenu::item { padding: 6px 20px 6px 15px; color: #333333; font-size: 11px; } 
                         QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
                     """)
                     for remark in remarks_list:
@@ -118,8 +154,238 @@ class RemarksDelegate(QStyledItemDelegate):
         return super().editorEvent(event, model, option, index)
 
 
+class WorkItemInfoDialog(QDialog):
+    """Modern Inspector Dialog displaying full Work Item details, linked specs, and remarks history."""
+
+    def __init__(self, details: dict, parent=None):
+        super().__init__(parent)
+        self.details = details
+        wi_code = details.get('code', 'Unknown')
+        acronym = details.get('acronym', 'Unknown')
+        name = details.get('name', 'No Title Available')
+        release = details.get('release', '')
+        end_date = details.get('end_date', '')
+
+        self.setWindowTitle(f"Work Item Details: {acronym} (#{wi_code})")
+        self.setMinimumWidth(620)
+        self.setMinimumHeight(480)
+        self.setStyleSheet("""
+            QDialog { background-color: #F8F9FA; }
+            QFrame#cardFrame {
+                background-color: #FFFFFF;
+                border: 1px solid #E2E8F0;
+                border-radius: 8px;
+            }
+            QLabel { font-size: 13px; color: #2D3748; }
+            QPushButton {
+                padding: 6px 14px;
+                font-size: 12px;
+                border-radius: 4px;
+                border: 1px solid #CBD5E0;
+                background-color: #FFFFFF;
+                color: #2D3748;
+            }
+            QPushButton:hover { background-color: #EDF2F7; border-color: #A0AEC0; }
+            QPushButton#primaryActionBtn {
+                background-color: #0066CC;
+                color: #FFFFFF;
+                border: 1px solid #0055AA;
+                font-weight: bold;
+            }
+            QPushButton#primaryActionBtn:hover { background-color: #0052A3; }
+            QPushButton#specChipBtn {
+                background-color: #F0F4F8;
+                border: 1px solid #D2E3FC;
+                border-radius: 12px;
+                padding: 3px 10px;
+                font-size: 11px;
+                color: #1967D2;
+                font-weight: bold;
+            }
+            QPushButton#specChipBtn:hover { background-color: #E8F0FE; border-color: #1967D2; }
+            QScrollArea { border: none; background-color: transparent; }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # --- 1. HEADER CARD ---
+        header_card = QFrame()
+        header_card.setObjectName("cardFrame")
+        header_layout = QVBoxLayout(header_card)
+        header_layout.setContentsMargins(14, 12, 14, 12)
+        header_layout.setSpacing(8)
+
+        title_row = QHBoxLayout()
+
+        code_badge = QLabel(f"<b>WI #{wi_code}</b>")
+        code_badge.setStyleSheet("""
+            background-color: #EBF8FF; color: #2B6CB0; border: 1px solid #BEE3F8;
+            border-radius: 4px; padding: 2px 6px; font-size: 12px; font-weight: bold;
+        """)
+        code_badge.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        if release:
+            rel_badge = QLabel(f"<b>{release}</b>")
+            rel_badge.setStyleSheet("""
+                background-color: #F0FFF4; color: #276749; border: 1px solid #C6F6D5;
+                border-radius: 4px; padding: 2px 6px; font-size: 12px; font-weight: bold;
+            """)
+            title_row.addWidget(rel_badge)
+
+        # Status badge
+        is_finished = bool(end_date and end_date.strip() and end_date < datetime.now().strftime("%Y-%m-%d"))
+        status_badge = QLabel("🏁 Finished" if is_finished else "🟢 Active / Ongoing")
+        status_badge.setStyleSheet(
+            "background-color: #EDF2F7; color: #4A5568; border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;"
+            if is_finished else
+            "background-color: #E6F4EA; color: #137333; border: 1px solid #CEEAD6; border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;"
+        )
+
+        acronym_lbl = QLabel(f"<b>{acronym}</b>")
+        acronym_lbl.setStyleSheet("font-size: 16px; color: #1A202C; font-weight: bold;")
+        acronym_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        title_row.addWidget(code_badge)
+        title_row.addWidget(acronym_lbl)
+        title_row.addWidget(status_badge)
+        title_row.addStretch()
+        header_layout.addLayout(title_row)
+
+        desc_label = QLabel(name)
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("color: #4A5568; font-size: 13px; line-height: 1.4;")
+        desc_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        header_layout.addWidget(desc_label)
+
+        layout.addWidget(header_card)
+
+        # --- 2. DETAILS & TIMELINE CARD ---
+        details_card = QFrame()
+        details_card.setObjectName("cardFrame")
+        form = QFormLayout(details_card)
+        form.setContentsMargins(14, 12, 14, 12)
+        form.setSpacing(8)
+        form.setLabelAlignment(Qt.AlignRight)
+
+        self._add_row(form, "Working Groups", details.get('wg_names') or '-')
+        self._add_row(form, "Start Date", details.get('start_date') or '-')
+        self._add_row(form, "Target End Date", details.get('end_date') or '-')
+        self._add_row(form, "Latest WID", details.get('latest_wid') or '-')
+
+        # Linked Specs Chips
+        linked_specs = details.get('linked_specs', [])
+        if linked_specs:
+            specs_container = QWidget()
+            specs_layout = QHBoxLayout(specs_container)
+            specs_layout.setContentsMargins(0, 0, 0, 0)
+            specs_layout.setSpacing(6)
+
+            for sp in linked_specs:
+                num = sp.get('number', '')
+                is_pri = sp.get('is_primary', False)
+                clean_num = num.split("-")[0].replace('.', '').strip()
+                label = f"⭐ {num}" if is_pri else num
+
+                btn = QPushButton(label)
+                btn.setObjectName("specChipBtn")
+                btn.setCursor(Qt.PointingHandCursor)
+                btn.setToolTip(f"{sp.get('title', '')}\nClick to open 3GPP Portal Report")
+                btn.clicked.connect(lambda _, n=clean_num: webbrowser.open(f"https://www.3gpp.org/DynaReport/{n}.htm"))
+                specs_layout.addWidget(btn)
+
+            specs_layout.addStretch()
+            form.addRow(self._make_key_label("Impacted Specs:"), specs_container)
+        else:
+            self._add_row(form, "Impacted Specs", "-")
+
+        layout.addWidget(details_card)
+
+        # --- 3. HISTORICAL REMARKS FEED ---
+        remarks = details.get('remarks', [])
+        if remarks:
+            remarks_lbl = QLabel(f"<b>Secretary Remarks ({len(remarks)}):</b>")
+            remarks_lbl.setStyleSheet("color: #4A5568; font-size: 12px; margin-top: 4px;")
+            layout.addWidget(remarks_lbl)
+
+            remarks_scroll = QScrollArea()
+            remarks_scroll.setWidgetResizable(True)
+            remarks_scroll.setMaximumHeight(160)
+
+            remarks_content = QWidget()
+            remarks_vbox = QVBoxLayout(remarks_content)
+            remarks_vbox.setContentsMargins(0, 0, 0, 0)
+            remarks_vbox.setSpacing(6)
+
+            for rm in remarks:
+                r_card = QFrame()
+                r_card.setStyleSheet("background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px;")
+                r_box = QVBoxLayout(r_card)
+                r_box.setContentsMargins(6, 4, 6, 4)
+                r_box.setSpacing(3)
+
+                if rm.get('date'):
+                    date_lbl = QLabel(f"📅 {rm['date']}")
+                    date_lbl.setStyleSheet("color: #718096; font-size: 11px; font-weight: bold;")
+                    r_box.addWidget(date_lbl)
+
+                text_lbl = QLabel(rm.get('text', ''))
+                text_lbl.setWordWrap(True)
+                text_lbl.setStyleSheet("color: #2D3748; font-size: 12px;")
+                text_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                r_box.addWidget(text_lbl)
+
+                remarks_vbox.addWidget(r_card)
+
+            remarks_vbox.addStretch()
+            remarks_scroll.setWidget(remarks_content)
+            layout.addWidget(remarks_scroll)
+
+        # --- 4. ACTION BUTTONS ---
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+
+        portal_btn = QPushButton("🌐 Open 3GPP Portal")
+        portal_btn.setObjectName("primaryActionBtn")
+        portal_btn.setCursor(Qt.PointingHandCursor)
+        portal_btn.clicked.connect(lambda: webbrowser.open(
+            f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
+        ))
+        btn_layout.addWidget(portal_btn)
+
+        copy_btn = QPushButton("📋 Copy Citation")
+        copy_btn.setCursor(Qt.PointingHandCursor)
+        copy_btn.clicked.connect(self._copy_citation)
+        btn_layout.addWidget(copy_btn)
+
+        btn_layout.addStretch()
+
+        close_btn = QPushButton("Close")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(close_btn)
+
+        layout.addLayout(btn_layout)
+
+    def _copy_citation(self):
+        c = f"WI {self.details.get('code')}: {self.details.get('acronym')} — {self.details.get('name')} ({self.details.get('release')}, {self.details.get('wg_names')})"
+        QApplication.clipboard().setText(c)
+
+    def _make_key_label(self, text: str) -> QLabel:
+        lbl = QLabel(f"<b>{text}</b>")
+        lbl.setStyleSheet("color: #718096; font-size: 12px;")
+        return lbl
+
+    def _add_row(self, form: QFormLayout, label_text: str, value_text: str):
+        val_label = QLabel(value_text)
+        val_label.setWordWrap(True)
+        val_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        form.addRow(self._make_key_label(f"{label_text}:"), val_label)
+
+
 class LinkedSpecsDialog(QDialog):
-    """Modernized Dialog displaying all specifications linked to a given Work Item."""
+    """Dialog displaying all specifications linked to a given Work Item."""
 
     def __init__(self, wi_code: str, acronym: str, specs: list, parent=None):
         super().__init__(parent)
@@ -128,45 +394,22 @@ class LinkedSpecsDialog(QDialog):
         self.setMinimumWidth(580)
         self.setMinimumHeight(380)
         self.setStyleSheet("""
-            QDialog {
-                background-color: #F8F9FA;
-            }
-            QFrame#specCard {
-                background-color: #FFFFFF;
-                border: 1px solid #E2E8F0;
-                border-radius: 6px;
-            }
-            QFrame#specCard:hover {
-                border-color: #CBD5E0;
-                background-color: #FAFCFF;
-            }
-            QLabel {
-                color: #2D3748;
-            }
+            QDialog { background-color: #F8F9FA; }
+            QFrame#specCard { background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; }
+            QFrame#specCard:hover { border-color: #CBD5E0; background-color: #FAFCFF; }
+            QLabel { color: #2D3748; }
             QPushButton {
-                padding: 4px 10px;
-                font-size: 11px;
-                border-radius: 4px;
-                border: 1px solid #CBD5E0;
-                background-color: #FFFFFF;
-                color: #2D3748;
+                padding: 4px 10px; font-size: 11px; border-radius: 4px;
+                border: 1px solid #CBD5E0; background-color: #FFFFFF; color: #2D3748;
             }
-            QPushButton:hover {
-                background-color: #EDF2F7;
-                border-color: #A0AEC0;
-            }
-            QScrollArea {
-                border: 1px solid #E2E8F0;
-                border-radius: 6px;
-                background-color: #FFFFFF;
-            }
+            QPushButton:hover { background-color: #EDF2F7; border-color: #A0AEC0; }
+            QScrollArea { border: 1px solid #E2E8F0; border-radius: 6px; background-color: #FFFFFF; }
         """)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        # Header Title
         header_text = (
             f"Specifications Impacted by Work Item <b>{acronym}</b> ({wi_code}):"
             if acronym else f"Specifications Impacted by Work Item <b>#{wi_code}</b>:"
@@ -176,13 +419,10 @@ class LinkedSpecsDialog(QDialog):
         header.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(header)
 
-        # Scrollable container for specification cards
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
         scroll_content = QWidget()
-        scroll_content.setStyleSheet("background-color: transparent;")
         cards_layout = QVBoxLayout(scroll_content)
         cards_layout.setContentsMargins(8, 8, 8, 8)
         cards_layout.setSpacing(8)
@@ -207,7 +447,6 @@ class LinkedSpecsDialog(QDialog):
         scroll_area.setWidget(scroll_content)
         layout.addWidget(scroll_area)
 
-        # Footer Bar
         footer_layout = QHBoxLayout()
         count_lbl = QLabel(f"<b>Total:</b> {len(specs)} specification(s)")
         count_lbl.setStyleSheet("color: #718096; font-size: 12px;")
@@ -229,19 +468,13 @@ class LinkedSpecsDialog(QDialog):
         card_layout.setContentsMargins(12, 10, 12, 10)
         card_layout.setSpacing(6)
 
-        # Top row: Type badge, Spec Number, Primary badge, Action Buttons
         top_row = QHBoxLayout()
         top_row.setSpacing(8)
 
         type_badge = QLabel(f"<b>{spec_type}</b>")
         type_badge.setStyleSheet("""
-            background-color: #EBF8FF;
-            color: #2B6CB0;
-            border: 1px solid #BEE3F8;
-            border-radius: 4px;
-            padding: 2px 6px;
-            font-size: 11px;
-            font-weight: bold;
+            background-color: #EBF8FF; color: #2B6CB0; border: 1px solid #BEE3F8;
+            border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;
         """)
         top_row.addWidget(type_badge)
 
@@ -253,40 +486,31 @@ class LinkedSpecsDialog(QDialog):
         if is_primary:
             pri_badge = QLabel("⭐ Primary Spec")
             pri_badge.setStyleSheet("""
-                background-color: #FEFCBF;
-                color: #744210;
-                border: 1px solid #F6E05E;
-                border-radius: 4px;
-                padding: 2px 6px;
-                font-size: 11px;
-                font-weight: bold;
+                background-color: #FEFCBF; color: #744210; border: 1px solid #F6E05E;
+                border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;
             """)
             top_row.addWidget(pri_badge)
 
         top_row.addStretch()
 
-        # Direct URLs
         clean_num = num.split("-")[0].replace('.', '').strip()
         dyna_url = f"https://www.3gpp.org/DynaReport/{clean_num}.htm" if clean_num else ""
         ftp_url = f"https://www.3gpp.org/ftp/Specs/archive/{series_name}_series/{num}/" if series_name else ""
 
         if dyna_url:
             dyna_btn = QPushButton("🌐 DynaReport")
-            dyna_btn.setToolTip(f"Open 3GPP Portal DynaReport for {num} in browser")
             dyna_btn.setCursor(Qt.PointingHandCursor)
             dyna_btn.clicked.connect(lambda: webbrowser.open(dyna_url))
             top_row.addWidget(dyna_btn)
 
         if ftp_url:
             ftp_btn = QPushButton("📂 FTP Archive")
-            ftp_btn.setToolTip(f"Open 3GPP FTP archive directory for {num}")
             ftp_btn.setCursor(Qt.PointingHandCursor)
             ftp_btn.clicked.connect(lambda: webbrowser.open(ftp_url))
             top_row.addWidget(ftp_btn)
 
         card_layout.addLayout(top_row)
 
-        # Full Multi-line Wrapped Title
         title_lbl = QLabel(title)
         title_lbl.setWordWrap(True)
         title_lbl.setStyleSheet("font-size: 12px; color: #4A5568; line-height: 1.4;")
@@ -297,6 +521,8 @@ class LinkedSpecsDialog(QDialog):
 
 
 class WorkItemsTableModel(QAbstractTableModel):
+    """Fast tabular data model supporting chunked row insertions."""
+
     def __init__(self, data=None):
         super().__init__()
         self._data = data or []
@@ -308,7 +534,7 @@ class WorkItemsTableModel(QAbstractTableModel):
         row = self._data[index.row()]
         col_name = self._headers[index.column()]
 
-        if role == Qt.DisplayRole or role == Qt.UserRole:
+        if role in (Qt.DisplayRole, Qt.UserRole):
             key_map = {
                 "Code": "code", "Acronym": "acronym", "Name": "name",
                 "WG": "wg_names", "Latest WID": "latest_wid", "Release": "release",
@@ -333,10 +559,27 @@ class WorkItemsTableModel(QAbstractTableModel):
                 for item in bundled_remarks:
                     parts = item.split(":::", 1)
                     parsed_remarks.append((parts[0], parts[1]) if len(parts) == 2 else ("", item))
-
                 parsed_remarks.sort(key=lambda x: x[0], reverse=True)
                 return [item[1] for item in parsed_remarks]
             return []
+
+        elif role == Qt.ToolTipRole:
+            if col_name == "Name":
+                return f"<b>{row.get('acronym', '')}</b><br>{row.get('name', '')}"
+            elif col_name == "Acronym":
+                return row.get('name', '')
+            elif col_name == "Specs":
+                cnt = row.get("spec_count", 0)
+                return f"Click to view all {cnt} linked specifications" if cnt > 0 else "No linked specifications"
+            elif col_name == "Latest WID":
+                wid = row.get("latest_wid", "")
+                return f"Click to download/open latest Work Item Description ({wid})" if wid else ""
+            elif col_name == "Remarks":
+                raw = row.get("remarks", "")
+                if raw:
+                    entries = [r.split(":::")[-1] for r in raw.split("|||")]
+                    return "<br>• " + "<br>• ".join(entries[:5])
+            return None
 
         elif role == Qt.TextAlignmentRole:
             if col_name in ["Name", "Remarks"]:
@@ -355,10 +598,24 @@ class WorkItemsTableModel(QAbstractTableModel):
             return self._headers[section]
         return None
 
+    def get_row_data(self, row_idx: int) -> dict:
+        if 0 <= row_idx < len(self._data):
+            return self._data[row_idx]
+        return {}
+
     def update_data(self, new_data):
         self.beginResetModel()
         self._data = new_data
         self.endResetModel()
+
+    def append_data(self, new_rows):
+        if not new_rows:
+            return
+        start_row = len(self._data)
+        end_row = start_row + len(new_rows) - 1
+        self.beginInsertRows(QModelIndex(), start_row, end_row)
+        self._data.extend(new_rows)
+        self.endInsertRows()
 
 
 class WorkItemsTab(QWidget):
@@ -370,10 +627,16 @@ class WorkItemsTab(QWidget):
         self.db = WorkItemsDatabase(db_path)
         self.settings = WorkItemsSettings()
 
+        self._chunk_size = 60
+        self._current_offset = 0
+        self._total_count = 0
+        self._loaded_data = []
+        self._is_loading_chunk = False
+
         self.search_timer = QTimer()
         self.search_timer.setSingleShot(True)
-        self.search_timer.setInterval(400)
-        self.search_timer.timeout.connect(self.refresh_table)
+        self.search_timer.setInterval(350)
+        self.search_timer.timeout.connect(lambda: self.refresh_table(reset_pagination=True))
 
         self.save_filters_timer = QTimer()
         self.save_filters_timer.setSingleShot(True)
@@ -383,22 +646,24 @@ class WorkItemsTab(QWidget):
         self._setup_ui()
         self._populate_filters()
         self._load_filters()
-        self.refresh_table()
+        self.refresh_table(reset_pagination=True)
 
     def _save_filters(self):
-        """Saves the current UI filter state including completion status."""
         filters = {
             "search": self.search_input.text().strip(),
             "releases": self.release_combo.getCheckedItems(),
             "wgs": self.wg_combo.getCheckedItems(),
-            "status": self.status_combo.currentData() or "all"
+            "status": self.status_combo.currentData() or "active"
         }
         self.settings.save_filters(filters)
 
     def _load_filters(self):
-        """Restores the UI filter state from JSON on startup."""
         filters = self.settings.get_filters()
         if not filters:
+            # Default to active items if no saved config exists
+            idx = self.status_combo.findData("active")
+            if idx >= 0:
+                self.status_combo.setCurrentIndex(idx)
             return
 
         if "search" in filters:
@@ -412,6 +677,10 @@ class WorkItemsTab(QWidget):
 
         if "status" in filters:
             idx = self.status_combo.findData(filters["status"])
+            if idx >= 0:
+                self.status_combo.setCurrentIndex(idx)
+        else:
+            idx = self.status_combo.findData("active")
             if idx >= 0:
                 self.status_combo.setCurrentIndex(idx)
 
@@ -476,31 +745,35 @@ class WorkItemsTab(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search Code, Acronym, or Name...")
         self.search_input.setToolTip("Filter the table instantly by typing keywords.")
-        self.search_input.textChanged.connect(lambda text: self.search_timer.start())
+        self.search_input.textChanged.connect(lambda: self.search_timer.start())
         search_layout.addWidget(self.search_input)
 
-        # Multi-select combos
         self.release_combo = CheckableComboBox("Release")
         self.release_combo.setToolTip("Filter by 3GPP Release")
-        self.release_combo.setMinimumWidth(160)
+        self.release_combo.setMinimumWidth(150)
         self.release_combo.selectionChanged.connect(lambda _: self.search_timer.start())
         search_layout.addWidget(self.release_combo)
 
         self.wg_combo = CheckableComboBox("WG")
         self.wg_combo.setToolTip("Filter by Working Group")
-        self.wg_combo.setMinimumWidth(140)
+        self.wg_combo.setMinimumWidth(130)
         self.wg_combo.selectionChanged.connect(lambda _: self.search_timer.start())
         search_layout.addWidget(self.wg_combo)
 
-        # Status Filter Combo
         self.status_combo = QComboBox()
         self.status_combo.setToolTip("Filter by Work Item completion status (End Date)")
         self.status_combo.setMinimumWidth(150)
-        self.status_combo.addItem("All Statuses", "all")
         self.status_combo.addItem("🟢 Active / Ongoing", "active")
+        self.status_combo.addItem("All Statuses", "all")
         self.status_combo.addItem("🏁 Finished", "finished")
         self.status_combo.currentIndexChanged.connect(lambda _: self.search_timer.start())
         search_layout.addWidget(self.status_combo)
+
+        self.clear_filters_btn = QPushButton("❌ Clear")
+        self.clear_filters_btn.setToolTip("Reset all search fields and active filters.")
+        self.clear_filters_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_filters_btn.clicked.connect(self._clear_all_filters)
+        search_layout.addWidget(self.clear_filters_btn)
 
         main_layout.addLayout(search_layout)
 
@@ -527,22 +800,42 @@ class WorkItemsTab(QWidget):
 
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
+        self.table.doubleClicked.connect(self._on_row_double_clicked)
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Interactive)  # Acronym
+        header.setSectionResizeMode(2, QHeaderView.Stretch)      # Name
 
-        # Column 4 is "Latest WID"
+        # Column Delegates
         self.wid_delegate = WidDelegate(self.table)
         self.wid_delegate.link_clicked.connect(self._log_and_forward_action)
-        self.wid_delegate.link_clicked.connect(self.global_action_requested.emit)
         self.table.setItemDelegateForColumn(4, self.wid_delegate)
 
-        # Column 9 is "Remarks"
-        header.setSectionResizeMode(9, QHeaderView.Stretch)
+        self.specs_delegate = SpecsDelegate(self.table)
+        self.specs_delegate.specs_clicked.connect(self._on_specs_clicked)
+        self.table.setItemDelegateForColumn(6, self.specs_delegate)
+
+        header.setSectionResizeMode(9, QHeaderView.Stretch)      # Remarks
         self.table.setItemDelegateForColumn(9, RemarksDelegate(self.table))
 
+        # Infinite Scroll Detection
+        self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
+
         main_layout.addWidget(self.table)
+
+    def _clear_all_filters(self):
+        self.search_input.clear()
+        self._apply_checked_items(self.release_combo, [])
+        self._apply_checked_items(self.wg_combo, [])
+        self.status_combo.setCurrentIndex(0)
+        self.refresh_table(reset_pagination=True)
+
+    def _on_scroll(self, value):
+        max_val = self.table.verticalScrollBar().maximum()
+        if value >= max_val - 5 and not self._is_loading_chunk:
+            if len(self._loaded_data) < self._total_count:
+                self._load_next_chunk()
 
     def _log_and_forward_action(self, text, action):
         self.global_action_requested.emit(text, action)
@@ -558,24 +851,92 @@ class WorkItemsTab(QWidget):
         self.wg_combo.updateItems(options.get('groups', []))
         self.wg_combo.blockSignals(False)
 
-    def refresh_table(self):
+    def refresh_table(self, reset_pagination: bool = True):
         self.save_filters_timer.start()
+
+        if reset_pagination:
+            self._current_offset = 0
+            self._loaded_data = []
 
         search_term = self.search_input.text().strip()
         selected_releases = self.release_combo.getCheckedItems()
         selected_wgs = self.wg_combo.getCheckedItems()
-        selected_status = self.status_combo.currentData() or "all"
+        selected_status = self.status_combo.currentData() or "active"
 
-        data = self.db.search_work_items(
+        self._total_count = self.db.count_work_items(
             search_term=search_term if search_term else None,
             releases=selected_releases,
             wg_names=selected_wgs,
             status=selected_status
         )
 
-        self.table_model.update_data(data)
-        count = len(data)
-        self.count_label.setText(f"Showing {count} Work Items")
+        chunk = self.db.search_work_items(
+            search_term=search_term if search_term else None,
+            releases=selected_releases,
+            wg_names=selected_wgs,
+            status=selected_status,
+            limit=self._chunk_size,
+            offset=self._current_offset
+        )
+
+        self._loaded_data = chunk
+        self.table_model.update_data(self._loaded_data)
+        self._update_count_label()
+
+    def _load_next_chunk(self):
+        self._is_loading_chunk = True
+        self._current_offset += self._chunk_size
+
+        search_term = self.search_input.text().strip()
+        selected_releases = self.release_combo.getCheckedItems()
+        selected_wgs = self.wg_combo.getCheckedItems()
+        selected_status = self.status_combo.currentData() or "active"
+
+        chunk = self.db.search_work_items(
+            search_term=search_term if search_term else None,
+            releases=selected_releases,
+            wg_names=selected_wgs,
+            status=selected_status,
+            limit=self._chunk_size,
+            offset=self._current_offset
+        )
+
+        if chunk:
+            self.table_model.append_data(chunk)
+            self._loaded_data.extend(chunk)
+            self._update_count_label()
+
+        self._is_loading_chunk = False
+
+    def _update_count_label(self):
+        loaded = len(self._loaded_data)
+        if self._total_count > loaded:
+            self.count_label.setText(f"Showing {loaded} of {self._total_count} Work Items (scroll down to load more)")
+        else:
+            self.count_label.setText(f"Showing {self._total_count} Work Items")
+
+    def _on_row_double_clicked(self, index):
+        if not index.isValid():
+            return
+        row_data = self.table_model.get_row_data(index.row())
+        wi_code = row_data.get('code')
+        if wi_code:
+            self._show_wi_info(wi_code)
+
+    def _on_specs_clicked(self, row_idx: int):
+        row_data = self.table_model.get_row_data(row_idx)
+        wi_code = row_data.get('code')
+        acronym = row_data.get('acronym', '')
+        if wi_code:
+            specs = self.db.get_linked_specs_for_wi(wi_code)
+            dialog = LinkedSpecsDialog(wi_code, acronym, specs, self)
+            dialog.exec_()
+
+    def _show_wi_info(self, wi_code: str):
+        details = self.db.get_work_item_details(wi_code)
+        if details:
+            dialog = WorkItemInfoDialog(details, self)
+            dialog.exec_()
 
     def _start_sync(self):
         self.sync_btn.setEnabled(False)
@@ -600,7 +961,7 @@ class WorkItemsTab(QWidget):
         self.status_lbl.setText("")
 
         self._populate_filters()
-        self.refresh_table()
+        self.refresh_table(reset_pagination=True)
 
         if success:
             QMessageBox.information(self, "Sync Complete", msg)
@@ -629,15 +990,17 @@ class WorkItemsTab(QWidget):
 
         if len_indexes == 1:
             row_idx = selected_indexes[0].row()
-            wi_code = wi_code_list[0]
-            acronym = self.table_model.data(self.table_model.index(row_idx, 1), Qt.DisplayRole)
-            name = self.table_model.data(self.table_model.index(row_idx, 2), Qt.DisplayRole)
-            wg = self.table_model.data(self.table_model.index(row_idx, 3), Qt.DisplayRole)
-            rel = self.table_model.data(self.table_model.index(row_idx, 5), Qt.DisplayRole)
+            row_data = self.table_model.get_row_data(row_idx)
+            wi_code = row_data.get('code')
+            acronym = row_data.get('acronym', '')
+            name = row_data.get('name', '')
+            wg = row_data.get('wg_names', '')
+            rel = row_data.get('release', '')
 
             if not wi_code:
                 return
 
+            info_action = menu.addAction("ℹ️ View WI Details")
             wi_page_action = menu.addAction("🌐 Open WI Page (Portal)")
             local_specs_action = menu.addAction("📑 View Linked Specifications in DB")
             specs_action = menu.addAction("📂 Specifications Resulting from this WI (Web)")
@@ -648,6 +1011,7 @@ class WorkItemsTab(QWidget):
             update_action = menu.addAction("🔄 Update WI")
             delete_action = menu.addAction("🗑️ Delete this Work Item")
         else:
+            info_action = None
             wi_page_action = None
             local_specs_action = None
             specs_action = None
@@ -660,47 +1024,42 @@ class WorkItemsTab(QWidget):
         action = menu.exec_(self.table.viewport().mapToGlobal(position))
 
         if len_indexes == 1:
-            if action == wi_page_action:
-                url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
-                webbrowser.open(url)
+            if action == info_action:
+                self._show_wi_info(wi_code)
+            elif action == wi_page_action:
+                webbrowser.open(f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}")
             elif action == local_specs_action:
                 specs = self.db.get_linked_specs_for_wi(wi_code)
                 dialog = LinkedSpecsDialog(wi_code, acronym, specs, self)
                 dialog.exec_()
             elif action == specs_action:
-                url = f"https://portal.3gpp.org/Specifications.aspx?q=1&WiUid={wi_code}"
-                webbrowser.open(url)
+                webbrowser.open(f"https://portal.3gpp.org/Specifications.aspx?q=1&WiUid={wi_code}")
             elif action == crs_action:
-                url = f"https://portal.3gpp.org/ChangeRequests.aspx?q=1&workitem={wi_code}"
-                webbrowser.open(url)
+                webbrowser.open(f"https://portal.3gpp.org/ChangeRequests.aspx?q=1&workitem={wi_code}")
             elif action == citation_action:
                 citation = f"WI {wi_code}: {acronym} — {name} ({rel}, {wg})"
                 QApplication.clipboard().setText(citation)
             elif action == delete_action:
                 confirm = QMessageBox.question(
-                    self,
-                    "Confirm Deletion",
+                    self, "Confirm Deletion",
                     f"Are you sure you want to delete Work Item '{wi_code}' from the database?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
                 )
                 if confirm == QMessageBox.Yes:
                     self.db.delete_work_item(wi_code)
-                    self.refresh_table()
+                    self.refresh_table(reset_pagination=True)
             elif action == update_action:
                 self._start_targeted_sync([wi_code])
         else:
             if action == delete_action:
                 confirm = QMessageBox.question(
-                    self,
-                    "Confirm Batch Deletion",
+                    self, "Confirm Batch Deletion",
                     f"Are you sure you want to delete {len(wi_code_list)} selected Work Items from the database?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
                 )
                 if confirm == QMessageBox.Yes:
                     self.db.delete_work_items(wi_code_list)
-                    self.refresh_table()
+                    self.refresh_table(reset_pagination=True)
             elif action == update_action:
                 self._start_targeted_sync(wi_code_list)
 
