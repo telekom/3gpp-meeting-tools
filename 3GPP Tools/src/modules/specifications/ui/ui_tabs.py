@@ -215,6 +215,7 @@ class SpecificationsTab(QWidget):
         self.spec_search_input = QLineEdit()
         self.spec_search_input.setPlaceholderText("Spec Number or Title...")
         self.spec_search_input.setText(self.saved_search)
+        self.spec_search_input.setClearButtonEnabled(True)
         self.spec_search_input.setToolTip("Filter instantly by specification number (e.g., '23.501') or title keywords.")
         self.spec_search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self.spec_search_input, stretch=2)
@@ -223,8 +224,9 @@ class SpecificationsTab(QWidget):
         self.version_search_input = QLineEdit()
         self.version_search_input.setPlaceholderText("e.g. 15.")
         self.version_search_input.setText(self.saved_version)
+        self.version_search_input.setClearButtonEnabled(True)
         self.version_search_input.setToolTip("Filter the table by release version (e.g., '15' or '16.2').")
-        self.version_search_input.setFixedWidth(70)
+        self.version_search_input.setFixedWidth(75)
         self.version_search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self.version_search_input)
 
@@ -276,9 +278,19 @@ class SpecificationsTab(QWidget):
 
         chips_layout.addStretch()
 
-        self.count_label = QLabel("Showing 0 specifications")
-        self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
-        chips_layout.addWidget(self.count_label)
+        self.count_badge = QLabel("0 specifications")
+        self.count_badge.setStyleSheet("""
+            QLabel {
+                padding: 2px 10px;
+                font-size: 11px;
+                font-weight: bold;
+                background-color: #F1F5F9;
+                color: #475569;
+                border: 1px solid #E2E8F0;
+                border-radius: 10px;
+            }
+        """)
+        chips_layout.addWidget(self.count_badge)
 
         main_layout.addLayout(chips_layout)
 
@@ -290,6 +302,9 @@ class SpecificationsTab(QWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.verticalHeader().setStyleSheet("QHeaderView::section { color: #94A3B8; font-size: 11px; }")
 
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
@@ -445,9 +460,9 @@ class SpecificationsTab(QWidget):
             target_specs = []
             for index in selected_rows:
                 widget = self.table.cellWidget(index.row(), 0)
-                display_text = widget.findChild(QLabel).text()
-                spec_num = display_text.split(" ")[-1]
-                target_specs.append(spec_num)
+                num_label = widget.findChild(QLabel, "specNumberLabel")
+                if num_label:
+                    target_specs.append(num_label.text().strip())
             force_meta = self.force_meta_action.isChecked()
             self.update_specific_requested.emit(target_specs, force_meta)
 
@@ -464,7 +479,7 @@ class SpecificationsTab(QWidget):
 
     def _open_spec_folder(self, spec_num: str):
         target_dir = Path(self.dl_dir_input.text().strip()) / spec_num
-        if target_dir.exists():
+        if target_dir.exists() and any(target_dir.iterdir()):
             try:
                 os.startfile(str(target_dir))
             except Exception as e:
@@ -473,7 +488,7 @@ class SpecificationsTab(QWidget):
             QMessageBox.information(
                 self,
                 "Folder Not Found",
-                f"No downloaded files found for {spec_num}.\nDownload a document first to create the local folder."
+                f"No downloaded files found for {spec_num}.\nDownload a document first to create the local folder.",
             )
 
     def _open_web_report(self, spec_num: str):
@@ -520,7 +535,7 @@ class SpecificationsTab(QWidget):
                 if spec_num not in grouped_specs:
                     grouped_specs[spec_num] = {
                         "title": title,
-                        "type": spec_type if spec_type else "",
+                        "type": spec_type if spec_type else "TS",
                         "versions": [],
                     }
                 grouped_specs[spec_num]["versions"].append((version, url, filename, upload_date))
@@ -537,34 +552,43 @@ class SpecificationsTab(QWidget):
             total_found = len(grouped_specs)
             rendered_specs = list(grouped_specs.items())[:100]
 
+            # Dynamic pill badge status
             if not spec_query and not version_query and not is_filtered and not downloaded_only:
-                self.count_label.setText(
-                    f"Showing top {len(rendered_specs)} specifications (Type or select a chip to narrow down)"
-                )
-                self.count_label.setStyleSheet("font-weight: bold; color: #0066CC;")
+                self.count_badge.setText(f"Top {len(rendered_specs)} specifications")
+                self.count_badge.setStyleSheet("""
+                    padding: 2px 10px; font-size: 11px; font-weight: bold;
+                    background-color: #EBF8FF; color: #2B6CB0; border: 1px solid #BEE3F8; border-radius: 10px;
+                """)
             elif total_found > 100:
-                self.count_label.setText(
-                    f"⚠️ Showing top 100 of {total_found} specifications. Narrow down query for more."
-                )
-                self.count_label.setStyleSheet("font-weight: bold; color: #D83B01;")
+                self.count_badge.setText(f"Showing 100 of {total_found} specs")
+                self.count_badge.setStyleSheet("""
+                    padding: 2px 10px; font-size: 11px; font-weight: bold;
+                    background-color: #FFF3E0; color: #D83B01; border: 1px solid #FFB74D; border-radius: 10px;
+                """)
             else:
-                self.count_label.setText(f"Showing {total_found} specifications")
-                self.count_label.setStyleSheet("font-weight: bold; color: #555555;")
+                self.count_badge.setText(f"{total_found} specifications")
+                self.count_badge.setStyleSheet("""
+                    padding: 2px 10px; font-size: 11px; font-weight: bold;
+                    background-color: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; border-radius: 10px;
+                """)
 
             for row_idx, (spec_num, data) in enumerate(rendered_specs):
                 self.table.insertRow(row_idx)
                 spec_target_dir = base_dl_dir / spec_num
+                dir_has_files = spec_target_dir.exists() and any(spec_target_dir.iterdir())
 
+                # --- COLUMN 0: Action Button + Badged Spec Number ---
                 spec_widget = QWidget()
                 spec_layout = QHBoxLayout(spec_widget)
-                spec_layout.setContentsMargins(5, 0, 5, 0)
+                spec_layout.setContentsMargins(6, 0, 6, 0)
+                spec_layout.setSpacing(6)
 
                 action_btn = HoverMenuButton("⋮")
-                action_btn.setFixedSize(24, 24)
+                action_btn.setFixedSize(22, 22)
                 action_btn.setToolTip("Specification Actions")
                 action_btn.setCursor(Qt.PointingHandCursor)
                 action_btn.setStyleSheet("""
-                    QPushButton { border: none; background: transparent; color: #555; font-size: 20px; font-weight: bold; padding-bottom: 4px; }
+                    QPushButton { border: none; background: transparent; color: #718096; font-size: 18px; font-weight: bold; padding-bottom: 3px; }
                     QPushButton:hover { color: #0078D7; }
                     QPushButton::menu-indicator { image: none; width: 0px; }
                 """)
@@ -597,21 +621,40 @@ class SpecificationsTab(QWidget):
                         act.setEnabled(False)
 
                 menu.aboutToShow.connect(_update_menu_state)
-                _update_menu_state()  # Initialize state immediately
+                _update_menu_state()
                 action_btn.setMenu(menu)
 
-                display_num = f"{data['type']} {spec_num}".strip()
-                spec_label = QLabel(display_num)
+                # Spec Type Badge (TS vs TR)
+                spec_type = (data["type"] or "TS").upper()
+                type_badge = QLabel(spec_type)
+                if spec_type == "TR":
+                    type_badge.setStyleSheet("""
+                        background-color: #F3E8FF; color: #6B21A8; border: 1px solid #E9D5FF;
+                        border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold;
+                    """)
+                else:
+                    type_badge.setStyleSheet("""
+                        background-color: #EBF8FF; color: #2B6CB0; border: 1px solid #BEE3F8;
+                        border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold;
+                    """)
+
+                spec_label = QLabel(spec_num)
+                spec_label.setObjectName("specNumberLabel")
+                spec_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #1A202C;")
 
                 spec_layout.addWidget(action_btn)
+                spec_layout.addWidget(type_badge)
                 spec_layout.addWidget(spec_label)
                 spec_layout.addStretch()
                 self.table.setCellWidget(row_idx, 0, spec_widget)
 
+                # --- COLUMN 1: Title ---
                 self.table.setItem(row_idx, 1, QTableWidgetItem(data["title"] if data["title"] else "Unknown Title"))
 
-                # --- COLUMN 2: Documents Action Bar (Option 1: Smart Action Button) ---
+                # --- COLUMN 2: Documents Action Bar (Strict Fixed Widths) ---
                 version_combo = QComboBox()
+                version_combo.setFixedWidth(195)
+                version_combo.setFixedHeight(26)
 
                 def parse_ver(v_str):
                     return [(0, int(x)) if x.isdigit() else (1, str(x)) for x in str(v_str).split(".")]
@@ -636,8 +679,9 @@ class SpecificationsTab(QWidget):
                         },
                     )
 
-                # Unified Smart Action Button & Formats Menu
                 doc_action_btn = QPushButton()
+                doc_action_btn.setFixedWidth(145)
+                doc_action_btn.setFixedHeight(26)
                 doc_action_btn.setCursor(Qt.PointingHandCursor)
 
                 doc_menu = QMenu(self)
@@ -663,14 +707,12 @@ class SpecificationsTab(QWidget):
                     pdf_exists = any(current_dir.glob(f"{stem}*.pdf"))
                     html_exists = any(current_dir.glob(f"{stem}*.html"))
                     txt_exists = any(current_dir.glob(f"{stem}*.txt"))
-                    dir_has_files = current_dir.exists() and any(current_dir.iterdir())
+                    dir_ready = current_dir.exists() and any(current_dir.iterdir())
 
-                    # Style primary button based on status
                     if word_exists:
                         btn.setText("📝 Open Word ▾")
                         btn.setStyleSheet("""
                             QPushButton {
-                                padding: 4px 10px;
                                 font-size: 11px;
                                 font-weight: bold;
                                 background-color: #E8F5E9;
@@ -684,7 +726,6 @@ class SpecificationsTab(QWidget):
                         btn.setText("⚙️ Extract Word ▾")
                         btn.setStyleSheet("""
                             QPushButton {
-                                padding: 4px 10px;
                                 font-size: 11px;
                                 font-weight: bold;
                                 background-color: #FFF3E0;
@@ -698,7 +739,6 @@ class SpecificationsTab(QWidget):
                         btn.setText("⬇️ Get Word ▾")
                         btn.setStyleSheet("""
                             QPushButton {
-                                padding: 4px 10px;
                                 font-size: 11px;
                                 font-weight: bold;
                                 background-color: #EBF3FB;
@@ -709,7 +749,6 @@ class SpecificationsTab(QWidget):
                             QPushButton:hover { background-color: #D6E8FA; border-color: #0066CC; }
                         """)
 
-                    # Re-populate dropdown menu with format items and statuses
                     menu.clear()
 
                     word_label = "📝 Open Word Document" if word_exists else ("⚙️ Extract Word Document" if zip_exists else "⬇️ Download & Open Word")
@@ -734,7 +773,7 @@ class SpecificationsTab(QWidget):
                     act_zip = menu.addAction(zip_label)
                     act_zip.triggered.connect(lambda: self._handle_zip_action(c, btn))
 
-                    if dir_has_files:
+                    if dir_ready:
                         act_dir = menu.addAction("📂 Open Local Folder")
                         act_dir.setEnabled(True)
                         act_dir.triggered.connect(lambda _, s=c_data["spec_num"]: self._open_spec_folder(s))
@@ -747,7 +786,7 @@ class SpecificationsTab(QWidget):
 
                 cell_widget = QWidget()
                 layout = QHBoxLayout(cell_widget)
-                layout.setContentsMargins(0, 0, 0, 0)
+                layout.setContentsMargins(4, 0, 4, 0)
                 layout.setSpacing(6)
 
                 layout.addWidget(version_combo)
