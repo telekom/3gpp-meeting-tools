@@ -1,13 +1,126 @@
 # --- File: src/modules/specifications/ui/dialogs.py ---
+import os
 import webbrowser
+from pathlib import Path
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QFormLayout, QLabel, QPushButton,
-    QHBoxLayout, QComboBox, QLineEdit, QFrame, QScrollArea, QWidget
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from modules.specifications.core.database import SpecsDatabase
+
+
+class SpecsConfigDialog(QDialog):
+    """Configuration dialog for setting and verifying the specifications download directory."""
+
+    def __init__(self, current_path: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Specifications Settings")
+        self.setModal(True)
+        self.resize(520, 160)
+        self.selected_path = current_path
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        info_label = QLabel(
+            "Specify the local directory where downloaded 3GPP specifications, "
+            "ZIP archives, and converted documents are stored:"
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #4A5568; font-size: 12px;")
+        layout.addWidget(info_label)
+
+        # Path input row
+        path_layout = QHBoxLayout()
+        path_layout.setSpacing(6)
+
+        self.path_input = QLineEdit(current_path)
+        self.path_input.setPlaceholderText("Select folder...")
+
+        browse_btn = QPushButton("📂 Browse...")
+        browse_btn.setCursor(Qt.PointingHandCursor)
+        browse_btn.clicked.connect(self._browse)
+
+        open_btn = QPushButton("↗️ Open")
+        open_btn.setCursor(Qt.PointingHandCursor)
+        open_btn.setToolTip("Open this directory in Windows Explorer")
+        open_btn.clicked.connect(self._open_folder)
+
+        path_layout.addWidget(self.path_input)
+        path_layout.addWidget(browse_btn)
+        path_layout.addWidget(open_btn)
+        layout.addLayout(path_layout)
+
+        layout.addStretch()
+
+        # Dialog Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+        btn_layout.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.clicked.connect(self.reject)
+
+        save_btn = QPushButton("💾 Save Settings")
+        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                font-weight: bold;
+                background-color: #0066CC;
+                color: white;
+                padding: 6px 16px;
+                border-radius: 4px;
+                border: 1px solid #0055AA;
+            }
+            QPushButton:hover {
+                background-color: #0052A3;
+            }
+        """)
+        save_btn.clicked.connect(self._save_and_accept)
+
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(save_btn)
+        layout.addLayout(btn_layout)
+
+    def _browse(self):
+        new_dir = QFileDialog.getExistingDirectory(self, "Select Download Directory", self.path_input.text().strip())
+        if new_dir:
+            self.path_input.setText(new_dir)
+
+    def _open_folder(self):
+        p = Path(self.path_input.text().strip())
+        if not p.exists():
+            try:
+                p.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                QMessageBox.warning(self, "Directory Error", f"Could not create directory:\n{e}")
+                return
+        try:
+            os.startfile(str(p))
+        except Exception as e:
+            QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
+
+    def _save_and_accept(self):
+        self.selected_path = self.path_input.text().strip()
+        self.accept()
+
+    def get_download_path(self) -> str:
+        return self.selected_path
 
 
 class SpecInfoDialog(QDialog):
@@ -191,7 +304,6 @@ class SpecInfoDialog(QDialog):
         else:
             self._add_row(form, "Related WIs", "-")
 
-        # Excluded internal keys
         excluded_keys = {
             'id', 'series_id', 'number', 'type', 'title',
             'url', 'primary_group', 'secondary_groups',
