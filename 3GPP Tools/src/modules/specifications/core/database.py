@@ -1,7 +1,7 @@
 # --- File: src/modules/specifications/core/database.py ---
 import logging
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 from typing import Dict, List, Optional
 
 
@@ -230,7 +230,6 @@ class SpecsDatabase:
                 title = wi.get('title', '')
                 is_primary = 1 if wi.get('is_primary') else 0
 
-                # 1. Stub insertion in work_items if not already present
                 cursor.execute('''
                     INSERT INTO work_items (code, acronym, name, latest_wid, release, start_date, end_date)
                     VALUES (?, ?, ?, '', '', '', '')
@@ -239,7 +238,6 @@ class SpecsDatabase:
                         name = CASE WHEN (name IS NULL OR name = '') THEN excluded.name ELSE name END
                 ''', (code, acronym, title))
 
-                # 2. Map specification to WI
                 cursor.execute('''
                     INSERT OR REPLACE INTO spec_wi_map (spec_id, wi_code, is_primary)
                     VALUES (?, ?, ?)
@@ -348,13 +346,14 @@ class SpecsDatabase:
                 params.extend([f"{s}.%" for s in series_list])
                 query += f" AND ({' OR '.join(clauses)})"
 
-        if tech:
+        if tech and tech != "Any":
             query += " AND (r.name = ? OR sp.radio_technology LIKE ?)"
             params.extend([tech, f"%{tech}%"])
 
-        if group:
-            query += " AND (p_grp.name = ? OR s_grp.name = ?)"
-            params.extend([group, group])
+        # Non-intrusive prefix matching for TSG groups (e.g., 'RAN' matches 'RAN', 'RAN3', etc.)
+        if group and group != "Any":
+            query += " AND (p_grp.name = ? OR p_grp.name LIKE ? OR s_grp.name = ? OR s_grp.name LIKE ?)"
+            params.extend([group, f"{group}%", group, f"{group}%"])
 
         if spec_type and spec_type != "Any":
             query += " AND sp.type = ?"
@@ -380,20 +379,21 @@ class SpecsDatabase:
         """
         params = []
 
-        if series:
+        if series and series != "Any":
             series_list = [s.strip() for s in series.split(',') if s.strip()]
             if series_list:
                 clauses = [f"sp.number LIKE ?" for _ in series_list]
                 params.extend([f"{s}.%" for s in series_list])
                 query += f" AND ({' OR '.join(clauses)})"
 
-        if tech:
+        if tech and tech != "Any":
             query += " AND (r.name = ? OR sp.radio_technology LIKE ?)"
             params.extend([tech, f"%{tech}%"])
 
-        if group:
-            query += " AND (p_grp.name = ? OR s_grp.name = ?)"
-            params.extend([group, group])
+        # Non-intrusive prefix matching for TSG groups
+        if group and group != "Any":
+            query += " AND (p_grp.name = ? OR p_grp.name LIKE ? OR s_grp.name = ? OR s_grp.name LIKE ?)"
+            params.extend([group, f"{group}%", group, f"{group}%"])
 
         if spec_type and spec_type != "Any":
             query += " AND sp.type = ?"
@@ -443,7 +443,6 @@ class SpecsDatabase:
             if sec_groups:
                 details['secondary_groups'] = ", ".join(sec_groups)
 
-            # Attach linked Work Items
             details['related_wis'] = self.get_spec_wis(spec_number)
 
             return details
