@@ -60,6 +60,8 @@ class SpecificationsTab(QWidget):
         self.saved_search = ""
         self.saved_version = ""
         self.saved_downloaded_only = False
+        self.favorites = set()
+        self.favorites_only = False
 
         # Load persisted settings
         self._load_settings()
@@ -90,6 +92,8 @@ class SpecificationsTab(QWidget):
                     self.saved_search = data.get("search_query", "")
                     self.saved_version = data.get("version_query", "")
                     self.saved_downloaded_only = data.get("downloaded_only", False)
+                    self.favorites = set(data.get("favorites", []))
+                    self.favorites_only = data.get("favorites_only", False)
                     saved_filters = data.get("table_filters", {})
                     if isinstance(saved_filters, dict):
                         self.table_filters.update(saved_filters)
@@ -105,6 +109,8 @@ class SpecificationsTab(QWidget):
                 "search_query": self.spec_search_input.text().strip(),
                 "version_query": self.version_search_input.text().strip(),
                 "downloaded_only": self.downloaded_only_cb.isChecked(),
+                "favorites": sorted(list(self.favorites)),
+                "favorites_only": self.favorites_only,
                 "table_filters": self.table_filters,
             }
             with open(self.config_file, "w", encoding="utf-8") as f:
@@ -179,7 +185,6 @@ class SpecificationsTab(QWidget):
         self.sync_menu_btn.setMenu(sync_menu)
         toolbar_layout.addWidget(self.sync_menu_btn)
 
-        # Toolbar quick-action buttons
         self.settings_btn = QPushButton("⚙️ Settings")
         self.settings_btn.setToolTip("Configure the local specifications download folder and paths.")
         self.settings_btn.setCursor(Qt.PointingHandCursor)
@@ -254,6 +259,13 @@ class SpecificationsTab(QWidget):
         chips_label.setStyleSheet("color: #718096; font-size: 11px; font-weight: bold;")
         chips_layout.addWidget(chips_label)
 
+        # Favorites Toggle Chip
+        self.fav_chip = QPushButton("⭐ Favorites (0)")
+        self.fav_chip.setCursor(Qt.PointingHandCursor)
+        self.fav_chip.setToolTip("Toggle view to show only your starred/favorite specifications.")
+        self.fav_chip.clicked.connect(self._toggle_favorites_filter)
+        chips_layout.addWidget(self.fav_chip)
+
         self.chip_buttons = {}
         preset_chips = [
             ("All", ""),
@@ -314,6 +326,39 @@ class SpecificationsTab(QWidget):
         self._update_chip_styles()
 
     # ==========================================
+    # --- FAVORITES MANAGEMENT ---
+    # ==========================================
+    def _toggle_favorite(self, spec_num: str):
+        """Toggle favorite state for a single specification."""
+        if spec_num in self.favorites:
+            self.favorites.remove(spec_num)
+        else:
+            self.favorites.add(spec_num)
+
+        self._save_settings()
+        self._update_chip_styles()
+        self.refresh_table()
+
+    def _batch_set_favorites(self, spec_nums: list, add: bool):
+        """Batch add or remove specifications from favorites."""
+        for num in spec_nums:
+            if add:
+                self.favorites.add(num)
+            else:
+                self.favorites.discard(num)
+
+        self._save_settings()
+        self._update_chip_styles()
+        self.refresh_table()
+
+    def _toggle_favorites_filter(self):
+        """Toggle the favorites-only filter mode."""
+        self.favorites_only = not self.favorites_only
+        self._save_settings()
+        self._update_chip_styles()
+        self.refresh_table()
+
+    # ==========================================
     # --- EVENT HANDLERS & FILTERS ---
     # ==========================================
     def _open_settings_dialog(self):
@@ -341,6 +386,37 @@ class SpecificationsTab(QWidget):
         self.refresh_table()
 
     def _update_chip_styles(self):
+        # Update Favorites Chip Style
+        fav_count = len(self.favorites)
+        self.fav_chip.setText(f"⭐ Favorites ({fav_count})")
+        if self.favorites_only:
+            self.fav_chip.setStyleSheet("""
+                QPushButton {
+                    padding: 2px 10px;
+                    font-size: 11px;
+                    font-weight: bold;
+                    background-color: #FEF3C7;
+                    color: #92400E;
+                    border: 1px solid #F59E0B;
+                    border-radius: 10px;
+                }
+            """)
+        else:
+            self.fav_chip.setStyleSheet("""
+                QPushButton {
+                    padding: 2px 10px;
+                    font-size: 11px;
+                    background-color: #F0F4F8;
+                    color: #4B5563;
+                    border: 1px solid #D1D5DB;
+                    border-radius: 10px;
+                }
+                QPushButton:hover {
+                    background-color: #E5E7EB;
+                }
+            """)
+
+        # Update Series Preset Chips
         current_series = self.table_filters.get("series", "")
         for series_val, chip in self.chip_buttons.items():
             is_active = (current_series == series_val) or (not current_series and series_val == "")
@@ -448,19 +524,45 @@ class SpecificationsTab(QWidget):
         if not selected_rows:
             return
 
-        menu = QMenu()
-        update_action = menu.addAction(f"🔄 Update selected ({len(selected_rows)} specifications)")
-        action = menu.exec_(self.table.viewport().mapToGlobal(position))
-
-        if action == update_action:
-            target_specs = []
-            for index in selected_rows:
-                widget = self.table.cellWidget(index.row(), 0)
+        target_specs = []
+        for index in selected_rows:
+            widget = self.table.cellWidget(index.row(), 0)
+            if widget:
                 num_label = widget.findChild(QLabel, "specNumberLabel")
                 if num_label:
                     target_specs.append(num_label.text().strip())
-            force_meta = self.force_meta_action.isChecked()
-            self.update_specific_requested.emit(target_specs, force_meta)
+
+        if not target_specs:
+            return
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
+            QMenu::item { padding: 5px 20px 5px 15px; color: #333333; }
+            QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+        """)
+
+        # Favorite Toggle Action(s)
+        if len(target_specs) == 1:
+            spec_num = target_specs[0]
+            is_fav = spec_num in self.favorites
+            fav_label = "⭐ Remove from Favorites" if is_fav else "⭐ Add to Favorites"
+            menu.addAction(fav_label).triggered.connect(lambda _, s=spec_num: self._toggle_favorite(s))
+        else:
+            menu.addAction(f"⭐ Add selected ({len(target_specs)}) to Favorites").triggered.connect(
+                lambda: self._batch_set_favorites(target_specs, True)
+            )
+            menu.addAction(f"🗑️ Remove selected ({len(target_specs)}) from Favorites").triggered.connect(
+                lambda: self._batch_set_favorites(target_specs, False)
+            )
+
+        menu.addSeparator()
+        update_action = menu.addAction(f"🔄 Sync metadata for selected ({len(target_specs)})")
+        update_action.triggered.connect(
+            lambda: self.update_specific_requested.emit(target_specs, self.force_meta_action.isChecked())
+        )
+
+        menu.exec_(self.table.viewport().mapToGlobal(position))
 
     def _show_spec_info(self, spec_num: str):
         details = self.db.get_spec_details(spec_num)
@@ -545,11 +647,25 @@ class SpecificationsTab(QWidget):
                         filtered_grouped[s_num] = s_data
                 grouped_specs = filtered_grouped
 
+            # Filter for Favorites Only if enabled
+            if self.favorites_only:
+                filtered_grouped = {}
+                for s_num, s_data in grouped_specs.items():
+                    if s_num in self.favorites:
+                        filtered_grouped[s_num] = s_data
+                grouped_specs = filtered_grouped
+
             total_found = len(grouped_specs)
             rendered_specs = list(grouped_specs.items())[:100]
 
             # Dynamic pill badge status
-            if not spec_query and not version_query and not is_filtered and not downloaded_only:
+            if self.favorites_only:
+                self.count_badge.setText(f"⭐ {total_found} Favorites")
+                self.count_badge.setStyleSheet("""
+                    padding: 2px 10px; font-size: 11px; font-weight: bold;
+                    background-color: #FEF3C7; color: #92400E; border: 1px solid #F59E0B; border-radius: 10px;
+                """)
+            elif not spec_query and not version_query and not is_filtered and not downloaded_only:
                 self.count_badge.setText(f"Top {len(rendered_specs)} specifications")
                 self.count_badge.setStyleSheet("""
                     padding: 2px 10px; font-size: 11px; font-weight: bold;
@@ -571,7 +687,7 @@ class SpecificationsTab(QWidget):
             for row_idx, (spec_num, data) in enumerate(rendered_specs):
                 self.table.insertRow(row_idx)
                 spec_target_dir = base_dl_dir / spec_num
-                dir_has_files = spec_target_dir.exists() and any(spec_target_dir.iterdir())
+                is_fav = spec_num in self.favorites
 
                 # --- COLUMN 0: Action Button + Badged Spec Number ---
                 spec_widget = QWidget()
@@ -596,6 +712,11 @@ class SpecificationsTab(QWidget):
                     QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
                     QMenu::item:disabled { color: #AAAAAA; }
                 """)
+
+                # Favorite Toggle in Kebab Menu
+                fav_label = "⭐ Remove from Favorites" if is_fav else "⭐ Add to Favorites"
+                menu.addAction(fav_label).triggered.connect(lambda _, s=spec_num: self._toggle_favorite(s))
+                menu.addSeparator()
 
                 info_action = menu.addAction("ℹ️  View Details")
                 info_action.triggered.connect(lambda _, s=spec_num: self._show_spec_info(s))
@@ -634,9 +755,13 @@ class SpecificationsTab(QWidget):
                         border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold;
                     """)
 
-                spec_label = QLabel(spec_num)
+                # Specification Number + Favorite Indicator
+                display_title = f"{spec_num} ⭐" if is_fav else spec_num
+                spec_label = QLabel(display_title)
                 spec_label.setObjectName("specNumberLabel")
                 spec_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #1A202C;")
+                if is_fav:
+                    spec_label.setToolTip("Marked as Favorite")
 
                 spec_layout.addWidget(action_btn)
                 spec_layout.addWidget(type_badge)
@@ -650,7 +775,7 @@ class SpecificationsTab(QWidget):
                 # --- COLUMN 2: Documents Action Bar ---
                 version_combo = QComboBox()
                 version_combo.setFixedWidth(195)
-                version_combo.setFixedHeight(28)  # Adjusted to 28px
+                version_combo.setFixedHeight(28)
 
                 def parse_ver(v_str):
                     return [(0, int(x)) if x.isdigit() else (1, str(x)) for x in str(v_str).split(".")]
@@ -676,18 +801,18 @@ class SpecificationsTab(QWidget):
                     )
 
                 doc_action_btn = QPushButton()
-                doc_action_btn.setFixedWidth(150)  # Expanded to 150px
-                doc_action_btn.setFixedHeight(28)  # Adjusted to 28px
+                doc_action_btn.setFixedWidth(150)
+                doc_action_btn.setFixedHeight(28)
                 doc_action_btn.setCursor(Qt.PointingHandCursor)
 
                 doc_menu = QMenu(self)
                 doc_menu.setStyleSheet("""
-                                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
-                                    QMenu::item { padding: 6px 22px 6px 14px; color: #333333; font-size: 12px; }
-                                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-                                    QMenu::item:disabled { color: #AAAAAA; }
-                                    QMenu::separator { height: 1px; background-color: #E2E8F0; margin: 4px 0; }
-                                """)
+                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
+                    QMenu::item { padding: 6px 22px 6px 14px; color: #333333; font-size: 12px; }
+                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+                    QMenu::item:disabled { color: #AAAAAA; }
+                    QMenu::separator { height: 1px; background-color: #E2E8F0; margin: 4px 0; }
+                """)
                 doc_action_btn.setMenu(doc_menu)
 
                 def _update_btn_state(index_ignore=0, c=version_combo, btn=doc_action_btn, menu=doc_menu):
@@ -706,66 +831,62 @@ class SpecificationsTab(QWidget):
                     dir_ready = current_dir.exists() and any(current_dir.iterdir())
 
                     base_style = """
-                                        QPushButton {
-                                            font-size: 11px;
-                                            font-weight: bold;
-                                            padding: 2px 8px;
-                                            border-radius: 4px;
-                                            text-align: center;
-                                        }
-                                        QPushButton::menu-indicator { image: none; width: 0px; }
-                                    """
+                        QPushButton {
+                            font-size: 11px;
+                            font-weight: bold;
+                            padding: 2px 8px;
+                            border-radius: 4px;
+                            text-align: center;
+                        }
+                        QPushButton::menu-indicator { image: none; width: 0px; }
+                    """
 
                     if word_exists:
                         btn.setText("📝 Open Word ▾")
                         btn.setStyleSheet(base_style + """
-                                            QPushButton {
-                                                background-color: #E8F5E9;
-                                                color: #2E7D32;
-                                                border: 1px solid #2E7D32;
-                                            }
-                                            QPushButton:hover { background-color: #C8E6C9; }
-                                        """)
+                            QPushButton {
+                                background-color: #E8F5E9;
+                                color: #2E7D32;
+                                border: 1px solid #2E7D32;
+                            }
+                            QPushButton:hover { background-color: #C8E6C9; }
+                        """)
                     elif zip_exists:
                         btn.setText("⚙️ Extract Word ▾")
                         btn.setStyleSheet(base_style + """
-                                            QPushButton {
-                                                background-color: #FFF3E0;
-                                                color: #E65100;
-                                                border: 1px solid #FFB74D;
-                                            }
-                                            QPushButton:hover { background-color: #FFE0B2; }
-                                        """)
+                            QPushButton {
+                                background-color: #FFF3E0;
+                                color: #E65100;
+                                border: 1px solid #FFB74D;
+                            }
+                            QPushButton:hover { background-color: #FFE0B2; }
+                        """)
                     else:
                         btn.setText("⬇️ Get Word ▾")
                         btn.setStyleSheet(base_style + """
-                                            QPushButton {
-                                                background-color: #EBF3FB;
-                                                color: #0066CC;
-                                                border: 1px solid #B0D0F0;
-                                            }
-                                            QPushButton:hover { background-color: #D6E8FA; border-color: #0066CC; }
-                                        """)
+                            QPushButton {
+                                background-color: #EBF3FB;
+                                color: #0066CC;
+                                border: 1px solid #B0D0F0;
+                            }
+                            QPushButton:hover { background-color: #D6E8FA; border-color: #0066CC; }
+                        """)
 
                     menu.clear()
 
-                    word_label = "📝 Open Word Document" if word_exists else (
-                        "⚙️ Extract Word Document" if zip_exists else "⬇️ Download & Open Word")
+                    word_label = "📝 Open Word Document" if word_exists else ("⚙️ Extract Word Document" if zip_exists else "⬇️ Download & Open Word")
                     act_word = menu.addAction(f"{word_label} {'✅' if word_exists else ''}".strip())
                     act_word.triggered.connect(lambda: self._handle_document_action(c, "word", btn))
 
-                    pdf_label = "📕 Open PDF" if pdf_exists else (
-                        "⚙️ Convert to PDF" if (word_exists or zip_exists) else "⬇️ Get & Convert to PDF")
+                    pdf_label = "📕 Open PDF" if pdf_exists else ("⚙️ Convert to PDF" if (word_exists or zip_exists) else "⬇️ Get & Convert to PDF")
                     act_pdf = menu.addAction(f"{pdf_label} {'✅' if pdf_exists else ''}".strip())
                     act_pdf.triggered.connect(lambda: self._handle_document_action(c, "pdf", btn))
 
-                    html_label = "🌐 Open HTML" if html_exists else (
-                        "⚙️ Convert to HTML" if (word_exists or zip_exists) else "⬇️ Get & Convert to HTML")
+                    html_label = "🌐 Open HTML" if html_exists else ("⚙️ Convert to HTML" if (word_exists or zip_exists) else "⬇️ Get & Convert to HTML")
                     act_html = menu.addAction(f"{html_label} {'✅' if html_exists else ''}".strip())
                     act_html.triggered.connect(lambda: self._handle_document_action(c, "html", btn))
 
-                    txt_label = "📄 Open TXT" if txt_exists else (
-                        "⚙️ Convert to TXT" if (word_exists or zip_exists) else "⬇️ Get & Convert to TXT")
+                    txt_label = "📄 Open TXT" if txt_exists else ("⚙️ Convert to TXT" if (word_exists or zip_exists) else "⬇️ Get & Convert to TXT")
                     act_txt = menu.addAction(f"{txt_label} {'✅' if txt_exists else ''}".strip())
                     act_txt.triggered.connect(lambda: self._handle_document_action(c, "txt", btn))
 
