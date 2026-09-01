@@ -624,95 +624,6 @@ class MeetingsTab(QWidget):
         if targets: self.update_specific_requested.emit(targets, self.chk_wg.isChecked(), self.chk_docs.isChecked(),
                                                         self.chk_dyna.isChecked())
 
-    def _populate_dynamic_menu(self, menu: QMenu, row_data: dict, row_idx: int):
-        menu.clear()
-        selected_rows = self.table.selectionModel().selectedRows()
-        if len(selected_rows) > 1 and any(r.row() == row_idx for r in selected_rows):
-            menu.addAction(f"🔄 Sync selected ({len(selected_rows)} meetings)").triggered.connect(
-                lambda _, rows=selected_rows: self._emit_multi_sync(rows))
-            menu.addSeparator()
-            menu.addAction(f"🗑️ Delete selected ({len(selected_rows)} meetings)").triggered.connect(
-                lambda _, rows=selected_rows: self._emit_multi_delete(rows))
-        else:
-            menu.addAction("ℹ️ Meeting Info").triggered.connect(lambda _, d=row_data: self.show_meeting_info(d))
-
-            mtg_id = row_data.get("mtg_id")
-            if mtg_id:
-                menu.addAction("🖥️ 3GU Meeting Portal").triggered.connect(
-                    lambda _, m=mtg_id: webbrowser.open(f"https://portal.3gpp.org/Home.aspx#/meeting?MtgId={m}")
-                )
-
-                end_date_str = row_data.get("end_date", "")
-                end_date = QDate.fromString(end_date_str, "yyyy-MM-dd")
-                current_date = QDate.currentDate()
-
-                if not end_date.isValid() or end_date >= current_date:
-                    menu.addAction("📝 Reserve / Contribute TDoc").triggered.connect(
-                        lambda _, m=mtg_id: webbrowser.open(
-                            f"https://portal.3gpp.org/ngppapp/CreateTdoc.Aspx?mode=create&meetingId={m}")
-                    )
-
-            menu.addAction("🔄 Sync this Meeting").triggered.connect(lambda: self.update_specific_requested.emit(
-                [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}], self.chk_wg.isChecked(),
-                self.chk_docs.isChecked(), self.chk_dyna.isChecked()))
-            menu.addSeparator()
-
-            raw_url = row_data.get("url_key", "")
-            if raw_url:
-                full_ftp_url = raw_url if raw_url.startswith("http") else f"https://www.3gpp.org/ftp/{raw_url}"
-                menu.addAction("🌐 Open Main Folder (FTP)").triggered.connect(
-                    lambda _, u=full_ftp_url: webbrowser.open(u))
-
-            docs_url = row_data.get("docs_folder_url")
-            if docs_url:
-                menu.addAction("📂 Open Documents Folder").triggered.connect(lambda _, u=docs_url: webbrowser.open(u))
-
-            folder_name = row_data.get("folder_name") or row_data.get("meeting_number", "")
-
-            if folder_name:
-                current_cache = self.dl_dir_input.text().strip() if hasattr(self,
-                                                                            'dl_dir_input') else self.settings.cache_dir
-                local_path = Path(current_cache) / folder_name
-
-                if local_path.exists() and local_path.is_dir():
-                    menu.addAction("📁 Open Local Cache Folder").triggered.connect(
-                        lambda _, p=str(local_path): os.startfile(p) if hasattr(os, 'startfile') else webbrowser.open(
-                            f"file:///{p}")
-                    )
-
-                mtg_id = row_data.get("mtg_id")
-                if mtg_id:
-                    container = self.table.indexWidget(self.table_model.index(row_idx, 1))
-                    if container:
-                        tdocs_btn = container.findChild(QPushButton)
-                        if tdocs_btn and tdocs_btn.isEnabled():
-                            menu.addAction("📗 Open TDocs List").triggered.connect(tdocs_btn.click)
-
-                if docs_url:
-                    menu.addAction("📥 Cache TDocs (Docs/)").triggered.connect(
-                        lambda _, u=docs_url, p=local_path: self._start_tdocs_caching(u, p)
-                    )
-
-            wg_name = row_data.get("wg_name", "")
-            meeting_name = row_data.get("name", "")
-            start_date = row_data.get("start_date", "")
-            end_date = row_data.get("end_date", "")
-            is_elec = row_data.get("is_electronic", 0)
-
-            if self.db.is_active_sync_meeting(wg_name, start_date, end_date, is_elec):
-                menu.addSeparator()
-                sync_wg = "SA3LI" if wg_name == "SA3" and "LI" in meeting_name.upper() else wg_name
-                sync_base_url = f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{sync_wg}"
-
-                menu.addAction("🔄 Open SYNC folder (FTP)").triggered.connect(
-                    lambda _, u=sync_base_url: webbrowser.open(u))
-                menu.addAction("📂 Open SYNC Documents folder").triggered.connect(
-                    lambda _, u=f"{sync_base_url}/Docs": webbrowser.open(u))
-
-            menu.addSeparator()
-            menu.addAction("🗑️ Delete this Meeting").triggered.connect(lambda: self._confirm_delete_specific(
-                [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}]))
-
     def show_right_click_menu(self, pos: QPoint):
         index = self.table.indexAt(pos)
         if index.isValid():
@@ -743,24 +654,6 @@ class MeetingsTab(QWidget):
                     return file_path
 
         return agenda_dir / f"TDoc_List_Meeting_{mtg_id}.xlsx"
-
-    def _download_and_open_tdocs(self, row_data: dict, row_idx: int):
-        mtg_id = row_data.get("mtg_id")
-        row_data['tdoc_btn_status'] = 'fetching'
-
-        index = self.table_model.index(row_idx, 1)
-        self.table_model.dataChanged.emit(index, index)
-
-        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.settings.cache_dir
-        folder_name = row_data.get("folder_name") or row_data.get("meeting_number", "")
-        local_path = Path(current_cache) / folder_name
-
-        thread = TDocsDownloaderThread(mtg_id, local_path, self)
-        self._active_dl_threads[mtg_id] = thread
-
-        thread.finished.connect(
-            lambda success, res, m_id: self._on_inline_download_finished(success, res, m_id, row_data, row_idx))
-        thread.start()
 
     def _open_tdocs_window(self, mtg_info: dict, filepath: str):
         self.settings.save_last_meeting(mtg_info)
@@ -818,6 +711,127 @@ class MeetingsTab(QWidget):
             self.btn_open_last.setText("🚀 Open Last Meeting")
             self.btn_open_last.setToolTip("No recent meeting history found. Please open a meeting first.")
 
+    def _populate_dynamic_menu(self, menu: QMenu, row_data: dict, row_idx: int):
+        menu.clear()
+        selected_rows = self.table.selectionModel().selectedRows()
+        if len(selected_rows) > 1 and any(r.row() == row_idx for r in selected_rows):
+            menu.addAction(f"🔄 Sync selected ({len(selected_rows)} meetings)").triggered.connect(
+                lambda _, rows=selected_rows: self._emit_multi_sync(rows))
+            menu.addSeparator()
+            menu.addAction(f"🗑️ Delete selected ({len(selected_rows)} meetings)").triggered.connect(
+                lambda _, rows=selected_rows: self._emit_multi_delete(rows))
+        else:
+            menu.addAction("ℹ️ Meeting Info").triggered.connect(lambda _, d=row_data: self.show_meeting_info(d))
+
+            mtg_id = row_data.get("mtg_id")
+            if mtg_id:
+                menu.addAction("🖥️ 3GU Meeting Portal").triggered.connect(
+                    lambda _, m=mtg_id: webbrowser.open(f"https://portal.3gpp.org/Home.aspx#/meeting?MtgId={m}")
+                )
+
+                end_date_str = row_data.get("end_date", "")
+                end_date = QDate.fromString(end_date_str, "yyyy-MM-dd")
+                current_date = QDate.currentDate()
+
+                if not end_date.isValid() or end_date >= current_date:
+                    menu.addAction("📝 Reserve / Contribute TDoc").triggered.connect(
+                        lambda _, m=mtg_id: webbrowser.open(
+                            f"https://portal.3gpp.org/ngppapp/CreateTdoc.Aspx?mode=create&meetingId={m}")
+                    )
+
+            menu.addAction("🔄 Sync this Meeting").triggered.connect(lambda: self.update_specific_requested.emit(
+                [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}], self.chk_wg.isChecked(),
+                self.chk_docs.isChecked(), self.chk_dyna.isChecked()))
+            menu.addSeparator()
+
+            raw_url = row_data.get("url_key", "")
+            if raw_url:
+                full_ftp_url = raw_url if raw_url.startswith("http") else f"https://www.3gpp.org/ftp/{raw_url}"
+                menu.addAction("🌐 Open Main Folder (FTP)").triggered.connect(
+                    lambda _, u=full_ftp_url: webbrowser.open(u))
+
+            docs_url = row_data.get("docs_folder_url")
+            if docs_url:
+                menu.addAction("📂 Open Documents Folder").triggered.connect(lambda _, u=docs_url: webbrowser.open(u))
+
+            folder_name = row_data.get("folder_name") or row_data.get("meeting_number", "")
+
+            if folder_name:
+                current_cache = self.dl_dir_input.text().strip() if hasattr(self,
+                                                                            'dl_dir_input') else self.settings.cache_dir
+                local_path = Path(current_cache) / folder_name
+
+                if local_path.exists() and local_path.is_dir():
+                    menu.addAction("📁 Open Local Cache Folder").triggered.connect(
+                        lambda _, p=str(local_path): os.startfile(p) if hasattr(os, 'startfile') else webbrowser.open(
+                            f"file:///{p}")
+                    )
+
+                if mtg_id:
+                    status = row_data.get('tdoc_btn_status', 'na')
+                    if status == 'open':
+                        menu.addAction("📗 Open TDocs List").triggered.connect(
+                            lambda _, d=row_data: self._open_tdocs_window(d, d.get('tdoc_filepath'))
+                        )
+                    elif status == 'get':
+                        menu.addAction("⬇️ Get TDocs List").triggered.connect(
+                            lambda _, d=row_data, r=row_idx: self._download_and_open_tdocs(d, r)
+                        )
+
+                if docs_url:
+                    menu.addAction("📥 Cache TDocs (Docs/)").triggered.connect(
+                        lambda _, u=docs_url, p=local_path: self._start_tdocs_caching(u, p)
+                    )
+
+            wg_name = row_data.get("wg_name", "")
+            meeting_name = row_data.get("name", "")
+            start_date = row_data.get("start_date", "")
+            end_date = row_data.get("end_date", "")
+            is_elec = row_data.get("is_electronic", 0)
+
+            if self.db.is_active_sync_meeting(wg_name, start_date, end_date, is_elec):
+                menu.addSeparator()
+                sync_wg = "SA3LI" if wg_name == "SA3" and "LI" in meeting_name.upper() else wg_name
+                sync_base_url = f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{sync_wg}"
+
+                menu.addAction("🔄 Open SYNC folder (FTP)").triggered.connect(
+                    lambda _, u=sync_base_url: webbrowser.open(u))
+                menu.addAction("📂 Open SYNC Documents folder").triggered.connect(
+                    lambda _, u=f"{sync_base_url}/Docs": webbrowser.open(u))
+
+            menu.addSeparator()
+            menu.addAction("🗑️ Delete this Meeting").triggered.connect(lambda: self._confirm_delete_specific(
+                [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}]))
+
+    def _download_and_open_tdocs(self, row_data: dict, row_idx: int = -1):
+        mtg_id = row_data.get("mtg_id")
+        row_data['tdoc_btn_status'] = 'fetching'
+
+        # Resolve the table row index dynamically if not provided
+        if not isinstance(row_idx, int) or row_idx < 0:
+            row_idx = -1
+            if hasattr(self.table_model, '_data'):
+                for i, r in enumerate(self.table_model._data):
+                    if r.get('mtg_id') == mtg_id:
+                        row_idx = i
+                        break
+
+        # Safely notify the table model to repaint the button cell if the row is visible
+        if isinstance(row_idx, int) and row_idx >= 0:
+            index = self.table_model.index(row_idx, 1)
+            self.table_model.dataChanged.emit(index, index)
+
+        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.settings.cache_dir
+        folder_name = row_data.get("folder_name") or row_data.get("meeting_number", "")
+        local_path = Path(current_cache) / folder_name
+
+        thread = TDocsDownloaderThread(mtg_id, local_path, self)
+        self._active_dl_threads[mtg_id] = thread
+
+        thread.finished.connect(
+            lambda success, res, m_id: self._on_inline_download_finished(success, res, m_id, row_data, row_idx))
+        thread.start()
+
     def _open_last_meeting(self):
         try:
             last_id, last_num, last_wg = self.settings.get_last_meeting()
@@ -847,7 +861,7 @@ class MeetingsTab(QWidget):
             if filepath and filepath.exists():
                 self._open_tdocs_window(target_meeting, str(filepath))
             else:
-                self._download_and_open_tdocs(target_meeting, 0)
+                self._download_and_open_tdocs(target_meeting)
 
         except Exception as e:
             QMessageBox.critical(self, "Launch Error", f"Could not open last meeting:\n{e}")
