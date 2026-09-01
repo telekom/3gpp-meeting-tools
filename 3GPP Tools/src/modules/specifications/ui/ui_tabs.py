@@ -251,7 +251,7 @@ class SpecificationsTab(QWidget):
 
         main_layout.addLayout(search_layout)
 
-        # --- ROW 3: Quick Series Preset Chips & Status Banner ---
+        # --- ROW 3: Quick TSG Preset Chips & Status Banner ---
         chips_layout = QHBoxLayout()
         chips_layout.setSpacing(4)
 
@@ -266,20 +266,25 @@ class SpecificationsTab(QWidget):
         self.fav_chip.clicked.connect(self._toggle_favorites_filter)
         chips_layout.addWidget(self.fav_chip)
 
+        # TSG Preset Chips (RAN, SA, CT)
         self.chip_buttons = {}
         preset_chips = [
             ("All", ""),
-            ("23 (SA2)", "23"),
-            ("38 (RAN)", "38"),
-            ("24 (CT)", "24"),
-            ("36 (LTE)", "36"),
+            ("RAN", "RAN"),
+            ("SA", "SA"),
+            ("CT", "CT"),
         ]
 
-        for label, series_val in preset_chips:
+        for label, tsg_val in preset_chips:
             chip = QPushButton(label)
             chip.setCursor(Qt.PointingHandCursor)
-            chip.clicked.connect(lambda _, s=series_val: self._on_chip_clicked(s))
-            self.chip_buttons[series_val] = chip
+            chip.setToolTip(
+                f"Filter all specifications under TSG {label} (Plenary and all Working Groups)"
+                if tsg_val
+                else "Show specifications across all Technical Specification Groups"
+            )
+            chip.clicked.connect(lambda _, t=tsg_val: self._on_chip_clicked(t))
+            self.chip_buttons[tsg_val] = chip
             chips_layout.addWidget(chip)
 
         chips_layout.addStretch()
@@ -374,11 +379,12 @@ class SpecificationsTab(QWidget):
         self.search_timer.start()
         self.save_settings_timer.start()
 
-    def _on_chip_clicked(self, series_val: str):
-        if self.table_filters.get("series") == series_val and series_val != "":
-            self.table_filters["series"] = ""
+    def _on_chip_clicked(self, tsg_val: str):
+        """Handle TSG preset chip clicks (RAN, SA, CT, All)."""
+        if self.table_filters.get("group") == tsg_val and tsg_val != "":
+            self.table_filters["group"] = ""
         else:
-            self.table_filters["series"] = series_val
+            self.table_filters["group"] = tsg_val
 
         self._update_chip_styles()
         self._update_filter_ui()
@@ -416,14 +422,18 @@ class SpecificationsTab(QWidget):
                 }
             """)
 
-        # Update Series Preset Chips
-        current_series = self.table_filters.get("series", "")
-        for series_val, chip in self.chip_buttons.items():
-            is_active = (current_series == series_val) or (not current_series and series_val == "")
+        # Update TSG Preset Chips
+        current_group = self.table_filters.get("group", "")
+        for tsg_val, chip in self.chip_buttons.items():
+            if tsg_val == "":
+                is_active = (current_group == "")
+            else:
+                is_active = (current_group == tsg_val)
+
             if is_active:
                 chip.setStyleSheet("""
                     QPushButton {
-                        padding: 2px 8px;
+                        padding: 2px 10px;
                         font-size: 11px;
                         font-weight: bold;
                         background-color: #0066CC;
@@ -435,7 +445,7 @@ class SpecificationsTab(QWidget):
             else:
                 chip.setStyleSheet("""
                     QPushButton {
-                        padding: 2px 8px;
+                        padding: 2px 10px;
                         font-size: 11px;
                         background-color: #F0F4F8;
                         color: #2D3748;
