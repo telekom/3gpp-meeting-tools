@@ -80,7 +80,8 @@ class GlobalSearchController:
                                    silent_cart=True)
 
     def action_open_meeting_list(self):
-        if not self.current_found_meeting: return
+        if not self.current_found_meeting:
+            return
         meeting = self.current_found_meeting
 
         self.tab.btn_open_meeting.setText("⏳ Load...")
@@ -91,8 +92,7 @@ class GlobalSearchController:
         if filepath and filepath.exists():
             self.tab._open_tdocs_window(meeting, str(filepath))
         else:
-            dummy_btn = QPushButton()
-            self.tab._download_and_open_tdocs(meeting, dummy_btn)
+            self.tab._download_and_open_tdocs(meeting)
 
         self.tab.btn_open_meeting.setText("🗓️ Mtg")
         self.tab.btn_open_meeting.setEnabled(True)
