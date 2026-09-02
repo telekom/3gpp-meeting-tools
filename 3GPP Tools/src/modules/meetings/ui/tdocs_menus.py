@@ -288,6 +288,28 @@ def build_row_context_menu(
         lambda: _copy_text(citation, "Citation", parent)
     )
 
+    if docs_ftp_url and tdoc_id and tdoc_id.upper() != "UNKNOWN":
+        clean_docs_url = docs_ftp_url.rstrip('/')
+        if clean_docs_url.startswith("ftp://"):
+            clean_docs_url = "https://" + clean_docs_url[6:]
+        elif not clean_docs_url.startswith("http"):
+            clean_docs_url = "https://www.3gpp.org/ftp/" + clean_docs_url.lstrip('/')
+
+        clean_docs_url = clean_docs_url.replace("https://ftp.3gpp.org/", "https://www.3gpp.org/ftp/")
+
+        if not clean_docs_url.endswith("/Docs") and not clean_docs_url.endswith("/docs"):
+            if "/Docs" not in clean_docs_url and "/docs" not in clean_docs_url:
+                clean_docs_url = f"{clean_docs_url}/Docs"
+
+        base_match = re.match(r"^([A-Za-z0-9]+-\d+)", tdoc_id)
+        base_tdoc = base_match.group(1).upper() if base_match else tdoc_id.upper()
+        baseline_url = f"{clean_docs_url}/{base_tdoc}.zip"
+
+        act_copy_url = copy_sub.addAction("📋 Copy Baseline Document URL")
+        act_copy_url.triggered.connect(
+            lambda: _copy_text(baseline_url, "Baseline Document URL", parent)
+        )
+
     menu.exec_(pos or QCursor.pos())
 
 
