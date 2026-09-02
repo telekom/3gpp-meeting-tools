@@ -248,6 +248,8 @@ class TDocsWindow(QWidget):
         email_menu.addAction("🔄 Sync Related Emails...", self._on_sync_general_emails)
         email_menu.addAction("⚙️ Configure Outlook Folders...", self._on_configure_email_folders)
         email_menu.addAction("✔️ Mark All Emails as Read", self._on_mark_all_emails_read)
+        email_menu.addSeparator()
+        email_menu.addAction("🗑️ Wipe Generic Emails Database...", self._on_wipe_generic_emails)
         if self.is_sa2_electronic:
             email_menu.addSeparator()
             email_menu.addAction("📊 Open eMeeting Email Manager (Dashboard)", self._open_email_manager)
@@ -630,7 +632,6 @@ class TDocsWindow(QWidget):
         tag_str = f"[{', '.join(tag_parts)}] " if tag_parts else ""
         subject = f"{tag_str}{tdoc_id} {title}".strip()
 
-        # Encode URL parameters and launch shell mail handler
         encoded_subject = urllib.parse.quote(subject, safe='')
         mailto_url = f"mailto:?subject={encoded_subject}"
 
@@ -1211,7 +1212,6 @@ class TDocsWindow(QWidget):
         self.refresh_btn.setEnabled(False)
         self.refresh_btn.setText("⏳ Downloading Notes...")
 
-        # Target subfolder
         chair_notes_dir = self.meeting_dir / "Agenda" / "ChairNotes"
         self.chair_notes_thread = ChairNotesDownloaderThread(candidate_urls, chair_notes_dir)
         self.chair_notes_thread.progress.connect(lambda msg: self.refresh_btn.setText(f"⏳ {msg}"[:30]))
@@ -1247,7 +1247,6 @@ class TDocsWindow(QWidget):
         is_visible_only = dialog.is_visible_only()
         auto_open = dialog.should_auto_open()
 
-        # Extract target rows
         if is_visible_only:
             rows_to_export = []
             for r in range(self.proxy.rowCount()):
@@ -1260,7 +1259,6 @@ class TDocsWindow(QWidget):
             QMessageBox.warning(self, "No Data", "There are no rows available to export.")
             return
 
-        # Default suggested filename
         wg = str(self.mtg_info.get("wg_name", "3GPP")).strip().replace(" ", "_")
         mtg = str(self.mtg_info.get("meeting_number", "")).strip()
         scope_str = "Filtered" if is_visible_only else "All"
@@ -1323,7 +1321,8 @@ class TDocsWindow(QWidget):
         if not tdoc_id:
             return
         family = self.model.get_family_tdocs(tdoc_id)
-        dialog = TDocEmailsDialog(tdoc_id, family, self.general_email_db.db_path, self)
+        wg = self.mtg_info.get("wg_name", "SA2")
+        dialog = TDocEmailsDialog(tdoc_id, family, self.general_email_db.db_path, wg=wg, parent=self)
         dialog.data_changed.connect(self._refresh_email_counts)
         dialog.exec_()
 
@@ -1375,6 +1374,22 @@ class TDocsWindow(QWidget):
         self.general_email_db.mark_all_read()
         self._refresh_email_counts()
         QMessageBox.information(self, "Mark All Read", "All emails have been marked as read.")
+
+    def _on_wipe_generic_emails(self):
+        """Fast wipe of the generic emails tables only, preserving SA2 eMeeting tables."""
+        reply = QMessageBox.question(
+            self,
+            "Confirm Wipe Generic Emails",
+            "Are you sure you want to completely wipe all generic email records for this meeting?\n\n"
+            "• SA2 eMeeting tables will be preserved.\n"
+            "• You can re-sync from Outlook anytime.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.general_email_db.wipe_generic_emails()
+            self._refresh_email_counts()
+            QMessageBox.information(self, "Database Wiped", "Generic email records have been wiped.")
 
     def _on_table_context_menu(self, pos: QPoint):
         """Displays row-level context actions to inspect related emails and toggle read status."""
