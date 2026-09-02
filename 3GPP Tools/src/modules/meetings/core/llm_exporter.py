@@ -64,6 +64,8 @@ class LLMExporterThread(QThread):
             saved_files = []
 
             for tdoc_data in self.tdocs_list:
+                if self.isInterruptionRequested():
+                    break
                 tdoc_id = str(tdoc_data.get("TDoc", "")).strip()
                 if not tdoc_id:
                     continue
@@ -197,9 +199,11 @@ class LLMExporterThread(QThread):
         finally:
             if word_app:
                 try:
-                    word_app.Quit()
+                    word_app.DisplayAlerts = 0
+                    word_app.Quit(SaveChanges=0)
                 except Exception:
                     pass
+                del word_app
             pythoncom.CoUninitialize()
 
     def _find_word_doc(self, folder: Path, tdoc_id: str):
