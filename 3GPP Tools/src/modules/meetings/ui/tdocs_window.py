@@ -730,12 +730,31 @@ class TDocsWindow(QWidget):
         if is_stats:
             self.stats_btn.setText("📊 Statistics")
             self.stats_btn.setEnabled(True)
-        if success:
-            QMessageBox.information(self, "Export Complete", f"Successfully generated:\n{msg}")
-            if hasattr(os, 'startfile'):
-                os.startfile(str(msg))
-        else:
+
+        if not success:
             QMessageBox.warning(self, "Export Failed", msg)
+            return
+
+        # Avoid redundant prefixing if the message already includes status text
+        info_msg = msg if "successfully" in msg.lower() else f"Successfully generated:\n{msg}"
+        QMessageBox.information(self, "Export Complete", info_msg)
+
+        # Extract the target file or directory path from the message
+        target_path = None
+        for line in reversed(str(msg).splitlines()):
+            candidate = Path(line.strip().strip('"').strip("'"))
+            if candidate.exists():
+                target_path = candidate
+                break
+
+        # Fallback to the meeting's Export directory if an exact path wasn't found
+        if not target_path or not target_path.exists():
+            fallback_dir = self.meeting_dir / "Export"
+            if fallback_dir.exists():
+                target_path = fallback_dir
+
+        if target_path and target_path.exists():
+            _open_folder(target_path)
 
     def _scroll_to_tdoc(self, target_tdoc: str):
         match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', target_tdoc, re.IGNORECASE)
