@@ -3,8 +3,9 @@ import html
 import json
 import logging
 import re
+import webbrowser
 from pathlib import Path
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QDate
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QDate, QUrl
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableView,
     QHeaderView, QTextBrowser, QCheckBox, QAbstractItemView, QFrame,
@@ -216,6 +217,7 @@ class GeneralEmailSyncDialog(QDialog):
 
 class TDocEmailsDialog(QDialog):
     data_changed = pyqtSignal()
+    tdoc_selected = pyqtSignal(str)  # Emitted when a user clicks any TDoc link
 
     def __init__(self, target_tdoc: str, family_tdocs: list, db_path: Path, wg: str = "SA2", parent=None):
         super().__init__(parent)
@@ -228,10 +230,9 @@ class TDocEmailsDialog(QDialog):
         self.db = GeneralEmailDatabase(db_path)
         self.tag_colors = {f.get("tag", "").upper(): f.get("color", "#0078D7") for f in load_wg_email_config(self.wg)}
 
-        # ---> THE FIX: Treat as a standalone top-level window with full Minimize/Maximize controls
+        # Modeless top-level window configuration (allows background UI access)
         self.setWindowFlags(Qt.Window)
         self.setWindowModality(Qt.NonModal)
-
         self.setWindowTitle(f"📧 Related Emails: {self.target_tdoc}")
         self.resize(1100, 700)
         self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
@@ -313,7 +314,7 @@ class TDocEmailsDialog(QDialog):
         act_row.addWidget(self.btn_open_outlook)
         layout.addLayout(act_row)
 
-        # Main Table (ExtendedSelection enabled)
+        # Main Table
         self.table = QTableView()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -342,28 +343,22 @@ class TDocEmailsDialog(QDialog):
         hdr.setSectionResizeMode(7, QHeaderView.Stretch)
         layout.addWidget(self.table, stretch=2)
 
-        # Reading Pane
+        # Reading Pane with Link Interception
         self.reading_pane = QTextBrowser()
+        self.reading_pane.setOpenLinks(False)  # Prevents internal browser navigation
+        self.reading_pane.anchorClicked.connect(self._on_anchor_clicked)
         self.reading_pane.setStyleSheet("background: white; border: 1px solid #CCC; padding: 8px;")
         layout.addWidget(self.reading_pane, stretch=1)
 
     @staticmethod
     def _compress_blank_lines(text: str, max_consecutive_empty: int = 1) -> str:
-        """
-        Collapses multiple consecutive empty or whitespace-only lines (including
-        spaces, tabs, and non-breaking spaces like \xa0 from Outlook) into a single blank line.
-        """
         if not text:
             return ""
-
-        # Normalize line breaks and remove null characters
         normalized = text.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
         lines = normalized.split("\n")
-
         cleaned_lines = []
         empty_count = 0
         for line in lines:
-            # Strip all Unicode whitespace (including \xa0, \t, etc.)
             if not line.strip():
                 empty_count += 1
                 if empty_count <= max_consecutive_empty:
@@ -371,14 +366,50 @@ class TDocEmailsDialog(QDialog):
             else:
                 empty_count = 0
                 cleaned_lines.append(line.rstrip())
-
         return "\n".join(cleaned_lines).strip()
+
+    def _linkify_tdocs(self, text_escaped: str) -> str:
+        """
+        Converts all 3GPP TDoc references into clickable single-click hyperlinks.
+        Highlights current family TDocs in yellow, and other TDocs in interactive blue links.
+        """
+        tdoc_pattern = re.compile(r'\b([A-Za-z0-9]{2,4}-\d{6,8}(?:r\d{1,2}[a-zA-Z]?)?)\b')
+        family_set = {t.upper() for t in self.family_tdocs}
+
+        def replace_tdoc(m):
+            full_match = m.group(1)
+            match_upper = full_match.upper()
+            base_tdoc = match_upper.split('R')[0] if 'R' in match_upper else match_upper
+
+            is_current_family = (match_upper in family_set) or (base_tdoc in family_set)
+
+            if is_current_family:
+                return (
+                    f'<a href="tdoc:{match_upper}" '
+                    f'style="background-color: #FFF176; color: #004085; font-weight: bold; text-decoration: underline; padding: 0 2px; border-radius: 2px;" '
+                    f'title="Currently inspecting: {match_upper} (Click to refresh/open)">{full_match}</a>'
+                )
+            else:
+                return (
+                    f'<a href="tdoc:{match_upper}" '
+                    f'style="color: #005A9E; font-weight: bold; text-decoration: underline; padding: 0 2px;" '
+                    f'title="Click to view related emails for {match_upper}">🔗 {full_match}</a>'
+                )
+
+        return tdoc_pattern.sub(replace_tdoc, text_escaped)
+
+    def _on_anchor_clicked(self, url: QUrl):
+        url_str = url.toString()
+        if url_str.startswith("tdoc:"):
+            target_tdoc = url_str.split(":", 1)[1].strip()
+            self.tdoc_selected.emit(target_tdoc)
+        elif url_str.startswith("mailto:") or url_str.startswith("http://") or url_str.startswith("https://"):
+            webbrowser.open(url_str)
 
     def _load_emails(self):
         query_set = set(self.family_tdocs) if self.chk_family.isChecked() else {self.target_tdoc}
         raw_emails = self.db.get_emails_for_tdocs(query_set, show_ignored=self.chk_show_ignored.isChecked())
 
-        # Filter out quoted matches if unchecked
         if not self.chk_include_quoted.isChecked():
             self.emails = [e for e in raw_emails if e.get("match_location") != "Quoted"]
         else:
@@ -460,26 +491,22 @@ class TDocEmailsDialog(QDialog):
         e = self.emails[primary_idx]
 
         raw_body = e.get("body_text", "")
-        # Compress blank and whitespace-only lines to at most 1 empty line
         cleaned = self._compress_blank_lines(raw_body, max_consecutive_empty=1)
-
-        # Safe HTML conversion
         body_escaped = html.escape(cleaned)
 
-        # Highlight TDoc references
-        pattern = re.compile(rf"\b({'|'.join(re.escape(t) for t in self.family_tdocs)})\b", re.IGNORECASE)
-        body_hl = pattern.sub(r"<span style='background-color: #FFF176; color: #000; font-weight: bold;'>\1</span>", body_escaped)
-        body_html = body_hl.replace("\n", "<br>")
+        # Convert all TDocs in body to clickable links
+        body_html = self._linkify_tdocs(body_escaped).replace("\n", "<br>")
 
         # Match Context Excerpt
         match_excerpt = ""
+        pattern = re.compile(rf"\b({'|'.join(re.escape(t) for t in self.family_tdocs)})\b", re.IGNORECASE)
         found_matches = list(pattern.finditer(cleaned))
         if found_matches:
             m = found_matches[0]
             start = max(0, m.start() - 60)
             end = min(len(cleaned), m.end() + 60)
             snippet = html.escape(cleaned[start:end]).replace("\n", " ")
-            snippet_hl = pattern.sub(r"<span style='background-color: #FFF176; color: #000; font-weight: bold;'>\1</span>", snippet)
+            snippet_hl = self._linkify_tdocs(snippet)
             loc_label = e.get("match_location", "Body")
             match_excerpt = f"""
             <div style='background-color: #FFF8E1; border: 1px solid #FFE082; border-radius: 4px; padding: 6px; margin: 6px 0; font-size: 11px;'>
@@ -487,11 +514,15 @@ class TDocEmailsDialog(QDialog):
             </div>
             """
 
+        # Linkify the Subject Header
+        subject_escaped = html.escape(e.get('subject', ''))
+        subject_html = self._linkify_tdocs(subject_escaped)
+
         ignored_banner = "<p style='color: #D83B01; font-weight: bold; margin: 4px 0;'>⚠️ This email is currently IGNORED from TDoc counts.</p>" if e.get("is_ignored") else ""
 
         full_html = f"""
         {ignored_banner}
-        <h3 style='margin: 0 0 4px 0; color: #005A9E;'>{html.escape(e.get('subject', ''))}</h3>
+        <h3 style='margin: 0 0 4px 0; color: #005A9E;'>{subject_html}</h3>
         <p style='color: #555; margin: 0 0 6px 0; font-size: 12px;'>
             <b>From:</b> {html.escape(e.get('sender_name', ''))} &lt;{html.escape(e.get('sender_email', ''))}&gt; ({html.escape(e.get('company', ''))}) | 
             <b>Date:</b> {html.escape(e.get('date_received', ''))}
