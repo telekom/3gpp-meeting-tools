@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableView,
     QHeaderView, QTextBrowser, QCheckBox, QAbstractItemView, QFrame,
     QLineEdit, QSpinBox, QMessageBox, QDateEdit, QTableWidget, QTableWidgetItem,
-    QColorDialog, QMenu, QApplication
+    QColorDialog, QMenu, QApplication, QSplitter, QWidget
 )
 from PyQt5.QtGui import QColor, QFont, QStandardItemModel, QStandardItem
 
@@ -47,6 +47,54 @@ def save_wg_email_config(wg: str, folder_list: list):
             json.dump(data, f, indent=4)
     except Exception as e:
         logging.error(f"Failed to save emails_config.json: {e}")
+
+
+class StandaloneEmailReaderWindow(QWidget):
+    """Independent, fully resizable top-level window for reading emails on laptops/secondary monitors."""
+    tdoc_selected = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Window)
+        self.setWindowTitle("📖 Email Message Viewer")
+        self.resize(850, 650)
+        self.setStyleSheet("QWidget { background-color: #FAFAFA; }")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        # Top banner with quick controls
+        top_bar = QHBoxLayout()
+        self.lbl_title = QLabel("<b>Message Details</b>")
+        self.lbl_title.setStyleSheet("font-size: 13px; color: #005A9E;")
+        top_bar.addWidget(self.lbl_title)
+        top_bar.addStretch()
+
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(self.close)
+        top_bar.addWidget(btn_close)
+        layout.addLayout(top_bar)
+
+        self.browser = QTextBrowser()
+        self.browser.setOpenLinks(False)
+        self.browser.anchorClicked.connect(self._on_anchor_clicked)
+        self.browser.setStyleSheet("background: white; border: 1px solid #CCC; border-radius: 4px; padding: 12px;")
+        layout.addWidget(self.browser)
+
+    def update_content(self, html_content: str, subject: str = ""):
+        if subject:
+            self.setWindowTitle(f"📖 {subject}")
+            self.lbl_title.setText(f"<b>{html.escape(subject[:80])}</b>")
+        self.browser.setHtml(html_content)
+
+    def _on_anchor_clicked(self, url: QUrl):
+        url_str = url.toString()
+        if url_str.startswith("tdoc:"):
+            target_tdoc = url_str.split(":", 1)[1].strip()
+            self.tdoc_selected.emit(target_tdoc)
+        elif url_str.startswith("mailto:") or url_str.startswith("http://") or url_str.startswith("https://"):
+            webbrowser.open(url_str)
 
 
 class GeneralEmailFoldersDialog(QDialog):
@@ -217,7 +265,7 @@ class GeneralEmailSyncDialog(QDialog):
 
 class TDocEmailsDialog(QDialog):
     data_changed = pyqtSignal()
-    tdoc_selected = pyqtSignal(str)  # Emitted when a user clicks any TDoc link
+    tdoc_selected = pyqtSignal(str)
 
     def __init__(self, target_tdoc: str, family_tdocs: list, db_path: Path, wg: str = "SA2", parent=None):
         super().__init__(parent)
@@ -230,12 +278,15 @@ class TDocEmailsDialog(QDialog):
         self.db = GeneralEmailDatabase(db_path)
         self.tag_colors = {f.get("tag", "").upper(): f.get("color", "#0078D7") for f in load_wg_email_config(self.wg)}
 
-        # Modeless top-level window configuration (allows background UI access)
+        # Modeless top-level window configuration
         self.setWindowFlags(Qt.Window)
         self.setWindowModality(Qt.NonModal)
         self.setWindowTitle(f"📧 Related Emails: {self.target_tdoc}")
-        self.resize(1100, 700)
+        self.resize(1100, 720)
         self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
+
+        # Reference to standalone reader pop-out
+        self._standalone_reader = None
 
         self.auto_read_timer = QTimer(self)
         self.auto_read_timer.setSingleShot(True)
@@ -314,7 +365,7 @@ class TDocEmailsDialog(QDialog):
         act_row.addWidget(self.btn_open_outlook)
         layout.addLayout(act_row)
 
-        # Main Table
+        # Main Table Setup
         self.table = QTableView()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -341,14 +392,37 @@ class TDocEmailsDialog(QDialog):
         hdr.resizeSection(5, 110)
         hdr.resizeSection(6, 120)
         hdr.setSectionResizeMode(7, QHeaderView.Stretch)
-        layout.addWidget(self.table, stretch=2)
 
-        # Reading Pane with Link Interception
+        # Reading Pane Container with Dedicated Pop-Out Control
+        reader_container = QWidget()
+        reader_layout = QVBoxLayout(reader_container)
+        reader_layout.setContentsMargins(0, 0, 0, 0)
+        reader_layout.setSpacing(4)
+
+        reader_header = QHBoxLayout()
+        lbl_preview = QLabel("<b>📖 Message Preview</b>")
+        lbl_preview.setStyleSheet("color: #555;")
+        self.btn_popout = QPushButton("⧉ Pop Out View")
+        self.btn_popout.setToolTip("Open this message preview in a separate, independent resizable window.")
+        self.btn_popout.setStyleSheet("font-weight: bold; background: #FFFFFF; border: 1px solid #CCC; border-radius: 3px; padding: 2px 8px;")
+        self.btn_popout.clicked.connect(self._pop_out_reader)
+        reader_header.addWidget(lbl_preview)
+        reader_header.addStretch()
+        reader_header.addWidget(self.btn_popout)
+        reader_layout.addLayout(reader_header)
+
         self.reading_pane = QTextBrowser()
-        self.reading_pane.setOpenLinks(False)  # Prevents internal browser navigation
+        self.reading_pane.setOpenLinks(False)
         self.reading_pane.anchorClicked.connect(self._on_anchor_clicked)
-        self.reading_pane.setStyleSheet("background: white; border: 1px solid #CCC; padding: 8px;")
-        layout.addWidget(self.reading_pane, stretch=1)
+        self.reading_pane.setStyleSheet("background: white; border: 1px solid #CCC; border-radius: 4px; padding: 8px;")
+        reader_layout.addWidget(self.reading_pane)
+
+        # Interactive Vertical Splitter replacing rigid layout
+        self.splitter = QSplitter(Qt.Vertical)
+        self.splitter.addWidget(self.table)
+        self.splitter.addWidget(reader_container)
+        self.splitter.setSizes([380, 260])
+        layout.addWidget(self.splitter, stretch=1)
 
     @staticmethod
     def _compress_blank_lines(text: str, max_consecutive_empty: int = 1) -> str:
@@ -369,10 +443,6 @@ class TDocEmailsDialog(QDialog):
         return "\n".join(cleaned_lines).strip()
 
     def _linkify_tdocs(self, text_escaped: str) -> str:
-        """
-        Converts all 3GPP TDoc references into clickable single-click hyperlinks.
-        Highlights current family TDocs in yellow, and other TDocs in interactive blue links.
-        """
         tdoc_pattern = re.compile(r'\b([A-Za-z0-9]{2,4}-\d{6,8}(?:r\d{1,2}[a-zA-Z]?)?)\b')
         family_set = {t.upper() for t in self.family_tdocs}
 
@@ -485,6 +555,8 @@ class TDocEmailsDialog(QDialog):
         rows = self._get_selected_indices()
         if not rows:
             self.reading_pane.clear()
+            if self._standalone_reader and self._standalone_reader.isVisible():
+                self._standalone_reader.update_content("")
             return
 
         primary_idx = rows[0]
@@ -533,8 +605,29 @@ class TDocEmailsDialog(QDialog):
         """
         self.reading_pane.setHtml(full_html)
 
+        # Synchronize live standalone reader if detached
+        if self._standalone_reader and self._standalone_reader.isVisible():
+            self._standalone_reader.update_content(full_html, e.get('subject', ''))
+
         if len(rows) == 1 and int(e.get("is_read", 0)) == 0 and int(e.get("is_ignored", 0)) == 0:
             self.auto_read_timer.start()
+
+    def _pop_out_reader(self):
+        """Detaches the reading view into an independent top-level window."""
+        if not self._standalone_reader:
+            self._standalone_reader = StandaloneEmailReaderWindow()
+            self._standalone_reader.tdoc_selected.connect(self.tdoc_selected.emit)
+
+        rows = self._get_selected_indices()
+        if rows:
+            e = self.emails[rows[0]]
+            self._standalone_reader.update_content(self.reading_pane.toHtml(), e.get('subject', ''))
+        else:
+            self._standalone_reader.update_content("<p style='color:#777;'><i>No email selected.</i></p>")
+
+        self._standalone_reader.show()
+        self._standalone_reader.raise_()
+        self._standalone_reader.activateWindow()
 
     def _mark_current_read(self):
         rows = self._get_selected_indices()
@@ -635,6 +728,9 @@ class TDocEmailsDialog(QDialog):
         menu = QMenu(self)
         act_open = menu.addAction("🚀 Open in Outlook")
         act_open.triggered.connect(self._open_in_outlook)
+
+        act_popout = menu.addAction("⧉ Pop Out Reader")
+        act_popout.triggered.connect(self._pop_out_reader)
         menu.addSeparator()
 
         act_read = menu.addAction("✔️ Mark as Read")
