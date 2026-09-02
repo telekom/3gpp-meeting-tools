@@ -55,7 +55,7 @@ class GeneralEmailSyncThread(QThread):
 
                 items = folder.Items
                 total_items = len(items)
-                items.Sort("[ReceivedTime]", True)  # Newest first
+                items.Sort("[ReceivedTime]", True)
 
                 self.progress_msg.emit(f"Scanning {total_items} items in [{folder_tag}]...")
 
@@ -67,7 +67,7 @@ class GeneralEmailSyncThread(QThread):
                         self.progress_val.emit(i, total_items)
 
                     mail_item = items.Item(i)
-                    if mail_item.Class != 43:  # 43 = olMail
+                    if mail_item.Class != 43:
                         continue
 
                     # Date Boundary Filter
@@ -80,7 +80,7 @@ class GeneralEmailSyncThread(QThread):
                                 if dt > filter_end:
                                     continue
                                 if dt < filter_start:
-                                    break  # Newest first allows fast exit
+                                    break
                             except Exception:
                                 pass
 
@@ -91,13 +91,16 @@ class GeneralEmailSyncThread(QThread):
                     subject = getattr(mail_item, "Subject", "")
                     body = getattr(mail_item, "Body", "")
                     sender_name = getattr(mail_item, "SenderName", "")
-                    sender_email = getattr(mail_item, "SenderEmailAddress", "")
+                    try:
+                        sender_email = getattr(mail_item, "SenderEmailAddress", "")
+                    except Exception:
+                        sender_email = ""
 
-                    # Listserv DMARC resolution
+                    # Resolve sender and internal Exchange addresses
                     sender_name, sender_email = self._resolve_sender(mail_item, sender_name, sender_email, body)
                     company = self._resolve_company(sender_name, sender_email)
 
-                    # Match TDocs in Subject and Body
+                    # Extract matches in Subject and Body
                     matches = self._extract_tdocs(subject, body)
                     if not matches:
                         continue
@@ -110,8 +113,9 @@ class GeneralEmailSyncThread(QThread):
                         "sender_email": sender_email,
                         "company": company,
                         "date_received": str(getattr(mail_item, "ReceivedTime", "")),
-                        "body_text": body[:12000],  # Keep reasonable snippet
-                        "is_read": 0
+                        "body_text": body[:12000],
+                        "is_read": 0,
+                        "is_ignored": 0
                     }
                     batch_emails.append(email_record)
 
@@ -187,6 +191,20 @@ class GeneralEmailSyncThread(QThread):
                     sender_name = reply_names.split(';')[0].strip()
             except Exception:
                 pass
+        else:
+            # Resolve direct internal Exchange senders
+            try:
+                sender_email_type = str(getattr(mail_item, "SenderEmailType", "")).upper()
+                if sender_email_type == "EX" or sender_email.lower().startswith("/o="):
+                    sender_obj = getattr(mail_item, "Sender", None)
+                    if sender_obj:
+                        eu = sender_obj.GetExchangeUser()
+                        if eu:
+                            smtp = getattr(eu, "PrimarySmtpAddress", "")
+                            if smtp:
+                                sender_email = smtp
+            except Exception:
+                pass
 
         if any(k in sender_name.lower() for k in ["3gpp", "list", "on behalf of", "dmarc"]) or not sender_email:
             dmarc_match = re.search(
@@ -194,7 +212,7 @@ class GeneralEmailSyncThread(QThread):
                 body[:1500], re.IGNORECASE)
             if dmarc_match:
                 sender_name = dmarc_match.group(1).strip(' \t"\'')
-                if not sender_email or "list.etsi.org" in sender_email.lower():
+                if not sender_email or "list.etsi.org" in sender_email.lower() or sender_email.lower().startswith("/o="):
                     sender_email = dmarc_match.group(2).strip()
 
         return sender_name, sender_email

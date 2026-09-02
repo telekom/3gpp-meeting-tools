@@ -7,7 +7,8 @@ from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QDate
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableView,
     QHeaderView, QTextBrowser, QCheckBox, QAbstractItemView, QFrame,
-    QLineEdit, QSpinBox, QMessageBox, QDateEdit, QTableWidget, QTableWidgetItem
+    QLineEdit, QSpinBox, QMessageBox, QDateEdit, QTableWidget, QTableWidgetItem,
+    QColorDialog, QMenu, QApplication
 )
 from PyQt5.QtGui import QColor, QFont, QStandardItemModel, QStandardItem
 
@@ -51,20 +52,20 @@ class GeneralEmailFoldersDialog(QDialog):
         super().__init__(parent)
         self.wg = wg.upper()
         self.setWindowTitle(f"⚙️ Outlook Folders Configuration: {self.wg}")
-        self.resize(650, 420)
+        self.resize(720, 440)
         self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"<b>Configured Outlook Folders for {self.wg}:</b>"))
-        desc = QLabel(
-            "Add distribution lists or subfolders to scan for this Working Group. Tag them for quick identification.")
+        desc = QLabel("Configure folders to scan, assign display tags, and pick custom tag colors.")
         desc.setStyleSheet("color: #666; font-size: 11px;")
         layout.addWidget(desc)
 
-        self.table = QTableWidget(0, 2)
-        self.table.setHorizontalHeaderLabels(["Outlook Folder Path", "Tag (e.g. WG, Disc, Offline)"])
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Outlook Folder Path", "Tag", "Tag Color"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         layout.addWidget(self.table)
 
         btn_row = QHBoxLayout()
@@ -78,9 +79,8 @@ class GeneralEmailFoldersDialog(QDialog):
         layout.addLayout(btn_row)
 
         bottom_row = QHBoxLayout()
-        btn_save = QPushButton("💾 Save && Close")
-        btn_save.setStyleSheet(
-            "font-weight: bold; background-color: #0078D7; color: white; padding: 6px 15px; border-radius: 4px;")
+        btn_save = QPushButton("💾 Save & Close")
+        btn_save.setStyleSheet("font-weight: bold; background-color: #0078D7; color: white; padding: 6px 15px; border-radius: 4px;")
         btn_save.clicked.connect(self._save_and_close)
         btn_cancel = QPushButton("Cancel")
         btn_cancel.clicked.connect(self.reject)
@@ -97,6 +97,25 @@ class GeneralEmailFoldersDialog(QDialog):
         for row, item in enumerate(folders):
             self.table.setItem(row, 0, QTableWidgetItem(item.get("folder_path", "")))
             self.table.setItem(row, 1, QTableWidgetItem(item.get("tag", "WG")))
+            color = item.get("color", "#0078D7")
+            self._set_color_widget(row, color)
+
+    def _set_color_widget(self, row: int, hex_color: str):
+        btn_color = QPushButton(hex_color)
+        btn_color.setStyleSheet(f"background-color: {hex_color}; color: white; font-weight: bold; border-radius: 3px; padding: 3px 8px;")
+        btn_color.clicked.connect(lambda _, r=row, b=btn_color: self._pick_color(r, b))
+        self.table.setCellWidget(row, 2, btn_color)
+
+    def _pick_color(self, row: int, btn: QPushButton):
+        curr = QColor(btn.text()) if QColor(btn.text()).isValid() else QColor("#0078D7")
+        col = QColorDialog.getColor(curr, self, "Pick Tag Color")
+        if col.isValid():
+            hex_code = col.name().upper()
+            btn.setText(hex_code)
+            # Adjust text contrast based on color brightness
+            lum = (col.red() * 0.299 + col.green() * 0.587 + col.blue() * 0.114)
+            fg = "#FFFFFF" if lum < 150 else "#000000"
+            btn.setStyleSheet(f"background-color: {hex_code}; color: {fg}; font-weight: bold; border-radius: 3px; padding: 3px 8px;")
 
     def _add_folder(self):
         dialog = OutlookFolderPickerDialog(self)
@@ -107,6 +126,7 @@ class GeneralEmailFoldersDialog(QDialog):
                 self.table.insertRow(r)
                 self.table.setItem(r, 0, QTableWidgetItem(path))
                 self.table.setItem(r, 1, QTableWidgetItem("WG"))
+                self._set_color_widget(r, "#0078D7")
 
     def _remove_selected(self):
         for idx in sorted([idx.row() for idx in self.table.selectionModel().selectedRows()], reverse=True):
@@ -117,8 +137,10 @@ class GeneralEmailFoldersDialog(QDialog):
         for r in range(self.table.rowCount()):
             p = self.table.item(r, 0).text().strip()
             t = self.table.item(r, 1).text().strip()
+            btn = self.table.cellWidget(r, 2)
+            c = btn.text().strip() if btn else "#0078D7"
             if p:
-                folders.append({"folder_path": p, "tag": t or "WG"})
+                folders.append({"folder_path": p, "tag": t or "WG", "color": c})
         save_wg_email_config(self.wg, folders)
         self.accept()
 
@@ -195,16 +217,19 @@ class GeneralEmailSyncDialog(QDialog):
 class TDocEmailsDialog(QDialog):
     data_changed = pyqtSignal()
 
-    def __init__(self, target_tdoc: str, family_tdocs: list, db_path: Path, parent=None):
+    def __init__(self, target_tdoc: str, family_tdocs: list, db_path: Path, wg: str = "SA2", parent=None):
         super().__init__(parent)
         self.target_tdoc = target_tdoc.upper()
         self.family_tdocs = [t.upper() for t in family_tdocs]
         if self.target_tdoc not in self.family_tdocs:
             self.family_tdocs.insert(0, self.target_tdoc)
 
+        self.wg = wg
         self.db = GeneralEmailDatabase(db_path)
+        self.tag_colors = {f.get("tag", "").upper(): f.get("color", "#0078D7") for f in load_wg_email_config(self.wg)}
+
         self.setWindowTitle(f"📧 Related Emails: {self.target_tdoc}")
-        self.resize(1050, 680)
+        self.resize(1100, 700)
         self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
 
         self.auto_read_timer = QTimer(self)
@@ -222,8 +247,7 @@ class TDocEmailsDialog(QDialog):
 
         # Top Bar: Lineage & Breadcrumbs
         top_card = QFrame()
-        top_card.setStyleSheet(
-            "QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 6px; padding: 6px; }")
+        top_card.setStyleSheet("QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 6px; padding: 6px; }")
         top_layout = QHBoxLayout(top_card)
 
         chips_text = " ➔ ".join([f"<b>{t}</b>" if t == self.target_tdoc else t for t in self.family_tdocs])
@@ -236,6 +260,11 @@ class TDocEmailsDialog(QDialog):
         self.chk_family.toggled.connect(self._load_emails)
         top_layout.addWidget(self.chk_family)
 
+        self.chk_show_ignored = QCheckBox("Show Ignored")
+        self.chk_show_ignored.setChecked(False)
+        self.chk_show_ignored.toggled.connect(self._load_emails)
+        top_layout.addWidget(self.chk_show_ignored)
+
         self.lbl_counts = QLabel("0 Emails")
         self.lbl_counts.setStyleSheet("font-weight: bold; color: #0078D7; margin-left: 10px;")
         top_layout.addWidget(self.lbl_counts)
@@ -243,40 +272,58 @@ class TDocEmailsDialog(QDialog):
 
         # Action Toolbar
         act_row = QHBoxLayout()
-        self.btn_mark_all = QPushButton("✔️ Mark All Read")
-        self.btn_mark_all.clicked.connect(self._mark_all_family_read)
-        self.btn_toggle_unread = QPushButton("✉️ Mark Selected Unread")
-        self.btn_toggle_unread.clicked.connect(self._mark_selected_unread)
+        self.btn_mark_read = QPushButton("✔️ Mark Read")
+        self.btn_mark_read.clicked.connect(lambda: self._set_selected_read(True))
+
+        self.btn_mark_unread = QPushButton("✉️ Mark Unread")
+        self.btn_mark_unread.clicked.connect(lambda: self._set_selected_read(False))
+
+        self.btn_ignore = QPushButton("🚫 Ignore")
+        self.btn_ignore.setToolTip("Exclude selected email(s) from counts without deleting them.")
+        self.btn_ignore.clicked.connect(self._toggle_selected_ignore)
+
+        self.btn_delete = QPushButton("🗑️ Delete")
+        self.btn_delete.setToolTip("Permanently delete selected email records from database.")
+        self.btn_delete.clicked.connect(self._delete_selected)
+
         self.btn_open_outlook = QPushButton("🚀 Open in Outlook")
-        self.btn_open_outlook.setStyleSheet(
-            "font-weight: bold; background-color: #0078D7; color: white; border-radius: 4px; padding: 4px 12px;")
+        self.btn_open_outlook.setStyleSheet("font-weight: bold; background-color: #0078D7; color: white; border-radius: 4px; padding: 4px 12px;")
         self.btn_open_outlook.clicked.connect(self._open_in_outlook)
 
-        act_row.addWidget(self.btn_mark_all)
-        act_row.addWidget(self.btn_toggle_unread)
-        act_row.addWidget(self.btn_open_outlook)
+        act_row.addWidget(self.btn_mark_read)
+        act_row.addWidget(self.btn_mark_unread)
+        act_row.addWidget(self.btn_ignore)
+        act_row.addWidget(self.btn_delete)
+        act_row.addSpacing(10)
+        self.btn_mark_all_read = QPushButton("✔️ Mark All Read")
+        self.btn_mark_all_read.clicked.connect(self._mark_all_family_read)
+        act_row.addWidget(self.btn_mark_all_read)
         act_row.addStretch()
+        act_row.addWidget(self.btn_open_outlook)
         layout.addLayout(act_row)
 
-        # Main Table
+        # Main Table (ExtendedSelection enabled)
         self.table = QTableView()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet(
-            "QTableView { background: white; border: 1px solid #CCC; } QHeaderView::section { background: #F0F0F0; font-weight: bold; }")
+        self.table.setStyleSheet("QTableView { background: white; border: 1px solid #CCC; } QHeaderView::section { background: #F0F0F0; font-weight: bold; }")
 
         self.model = QStandardItemModel()
         self.headers = ["Status", "Tag", "Match In", "Rev", "Sender", "Company", "Date", "Subject"]
         self.model.setHorizontalHeaderLabels(self.headers)
         self.table.setModel(self.model)
-        self.table.selectionModel().selectionChanged.connect(self._on_email_selected)
+        self.table.selectionModel().selectionChanged.connect(self._on_email_selection_changed)
         self.table.doubleClicked.connect(self._open_in_outlook)
+
+        # Custom Context Menu
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
 
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Interactive)
-        hdr.resizeSection(0, 60)
-        hdr.resizeSection(1, 65)
+        hdr.resizeSection(0, 75)
+        hdr.resizeSection(1, 80)
         hdr.resizeSection(2, 75)
         hdr.resizeSection(3, 75)
         hdr.resizeSection(4, 130)
@@ -292,32 +339,58 @@ class TDocEmailsDialog(QDialog):
 
     def _load_emails(self):
         query_set = set(self.family_tdocs) if self.chk_family.isChecked() else {self.target_tdoc}
-        self.emails = self.db.get_emails_for_tdocs(query_set)
+        self.emails = self.db.get_emails_for_tdocs(query_set, show_ignored=self.chk_show_ignored.isChecked())
 
         self.model.removeRows(0, self.model.rowCount())
         unread_count = 0
 
         for r_idx, e in enumerate(self.emails):
-            is_read = bool(e.get("is_read", 0))
-            if not is_read:
+            is_read = (int(e.get("is_read", 0)) == 1)
+            is_ignored = (int(e.get("is_ignored", 0)) == 1)
+
+            if not is_read and not is_ignored:
                 unread_count += 1
 
-            status_item = QStandardItem("⚪ Read" if is_read else "🔵 Unread")
+            if is_ignored:
+                status_text = "🚫 Ignored"
+            elif is_read:
+                status_text = "⚪ Read"
+            else:
+                status_text = "🔵 Unread"
+
+            status_item = QStandardItem(status_text)
             status_item.setTextAlignment(Qt.AlignCenter)
-            if not is_read:
+            if is_ignored:
+                status_item.setForeground(QColor("#888888"))
+            elif not is_read:
                 status_item.setForeground(QColor("#0078D7"))
                 status_item.setFont(QFont("Segoe UI", weight=QFont.Bold))
 
-            tag_item = QStandardItem(f"[{e.get('folder_tag', 'WG')}]")
+            tag_str = e.get("folder_tag", "WG")
+            tag_item = QStandardItem(f"[{tag_str}]")
             tag_item.setTextAlignment(Qt.AlignCenter)
+
+            # Apply configured tag color
+            color_hex = self.tag_colors.get(tag_str.upper(), "#0078D7")
+            tag_item.setForeground(QColor(color_hex))
+            tag_font = QFont("Segoe UI", weight=QFont.Bold)
+            tag_item.setFont(tag_font)
+
             loc_item = QStandardItem(e.get("match_location", "Body"))
             loc_item.setTextAlignment(Qt.AlignCenter)
+
             rev_item = QStandardItem(e.get("rev_matched") or "-")
             rev_item.setTextAlignment(Qt.AlignCenter)
+
             sender_item = QStandardItem(e.get("sender_name", ""))
             company_item = QStandardItem(e.get("company", ""))
             date_item = QStandardItem(str(e.get("date_received", ""))[:16])
             subj_item = QStandardItem(e.get("subject", ""))
+
+            # Dim text if ignored
+            if is_ignored:
+                for item in [loc_item, rev_item, sender_item, company_item, date_item, subj_item]:
+                    item.setForeground(QColor("#999999"))
 
             row = [status_item, tag_item, loc_item, rev_item, sender_item, company_item, date_item, subj_item]
             self.model.appendRow(row)
@@ -327,20 +400,27 @@ class TDocEmailsDialog(QDialog):
         if self.emails:
             self.table.selectRow(0)
 
-    def _on_email_selected(self):
-        rows = self.table.selectionModel().selectedRows()
+    def _get_selected_indices(self) -> list:
+        return [idx.row() for idx in self.table.selectionModel().selectedRows() if idx.isValid()]
+
+    def _on_email_selection_changed(self):
+        rows = self._get_selected_indices()
         if not rows:
             self.reading_pane.clear()
             return
-        idx = rows[0].row()
-        e = self.emails[idx]
 
-        # Highlight matches in yellow
+        # Render preview for primary selection
+        primary_idx = rows[0]
+        e = self.emails[primary_idx]
+
         body = e.get("body_text", "").replace("<", "&lt;").replace(">", "&gt;")
         pattern = re.compile(rf"\b({'|'.join(re.escape(t) for t in self.family_tdocs)})\b", re.IGNORECASE)
         body_hl = pattern.sub(r"<span style='background-color: #FFF176; font-weight: bold;'>\1</span>", body)
 
+        ignored_banner = "<p style='color: #D83B01; font-weight: bold;'>⚠️ This email is currently IGNORED from TDoc counts.</p>" if e.get("is_ignored") else ""
+
         html = f"""
+        {ignored_banner}
         <h3 style='margin:0; color:#005A9E;'>{e.get('subject', '')}</h3>
         <p style='color:#555; margin:4px 0;'><b>From:</b> {e.get('sender_name')} &lt;{e.get('sender_email')}&gt; ({e.get('company')}) | <b>Date:</b> {e.get('date_received')}</p>
         <hr>
@@ -348,23 +428,72 @@ class TDocEmailsDialog(QDialog):
         """
         self.reading_pane.setHtml(html)
 
-        # Trigger auto-read
-        if not e.get("is_read", 0):
+        # Trigger auto-read only when a single unread item is selected
+        if len(rows) == 1 and int(e.get("is_read", 0)) == 0 and int(e.get("is_ignored", 0)) == 0:
             self.auto_read_timer.start()
 
     def _mark_current_read(self):
-        rows = self.table.selectionModel().selectedRows()
+        rows = self._get_selected_indices()
+        if len(rows) == 1:
+            idx = rows[0]
+            e = self.emails[idx]
+            if int(e.get("is_read", 0)) == 0 and int(e.get("is_ignored", 0)) == 0:
+                self.db.set_emails_read_status([e["id"]], True)
+                e["is_read"] = 1
+                self.model.item(idx, 0).setText("⚪ Read")
+                self.model.item(idx, 0).setForeground(QColor("#333"))
+                self.model.item(idx, 0).setFont(QFont("Segoe UI"))
+                self.data_changed.emit()
+                self._update_unread_count_label()
+
+    def _set_selected_read(self, is_read: bool):
+        rows = self._get_selected_indices()
         if not rows:
             return
-        idx = rows[0].row()
-        e = self.emails[idx]
-        if not e.get("is_read", 0):
-            self.db.set_email_read_status(e["id"], True)
-            e["is_read"] = 1
-            self.model.item(idx, 0).setText("⚪ Read")
-            self.model.item(idx, 0).setForeground(QColor("#333"))
-            self.model.item(idx, 0).setFont(QFont("Segoe UI"))
-            self.data_changed.emit()
+        email_ids = [self.emails[r]["id"] for r in rows]
+        self.db.set_emails_read_status(email_ids, is_read)
+        for r in rows:
+            self.emails[r]["is_read"] = 1 if is_read else 0
+            if not self.emails[r].get("is_ignored"):
+                item = self.model.item(r, 0)
+                item.setText("⚪ Read" if is_read else "🔵 Unread")
+                item.setForeground(QColor("#333") if is_read else QColor("#0078D7"))
+                item.setFont(QFont("Segoe UI", weight=QFont.Normal if is_read else QFont.Bold))
+        self.data_changed.emit()
+        self._update_unread_count_label()
+
+    def _toggle_selected_ignore(self):
+        rows = self._get_selected_indices()
+        if not rows:
+            return
+        # If any selected item is not ignored, ignore all; otherwise un-ignore all
+        any_active = any(int(self.emails[r].get("is_ignored", 0)) == 0 for r in rows)
+        target_state = True if any_active else False
+
+        email_ids = [self.emails[r]["id"] for r in rows]
+        self.db.set_emails_ignored_status(email_ids, target_state)
+        self.data_changed.emit()
+        self._load_emails()
+
+    def _delete_selected(self):
+        rows = self._get_selected_indices()
+        if not rows:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to permanently delete {len(rows)} email record(s)?\n\n"
+            "Note: Re-syncing Outlook will re-import them unless they are Ignored instead.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        email_ids = [self.emails[r]["id"] for r in rows]
+        self.db.delete_emails(email_ids)
+        self.data_changed.emit()
+        self._load_emails()
 
     def _mark_all_family_read(self):
         query_set = set(self.family_tdocs) if self.chk_family.isChecked() else {self.target_tdoc}
@@ -372,23 +501,15 @@ class TDocEmailsDialog(QDialog):
         self.data_changed.emit()
         self._load_emails()
 
-    def _mark_selected_unread(self):
-        rows = self.table.selectionModel().selectedRows()
-        if not rows:
-            return
-        idx = rows[0].row()
-        e = self.emails[idx]
-        self.db.set_email_read_status(e["id"], False)
-        e["is_read"] = 0
-        self.data_changed.emit()
-        self._load_emails()
+    def _update_unread_count_label(self):
+        unread = sum(1 for e in self.emails if int(e.get("is_read", 0)) == 0 and int(e.get("is_ignored", 0)) == 0)
+        self.lbl_counts.setText(f"{len(self.emails)} Total ({unread} Unread)")
 
     def _open_in_outlook(self):
-        rows = self.table.selectionModel().selectedRows()
+        rows = self._get_selected_indices()
         if not rows:
             return
-        idx = rows[0].row()
-        e = self.emails[idx]
+        e = self.emails[rows[0]]
         entry_id = e.get("id")
 
         try:
@@ -401,4 +522,30 @@ class TDocEmailsDialog(QDialog):
                 QMessageBox.warning(self, "Outlook Error", "Could not connect to Microsoft Outlook MAPI.")
         except Exception as err:
             QMessageBox.warning(self, "Item Not Found",
-                                f"Could not open email in Outlook:\n{err}\n\n(It may have been permanently deleted or moved to a different PST store).")
+                                f"Could not open email in Outlook:\n{err}\n\n(It may have been moved across PSTs or deleted).")
+
+    def _show_context_menu(self, pos):
+        rows = self._get_selected_indices()
+        if not rows:
+            return
+
+        menu = QMenu(self)
+        act_open = menu.addAction("🚀 Open in Outlook")
+        act_open.triggered.connect(self._open_in_outlook)
+        menu.addSeparator()
+
+        act_read = menu.addAction("✔️ Mark as Read")
+        act_read.triggered.connect(lambda: self._set_selected_read(True))
+
+        act_unread = menu.addAction("✉️ Mark as Unread")
+        act_unread.triggered.connect(lambda: self._set_selected_read(False))
+
+        menu.addSeparator()
+        any_active = any(int(self.emails[r].get("is_ignored", 0)) == 0 for r in rows)
+        act_ignore = menu.addAction("🚫 Ignore Email(s)" if any_active else "↩️ Un-ignore Email(s)")
+        act_ignore.triggered.connect(self._toggle_selected_ignore)
+
+        act_del = menu.addAction("🗑️ Delete Email(s)")
+        act_del.triggered.connect(self._delete_selected)
+
+        menu.exec_(self.table.viewport().mapToGlobal(pos))
