@@ -129,7 +129,9 @@ class GlobalSearchController:
 
     def _on_global_tdoc_download_finished(self, tdoc_name: str, success: bool, msg: str, thread: TDocActionThread):
         if tdoc_name in self.tab._active_dl_threads:
-            del self.tab._active_dl_threads[tdoc_name]
+            th = self.tab._active_dl_threads.pop(tdoc_name, None)
+            if th and th.isRunning():
+                th.wait(50)
 
         self.tab.btn_open_tdoc.setText("📄 Doc")
         self.tab.btn_open_tdoc.setEnabled(True)

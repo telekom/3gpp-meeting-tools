@@ -220,6 +220,10 @@ class AddMeetingDialog(QDialog):
         main_layout.addLayout(btn_layout)
 
     def _start_fetch(self):
+        # Prevent starting a new thread if one is already running
+        if self.fetch_thread and self.fetch_thread.isRunning():
+            return
+
         query = self.query_input.text().strip()
         if not query:
             QMessageBox.warning(self, "Input Required", "Please enter a 3GPP Meeting ID, number, or URL.")
@@ -231,12 +235,19 @@ class AddMeetingDialog(QDialog):
         self.lbl_status.setText("⏳ Querying 3GPP Portal and FTP archive...")
         self.lbl_status.setStyleSheet("color: #005A9E; font-weight: bold;")
         self.btn_save.setEnabled(False)
-        QApplication.processEvents()
 
         self.fetch_thread = ManualMeetingFetcherThread(self.db.db_path, query, selected_wg)
         self.fetch_thread.progress_msg.connect(lambda msg: self.lbl_status.setText(msg))
         self.fetch_thread.fetch_finished.connect(self._on_fetch_finished)
         self.fetch_thread.start()
+
+    def reject(self):
+        """Cleanly abort thread if dialog is dismissed."""
+        if self.fetch_thread and self.fetch_thread.isRunning():
+            self.fetch_thread.requestInterruption()
+            self.fetch_thread.quit()
+            self.fetch_thread.wait(150)
+        super().reject()
 
     def _on_fetch_finished(self, success: bool, data: dict, msg: str):
         self.btn_fetch.setEnabled(True)
