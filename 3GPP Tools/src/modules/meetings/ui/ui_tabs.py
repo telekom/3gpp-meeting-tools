@@ -668,10 +668,17 @@ class MeetingsTab(QWidget):
             mtg_info.get("is_electronic", 0)
         )
 
-        if mtg_id in self.tdoc_windows and self.tdoc_windows[mtg_id].isVisible():
-            self.tdoc_windows[mtg_id].raise_()
-            self.tdoc_windows[mtg_id].activateWindow()
-            return
+        if mtg_id in self.tdoc_windows:
+            existing_win = self.tdoc_windows[mtg_id]
+            if existing_win and existing_win.isVisible():
+                existing_win.raise_()
+                existing_win.activateWindow()
+                return
+            else:
+                # Cleanly shut down and close the prior instance before replacing it
+                existing_win.close()
+                existing_win.deleteLater()
+                del self.tdoc_windows[mtg_id]
 
         tdocs_data = TDocsParser.parse_tdocs_excel(filepath)
         if not tdocs_data:
@@ -683,6 +690,32 @@ class MeetingsTab(QWidget):
 
         self.tdoc_windows[mtg_id] = window
         window.show()
+
+    def closeEvent(self, event):
+        """Safely terminates all background threads managed by the Meetings tab."""
+        # 1. Close all child TDoc windows so their closeEvents execute
+        for win in list(self.tdoc_windows.values()):
+            if win:
+                win.close()
+        self.tdoc_windows.clear()
+
+        # 2. Stop tab-level threads
+        tab_threads = [
+            getattr(self, 'agenda_dl_thread', None),
+            getattr(self, 'cacher_thread', None),
+            getattr(self, 'merger_thread', None),
+            getattr(self, 'cmp_thread', None),
+        ]
+        if hasattr(self, '_active_dl_threads'):
+            tab_threads.extend(self._active_dl_threads.values())
+
+        for th in filter(None, tab_threads):
+            if th.isRunning():
+                th.requestInterruption()
+                th.quit()
+                th.wait(150)
+
+        super().closeEvent(event)
 
     def _on_inline_download_finished(self, success: bool, result: str, mtg_id: str, row_data: dict, row_idx: int):
         if mtg_id in self._active_dl_threads:
