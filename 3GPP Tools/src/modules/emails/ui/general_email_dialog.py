@@ -228,8 +228,10 @@ class TDocEmailsDialog(QDialog):
         self.db = GeneralEmailDatabase(db_path)
         self.tag_colors = {f.get("tag", "").upper(): f.get("color", "#0078D7") for f in load_wg_email_config(self.wg)}
 
-        # Modeless dialog setup: does not block parent UI
+        # ---> THE FIX: Treat as a standalone top-level window with full Minimize/Maximize controls
+        self.setWindowFlags(Qt.Window)
         self.setWindowModality(Qt.NonModal)
+
         self.setWindowTitle(f"📧 Related Emails: {self.target_tdoc}")
         self.resize(1100, 700)
         self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
@@ -345,6 +347,33 @@ class TDocEmailsDialog(QDialog):
         self.reading_pane.setStyleSheet("background: white; border: 1px solid #CCC; padding: 8px;")
         layout.addWidget(self.reading_pane, stretch=1)
 
+    @staticmethod
+    def _compress_blank_lines(text: str, max_consecutive_empty: int = 1) -> str:
+        """
+        Collapses multiple consecutive empty or whitespace-only lines (including
+        spaces, tabs, and non-breaking spaces like \xa0 from Outlook) into a single blank line.
+        """
+        if not text:
+            return ""
+
+        # Normalize line breaks and remove null characters
+        normalized = text.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
+        lines = normalized.split("\n")
+
+        cleaned_lines = []
+        empty_count = 0
+        for line in lines:
+            # Strip all Unicode whitespace (including \xa0, \t, etc.)
+            if not line.strip():
+                empty_count += 1
+                if empty_count <= max_consecutive_empty:
+                    cleaned_lines.append("")
+            else:
+                empty_count = 0
+                cleaned_lines.append(line.rstrip())
+
+        return "\n".join(cleaned_lines).strip()
+
     def _load_emails(self):
         query_set = set(self.family_tdocs) if self.chk_family.isChecked() else {self.target_tdoc}
         raw_emails = self.db.get_emails_for_tdocs(query_set, show_ignored=self.chk_show_ignored.isChecked())
@@ -431,9 +460,8 @@ class TDocEmailsDialog(QDialog):
         e = self.emails[primary_idx]
 
         raw_body = e.get("body_text", "")
-        # Normalize and clean excessive blank lines
-        cleaned = raw_body.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
-        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned.strip())
+        # Compress blank and whitespace-only lines to at most 1 empty line
+        cleaned = self._compress_blank_lines(raw_body, max_consecutive_empty=1)
 
         # Safe HTML conversion
         body_escaped = html.escape(cleaned)
