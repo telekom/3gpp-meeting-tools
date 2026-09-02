@@ -1318,12 +1318,12 @@ class TDocsWindow(QWidget):
             logging.error(f"Error refreshing email counts: {e}")
 
     def _open_tdoc_emails(self, tdoc_id: str):
-        """Opens the inspection card dialog modelessly, allowing full background UI access."""
+        """Opens the inspection card dialog modelessly as an independent top-level window."""
         if not tdoc_id:
             return
         tdoc_clean = tdoc_id.strip().upper()
 
-        # If already open, bring it to the foreground
+        # If already open, restore and bring it to the foreground
         if tdoc_clean in self._email_dialogs:
             dlg = self._email_dialogs[tdoc_clean]
             dlg.setWindowState(dlg.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
@@ -1333,16 +1333,16 @@ class TDocsWindow(QWidget):
 
         family = self.model.get_family_tdocs(tdoc_clean)
         wg = self.mtg_info.get("wg_name", "SA2")
-        dialog = TDocEmailsDialog(tdoc_clean, family, self.general_email_db.db_path, wg=wg, parent=self)
+
+        # ---> THE FIX: Pass parent=None to prevent DWM from pinning it on top of TDocsWindow
+        dialog = TDocEmailsDialog(tdoc_clean, family, self.general_email_db.db_path, wg=wg, parent=None)
         dialog.data_changed.connect(self._refresh_email_counts)
 
-        # Track modeless dialog lifecycle
+        # Retain reference in the instance dictionary to prevent garbage collection
         self._email_dialogs[tdoc_clean] = dialog
         dialog.finished.connect(lambda _, t=tdoc_clean: self._email_dialogs.pop(t, None))
 
         dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
 
     def _on_configure_email_folders(self):
         """Opens the Outlook Folder Configuration Dialog for the current Working Group."""
