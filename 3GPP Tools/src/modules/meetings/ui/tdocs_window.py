@@ -1323,24 +1323,30 @@ class TDocsWindow(QWidget):
             return
         tdoc_clean = tdoc_id.strip().upper()
 
+        # Extract base document if a revision was clicked (e.g., S2-2608457r01 -> S2-2608457)
+        match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_clean, re.IGNORECASE)
+        base_tdoc = match.group(1).upper() if match else tdoc_clean
+
         # If already open, restore and bring it to the foreground
-        if tdoc_clean in self._email_dialogs:
-            dlg = self._email_dialogs[tdoc_clean]
+        if base_tdoc in self._email_dialogs:
+            dlg = self._email_dialogs[base_tdoc]
             dlg.setWindowState(dlg.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
             dlg.raise_()
             dlg.activateWindow()
             return
 
-        family = self.model.get_family_tdocs(tdoc_clean)
+        family = self.model.get_family_tdocs(base_tdoc)
         wg = self.mtg_info.get("wg_name", "SA2")
 
-        # ---> THE FIX: Pass parent=None to prevent DWM from pinning it on top of TDocsWindow
-        dialog = TDocEmailsDialog(tdoc_clean, family, self.general_email_db.db_path, wg=wg, parent=None)
+        dialog = TDocEmailsDialog(base_tdoc, family, self.general_email_db.db_path, wg=wg, parent=None)
         dialog.data_changed.connect(self._refresh_email_counts)
 
-        # Retain reference in the instance dictionary to prevent garbage collection
-        self._email_dialogs[tdoc_clean] = dialog
-        dialog.finished.connect(lambda _, t=tdoc_clean: self._email_dialogs.pop(t, None))
+        # ---> Connect link clicks inside reading pane to open related emails for other TDocs
+        dialog.tdoc_selected.connect(self._open_tdoc_emails)
+
+        # Retain reference to prevent garbage collection
+        self._email_dialogs[base_tdoc] = dialog
+        dialog.finished.connect(lambda _, t=base_tdoc: self._email_dialogs.pop(t, None))
 
         dialog.show()
 
