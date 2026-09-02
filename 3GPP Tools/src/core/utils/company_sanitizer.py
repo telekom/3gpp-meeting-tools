@@ -4,7 +4,7 @@ import re
 
 class CompanySanitizer:
     SIGNATURE_SYNONYMS_REGEX = {
-        'Deutsche Telekom': re.compile(r'(\bdt\b)|(deutsche tele[kc]om)|(@magenta\.at)|(@t-mobile\.pl)'),
+        'Deutsche Telekom': re.compile(r'(\bdt\b)|(deutsche tele[kc]om)|(@magenta\.at)|(@t-mobile\.pl)|(@telekom\.de)'),
         'KT': re.compile(r'(\bkt\b)'),
         'Nokia': re.compile(r'nokia'),
         'Qualcomm': re.compile(r'qualcom[m]?'),
