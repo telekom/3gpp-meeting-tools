@@ -392,7 +392,6 @@ class SpecificationsTab(QWidget):
         self.refresh_table()
 
     def _update_chip_styles(self):
-        # Update Favorites Chip Style
         fav_count = len(self.favorites)
         self.fav_chip.setText(f"⭐ Favorites ({fav_count})")
         if self.favorites_only:
@@ -422,7 +421,6 @@ class SpecificationsTab(QWidget):
                 }
             """)
 
-        # Update TSG Preset Chips
         current_group = self.table_filters.get("group", "")
         for tsg_val, chip in self.chip_buttons.items():
             if tsg_val == "":
@@ -552,7 +550,6 @@ class SpecificationsTab(QWidget):
             QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
         """)
 
-        # Favorite Toggle Action(s)
         if len(target_specs) == 1:
             spec_num = target_specs[0]
             is_fav = spec_num in self.favorites
@@ -607,6 +604,63 @@ class SpecificationsTab(QWidget):
     # ==========================================
     # --- TABLE REFRESH & RENDERING ---
     # ==========================================
+    def _update_combo_item_badges(self, combo: QComboBox, index: int):
+        """Update the display text, badges, and tooltips of a combo item based on disk state."""
+        if index < 0 or index >= combo.count():
+            return
+        c_data = combo.itemData(index)
+        if not c_data:
+            return
+
+        spec_target_dir = Path(self.download_dir) / c_data["spec_num"]
+        stem = Path(c_data["fname"]).stem.lower()
+        zip_exists = (spec_target_dir / c_data["fname"]).exists()
+
+        local_files = []
+        if spec_target_dir.exists():
+            try:
+                local_files = [f.name.lower() for f in spec_target_dir.iterdir() if f.is_file()]
+            except Exception:
+                local_files = []
+
+        word_exists = any(f.startswith(stem) and (f.endswith(".docx") or f.endswith(".doc")) for f in local_files)
+        pdf_exists = any(f.startswith(stem) and f.endswith(".pdf") for f in local_files)
+        html_exists = any(f.startswith(stem) and f.endswith(".html") for f in local_files)
+
+        c_data["is_downloaded"] = zip_exists
+        c_data["has_word"] = word_exists
+        c_data["has_pdf"] = pdf_exists
+        c_data["has_html"] = html_exists
+
+        badges = []
+        tooltips = []
+        if word_exists:
+            badges.append("📝")
+            tooltips.append("Word (.docx) ready")
+        if pdf_exists:
+            badges.append("📕")
+            tooltips.append("PDF (.pdf) ready")
+        if html_exists:
+            badges.append("🌐")
+            tooltips.append("HTML (.html) ready")
+
+        if not badges and zip_exists:
+            badges.append("📦")
+            tooltips.append("ZIP archive downloaded")
+        elif not zip_exists:
+            tooltips.append("Available on 3GPP FTP")
+
+        status = "✅ " if zip_exists else ""
+        u_date = c_data.get("upload_date")
+        date_label = f" ({u_date})" if u_date else ""
+        badge_str = f"  {' '.join(badges)}" if badges else ""
+        ver = c_data.get("version", "")
+
+        new_text = f"{status}v{ver}{date_label}{badge_str}"
+        combo.setItemText(index, new_text)
+        combo.setItemData(index, c_data)
+        combo.setItemData(index, " • ".join(tooltips), Qt.ToolTipRole)
+
     def refresh_table(self):
         try:
             spec_query = self.spec_search_input.text().strip()
@@ -623,7 +677,6 @@ class SpecificationsTab(QWidget):
                 ]
             )
 
-            # Query database
             specs = self.db.search_files(
                 spec_number=spec_query if spec_query else None,
                 release_version=version_query if version_query else None,
@@ -648,7 +701,6 @@ class SpecificationsTab(QWidget):
                     }
                 grouped_specs[spec_num]["versions"].append((version, url, filename, upload_date))
 
-            # Filter for Downloaded Only if enabled
             if downloaded_only and base_dl_dir.exists():
                 filtered_grouped = {}
                 for s_num, s_data in grouped_specs.items():
@@ -657,7 +709,6 @@ class SpecificationsTab(QWidget):
                         filtered_grouped[s_num] = s_data
                 grouped_specs = filtered_grouped
 
-            # Filter for Favorites Only if enabled
             if self.favorites_only:
                 filtered_grouped = {}
                 for s_num, s_data in grouped_specs.items():
@@ -668,7 +719,6 @@ class SpecificationsTab(QWidget):
             total_found = len(grouped_specs)
             rendered_specs = list(grouped_specs.items())[:100]
 
-            # Dynamic pill badge status
             if self.favorites_only:
                 self.count_badge.setText(f"⭐ {total_found} Favorites")
                 self.count_badge.setStyleSheet("""
@@ -723,7 +773,6 @@ class SpecificationsTab(QWidget):
                     QMenu::item:disabled { color: #AAAAAA; }
                 """)
 
-                # Favorite Toggle in Kebab Menu
                 fav_label = "⭐ Remove from Favorites" if is_fav else "⭐ Add to Favorites"
                 menu.addAction(fav_label).triggered.connect(lambda _, s=spec_num: self._toggle_favorite(s))
                 menu.addSeparator()
@@ -751,7 +800,6 @@ class SpecificationsTab(QWidget):
                 _update_menu_state()
                 action_btn.setMenu(menu)
 
-                # Spec Type Badge (TS vs TR)
                 spec_type = (data["type"] or "TS").upper()
                 type_badge = QLabel(spec_type)
                 if spec_type == "TR":
@@ -765,7 +813,6 @@ class SpecificationsTab(QWidget):
                         border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold;
                     """)
 
-                # Specification Number + Favorite Indicator
                 display_title = f"{spec_num} ⭐" if is_fav else spec_num
                 spec_label = QLabel(display_title)
                 spec_label.setObjectName("specNumberLabel")
@@ -784,8 +831,17 @@ class SpecificationsTab(QWidget):
 
                 # --- COLUMN 2: Documents Action Bar ---
                 version_combo = QComboBox()
-                version_combo.setFixedWidth(195)
+                version_combo.setFixedWidth(230)
                 version_combo.setFixedHeight(28)
+                version_combo.view().setMinimumWidth(255)
+
+                # Snapshot local files in memory once per specification
+                local_files = []
+                if spec_target_dir.exists():
+                    try:
+                        local_files = [f.name.lower() for f in spec_target_dir.iterdir() if f.is_file()]
+                    except Exception:
+                        local_files = []
 
                 def parse_ver(v_str):
                     return [(0, int(x)) if x.isdigit() else (1, str(x)) for x in str(v_str).split(".")]
@@ -793,22 +849,57 @@ class SpecificationsTab(QWidget):
                 sorted_versions = sorted(data["versions"], key=lambda x: parse_ver(x[0]), reverse=True)
 
                 for ver, url, fname, u_date in sorted_versions:
-                    zip_path = spec_target_dir / fname
-                    is_dl = zip_path.exists()
-                    status = "✅ " if is_dl else ""
-                    date_label = f" ({u_date})" if u_date else ""
-                    display_text = f"{status}v{ver}{date_label}"
+                    if not fname:
+                        continue
 
+                    stem = Path(fname).stem.lower()
+                    fname_lower = fname.lower()
+                    zip_exists = fname_lower in local_files
+                    word_exists = any(
+                        f.startswith(stem) and (f.endswith(".docx") or f.endswith(".doc")) for f in local_files
+                    )
+                    pdf_exists = any(f.startswith(stem) and f.endswith(".pdf") for f in local_files)
+                    html_exists = any(f.startswith(stem) and f.endswith(".html") for f in local_files)
+
+                    badges = []
+                    tooltips = []
+                    if word_exists:
+                        badges.append("📝")
+                        tooltips.append("Word (.docx) ready")
+                    if pdf_exists:
+                        badges.append("📕")
+                        tooltips.append("PDF (.pdf) ready")
+                    if html_exists:
+                        badges.append("🌐")
+                        tooltips.append("HTML (.html) ready")
+
+                    if not badges and zip_exists:
+                        badges.append("📦")
+                        tooltips.append("ZIP archive downloaded")
+                    elif not zip_exists:
+                        tooltips.append("Available on 3GPP FTP")
+
+                    status = "✅ " if zip_exists else ""
+                    date_label = f" ({u_date})" if u_date else ""
+                    badge_str = f"  {' '.join(badges)}" if badges else ""
+                    display_text = f"{status}v{ver}{date_label}{badge_str}"
+
+                    item_idx = version_combo.count()
                     version_combo.addItem(
                         display_text,
                         userData={
                             "url": url,
                             "fname": fname,
                             "spec_num": spec_num,
-                            "is_downloaded": is_dl,
+                            "version": ver,
+                            "is_downloaded": zip_exists,
                             "upload_date": u_date,
+                            "has_word": word_exists,
+                            "has_pdf": pdf_exists,
+                            "has_html": html_exists,
                         },
                     )
+                    version_combo.setItemData(item_idx, " • ".join(tooltips), Qt.ToolTipRole)
 
                 doc_action_btn = QPushButton()
                 doc_action_btn.setFixedWidth(150)
@@ -982,6 +1073,14 @@ class SpecificationsTab(QWidget):
                     if doc_type == "word":
                         os.startfile(str(doc_path))
 
+                        # Refresh badges to show 📝 immediately after Word extraction
+                        try:
+                            if not sip.isdeleted(combo):
+                                self._update_combo_item_badges(combo, combo.currentIndex())
+                                combo.currentIndexChanged.emit(combo.currentIndex())
+                        except RuntimeError:
+                            pass
+
                     elif doc_type in ("pdf", "html", "txt"):
                         target_ext = f".{doc_type}"
                         target_path = doc_path.with_suffix(target_ext)
@@ -1003,6 +1102,7 @@ class SpecificationsTab(QWidget):
 
                                 try:
                                     if not sip.isdeleted(c):
+                                        self._update_combo_item_badges(c, c.currentIndex())
                                         c.currentIndexChanged.emit(c.currentIndex())
                                     if not sip.isdeleted(b):
                                         b.setText(txt)
@@ -1050,7 +1150,6 @@ class SpecificationsTab(QWidget):
             spec_dl_dir.mkdir(parents=True, exist_ok=True)
 
             idx = combo.currentIndex()
-            orig_text = combo.itemText(idx)
             combo.setItemText(idx, "⏳ Downloading...")
             combo.setEnabled(False)
 
@@ -1062,14 +1161,13 @@ class SpecificationsTab(QWidget):
             thread.ui_log_msg.connect(self._handle_converter_log)
 
             def _on_success(zp):
-                clean_text = orig_text.replace("✅ ", "").replace("⚙️ ", "").replace("⬇️ ", "").strip()
                 try:
                     if not sip.isdeleted(combo):
-                        combo.setItemText(idx, f"✅ {clean_text}")
                         c_data_inner = combo.itemData(idx)
                         if c_data_inner:
                             c_data_inner["is_downloaded"] = True
                             combo.setItemData(idx, c_data_inner)
+                        self._update_combo_item_badges(combo, idx)
                         combo.setEnabled(True)
                     if not sip.isdeleted(btn):
                         btn.setEnabled(True)
@@ -1087,7 +1185,7 @@ class SpecificationsTab(QWidget):
             def _on_err(err):
                 try:
                     if not sip.isdeleted(combo):
-                        combo.setItemText(idx, "❌ Error")
+                        self._update_combo_item_badges(combo, idx)
                         combo.setEnabled(True)
                     if not sip.isdeleted(btn):
                         btn.setEnabled(True)
@@ -1123,7 +1221,6 @@ class SpecificationsTab(QWidget):
         spec_dl_dir.mkdir(parents=True, exist_ok=True)
 
         idx = combo.currentIndex()
-        orig_text = combo.itemText(idx)
         combo.setItemText(idx, "⏳ Downloading...")
         combo.setEnabled(False)
 
@@ -1135,14 +1232,13 @@ class SpecificationsTab(QWidget):
         thread.ui_log_msg.connect(self._handle_converter_log)
 
         def _on_success(zp):
-            clean_text = orig_text.replace("✅ ", "").replace("⚙️ ", "").replace("⬇️ ", "").strip()
             try:
                 if not sip.isdeleted(combo):
-                    combo.setItemText(idx, f"✅ {clean_text}")
                     c_data_inner = combo.itemData(idx)
                     if c_data_inner:
                         c_data_inner["is_downloaded"] = True
                         combo.setItemData(idx, c_data_inner)
+                    self._update_combo_item_badges(combo, idx)
                     combo.setEnabled(True)
                 if not sip.isdeleted(btn):
                     btn.setEnabled(True)
@@ -1153,7 +1249,7 @@ class SpecificationsTab(QWidget):
         def _on_err(err):
             try:
                 if not sip.isdeleted(combo):
-                    combo.setItemText(idx, "❌ Error")
+                    self._update_combo_item_badges(combo, idx)
                     combo.setEnabled(True)
                 if not sip.isdeleted(btn):
                     btn.setEnabled(True)
