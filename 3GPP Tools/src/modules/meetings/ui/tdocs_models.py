@@ -16,15 +16,16 @@ class TDocsTableModel(QAbstractTableModel):
         self.user_data = user_data or {}
         self._data = data or []
 
+        # Appending "Emails" at the end prevents breaking delegates for columns 0, 7, 12!
         self._headers = [
             "", "TDoc", "Title", "Source", "Type", "For",
-            "Abstract", "Secretary Remarks", "My Status", "My Notes", "Agenda Item", "TDoc Status", "Related TDocs"
+            "Abstract", "Secretary Remarks", "My Status", "My Notes", "Agenda Item", "TDoc Status", "Related TDocs", "Emails"
         ]
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
         self.loading_tdocs = set()
         self.revisions = {}
+        self.email_counts = {}  # {tdoc_id: {'total': int, 'unread': int}}
 
-        # Pre-compute sanitization for the initial load
         self._apply_company_sanitization(self._data)
         self._apply_user_data_logic()
 
@@ -130,10 +131,65 @@ class TDocsTableModel(QAbstractTableModel):
         if r_reply := row_data.get("Reply in"): parts.append(self._linkify("↩️ Reply", r_reply, html))
         return ("<br>" if html else "\n").join(parts)
 
+    def set_email_counts(self, counts: dict):
+        """Updates the cached email counts dictionary and repaints the Emails column."""
+        self.email_counts = counts or {}
+        col_idx = self._headers.index("Emails")
+        self.dataChanged.emit(self.index(0, col_idx), self.index(self.rowCount() - 1, col_idx))
+
+    def get_family_tdocs(self, base_tdoc: str) -> list:
+        """Traverses Is revision of and Revised to lineage to construct the family set."""
+        family = set()
+        if not base_tdoc:
+            return []
+        family.add(base_tdoc.upper())
+
+        tdoc_dict = {str(r.get("TDoc", "")).upper(): r for r in self._data}
+        row = tdoc_dict.get(base_tdoc.upper())
+        if not row:
+            return list(family)
+
+        # Parent revision
+        parent = str(row.get("Is revision of", "")).strip().upper()
+        if parent and parent in tdoc_dict:
+            family.add(parent)
+
+        # Children revisions
+        children_str = str(row.get("Revised to", "")).strip()
+        if children_str and children_str.lower() != "none":
+            for child in children_str.split(","):
+                c_clean = child.strip().upper()
+                if c_clean:
+                    family.add(c_clean)
+
+        return sorted(list(family))
+
     def data(self, index, role):
         if not index.isValid(): return None
         row = self._data[index.row()]
         col_name = self._headers[index.column()]
+
+        # Render Emails badge column
+        if col_name == "Emails":
+            tdoc = str(row.get("TDoc", "")).upper()
+            family = self.get_family_tdocs(tdoc)
+            tot = sum(self.email_counts.get(t, {}).get("total", 0) for t in family)
+            unread = sum(self.email_counts.get(t, {}).get("unread", 0) for t in family)
+
+            if role == Qt.DisplayRole:
+                if tot == 0:
+                    return ""
+                return f"✉️ {tot} (🔵 {unread})" if unread > 0 else f"✉️ {tot}"
+            elif role == Qt.ToolTipRole:
+                if tot == 0:
+                    return "No indexed emails mentioning this TDoc or its revisions."
+                return f"<b>{tot} email(s) total</b> ({unread} unread) mentioning family: {', '.join(family)}"
+            elif role == Qt.TextAlignmentRole:
+                return Qt.AlignCenter
+            elif role == Qt.ForegroundRole and unread > 0:
+                from PyQt5.QtGui import QColor
+                return QColor("#005A9E")
+            return None
 
         if col_name == "":
             if role == Qt.UserRole: return row.get("TDoc", "")

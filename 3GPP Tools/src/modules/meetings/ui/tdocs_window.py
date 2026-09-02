@@ -1,3 +1,4 @@
+# --- File: src/modules/meetings/ui/tdocs_window.py ---
 import datetime
 import json
 import logging
@@ -41,6 +42,11 @@ from modules.meetings.ui.tdocs_dialogs import (
 )
 from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
+from modules.emails.core.general_email_db import GeneralEmailDatabase
+from modules.emails.core.general_email_sync import GeneralEmailSyncThread
+from modules.emails.ui.general_email_dialog import (
+    GeneralEmailFoldersDialog, GeneralEmailSyncDialog, TDocEmailsDialog, load_wg_email_config
+)
 
 
 class DropOverlayWidget(QWidget):
@@ -98,6 +104,10 @@ class TDocsWindow(QWidget):
         self.filepath = filepath
         self.meeting_dir = Path(filepath).parent.parent
         self.active_threads = {}
+
+        # Initialize database handle and email thread tracking
+        self.general_email_db = GeneralEmailDatabase(self.meeting_dir / "Agenda" / "emails.db")
+        self.general_email_sync_thread = None
 
         # Import Queue State
         self._import_queue = []
@@ -229,11 +239,19 @@ class TDocsWindow(QWidget):
         self.stats_cfg_btn.setToolTip("Configure Statistics Parameters")
         self.stats_cfg_btn.clicked.connect(self._open_stats_config)
 
-        self.email_btn = QPushButton("📧 Emails")
+        # 📧 Emails Dropdown Menu
+        self.email_btn = QPushButton("📧 Emails ▾")
         self.email_btn.setStyleSheet(style_btn())
-        self.email_btn.setToolTip("Open the Email Manager to sync and analyze Outlook threads for this meeting.")
-        self.email_btn.clicked.connect(self._open_email_manager)
-        self.email_btn.setVisible(self.is_sa2_electronic)
+        self.email_btn.setToolTip("Sync and inspect Outlook emails linked to TDocs and revisions.")
+
+        email_menu = QMenu(self)
+        email_menu.addAction("🔄 Sync Related Emails...", self._on_sync_general_emails)
+        email_menu.addAction("⚙️ Configure Outlook Folders...", self._on_configure_email_folders)
+        email_menu.addAction("✔️ Mark All Emails as Read", self._on_mark_all_emails_read)
+        if self.is_sa2_electronic:
+            email_menu.addSeparator()
+            email_menu.addAction("📊 Open eMeeting Email Manager (Dashboard)", self._open_email_manager)
+        self.email_btn.setMenu(email_menu)
 
         self.count_lbl = QLabel(f"Showing {count} of {count} TDocs")
         self.count_lbl.setStyleSheet("font-size: 13px; color: #666;")
@@ -436,8 +454,17 @@ class TDocsWindow(QWidget):
         header.resizeSection(10, 80)
         header.resizeSection(12, 160)
 
+        # Set column width for the 14th column ("Emails", index 13)
+        if len(self.model._headers) > 13:
+            header.resizeSection(13, 85)
+
+        # Enable Right-Click Context Menu for row operations (Mark Read/Unread)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
+
         layout.addWidget(self.table)
         self._refresh_comboboxes()
+        self._refresh_email_counts()
 
         from PyQt5.QtWidgets import QShortcut
         from PyQt5.QtGui import QKeySequence
@@ -622,6 +649,13 @@ class TDocsWindow(QWidget):
         if not index.isValid():
             return
         col_name = self.model._headers[index.column()]
+
+        # Intercept clicks on the "Emails" column to open the inspection dialog
+        if col_name == "Emails":
+            row_data = self.model._data[self.proxy.mapToSource(index).row()]
+            self._open_tdoc_emails(row_data.get("TDoc", ""))
+            return
+
         if col_name not in ["Secretary Remarks", "Title", "Source", "Abstract", "My Notes", "My Status"]:
             return
 
@@ -723,6 +757,7 @@ class TDocsWindow(QWidget):
             if new_data := TDocsParser.parse_tdocs_excel(self.filepath):
                 self.model.update_data(new_data)
                 self._refresh_comboboxes()
+                self._refresh_email_counts()
                 self.last_mod_lbl.setText(self._get_mod_date_str())
             else:
                 QMessageBox.warning(self, "Parse Error", "Downloaded, but could not parse the Excel file.")
@@ -886,8 +921,8 @@ class TDocsWindow(QWidget):
         if not visible_tdocs:
             return QMessageBox.warning(self, "Empty View", "No TDocs currently visible in the table to export.")
 
-        self.llm_btn.setText("⏳ Compiling Corpus...")
-        self.llm_btn.setEnabled(False)
+        self.export_btn.setText("⏳ Compiling Corpus...")
+        self.export_btn.setEnabled(False)
 
         config = StatisticsSettingsDialog().load_config()
         max_chars = config.get("llm_max_chars", 200000)
@@ -929,11 +964,11 @@ class TDocsWindow(QWidget):
         self.llm_thread.start()
 
     def _on_llm_progress(self, msg: str):
-        self.llm_btn.setText(f"⏳ {msg}"[:35])
+        self.export_btn.setText(f"⏳ {msg}"[:35])
 
     def _on_llm_export_finished(self, success: bool, msg: str):
-        self.llm_btn.setText("🤖 Export Visible to LLM")
-        self.llm_btn.setEnabled(True)
+        self.export_btn.setText("📤 Export ▾")
+        self.export_btn.setEnabled(True)
         if success:
             QMessageBox.information(self, "LLM Export Complete", msg)
             _open_folder(self.meeting_dir / "Export" / "LLM_Corpus")
@@ -1148,7 +1183,6 @@ class TDocsWindow(QWidget):
         else:
             QMessageBox.information(self, "Batch Import Successful", "\n".join(summary_lines))
 
-
     def _download_chair_notes(self):
         """Asynchronously downloads all Chairman's Notes into Agenda/ChairNotes/."""
         wg_name = self.mtg_info.get("wg_name", "").upper()
@@ -1272,3 +1306,98 @@ class TDocsWindow(QWidget):
                 _open_folder(Path(msg))
         else:
             QMessageBox.warning(self, "Export Failed", f"Failed to export Excel:\n{msg}")
+
+    # =========================================================================
+    # 📧 GENERAL EMAIL INTEGRATION HANDLERS
+    # =========================================================================
+    def _refresh_email_counts(self):
+        """Queries the SQLite database for total and unread email matches and refreshes the table."""
+        try:
+            counts = self.general_email_db.get_email_counts_per_tdoc()
+            self.model.set_email_counts(counts)
+        except Exception as e:
+            logging.error(f"Error refreshing email counts: {e}")
+
+    def _open_tdoc_emails(self, tdoc_id: str):
+        """Opens the inspection card dialog for a specific TDoc and its entire revision family."""
+        if not tdoc_id:
+            return
+        family = self.model.get_family_tdocs(tdoc_id)
+        dialog = TDocEmailsDialog(tdoc_id, family, self.general_email_db.db_path, self)
+        dialog.data_changed.connect(self._refresh_email_counts)
+        dialog.exec_()
+
+    def _on_configure_email_folders(self):
+        """Opens the Outlook Folder Configuration Dialog for the current Working Group."""
+        wg = self.mtg_info.get("wg_name", "SA2")
+        dialog = GeneralEmailFoldersDialog(wg, self)
+        dialog.exec_()
+
+    def _on_sync_general_emails(self):
+        """Opens the sync date buffer dialog and dispatches the background GeneralEmailSyncThread."""
+        wg = self.mtg_info.get("wg_name", "SA2")
+        folders = load_wg_email_config(wg)
+        if not folders:
+            if QMessageBox.question(self, "No Folders Configured",
+                                    f"No Outlook folders configured for {wg}.\nConfigure folders now?",
+                                    QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+                self._on_configure_email_folders()
+            return
+
+        dialog = GeneralEmailSyncDialog(wg, self.mtg_info.get("start_date", ""), self.mtg_info.get("end_date", ""), self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        params = dialog.get_params()
+        self.email_btn.setEnabled(False)
+        self.email_btn.setText("⏳ Syncing...")
+
+        self.general_email_sync_thread = GeneralEmailSyncThread(
+            folders, self.general_email_db.db_path,
+            start_date=params["start_date"], end_date=params["end_date"], days_buffer=params["buffer"]
+        )
+        self.general_email_sync_thread.progress_msg.connect(lambda m: self.email_btn.setText(f"⏳ {m[:20]}"))
+        self.general_email_sync_thread.finished.connect(self._on_general_sync_finished)
+        self.general_email_sync_thread.start()
+
+    def _on_general_sync_finished(self, success: bool, msg: str, count: int):
+        """Restores button state and prompts feedback once email syncing finishes."""
+        self.email_btn.setEnabled(True)
+        self.email_btn.setText("📧 Emails ▾")
+        self._refresh_email_counts()
+        if success:
+            QMessageBox.information(self, "Email Sync Complete", msg)
+        else:
+            QMessageBox.warning(self, "Email Sync Failed", msg)
+
+    def _on_mark_all_emails_read(self):
+        """Marks all general emails across the entire meeting database as read."""
+        self.general_email_db.mark_all_read()
+        self._refresh_email_counts()
+        QMessageBox.information(self, "Mark All Read", "All emails have been marked as read.")
+
+    def _on_table_context_menu(self, pos: QPoint):
+        """Displays row-level context actions to inspect related emails and toggle read status."""
+        index = self.table.indexAt(pos)
+        if not index.isValid():
+            return
+        source_idx = self.proxy.mapToSource(index)
+        row_data = self.model._data[source_idx.row()]
+        tdoc_id = row_data.get("TDoc", "")
+        if not tdoc_id:
+            return
+
+        family = self.model.get_family_tdocs(tdoc_id)
+        menu = QMenu(self)
+
+        act_open_emails = menu.addAction(f"📧 View Related Emails for {tdoc_id}...")
+        act_open_emails.triggered.connect(lambda: self._open_tdoc_emails(tdoc_id))
+
+        menu.addSeparator()
+        act_read = menu.addAction(f"✔️ Mark all emails as read for {tdoc_id} family")
+        act_read.triggered.connect(lambda: [self.general_email_db.set_tdocs_read_status(set(family), True), self._refresh_email_counts()])
+
+        act_unread = menu.addAction(f"✉️ Mark all emails as unread for {tdoc_id} family")
+        act_unread.triggered.connect(lambda: [self.general_email_db.set_tdocs_read_status(set(family), False), self._refresh_email_counts()])
+
+        menu.exec_(self.table.viewport().mapToGlobal(pos))
