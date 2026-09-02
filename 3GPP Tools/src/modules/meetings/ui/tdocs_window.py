@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
 
 from core.network.network_state import NetworkState
 from modules.emails.ui.email_window import EmailManagerWindow
+from modules.meetings.core.agenda_manager import AgendaManager, AgendaDownloaderThread
 from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
 from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.excel_exporter import ExcelExporterThread
@@ -106,6 +107,12 @@ class TDocsWindow(QWidget):
         self.meeting_dir = Path(filepath).parent.parent
         self.active_threads = {}
         self._email_dialogs = {}
+
+        self.agenda_dir = Path(filepath).parent  # Points to local Cache/Meeting/Agenda/
+
+        # 1. Load STRICTLY from local disk on startup (no network requests triggered)
+        self.agenda_map = AgendaManager.load_local_agenda(self.agenda_dir)
+        self.agenda_dl_thread = None
 
         # Initialize database handle and email thread tracking
         self.general_email_db = GeneralEmailDatabase(self.meeting_dir / "Agenda" / "emails.db")
@@ -197,6 +204,7 @@ class TDocsWindow(QWidget):
 
         refresh_menu = QMenu(self)
         refresh_menu.addAction("📗 Refresh Excel List", self._refresh_excel)
+        refresh_menu.addAction("📋 Download Agenda CSV", self._download_agenda_csv)
         if self.is_sa2:
             refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
             refresh_menu.addAction("📝 Import Word Document (.docx / .doc)...", self._import_word_agenda_dialog)
@@ -296,6 +304,9 @@ class TDocsWindow(QWidget):
 
         # 1. Local Hard Drive Cache Folders
         self.folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
+        local_agenda_csv = self.agenda_dir / "agenda.csv"
+        if local_agenda_csv.exists():
+            self.folder_menu.addAction("📋 Local: agenda.csv", lambda: _open_folder(local_agenda_csv))
         if self.is_sa2:
             self.folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
 
@@ -390,8 +401,9 @@ class TDocsWindow(QWidget):
         self.type_combo.selectionChanged.connect(self._on_type_changed)
         filter_layout.addWidget(self.type_combo)
 
+        # AI Combobox: standard width restored; tooltips retain full descriptions on hover
         self.ai_combo = CheckableComboBox("AI")
-        self.ai_combo.setToolTip("Filter by 3GPP Agenda Item (AI).")
+        self.ai_combo.setToolTip("Filter by 3GPP Agenda Item (AI). Hover items for full descriptions.")
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
@@ -553,6 +565,7 @@ class TDocsWindow(QWidget):
 
         self.type_combo.updateItems(unique_types)
         self.ai_combo.updateItems(unique_ais)
+        self._update_ai_tooltips()
         self.status_combo.updateItems(unique_statuses)
         self.company_combo.updateItems(sorted_companies)
         self.my_status_combo.updateItems(unique_my_statuses)
@@ -564,6 +577,29 @@ class TDocsWindow(QWidget):
         self.proxy.setMyStatusFilters(self.my_status_combo.getCheckedItems())
 
         QTimer.singleShot(0, self._update_count_label)
+
+    def _update_ai_tooltips(self):
+        """Assigns the complete, unabbreviated description to Qt.ToolTipRole for each AI combo item."""
+        if not hasattr(self, 'ai_combo') or not self.ai_combo.model():
+            return
+        model = self.ai_combo.model()
+        # Item 0 is the '(Select All)' item
+        for i in range(1, model.rowCount()):
+            item = model.item(i)
+            if not item:
+                continue
+            ai_num = item.text().strip()
+            agenda_item = self.agenda_map.get(ai_num)
+            if agenda_item:
+                if hasattr(agenda_item, 'full_tooltip'):
+                    full_desc = agenda_item.full_tooltip
+                elif hasattr(agenda_item, 'description'):
+                    full_desc = f"AI {ai_num}: {agenda_item.description}"
+                else:
+                    full_desc = f"AI {ai_num}: {agenda_item}"
+                item.setData(full_desc, Qt.ToolTipRole)
+            else:
+                item.setData(f"Agenda Item {ai_num}", Qt.ToolTipRole)
 
     def _clear_all_filters(self):
         self.search_input.blockSignals(True)
@@ -1236,6 +1272,60 @@ class TDocsWindow(QWidget):
         else:
             QMessageBox.information(self, "Batch Import Successful", "\n".join(summary_lines))
 
+    def _download_agenda_csv(self):
+        """Manually downloads agenda.csv from candidate 3GPP endpoints to the local Agenda directory."""
+        wg_name = self.mtg_info.get("wg_name", "").upper()
+        main_url = self.mtg_info.get("url_key", "")
+        if main_url and not main_url.startswith("http"):
+            main_url = f"https://www.3gpp.org/ftp/{main_url.lstrip('/')}"
+
+        is_active = self.mtg_info.get("is_active_sync", False)
+
+        candidate_urls = []
+        if NetworkState.get_instance().is_local_active():
+            local_base = URLRouter._get_local_server_base(wg_name)
+            candidate_urls.append(local_base)
+
+        if is_active:
+            sync_wg = "SA3LI" if wg_name == "SA3LI" else wg_name
+            candidate_urls.append(f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{sync_wg}")
+
+        if main_url:
+            candidate_urls.append(main_url)
+
+        docs_url = self.mtg_info.get("docs_folder_url", "")
+        if docs_url:
+            if not docs_url.startswith("http"):
+                docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip('/')
+            base_from_docs = re.sub(r'/Docs/?$', '', docs_url, flags=re.IGNORECASE)
+            if base_from_docs not in candidate_urls:
+                candidate_urls.append(base_from_docs)
+
+        if not candidate_urls:
+            return QMessageBox.warning(self, "No URL Available",
+                                       "Cannot download Agenda CSV: No valid meeting URL found.")
+
+        self.refresh_btn.setEnabled(False)
+        self.refresh_btn.setText("⏳ Getting Agenda...")
+
+        self.agenda_dl_thread = AgendaDownloaderThread(candidate_urls, self.agenda_dir, self)
+        self.agenda_dl_thread.progress.connect(lambda msg: self.refresh_btn.setText(f"⏳ {msg}"[:30]))
+        self.agenda_dl_thread.finished.connect(self._on_agenda_download_finished)
+        self.agenda_dl_thread.start()
+
+    def _on_agenda_download_finished(self, success: bool, msg: str):
+        self.refresh_btn.setEnabled(True)
+        self.refresh_btn.setText("🔄 Refresh")
+
+        if success:
+            self.refresh_btn.setText("✅ Agenda Cached")
+            QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
+            self.agenda_map = AgendaManager.load_local_agenda(self.agenda_dir)
+            self._update_ai_tooltips()
+            QMessageBox.information(self, "Agenda CSV Cached", msg)
+        else:
+            QMessageBox.warning(self, "Download Failed", msg)
+
     def _download_chair_notes(self):
         """Asynchronously downloads all Chairman's Notes into Agenda/ChairNotes/."""
         wg_name = self.mtg_info.get("wg_name", "").upper()
@@ -1522,3 +1612,26 @@ class TDocsWindow(QWidget):
             unread_emails_count=unread_count,
             pos=self.table.viewport().mapToGlobal(pos),
         )
+
+    def closeEvent(self, event):
+        if hasattr(self, 'routing_timer'):
+            self.routing_timer.stop()
+        if hasattr(self, 'search_timer'):
+            self.search_timer.stop()
+
+        all_threads = [
+            getattr(self, 'rev_thread', None),
+            getattr(self, 'agenda_dl_thread', None),
+            getattr(self, 'general_email_sync_thread', None),
+            getattr(self, 'dl_thread', None),
+        ]
+        if hasattr(self, 'active_threads'):
+            all_threads.extend(self.active_threads.values())
+
+        for th in filter(None, all_threads):
+            if th.isRunning():
+                th.requestInterruption()
+                th.quit()
+                th.wait(100)
+
+        super().closeEvent(event)
