@@ -41,7 +41,7 @@ from modules.meetings.ui.tdocs_dialogs import (
     StatisticsSettingsDialog, ExcelExportDialog,
     TDocInfoDialog
 )
-from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu
+from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu, build_row_context_menu
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.general_email_sync import GeneralEmailSyncThread
@@ -664,20 +664,43 @@ class TDocsWindow(QWidget):
             row_data = self.model._data[self.proxy.mapToSource(index).row()]
             tdoc_id = str(row_data.get("TDoc", "")).strip()
             revs = self.model.revisions.get(tdoc_id, [])
-            TDocInfoDialog(row_data, docs_ftp_url=self.docs_ftp_url, revisions=revs, parent=self).exec_()
+            TDocInfoDialog(
+                row_data,
+                docs_ftp_url=self.docs_ftp_url,
+                revisions=revs,
+                parent=self,
+            ).exec_()
             return
 
-        if col_name not in ["Secretary Remarks", "Title", "Source", "Abstract", "My Notes", "My Status"]:
+        if col_name not in [
+            "Secretary Remarks",
+            "Title",
+            "Source",
+            "Abstract",
+            "My Notes",
+            "My Status",
+        ]:
             return
 
         row_data = self.model._data[self.proxy.mapToSource(index).row()]
         tdoc_id = row_data.get("TDoc", "")
 
         if col_name in ["Title", "Source", "Abstract"]:
-            val = next((str(v) for k, v in row_data.items() if str(k).strip().lower() == col_name.lower() and v), "")
-            ReadOnlyViewerDialog(self, f"📄 Viewing: {col_name} ({tdoc_id})", val).exec_()
+            val = next(
+                (
+                    str(v)
+                    for k, v in row_data.items()
+                    if str(k).strip().lower() == col_name.lower() and v
+                ),
+                "",
+            )
+            ReadOnlyViewerDialog(
+                self, f"📄 Viewing: {col_name} ({tdoc_id})", val
+            ).exec_()
         else:
-            InteractiveNotesDialog(self, tdoc_id, row_data, self._save_user_data).exec_()
+            InteractiveNotesDialog(
+                self, tdoc_id, row_data, self._save_user_data
+            ).exec_()
 
     def _save_user_data(self, tdoc_id: str, status: str, notes: str):
         self.db.upsert(tdoc_id, status, notes)
@@ -1425,7 +1448,7 @@ class TDocsWindow(QWidget):
             QMessageBox.information(self, "Database Wiped", "Generic email records have been wiped.")
 
     def _on_table_context_menu(self, pos: QPoint):
-        """Displays row-level context actions to inspect details, emails, and toggle read status."""
+        """Displays row-level context actions organized into clean submenus."""
         index = self.table.indexAt(pos)
         if not index.isValid():
             return
@@ -1435,28 +1458,48 @@ class TDocsWindow(QWidget):
         if not tdoc_id:
             return
 
+        revisions = self.model.revisions.get(tdoc_id, [])
         family = self.model.get_family_tdocs(tdoc_id)
-        menu = QMenu(self)
 
-        # View full database entry dialog
-        act_info = menu.addAction(f"ℹ️ View Full Details for {tdoc_id}...")
-        act_info.triggered.connect(lambda: TDocInfoDialog(
-            row_data,
+        # Retrieve unread email count from table model cache if available
+        unread_count = 0
+        if hasattr(self.model, "_email_counts") and isinstance(
+            self.model._email_counts, dict
+        ):
+            counts = self.model._email_counts.get(tdoc_id)
+            if isinstance(counts, (tuple, list)) and len(counts) > 1:
+                unread_count = counts[1]
+            elif isinstance(counts, dict):
+                unread_count = counts.get("unread", 0)
+
+        build_row_context_menu(
+            parent=self.table,
+            row_data=row_data,
+            revisions=revisions,
+            family=family,
             docs_ftp_url=self.docs_ftp_url,
-            revisions=self.model.revisions.get(tdoc_id, []),
-            parent=self
-        ).exec_())
-
-        menu.addSeparator()
-
-        act_open_emails = menu.addAction(f"📧 View Related Emails for {tdoc_id}...")
-        act_open_emails.triggered.connect(lambda: self._open_tdoc_emails(tdoc_id))
-
-        menu.addSeparator()
-        act_read = menu.addAction(f"✔️ Mark all emails as read for {tdoc_id} family")
-        act_read.triggered.connect(lambda: [self.general_email_db.set_tdocs_read_status(set(family), True), self._refresh_email_counts()])
-
-        act_unread = menu.addAction(f"✉️ Mark all emails as unread for {tdoc_id} family")
-        act_unread.triggered.connect(lambda: [self.general_email_db.set_tdocs_read_status(set(family), False), self._refresh_email_counts()])
-
-        menu.exec_(self.table.viewport().mapToGlobal(pos))
+            revisions_url=self.revisions_url,
+            meeting_dir=self.meeting_dir,
+            download_callback=self._trigger_download_thread,
+            export_llm_callback=self._export_llm_single,
+            compose_email_callback=self._compose_email_draft,
+            open_emails_callback=self._open_tdoc_emails,
+            mark_read_callback=lambda: [
+                self.general_email_db.set_tdocs_read_status(set(family), True),
+                self._refresh_email_counts(),
+            ],
+            mark_unread_callback=lambda: [
+                self.general_email_db.set_tdocs_read_status(
+                    set(family), False
+                ),
+                self._refresh_email_counts(),
+            ],
+            open_details_callback=lambda: TDocInfoDialog(
+                row_data,
+                docs_ftp_url=self.docs_ftp_url,
+                revisions=revisions,
+                parent=self,
+            ).exec_(),
+            unread_emails_count=unread_count,
+            pos=self.table.viewport().mapToGlobal(pos),
+        )
