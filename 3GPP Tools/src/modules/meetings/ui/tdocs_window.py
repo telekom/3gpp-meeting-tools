@@ -38,7 +38,8 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_dialogs import (
     ReadOnlyViewerDialog,
     InteractiveNotesDialog,
-    StatisticsSettingsDialog, ExcelExportDialog
+    StatisticsSettingsDialog, ExcelExportDialog,
+    TDocInfoDialog
 )
 from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
@@ -656,6 +657,14 @@ class TDocsWindow(QWidget):
         if col_name == "Emails":
             row_data = self.model._data[self.proxy.mapToSource(index).row()]
             self._open_tdoc_emails(row_data.get("TDoc", ""))
+            return
+
+        # Double-click on TDoc column opens the complete Info Card Dialog
+        if col_name == "TDoc":
+            row_data = self.model._data[self.proxy.mapToSource(index).row()]
+            tdoc_id = str(row_data.get("TDoc", "")).strip()
+            revs = self.model.revisions.get(tdoc_id, [])
+            TDocInfoDialog(row_data, docs_ftp_url=self.docs_ftp_url, revisions=revs, parent=self).exec_()
             return
 
         if col_name not in ["Secretary Remarks", "Title", "Source", "Abstract", "My Notes", "My Status"]:
@@ -1416,7 +1425,7 @@ class TDocsWindow(QWidget):
             QMessageBox.information(self, "Database Wiped", "Generic email records have been wiped.")
 
     def _on_table_context_menu(self, pos: QPoint):
-        """Displays row-level context actions to inspect related emails and toggle read status."""
+        """Displays row-level context actions to inspect details, emails, and toggle read status."""
         index = self.table.indexAt(pos)
         if not index.isValid():
             return
@@ -1428,6 +1437,17 @@ class TDocsWindow(QWidget):
 
         family = self.model.get_family_tdocs(tdoc_id)
         menu = QMenu(self)
+
+        # View full database entry dialog
+        act_info = menu.addAction(f"ℹ️ View Full Details for {tdoc_id}...")
+        act_info.triggered.connect(lambda: TDocInfoDialog(
+            row_data,
+            docs_ftp_url=self.docs_ftp_url,
+            revisions=self.model.revisions.get(tdoc_id, []),
+            parent=self
+        ).exec_())
+
+        menu.addSeparator()
 
         act_open_emails = menu.addAction(f"📧 View Related Emails for {tdoc_id}...")
         act_open_emails.triggered.connect(lambda: self._open_tdoc_emails(tdoc_id))
