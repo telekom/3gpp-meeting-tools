@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QMessageBox, QFrame, QFileDialog, QDialog)
 
 from core.network.session import NetworkConfigDialog
+from modules.meetings.core.agenda_manager import AgendaDownloaderThread
 from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.settings import MeetingsSettings
@@ -767,6 +768,11 @@ class MeetingsTab(QWidget):
                             f"file:///{p}")
                     )
 
+                    # Manual Trigger for agenda.csv
+                    menu.addAction("📋 Download Agenda CSV").triggered.connect(
+                        lambda _, d=row_data: self._download_agenda_csv(d)
+                    )
+
                 if mtg_id:
                     status = row_data.get('tdoc_btn_status', 'na')
                     if status == 'open':
@@ -802,6 +808,32 @@ class MeetingsTab(QWidget):
             menu.addSeparator()
             menu.addAction("🗑️ Delete this Meeting").triggered.connect(lambda: self._confirm_delete_specific(
                 [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}]))
+
+    def _download_agenda_csv(self, row_data: dict):
+        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.settings.cache_dir
+        folder_name = row_data.get("folder_name") or row_data.get("meeting_number", "")
+        agenda_dir = Path(current_cache) / folder_name / "Agenda"
+
+        # Build candidate base URLs
+        candidate_urls = []
+        raw_url = row_data.get("url_key", "")
+        if raw_url:
+            full_ftp = raw_url if raw_url.startswith("http") else f"https://www.3gpp.org/ftp/{raw_url.lstrip('/')}"
+            candidate_urls.append(full_ftp)
+
+        docs_url = row_data.get("docs_folder_url", "")
+        if docs_url:
+            candidate_urls.append(re.sub(r'/Docs/?$', '', docs_url, flags=re.IGNORECASE))
+
+        self.agenda_dl_thread = AgendaDownloaderThread(candidate_urls, agenda_dir, self)
+        self.agenda_dl_thread.finished.connect(self._on_agenda_download_finished)
+        self.agenda_dl_thread.start()
+
+    def _on_agenda_download_finished(self, success: bool, msg: str):
+        if success:
+            QMessageBox.information(self, "Agenda Download", msg)
+        else:
+            QMessageBox.warning(self, "Agenda Download", msg)
 
     def _download_and_open_tdocs(self, row_data: dict, row_idx: int = -1):
         mtg_id = row_data.get("mtg_id")

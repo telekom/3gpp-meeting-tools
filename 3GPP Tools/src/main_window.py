@@ -287,7 +287,7 @@ class DragDropUI(QMainWindow):
                 text = self.cache_file.read_text(encoding="utf-8")
                 if text.strip():
                     self.code_tab.text_input.setPlainText(text)
-                    self.log_message("♻️ Restored previous session.", logging.INFO)
+                    self.log_message("♻️ Restored main window previous session.", logging.INFO)
             except Exception as e:
                 self.log_message(f"⚠️ Could not load previous session: {e}", logging.WARNING)
 
