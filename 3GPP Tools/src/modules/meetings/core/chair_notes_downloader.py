@@ -43,10 +43,16 @@ class ChairNotesDownloaderThread(QThread):
 
             # 1. Locate the active Chair_Notes folder across priority endpoints
             for base_url in self.candidate_base_urls:
+                if self.isInterruptionRequested():
+                    return
+
                 if not base_url:
                     continue
                 clean_base = base_url.rstrip("/")
                 for sub in subpaths:
+                    if self.isInterruptionRequested():
+                        return
+
                     probe_url = f"{clean_base}/{sub}"
                     try:
                         self.progress.emit(f"Probing {probe_url[:35]}...")
@@ -77,6 +83,9 @@ class ChairNotesDownloaderThread(QThread):
             total_files = len(files_to_download)
 
             for idx, (filename, file_url) in enumerate(files_to_download, 1):
+                if self.isInterruptionRequested():
+                    return
+
                 self.progress.emit(f"({idx}/{total_files}) Downloading {filename[:25]}...")
                 dest_path = self.target_dir / filename
 
@@ -86,6 +95,8 @@ class ChairNotesDownloaderThread(QThread):
 
                     with open(dest_path, "wb") as f:
                         for chunk in dl_resp.iter_content(chunk_size=65536):
+                            if self.isInterruptionRequested():
+                                return
                             if chunk:
                                 f.write(chunk)
 
