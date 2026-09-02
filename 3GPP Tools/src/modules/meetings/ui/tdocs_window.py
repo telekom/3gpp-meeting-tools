@@ -104,6 +104,7 @@ class TDocsWindow(QWidget):
         self.filepath = filepath
         self.meeting_dir = Path(filepath).parent.parent
         self.active_threads = {}
+        self._email_dialogs = {}
 
         # Initialize database handle and email thread tracking
         self.general_email_db = GeneralEmailDatabase(self.meeting_dir / "Agenda" / "emails.db")
@@ -1317,14 +1318,31 @@ class TDocsWindow(QWidget):
             logging.error(f"Error refreshing email counts: {e}")
 
     def _open_tdoc_emails(self, tdoc_id: str):
-        """Opens the inspection card dialog for a specific TDoc and its entire revision family."""
+        """Opens the inspection card dialog modelessly, allowing full background UI access."""
         if not tdoc_id:
             return
-        family = self.model.get_family_tdocs(tdoc_id)
+        tdoc_clean = tdoc_id.strip().upper()
+
+        # If already open, bring it to the foreground
+        if tdoc_clean in self._email_dialogs:
+            dlg = self._email_dialogs[tdoc_clean]
+            dlg.setWindowState(dlg.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+            dlg.raise_()
+            dlg.activateWindow()
+            return
+
+        family = self.model.get_family_tdocs(tdoc_clean)
         wg = self.mtg_info.get("wg_name", "SA2")
-        dialog = TDocEmailsDialog(tdoc_id, family, self.general_email_db.db_path, wg=wg, parent=self)
+        dialog = TDocEmailsDialog(tdoc_clean, family, self.general_email_db.db_path, wg=wg, parent=self)
         dialog.data_changed.connect(self._refresh_email_counts)
-        dialog.exec_()
+
+        # Track modeless dialog lifecycle
+        self._email_dialogs[tdoc_clean] = dialog
+        dialog.finished.connect(lambda _, t=tdoc_clean: self._email_dialogs.pop(t, None))
+
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _on_configure_email_folders(self):
         """Opens the Outlook Folder Configuration Dialog for the current Working Group."""

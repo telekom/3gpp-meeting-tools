@@ -19,6 +19,12 @@ class GeneralEmailSyncThread(QThread):
     TDOC_REGEX = re.compile(r'\b([A-Z0-9]{2,4}-\d{6,8})\b', re.IGNORECASE)
     REV_REGEX = re.compile(r'\b([A-Z0-9]{2,4}-\d{6,8})(?:r|rev)\s*0?([1-9]\d*)\b', re.IGNORECASE)
 
+    # Regex identifying the boundary where previous email quotations begin
+    QUOTE_SPLIT_REGEX = re.compile(
+        r'\n(?:\s*[-_]{5,}\s*|\s*(?:Von|From|De|Gesendet|Sent|Betreff|Subject):\s*.+|\s*On\s+.+wrote:\s*)',
+        re.IGNORECASE
+    )
+
     def __init__(self, folder_configs: List[dict], db_path: Path,
                  start_date: str = "", end_date: str = "", days_buffer: int = 3):
         super().__init__()
@@ -100,7 +106,7 @@ class GeneralEmailSyncThread(QThread):
                     sender_name, sender_email = self._resolve_sender(mail_item, sender_name, sender_email, body)
                     company = self._resolve_company(sender_name, sender_email)
 
-                    # Extract matches in Subject and Body
+                    # Extract matches separating Direct Body from Quoted Reply content
                     matches = self._extract_tdocs(subject, body)
                     if not matches:
                         continue
@@ -147,7 +153,7 @@ class GeneralEmailSyncThread(QThread):
     def _extract_tdocs(self, subject: str, body: str) -> List[dict]:
         results = {}
 
-        # 1. Subject extraction (Higher Priority)
+        # 1. Subject extraction (Highest Priority)
         for tdoc in self.TDOC_REGEX.findall(subject):
             tdoc_up = tdoc.upper()
             results[tdoc_up] = {"tdoc_id": tdoc_up, "rev_matched": "", "location": "Subject"}
@@ -157,17 +163,39 @@ class GeneralEmailSyncThread(QThread):
             rev_str = f"{base_up}r{int(rev):02d}"
             results[base_up] = {"tdoc_id": base_up, "rev_matched": rev_str, "location": "Subject"}
 
-        # 2. Body extraction
-        for tdoc in self.TDOC_REGEX.findall(body):
+        # 2. Split Body into Direct Text vs Quoted History
+        split_match = self.QUOTE_SPLIT_REGEX.search(body)
+        if split_match:
+            direct_body = body[:split_match.start()]
+            quoted_body = body[split_match.start():]
+        else:
+            direct_body = body
+            quoted_body = ""
+
+        # Direct Body extraction
+        for tdoc in self.TDOC_REGEX.findall(direct_body):
             tdoc_up = tdoc.upper()
             if tdoc_up not in results:
                 results[tdoc_up] = {"tdoc_id": tdoc_up, "rev_matched": "", "location": "Body"}
 
-        for base, rev in self.REV_REGEX.findall(body):
+        for base, rev in self.REV_REGEX.findall(direct_body):
             base_up = base.upper()
             rev_str = f"{base_up}r{int(rev):02d}"
-            if base_up not in results or results[base_up]["location"] == "Body":
+            if base_up not in results or results[base_up]["location"] != "Subject":
                 results[base_up] = {"tdoc_id": base_up, "rev_matched": rev_str, "location": "Body"}
+
+        # Quoted History extraction
+        if quoted_body:
+            for tdoc in self.TDOC_REGEX.findall(quoted_body):
+                tdoc_up = tdoc.upper()
+                if tdoc_up not in results:
+                    results[tdoc_up] = {"tdoc_id": tdoc_up, "rev_matched": "", "location": "Quoted"}
+
+            for base, rev in self.REV_REGEX.findall(quoted_body):
+                base_up = base.upper()
+                rev_str = f"{base_up}r{int(rev):02d}"
+                if base_up not in results:
+                    results[base_up] = {"tdoc_id": base_up, "rev_matched": rev_str, "location": "Quoted"}
 
         return list(results.values())
 
@@ -192,7 +220,6 @@ class GeneralEmailSyncThread(QThread):
             except Exception:
                 pass
         else:
-            # Resolve direct internal Exchange senders
             try:
                 sender_email_type = str(getattr(mail_item, "SenderEmailType", "")).upper()
                 if sender_email_type == "EX" or sender_email.lower().startswith("/o="):
@@ -212,7 +239,8 @@ class GeneralEmailSyncThread(QThread):
                 body[:1500], re.IGNORECASE)
             if dmarc_match:
                 sender_name = dmarc_match.group(1).strip(' \t"\'')
-                if not sender_email or "list.etsi.org" in sender_email.lower() or sender_email.lower().startswith("/o="):
+                if not sender_email or "list.etsi.org" in sender_email.lower() or sender_email.lower().startswith(
+                        "/o="):
                     sender_email = dmarc_match.group(2).strip()
 
         return sender_name, sender_email

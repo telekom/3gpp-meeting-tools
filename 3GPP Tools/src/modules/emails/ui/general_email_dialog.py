@@ -1,4 +1,5 @@
 # --- File: src/modules/emails/ui/general_email_dialog.py ---
+import html
 import json
 import logging
 import re
@@ -112,7 +113,6 @@ class GeneralEmailFoldersDialog(QDialog):
         if col.isValid():
             hex_code = col.name().upper()
             btn.setText(hex_code)
-            # Adjust text contrast based on color brightness
             lum = (col.red() * 0.299 + col.green() * 0.587 + col.blue() * 0.114)
             fg = "#FFFFFF" if lum < 150 else "#000000"
             btn.setStyleSheet(f"background-color: {hex_code}; color: {fg}; font-weight: bold; border-radius: 3px; padding: 3px 8px;")
@@ -228,6 +228,8 @@ class TDocEmailsDialog(QDialog):
         self.db = GeneralEmailDatabase(db_path)
         self.tag_colors = {f.get("tag", "").upper(): f.get("color", "#0078D7") for f in load_wg_email_config(self.wg)}
 
+        # Modeless dialog setup: does not block parent UI
+        self.setWindowModality(Qt.NonModal)
         self.setWindowTitle(f"📧 Related Emails: {self.target_tdoc}")
         self.resize(1100, 700)
         self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
@@ -260,6 +262,12 @@ class TDocEmailsDialog(QDialog):
         self.chk_family.toggled.connect(self._load_emails)
         top_layout.addWidget(self.chk_family)
 
+        self.chk_include_quoted = QCheckBox("Include Quoted Matches")
+        self.chk_include_quoted.setToolTip("Uncheck to hide emails where the TDoc was only cited in previous email quotations.")
+        self.chk_include_quoted.setChecked(True)
+        self.chk_include_quoted.toggled.connect(self._load_emails)
+        top_layout.addWidget(self.chk_include_quoted)
+
         self.chk_show_ignored = QCheckBox("Show Ignored")
         self.chk_show_ignored.setChecked(False)
         self.chk_show_ignored.toggled.connect(self._load_emails)
@@ -286,6 +294,9 @@ class TDocEmailsDialog(QDialog):
         self.btn_delete.setToolTip("Permanently delete selected email records from database.")
         self.btn_delete.clicked.connect(self._delete_selected)
 
+        self.btn_mark_all_read = QPushButton("✔️ Mark All Read")
+        self.btn_mark_all_read.clicked.connect(self._mark_all_family_read)
+
         self.btn_open_outlook = QPushButton("🚀 Open in Outlook")
         self.btn_open_outlook.setStyleSheet("font-weight: bold; background-color: #0078D7; color: white; border-radius: 4px; padding: 4px 12px;")
         self.btn_open_outlook.clicked.connect(self._open_in_outlook)
@@ -295,8 +306,6 @@ class TDocEmailsDialog(QDialog):
         act_row.addWidget(self.btn_ignore)
         act_row.addWidget(self.btn_delete)
         act_row.addSpacing(10)
-        self.btn_mark_all_read = QPushButton("✔️ Mark All Read")
-        self.btn_mark_all_read.clicked.connect(self._mark_all_family_read)
         act_row.addWidget(self.btn_mark_all_read)
         act_row.addStretch()
         act_row.addWidget(self.btn_open_outlook)
@@ -316,7 +325,6 @@ class TDocEmailsDialog(QDialog):
         self.table.selectionModel().selectionChanged.connect(self._on_email_selection_changed)
         self.table.doubleClicked.connect(self._open_in_outlook)
 
-        # Custom Context Menu
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
 
@@ -324,7 +332,7 @@ class TDocEmailsDialog(QDialog):
         hdr.setSectionResizeMode(QHeaderView.Interactive)
         hdr.resizeSection(0, 75)
         hdr.resizeSection(1, 80)
-        hdr.resizeSection(2, 75)
+        hdr.resizeSection(2, 85)
         hdr.resizeSection(3, 75)
         hdr.resizeSection(4, 130)
         hdr.resizeSection(5, 110)
@@ -339,7 +347,13 @@ class TDocEmailsDialog(QDialog):
 
     def _load_emails(self):
         query_set = set(self.family_tdocs) if self.chk_family.isChecked() else {self.target_tdoc}
-        self.emails = self.db.get_emails_for_tdocs(query_set, show_ignored=self.chk_show_ignored.isChecked())
+        raw_emails = self.db.get_emails_for_tdocs(query_set, show_ignored=self.chk_show_ignored.isChecked())
+
+        # Filter out quoted matches if unchecked
+        if not self.chk_include_quoted.isChecked():
+            self.emails = [e for e in raw_emails if e.get("match_location") != "Quoted"]
+        else:
+            self.emails = raw_emails
 
         self.model.removeRows(0, self.model.rowCount())
         unread_count = 0
@@ -370,14 +384,19 @@ class TDocEmailsDialog(QDialog):
             tag_item = QStandardItem(f"[{tag_str}]")
             tag_item.setTextAlignment(Qt.AlignCenter)
 
-            # Apply configured tag color
             color_hex = self.tag_colors.get(tag_str.upper(), "#0078D7")
             tag_item.setForeground(QColor(color_hex))
-            tag_font = QFont("Segoe UI", weight=QFont.Bold)
-            tag_item.setFont(tag_font)
+            tag_item.setFont(QFont("Segoe UI", weight=QFont.Bold))
 
-            loc_item = QStandardItem(e.get("match_location", "Body"))
+            loc_str = e.get("match_location", "Body")
+            loc_item = QStandardItem(loc_str)
             loc_item.setTextAlignment(Qt.AlignCenter)
+            if loc_str == "Quoted":
+                loc_item.setForeground(QColor("#888888"))
+                loc_item.setToolTip("TDoc was cited inside previous email quotations below.")
+            elif loc_str == "Subject":
+                loc_item.setForeground(QColor("#0C6B0C"))
+                loc_item.setFont(QFont("Segoe UI", weight=QFont.Bold))
 
             rev_item = QStandardItem(e.get("rev_matched") or "-")
             rev_item.setTextAlignment(Qt.AlignCenter)
@@ -387,7 +406,6 @@ class TDocEmailsDialog(QDialog):
             date_item = QStandardItem(str(e.get("date_received", ""))[:16])
             subj_item = QStandardItem(e.get("subject", ""))
 
-            # Dim text if ignored
             if is_ignored:
                 for item in [loc_item, rev_item, sender_item, company_item, date_item, subj_item]:
                     item.setForeground(QColor("#999999"))
@@ -409,26 +427,53 @@ class TDocEmailsDialog(QDialog):
             self.reading_pane.clear()
             return
 
-        # Render preview for primary selection
         primary_idx = rows[0]
         e = self.emails[primary_idx]
 
-        body = e.get("body_text", "").replace("<", "&lt;").replace(">", "&gt;")
+        raw_body = e.get("body_text", "")
+        # Normalize and clean excessive blank lines
+        cleaned = raw_body.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned.strip())
+
+        # Safe HTML conversion
+        body_escaped = html.escape(cleaned)
+
+        # Highlight TDoc references
         pattern = re.compile(rf"\b({'|'.join(re.escape(t) for t in self.family_tdocs)})\b", re.IGNORECASE)
-        body_hl = pattern.sub(r"<span style='background-color: #FFF176; font-weight: bold;'>\1</span>", body)
+        body_hl = pattern.sub(r"<span style='background-color: #FFF176; color: #000; font-weight: bold;'>\1</span>", body_escaped)
+        body_html = body_hl.replace("\n", "<br>")
 
-        ignored_banner = "<p style='color: #D83B01; font-weight: bold;'>⚠️ This email is currently IGNORED from TDoc counts.</p>" if e.get("is_ignored") else ""
+        # Match Context Excerpt
+        match_excerpt = ""
+        found_matches = list(pattern.finditer(cleaned))
+        if found_matches:
+            m = found_matches[0]
+            start = max(0, m.start() - 60)
+            end = min(len(cleaned), m.end() + 60)
+            snippet = html.escape(cleaned[start:end]).replace("\n", " ")
+            snippet_hl = pattern.sub(r"<span style='background-color: #FFF176; color: #000; font-weight: bold;'>\1</span>", snippet)
+            loc_label = e.get("match_location", "Body")
+            match_excerpt = f"""
+            <div style='background-color: #FFF8E1; border: 1px solid #FFE082; border-radius: 4px; padding: 6px; margin: 6px 0; font-size: 11px;'>
+                <b>💡 Match Found ({loc_label}):</b> ...{snippet_hl}...
+            </div>
+            """
 
-        html = f"""
+        ignored_banner = "<p style='color: #D83B01; font-weight: bold; margin: 4px 0;'>⚠️ This email is currently IGNORED from TDoc counts.</p>" if e.get("is_ignored") else ""
+
+        full_html = f"""
         {ignored_banner}
-        <h3 style='margin:0; color:#005A9E;'>{e.get('subject', '')}</h3>
-        <p style='color:#555; margin:4px 0;'><b>From:</b> {e.get('sender_name')} &lt;{e.get('sender_email')}&gt; ({e.get('company')}) | <b>Date:</b> {e.get('date_received')}</p>
-        <hr>
-        <div style='white-space: pre-wrap; font-family: Segoe UI, sans-serif;'>{body_hl}</div>
+        <h3 style='margin: 0 0 4px 0; color: #005A9E;'>{html.escape(e.get('subject', ''))}</h3>
+        <p style='color: #555; margin: 0 0 6px 0; font-size: 12px;'>
+            <b>From:</b> {html.escape(e.get('sender_name', ''))} &lt;{html.escape(e.get('sender_email', ''))}&gt; ({html.escape(e.get('company', ''))}) | 
+            <b>Date:</b> {html.escape(e.get('date_received', ''))}
+        </p>
+        {match_excerpt}
+        <hr style='border: 0; border-top: 1px solid #E0E0E0; margin: 6px 0;'>
+        <div style='font-family: Segoe UI, sans-serif; font-size: 12px; color: #222; line-height: 1.4;'>{body_html}</div>
         """
-        self.reading_pane.setHtml(html)
+        self.reading_pane.setHtml(full_html)
 
-        # Trigger auto-read only when a single unread item is selected
         if len(rows) == 1 and int(e.get("is_read", 0)) == 0 and int(e.get("is_ignored", 0)) == 0:
             self.auto_read_timer.start()
 
@@ -466,7 +511,6 @@ class TDocEmailsDialog(QDialog):
         rows = self._get_selected_indices()
         if not rows:
             return
-        # If any selected item is not ignored, ignore all; otherwise un-ignore all
         any_active = any(int(self.emails[r].get("is_ignored", 0)) == 0 for r in rows)
         target_state = True if any_active else False
 
