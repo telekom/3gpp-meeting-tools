@@ -78,7 +78,8 @@ class SpecificationsTab(QWidget):
         self.save_settings_timer.timeout.connect(self._save_settings)
 
         self._setup_ui()
-        self.refresh_table()
+        # Defer table population until after the main window is rendered
+        QTimer.singleShot(400, self.refresh_table)
 
     # ==========================================
     # --- CONFIG / PERSISTENCE ---
@@ -310,9 +311,11 @@ class SpecificationsTab(QWidget):
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Specification", "Title", "Version / Documents"])
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.Interactive)
+        self.table.setColumnWidth(0, 150)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Interactive)
+        self.table.setColumnWidth(2, 420)
 
         self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.verticalHeader().setStyleSheet("QHeaderView::section { color: #94A3B8; font-size: 11px; }")
@@ -916,20 +919,20 @@ class SpecificationsTab(QWidget):
                 """)
                 doc_action_btn.setMenu(doc_menu)
 
-                def _update_btn_state(index_ignore=0, c=version_combo, btn=doc_action_btn, menu=doc_menu):
+                def _update_btn_state(index_ignore=0, c=version_combo, btn=doc_action_btn, menu=doc_menu, files_cache=local_files):
                     c_data = c.currentData()
                     if not c_data:
                         return
 
                     current_dir = Path(self.download_dir) / c_data["spec_num"]
-                    stem = Path(c_data["fname"]).stem
-                    zip_exists = (current_dir / c_data["fname"]).exists()
+                    stem = Path(c_data["fname"]).stem.lower()
+                    zip_exists = (c_data["fname"].lower() in files_cache)
 
-                    word_exists = any(current_dir.glob(f"{stem}*.doc*"))
-                    pdf_exists = any(current_dir.glob(f"{stem}*.pdf"))
-                    html_exists = any(current_dir.glob(f"{stem}*.html"))
-                    txt_exists = any(current_dir.glob(f"{stem}*.txt"))
-                    dir_ready = current_dir.exists() and any(current_dir.iterdir())
+                    word_exists = any(f.startswith(stem) and (f.endswith(".docx") or f.endswith(".doc")) for f in files_cache)
+                    pdf_exists = any(f.startswith(stem) and f.endswith(".pdf") for f in files_cache)
+                    html_exists = any(f.startswith(stem) and f.endswith(".html") for f in files_cache)
+                    txt_exists = any(f.startswith(stem) and f.endswith(".txt") for f in files_cache)
+                    dir_ready = bool(files_cache)
 
                     base_style = """
                         QPushButton {
