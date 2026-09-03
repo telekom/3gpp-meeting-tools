@@ -1,9 +1,10 @@
 # --- File: src/modules/specifications/ui/dialogs.py ---
 import os
+import re
 import webbrowser
 from pathlib import Path
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal, QThread
 from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
@@ -16,9 +17,11 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QVBoxLayout,
-    QWidget,
+    QWidget, QGroupBox, QCheckBox,
 )
+from bs4 import BeautifulSoup
 
+from core.network.session import NetworkError, NetworkSession, HttpError
 from modules.specifications.core.database import SpecsDatabase
 
 
@@ -537,3 +540,249 @@ class TargetedSyncDialog(QDialog):
     def get_targets(self) -> list:
         raw_text = self.input_field.text()
         return [t.strip() for t in raw_text.split(',') if t.strip()]
+
+class ManualSpecFetcherThread(QThread):
+    """Background worker that queries 3GPP DynaReport HTML using NetworkSession."""
+    fetch_finished = pyqtSignal(bool, dict, str)
+
+    def __init__(self, spec_number: str):
+        super().__init__()
+        self.spec_number = spec_number.strip()
+
+    def run(self):
+        try:
+            clean_num = re.sub(r"[^0-9A-Za-z]", "", self.spec_number)
+            url = f"https://www.3gpp.org/DynaReport/{clean_num}.htm"
+
+            html_content = NetworkSession.get_html(url, timeout=15)
+
+            soup = BeautifulSoup(html_content, "html.parser")
+            data = {
+                "number": self.spec_number,
+                "title": "",
+                "type": "TS" if "TR" not in self.spec_number.upper() else "TR",
+                "primary_group": "",
+                "initial_release": "",
+                "radio_technology": "",
+            }
+
+            text = soup.get_text(separator="\n")
+            title_node = soup.find("span", id=re.compile(r"lblTitle|Title", re.I)) or soup.find("h1")
+            if title_node:
+                data["title"] = title_node.get_text().strip()
+
+            for line in text.splitlines():
+                line_str = line.strip()
+                if "Title:" in line_str and not data["title"]:
+                    data["title"] = line_str.split("Title:", 1)[1].strip()
+                elif "Responsible Group:" in line_str or "Primary Group:" in line_str:
+                    parts = re.split(r":", line_str, 1)
+                    if len(parts) > 1:
+                        data["primary_group"] = parts[1].strip()
+                elif "Initial Release:" in line_str:
+                    parts = re.split(r":", line_str, 1)
+                    if len(parts) > 1:
+                        data["initial_release"] = parts[1].strip()
+                elif "Radio Technology:" in line_str:
+                    parts = re.split(r":", line_str, 1)
+                    if len(parts) > 1:
+                        data["radio_technology"] = parts[1].strip()
+
+            if "technical report" in data["title"].lower() or self.spec_number.upper().startswith("TR"):
+                data["type"] = "TR"
+            else:
+                data["type"] = "TS"
+
+            msg = f"Fetched metadata for TS {self.spec_number} successfully."
+            self.fetch_finished.emit(True, data, msg)
+
+        except HttpError as http_err:
+            if http_err.status_code == 404:
+                self.fetch_finished.emit(False, {}, f"Specification report not found (404) at {url}")
+            else:
+                self.fetch_finished.emit(False, {}, f"HTTP {http_err.status_code} error: {http_err}")
+
+        except NetworkError as net_err:
+            self.fetch_finished.emit(False, {}, f"Network error: {net_err}")
+
+        except Exception as e:
+            self.fetch_finished.emit(False, {}, f"Error fetching details: {e}")
+
+
+class AddSpecDialog(QDialog):
+    """Dialog allowing users to query, preview, manually edit, and register an individual specification."""
+
+    def __init__(self, db, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.fetch_thread = None
+        self.sync_requested = False
+        self.saved_spec_number = ""
+
+        self.setWindowTitle("➕ Add / Fetch Specification")
+        self.setMinimumWidth(540)
+        self.setStyleSheet("""
+            QDialog { background-color: #FAFAFA; }
+            QGroupBox { font-weight: bold; border: 1px solid #D0D0D0; border-radius: 6px; margin-top: 10px; padding-top: 10px; background-color: white; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
+            QLineEdit, QComboBox { padding: 5px; border: 1px solid #CCC; border-radius: 4px; }
+            QLineEdit:focus, QComboBox:focus { border: 1px solid #0078D7; }
+        """)
+
+        self._setup_ui()
+
+    def _setup_ui(self):
+        main_layout = QVBoxLayout(self)
+
+        # 1. Query Section
+        query_group = QGroupBox("1. Query 3GPP Specification")
+        query_layout = QVBoxLayout(query_group)
+
+        row_layout = QHBoxLayout()
+        self.query_input = QLineEdit()
+        self.query_input.setPlaceholderText("e.g. 23.501, 38.331, or 24.501")
+        self.query_input.setToolTip("Enter specification number")
+        self.query_input.returnPressed.connect(self._start_fetch)
+
+        self.btn_fetch = QPushButton("🔍 Fetch Details")
+        self.btn_fetch.setCursor(Qt.PointingHandCursor)
+        self.btn_fetch.setStyleSheet("""
+            QPushButton {
+                background-color: #0078D7;
+                color: white;
+                font-weight: bold;
+                padding: 6px 14px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #005A9E; }
+        """)
+        self.btn_fetch.clicked.connect(self._start_fetch)
+
+        row_layout.addWidget(self.query_input, 1)
+        row_layout.addWidget(self.btn_fetch)
+        query_layout.addLayout(row_layout)
+
+        self.lbl_status = QLabel("Enter a 3GPP specification number and click 'Fetch Details'.")
+        self.lbl_status.setStyleSheet("color: #64748B; font-size: 11px; margin-top: 2px;")
+        query_layout.addWidget(self.lbl_status)
+        main_layout.addWidget(query_group)
+
+        # 2. Form Preview
+        self.preview_group = QGroupBox("2. Specification Details (Editable)")
+        form = QFormLayout(self.preview_group)
+        form.setLabelAlignment(Qt.AlignRight)
+
+        self.edit_number = QLineEdit()
+        self.edit_number.setPlaceholderText("e.g. 23.501")
+        form.addRow("Spec Number *:", self.edit_number)
+
+        self.edit_title = QLineEdit()
+        self.edit_title.setPlaceholderText("e.g. System architecture for the 5G System (5GS)")
+        form.addRow("Title *:", self.edit_title)
+
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(["TS", "TR"])
+        form.addRow("Type:", self.type_combo)
+
+        self.edit_group = QLineEdit()
+        self.edit_group.setPlaceholderText("e.g. SA2, RAN2, CT1")
+        form.addRow("Primary Group:", self.edit_group)
+
+        self.edit_init_rel = QLineEdit()
+        self.edit_init_rel.setPlaceholderText("e.g. Rel-15")
+        form.addRow("Initial Release:", self.edit_init_rel)
+
+        self.edit_tech = QLineEdit()
+        self.edit_tech.setPlaceholderText("e.g. 5G, LTE")
+        form.addRow("Radio Technology:", self.edit_tech)
+
+        self.chk_sync_now = QCheckBox("Immediately sync files and releases from 3GPP FTP")
+        self.chk_sync_now.setChecked(True)
+        form.addRow("", self.chk_sync_now)
+
+        main_layout.addWidget(self.preview_group)
+
+        # 3. Actions
+        btn_layout = QHBoxLayout()
+        self.btn_save = QPushButton("💾 Save Specification")
+        self.btn_save.setCursor(Qt.PointingHandCursor)
+        self.btn_save.setStyleSheet("""
+            QPushButton {
+                background-color: #107C41;
+                color: white;
+                font-weight: bold;
+                padding: 7px 18px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #0B5A30; }
+        """)
+        self.btn_save.clicked.connect(self._save_spec)
+
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel.clicked.connect(self.reject)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_save)
+        btn_layout.addWidget(self.btn_cancel)
+        main_layout.addLayout(btn_layout)
+
+    def _start_fetch(self):
+        query = self.query_input.text().strip()
+        if not query:
+            QMessageBox.warning(self, "Input Required", "Please enter a specification number.")
+            return
+
+        self.btn_fetch.setEnabled(False)
+        self.btn_fetch.setText("⏳ Fetching...")
+        self.lbl_status.setText("⏳ Querying 3GPP DynaReport...")
+        self.lbl_status.setStyleSheet("color: #0078D7; font-weight: bold;")
+
+        self.fetch_thread = ManualSpecFetcherThread(query)
+        self.fetch_thread.fetch_finished.connect(self._on_fetch_finished)
+        self.fetch_thread.start()
+
+    def _on_fetch_finished(self, success: bool, data: dict, msg: str):
+        self.btn_fetch.setEnabled(True)
+        self.btn_fetch.setText("🔍 Fetch Details")
+
+        if success:
+            self.lbl_status.setText(f"✅ {msg}")
+            self.lbl_status.setStyleSheet("color: #107C41; font-weight: bold;")
+
+            self.edit_number.setText(data.get("number", ""))
+            self.edit_title.setText(data.get("title", ""))
+            self.type_combo.setCurrentText(data.get("type", "TS"))
+            self.edit_group.setText(data.get("primary_group", ""))
+            self.edit_init_rel.setText(data.get("initial_release", ""))
+            self.edit_tech.setText(data.get("radio_technology", ""))
+        else:
+            self.lbl_status.setText(f"⚠️ {msg}")
+            self.lbl_status.setStyleSheet("color: #D83B01; font-weight: bold;")
+            if not self.edit_number.text().strip():
+                self.edit_number.setText(self.query_input.text().strip())
+
+    def _save_spec(self):
+        spec_num = self.edit_number.text().strip()
+        title = self.edit_title.text().strip()
+
+        if not spec_num:
+            QMessageBox.warning(self, "Validation Error", "Specification Number is required.")
+            return
+
+        data = {
+            "number": spec_num,
+            "title": title,
+            "type": self.type_combo.currentText(),
+            "primary_group": self.edit_group.text().strip(),
+            "initial_release": self.edit_init_rel.text().strip(),
+            "radio_technology": self.edit_tech.text().strip(),
+        }
+
+        if self.db.upsert_manual_spec(data):
+            self.saved_spec_number = spec_num
+            self.sync_requested = self.chk_sync_now.isChecked()
+            QMessageBox.information(self, "Success", f"Specification TS {spec_num} has been saved to the database.")
+            self.accept()
+        else:
+            QMessageBox.critical(self, "Error", f"Failed to save specification TS {spec_num} to the database.")
