@@ -10,12 +10,19 @@ from pathlib import Path
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint
 from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView,
-                             QHeaderView, QLabel, QLineEdit, QFrame,
-                             QPushButton, QMessageBox, QMenu, QApplication,
-                             QToolTip, QCheckBox, QDialog, QTextEdit, QFileDialog)
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTableView,
+    QHeaderView, QLabel, QLineEdit, QFrame,
+    QPushButton, QMessageBox, QMenu, QApplication,
+    QToolTip, QCheckBox, QDialog, QTextEdit, QFileDialog
+)
 
 from core.network.network_state import NetworkState
+from core.ui.ui_components import (
+    BUTTON_STYLE_TOOLBAR_SECONDARY,
+    BUTTON_STYLE_TOOLBAR_DANGER,
+    BUTTON_STYLE_TOOLBAR_WARNING
+)
 from modules.emails.ui.email_window import EmailManagerWindow
 from modules.meetings.core.agenda_manager import AgendaManager, AgendaDownloaderThread
 from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
@@ -52,7 +59,7 @@ from modules.emails.ui.general_email_dialog import (
 
 
 class DropOverlayWidget(QWidget):
-    """Semi-transparent visual overlay displayed when hovering files over the window."""
+    """Semi-transparent visual overlay aligned with InteractiveDropLabel design tokens."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -65,9 +72,9 @@ class DropOverlayWidget(QWidget):
         card = QFrame()
         card.setStyleSheet("""
             QFrame {
-                background-color: rgba(240, 248, 255, 0.94);
-                border: 3px dashed #005A9E;
-                border-radius: 16px;
+                background-color: rgba(235, 243, 252, 0.95);
+                border: 3px dashed #395396;
+                border-radius: 12px;
                 padding: 30px;
             }
         """)
@@ -80,9 +87,9 @@ class DropOverlayWidget(QWidget):
         icon_lbl.setAlignment(Qt.AlignCenter)
 
         text_lbl = QLabel("<b>Drop Chairman's Notes / Agenda file(s) to import</b><br>"
-                          "<span style='font-size: 12px; color: #555;'>"
+                          "<span style='font-size: 12px; color: #475569;'>"
                           "Supports single or multiple <code>.docx</code>, <code>.doc</code>, and <code>.htm</code> files</span>")
-        text_lbl.setStyleSheet("font-size: 16px; color: #005A9E; border: none; background: transparent;")
+        text_lbl.setStyleSheet("font-size: 16px; color: #1E5C99; border: none; background: transparent;")
         text_lbl.setAlignment(Qt.AlignCenter)
 
         card_layout.addWidget(icon_lbl)
@@ -108,17 +115,13 @@ class TDocsWindow(QWidget):
         self.active_threads = {}
         self._email_dialogs = {}
 
-        self.agenda_dir = Path(filepath).parent  # Points to local Cache/Meeting/Agenda/
-
-        # 1. Load STRICTLY from local disk on startup (no network requests triggered)
+        self.agenda_dir = Path(filepath).parent
         self.agenda_map = AgendaManager.load_local_agenda(self.agenda_dir)
         self.agenda_dl_thread = None
 
-        # Initialize database handle and email thread tracking
         self.general_email_db = GeneralEmailDatabase(self.meeting_dir / "Agenda" / "emails.db")
         self.general_email_sync_thread = None
 
-        # Import Queue State
         self._import_queue = []
         self._is_importing_agenda = False
         self._total_import_batch_count = 0
@@ -126,9 +129,7 @@ class TDocsWindow(QWidget):
         self._import_success_files = []
         self._import_failed_files = []
 
-        # Enable Drag & Drop
         self.setAcceptDrops(True)
-
         self.db = TDocsDatabase(self.meeting_dir / "Agenda" / "user_tdocs.db")
         user_data = self.db.get_all()
 
@@ -154,24 +155,22 @@ class TDocsWindow(QWidget):
         title = f"TDocs: {mtg_info.get('wg_name', '')} {mtg_info.get('meeting_number', '')} {mtg_icon}"
         self.setWindowTitle(title)
         self.resize(1400, 750)
-        self.setStyleSheet("QWidget { background-color: #FAFAFA; }")
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(8)
 
         self._setup_header(main_layout, title, is_electronic, len(tdocs_data))
         self._setup_filters(main_layout)
         self._setup_table(main_layout, tdocs_data, user_data)
         self._setup_cache()
 
-        # Visual Drop Overlay Setup
         self.drop_overlay = DropOverlayWidget(self)
 
     def _setup_header(self, layout, title, is_electronic, count):
         header_layout = QHBoxLayout()
         title_lbl = QLabel(f"<b>{title}</b>")
-        title_lbl.setStyleSheet("font-size: 18px; color: #333;")
+        title_lbl.setStyleSheet("font-size: 16px; color: #1E293B;")
         title_lbl.setToolTip("Electronic Meeting (eMeeting)" if is_electronic else "In-Person Meeting (Face-to-Face)")
         title_lbl.setCursor(Qt.WhatsThisCursor)
 
@@ -184,22 +183,10 @@ class TDocsWindow(QWidget):
         self._update_routing_indicator()
 
         self.last_mod_lbl = QLabel(self._get_mod_date_str())
-        self.last_mod_lbl.setStyleSheet("font-size: 11px; color: #999999; margin-right: 15px; font-style: italic;")
-
-        def style_btn():
-            return """
-            QPushButton { 
-                font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; font-weight: bold; 
-                border-radius: 6px; padding: 6px 12px; 
-                color: #333333; background-color: #FFFFFF; border: 1px solid #CCCCCC; 
-            }
-            QPushButton:hover, QPushButton::menu-indicator { 
-                background-color: #F0F4F8; border: 1px solid #005A9E; color: #005A9E;
-            }
-            """
+        self.last_mod_lbl.setStyleSheet("font-size: 11px; color: #64748B; margin-right: 8px; font-style: italic;")
 
         self.refresh_btn = QPushButton("🔄 Refresh")
-        self.refresh_btn.setStyleSheet(style_btn())
+        self.refresh_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.refresh_btn.setToolTip("Reload TDocs or fetch the latest revisions from the FTP.")
 
         refresh_menu = QMenu(self)
@@ -215,21 +202,20 @@ class TDocsWindow(QWidget):
         self.refresh_btn.setMenu(refresh_menu)
 
         self.folder_btn = QPushButton("🗂️ Resources")
-        self.folder_btn.setStyleSheet(style_btn())
-        self.folder_btn.setToolTip(
-            "Access local cache folders, on-site server pages, export reports, and remote FTP directories.")
+        self.folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.folder_btn.setToolTip("Access local cache folders, on-site server pages, export reports, and remote FTP directories.")
 
         self.folder_menu = QMenu(self)
         self.folder_menu.aboutToShow.connect(self._populate_resources_menu)
         self.folder_btn.setMenu(self.folder_menu)
 
         self.excel_btn = QPushButton("📗 Original Excel")
-        self.excel_btn.setStyleSheet(style_btn())
+        self.excel_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.excel_btn.setToolTip("Open the raw, underlying 3GPP Excel TDocs list.")
         self.excel_btn.clicked.connect(self._open_excel)
 
         self.export_btn = QPushButton("📤 Export ▾")
-        self.export_btn.setStyleSheet(style_btn())
+        self.export_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.export_btn.setToolTip("Export the TDocs table to Excel, LLM Markdown corpus, or summary reports.")
 
         export_menu = QMenu(self)
@@ -239,19 +225,18 @@ class TDocsWindow(QWidget):
         self.export_btn.setMenu(export_menu)
 
         self.stats_btn = QPushButton("📊 Statistics")
-        self.stats_btn.setStyleSheet(style_btn())
+        self.stats_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.stats_btn.setToolTip("Generate an interactive HTML statistics dashboard for this meeting.")
         self.stats_btn.clicked.connect(self._generate_statistics)
 
         self.stats_cfg_btn = QPushButton("⚙️")
-        self.stats_cfg_btn.setStyleSheet(style_btn())
-        self.stats_cfg_btn.setFixedWidth(35)
+        self.stats_cfg_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.stats_cfg_btn.setFixedWidth(34)
         self.stats_cfg_btn.setToolTip("Configure Statistics Parameters")
         self.stats_cfg_btn.clicked.connect(self._open_stats_config)
 
-        # 📧 Emails Dropdown Menu
         self.email_btn = QPushButton("📧 Emails ▾")
-        self.email_btn.setStyleSheet(style_btn())
+        self.email_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.email_btn.setToolTip("Sync and inspect Outlook emails linked to TDocs and revisions.")
 
         email_menu = QMenu(self)
@@ -266,16 +251,14 @@ class TDocsWindow(QWidget):
         self.email_btn.setMenu(email_menu)
 
         self.count_lbl = QLabel(f"Showing {count} of {count} TDocs")
-        self.count_lbl.setStyleSheet("font-size: 13px; color: #666;")
+        self.count_lbl.setStyleSheet("font-size: 12px; color: #64748B;")
 
         self.instant_fetch_input = QLineEdit()
         self.instant_fetch_input.setPlaceholderText("Instant Fetch...")
-        self.instant_fetch_input.setToolTip(
-            "Instantly fetch a TDoc, bypassing the table entirely. Press Enter to launch.")
+        self.instant_fetch_input.setToolTip("Instantly fetch a TDoc, bypassing the table entirely. Press Enter to launch.")
         self.instant_fetch_input.setText(self._get_tdoc_prefix())
         self.instant_fetch_input.setFixedWidth(120)
         self.instant_fetch_input.returnPressed.connect(self._on_instant_fetch)
-
         self.instant_fetch_input.setFocus()
         self.instant_fetch_input.setCursorPosition(len(self.instant_fetch_input.text()))
 
@@ -285,7 +268,7 @@ class TDocsWindow(QWidget):
 
         header_layout.addWidget(QLabel("🚀"))
         header_layout.addWidget(self.instant_fetch_input)
-        header_layout.addSpacing(15)
+        header_layout.addSpacing(10)
 
         header_layout.addWidget(self.last_mod_lbl)
         header_layout.addWidget(self.refresh_btn)
@@ -295,14 +278,12 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.stats_btn)
         header_layout.addWidget(self.stats_cfg_btn)
         header_layout.addWidget(self.email_btn)
-        header_layout.addSpacing(15)
+        header_layout.addSpacing(10)
         header_layout.addWidget(self.count_lbl)
         layout.addLayout(header_layout)
 
     def _populate_resources_menu(self):
         self.folder_menu.clear()
-
-        # 1. Local Hard Drive Cache Folders
         self.folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
         local_agenda_csv = self.agenda_dir / "agenda.csv"
         if local_agenda_csv.exists():
@@ -311,30 +292,21 @@ class TDocsWindow(QWidget):
             self.folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
 
         self.folder_menu.addSeparator()
-
-        # 2. Diagnostics & Export Utilities
         self.folder_menu.addAction("⚠️ View Unmatched Companies", self._show_unmatched_companies)
         self.folder_menu.addAction("📝 Export Markdown Reports", self._export_reports)
 
-        # 3. Local On-Site Server (10.10.10.10)
         if NetworkState.get_instance().is_local_active():
             self.folder_menu.addSeparator()
             wg_name = self.mtg_info.get("wg_name", "").upper()
             local_base = URLRouter._get_local_server_base(wg_name)
-
             self.folder_menu.addAction("🟢 Local Server: Main WG Folder", lambda u=local_base: webbrowser.open(u))
             self.folder_menu.addAction("🟢 Local Server: Docs Folder", lambda u=f"{local_base}/Docs": webbrowser.open(u))
-            self.folder_menu.addAction("🟢 Local Server: Inbox Folder",
-                                       lambda u=f"{local_base}/Inbox": webbrowser.open(u))
+            self.folder_menu.addAction("🟢 Local Server: Inbox Folder", lambda u=f"{local_base}/Inbox": webbrowser.open(u))
             if self.is_sa2:
-                self.folder_menu.addAction("🟢 Local Server: Revisions Folder",
-                                           lambda u=f"{local_base}/Inbox/Revisions": webbrowser.open(u))
-                self.folder_menu.addAction("🟢 Local Server: TdocsByAgenda.htm",
-                                           lambda u=f"{local_base}/TdocsByAgenda.htm": webbrowser.open(u))
-            self.folder_menu.addAction("🟢 Local Server: Home (10.10.10.10)",
-                                       lambda: webbrowser.open("http://10.10.10.10/"))
+                self.folder_menu.addAction("🟢 Local Server: Revisions Folder", lambda u=f"{local_base}/Inbox/Revisions": webbrowser.open(u))
+                self.folder_menu.addAction("🟢 Local Server: TdocsByAgenda.htm", lambda u=f"{local_base}/TdocsByAgenda.htm": webbrowser.open(u))
+            self.folder_menu.addAction("🟢 Local Server: Home (10.10.10.10)", lambda: webbrowser.open("http://10.10.10.10/"))
 
-        # 4. Remote Web & FTP Archive Paths
         self.folder_menu.addSeparator()
         if self.main_ftp_url:
             self.folder_menu.addAction("🌐 Web FTP: Main Folder", lambda: webbrowser.open(self.main_ftp_url))
@@ -346,7 +318,6 @@ class TDocsWindow(QWidget):
     def _trigger_download_thread(self, base_tdoc: str, target_filename: str, legacy_url: str = None,
                                  is_silent_compare: bool = False):
         self.model.set_loading(base_tdoc, True)
-
         is_active = self.mtg_info.get("is_active_sync", False)
 
         url_list = URLRouter.build_priority_url_list(
@@ -373,53 +344,55 @@ class TDocsWindow(QWidget):
         self.search_timer.timeout.connect(self._apply_search_filter)
 
         filter_frame = QFrame()
-        filter_frame.setStyleSheet(
-            "QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 8px; } "
-            "QLabel { font-weight: bold; color: #555; border: none; } "
-            "QLineEdit, QComboBox { padding: 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; }"
-        )
+        filter_frame.setStyleSheet("""
+            QFrame {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+            }
+            QLabel {
+                font-weight: bold;
+                color: #475569;
+                border: none;
+            }
+            QLineEdit, QComboBox {
+                padding: 4px 8px;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                background: #FFFFFF;
+            }
+        """)
         filter_layout = QHBoxLayout(filter_frame)
+        filter_layout.setContentsMargins(10, 6, 10, 6)
 
         filter_layout.addWidget(QLabel("🔍 Search:"))
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText('Search (e.g., "Baseline" -"discussed in call" or -draft)...')
-        self.search_input.setToolTip(
-            "Search across TDoc numbers, titles, sources, or abstracts.\n"
-            "• Use quotes for exact phrases: \"KI#11\"\n"
-            "• Prefix with '-' or '!' to exclude: -draft or -\"discussed in call\""
-        )
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
         filter_layout.addWidget(self.search_input)
 
         self.company_combo = CheckableComboBox("Company")
-        self.company_combo.setToolTip("Filter by contributing companies.")
         self.company_combo.selectionChanged.connect(self._on_company_changed)
         filter_layout.addWidget(self.company_combo)
 
         self.type_combo = CheckableComboBox("Type")
-        self.type_combo.setToolTip("Filter by document type (e.g., pCR, Discussion, Draft).")
         self.type_combo.selectionChanged.connect(self._on_type_changed)
         filter_layout.addWidget(self.type_combo)
 
-        # AI Combobox: standard width restored; tooltips retain full descriptions on hover
         self.ai_combo = CheckableComboBox("AI")
-        self.ai_combo.setToolTip("Filter by 3GPP Agenda Item (AI). Hover items for full descriptions.")
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
         self.status_combo = CheckableComboBox("TDoc Status")
-        self.status_combo.setToolTip("Filter by document status (e.g., Agreed, Noted, Revised).")
         self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
 
         self.my_status_combo = CheckableComboBox("My Status")
-        self.my_status_combo.setToolTip("Filter by your personal color-coded status.")
         self.my_status_combo.selectionChanged.connect(self._on_my_status_changed)
         filter_layout.addWidget(self.my_status_combo)
 
         if self.is_sa2:
             self.chk_no_comments = QCheckBox("No Comments Only")
-            self.chk_no_comments.setToolTip("Hide TDocs that have comments in the secretary's notes.")
             self.chk_no_comments.toggled.connect(self._on_no_comments_toggled)
             filter_layout.addWidget(self.chk_no_comments)
 
@@ -438,10 +411,20 @@ class TDocsWindow(QWidget):
         self.table.doubleClicked.connect(self._show_cell_popup)
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
-        self.table.setStyleSheet(
-            "QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; } "
-            "QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }"
-        )
+        self.table.setStyleSheet("""
+            QTableView {
+                gridline-color: #F1F5F9;
+                border: 1px solid #CBD5E1;
+                background-color: #FFFFFF;
+            }
+            QHeaderView::section {
+                background-color: #F8FAFC;
+                padding: 4px;
+                font-weight: bold;
+                border: 1px solid #E2E8F0;
+                color: #1E293B;
+            }
+        """)
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
         self.table.verticalHeader().setDefaultSectionSize(48)
 
@@ -470,11 +453,9 @@ class TDocsWindow(QWidget):
         header.resizeSection(10, 80)
         header.resizeSection(12, 160)
 
-        # Set column width for the 14th column ("Emails", index 13)
         if len(self.model._headers) > 13:
             header.resizeSection(13, 85)
 
-        # Enable Right-Click Context Menu for row operations (Mark Read/Unread)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
 
@@ -579,11 +560,9 @@ class TDocsWindow(QWidget):
         QTimer.singleShot(0, self._update_count_label)
 
     def _update_ai_tooltips(self):
-        """Assigns the complete, unabbreviated description to Qt.ToolTipRole for each AI combo item."""
         if not hasattr(self, 'ai_combo') or not self.ai_combo.model():
             return
         model = self.ai_combo.model()
-        # Item 0 is the '(Select All)' item
         for i in range(1, model.rowCount()):
             item = model.item(i)
             if not item:
@@ -642,11 +621,9 @@ class TDocsWindow(QWidget):
                            self.global_action_requested.emit, self._compose_email_draft, pos)
 
     def _compose_email_draft(self, tdoc_id: str):
-        """Generates a standardized 3GPP email subject and opens a new draft in the default email client."""
         row_data = next((r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == tdoc_id.upper()),
                         None)
 
-        # Fallback to base TDoc metadata if drafting for a newly introduced revision
         if not row_data:
             match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
             base_tdoc = match.group(1).upper() if match else tdoc_id.upper()
@@ -657,7 +634,6 @@ class TDocsWindow(QWidget):
         ai = str(row_data.get("Agenda Item", "")).strip()
         title = str(row_data.get("Title", "")).strip()
 
-        # Build standardized 3GPP bracketed tag: e.g. [SA2#176, 20.6.1.1]
         tag_parts = []
         if wg and mtg_num:
             tag_parts.append(f"{wg}#{mtg_num}")
@@ -678,7 +654,7 @@ class TDocsWindow(QWidget):
                 os.startfile(mailto_url)
             else:
                 webbrowser.open(mailto_url)
-            logging.info(f"📧 [Email Draft] Opened new email draft with subject: '{subject}'")
+            logging.info(f"📧 [Email Draft] Opened draft with subject: '{subject}'")
         except Exception as e:
             logging.warning(f"Failed to launch email client automatically: {e}")
             QApplication.clipboard().setText(subject)
@@ -689,13 +665,11 @@ class TDocsWindow(QWidget):
             return
         col_name = self.model._headers[index.column()]
 
-        # Intercept clicks on the "Emails" column to open the inspection dialog
         if col_name == "Emails":
             row_data = self.model._data[self.proxy.mapToSource(index).row()]
             self._open_tdoc_emails(row_data.get("TDoc", ""))
             return
 
-        # Double-click on TDoc column opens the complete Info Card Dialog
         if col_name == "TDoc":
             row_data = self.model._data[self.proxy.mapToSource(index).row()]
             tdoc_id = str(row_data.get("TDoc", "")).strip()
@@ -709,12 +683,7 @@ class TDocsWindow(QWidget):
             return
 
         if col_name not in [
-            "Secretary Remarks",
-            "Title",
-            "Source",
-            "Abstract",
-            "My Notes",
-            "My Status",
+            "Secretary Remarks", "Title", "Source", "Abstract", "My Notes", "My Status"
         ]:
             return
 
@@ -730,13 +699,9 @@ class TDocsWindow(QWidget):
                 ),
                 "",
             )
-            ReadOnlyViewerDialog(
-                self, f"📄 Viewing: {col_name} ({tdoc_id})", val
-            ).exec_()
+            ReadOnlyViewerDialog(self, f"📄 Viewing: {col_name} ({tdoc_id})", val).exec_()
         else:
-            InteractiveNotesDialog(
-                self, tdoc_id, row_data, self._save_user_data
-            ).exec_()
+            InteractiveNotesDialog(self, tdoc_id, row_data, self._save_user_data).exec_()
 
     def _save_user_data(self, tdoc_id: str, status: str, notes: str):
         self.db.upsert(tdoc_id, status, notes)
@@ -771,11 +736,9 @@ class TDocsWindow(QWidget):
             QMessageBox.warning(self, "Export Failed", msg)
             return
 
-        # Avoid redundant prefixing if the message already includes status text
         info_msg = msg if "successfully" in msg.lower() else f"Successfully generated:\n{msg}"
         QMessageBox.information(self, "Export Complete", info_msg)
 
-        # Extract the target file or directory path from the message
         target_path = None
         for line in reversed(str(msg).splitlines()):
             candidate = Path(line.strip().strip('"').strip("'"))
@@ -783,7 +746,6 @@ class TDocsWindow(QWidget):
                 target_path = candidate
                 break
 
-        # Fallback to the meeting's Export directory if an exact path wasn't found
         if not target_path or not target_path.exists():
             fallback_dir = self.meeting_dir / "Export"
             if fallback_dir.exists():
@@ -913,7 +875,6 @@ class TDocsWindow(QWidget):
 
     def _show_unmatched_companies(self):
         unmatched = self.model.get_unmatched_sources()
-
         if not unmatched:
             QMessageBox.information(self, "All Matched",
                                     "Great news! Every source in this meeting was successfully matched by the CompanySanitizer.")
@@ -924,8 +885,7 @@ class TDocsWindow(QWidget):
         dialog.resize(500, 400)
 
         layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel(
-            "The following raw 'Source' strings were not recognized by the CompanySanitizer and were grouped as 'Other'.\n\nYou can copy these to update your REGEX dictionary:"))
+        layout.addWidget(QLabel("The following raw 'Source' strings were not recognized and grouped as 'Other':"))
 
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
@@ -933,6 +893,7 @@ class TDocsWindow(QWidget):
         layout.addWidget(text_edit)
 
         btn = QPushButton("Close")
+        btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         btn.clicked.connect(dialog.accept)
         layout.addWidget(btn)
 
@@ -960,7 +921,6 @@ class TDocsWindow(QWidget):
         main_app_window.activateWindow()
 
         self._scroll_to_tdoc(tdoc_id)
-
         is_rev = re.search(r'(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
         target_url = self.revisions_url if is_rev and self.revisions_url else self.docs_ftp_url
 
@@ -970,7 +930,6 @@ class TDocsWindow(QWidget):
 
         match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
         base_tdoc = match.group(1).upper() if match else tdoc_id.upper()
-
         self._trigger_download_thread(base_tdoc, tdoc_id, target_url, is_silent_compare=False)
 
     def _jump_to_tdoc_from_signal(self, tdoc_id: str):
@@ -978,7 +937,6 @@ class TDocsWindow(QWidget):
         main_app_window.setWindowState(main_app_window.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
         main_app_window.raise_()
         main_app_window.activateWindow()
-
         self._scroll_to_tdoc(tdoc_id)
 
     def _copy_table_selection(self):
@@ -1089,18 +1047,15 @@ class TDocsWindow(QWidget):
 
         if net_state.is_local_active():
             self.routing_indicator.setText("🟢 Local Server")
-            self.routing_indicator.setStyleSheet(
-                "color: #155724; background-color: #C8E6C9; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+            self.routing_indicator.setStyleSheet("color: #065F46; background-color: #D1FAE5; font-weight: bold; padding: 2px 8px; border-radius: 4px;")
             self.routing_indicator.setToolTip("Downloads are routed through the high-speed local 10.10.10.10 network.")
         elif is_active:
             self.routing_indicator.setText("🔵 SYNC Folder")
-            self.routing_indicator.setStyleSheet(
-                "color: #004085; background-color: #CCE5FF; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+            self.routing_indicator.setStyleSheet("color: #1E40AF; background-color: #DBEAFE; font-weight: bold; padding: 2px 8px; border-radius: 4px;")
             self.routing_indicator.setToolTip("Downloads are routed through the active meeting SYNC folder.")
         else:
             self.routing_indicator.setText("🌐 Standard Web")
-            self.routing_indicator.setStyleSheet(
-                "color: #383D41; background-color: #E2E3E5; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+            self.routing_indicator.setStyleSheet("color: #334155; background-color: #F1F5F9; font-weight: bold; padding: 2px 8px; border-radius: 4px;")
             self.routing_indicator.setToolTip("Downloads are routed through the standard 3GPP web archive.")
 
     def _on_instant_fetch(self):
@@ -1112,11 +1067,8 @@ class TDocsWindow(QWidget):
 
         base_tdoc = match.group(1).upper()
         target_filename = (base_tdoc + (match.group(2) or "")).upper()
-
-        logging.info(f"🚀 [Instant Fetch] Requested {target_filename}. Engaging Smart Router...")
         self._trigger_download_thread(base_tdoc, target_filename, legacy_url=None, is_silent_compare=False)
 
-    # --- Drag & Drop Visual Events ---
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'drop_overlay'):
@@ -1177,19 +1129,13 @@ class TDocsWindow(QWidget):
         if file_paths:
             self._process_imported_agenda_files([Path(p) for p in file_paths])
 
-    def _process_imported_agenda_file(self, source_path: Path):
-        """Single-file compatibility wrapper."""
-        self._process_imported_agenda_files([source_path])
-
     def _process_imported_agenda_files(self, source_paths: list):
-        """Queues single or multiple agenda/notes files for sequential processing."""
         valid_paths = [p for p in source_paths if p.exists()]
         if not valid_paths:
             QMessageBox.warning(self, "Files Not Found", "None of the specified files exist on disk.")
             return
 
         self._import_queue.extend(valid_paths)
-
         if not self._is_importing_agenda:
             self._total_import_batch_count = len(self._import_queue)
             self._import_accumulated_merged = 0
@@ -1199,7 +1145,6 @@ class TDocsWindow(QWidget):
             self._process_next_in_import_queue()
 
     def _process_next_in_import_queue(self):
-        """Processes the next file in the queue or finalizes the batch import."""
         if not self._import_queue:
             self._finalize_import_batch()
             return
@@ -1229,11 +1174,9 @@ class TDocsWindow(QWidget):
         else:
             self._import_failed_files.append((filename, error_msg or "No valid TDocs table found"))
 
-        # Advance to the next item in the queue
         self._process_next_in_import_queue()
 
     def _finalize_import_batch(self):
-        """Cleans up UI state and displays a completion summary dialog."""
         self._is_importing_agenda = False
         self.refresh_btn.setEnabled(True)
         self.refresh_btn.setText("🔄 Refresh")
@@ -1243,7 +1186,6 @@ class TDocsWindow(QWidget):
             self.refresh_btn.setText(f"✅ {self._import_accumulated_merged} Merged")
             QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
 
-        # Single-file feedback
         if self._total_import_batch_count == 1:
             if self._import_success_files:
                 fname, count = self._import_success_files[0]
@@ -1257,7 +1199,6 @@ class TDocsWindow(QWidget):
                 QMessageBox.warning(self, "Import Failed", f"Failed to import {fname}:\n{err}")
             return
 
-        # Multi-file batch feedback
         summary_lines = [
             f"Batch import completed for {self._total_import_batch_count} files.",
             f"• Successfully imported: {len(self._import_success_files)} file(s)",
@@ -1273,14 +1214,12 @@ class TDocsWindow(QWidget):
             QMessageBox.information(self, "Batch Import Successful", "\n".join(summary_lines))
 
     def _download_agenda_csv(self):
-        """Manually downloads agenda.csv from candidate 3GPP endpoints to the local Agenda directory."""
         wg_name = self.mtg_info.get("wg_name", "").upper()
         main_url = self.mtg_info.get("url_key", "")
         if main_url and not main_url.startswith("http"):
             main_url = f"https://www.3gpp.org/ftp/{main_url.lstrip('/')}"
 
         is_active = self.mtg_info.get("is_active_sync", False)
-
         candidate_urls = []
         if NetworkState.get_instance().is_local_active():
             local_base = URLRouter._get_local_server_base(wg_name)
@@ -1302,8 +1241,7 @@ class TDocsWindow(QWidget):
                 candidate_urls.append(base_from_docs)
 
         if not candidate_urls:
-            return QMessageBox.warning(self, "No URL Available",
-                                       "Cannot download Agenda CSV: No valid meeting URL found.")
+            return QMessageBox.warning(self, "No URL Available", "Cannot download Agenda CSV: No valid meeting URL found.")
 
         self.refresh_btn.setEnabled(False)
         self.refresh_btn.setText("⏳ Getting Agenda...")
@@ -1327,14 +1265,12 @@ class TDocsWindow(QWidget):
             QMessageBox.warning(self, "Download Failed", msg)
 
     def _download_chair_notes(self):
-        """Asynchronously downloads all Chairman's Notes into Agenda/ChairNotes/."""
         wg_name = self.mtg_info.get("wg_name", "").upper()
         main_url = self.mtg_info.get("url_key", "")
         if main_url and not main_url.startswith("http"):
             main_url = f"https://www.3gpp.org/ftp/{main_url.lstrip('/')}"
 
         is_active = self.mtg_info.get("is_active_sync", False)
-
         candidate_urls = []
         if NetworkState.get_instance().is_local_active():
             local_base = URLRouter._get_local_server_base(wg_name)
@@ -1348,8 +1284,7 @@ class TDocsWindow(QWidget):
             candidate_urls.append(main_url)
 
         if not candidate_urls:
-            return QMessageBox.warning(self, "No URL Available",
-                                       "Cannot download Chairman's Notes: No valid meeting URL found.")
+            return QMessageBox.warning(self, "No URL Available", "Cannot download Chairman's Notes: No valid meeting URL found.")
 
         self.refresh_btn.setEnabled(False)
         self.refresh_btn.setText("⏳ Downloading Notes...")
@@ -1374,7 +1309,6 @@ class TDocsWindow(QWidget):
             QMessageBox.warning(self, "Download Failed", msg)
 
     def _open_chair_notes_folder(self):
-        """Opens the local Agenda/ChairNotes folder in the OS file explorer."""
         _open_folder(self.meeting_dir / "Agenda" / "ChairNotes")
 
     def _open_excel_export_dialog(self):
@@ -1408,12 +1342,8 @@ class TDocsWindow(QWidget):
         default_target = self.meeting_dir / "Export" / default_filename
 
         save_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save TDocs Excel Export",
-            str(default_target),
-            "Excel Workbook (*.xlsx)"
+            self, "Save TDocs Excel Export", str(default_target), "Excel Workbook (*.xlsx)"
         )
-
         if not save_path:
             return
 
@@ -1421,11 +1351,7 @@ class TDocsWindow(QWidget):
         self.export_btn.setEnabled(False)
 
         self.excel_exporter_thread = ExcelExporterThread(
-            Path(save_path),
-            rows_to_export,
-            selected_columns,
-            self.mtg_info,
-            auto_open=auto_open
+            Path(save_path), rows_to_export, selected_columns, self.mtg_info, auto_open=auto_open
         )
         self.excel_exporter_thread.progress.connect(self._on_excel_export_progress)
         self.excel_exporter_thread.finished.connect(
@@ -1447,11 +1373,7 @@ class TDocsWindow(QWidget):
         else:
             QMessageBox.warning(self, "Export Failed", f"Failed to export Excel:\n{msg}")
 
-    # =========================================================================
-    # 📧 GENERAL EMAIL INTEGRATION HANDLERS
-    # =========================================================================
     def _refresh_email_counts(self):
-        """Queries the SQLite database for total and unread email matches and refreshes the table."""
         try:
             counts = self.general_email_db.get_email_counts_per_tdoc()
             self.model.set_email_counts(counts)
@@ -1459,16 +1381,12 @@ class TDocsWindow(QWidget):
             logging.error(f"Error refreshing email counts: {e}")
 
     def _open_tdoc_emails(self, tdoc_id: str):
-        """Opens the inspection card dialog modelessly as an independent top-level window."""
         if not tdoc_id:
             return
         tdoc_clean = tdoc_id.strip().upper()
-
-        # Extract base document if a revision was clicked (e.g., S2-2608457r01 -> S2-2608457)
         match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_clean, re.IGNORECASE)
         base_tdoc = match.group(1).upper() if match else tdoc_clean
 
-        # If already open, restore and bring it to the foreground
         if base_tdoc in self._email_dialogs:
             dlg = self._email_dialogs[base_tdoc]
             dlg.setWindowState(dlg.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
@@ -1481,24 +1399,18 @@ class TDocsWindow(QWidget):
 
         dialog = TDocEmailsDialog(base_tdoc, family, self.general_email_db.db_path, wg=wg, parent=None)
         dialog.data_changed.connect(self._refresh_email_counts)
-
-        # ---> Connect link clicks inside reading pane to open related emails for other TDocs
         dialog.tdoc_selected.connect(self._open_tdoc_emails)
 
-        # Retain reference to prevent garbage collection
         self._email_dialogs[base_tdoc] = dialog
         dialog.finished.connect(lambda _, t=base_tdoc: self._email_dialogs.pop(t, None))
-
         dialog.show()
 
     def _on_configure_email_folders(self):
-        """Opens the Outlook Folder Configuration Dialog for the current Working Group."""
         wg = self.mtg_info.get("wg_name", "SA2")
         dialog = GeneralEmailFoldersDialog(wg, self)
         dialog.exec_()
 
     def _on_sync_general_emails(self):
-        """Opens the sync date buffer dialog and dispatches the background GeneralEmailSyncThread."""
         wg = self.mtg_info.get("wg_name", "SA2")
         folders = load_wg_email_config(wg)
         if not folders:
@@ -1525,7 +1437,6 @@ class TDocsWindow(QWidget):
         self.general_email_sync_thread.start()
 
     def _on_general_sync_finished(self, success: bool, msg: str, count: int):
-        """Restores button state and prompts feedback once email syncing finishes."""
         self.email_btn.setEnabled(True)
         self.email_btn.setText("📧 Emails ▾")
         self._refresh_email_counts()
@@ -1535,13 +1446,11 @@ class TDocsWindow(QWidget):
             QMessageBox.warning(self, "Email Sync Failed", msg)
 
     def _on_mark_all_emails_read(self):
-        """Marks all general emails across the entire meeting database as read."""
         self.general_email_db.mark_all_read()
         self._refresh_email_counts()
         QMessageBox.information(self, "Mark All Read", "All emails have been marked as read.")
 
     def _on_wipe_generic_emails(self):
-        """Fast wipe of the generic emails tables only, preserving SA2 eMeeting tables."""
         reply = QMessageBox.question(
             self,
             "Confirm Wipe Generic Emails",
@@ -1557,7 +1466,6 @@ class TDocsWindow(QWidget):
             QMessageBox.information(self, "Database Wiped", "Generic email records have been wiped.")
 
     def _on_table_context_menu(self, pos: QPoint):
-        """Displays row-level context actions organized into clean submenus."""
         index = self.table.indexAt(pos)
         if not index.isValid():
             return
@@ -1570,11 +1478,8 @@ class TDocsWindow(QWidget):
         revisions = self.model.revisions.get(tdoc_id, [])
         family = self.model.get_family_tdocs(tdoc_id)
 
-        # Retrieve unread email count from table model cache if available
         unread_count = 0
-        if hasattr(self.model, "_email_counts") and isinstance(
-            self.model._email_counts, dict
-        ):
+        if hasattr(self.model, "_email_counts") and isinstance(self.model._email_counts, dict):
             counts = self.model._email_counts.get(tdoc_id)
             if isinstance(counts, (tuple, list)) and len(counts) > 1:
                 unread_count = counts[1]
@@ -1598,9 +1503,7 @@ class TDocsWindow(QWidget):
                 self._refresh_email_counts(),
             ],
             mark_unread_callback=lambda: [
-                self.general_email_db.set_tdocs_read_status(
-                    set(family), False
-                ),
+                self.general_email_db.set_tdocs_read_status(set(family), False),
                 self._refresh_email_counts(),
             ],
             open_details_callback=lambda: TDocInfoDialog(
