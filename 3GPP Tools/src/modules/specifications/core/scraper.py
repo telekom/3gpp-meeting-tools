@@ -204,10 +204,12 @@ def fetch_metadata_from_dynareport(
 
         # 6. Radio Technology
         raw_tech = get_by_id('lblradiotech') or get_field('Radio technology')
-        metadata['radio_technology'] = raw_tech
         if raw_tech:
             matches = re.findall(r'(2G|3G|4G|LTE|5G|6G|GSM|UMTS|NB-IOT)', raw_tech, re.IGNORECASE)
             metadata['radio_technologies_list'] = list(dict.fromkeys([m.upper() for m in matches]))
+            metadata['radio_technology'] = ", ".join(metadata['radio_technologies_list'])
+        else:
+            metadata['radio_technology'] = ""
 
         log(f"📋 Parsed: Title='{metadata['title'][:35]}...', Type={metadata['type']}, WG={metadata['primary_group']}, Rel={metadata['initial_release']}", logging.INFO)
 
