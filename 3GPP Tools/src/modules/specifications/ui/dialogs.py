@@ -24,6 +24,7 @@ from bs4 import BeautifulSoup
 
 from core.network.session import NetworkError, NetworkSession, HttpError
 from modules.specifications.core.database import SpecsDatabase
+from modules.specifications.core.scraper import fetch_metadata_from_dynareport
 
 
 class SpecsConfigDialog(QDialog):
@@ -544,198 +545,30 @@ class TargetedSyncDialog(QDialog):
 
 class ManualSpecFetcherThread(QThread):
     """
-    Background worker that queries 3GPP DynaReport HTML using NetworkSession,
-    robustly resolving multi-part specs, extracting table metadata, and normalizing WG groups.
+    Background worker that queries 3GPP DynaReport HTML by reusing the
+    core scraper module's metadata extractor.
     """
     fetch_finished = pyqtSignal(bool, dict, str)
 
-    # Generic website headers that should never be accepted as specification titles
-    INVALID_TITLES = {
-        "3gpp specification detail",
-        "3gpp specification details",
-        "specification detail",
-        "specification details",
-        "3gpp",
-    }
-
     def __init__(self, spec_number: str):
         super().__init__()
-        self.raw_query = spec_number.strip()
+        self.spec_number = spec_number.strip()
 
     def run(self):
-        candidate_urls, clean_spec_num = self._build_candidate_urls(self.raw_query)
-        if not candidate_urls:
-            self.fetch_finished.emit(False, {}, "Invalid specification number format.")
-            return
+        try:
+            # Reuses the exact same extraction engine as SpecsCrawlerThread
+            metadata = fetch_metadata_from_dynareport(self.spec_number)
 
-        fetched_data: Optional[Dict[str, str]] = None
-        last_error = ""
-
-        # Try URL candidates in order (e.g. specific part first, then base spec)
-        for url in candidate_urls:
-            try:
-                html_content = NetworkSession.get_html(url, timeout=12)
-                parsed = self._parse_dynareport_html(html_content)
-                if parsed and parsed.get("title"):
-                    fetched_data = parsed
-                    break
-            except (HttpError, NetworkError) as net_err:
-                last_error = str(net_err)
-                continue
-            except Exception as e:
-                last_error = str(e)
-                continue
-
-        if not fetched_data or not fetched_data.get("title"):
-            err_msg = (
-                f"Specification details not found on 3GPP DynaReport."
-                + (f" ({last_error})" if last_error else "")
-            )
-            self.fetch_finished.emit(False, {}, err_msg)
-            return
-
-        # Ensure spec number preserves user intent (e.g. 23.801-01) while adopting fetched metadata
-        fetched_data["number"] = self._format_final_spec_number(clean_spec_num, self.raw_query)
-
-        # Deduce type (TS vs TR) from 3GPP numbering rules if not extracted
-        if not fetched_data.get("type"):
-            fetched_data["type"] = self._deduce_spec_type(fetched_data["number"])
-
-        msg = f"Fetched metadata for {fetched_data['type']} {fetched_data['number']} successfully."
-        self.fetch_finished.emit(True, fetched_data, msg)
-
-    def _build_candidate_urls(self, query: str) -> tuple[List[str], str]:
-        """Generates candidate DynaReport URLs handling base numbers and multi-part specs."""
-        # Clean prefix like 'TS ', 'TR ', '3GPP '
-        cleaned = re.sub(r"^(?:3GPP\s+)?(?:TS|TR)\s*", "", query, flags=re.IGNORECASE).strip()
-        if not cleaned:
-            return [], ""
-
-        # Match base series and spec (e.g. '23.801' or '23801') and optional part (e.g. '-01' or '-1')
-        match = re.search(r"^(\d{2})\.?(\d{3})(?:[-_.](\d{1,2}))?", cleaned)
-        if not match:
-            # Fallback: strip dots and hyphens
-            simple_num = re.sub(r"[^0-9A-Za-z]", "", cleaned)
-            return [f"https://www.3gpp.org/DynaReport/{simple_num}.htm"], cleaned
-
-        series, spec_core, part = match.group(1), match.group(2), match.group(3)
-        base_no_dot = f"{series}{spec_core}"
-
-        candidates = []
-        if part:
-            part_int = str(int(part))
-            # 1. 23801-1.htm
-            candidates.append(f"https://www.3gpp.org/DynaReport/{base_no_dot}-{part_int}.htm")
-            # 2. 23801-01.htm
-            candidates.append(f"https://www.3gpp.org/DynaReport/{base_no_dot}-{part}.htm")
-
-        # 3. Base specification fallback: 23801.htm
-        candidates.append(f"https://www.3gpp.org/DynaReport/{base_no_dot}.htm")
-
-        formatted_spec = f"{series}.{spec_core}" + (f"-{part}" if part else "")
-        return candidates, formatted_spec
-
-    def _parse_dynareport_html(self, html: str) -> Dict[str, str]:
-        """Extracts specification attributes from DynaReport HTML tables and text."""
-        soup = BeautifulSoup(html, "html.parser")
-        data = {
-            "title": "",
-            "type": "",
-            "primary_group": "",
-            "initial_release": "",
-            "radio_technology": "",
-        }
-
-        # 1. Table-based extraction (standard 3GPP layout)
-        for tr in soup.find_all("tr"):
-            cells = tr.find_all(["td", "th"])
-            if len(cells) >= 2:
-                label = cells[0].get_text(" ", strip=True).lower().rstrip(":")
-                val = cells[1].get_text(" ", strip=True)
-                if not val:
-                    continue
-
-                if "title" in label and "short" not in label:
-                    if val.lower() not in self.INVALID_TITLES:
-                        data["title"] = val
-                elif "primary responsible" in label or "responsible group" in label or label == "primary group":
-                    data["primary_group"] = self._normalize_group(val)
-                elif "type" in label or "specification type" in label:
-                    if "report" in val.lower() or "tr" in val.upper():
-                        data["type"] = "TR"
-                    elif "specification" in val.lower() or "ts" in val.upper():
-                        data["type"] = "TS"
-                elif "initial" in label and "release" in label:
-                    data["initial_release"] = self._normalize_release(val)
-                elif "technology" in label:
-                    data["radio_technology"] = val
-
-        # 2. Fallback text regex extraction if title was missed
-        if not data["title"]:
-            text = soup.get_text(separator="\n")
-            lines = [l.strip() for l in text.splitlines() if l.strip()]
-
-            for idx, line in enumerate(lines):
-                # Check for "Title: <value>" on same line
-                if re.match(r"^Title\s*:\s*", line, re.IGNORECASE):
-                    extracted = re.sub(r"^Title\s*:\s*", "", line, flags=re.IGNORECASE).strip()
-                    if extracted and extracted.lower() not in self.INVALID_TITLES:
-                        data["title"] = extracted
-                        break
-                # Check for "Title:" on line i, and value on line i+1
-                elif line.lower() == "title:" and idx + 1 < len(lines):
-                    next_line = lines[idx + 1]
-                    if next_line.lower() not in self.INVALID_TITLES and ":" not in next_line:
-                        data["title"] = next_line
-                        break
-
-        # Final cleanup: reject bogus portal titles
-        if data["title"].lower() in self.INVALID_TITLES:
-            data["title"] = ""
-
-        return data
-
-    @staticmethod
-    def _normalize_group(raw_group: str) -> str:
-        """Converts group descriptions (e.g., 'S2 (SA WG2)', 'SP') to standard 3GPP WG codes."""
-        g = raw_group.strip()
-        # Direct parenthetical extraction e.g. S2 (SA2) or S2 (SA WG2)
-        match_wg = re.search(r"\b(SA\s*[1-6]|RAN\s*[1-5]|CT\s*[1-4]|GERAN\s*[1-3])\b", g, re.IGNORECASE)
-        if match_wg:
-            return match_wg.group(1).replace(" ", "").upper()
-
-        # Legacy 3GPP 2-letter codes
-        code_map = {
-            "S1": "SA1", "S2": "SA2", "S3": "SA3", "S4": "SA4", "S5": "SA5", "S6": "SA6", "SP": "SA",
-            "R1": "RAN1", "R2": "RAN2", "R3": "RAN3", "R4": "RAN4", "R5": "RAN5", "RP": "RAN",
-            "C1": "CT1", "C3": "CT3", "C4": "CT4", "C6": "CT6", "CP": "CT"
-        }
-        clean_code = re.sub(r"[^A-Za-z0-9]", "", g).upper()
-        return code_map.get(clean_code, g)
-
-    @staticmethod
-    def _normalize_release(raw_rel: str) -> str:
-        """Normalizes release strings like 'Release 15' to 'Rel-15'."""
-        match = re.search(r"(?:Rel(?:ease)?[- ]?)?(\d+)", raw_rel, re.IGNORECASE)
-        return f"Rel-{match.group(1)}" if match else raw_rel
-
-    @staticmethod
-    def _deduce_spec_type(spec_num: str) -> str:
-        """
-        Determines whether a specification is TS or TR based on 3GPP numbering rules.
-        xx.8xx and xx.9xx are always Technical Reports (TR).
-        """
-        if re.search(r"\b\d{2}\.[89]\d{2}\b", spec_num):
-            return "TR"
-        return "TS"
-
-    @staticmethod
-    def _format_final_spec_number(clean_num: str, raw_input: str) -> str:
-        """Preserves user sub-part designations (e.g. 23.801-01) while ensuring standard dotted format."""
-        if "-" in raw_input and "-" not in clean_num:
-            part = raw_input.split("-")[-1].strip()
-            return f"{clean_num}-{part}"
-        return clean_num
+            if metadata and metadata.get("title"):
+                spec_type = metadata.get("type") or "TS"
+                msg = f"Fetched metadata for {spec_type} {metadata['number']} successfully."
+                self.fetch_finished.emit(True, metadata, msg)
+            else:
+                self.fetch_finished.emit(
+                    False, {}, f"Could not extract metadata for {self.spec_number} from 3GPP DynaReport."
+                )
+        except Exception as e:
+            self.fetch_finished.emit(False, {}, f"Error fetching details: {e}")
 
 
 class AddSpecDialog(QDialog):
