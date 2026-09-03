@@ -117,6 +117,8 @@ class DragDropUI(QMainWindow):
         self.wifi_monitor.start()
         logging.info("🏁 [STARTUP:SERVICES] Background services active.")
 
+        # --- Locate DragDropUI in src/main_window.py ---
+
     def _setup_ui(self):
         central_widget = QWidget()
         main_layout = QVBoxLayout()
@@ -127,6 +129,7 @@ class DragDropUI(QMainWindow):
         # --- TOP HALF: TABS ---
         self.tabs = QTabWidget()
 
+        logging.info("🏁 [STARTUP:UI:TAB] 1/8 Initializing CodeEditorTab...")
         self.code_tab = CodeEditorTab()
         self.code_tab.template_requested.connect(self.insert_template)
         self.code_tab.docs_requested.connect(self.open_template_docs)
@@ -140,11 +143,13 @@ class DragDropUI(QMainWindow):
         self.code_tab.export_requested.connect(self._save_and_queue_pasted_text)
         self.code_tab.file_dropped.connect(self.extract_code_from_visio)
 
+        logging.info("🏁 [STARTUP:UI:TAB] 2/8 Initializing BatchConvertTab...")
         self.batch_tab = BatchConvertTab()
         self.batch_tab.files_dropped.connect(
             lambda paths, fmt: self.queue_manager.add_batch(paths, target_format=fmt)
         )
 
+        logging.info("🏁 [STARTUP:UI:TAB] 3/8 Initializing WordExtractorTab...")
         self.word_tab = WordExtractorTab()
         self.word_tab.extract_visio_requested.connect(
             lambda fp: self.queue_manager.add_item(Path(fp), "extract_visio")
@@ -170,6 +175,7 @@ class DragDropUI(QMainWindow):
         )
 
         db_path = get_project_root() / "3gpp_data.db"
+        logging.info("🏁 [STARTUP:UI:TAB] 4/8 Initializing SpecificationsTab...")
         self.specs_tab = SpecificationsTab(db_path)
         self.specs_tab.update_db_requested.connect(
             lambda force_meta: self.queue_manager.add_item(
@@ -186,7 +192,10 @@ class DragDropUI(QMainWindow):
             )
         )
 
+        logging.info("🏁 [STARTUP:UI:TAB] 5/8 Initializing MeetingsTab...")
         self.meetings_tab = MeetingsTab(db_path)
+
+        logging.info("🏁 [STARTUP:UI:TAB] 6/8 Initializing WorkItemsTab...")
         self.work_items_tab = WorkItemsTab(db_path)
         self.work_items_tab.global_action_requested.connect(self.meetings_tab._handle_global_action_from_window)
 
@@ -212,9 +221,11 @@ class DragDropUI(QMainWindow):
         )
 
         nas_db_path = get_project_root() / "3gpp_protocol_data.db"
+        logging.info("🏁 [STARTUP:UI:TAB] 7/8 Initializing NASTab...")
         self.nas_tab = NASTab(nas_db_path, db_path)
 
         spec_search_db_path = get_project_root() / "3gpp_spec_search.db"
+        logging.info("🏁 [STARTUP:UI:TAB] 8/8 Initializing SpecSearchTab...")
         self.spec_search_tab = SpecSearchTab(spec_search_db_path, db_path)
 
         self.tabs.addTab(self.code_tab, "📝 PlantUML")
@@ -243,6 +254,7 @@ class DragDropUI(QMainWindow):
         self.splitter.addWidget(self.tabs)
 
         # --- BOTTOM HALF: PANELS ---
+        logging.info("🏁 [STARTUP:UI:PANELS] Initializing ConsolePanel and QueuePanel...")
         self.bottom_splitter = QSplitter(Qt.Horizontal)
 
         self.console_panel = ConsolePanel()
@@ -250,7 +262,6 @@ class DragDropUI(QMainWindow):
         self.console_panel.network_config_requested.connect(lambda: NetworkConfigDialog(self).exec_())
         self.console_panel.update_requested.connect(self.check_for_jar_updates)
         self.console_panel.task_manager_requested.connect(self.open_task_manager)
-        # Wire Database Maintenance Dialog Signal
         self.console_panel.db_maintenance_requested.connect(self.open_db_maintenance)
 
         self.specs_tab.log_msg.connect(self.console_panel.log_message)
@@ -277,6 +288,19 @@ class DragDropUI(QMainWindow):
         self.network_indicator = QLabel("📶 Checking Network...")
         self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
         self.status_bar.addPermanentWidget(self.network_indicator)
+        logging.info("🏁 [STARTUP:UI] _setup_ui() layout complete.")
+
+    def _launch_init_thread(self, check_updates=False):
+        """Thread-safe launcher that prevents duplicate initialization checks."""
+        if hasattr(self, 'init_thread') and self.init_thread is not None and self.init_thread.isRunning():
+            logging.warning("⚠️ [STARTUP] InitializationThread already running. Skipping duplicate launch.")
+            return
+
+        self.init_thread = InitializationThread(self.jar_path, check_updates=check_updates)
+        self.init_thread.ui_log_msg.connect(self.log_message)
+        self.init_thread.init_complete.connect(self.on_init_complete)
+        self.init_thread.network_error.connect(self.open_proxy_settings)
+        self.init_thread.start()
 
     # --- DIALOG & THREAD MANAGEMENT ---
     def open_db_maintenance(self):
@@ -291,13 +315,6 @@ class DragDropUI(QMainWindow):
             self.task_manager_dialog.show()
         else:
             self.task_manager_dialog.activateWindow()
-
-    def _launch_init_thread(self, check_updates=False):
-        self.init_thread = InitializationThread(self.jar_path, check_updates=check_updates)
-        self.init_thread.ui_log_msg.connect(self.log_message)
-        self.init_thread.init_complete.connect(self.on_init_complete)
-        self.init_thread.network_error.connect(self.open_proxy_settings)
-        self.init_thread.start()
 
     def on_init_complete(self, success: bool):
         if success:
