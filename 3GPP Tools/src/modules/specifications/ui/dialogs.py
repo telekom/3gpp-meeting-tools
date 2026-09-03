@@ -1,4 +1,5 @@
 # --- File: src/modules/specifications/ui/dialogs.py ---
+import logging
 import os
 import re
 import webbrowser
@@ -545,10 +546,11 @@ class TargetedSyncDialog(QDialog):
 
 class ManualSpecFetcherThread(QThread):
     """
-    Background worker that queries 3GPP DynaReport HTML by reusing the
-    core scraper module's metadata extractor.
+    Background worker that queries 3GPP DynaReport HTML using the shared
+    scraper engine with real-time log signaling for UI troubleshooting.
     """
     fetch_finished = pyqtSignal(bool, dict, str)
+    log_msg = pyqtSignal(str, int)
 
     def __init__(self, spec_number: str):
         super().__init__()
@@ -556,17 +558,20 @@ class ManualSpecFetcherThread(QThread):
 
     def run(self):
         try:
-            # Reuses the exact same extraction engine as SpecsCrawlerThread
-            metadata = fetch_metadata_from_dynareport(self.spec_number)
+            metadata = fetch_metadata_from_dynareport(
+                self.spec_number,
+                log_cb=self.log_msg.emit
+            )
 
             if metadata and metadata.get("title"):
                 spec_type = metadata.get("type") or "TS"
                 msg = f"Fetched metadata for {spec_type} {metadata['number']} successfully."
                 self.fetch_finished.emit(True, metadata, msg)
             else:
-                self.fetch_finished.emit(
-                    False, {}, f"Could not extract metadata for {self.spec_number} from 3GPP DynaReport."
-                )
+                err_cause = metadata.get("error") if metadata else ""
+                reason = f": {err_cause}" if err_cause else " (Check spec number or network)"
+                fail_msg = f"Could not extract metadata for {self.spec_number}{reason}"
+                self.fetch_finished.emit(False, metadata or {}, fail_msg)
         except Exception as e:
             self.fetch_finished.emit(False, {}, f"Error fetching details: {e}")
 
@@ -577,12 +582,12 @@ class AddSpecDialog(QDialog):
     def __init__(self, db, parent=None):
         super().__init__(parent)
         self.db = db
-        self.fetch_thread: Optional[ManualSpecFetcherThread] = None
+        self.fetch_thread = None
         self.sync_requested = False
         self.saved_spec_number = ""
 
         self.setWindowTitle("➕ Add / Fetch Specification")
-        self.setMinimumWidth(540)
+        self.setMinimumWidth(560)
         self.setStyleSheet("""
             QDialog { background-color: #FAFAFA; }
             QGroupBox {
@@ -609,8 +614,8 @@ class AddSpecDialog(QDialog):
 
         row_layout = QHBoxLayout()
         self.query_input = QLineEdit()
-        self.query_input.setPlaceholderText("e.g. 23.501, 23.801-01, 38.331, or 24.501")
-        self.query_input.setToolTip("Enter specification number")
+        self.query_input.setPlaceholderText("e.g. 23.501, 38.331, 23.700-01...")
+        self.query_input.setToolTip("Enter 3GPP specification number")
         self.query_input.returnPressed.connect(self._start_fetch)
 
         self.btn_fetch = QPushButton("🔍 Fetch Details")
@@ -632,8 +637,9 @@ class AddSpecDialog(QDialog):
         row_layout.addWidget(self.btn_fetch)
         query_layout.addLayout(row_layout)
 
-        self.lbl_status = QLabel("Enter a 3GPP specification number and click 'Fetch Details'.")
+        self.lbl_status = QLabel("Enter a specification number and click 'Fetch Details'.")
         self.lbl_status.setStyleSheet("color: #64748B; font-size: 11px; margin-top: 2px;")
+        self.lbl_status.setWordWrap(True)
         query_layout.addWidget(self.lbl_status)
         main_layout.addWidget(query_group)
 
@@ -705,12 +711,22 @@ class AddSpecDialog(QDialog):
 
         self.btn_fetch.setEnabled(False)
         self.btn_fetch.setText("⏳ Fetching...")
-        self.lbl_status.setText("⏳ Querying 3GPP DynaReport...")
+        self.lbl_status.setText(f"⏳ Connecting to 3GPP DynaReport for '{query}'...")
         self.lbl_status.setStyleSheet("color: #0078D7; font-weight: bold;")
 
         self.fetch_thread = ManualSpecFetcherThread(query)
+        self.fetch_thread.log_msg.connect(self._on_fetch_log)
         self.fetch_thread.fetch_finished.connect(self._on_fetch_finished)
         self.fetch_thread.start()
+
+    def _on_fetch_log(self, msg: str, level: int):
+        self.lbl_status.setText(msg)
+        if level >= logging.ERROR:
+            self.lbl_status.setStyleSheet("color: #DC2626; font-weight: bold;")
+        elif level >= logging.WARNING:
+            self.lbl_status.setStyleSheet("color: #D97706; font-weight: bold;")
+        else:
+            self.lbl_status.setStyleSheet("color: #0078D7;")
 
     def _on_fetch_finished(self, success: bool, data: dict, msg: str):
         self.btn_fetch.setEnabled(True)
@@ -720,7 +736,7 @@ class AddSpecDialog(QDialog):
             self.lbl_status.setText(f"✅ {msg}")
             self.lbl_status.setStyleSheet("color: #107C41; font-weight: bold;")
 
-            self.edit_number.setText(data.get("number", ""))
+            self.edit_number.setText(data.get("number", self.query_input.text().strip()))
             self.edit_title.setText(data.get("title", ""))
             self.type_combo.setCurrentText(data.get("type", "TS"))
             self.edit_group.setText(data.get("primary_group", ""))
@@ -728,9 +744,8 @@ class AddSpecDialog(QDialog):
             self.edit_tech.setText(data.get("radio_technology", ""))
         else:
             self.lbl_status.setText(f"⚠️ {msg}")
-            self.lbl_status.setStyleSheet("color: #D83B01; font-weight: bold;")
-            if not self.edit_number.text().strip():
-                self.edit_number.setText(self.query_input.text().strip())
+            self.lbl_status.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.edit_number.setText(self.query_input.text().strip())
 
     def _save_spec(self):
         spec_num = self.edit_number.text().strip()
@@ -752,7 +767,7 @@ class AddSpecDialog(QDialog):
         if self.db.upsert_manual_spec(data):
             self.saved_spec_number = spec_num
             self.sync_requested = self.chk_sync_now.isChecked()
-            QMessageBox.information(self, "Success", f"Specification {data['type']} {spec_num} has been saved to the database.")
+            QMessageBox.information(self, "Success", f"Specification {data['type']} {spec_num} saved to database.")
             self.accept()
         else:
-            QMessageBox.critical(self, "Error", f"Failed to save specification {data['type']} {spec_num} to the database.")
+            QMessageBox.critical(self, "Error", f"Failed to save specification {data['type']} {spec_num} to database.")

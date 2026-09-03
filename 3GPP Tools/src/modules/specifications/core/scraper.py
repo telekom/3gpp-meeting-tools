@@ -8,11 +8,12 @@ from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 from bs4 import BeautifulSoup
 
-from core.network.session import NetworkSession
+from core.network.session import HttpError, NetworkError, NetworkSession
 from modules.specifications.utils.utils import file_version_to_version
 from modules.specifications.core.database import SpecsDatabase
 
-# Regex patterns for version strings and dates
+logger = logging.getLogger(__name__)
+
 RE_VERSION_STR = re.compile(r'\bv?(\d{1,2}\.\d{1,2}\.\d{1,2})\b', re.IGNORECASE)
 RE_DATE = re.compile(
     r'\b(?:(19\d\d|20\d\d)[-/](0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])|(0[1-9]|[12]\d|3[01])[./-](0[1-9]|1[0-2])[./-](19\d\d|20\d\d))\b'
@@ -24,9 +25,9 @@ def normalize_date(raw_date: str) -> str:
     clean = raw_date.strip().replace('/', '-').replace('.', '-')
     parts = clean.split('-')
     if len(parts) == 3:
-        if len(parts[0]) == 4:  # YYYY-MM-DD
+        if len(parts[0]) == 4:
             return f"{parts[0]}-{parts[1].zfill(2)}-{parts[2].zfill(2)}"
-        elif len(parts[2]) == 4:  # DD-MM-YYYY -> YYYY-MM-DD
+        elif len(parts[2]) == 4:
             return f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
     return clean
 
@@ -39,12 +40,10 @@ def normalize_working_group(raw_group: str) -> str:
     if g in ("-", "N/A", "none"):
         return ""
 
-    # Match patterns like 'SA WG2', 'RAN WG1', 'CT WG3', 'SA2'
     match_full = re.search(r'\b(SA|RAN|CT|GERAN)\s*(?:WG)?\s*([1-6])\b', g, re.IGNORECASE)
     if match_full:
         return f"{match_full.group(1).upper()}{match_full.group(2)}"
 
-    # Match legacy 3GPP codes (S1-S6, R1-R5, C1-C4, SP, RP, CP)
     legacy_map = {
         "S1": "SA1", "S2": "SA2", "S3": "SA3", "S4": "SA4", "S5": "SA5", "S6": "SA6", "SP": "SA",
         "R1": "RAN1", "R2": "RAN2", "R3": "RAN3", "R4": "RAN4", "R5": "RAN5", "RP": "RAN",
@@ -58,9 +57,8 @@ def normalize_release(raw_rel: str) -> str:
     """Normalizes release designations like 'Release 15' or '15' to 'Rel-15'."""
     if not raw_rel or raw_rel.strip() in ("-", "N/A"):
         return ""
-    r = raw_rel.strip()
-    match = re.search(r'\b(?:Rel(?:ease)?[- ]?)?(\d+)\b', r, re.IGNORECASE)
-    return f"Rel-{match.group(1)}" if match else r
+    match = re.search(r'\b(?:Rel(?:ease)?[- ]?)?(\d+)\b', raw_rel.strip(), re.IGNORECASE)
+    return f"Rel-{match.group(1)}" if match else raw_rel.strip()
 
 
 def deduce_spec_type(spec_number: str, raw_type: str = "") -> str:
@@ -70,28 +68,29 @@ def deduce_spec_type(spec_number: str, raw_type: str = "") -> str:
             return "TR"
         if "Technical Specification" in raw_type or "(TS)" in raw_type.upper():
             return "TS"
-
-    # In 3GPP, xx.8xx and xx.9xx are always Technical Reports (TR)
     if re.search(r'\b\d{2}\.[89]\d{2}\b', spec_number):
         return "TR"
     return "TS"
 
 
-def fetch_metadata_from_dynareport(spec_number: str, log_cb: Optional[Callable[[str, int], None]] = None) -> Dict:
+def fetch_metadata_from_dynareport(
+    spec_number: str,
+    log_cb: Optional[Callable[[str, int], None]] = None
+) -> Dict:
     """
-    Fetches and parses specification metadata from 3GPP DynaReport HTML.
+    Fetches and parses specification metadata from 3GPP DynaReport HTML with full logging.
     Handles base specs and multi-part specs (e.g. 23.801-01 -> 23801-1.htm -> 23801.htm).
     """
     def log(msg: str, level: int = logging.INFO):
+        logger.log(level, msg)
         if log_cb:
             log_cb(msg, level)
 
     clean_spec = spec_number.strip()
-    # Build candidate URLs in priority order
     cleaned_num = re.sub(r'^(?:3GPP\s+)?(?:TS|TR)\s*', '', clean_spec, flags=re.IGNORECASE).strip()
     match_parts = re.search(r'^(\d{2})\.?(\d{3})(?:[-_.](\d{1,2}))?', cleaned_num)
 
-    candidates = []
+    candidates: List[str] = []
     if match_parts:
         series, core, part = match_parts.group(1), match_parts.group(2), match_parts.group(3)
         base = f"{series}{core}"
@@ -109,28 +108,49 @@ def fetch_metadata_from_dynareport(spec_number: str, log_cb: Optional[Callable[[
         'primary_group': '',
         'secondary_groups_raw': '', 'secondary_groups_list': [],
         'version_dates': {},
-        'related_wis': []
+        'related_wis': [],
+        'error': ''
     }
 
     html_text = ""
-    target_url = candidates[0]
+    target_url = ""
+    attempt_errors: List[str] = []
+
     for url in candidates:
+        log(f"🔍 Trying DynaReport: {url}...", logging.INFO)
         try:
-            log(f"🔍 Fetching DynaReport: {url}", logging.INFO)
-            resp_text = NetworkSession.get_html(url=url, timeout=15)
-            if resp_text and "lblTitle" in resp_text:
+            resp_text = NetworkSession.get_html(url=url, timeout=12)
+            if resp_text and ("3gpp specification" in resp_text.lower() or "title" in resp_text.lower()):
                 html_text = resp_text
                 target_url = url
+                log(f"✅ Found DynaReport at: {url}", logging.INFO)
                 break
-        except Exception:
-            continue
+            else:
+                attempt_errors.append(f"{url.split('/')[-1]} (Empty/Invalid content)")
+        except HttpError as http_err:
+            attempt_errors.append(f"{url.split('/')[-1]} (HTTP {http_err.status_code})")
+            log(f"⚠️ {url} returned HTTP {http_err.status_code}", logging.WARNING)
+        except NetworkError as net_err:
+            attempt_errors.append(f"{url.split('/')[-1]} (Network error: {net_err})")
+            log(f"⚠️ {url} network error: {net_err}", logging.WARNING)
+        except Exception as e:
+            attempt_errors.append(f"{url.split('/')[-1]} ({e})")
+            log(f"⚠️ {url} unexpected error: {e}", logging.WARNING)
 
     if not html_text:
-        log(f"⚠️ Empty or unavailable response from DynaReport for {spec_number}", logging.WARNING)
+        err_detail = ", ".join(attempt_errors) if attempt_errors else "All candidate URLs failed"
+        metadata['error'] = f"Report not found on 3GPP server ({err_detail})"
+        log(f"❌ {metadata['error']} for '{spec_number}'", logging.ERROR)
         return metadata
 
     try:
         soup = BeautifulSoup(html_text, 'html.parser')
+
+        # Strip data grids to prevent Work Items or Release tables from interfering with metadata
+        for grid in soup.find_all(lambda tag: tag.name in ('table', 'div') and tag.has_attr('id') and (
+            'grid' in tag['id'].lower() or 'releases' in tag['id'].lower()
+        )):
+            grid.decompose()
 
         def get_by_id(keyword: str) -> str:
             tag = soup.find(lambda t: t.has_attr('id') and keyword in t['id'].lower())
@@ -140,7 +160,7 @@ def fetch_metadata_from_dynareport(spec_number: str, log_cb: Optional[Callable[[
             for label_text in label_texts:
                 tags = soup.find_all(
                     lambda tag: tag.name in ['td', 'th', 'span', 'b', 'strong', 'div', 'label']
-                                and tag.get_text(strip=True).strip(':').lower() == label_text.lower()
+                    and tag.get_text(strip=True).strip(':').lower() == label_text.lower()
                 )
                 for tag in tags:
                     sibling = tag.find_next_sibling(
@@ -156,9 +176,9 @@ def fetch_metadata_from_dynareport(spec_number: str, log_cb: Optional[Callable[[
                             return next_cell.get_text(strip=True)
             return ''
 
-        # 1. Title (Extract via ASP.NET ID, avoid generic website headers or table headers)
+        # 1. Title
         title = get_by_id('lbltitle') or get_field('Specification Title', 'Title')
-        if title.lower() in ("uid", "3gpp specification detail", "specification detail"):
+        if title.lower() in ("uid", "3gpp specification detail", "specification detail", "title"):
             title = ""
         metadata['title'] = title
 
@@ -189,53 +209,12 @@ def fetch_metadata_from_dynareport(spec_number: str, log_cb: Optional[Callable[[
             matches = re.findall(r'(2G|3G|4G|LTE|5G|6G|GSM|UMTS|NB-IOT)', raw_tech, re.IGNORECASE)
             metadata['radio_technologies_list'] = list(dict.fromkeys([m.upper() for m in matches]))
 
-        # 7. Related Work Items
-        related_wis = []
-        wi_grid = soup.find(id=re.compile(r'relatedWiGrid', re.IGNORECASE))
-        if wi_grid:
-            rows = wi_grid.find_all('tr', class_=re.compile(r'rgRow|rgAltRow'))
-            for row in rows:
-                cells = row.find_all(['td', 'th'])
-                if len(cells) >= 3:
-                    uid_text = cells[0].get_text(strip=True)
-                    acronym_text = cells[1].get_text(strip=True)
-                    name_text = cells[2].get_text(strip=True)
-                    row_classes = row.get("class", [])
-                    is_primary = "rgSelectedRow" in row_classes or "selected" in row_classes
-
-                    if uid_text.isdigit() and len(uid_text) >= 4:
-                        related_wis.append({
-                            'code': uid_text,
-                            'acronym': acronym_text,
-                            'title': name_text,
-                            'is_primary': is_primary
-                        })
-        metadata['related_wis'] = related_wis
-        if related_wis:
-            log(f"🔗 Extracted {len(related_wis)} related WI(s) for {spec_number}", logging.INFO)
-
-        # 8. Portal Upload Dates from Releases Table
-        version_dates = {}
-        for row in soup.find_all('tr'):
-            cells = row.find_all(['td', 'th'])
-            if len(cells) < 2:
-                continue
-
-            row_text = " ".join([c.get_text(strip=True) for c in cells])
-            ver_match = RE_VERSION_STR.search(row_text)
-            date_match = RE_DATE.search(row_text)
-
-            if ver_match and date_match:
-                version_str = ver_match.group(1)
-                date_str = normalize_date(date_match.group(0))
-                version_dates[version_str] = date_str
-
-        metadata['version_dates'] = version_dates
-        if version_dates:
-            log(f"📅 Extracted {len(version_dates)} release dates for {spec_number}", logging.INFO)
+        log(f"📋 Parsed: Title='{metadata['title'][:35]}...', Type={metadata['type']}, WG={metadata['primary_group']}, Rel={metadata['initial_release']}", logging.INFO)
 
     except Exception as e:
-        log(f"❌ Metadata fetch error for {spec_number} at {target_url}: {e}", logging.ERROR)
+        err_msg = f"Parsing error for {spec_number}: {e}"
+        metadata['error'] = err_detail = err_msg
+        log(f"❌ {err_msg}", logging.ERROR)
 
     return metadata
 
@@ -279,7 +258,6 @@ class SpecsCrawlerThread(QThread):
             return []
 
     def fetch_metadata_from_dynareport(self, spec_number: str) -> Dict:
-        """Delegates directly to the shared module-level parser."""
         return fetch_metadata_from_dynareport(spec_number, log_cb=self.ui_log_msg.emit)
 
     def fetch_spec_files(self, series_name: str, series_url: str, spec_number: str, spec_url: str) -> dict:
@@ -352,8 +330,7 @@ class SpecsCrawlerThread(QThread):
 
                 with ThreadPoolExecutor(max_workers=15) as executor:
                     future_to_series = {
-                        executor.submit(self.fetch_links, s_url if s_url.endswith('/') else s_url + '/'): (
-                        s_name, s_url)
+                        executor.submit(self.fetch_links, s_url if s_url.endswith('/') else s_url + '/'): (s_name, s_url)
                         for s_name, s_url in series_links
                     }
 
