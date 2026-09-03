@@ -16,12 +16,20 @@ RE_PART_INDEX = re.compile(r"_(\d+)_")
 RE_PFCP_CLAUSE_HEADER = re.compile(r"^((?:7|8)(?:\.[0-9A-Za-z]+)+)\s*(.*)$")
 RE_PFCP_TABLE_CAPTION = re.compile(r"^Table\s+([78]\.\d+(?:[\.\-/][0-9A-Za-z]+)*)\s*[:\.]\s*(.+)$", re.IGNORECASE)
 
-# Standard top-level PFCP message clauses in 3GPP TS 29.244
+# Canonical 3GPP TS 29.244 top-level message clauses
 TOP_LEVEL_PFCP_CLAUSES = {
     "7.4.2.1", "7.4.2.2", "7.4.3.1", "7.4.3.2", "7.4.4.1", "7.4.4.2", "7.4.4.3",
-    "7.4.4.4", "7.4.4.5", "7.4.4.6", "7.4.4.7", "7.4.5.1", "7.4.5.1.1", "7.4.5.2",
-    "7.4.5.2.1", "7.4.6.1", "7.4.6.2", "7.4.7.1", "7.4.7.2", "7.5.2.1", "7.5.3.1",
-    "7.5.4.1", "7.5.5.1", "7.5.6", "7.5.7.1", "7.5.8.1", "7.5.9.1", "7.5.9.2"
+    "7.4.4.4", "7.4.4.5", "7.4.4.6", "7.4.4.7", "7.4.5.1.1", "7.4.5.2.1",
+    "7.4.6.1", "7.4.6.2", "7.4.7.1", "7.4.7.2", "7.5.2.1", "7.5.3.1", "7.5.4.1",
+    "7.5.5.1", "7.5.6", "7.5.7.1", "7.5.8.1", "7.5.9.1"
+}
+
+# Known scalar identifier fields that should never be recursively expanded as containers
+SCALAR_ID_FIELDS = {
+    "pdrid", "farid", "urrid", "qerid", "barid", "srrid", "marid", "nodeid",
+    "trafficendpointid", "groupid", "failedruleid", "mbsunicastparametersid",
+    "headerhandlingcontrolruleid", "headerhandlingcontrolid", "reportingendpointid",
+    "n6delaymeasurementcontrolinformationid"
 }
 
 
@@ -44,12 +52,10 @@ class PFCPDocxParser:
 
     @staticmethod
     def _clean_clause_number(clause_ref: str) -> str:
-        """Strips table suffixes (e.g. '7.5.2.1-1' -> '7.5.2.1')."""
         return clause_ref.split("-")[0].strip()
 
     @staticmethod
     def _get_tc_grid_span(tc_elem: Any) -> int:
-        """Extracts OpenXML w:gridSpan attribute from a table cell element."""
         for elem in tc_elem.iter():
             if elem.tag.endswith("gridSpan"):
                 for attr_name, attr_val in elem.attrib.items():
@@ -58,7 +64,6 @@ class PFCPDocxParser:
         return 1
 
     def _expand_row_cells(self, row: Any) -> List[str]:
-        """Expands a <w:tr> element into a list of cell texts according to w:gridSpan."""
         expanded: List[str] = []
         for tc in row.findall(TAG_TC):
             text = _extract_tc_text(tc).strip()
@@ -77,9 +82,9 @@ class PFCPDocxParser:
         total_files = len(valid_paths)
         self.logger.info("Starting PFCP ingestion for TS %s across %d document part(s)", self.spec_number, total_files)
 
-        raw_tables: List[Tuple[str, str, str, Any]] = []  # (clause, caption_title, full_caption, tbl_elem)
+        raw_tables: List[Tuple[str, str, str, Any]] = []
         ie_definitions_dict: Dict[str, Dict[str, Any]] = {}
-        type_registry: Dict[str, Dict[str, str]] = {}  # norm_name -> {type_id, clause, applicability}
+        type_registry: Dict[str, Dict[str, str]] = {}
 
         for file_idx, docx_path in enumerate(valid_paths):
             if progress_callback:
@@ -89,12 +94,10 @@ class PFCPDocxParser:
             self.logger.info("Parsing document part %d/%d: %s", file_idx + 1, total_files, docx_path.name)
             root = extract_document_root(docx_path)
             if root is None:
-                self.logger.warning("Failed to extract XML document root from %s", docx_path.name)
                 continue
 
             body = root.find(TAG_BODY)
             if body is None:
-                self.logger.warning("Document body missing in %s", docx_path.name)
                 continue
 
             last_caption_info: Optional[Tuple[str, str, str]] = None
@@ -114,7 +117,6 @@ class PFCPDocxParser:
                             "raw_description": "".join(current_ie_html),
                             "structure_table": json.dumps([]),
                         }
-                        self.logger.debug("Indexed IE definition: %s (Clause %s)", current_ie_name, current_ie_clause)
                 current_ie_clause = ""
                 current_ie_name = ""
                 current_ie_html = []
@@ -125,7 +127,6 @@ class PFCPDocxParser:
                     if not p_text:
                         continue
 
-                    # Match Clause Headings (e.g. 8.2.1 Cause)
                     match_header = RE_PFCP_CLAUSE_HEADER.match(p_text)
                     if match_header:
                         cl_num = match_header.group(1).strip()
@@ -143,7 +144,6 @@ class PFCPDocxParser:
                         elif not cl_num.startswith("8.2."):
                             _finalize_current_ie()
 
-                    # Match Table Captions (e.g. Table 7.5.2.1-1: Information Elements in a PFCP Session Establishment Request)
                     match_cap = RE_PFCP_TABLE_CAPTION.match(p_text)
                     if match_cap:
                         clause_ref = match_cap.group(1).strip()
@@ -199,9 +199,6 @@ class PFCPDocxParser:
                 self.logger.info("Parsed Table 8.1.2-1 type registry: Loaded %d IE types", len(type_registry))
                 break
 
-        if not type_registry:
-            self.logger.warning("Table 8.1.2-1 not found or empty. IE type resolution will fallback to names.")
-
         # 2. Parse Clause 7 tables into messages and grouped IEs
         top_messages_raw: List[Dict[str, Any]] = []
         grouped_ies: Dict[str, Dict[str, Any]] = {}
@@ -212,7 +209,6 @@ class PFCPDocxParser:
 
             parsed_ies = self._parse_clause_7_table(tbl_elem, type_registry, clause_ref, cap_name)
             if not parsed_ies:
-                self.logger.debug("Skipping Clause 7 table with no detectable IE rows: %s (%s)", clause_ref, cap_name)
                 continue
 
             clean_name = self._sanitize_table_name(cap_name)
@@ -235,11 +231,10 @@ class PFCPDocxParser:
             else:
                 norm_key = self._normalize_key(clean_name)
                 grouped_ies[norm_key] = table_record
+                grouped_ies[clause_ref] = table_record
+                if base_clause not in grouped_ies:
+                    grouped_ies[base_clause] = table_record
                 self.logger.debug("Registered grouped IE container [%s] -> %s (%d fields)", clause_ref, norm_key, len(parsed_ies))
-                # Register short alias without action prefixes for flexible resolution
-                stripped_k = re.sub(r"^(create|update|remove|created|updated)", "", norm_key)
-                if stripped_k and stripped_k not in grouped_ies:
-                    grouped_ies[stripped_k] = table_record
 
         self.logger.info("Clause 7 parsing complete: Identified %d top-level messages and %d grouped IE groups",
                          len(top_messages_raw), len(grouped_ies))
@@ -293,10 +288,8 @@ class PFCPDocxParser:
         # Strip leading "Information Elements in (a/an/the)?"
         s = re.sub(r"^Information\s+Elements\s+in\s+(?:an?\s+|the\s+)?", "", s, flags=re.IGNORECASE)
         # Strip trailing sub-table qualifiers
-        s = re.sub(r"\s+IE\s+in\s+the\s+.+$", "", s, flags=re.IGNORECASE)
-        s = re.sub(r"\s+IE\s+within\s+.+$", "", s, flags=re.IGNORECASE)
-        s = re.sub(r"\s+within\s+.+$", "", s, flags=re.IGNORECASE)
-        s = re.sub(r"\s+in\s+the\s+.+message$", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s+IE\s+(?:in|within)\s+(?:the\s+)?.+$", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s+(?:in|within)\s+(?:the\s+)?.+$", "", s, flags=re.IGNORECASE)
         s = re.sub(r"\s+message\s+content$", "", s, flags=re.IGNORECASE)
         s = re.sub(r"\s+message$", "", s, flags=re.IGNORECASE)
         s = re.sub(r"\s+IE$", "", s, flags=re.IGNORECASE)
@@ -306,15 +299,15 @@ class PFCPDocxParser:
 
     @staticmethod
     def _is_top_level_message(clean_name: str, clause_ref: str, base_clause: str) -> bool:
-        # In TS 29.244, the primary table defining a message is always table -1 of that clause
         if not clause_ref.endswith("-1"):
             return False
 
         lower_name = clean_name.lower()
-        # All 3GPP PFCP messages end with Request, Response, Reject, or Indication
         if any(lower_name.endswith(kw) for kw in ("request", "response", "reject", "indication")):
             return True
-        if base_clause in TOP_LEVEL_PFCP_CLAUSES and not any(k in lower_name for k in ("information", "parameter", "filter", "rule", "pdr", "far", "urr", "qer", "bar", "srr", "mar")):
+        if base_clause in TOP_LEVEL_PFCP_CLAUSES and not any(
+            k in lower_name for k in ("information", "parameter", "filter", "rule", "pdr", "far", "urr", "qer", "bar", "srr", "mar")
+        ):
             return True
         return False
 
@@ -334,9 +327,9 @@ class PFCPDocxParser:
         pres_col = -1
         comment_col = -1
         type_col = -1
-        appl_cols: Dict[int, str] = {}  # col_idx -> interface_name (e.g. 3 -> "Sxa", 4 -> "Sxb", ...)
+        appl_cols: Dict[int, str] = {}
 
-        # Step 1: Locate the primary header row (contains "information element") using grid-expanded cells
+        # Step 1: Locate the primary header row using grid-expanded cells
         for r_idx in range(min(4, len(rows))):
             expanded = self._expand_row_cells(rows[r_idx])
             joined = " ".join(c.lower() for c in expanded)
@@ -372,7 +365,7 @@ class PFCPDocxParser:
                 appl_cols = sub_ifaces
                 data_start_idx = header_idx + 2
 
-        # Step 3: In 3GPP Clause 7 tables, IE Type / Reference is always the final column
+        # Step 3: IE Type / Reference is the final column in 3GPP Clause 7 tables
         header_width = len(self._expand_row_cells(rows[header_idx]))
         if type_col == -1 or type_col in appl_cols or (appl_cols and type_col < max(appl_cols.keys())):
             type_col = header_width - 1
@@ -386,7 +379,6 @@ class PFCPDocxParser:
 
             ie_name = raw_cells[name_col].strip()
 
-            # Filter out table footnotes, repeated headers, and filler text
             is_note = (
                 ie_name.upper().startswith("NOTE")
                 or any(c.strip().upper().startswith("NOTE") for c in raw_cells if c.strip())
@@ -405,7 +397,6 @@ class PFCPDocxParser:
 
             type_ref = raw_cells[type_col].strip() if type_col != -1 and len(raw_cells) > type_col else ""
 
-            # Extract interface applicability tags
             if appl_cols:
                 matched_ifaces = [
                     iface for c_idx, iface in appl_cols.items()
@@ -466,21 +457,27 @@ class PFCPDocxParser:
             appl = current_ie.get("applicability", "")
 
             norm_name = self._normalize_key(name)
-            type_norm = self._normalize_key(current_ie.get("type_reference", ""))
-            stripped_norm = self._normalize_key(re.sub(r"^(create|update|remove|created|updated)", "", norm_name))
+            type_raw = str(current_ie.get("type_reference", "") or "")
 
-            target_group = (
-                grouped_ies.get(norm_name)
-                or grouped_ies.get(type_norm)
-                or grouped_ies.get(stripped_norm)
-            )
+            # Guard: ID fields and primitive Clause 8.2 IEs are always leaves, never containers
+            is_scalar_id = norm_name in SCALAR_ID_FIELDS or (norm_name.endswith("id") and norm_name not in ("applicationid", "area_session_id"))
+            is_clause_8 = bool(re.search(r"\b8\.2(?:\.\d+)*\b", type_raw))
 
-            # Substring alias matching for descriptive type references (e.g. "Create PDR 7.5.2.2")
-            if not target_group and type_norm:
-                for gk, gv in grouped_ies.items():
-                    if gk and (gk in type_norm or type_norm in gk):
-                        target_group = gv
-                        break
+            target_group = None
+            if not is_scalar_id and not is_clause_8:
+                # 1. Exact normalized name match
+                target_group = grouped_ies.get(norm_name)
+
+                # 2. Match by clause reference extracted from type_reference (e.g. "7.5.2.2")
+                if not target_group:
+                    clause_match = re.search(r"\b(7\.\d+(?:\.\d+)*(?:-\d+)?)\b", type_raw)
+                    if clause_match:
+                        target_group = grouped_ies.get(clause_match.group(1))
+
+                # 3. Match by normalized type reference
+                if not target_group:
+                    type_norm = self._normalize_key(type_raw)
+                    target_group = grouped_ies.get(type_norm)
 
             is_grouped = bool(target_group) and depth < max_depth and norm_name not in visited
 
@@ -493,9 +490,9 @@ class PFCPDocxParser:
                 record["format"] = "Grouped"
             unrolled.append(record)
 
-            if is_grouped:
+            if is_grouped and target_group:
                 new_visited = visited | {norm_name}
-                for child_ie in target_group["ies"]:
+                for child_ie in target_group.get("ies", []):
                     child_copy = dict(child_ie)
                     if not child_copy.get("applicability") and appl:
                         child_copy["applicability"] = appl

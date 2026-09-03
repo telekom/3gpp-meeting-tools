@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional
+import re
 import pandas as pd
 from PyQt5.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt5.QtGui import QBrush, QColor
@@ -6,24 +7,30 @@ from PyQt5.QtGui import QBrush, QColor
 from modules.nas.core.nas_db import parse_version_tuple
 
 # Pre-allocated brush constants to eliminate GC overhead during rendering
-BRUSH_ADDED = QBrush(QColor("#E8F5E9"))      # Soft Green
-BRUSH_REMOVED = QBrush(QColor("#FFEBEE"))    # Soft Red
-BRUSH_MODIFIED = QBrush(QColor("#FFF9C4"))   # Soft Yellow
+BRUSH_ADDED = QBrush(QColor("#E8F5E9"))  # Soft Green
+BRUSH_REMOVED = QBrush(QColor("#FFEBEE"))  # Soft Red
+BRUSH_MODIFIED = QBrush(QColor("#FFF9C4"))  # Soft Yellow
 
 
 class NASEvolutionMatrixModel(QAbstractTableModel):
     def __init__(
-        self,
-        raw_df: pd.DataFrame = None,
-        ie_filter: Optional[str] = None,
-        search_descriptions: bool = False,
-        interface_filter: Optional[str] = None,
+            self,
+            raw_df: pd.DataFrame = None,
+            ie_filter: Optional[str] = None,
+            search_descriptions: bool = False,
+            interface_filter: Optional[str] = None,
     ):
         super().__init__()
         self._raw_df = raw_df if raw_df is not None else pd.DataFrame()
         self._ie_filter = ie_filter.strip().lower() if ie_filter else None
         self._search_descriptions = search_descriptions
-        self._interface_filter = interface_filter.strip().upper() if interface_filter and interface_filter.upper() != "ALL" else None
+
+        # Recognize "All", "All Interfaces", or None as disabling the filter
+        if interface_filter and not interface_filter.strip().upper().startswith("ALL"):
+            self._interface_filter = interface_filter.strip().upper()
+        else:
+            self._interface_filter = None
+
         self._pivot_df = pd.DataFrame()
         self._versions: List[str] = []
         self._appl_list: List[str] = []
@@ -56,11 +63,11 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             details_series = df["presence"].fillna("") + " | " + df["format"].fillna("")
         else:
             details_series = (
-                df["presence"].fillna("")
-                + " | "
-                + df["format"].fillna("")
-                + " | "
-                + df["length"].fillna("")
+                    df["presence"].fillna("")
+                    + " | "
+                    + df["format"].fillna("")
+                    + " | "
+                    + df["length"].fillna("")
             )
 
         df = df.assign(details=details_series)
@@ -111,11 +118,15 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         merged = merged.sort_values(by="order_index", ascending=True).reset_index(drop=True)
         self._pivot_df = merged.drop(columns=["order_index"])
 
-        # 4. Filter by Interface Applicability (Option B)
+        # 4. Filter by Interface Applicability with word boundary (e.g. N4 vs N4mb)
         if self._interface_filter and "applicability" in self._pivot_df.columns:
             target_if = self._interface_filter
             appl_series = self._pivot_df["applicability"].fillna("").astype(str).str.upper()
-            mask_if = appl_series.str.contains(target_if) | (appl_series == "") | (appl_series == "ALL")
+            mask_if = (
+                    appl_series.str.contains(rf"\b{re.escape(target_if)}\b", regex=True)
+                    | (appl_series == "")
+                    | (appl_series == "ALL")
+            )
             self._pivot_df = self._pivot_df[mask_if].reset_index(drop=True)
 
         for v in self._versions:
@@ -128,10 +139,10 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         if self._ie_filter and not self._pivot_df.empty:
             q = self._ie_filter
             mask = (
-                self._pivot_df["ie_name"].astype(str).str.lower().str.contains(q, na=False)
-                | self._pivot_df["field_path"].astype(str).str.lower().str.contains(q, na=False)
-                | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False)
-                | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False)
+                    self._pivot_df["ie_name"].astype(str).str.lower().str.contains(q, na=False)
+                    | self._pivot_df["field_path"].astype(str).str.lower().str.contains(q, na=False)
+                    | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False)
+                    | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False)
             )
 
             # Vectorized description match
@@ -157,7 +168,7 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
 
             self._pivot_df = self._pivot_df[mask].reset_index(drop=True)
 
-        # 5. Pre-build fast access caches
+        # 6. Pre-build fast access caches
         self._build_fast_caches()
 
     def _build_fast_caches(self):
@@ -173,7 +184,8 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             return
 
         self._depth_list = self._pivot_df.get("depth", pd.Series([0] * num_rows)).fillna(0).astype(int).tolist()
-        self._tooltip_list = self._pivot_df.get("field_path", pd.Series([""] * num_rows)).fillna("").astype(str).tolist()
+        self._tooltip_list = self._pivot_df.get("field_path", pd.Series([""] * num_rows)).fillna("").astype(
+            str).tolist()
 
         # Build raw string matrix
         raw_columns_data = [self._pivot_df[col].fillna("-").astype(str).tolist() for col in self._visible_columns]
@@ -257,7 +269,7 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         return None
 
     def headerData(
-        self, section: int, orientation: Qt.Orientation, role=Qt.DisplayRole
+            self, section: int, orientation: Qt.Orientation, role=Qt.DisplayRole
     ) -> Any:
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
             col_name = self._get_visible_column_name(section)
