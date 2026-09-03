@@ -1,8 +1,14 @@
+# --- File: modules/puml2visio/ui/ui_tabs.py ---
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QLabel, QComboBox, QMenu, QAction)
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+    QLabel, QComboBox, QMenu, QAction
+)
 
-from core.ui.ui_components import InteractiveDropLabel
+from core.ui.ui_components import (
+    BUTTON_STYLE_TOOLBAR_SECONDARY,
+    InteractiveDropLabel
+)
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 from modules.puml2visio.ui.ui_components import CodeDropTextEdit
 
@@ -28,20 +34,23 @@ class CodeEditorTab(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
 
         template_layout = QHBoxLayout()
         template_lbl = QLabel("📖 Templates:")
-        template_lbl.setStyleSheet("font-weight: bold; color: #555;")
+        template_lbl.setStyleSheet("font-weight: bold; color: #475569;")
 
         self.template_combo = QComboBox()
         self.template_combo.addItems(list(PLANTUML_TYPES.keys()))
         self.template_combo.setToolTip("Select a diagram type.")
 
         self.insert_tpl_btn = QPushButton("Insert")
+        self.insert_tpl_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.insert_tpl_btn.setToolTip("Insert the selected boilerplate into the editor.")
         self.insert_tpl_btn.clicked.connect(lambda: self.template_requested.emit(self.template_combo.currentText()))
 
         self.docs_btn = QPushButton("📘 Docs")
+        self.docs_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.docs_btn.setToolTip("Open the official PlantUML syntax documentation for this diagram type.")
         self.docs_btn.clicked.connect(lambda: self.docs_requested.emit(self.template_combo.currentText()))
 
@@ -54,43 +63,53 @@ class CodeEditorTab(QWidget):
 
         self.text_input = CodeDropTextEdit()
         self.text_input.setPlaceholderText(
-            "Paste PlantUML code OR drop a generated .vsdx file here to extract its source...")
+            "Paste PlantUML code OR drop a generated .vsdx file here to extract its source..."
+        )
         self.text_input.file_dropped.connect(self.file_dropped.emit)
         self.text_input.setToolTip(
-            "Type or paste PlantUML code here. Drag & drop a generated .vsdx file to retrieve its source code.")
+            "Type or paste PlantUML code here. Drag & drop a generated .vsdx file to retrieve its source code."
+        )
         layout.addWidget(self.text_input)
 
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(6)
 
         self.clear_btn = QPushButton("🗑️ Clear")
-        self.clear_btn.clicked.connect(self.clear_requested.emit)
+        self.clear_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.clear_btn.setToolTip("Clear the text editor.")
+        self.clear_btn.clicked.connect(self.clear_requested.emit)
 
         self.undo_btn = QPushButton("↩️ Undo")
-        self.undo_btn.clicked.connect(self.undo_requested.emit)
+        self.undo_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.undo_btn.setToolTip("Undo the last action (typing, clear, or template insert).")
+        self.undo_btn.clicked.connect(self.undo_requested.emit)
 
         self.copy_code_btn = QPushButton("📄 Copy Code")
-        self.copy_code_btn.clicked.connect(self.copy_code_requested.emit)
+        self.copy_code_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.copy_code_btn.setToolTip("Copy the PlantUML source code to your clipboard.")
+        self.copy_code_btn.clicked.connect(self.copy_code_requested.emit)
 
         self.live_view_btn = QPushButton("👁️ Live Preview")
+        self.live_view_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.live_view_btn.setCheckable(True)
         self.live_view_btn.setToolTip("Toggle real-time browser preview. Auto-updates as you type!")
         self.live_view_btn.clicked.connect(self.live_view_toggled.emit)
 
         self.planttext_btn = QPushButton("🌐 Show in planttext")
-        self.planttext_btn.clicked.connect(self.planttext_requested.emit)
+        self.planttext_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.planttext_btn.setToolTip("Open your code in PlantText.com for a quick web preview.")
+        self.planttext_btn.clicked.connect(self.planttext_requested.emit)
 
         self.copy_btn = QPushButton("🔗 Copy Path")
+        self.copy_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.copy_btn.setEnabled(False)
-        self.copy_btn.clicked.connect(self.copy_path_requested.emit)
         self.copy_btn.setToolTip("Copy the file path of the last generated diagram.")
+        self.copy_btn.clicked.connect(self.copy_path_requested.emit)
 
         self.open_folder_btn = QPushButton("📂 Open Folder")
-        self.open_folder_btn.clicked.connect(self.open_folder_requested.emit)
+        self.open_folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.open_folder_btn.setToolTip("Open the working directory where files are saved.")
+        self.open_folder_btn.clicked.connect(self.open_folder_requested.emit)
 
         self.export_btn = QPushButton("📤 Export Diagram ▼")
         self.export_btn.setObjectName("primaryBtn")
@@ -106,13 +125,15 @@ class CodeEditorTab(QWidget):
 
         pptx_action = QAction("To PowerPoint (.pptx)", self)
         pptx_action.setToolTip(
-            "Generates Office shapes and leaves PowerPoint open (UNSAVED) so you can instantly copy the slide.")
+            "Generates Office shapes and leaves PowerPoint open (UNSAVED) so you can instantly copy the slide."
+        )
         pptx_action.triggered.connect(lambda: self.export_requested.emit("pptx"))
         export_menu.addAction(pptx_action)
 
         svg_action = QAction("To Vector Graphic (.svg)", self)
         svg_action.setToolTip(
-            "Saves to disk and opens a standard, scalable vector image (.svg) in your default web browser or viewer.")
+            "Saves to disk and opens a standard, scalable vector image (.svg) in your default web browser or viewer."
+        )
         svg_action.triggered.connect(lambda: self.export_requested.emit("svg"))
         export_menu.addAction(svg_action)
 
@@ -142,8 +163,15 @@ class CodeEditorTab(QWidget):
     def set_copy_path_enabled(self, enabled: bool, out_path: str = ""):
         self.copy_btn.setEnabled(enabled)
         if enabled:
-            self.copy_btn.setStyleSheet("background-color: #395396; color: white; border: none;")
+            self.copy_btn.setObjectName("primaryBtn")
+            self.copy_btn.setStyleSheet("")
             self.copy_btn.setToolTip(f"Copy path:\n{out_path}")
+        else:
+            self.copy_btn.setObjectName("")
+            self.copy_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+            self.copy_btn.setToolTip("Copy the file path of the last generated diagram.")
+        self.copy_btn.style().unpolish(self.copy_btn)
+        self.copy_btn.style().polish(self.copy_btn)
 
 
 class BatchConvertTab(QWidget):
@@ -154,13 +182,10 @@ class BatchConvertTab(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # Added '.vsdx' to the allowed extensions list
         self.drop_label = InteractiveDropLabel(
             "⏳ Initializing system checks... Please wait.",
             ['.puml', '.txt', '.pptx', '.vsdx']
         )
-
-        # ---> NEW: Detailed rich-text hovertext for the drag-and-drop area
         self.drop_label.setToolTip(
             "<p><b>Visio Tools Batch Converter</b></p>"
             "<p>Drag and drop files here to add them to the background processing queue:</p>"
@@ -170,13 +195,11 @@ class BatchConvertTab(QWidget):
             "<li>Drop <b>.vsdx</b> (Visio) ➔ Generate editable PowerPoint (<b>.pptx</b>)</li>"
             "</ul>"
         )
-
         self.drop_label.file_dropped.connect(self._handle_files_dropped)
         layout.addWidget(self.drop_label)
         self.setLayout(layout)
 
     def _handle_files_dropped(self, paths):
-        """Determines the correct Queue task target format based on the file extension."""
         for path in paths:
             ext = str(path).lower()
             if ext.endswith(".pptx"):

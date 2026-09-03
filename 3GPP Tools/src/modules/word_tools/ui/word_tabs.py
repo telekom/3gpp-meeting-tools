@@ -22,7 +22,10 @@ from PyQt5.QtWidgets import (
 import win32com.client
 import pythoncom
 
-from core.ui.ui_components import InteractiveDropLabel
+from core.ui.ui_components import (
+    BUTTON_STYLE_TOOLBAR_SECONDARY,
+    InteractiveDropLabel
+)
 from modules.word_tools.core.word_config import WordConfig
 from modules.word_tools.core.libreoffice_converter import (
     LIBREOFFICE_DOWNLOAD_URL,
@@ -44,9 +47,10 @@ class DocumentSelectorPane(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
 
         lbl = QLabel(f"<b>{self.title}</b>")
-        lbl.setStyleSheet("color: #444; margin-bottom: 5px;")
+        lbl.setStyleSheet("color: #1E293B; margin-bottom: 2px;")
         layout.addWidget(lbl)
 
         self.tabs = QTabWidget()
@@ -63,9 +67,11 @@ class DocumentSelectorPane(QWidget):
         # Tab 2: Open Documents
         self.open_tab = QWidget()
         open_layout = QVBoxLayout(self.open_tab)
+        open_layout.setSpacing(6)
 
         self.open_combo = QComboBox()
         self.refresh_btn = QPushButton("↻ Refresh Active Documents")
+        self.refresh_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.refresh_btn.clicked.connect(self.poll_open_documents)
 
         open_layout.addWidget(QLabel("Select an open Word document:"))
@@ -77,6 +83,7 @@ class DocumentSelectorPane(QWidget):
         # Tab 3: URL
         self.url_tab = QWidget()
         url_layout = QVBoxLayout(self.url_tab)
+        url_layout.setSpacing(6)
 
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText("https://...")
@@ -145,27 +152,25 @@ class WordExtractorTab(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
 
         # LibreOffice Status & Path Configuration Banner
         self.status_banner = QWidget()
         banner_layout = QHBoxLayout(self.status_banner)
-        banner_layout.setContentsMargins(10, 8, 10, 8)
+        banner_layout.setContentsMargins(12, 8, 12, 8)
+        banner_layout.setSpacing(10)
 
         self.banner_icon = QLabel("⚠️")
         self.banner_text = QLabel()
         self.banner_text.setWordWrap(True)
 
         self.locate_btn = QPushButton("📂 Locate Executable")
+        self.locate_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.locate_btn.setToolTip("Select soffice.exe or LibreOfficePortable.exe from your disk")
-        self.locate_btn.setStyleSheet(
-            "font-weight: bold; background-color: #0284C7; color: white; padding: 4px 10px; border-radius: 4px;"
-        )
         self.locate_btn.clicked.connect(self._browse_for_libreoffice)
 
         self.download_btn = QPushButton("📥 Download Portable")
-        self.download_btn.setStyleSheet(
-            "font-weight: bold; background-color: #2e7d32; color: white; padding: 4px 10px; border-radius: 4px;"
-        )
+        self.download_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.download_btn.clicked.connect(lambda: webbrowser.open(LIBREOFFICE_DOWNLOAD_URL))
 
         banner_layout.addWidget(self.banner_icon)
@@ -179,7 +184,6 @@ class WordExtractorTab(QWidget):
         switcher_layout.addWidget(QLabel("<b>⚙️ Operation Type:</b>"))
 
         self.op_combo = QComboBox()
-        self.op_combo.setStyleSheet("padding: 4px; font-weight: bold; font-size: 13px;")
         self.op_combo.addItems([
             "Convert Legacy .doc to .docx (Explicit LibreOffice)",
             "Extract Embedded Visio Diagrams",
@@ -191,7 +195,7 @@ class WordExtractorTab(QWidget):
         switcher_layout.addStretch()
         layout.addLayout(switcher_layout)
 
-        # Stack
+        # Stacked Sub-Panels
         self.stack = QStackedWidget()
 
         # Card 0: Explicit LibreOffice Drag & Drop Converter
@@ -223,12 +227,9 @@ class WordExtractorTab(QWidget):
 
         form = QFormLayout()
         self.prefix_input = QLineEdit("6.")
-        self.prefix_input.setStyleSheet("padding: 4px; border: 1px solid #CCC; border-radius: 4px;")
-
         self.depth_input = QSpinBox()
         self.depth_input.setRange(1, 6)
         self.depth_input.setValue(2)
-        self.depth_input.setStyleSheet("padding: 4px; border: 1px solid #CCC; border-radius: 4px;")
 
         form.addRow("Target Clause Prefix:", self.prefix_input)
         form.addRow("Heading Depth Hierarchy:", self.depth_input)
@@ -248,9 +249,10 @@ class WordExtractorTab(QWidget):
         split_layout.addWidget(self.split_drop)
         self.stack.addWidget(self.card_split)
 
-        # Card 3: The Comparator
+        # Card 3: Word Comparator
         self.card_compare = QWidget()
         compare_layout = QVBoxLayout(self.card_compare)
+        compare_layout.setSpacing(10)
 
         panes_layout = QHBoxLayout()
         self.pane_a = DocumentSelectorPane("📄 DOCUMENT A (Original)")
@@ -260,40 +262,33 @@ class WordExtractorTab(QWidget):
         compare_layout.addLayout(panes_layout)
 
         self.keep_open_cb = QCheckBox("Keep source documents (A and B) open after comparison")
-        self.keep_open_cb.setStyleSheet("color: #444; margin-top: 5px;")
         self.keep_open_cb.setChecked(True)
         compare_layout.addWidget(self.keep_open_cb)
 
         self.run_compare_btn = QPushButton("⚖️ Run Word Comparison")
-        self.run_compare_btn.setStyleSheet(
-            "font-weight: bold; padding: 10px; background-color: #395396; color: white; border-radius: 4px;"
-        )
+        self.run_compare_btn.setObjectName("primaryBtn")
         self.run_compare_btn.clicked.connect(self._trigger_comparison)
         compare_layout.addWidget(self.run_compare_btn)
-
         self.stack.addWidget(self.card_compare)
 
-        # Card 4: Generic Word Converter (Auto / Word Fallback)
+        # Card 4: Generic Word Converter
         self.card_convert = QWidget()
         convert_layout = QVBoxLayout(self.card_convert)
+        convert_layout.setSpacing(10)
 
         self.pane_convert = DocumentSelectorPane("📄 DOCUMENT TO CONVERT")
         convert_layout.addWidget(self.pane_convert)
 
         conv_form = QFormLayout()
         self.format_combo = QComboBox()
-        self.format_combo.setStyleSheet("padding: 4px; font-weight: bold;")
         self.format_combo.addItems(["PDF", "DOCX", "HTML", "XPS", "RTF", "TXT"])
         conv_form.addRow("Target Format:", self.format_combo)
         convert_layout.addLayout(conv_form)
 
         self.run_convert_btn = QPushButton("🔄 Convert Document")
-        self.run_convert_btn.setStyleSheet(
-            "font-weight: bold; padding: 10px; background-color: #395396; color: white; border-radius: 4px;"
-        )
+        self.run_convert_btn.setObjectName("primaryBtn")
         self.run_convert_btn.clicked.connect(self._trigger_conversion)
         convert_layout.addWidget(self.run_convert_btn)
-
         self.stack.addWidget(self.card_convert)
 
         layout.addWidget(self.stack)
@@ -304,24 +299,22 @@ class WordExtractorTab(QWidget):
         soffice_bin = find_libreoffice_executable()
         if soffice_bin:
             self.status_banner.setStyleSheet(
-                "background-color: #E8F5E9; border: 1px solid #A5D6A7; border-radius: 4px;"
+                "background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 6px;"
             )
             self.banner_icon.setText("🟢")
-            self.banner_text.setText(
-                f"<b>LibreOffice Ready:</b> Using <code>{soffice_bin}</code>"
-            )
-            self.banner_text.setStyleSheet("color: #1B5E20;")
+            self.banner_text.setText(f"<b>LibreOffice Ready:</b> Using <code>{soffice_bin}</code>")
+            self.banner_text.setStyleSheet("color: #065F46;")
             self.locate_btn.setText("⚙️ Change Path")
             self.download_btn.setVisible(False)
         else:
             self.status_banner.setStyleSheet(
-                "background-color: #FFF3E0; border: 1px solid #FFE082; border-radius: 4px;"
+                "background-color: #FFFBEB; border: 1px solid #FDE68A; border-radius: 6px;"
             )
             self.banner_icon.setText("⚠️")
             self.banner_text.setText(
-                "<b>LibreOffice not detected.</b> If you use LibreOffice Portable, click 'Locate Executable' to select it."
+                "<b>LibreOffice not detected.</b> If using LibreOffice Portable, click 'Locate Executable' to select it."
             )
-            self.banner_text.setStyleSheet("color: #B78103;")
+            self.banner_text.setStyleSheet("color: #B45309;")
             self.locate_btn.setText("📂 Locate Executable")
             self.download_btn.setVisible(True)
 

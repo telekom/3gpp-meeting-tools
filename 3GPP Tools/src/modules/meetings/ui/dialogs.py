@@ -1,16 +1,20 @@
 # --- File: modules/meetings/ui/dialogs.py ---
 import webbrowser
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                             QLineEdit, QComboBox, QCheckBox, QGroupBox, QFormLayout,
-                             QMessageBox, QApplication)
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QLineEdit, QComboBox, QCheckBox, QGroupBox, QFormLayout,
+    QMessageBox
+)
 
+from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.scraper import ManualMeetingFetcherThread, MEETING_SOURCES
 
 
 def _format_meeting_info(data: dict) -> str:
-    if not data: return ""
+    if not data:
+        return ""
 
     FIELD_MAP = {
         "wg_name": "Working Group",
@@ -70,9 +74,11 @@ class MeetingInfoDialog(QDialog):
         title_str = f"{data.get('wg_name', '')} {data.get('meeting_number', '')}".strip()
         self.setWindowTitle(f"Meeting Details: {title_str}")
         self.setMinimumWidth(500)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; }")
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
         info_label = QLabel(_format_meeting_info(data))
         info_label.setWordWrap(True)
         info_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
@@ -80,16 +86,15 @@ class MeetingInfoDialog(QDialog):
         layout.addWidget(info_label)
 
         close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         close_btn.clicked.connect(self.accept)
+
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)
 
 
-# ==========================================
-# --- DIALOG: ADD / FETCH MEETING ---
-# ==========================================
 class AddMeetingDialog(QDialog):
     def __init__(self, db: MeetingsDatabase, parent=None):
         super().__init__(parent)
@@ -100,19 +105,37 @@ class AddMeetingDialog(QDialog):
         self.setWindowTitle("➕ Add / Fetch Meeting Manually")
         self.setMinimumWidth(560)
         self.setStyleSheet("""
-            QDialog { background-color: #FAFAFA; }
-            QGroupBox { font-weight: bold; border: 1px solid #D0D0D0; border-radius: 6px; margin-top: 10px; padding-top: 10px; background-color: white; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
-            QLineEdit, QComboBox { padding: 5px; border: 1px solid #CCC; border-radius: 4px; }
-            QLineEdit:focus, QComboBox:focus { border: 1px solid #0078D7; }
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background-color: #FFFFFF;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 4px;
+            }
+            QLineEdit, QComboBox {
+                padding: 5px;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+            }
+            QLineEdit:focus, QComboBox:focus {
+                border: 1px solid #1E5C99;
+            }
         """)
 
         self._setup_ui()
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(14, 14, 14, 14)
+        main_layout.setSpacing(10)
 
-        # 1. Search Box
+        # 1. Query Group
         search_group = QGroupBox("1. Query 3GPP Meeting")
         search_layout = QVBoxLayout(search_group)
 
@@ -120,15 +143,13 @@ class AddMeetingDialog(QDialog):
         self.wg_combo = QComboBox()
         self.wg_combo.addItem("All / Auto-Detect")
         self.wg_combo.addItems(list(MEETING_SOURCES.keys()))
-        self.wg_combo.setToolTip("Target Working Group (or leave on Auto-Detect)")
 
         self.query_input = QLineEdit()
         self.query_input.setPlaceholderText("e.g. 33120, SA3-130, 130, or FTP URL")
-        self.query_input.setToolTip("Enter 3GPP Portal MtgId, WG Meeting tag, or meeting number")
         self.query_input.returnPressed.connect(self._start_fetch)
 
         self.btn_fetch = QPushButton("🔍 Fetch Details")
-        self.btn_fetch.setStyleSheet("QPushButton { background-color: #0078D7; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; } QPushButton:hover { background-color: #005A9E; }")
+        self.btn_fetch.setObjectName("primaryBtn")
         self.btn_fetch.clicked.connect(self._start_fetch)
 
         row_layout.addWidget(self.wg_combo)
@@ -137,7 +158,7 @@ class AddMeetingDialog(QDialog):
         search_layout.addLayout(row_layout)
 
         self.lbl_status = QLabel("Enter a Meeting ID, Number, or FTP URL and click 'Fetch Details'.")
-        self.lbl_status.setStyleSheet("color: #666; font-size: 11px; margin-top: 2px;")
+        self.lbl_status.setStyleSheet("color: #64748B; font-size: 11px; margin-top: 2px;")
         search_layout.addWidget(self.lbl_status)
         main_layout.addWidget(search_group)
 
@@ -207,11 +228,12 @@ class AddMeetingDialog(QDialog):
         # 3. Actions
         btn_layout = QHBoxLayout()
         self.btn_save = QPushButton("💾 Save to Database")
+        self.btn_save.setObjectName("primaryBtn")
         self.btn_save.setEnabled(False)
-        self.btn_save.setStyleSheet("QPushButton { background-color: #107C41; color: white; font-weight: bold; padding: 7px 18px; border-radius: 4px; } QPushButton:hover { background-color: #0B5A30; } QPushButton:disabled { background-color: #A6D6B8; }")
         self.btn_save.clicked.connect(self._save_to_db)
 
         self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_cancel.clicked.connect(self.reject)
 
         btn_layout.addStretch()
@@ -220,7 +242,6 @@ class AddMeetingDialog(QDialog):
         main_layout.addLayout(btn_layout)
 
     def _start_fetch(self):
-        # Prevent starting a new thread if one is already running
         if self.fetch_thread and self.fetch_thread.isRunning():
             return
 
@@ -233,7 +254,7 @@ class AddMeetingDialog(QDialog):
         self.btn_fetch.setEnabled(False)
         self.btn_fetch.setText("⏳ Fetching...")
         self.lbl_status.setText("⏳ Querying 3GPP Portal and FTP archive...")
-        self.lbl_status.setStyleSheet("color: #005A9E; font-weight: bold;")
+        self.lbl_status.setStyleSheet("color: #1E5C99; font-weight: bold;")
         self.btn_save.setEnabled(False)
 
         self.fetch_thread = ManualMeetingFetcherThread(self.db.db_path, query, selected_wg)
@@ -242,7 +263,6 @@ class AddMeetingDialog(QDialog):
         self.fetch_thread.start()
 
     def reject(self):
-        """Cleanly abort thread if dialog is dismissed."""
         if self.fetch_thread and self.fetch_thread.isRunning():
             self.fetch_thread.requestInterruption()
             self.fetch_thread.quit()
@@ -255,10 +275,9 @@ class AddMeetingDialog(QDialog):
 
         if success:
             self.lbl_status.setText(f"✅ {msg}")
-            self.lbl_status.setStyleSheet("color: #107C41; font-weight: bold;")
+            self.lbl_status.setStyleSheet("color: #059669; font-weight: bold;")
             self.current_fetched_data = data
 
-            # Pre-populate preview fields
             self.edit_wg.setText(data.get("wg_name", ""))
             self.edit_num.setText(data.get("meeting_number", ""))
             self.edit_mtg_id.setText(str(data.get("mtg_id", "")))
@@ -276,7 +295,7 @@ class AddMeetingDialog(QDialog):
             self.btn_save.setEnabled(True)
         else:
             self.lbl_status.setText(f"⚠️ {msg}")
-            self.lbl_status.setStyleSheet("color: #D83B01; font-weight: bold;")
+            self.lbl_status.setStyleSheet("color: #DC2626; font-weight: bold;")
             QMessageBox.warning(self, "Fetch Failed", f"{msg}\n\nYou can still fill in the fields manually.")
             self.btn_save.setEnabled(True)
 
