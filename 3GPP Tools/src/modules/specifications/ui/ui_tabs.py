@@ -1070,6 +1070,8 @@ class SpecificationsTab(QWidget):
     # --- DOCUMENT FETCH & EXTRACTION ---
     # ==========================================
     def _handle_document_action(self, combo: QComboBox, doc_type: str, btn: QPushButton):
+        if sip.isdeleted(combo):
+            return
         c_data = combo.currentData()
         if not c_data:
             return
@@ -1248,6 +1250,8 @@ class SpecificationsTab(QWidget):
             thread.start()
 
     def _handle_zip_action(self, combo: QComboBox, btn: QPushButton):
+        if sip.isdeleted(combo):
+            return
         c_data = combo.currentData()
         if not c_data:
             return
