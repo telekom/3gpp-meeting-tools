@@ -236,6 +236,9 @@ class DragDropUI(QMainWindow):
         self.tabs.addTab(self.nas_tab, "🔬 Protocols")
         self.tabs.setEnabled(False)
 
+        # Connect tab activation for lazy loading
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+
         # Tab corner help link
         self.help_btn = QPushButton("📖 Help (F1)")
         self.help_btn.setStyleSheet("""
@@ -287,6 +290,12 @@ class DragDropUI(QMainWindow):
         self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
         self.status_bar.addPermanentWidget(self.network_indicator)
         logging.info("🏁 [STARTUP:UI] _setup_ui() layout complete.")
+
+    def _on_tab_changed(self, index: int):
+        """Triggers lazy loading when an inactive tab is selected for the first time."""
+        active_widget = self.tabs.widget(index)
+        if hasattr(active_widget, 'ensure_loaded'):
+            active_widget.ensure_loaded()
 
     def _launch_init_thread(self, check_updates=False):
         """Thread-safe launcher that prevents duplicate initialization checks."""

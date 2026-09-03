@@ -78,8 +78,15 @@ class SpecificationsTab(QWidget):
         self.save_settings_timer.timeout.connect(self._save_settings)
 
         self._setup_ui()
-        # Defer table population until after the main window is rendered
-        QTimer.singleShot(400, self.refresh_table)
+
+        # Lazy loading flag: table populates only when the tab becomes active
+        self._is_loaded = False
+
+    def ensure_loaded(self):
+        """Called automatically when the user selects the Specifications tab."""
+        if not self._is_loaded:
+            self._is_loaded = True
+            self.refresh_table()
 
     # ==========================================
     # --- CONFIG / PERSISTENCE ---
@@ -460,7 +467,7 @@ class SpecificationsTab(QWidget):
 
     def set_bg_sync_active(self, is_active: bool):
         self.bg_sync_label.setVisible(is_active)
-        if not is_active:
+        if not is_active and self._is_loaded:
             self.refresh_table()
 
     def _open_download_dir(self):
