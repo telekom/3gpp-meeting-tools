@@ -15,13 +15,13 @@ from modules.nas.core.parsing.protocol_parser_utils import (
 RE_PART_INDEX = re.compile(r"_(\d+)_")
 RE_PFCP_CLAUSE_HEADER = re.compile(r"^((?:7|8)(?:\.[0-9A-Za-z]+)+)\s*(.*)$")
 RE_PFCP_TABLE_CAPTION = re.compile(r"^Table\s+([78]\.\d+(?:[\.\-/][0-9A-Za-z]+)*)\s*[:\.]\s*(.+)$", re.IGNORECASE)
-RE_CLEAN_GROUPED_NAME = re.compile(r"^(?:Information\s+Elements\s+in\s+)?(.+?)(?:\s+IE(?:\s+within\s+.+)?|\s+within\s+.+)?$", re.IGNORECASE)
 
+# Standard top-level PFCP message clauses in 3GPP TS 29.244
 TOP_LEVEL_PFCP_CLAUSES = {
     "7.4.2.1", "7.4.2.2", "7.4.3.1", "7.4.3.2", "7.4.4.1", "7.4.4.2", "7.4.4.3",
-    "7.4.4.4", "7.4.4.5", "7.4.4.6", "7.4.4.7", "7.4.5.1", "7.4.5.2", "7.4.6.1",
-    "7.4.6.2", "7.4.7.1", "7.4.7.2", "7.5.2.1", "7.5.3.1", "7.5.4.1", "7.5.5.1",
-    "7.5.7.1", "7.5.8.1", "7.5.9.1", "7.5.9.2"
+    "7.4.4.4", "7.4.4.5", "7.4.4.6", "7.4.4.7", "7.4.5.1", "7.4.5.1.1", "7.4.5.2",
+    "7.4.5.2.1", "7.4.6.1", "7.4.6.2", "7.4.7.1", "7.4.7.2", "7.5.2.1", "7.5.3.1",
+    "7.5.4.1", "7.5.5.1", "7.5.6", "7.5.7.1", "7.5.8.1", "7.5.9.1", "7.5.9.2"
 }
 
 
@@ -46,6 +46,25 @@ class PFCPDocxParser:
     def _clean_clause_number(clause_ref: str) -> str:
         """Strips table suffixes (e.g. '7.5.2.1-1' -> '7.5.2.1')."""
         return clause_ref.split("-")[0].strip()
+
+    @staticmethod
+    def _get_tc_grid_span(tc_elem: Any) -> int:
+        """Extracts OpenXML w:gridSpan attribute from a table cell element."""
+        for elem in tc_elem.iter():
+            if elem.tag.endswith("gridSpan"):
+                for attr_name, attr_val in elem.attrib.items():
+                    if attr_name.endswith("val") and attr_val.isdigit():
+                        return int(attr_val)
+        return 1
+
+    def _expand_row_cells(self, row: Any) -> List[str]:
+        """Expands a <w:tr> element into a list of cell texts according to w:gridSpan."""
+        expanded: List[str] = []
+        for tc in row.findall(TAG_TC):
+            text = _extract_tc_text(tc).strip()
+            span = self._get_tc_grid_span(tc)
+            expanded.extend([text] * span)
+        return expanded
 
     def parse(
         self, progress_callback: Optional[Callable[[str, int], None]] = None
@@ -124,7 +143,7 @@ class PFCPDocxParser:
                         elif not cl_num.startswith("8.2."):
                             _finalize_current_ie()
 
-                    # Match Table Captions (e.g. Table 7.5.2.1-1: Information Elements in PFCP Session Establishment Request)
+                    # Match Table Captions (e.g. Table 7.5.2.1-1: Information Elements in a PFCP Session Establishment Request)
                     match_cap = RE_PFCP_TABLE_CAPTION.match(p_text)
                     if match_cap:
                         clause_ref = match_cap.group(1).strip()
@@ -191,17 +210,18 @@ class PFCPDocxParser:
             if not clause_ref.startswith("7."):
                 continue
 
-            parsed_ies = self._parse_clause_7_table(tbl_elem, type_registry)
+            parsed_ies = self._parse_clause_7_table(tbl_elem, type_registry, clause_ref, cap_name)
             if not parsed_ies:
                 self.logger.debug("Skipping Clause 7 table with no detectable IE rows: %s (%s)", clause_ref, cap_name)
                 continue
 
             clean_name = self._sanitize_table_name(cap_name)
             base_clause = self._clean_clause_number(clause_ref)
-            is_top_msg = self._is_top_level_message(clean_name, base_clause)
+            is_top_msg = self._is_top_level_message(clean_name, clause_ref, base_clause)
 
             table_record = {
                 "clause": base_clause,
+                "clause_ref": clause_ref,
                 "name": clean_name,
                 "message_name": clean_name,
                 "table_caption": full_cap,
@@ -215,8 +235,8 @@ class PFCPDocxParser:
             else:
                 norm_key = self._normalize_key(clean_name)
                 grouped_ies[norm_key] = table_record
-                self.logger.debug("Registered grouped IE container [%s] -> %s (%d fields)", base_clause, norm_key, len(parsed_ies))
-                # Register short form without action prefixes for flexible resolution
+                self.logger.debug("Registered grouped IE container [%s] -> %s (%d fields)", clause_ref, norm_key, len(parsed_ies))
+                # Register short alias without action prefixes for flexible resolution
                 stripped_k = re.sub(r"^(create|update|remove|created|updated)", "", norm_key)
                 if stripped_k and stripped_k not in grouped_ies:
                     grouped_ies[stripped_k] = table_record
@@ -269,68 +289,131 @@ class PFCPDocxParser:
                     }
 
     def _sanitize_table_name(self, caption: str) -> str:
-        s = caption.strip()
-        match = RE_CLEAN_GROUPED_NAME.match(s)
-        if match:
-            s = match.group(1).strip()
+        s = caption.strip().lstrip(": \t")
+        # Strip leading "Information Elements in (a/an/the)?"
+        s = re.sub(r"^Information\s+Elements\s+in\s+(?:an?\s+|the\s+)?", "", s, flags=re.IGNORECASE)
+        # Strip trailing sub-table qualifiers
+        s = re.sub(r"\s+IE\s+in\s+the\s+.+$", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s+IE\s+within\s+.+$", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s+within\s+.+$", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s+in\s+the\s+.+message$", "", s, flags=re.IGNORECASE)
         s = re.sub(r"\s+message\s+content$", "", s, flags=re.IGNORECASE)
-        s = re.sub(r"^Information\s+Elements\s+in\s+(?:a\s+)?", "", s, flags=re.IGNORECASE)
-        return s.strip()
+        s = re.sub(r"\s+message$", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s+IE$", "", s, flags=re.IGNORECASE)
+        # Strip remaining leading article "a " or "an " or "the "
+        s = re.sub(r"^(?:an?|the)\s+", "", s, flags=re.IGNORECASE)
+        return s.strip().lstrip(": \t")
 
     @staticmethod
-    def _is_top_level_message(name: str, base_clause: str) -> bool:
-        lower_name = name.lower()
+    def _is_top_level_message(clean_name: str, clause_ref: str, base_clause: str) -> bool:
+        # In TS 29.244, the primary table defining a message is always table -1 of that clause
+        if not clause_ref.endswith("-1"):
+            return False
+
+        lower_name = clean_name.lower()
+        # All 3GPP PFCP messages end with Request, Response, Reject, or Indication
         if any(lower_name.endswith(kw) for kw in ("request", "response", "reject", "indication")):
-            if not any(sub in lower_name for sub in ("within", " ie in", " ie within")):
-                return True
-        if base_clause in TOP_LEVEL_PFCP_CLAUSES:
+            return True
+        if base_clause in TOP_LEVEL_PFCP_CLAUSES and not any(k in lower_name for k in ("information", "parameter", "filter", "rule", "pdr", "far", "urr", "qer", "bar", "srr", "mar")):
             return True
         return False
 
     def _parse_clause_7_table(
-        self, tbl_elem: Any, type_registry: Dict[str, Dict[str, str]]
+        self,
+        tbl_elem: Any,
+        type_registry: Dict[str, Dict[str, str]],
+        clause_ref: str = "",
+        cap_name: str = "",
     ) -> List[Dict[str, Any]]:
         rows = tbl_elem.findall(TAG_TR)
         if not rows:
             return []
 
         header_idx = -1
-        name_col, pres_col, comment_col, appl_col, type_col = -1, -1, -1, -1, -1
+        name_col = -1
+        pres_col = -1
+        comment_col = -1
+        type_col = -1
+        appl_cols: Dict[int, str] = {}  # col_idx -> interface_name (e.g. 3 -> "Sxa", 4 -> "Sxb", ...)
 
-        for r_idx in range(min(3, len(rows))):
-            cells = [_extract_tc_text(tc).lower() for tc in rows[r_idx].findall(TAG_TC)]
-            joined = " ".join(cells)
+        # Step 1: Locate the primary header row (contains "information element") using grid-expanded cells
+        for r_idx in range(min(4, len(rows))):
+            expanded = self._expand_row_cells(rows[r_idx])
+            joined = " ".join(c.lower() for c in expanded)
             if "information element" in joined:
                 header_idx = r_idx
-                for idx, c in enumerate(cells):
-                    if "information element" in c:
+                for idx, c in enumerate(expanded):
+                    c_low = c.lower()
+                    if "information element" in c_low and name_col == -1:
                         name_col = idx
-                    elif c in ("p", "presence"):
+                    elif c_low in ("p", "presence") and pres_col == -1:
                         pres_col = idx
-                    elif any(k in c for k in ("condition", "comment")):
+                    elif any(k in c_low for k in ("condition", "comment")) and comment_col == -1:
                         comment_col = idx
-                    elif any(k in c for k in ("appl", "applicability", "interface")):
-                        appl_col = idx
-                    elif any(k in c for k in ("ie type", "type", "clause", "reference")):
+                    elif any(k in c_low for k in ("ie type", "type", "reference")) and type_col == -1:
+                        type_col = idx
+                    elif "clause" in c_low and type_col == -1:
                         type_col = idx
                 break
 
         if header_idx == -1 or name_col == -1:
             return []
 
+        # Step 2: Detect applicability subheader row (e.g. Sxa | Sxb | Sxc | N4 | N4mb)
+        data_start_idx = header_idx + 1
+        if header_idx + 1 < len(rows):
+            next_expanded = self._expand_row_cells(rows[header_idx + 1])
+            sub_ifaces: Dict[int, str] = {}
+            for idx, c in enumerate(next_expanded):
+                c_clean = c.strip()
+                if c_clean.lower() in ("sxa", "sxb", "sxc", "sxa/sxb", "sxb'", "sxa'", "n4", "n4mb"):
+                    sub_ifaces[idx] = c_clean
+            if sub_ifaces:
+                appl_cols = sub_ifaces
+                data_start_idx = header_idx + 2
+
+        # Step 3: In 3GPP Clause 7 tables, IE Type / Reference is always the final column
+        header_width = len(self._expand_row_cells(rows[header_idx]))
+        if type_col == -1 or type_col in appl_cols or (appl_cols and type_col < max(appl_cols.keys())):
+            type_col = header_width - 1
+
         ies: List[Dict[str, Any]] = []
-        for row in rows[header_idx + 1:]:
-            cells = [_extract_tc_text(tc).strip() for tc in row.findall(TAG_TC)]
-            if len(cells) <= name_col:
+        for r_offset in range(data_start_idx, len(rows)):
+            row = rows[r_offset]
+            raw_cells = self._expand_row_cells(row)
+            if len(raw_cells) <= name_col:
                 continue
 
-            ie_name = cells[name_col]
-            if not ie_name or any(kw in ie_name.lower() for kw in ("information element", "octet 1", "octets")):
+            ie_name = raw_cells[name_col].strip()
+
+            # Filter out table footnotes, repeated headers, and filler text
+            is_note = (
+                ie_name.upper().startswith("NOTE")
+                or any(c.strip().upper().startswith("NOTE") for c in raw_cells if c.strip())
+            )
+            is_header_kw = any(kw in ie_name.lower() for kw in ("information element", "octet 1", "octets"))
+            is_filler_text = ie_name.lower().startswith("same ies and requirements")
+
+            if not ie_name or is_header_kw or is_note or is_filler_text:
                 continue
 
-            presence = cells[pres_col] if pres_col != -1 and len(cells) > pres_col else "O"
-            type_ref = cells[type_col] if type_col != -1 and len(cells) > type_col else ie_name
-            appl = cells[appl_col] if appl_col != -1 and len(cells) > appl_col else ""
+            presence = raw_cells[pres_col].strip() if pres_col != -1 and len(raw_cells) > pres_col else "O"
+            if presence:
+                presence = presence.split()[0]
+            if not presence:
+                presence = "O"
+
+            type_ref = raw_cells[type_col].strip() if type_col != -1 and len(raw_cells) > type_col else ""
+
+            # Extract interface applicability tags
+            if appl_cols:
+                matched_ifaces = [
+                    iface for c_idx, iface in appl_cols.items()
+                    if len(raw_cells) > c_idx and raw_cells[c_idx].strip().upper() == "X"
+                ]
+                appl = ", ".join(matched_ifaces)
+            else:
+                appl = raw_cells[comment_col + 1].strip() if comment_col != -1 and len(raw_cells) > comment_col + 1 and (comment_col + 1) != type_col else ""
 
             norm_name = self._normalize_key(ie_name)
             reg_info = type_registry.get(norm_name, {})
@@ -339,9 +422,18 @@ class PFCPDocxParser:
             if not appl and reg_info.get("applicability"):
                 appl = reg_info["applicability"]
 
-            if not type_ref or type_ref == ie_name:
+            if not type_ref or type_ref == ie_name or type_ref in ("-", "X"):
                 if reg_info.get("clause"):
                     type_ref = f"{ie_name} ({reg_info['clause']})"
+                else:
+                    type_ref = ie_name
+
+            is_grouped = (
+                "within" in type_ref.lower()
+                or "create" in ie_name.lower()
+                or "update" in ie_name.lower()
+                or "information elements in" in type_ref.lower()
+            )
 
             ies.append({
                 "iei": iei_val,
@@ -353,7 +445,7 @@ class PFCPDocxParser:
                 "type": type_ref,
                 "type_reference": type_ref,
                 "presence": presence,
-                "format": "Grouped" if "within" in type_ref.lower() or "create" in ie_name.lower() else "IE",
+                "format": "Grouped" if is_grouped else "IE",
                 "length": "-",
                 "applicability": appl,
             })
@@ -364,7 +456,7 @@ class PFCPDocxParser:
         self,
         base_ies: List[Dict[str, Any]],
         grouped_ies: Dict[str, Dict[str, Any]],
-        max_depth: int = 3,
+        max_depth: int = 4,
     ) -> List[Dict[str, Any]]:
         unrolled: List[Dict[str, Any]] = []
 
@@ -374,11 +466,21 @@ class PFCPDocxParser:
             appl = current_ie.get("applicability", "")
 
             norm_name = self._normalize_key(name)
+            type_norm = self._normalize_key(current_ie.get("type_reference", ""))
+            stripped_norm = self._normalize_key(re.sub(r"^(create|update|remove|created|updated)", "", norm_name))
+
             target_group = (
                 grouped_ies.get(norm_name)
-                or grouped_ies.get(self._normalize_key(current_ie.get("type_reference", "")))
-                or grouped_ies.get(re.sub(r"^(create|update|remove)", "", norm_name))
+                or grouped_ies.get(type_norm)
+                or grouped_ies.get(stripped_norm)
             )
+
+            # Substring alias matching for descriptive type references (e.g. "Create PDR 7.5.2.2")
+            if not target_group and type_norm:
+                for gk, gv in grouped_ies.items():
+                    if gk and (gk in type_norm or type_norm in gk):
+                        target_group = gv
+                        break
 
             is_grouped = bool(target_group) and depth < max_depth and norm_name not in visited
 
