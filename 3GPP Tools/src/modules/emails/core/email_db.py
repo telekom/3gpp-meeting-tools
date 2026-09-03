@@ -1,4 +1,4 @@
-# --- File: modules/emails/core/email_db.py ---
+# --- File: src/modules/emails/core/email_db.py ---
 import sqlite3
 from pathlib import Path
 
@@ -8,8 +8,15 @@ class EmailDatabase:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
+    def _get_connection(self) -> sqlite3.Connection:
+        """Creates a thread-safe connection with WAL mode and busy timeout handling."""
+        conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=30000;")
+        return conn
+
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS emails (
@@ -33,7 +40,6 @@ class EmailDatabase:
             columns = [info[1] for info in cursor.fetchall()]
             if 'outlook_location' not in columns:
                 cursor.execute("ALTER TABLE emails ADD COLUMN outlook_location TEXT DEFAULT 'Source'")
-            # ---> NEW: Add Sender Email Column securely
             if 'sender_email' not in columns:
                 cursor.execute("ALTER TABLE emails ADD COLUMN sender_email TEXT DEFAULT ''")
 
@@ -42,7 +48,7 @@ class EmailDatabase:
             conn.commit()
 
     def save_email(self, email_data: dict):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT OR REPLACE INTO emails 
@@ -59,14 +65,15 @@ class EmailDatabase:
             conn.commit()
 
     def update_location(self, entry_id: str, new_location: str):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('UPDATE emails SET outlook_location = ? WHERE id = ?', (new_location, entry_id))
             conn.commit()
 
     def save_emails_batch(self, emails_data: list):
-        if not emails_data: return
-        with sqlite3.connect(self.db_path) as conn:
+        if not emails_data:
+            return
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             tuples = [
                 (e.get('id'), e.get('tdoc_id'), e.get('agenda_item'),
@@ -85,14 +92,15 @@ class EmailDatabase:
             conn.commit()
 
     def update_locations_batch(self, location_updates: list):
-        if not location_updates: return
-        with sqlite3.connect(self.db_path) as conn:
+        if not location_updates:
+            return
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.executemany('UPDATE emails SET outlook_location = ? WHERE id = ?', location_updates)
             conn.commit()
 
     def get_email(self, entry_id: str) -> dict:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM emails WHERE id = ?', (entry_id,))
@@ -100,7 +108,7 @@ class EmailDatabase:
             return dict(row) if row else {}
 
     def toggle_tdoc_star(self, tdoc_id: str, star: bool):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             if star:
                 cursor.execute('INSERT OR IGNORE INTO starred_tdocs (tdoc_id) VALUES (?)', (tdoc_id,))
@@ -109,13 +117,13 @@ class EmailDatabase:
             conn.commit()
 
     def get_starred_tdocs(self) -> set:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT tdoc_id FROM starred_tdocs')
             return {row[0] for row in cursor.fetchall()}
 
     def toggle_ai_follow(self, agenda_item: str, follow: bool):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             if follow:
                 cursor.execute('INSERT OR IGNORE INTO followed_ais (agenda_item) VALUES (?)', (agenda_item,))
@@ -124,14 +132,14 @@ class EmailDatabase:
             conn.commit()
 
     def get_followed_ais(self) -> set:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT agenda_item FROM followed_ais')
             return {row[0] for row in cursor.fetchall()}
 
     def update_email(self, email_id: str, updated_data: dict):
-        """Surgically updates specific fields of an existing email to fix parsing errors."""
-        with sqlite3.connect(self.db_path) as conn:
+        """Updates specific fields of an existing email to correct parsing anomalies."""
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE emails 

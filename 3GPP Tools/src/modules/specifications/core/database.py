@@ -12,14 +12,16 @@ class SpecsDatabase:
         self._init_db()
         self._cleanup_orphans()
 
-    def _get_connection(self):
-        return sqlite3.connect(self.db_path, check_same_thread=False)
+    def _get_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=30000;")
+        return conn
 
     def _init_db(self):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('PRAGMA journal_mode=WAL;')
-
+            # PRAGMA journal_mode is now set directly in _get_connection()
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS series (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
