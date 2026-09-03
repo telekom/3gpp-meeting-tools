@@ -37,6 +37,10 @@ from modules.nas.ui.nas_tabs import NASTab
 
 
 class DragDropUI(QMainWindow):
+    # --- Locate DragDropUI in src/main_window.py ---
+
+    # --- In src/main_window.py ---
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("3GPP Delegate Tools")
@@ -46,7 +50,9 @@ class DragDropUI(QMainWindow):
         self.jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
         self.last_out_path = ""
 
+        logging.info("🏁 [STARTUP:UI] Starting _setup_ui()...")
         self._setup_ui()
+        logging.info("🏁 [STARTUP:UI] _setup_ui() finished successfully.")
 
         # Global GUI Logger
         self.gui_logger = GuiLogHandler()
@@ -55,6 +61,7 @@ class DragDropUI(QMainWindow):
         self.gui_logger.log_emitted.connect(self.console_panel.log_message)
 
         # Wire Queue Manager
+        logging.info("🏁 [STARTUP:QUEUE] Initializing QueueManager...")
         app_context = {"jar_path": self.jar_path}
         self.queue_manager = QueueManager(app_context=app_context)
         self.queue_manager.log_msg.connect(self.log_message)
@@ -70,8 +77,10 @@ class DragDropUI(QMainWindow):
             lambda is_proc, status: self.queue_panel.abort_btn.setEnabled(is_proc)
         )
 
+        logging.info("🏁 [STARTUP:CACHE] Loading previous editor session cache...")
         self.cache_file = get_project_root() / ".editor_cache.puml"
         self._load_cache()
+        logging.info("🏁 [STARTUP:CACHE] Previous editor cache step complete.")
 
         self.save_timer = QTimer()
         self.save_timer.setSingleShot(True)
@@ -79,15 +88,34 @@ class DragDropUI(QMainWindow):
         self.save_timer.timeout.connect(self.save_cache)
         self.code_tab.text_input.textChanged.connect(self.save_timer.start)
 
+        logging.info("🏁 [STARTUP:PREVIEW] Initializing LivePreviewManager...")
         self.live_preview = LivePreviewManager(self.code_tab.text_input, self.jar_path)
         self.live_preview.log_msg.connect(self.log_message)
 
+        # ---> CRITICAL FIX: Do NOT start background threads synchronously here.
+        # Starting worker threads before app.exec_() causes QMutex locks and freezes window.show().
+        # We defer them until the UI is displayed and the Qt event loop is spinning.
+        QTimer.singleShot(150, self._start_background_services)
+
+    def showEvent(self, event):
+        """Logged to verify when Qt begins and ends rendering the window."""
+        logging.info("🏁 [STARTUP:WINDOW] DragDropUI showEvent triggered.")
+        super().showEvent(event)
+        logging.info("🏁 [STARTUP:WINDOW] DragDropUI showEvent completed.")
+
+    def _start_background_services(self):
+        """Spawns background network and asset checkers after the window is visible."""
+        logging.info("🏁 [STARTUP:SERVICES] Launching background services...")
+
+        logging.info("🏁 [STARTUP:SERVICES] Starting InitializationThread...")
         self._launch_init_thread(check_updates=False)
 
-        # Background WiFi Monitor
-        self.wifi_monitor = WifiMonitorThread(self)
+        logging.info("🏁 [STARTUP:SERVICES] Starting WifiMonitorThread (parent=None)...")
+        # Do not pass 'self' as QWidget parent to avoid QMutex lifecycle deadlocks
+        self.wifi_monitor = WifiMonitorThread(parent=None)
         self.wifi_monitor.status_updated.connect(self._update_network_indicator)
         self.wifi_monitor.start()
+        logging.info("🏁 [STARTUP:SERVICES] Background services active.")
 
     def _setup_ui(self):
         central_widget = QWidget()
