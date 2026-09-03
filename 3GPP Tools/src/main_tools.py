@@ -3,9 +3,7 @@ import sys
 import logging
 import urllib.request
 import os
-import threading
-import time
-import traceback
+import faulthandler
 from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication, QDialog
@@ -24,10 +22,13 @@ from modules.specifications.plugin_loader import register_specs_plugin
 from modules.word_tools.plugin_loader import register_word_plugin
 
 # ==========================================
-# --- LOGGING SETUP ---
+# --- FAULTHANDLER & LOGGING SETUP ---
 # ==========================================
+# Enables pure C-level thread dumps that work even if Qt locks the Python GIL
+faulthandler.enable()
+faulthandler.dump_traceback_later(timeout=5.0, repeat=True, file=sys.__stderr__)
+
 log_file_path = get_project_root() / "3gpp_tools.log"
-dump_file_path = get_project_root() / "startup_freeze_dump.txt"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,61 +39,16 @@ logging.basicConfig(
     ]
 )
 
-event_loop_running = False
-
-
 def direct_console_write(message: str):
-    """Bypasses Python logging buffers to guarantee direct terminal output."""
+    """Bypasses Python buffers to guarantee immediate terminal output."""
     sys.__stderr__.write(message + "\n")
     sys.__stderr__.flush()
-
-
-def startup_watchdog(timeout_seconds=7.0):
-    def _monitor():
-        start_time = time.time()
-        dumped = False
-        while not event_loop_running:
-            time.sleep(2.0)
-            elapsed = time.time() - start_time
-            if event_loop_running:
-                break
-
-            if elapsed < timeout_seconds:
-                direct_console_write(f"⏱️ [WATCHDOG HEARTBEAT] Startup in progress ({elapsed:.1f}s elapsed)...")
-            elif not dumped:
-                dumped = True
-                direct_console_write(f"\n🚨 [WATCHDOG] Startup has hung for {elapsed:.1f}s! DUMPING ALL ACTIVE THREADS:")
-
-                dump_lines = [f"=== STARTUP FREEZE THREAD DUMP ({time.ctime()}) ==="]
-                for thread_id, frame in sys._current_frames().items():
-                    thread_name = next(
-                        (t.name for t in threading.enumerate() if t.ident == thread_id),
-                        f"Thread-{thread_id}"
-                    )
-                    stack_summary = "".join(traceback.format_stack(frame))
-                    entry = f"\n>>> THREAD: {thread_name} (ID: {thread_id}) <<<\n{stack_summary}"
-                    dump_lines.append(entry)
-                    direct_console_write(entry)
-
-                try:
-                    with open(dump_file_path, "w", encoding="utf-8") as f:
-                        f.write("\n".join(dump_lines))
-                    direct_console_write(f"\n📁 Stack dump written to: {dump_file_path}\n")
-                except Exception as e:
-                    direct_console_write(f"⚠️ Could not write dump file: {e}")
-
-    t = threading.Thread(target=_monitor, daemon=True, name="StartupWatchdog")
-    t.start()
-
 
 if __name__ == '__main__':
     if os.name == 'nt':
         import ctypes
-
         myappid = '3GPP Delegate Tools.1.0'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-
-    startup_watchdog(timeout_seconds=7.0)
 
     logging.info("🏁 [STARTUP] Registering plugins...")
     register_puml2visio_plugin()
@@ -106,6 +62,7 @@ if __name__ == '__main__':
     app.setWindowIcon(create_app_icon())
     app.setStyle("Fusion")
     app.setStyleSheet(GLOBAL_STYLE)
+    app.setQuitOnLastWindowClosed(True)
 
     jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
     version_file = jar_path.with_suffix('.version')
@@ -142,17 +99,13 @@ if __name__ == '__main__':
     logging.info("🏁 [STARTUP] Instantiating main window (DragDropUI)...")
     window = DragDropUI()
 
+    direct_console_write("🏁 [STARTUP] Displaying main window...")
+    window.show()
+    direct_console_write("🚀 [STARTUP] window.show() completed successfully.")
 
-    def show_main_window():
-        global event_loop_running
-        logging.info("🏁 [STARTUP] Displaying window inside active event loop...")
-        window.show()
-        event_loop_running = True
-        logging.info("🚀 [STARTUP] Qt Event Loop running smoothly.")
-
-
-    # Schedule window display on the first tick of the event loop
-    QTimer.singleShot(0, show_main_window)
+    # Window displayed successfully; cancel the hang watchdog
+    faulthandler.cancel_dump_traceback_later()
 
     logging.info("🏁 [STARTUP] Entering Qt event loop (app.exec_)...")
-    sys.exit(app.exec_())
+    exit_code = app.exec_()
+    os._exit(exit_code)

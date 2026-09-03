@@ -49,6 +49,8 @@ class DragDropUI(QMainWindow):
 
         self.jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
         self.last_out_path = ""
+        self.init_thread = None
+        self.wifi_monitor = None
 
         logging.info("🏁 [STARTUP:UI] Starting _setup_ui()...")
         self._setup_ui()
@@ -92,10 +94,8 @@ class DragDropUI(QMainWindow):
         self.live_preview = LivePreviewManager(self.code_tab.text_input, self.jar_path)
         self.live_preview.log_msg.connect(self.log_message)
 
-        # ---> CRITICAL FIX: Do NOT start background threads synchronously here.
-        # Starting worker threads before app.exec_() causes QMutex locks and freezes window.show().
-        # We defer them until the UI is displayed and the Qt event loop is spinning.
-        QTimer.singleShot(150, self._start_background_services)
+        # Defer worker threads until the window and event loop are active
+        QTimer.singleShot(250, self._start_background_services)
 
     def showEvent(self, event):
         """Logged to verify when Qt begins and ends rendering the window."""
@@ -104,20 +104,18 @@ class DragDropUI(QMainWindow):
         logging.info("🏁 [STARTUP:WINDOW] DragDropUI showEvent completed.")
 
     def _start_background_services(self):
-        """Spawns background network and asset checkers after the window is visible."""
+        """Spawns background checkers only after the main window is visible."""
         logging.info("🏁 [STARTUP:SERVICES] Launching background services...")
 
-        logging.info("🏁 [STARTUP:SERVICES] Starting InitializationThread...")
         self._launch_init_thread(check_updates=False)
 
-        logging.info("🏁 [STARTUP:SERVICES] Starting WifiMonitorThread (parent=None)...")
-        # Do not pass 'self' as QWidget parent to avoid QMutex lifecycle deadlocks
-        self.wifi_monitor = WifiMonitorThread(parent=None)
-        self.wifi_monitor.status_updated.connect(self._update_network_indicator)
-        self.wifi_monitor.start()
-        logging.info("🏁 [STARTUP:SERVICES] Background services active.")
+        if self.wifi_monitor is None or not self.wifi_monitor.isRunning():
+            logging.info("🏁 [STARTUP:SERVICES] Starting WifiMonitorThread...")
+            self.wifi_monitor = WifiMonitorThread(parent=None)
+            self.wifi_monitor.status_updated.connect(self._update_network_indicator)
+            self.wifi_monitor.start()
 
-        # --- Locate DragDropUI in src/main_window.py ---
+        logging.info("🏁 [STARTUP:SERVICES] Background services active.")
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -292,7 +290,7 @@ class DragDropUI(QMainWindow):
 
     def _launch_init_thread(self, check_updates=False):
         """Thread-safe launcher that prevents duplicate initialization checks."""
-        if hasattr(self, 'init_thread') and self.init_thread is not None and self.init_thread.isRunning():
+        if self.init_thread is not None and self.init_thread.isRunning():
             logging.warning("⚠️ [STARTUP] InitializationThread already running. Skipping duplicate launch.")
             return
 
@@ -555,6 +553,6 @@ class DragDropUI(QMainWindow):
 
     def closeEvent(self, event):
         self.save_cache()
-        if hasattr(self, 'wifi_monitor'):
+        if self.wifi_monitor is not None:
             self.wifi_monitor.stop()
         super().closeEvent(event)
