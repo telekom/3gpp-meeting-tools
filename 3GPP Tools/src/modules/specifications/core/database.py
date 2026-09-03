@@ -454,3 +454,110 @@ class SpecsDatabase:
             details['related_wis'] = self.get_spec_wis(spec_number)
 
             return details
+
+    def delete_specification(self, spec_number: str) -> bool:
+        """Deletes a specification, its file entries, and relational mappings, then removes orphans."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM specifications WHERE number = ?", (spec_number,))
+                row = cursor.fetchone()
+                if not row:
+                    return False
+                spec_id = row[0]
+
+                cursor.execute("DELETE FROM files WHERE spec_id = ?", (spec_id,))
+                cursor.execute("DELETE FROM spec_radio_tech_map WHERE spec_id = ?", (spec_id,))
+                cursor.execute("DELETE FROM spec_secondary_group_map WHERE spec_id = ?", (spec_id,))
+                cursor.execute("DELETE FROM spec_wi_map WHERE spec_id = ?", (spec_id,))
+                cursor.execute("DELETE FROM specifications WHERE id = ?", (spec_id,))
+
+            self._cleanup_orphans()
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to delete specification {spec_number}: {e}")
+            return False
+
+    def wipe_database(self) -> bool:
+        """Completely purges all specifications, files, and relational mapping tables."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM files;")
+                cursor.execute("DELETE FROM spec_wi_map;")
+                cursor.execute("DELETE FROM spec_secondary_group_map;")
+                cursor.execute("DELETE FROM spec_radio_tech_map;")
+                cursor.execute("DELETE FROM specifications;")
+                cursor.execute("DELETE FROM working_groups;")
+                cursor.execute("DELETE FROM radio_technologies;")
+                cursor.execute("DELETE FROM series;")
+            self.vacuum()
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to wipe specifications database: {e}")
+            return False
+
+    def upsert_manual_spec(self, spec_data: dict) -> bool:
+        """Inserts or updates a specification record from the manual addition dialog."""
+        spec_number = str(spec_data.get("number", "")).strip()
+        if not spec_number:
+            return False
+
+        series_name = spec_data.get("series")
+        if not series_name:
+            series_name = spec_number.split(".")[0].strip()
+
+        title = spec_data.get("title", "").strip()
+        spec_type = spec_data.get("type", "TS").strip().upper()
+        primary_group = spec_data.get("primary_group", "").strip()
+        initial_release = spec_data.get("initial_release", "").strip()
+        radio_tech = spec_data.get("radio_technology", "").strip()
+
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                # Ensure series exists
+                cursor.execute(
+                    "INSERT OR IGNORE INTO series (name, url) VALUES (?, ?)",
+                    (series_name, f"https://www.3gpp.org/ftp/Specs/archive/{series_name}_series/")
+                )
+                cursor.execute("SELECT id FROM series WHERE name = ?", (series_name,))
+                series_id = cursor.fetchone()[0]
+
+                # Ensure primary group exists
+                primary_group_id = None
+                if primary_group:
+                    cursor.execute("INSERT OR IGNORE INTO working_groups (name) VALUES (?)", (primary_group,))
+                    cursor.execute("SELECT id FROM working_groups WHERE name = ?", (primary_group,))
+                    primary_group_id = cursor.fetchone()[0]
+
+                # Insert or update specification
+                clean_num = spec_number.replace(".", "")
+                dyna_url = f"https://www.3gpp.org/DynaReport/{clean_num}.htm"
+                cursor.execute("""
+                    INSERT INTO specifications (series_id, number, url, title, type, initial_release, radio_technology, primary_group_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(series_id, number) DO UPDATE SET
+                        title = CASE WHEN excluded.title != '' THEN excluded.title ELSE specifications.title END,
+                        type = excluded.type,
+                        initial_release = CASE WHEN excluded.initial_release != '' THEN excluded.initial_release ELSE specifications.initial_release END,
+                        radio_technology = CASE WHEN excluded.radio_technology != '' THEN excluded.radio_technology ELSE specifications.radio_technology END,
+                        primary_group_id = COALESCE(excluded.primary_group_id, specifications.primary_group_id)
+                """, (
+                series_id, spec_number, dyna_url, title, spec_type, initial_release, radio_tech, primary_group_id))
+
+                cursor.execute("SELECT id FROM specifications WHERE number = ?", (spec_number,))
+                spec_id = cursor.fetchone()[0]
+
+                # Link radio tech
+                if radio_tech:
+                    cursor.execute("INSERT OR IGNORE INTO radio_technologies (name) VALUES (?)", (radio_tech,))
+                    cursor.execute("SELECT id FROM radio_technologies WHERE name = ?", (radio_tech,))
+                    tech_id = cursor.fetchone()[0]
+                    cursor.execute("INSERT OR IGNORE INTO spec_radio_tech_map (spec_id, tech_id) VALUES (?, ?)",
+                                   (spec_id, tech_id))
+
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to upsert manual specification: {e}")
+            return False

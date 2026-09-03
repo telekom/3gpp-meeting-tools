@@ -14,8 +14,6 @@ from PyQt5.QtWidgets import (
     QAction,
     QCheckBox,
     QComboBox,
-    QFileDialog,
-    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -26,12 +24,14 @@ from PyQt5.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget,
+    QWidget, QDialog,
 )
 
+from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_DANGER
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.ui.components import HoverMenuButton
 from modules.specifications.ui.dialogs import (
+    AddSpecDialog,
     AdvancedSyncDialog,
     SpecInfoDialog,
     SpecsConfigDialog,
@@ -140,28 +140,28 @@ class SpecificationsTab(QWidget):
 
         toolbar_layout.addWidget(QLabel("<b>🌐 Network Sync:</b>"))
 
-        self.sync_menu_btn = QPushButton("🌐 Sync && Fetch ▾")
+        self.sync_menu_btn = QPushButton("🌐 Sync & Fetch ▾")
         self.sync_menu_btn.setCursor(Qt.PointingHandCursor)
         self.sync_menu_btn.setStyleSheet("""
-            QPushButton {
-                font-weight: bold;
-                background-color: #0066CC;
-                color: #FFFFFF;
-                border: 1px solid #0055AA;
-                border-radius: 4px;
-                padding: 5px 12px;
-            }
-            QPushButton:hover {
-                background-color: #0052A3;
-            }
-        """)
+                    QPushButton {
+                        font-weight: bold;
+                        background-color: #0066CC;
+                        color: #FFFFFF;
+                        border: 1px solid #0055AA;
+                        border-radius: 4px;
+                        padding: 5px 12px;
+                    }
+                    QPushButton:hover {
+                        background-color: #0052A3;
+                    }
+                """)
 
         sync_menu = QMenu(self)
         sync_menu.setStyleSheet("""
-            QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
-            QMenu::item { padding: 6px 20px 6px 15px; color: #333333; }
-            QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-        """)
+                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
+                    QMenu::item { padding: 6px 20px 6px 15px; color: #333333; }
+                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+                """)
 
         quick_action = sync_menu.addAction("🎯 Quick Fetch (By Spec or Series)...")
         quick_action.setToolTip("Instantly download specific specs or series (e.g., '23.501' or '23') directly.")
@@ -193,17 +193,37 @@ class SpecificationsTab(QWidget):
         self.sync_menu_btn.setMenu(sync_menu)
         toolbar_layout.addWidget(self.sync_menu_btn)
 
+        # ➕ Add Individual Specification Button
+        self.add_spec_btn = QPushButton("➕ Add Spec")
+        self.add_spec_btn.setToolTip("Add and inspect an individual specification without running a full sync.")
+        self.add_spec_btn.setCursor(Qt.PointingHandCursor)
+        self.add_spec_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.add_spec_btn.clicked.connect(self._open_add_spec_dialog)
+        toolbar_layout.addWidget(self.add_spec_btn)
+
+        # ⚙️ Settings Button
         self.settings_btn = QPushButton("⚙️ Settings")
         self.settings_btn.setToolTip("Configure the local specifications download folder and paths.")
         self.settings_btn.setCursor(Qt.PointingHandCursor)
+        self.settings_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.settings_btn.clicked.connect(self._open_settings_dialog)
         toolbar_layout.addWidget(self.settings_btn)
 
+        # ↗️ Open Local Folder Button
         self.open_dir_btn = QPushButton("↗️ Open Folder")
         self.open_dir_btn.setToolTip("Open the local specifications storage directory in Explorer.")
         self.open_dir_btn.setCursor(Qt.PointingHandCursor)
+        self.open_dir_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.open_dir_btn.clicked.connect(self._open_download_dir)
         toolbar_layout.addWidget(self.open_dir_btn)
+
+        # ⚠️ Wipe Database Button
+        self.wipe_db_btn = QPushButton("⚠️ Wipe DB")
+        self.wipe_db_btn.setToolTip("Clear all specifications, file mappings, and reset the local database.")
+        self.wipe_db_btn.setCursor(Qt.PointingHandCursor)
+        self.wipe_db_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
+        self.wipe_db_btn.clicked.connect(self._on_wipe_db_clicked)
+        toolbar_layout.addWidget(self.wipe_db_btn)
 
         self.bg_sync_label = QLabel("⏳ Fetching deep metadata in background...")
         self.bg_sync_label.setStyleSheet("color: #E65100; font-weight: bold; font-style: italic;")
@@ -579,6 +599,16 @@ class SpecificationsTab(QWidget):
             lambda: self.update_specific_requested.emit(target_specs, self.force_meta_action.isChecked())
         )
 
+        menu.addSeparator()
+        if len(target_specs) == 1:
+            menu.addAction(f"🗑️ Delete TS {target_specs[0]}").triggered.connect(
+                lambda _, s=target_specs[0]: self._delete_single_spec(s)
+            )
+        else:
+            menu.addAction(f"🗑️ Delete selected ({len(target_specs)}) specifications").triggered.connect(
+                lambda: self._delete_batch_specs(target_specs)
+            )
+
         menu.exec_(self.table.viewport().mapToGlobal(position))
 
     def _show_spec_info(self, spec_num: str):
@@ -805,6 +835,10 @@ class SpecificationsTab(QWidget):
                     else:
                         act.setText("📁  Folder Not Created")
                         act.setEnabled(False)
+
+                menu.addSeparator()
+                del_action = menu.addAction("🗑️  Delete Specification")
+                del_action.triggered.connect(lambda _, s=spec_num: self._delete_single_spec(s))
 
                 menu.aboutToShow.connect(_update_menu_state)
                 _update_menu_state()
@@ -1279,3 +1313,60 @@ class SpecificationsTab(QWidget):
 
     def _handle_converter_log(self, msg: str, level: int):
         self.log_msg.emit(msg, level)
+
+    def _open_add_spec_dialog(self):
+        dialog = AddSpecDialog(self.db, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.refresh_table()
+            if dialog.sync_requested and dialog.saved_spec_number:
+                force_meta = self.force_meta_action.isChecked()
+                self.update_specific_requested.emit([dialog.saved_spec_number], force_meta)
+
+    def _delete_single_spec(self, spec_num: str):
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete specification TS {spec_num} from the database?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            if self.db.delete_specification(spec_num):
+                self.favorites.discard(spec_num)
+                self._save_settings()
+                self.refresh_table()
+                self.log_msg.emit(f"🗑️ Deleted TS {spec_num} from specifications database.", logging.INFO)
+            else:
+                QMessageBox.warning(self, "Delete Error", f"Could not delete TS {spec_num}.")
+
+    def _delete_batch_specs(self, spec_nums: list):
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete {len(spec_nums)} selected specifications from the database?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            deleted_count = 0
+            for num in spec_nums:
+                if self.db.delete_specification(num):
+                    self.favorites.discard(num)
+                    deleted_count += 1
+            self._save_settings()
+            self.refresh_table()
+            self.log_msg.emit(f"🗑️ Deleted {deleted_count} specification(s) from database.", logging.INFO)
+
+    def _on_wipe_db_clicked(self):
+        reply = QMessageBox.critical(
+            self,
+            "Confirm Wipe Database",
+            "This will delete ALL specification metadata, file versions, and related mappings from 3gpp_data.db.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            if self.db.wipe_database():
+                self.favorites.clear()
+                self._save_settings()
+                self.refresh_table()
+                self.log_msg.emit("🧹 Specifications database wiped successfully.", logging.INFO)
+            else:
+                QMessageBox.critical(self, "Wipe Failed", "Failed to wipe specifications database.")
