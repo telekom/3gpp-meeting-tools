@@ -16,13 +16,16 @@ class MeetingsDatabase:
         # 30-second timeout allows background writers to finish without crashing readers
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         # Enable WAL mode for concurrent multi-thread read/write support
-        conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA busy_timeout=30000;")
         return conn
 
     def _create_tables(self):
         with self._get_connection() as conn:
             cursor = conn.cursor()
+
+            # Set WAL mode once during initial schema setup
+            cursor.execute('PRAGMA journal_mode=WAL;')
+
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS working_groups (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,

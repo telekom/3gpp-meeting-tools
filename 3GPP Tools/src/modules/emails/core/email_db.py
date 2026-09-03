@@ -11,13 +11,16 @@ class EmailDatabase:
     def _get_connection(self) -> sqlite3.Connection:
         """Creates a thread-safe connection with WAL mode and busy timeout handling."""
         conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA busy_timeout=30000;")
         return conn
 
     def _init_db(self):
         with self._get_connection() as conn:
             cursor = conn.cursor()
+
+            # Set WAL mode once during initial schema setup
+            cursor.execute('PRAGMA journal_mode=WAL;')
+
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS emails (
                     id TEXT PRIMARY KEY,

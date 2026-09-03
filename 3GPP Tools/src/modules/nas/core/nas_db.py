@@ -32,7 +32,6 @@ class NASDatabase:
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute("PRAGMA journal_mode = WAL;")
         conn.create_function(
             "REGEXP",
             2,
@@ -44,6 +43,10 @@ class NASDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+
+                # Set WAL mode once during initial schema setup
+                cursor.execute('PRAGMA journal_mode=WAL;')
+
                 # Existing table definitions...
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS spec_versions (
