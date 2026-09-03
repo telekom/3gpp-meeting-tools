@@ -12,24 +12,21 @@ BRUSH_MODIFIED = QBrush(QColor("#FFF9C4"))   # Soft Yellow
 
 
 class NASEvolutionMatrixModel(QAbstractTableModel):
-    """
-    Pivots Information Elements & ASN.1 Fields across multiple versions while
-    preserving specification row order, rendering indentation, and applying filtering.
-    Optimized with fast in-memory structures for instant rendering of large RRC/NAS tables.
-    """
-
     def __init__(
         self,
         raw_df: pd.DataFrame = None,
         ie_filter: Optional[str] = None,
         search_descriptions: bool = False,
+        interface_filter: Optional[str] = None,
     ):
         super().__init__()
         self._raw_df = raw_df if raw_df is not None else pd.DataFrame()
         self._ie_filter = ie_filter.strip().lower() if ie_filter else None
         self._search_descriptions = search_descriptions
+        self._interface_filter = interface_filter.strip().upper() if interface_filter and interface_filter.upper() != "ALL" else None
         self._pivot_df = pd.DataFrame()
         self._versions: List[str] = []
+        self._appl_list: List[str] = []
 
         # Fast memory caches for O(1) cell access
         self._visible_columns: List[str] = []
@@ -90,9 +87,13 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         self._versions = sorted_ver_cols
 
         # 1. Compute canonical specification order
+        agg_dict = {"order_index": "min"}
+        if "applicability" in df.columns:
+            agg_dict["applicability"] = "first"
+
         order_map = (
-            df.groupby(["iei", "ie_name", "field_path", "type_reference", "depth"], as_index=False)["order_index"]
-            .min()
+            df.groupby(["iei", "ie_name", "field_path", "type_reference", "depth"], as_index=False)
+            .agg(agg_dict)
         )
 
         # 2. Pivot version columns
@@ -110,13 +111,20 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         merged = merged.sort_values(by="order_index", ascending=True).reset_index(drop=True)
         self._pivot_df = merged.drop(columns=["order_index"])
 
+        # 4. Filter by Interface Applicability (Option B)
+        if self._interface_filter and "applicability" in self._pivot_df.columns:
+            target_if = self._interface_filter
+            appl_series = self._pivot_df["applicability"].fillna("").astype(str).str.upper()
+            mask_if = appl_series.str.contains(target_if) | (appl_series == "") | (appl_series == "ALL")
+            self._pivot_df = self._pivot_df[mask_if].reset_index(drop=True)
+
         for v in self._versions:
             if v not in self._pivot_df.columns:
                 self._pivot_df[v] = "-"
             else:
                 self._pivot_df[v] = self._pivot_df[v].fillna("-")
 
-        # 4. Filter search query
+        # 5. Filter search query
         if self._ie_filter and not self._pivot_df.empty:
             q = self._ie_filter
             mask = (
@@ -153,7 +161,7 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         self._build_fast_caches()
 
     def _build_fast_caches(self):
-        self._visible_columns = [c for c in self._pivot_df.columns if c not in ("field_path", "depth")]
+        self._visible_columns = [c for c in self._pivot_df.columns if c not in ("field_path", "depth", "applicability")]
         num_rows = len(self._pivot_df)
         num_cols = len(self._visible_columns)
 
@@ -199,6 +207,11 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
                         elif prev_val != current_val and prev_val != "-" and current_val != "-":
                             self._bg_brush_matrix[r_idx][c_idx] = BRUSH_MODIFIED
 
+        if "applicability" in self._pivot_df.columns:
+            self._appl_list = self._pivot_df["applicability"].fillna("").astype(str).tolist()
+        else:
+            self._appl_list = [""] * num_rows
+
     def rowCount(self, parent=QModelIndex()) -> int:
         return len(self._data_matrix)
 
@@ -230,7 +243,11 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
 
         if role == Qt.ToolTipRole:
             field_path = self._tooltip_list[row]
-            return f"Path: {field_path}" if field_path else None
+            appl = self._appl_list[row] if row < len(self._appl_list) else ""
+            tip = f"Path: {field_path}" if field_path else ""
+            if appl:
+                tip += f"\nApplicability: {appl}"
+            return tip if tip else None
 
         if role == Qt.TextAlignmentRole:
             if col >= 3:

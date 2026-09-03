@@ -9,6 +9,7 @@ from modules.specifications.utils.utils import file_version_to_version
 from modules.nas.core.parsing.rrc_asn1_parser import RRCAsn1Parser
 from modules.nas.core.parsing.ran3_asn1_parser import RAN3Asn1Parser
 from modules.nas.core.parsing.nas_parser import NASDocxParser
+from modules.nas.core.parsing.pfcp_parser import PFCPDocxParser
 
 
 class ProtocolDocxDispatcher:
@@ -60,7 +61,12 @@ class ProtocolDocxDispatcher:
             parser = RAN3Asn1Parser(self.docx_paths, spec_number=spec_num)
             return parser.parse(progress_callback=progress_callback)
 
-        # 3. Route standard NAS specifications (24.501, 24.301, 24.008)
+        # 3. Route PFCP specifications (TS 29.244)
+        if "29.244" in spec_num:
+            parser = PFCPDocxParser(self.docx_paths, spec_number=spec_num)
+            return parser.parse(progress_callback=progress_callback)
+
+        # 4. Route standard NAS specifications (24.501, 24.301, 24.008)
         parser = NASDocxParser(self.docx_paths)
         messages, ie_definitions = parser.parse(progress_callback=progress_callback)
 

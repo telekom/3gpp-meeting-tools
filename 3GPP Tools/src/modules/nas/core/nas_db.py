@@ -69,21 +69,31 @@ class NASDatabase:
                     )
                 """)
                 cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS message_ies (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        message_id INTEGER NOT NULL,
-                        iei TEXT,
-                        ie_name TEXT NOT NULL,
-                        field_path TEXT,
-                        depth INTEGER DEFAULT 0,
-                        type_reference TEXT,
-                        presence TEXT,
-                        format TEXT,
-                        length TEXT,
-                        order_index INTEGER NOT NULL,
-                        FOREIGN KEY(message_id) REFERENCES nas_messages(id) ON DELETE CASCADE
-                    )
-                """)
+                                    CREATE TABLE IF NOT EXISTS message_ies (
+                                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                        message_id INTEGER NOT NULL,
+                                        iei TEXT,
+                                        ie_name TEXT NOT NULL,
+                                        field_path TEXT,
+                                        depth INTEGER DEFAULT 0,
+                                        type_reference TEXT,
+                                        presence TEXT,
+                                        format TEXT,
+                                        length TEXT,
+                                        order_index INTEGER NOT NULL,
+                                        applicability TEXT DEFAULT '',
+                                        FOREIGN KEY(message_id) REFERENCES nas_messages(id) ON DELETE CASCADE
+                                    )
+                                """)
+
+                # Automatic schema migration for existing databases
+                cursor.execute("PRAGMA table_info(message_ies);")
+                existing_cols = [row[1] for row in cursor.fetchall()]
+                if "applicability" not in existing_cols:
+                    cursor.execute("ALTER TABLE message_ies ADD COLUMN applicability TEXT DEFAULT '';")
+
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_appl ON message_ies(applicability);")
+
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS ie_definitions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -208,12 +218,13 @@ class NASDatabase:
                             ie.get("format", ""),
                             ie.get("length", ""),
                             idx,
+                            ie.get("applicability", ""),
                         ))
 
                     cursor.executemany(
                         """
-                        INSERT INTO message_ies (message_id, iei, ie_name, field_path, depth, type_reference, presence, format, length, order_index)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO message_ies (message_id, iei, ie_name, field_path, depth, type_reference, presence, format, length, order_index, applicability)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                         ie_rows,
                     )
@@ -422,6 +433,7 @@ class NASDatabase:
                     i.format,
                     i.length,
                     i.order_index,
+                    i.applicability,
                     COALESCE(d1.raw_description, d2.raw_description, d3.raw_description) AS ie_description
                 FROM message_ies i
                 JOIN nas_messages m ON i.message_id = m.id
@@ -434,24 +446,25 @@ class NASDatabase:
             """
         else:
             query = f"""
-                SELECT 
-                    sv.spec_number,
-                    sv.version,
-                    i.iei,
-                    i.ie_name,
-                    i.field_path,
-                    i.depth,
-                    i.type_reference,
-                    i.presence,
-                    i.format,
-                    i.length,
-                    i.order_index
-                FROM message_ies i
-                JOIN nas_messages m ON i.message_id = m.id
-                JOIN spec_versions sv ON m.version_id = sv.id
-                WHERE m.message_name = ? AND sv.id IN ({placeholders})
-                ORDER BY i.order_index ASC
-            """
+                            SELECT 
+                                sv.spec_number,
+                                sv.version,
+                                i.iei,
+                                i.ie_name,
+                                i.field_path,
+                                i.depth,
+                                i.type_reference,
+                                i.presence,
+                                i.format,
+                                i.length,
+                                i.order_index,
+                                i.applicability
+                            FROM message_ies i
+                            JOIN nas_messages m ON i.message_id = m.id
+                            JOIN spec_versions sv ON m.version_id = sv.id
+                            WHERE m.message_name = ? AND sv.id IN ({placeholders})
+                            ORDER BY i.order_index ASC
+                        """
 
         params = [message_name] + version_ids
 

@@ -20,18 +20,18 @@ TAG_JC = f"{W_NS}jc"
 
 # Path & Specification Number Regular Expressions
 RE_PART_INDEX = re.compile(r"_(\d+)_")
-RE_SPEC_NUMBER = re.compile(r"(24|25|36|37|38)[._]?(301|501|331|413|423|412|473|463)")
+RE_SPEC_NUMBER = re.compile(r"(24|25|29|36|37|38)[._]?(301|501|331|413|423|412|473|463|244)")
 RE_VERSION_STEM = re.compile(r"-([a-zA-Z0-9]{3})(?:_\d+.*)?$")
 
 # Headings & Captions
-RE_CLAUSE_HEADER = re.compile(r"^((?:6|9|D\.6)(?:\.[0-9A-Za-z]+)+)\s*(.*)$")
+RE_CLAUSE_HEADER = re.compile(r"^((?:6|7|8|9|D\.6)(?:\.[0-9A-Za-z]+)+)\s*(.*)$")
 RE_DESC_TABLE = re.compile(r"([A-Za-z0-9\-_]+)\s+field\s+descriptions", re.IGNORECASE)
 RE_CAPTION = re.compile(
-    r"^Table\s+([8D]\.\d+(?:[\.\-/][0-9A-Za-z]+)*)\s*[:\.]\s*(.+?)(?:\s+message\s+content)?$",
+    r"^Table\s+([78D]\.\d+(?:[\.\-/][0-9A-Za-z]+)*)\s*[:\.]\s*(.+?)(?:\s+message\s+content)?$",
     re.IGNORECASE,
 )
-RE_IE_HEADING = re.compile(r"^((?:9\.[2-9]|9\.1[0-9]|D\.6)(?:\.[0-9A-Za-z]+)*)\s+(.+)$")
-RE_MAJOR_BOUNDARY = re.compile(r"^(?:[1-8]|10|11|12|Annex\s+[A-Z])\b")
+RE_IE_HEADING = re.compile(r"^((?:8\.[1-9]|9\.[2-9]|9\.1[0-9]|D\.6)(?:\.[0-9A-Za-z]+)*)\s+(.+)$")
+RE_MAJOR_BOUNDARY = re.compile(r"^(?:[1-6]|10|11|12|Annex\s+[A-Z])\b")
 
 # ASN.1 Declarations & IOS Sets
 RE_TYPE_DECL = re.compile(r"([A-Za-z0-9\-]+)(?:\s*\{[^}]*\})?\s*::=\s*", re.MULTILINE)
