@@ -4,26 +4,26 @@ import os
 import re
 import webbrowser
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Dict, List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
-    QWidget, QGroupBox, QCheckBox,
+    QWidget,
 )
-from bs4 import BeautifulSoup
 
-from core.network.session import NetworkError, NetworkSession, HttpError
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.core.scraper import fetch_metadata_from_dynareport
 
@@ -50,7 +50,6 @@ class SpecsConfigDialog(QDialog):
         info_label.setStyleSheet("color: #4A5568; font-size: 12px;")
         layout.addWidget(info_label)
 
-        # Path input row
         path_layout = QHBoxLayout()
         path_layout.setSpacing(6)
 
@@ -73,7 +72,6 @@ class SpecsConfigDialog(QDialog):
 
         layout.addStretch()
 
-        # Dialog Buttons
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
         btn_layout.addStretch()
@@ -104,7 +102,9 @@ class SpecsConfigDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def _browse(self):
-        new_dir = QFileDialog.getExistingDirectory(self, "Select Download Directory", self.path_input.text().strip())
+        new_dir = QFileDialog.getExistingDirectory(
+            self, "Select Download Directory", self.path_input.text().strip()
+        )
         if new_dir:
             self.path_input.setText(new_dir)
 
@@ -134,9 +134,9 @@ class SpecInfoDialog(QDialog):
 
     def __init__(self, details: dict, parent=None):
         super().__init__(parent)
-        spec_num = details.get('number', 'Unknown')
-        spec_type = details.get('type', 'TS')
-        title = details.get('title', 'No Title Available')
+        spec_num = details.get("number", "Unknown")
+        spec_type = details.get("type", "TS")
+        title = details.get("title", "No Title Available")
 
         self.setWindowTitle(f"Specification Details: {spec_num}")
         self.setMinimumWidth(560)
@@ -206,7 +206,7 @@ class SpecInfoDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        # --- 1. HEADER CARD ---
+        # 1. Header Card
         header_card = QFrame()
         header_card.setObjectName("cardFrame")
         header_layout = QVBoxLayout(header_card)
@@ -242,7 +242,7 @@ class SpecInfoDialog(QDialog):
 
         layout.addWidget(header_card)
 
-        # --- 2. DETAILS & LINKS CARD ---
+        # 2. Details & Links Card
         details_card = QFrame()
         details_card.setObjectName("cardFrame")
         form = QFormLayout(details_card)
@@ -250,39 +250,41 @@ class SpecInfoDialog(QDialog):
         form.setSpacing(10)
         form.setLabelAlignment(Qt.AlignRight)
 
-        # Generate URLs
-        clean_number = spec_num.split("-")[0].replace('.', '').strip()
-        dynareport_url = f"https://www.3gpp.org/DynaReport/{clean_number}.htm" if clean_number else ""
-        ftp_url = details.get('url', '')
+        clean_number = spec_num.split("-")[0].replace(".", "").strip()
+        dynareport_url = (
+            f"https://www.3gpp.org/DynaReport/{clean_number}.htm" if clean_number else ""
+        )
+        ftp_url = details.get("url", "")
 
-        # Standard metadata fields
-        primary_group = details.get('primary_group') or '-'
-        sec_groups = details.get('secondary_groups') or '-'
-        tech = details.get('radio_technology') or details.get('radio_tech') or '-'
-        init_rel = details.get('initial_release') or '-'
+        primary_group = details.get("primary_group") or "-"
+        sec_groups = details.get("secondary_groups") or "-"
+        tech = details.get("radio_technology") or details.get("radio_tech") or "-"
+        init_rel = details.get("initial_release") or "-"
 
         self._add_row(form, "Primary Group", primary_group)
         self._add_row(form, "Secondary Groups", sec_groups)
         self._add_row(form, "Radio Technology", tech)
         self._add_row(form, "Initial Release", init_rel)
 
-        # Clickable FTP Archive Link
         if ftp_url:
-            ftp_label = QLabel(f'<a href="{ftp_url}" style="color: #0066CC; text-decoration: none;">{ftp_url}</a>')
+            ftp_label = QLabel(
+                f'<a href="{ftp_url}" style="color: #0066CC; text-decoration: none;">{ftp_url}</a>'
+            )
             ftp_label.setOpenExternalLinks(True)
             ftp_label.setTextInteractionFlags(Qt.TextBrowserInteraction | Qt.TextSelectableByMouse)
             form.addRow(self._make_key_label("FTP Archive:"), ftp_label)
 
-        # Clickable DynaReport Link
         if dynareport_url:
-            dyna_label = QLabel(f'<a href="{dynareport_url}" style="color: #0066CC; text-decoration: none;">'
-                                f'Open 3GPP Portal Report ({clean_number}.htm) ↗</a>')
+            dyna_label = QLabel(
+                f'<a href="{dynareport_url}" style="color: #0066CC; text-decoration: none;">'
+                f"Open 3GPP Portal Report ({clean_number}.htm) ↗</a>"
+            )
             dyna_label.setOpenExternalLinks(True)
             dyna_label.setTextInteractionFlags(Qt.TextBrowserInteraction | Qt.TextSelectableByMouse)
             form.addRow(self._make_key_label("DynaReport:"), dyna_label)
 
-        # --- Related Work Items Row ---
-        related_wis = details.get('related_wis', [])
+        # Related Work Items Row
+        related_wis = details.get("related_wis", [])
         if related_wis:
             wi_container = QWidget()
             wi_layout = QHBoxLayout(wi_container)
@@ -290,19 +292,25 @@ class SpecInfoDialog(QDialog):
             wi_layout.setSpacing(6)
 
             for wi in related_wis:
-                code = wi.get('wi_code', '')
-                acronym = wi.get('acronym', '')
-                is_primary = wi.get('is_primary', False)
-                label_text = f"⭐ {acronym} ({code})" if (is_primary and acronym) else (f"{acronym} ({code})" if acronym else f"WI #{code}")
+                code = wi.get("wi_code", "")
+                acronym = wi.get("acronym", "")
+                is_primary = wi.get("is_primary", False)
+                label_text = (
+                    f"⭐ {acronym} ({code})"
+                    if (is_primary and acronym)
+                    else (f"{acronym} ({code})" if acronym else f"WI #{code}")
+                )
 
                 btn = QPushButton(label_text)
                 btn.setObjectName("wiChipPrimaryBtn" if is_primary else "wiChipBtn")
                 btn.setCursor(Qt.PointingHandCursor)
                 tooltip = f"{wi.get('name', '')}\nCode: {code}\nClick to open 3GPP Work Item page"
                 btn.setToolTip(tooltip.strip())
-                btn.clicked.connect(lambda _, c=code: webbrowser.open(
-                    f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={c}"
-                ))
+                btn.clicked.connect(
+                    lambda _, c=code: webbrowser.open(
+                        f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={c}"
+                    )
+                )
                 wi_layout.addWidget(btn)
 
             wi_layout.addStretch()
@@ -311,18 +319,27 @@ class SpecInfoDialog(QDialog):
             self._add_row(form, "Related WIs", "-")
 
         excluded_keys = {
-            'id', 'series_id', 'number', 'type', 'title',
-            'url', 'primary_group', 'secondary_groups',
-            'radio_technology', 'radio_tech', 'initial_release', 'related_wis'
+            "id",
+            "series_id",
+            "number",
+            "type",
+            "title",
+            "url",
+            "primary_group",
+            "secondary_groups",
+            "radio_technology",
+            "radio_tech",
+            "initial_release",
+            "related_wis",
         }
         for key, value in details.items():
             if key not in excluded_keys and value:
-                display_key = key.replace('_', ' ').title()
+                display_key = key.replace("_", " ").title()
                 self._add_row(form, display_key, str(value))
 
         layout.addWidget(details_card)
 
-        # --- 3. ACTION BUTTONS ---
+        # 3. Action Buttons
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
 
@@ -374,8 +391,10 @@ class AdvancedSyncDialog(QDialog):
         options = db.get_filter_options()
 
         layout = QVBoxLayout(self)
-        info_label = QLabel("Note: Filters apply to specifications already discovered in your local database. "
-                            "To discover brand new specifications, run a 'Full Sync' first.")
+        info_label = QLabel(
+            "Note: Filters apply to specifications already discovered in your local database. "
+            "To discover brand new specifications, run a 'Full Sync' first."
+        )
         info_label.setWordWrap(True)
         info_label.setStyleSheet("color: #666666; font-style: italic; margin-bottom: 10px;")
         layout.addWidget(info_label)
@@ -384,19 +403,19 @@ class AdvancedSyncDialog(QDialog):
 
         self.series_combo = QComboBox()
         self.series_combo.addItem("Any")
-        self.series_combo.addItems(options['series'])
+        self.series_combo.addItems(options["series"])
 
         self.tech_combo = QComboBox()
         self.tech_combo.addItem("Any")
-        self.tech_combo.addItems(options['techs'])
+        self.tech_combo.addItems(options["techs"])
 
         self.group_combo = QComboBox()
         self.group_combo.addItem("Any")
-        self.group_combo.addItems(options['groups'])
+        self.group_combo.addItems(options["groups"])
 
         self.type_combo = QComboBox()
         self.type_combo.addItem("Any")
-        self.type_combo.addItems(options['types'])
+        self.type_combo.addItems(options["types"])
 
         form.addRow("Series:", self.series_combo)
         form.addRow("Radio Tech:", self.tech_combo)
@@ -454,23 +473,23 @@ class TableFilterDialog(QDialog):
 
         self.series_combo = QComboBox()
         self.series_combo.addItem("Any")
-        self.series_combo.addItems(options['series'])
-        self.series_combo.setCurrentText(current_filters.get('series', 'Any') or 'Any')
+        self.series_combo.addItems(options["series"])
+        self.series_combo.setCurrentText(current_filters.get("series", "Any") or "Any")
 
         self.tech_combo = QComboBox()
         self.tech_combo.addItem("Any")
-        self.tech_combo.addItems(options['techs'])
-        self.tech_combo.setCurrentText(current_filters.get('tech', 'Any') or 'Any')
+        self.tech_combo.addItems(options["techs"])
+        self.tech_combo.setCurrentText(current_filters.get("tech", "Any") or "Any")
 
         self.group_combo = QComboBox()
         self.group_combo.addItem("Any")
-        self.group_combo.addItems(options['groups'])
-        self.group_combo.setCurrentText(current_filters.get('group', 'Any') or 'Any')
+        self.group_combo.addItems(options["groups"])
+        self.group_combo.setCurrentText(current_filters.get("group", "Any") or "Any")
 
         self.type_combo = QComboBox()
         self.type_combo.addItem("Any")
-        self.type_combo.addItems(options['types'])
-        self.type_combo.setCurrentText(current_filters.get('spec_type', 'Any') or 'Any')
+        self.type_combo.addItems(options["types"])
+        self.type_combo.setCurrentText(current_filters.get("spec_type", "Any") or "Any")
 
         form.addRow("Series:", self.series_combo)
         form.addRow("Radio Tech:", self.tech_combo)
@@ -498,10 +517,16 @@ class TableFilterDialog(QDialog):
 
     def get_filters(self) -> dict:
         return {
-            'series': "" if self.series_combo.currentText() == "Any" else self.series_combo.currentText(),
-            'tech': "" if self.tech_combo.currentText() == "Any" else self.tech_combo.currentText(),
-            'group': "" if self.group_combo.currentText() == "Any" else self.group_combo.currentText(),
-            'spec_type': self.type_combo.currentText()
+            "series": (
+                "" if self.series_combo.currentText() == "Any" else self.series_combo.currentText()
+            ),
+            "tech": (
+                "" if self.tech_combo.currentText() == "Any" else self.tech_combo.currentText()
+            ),
+            "group": (
+                "" if self.group_combo.currentText() == "Any" else self.group_combo.currentText()
+            ),
+            "spec_type": self.type_combo.currentText(),
         }
 
 
@@ -517,7 +542,9 @@ class TargetedSyncDialog(QDialog):
         layout = QVBoxLayout(self)
 
         info_label = QLabel(
-            "Enter a specific specification (e.g., <b>23.801-01</b>) or an entire series (e.g., <b>23</b>) to fetch directly from 3GPP.<br><br><i>You can separate multiple targets with commas.</i>")
+            "Enter a specific specification (e.g., <b>23.801-01</b>) or an entire series (e.g., <b>23</b>) "
+            "to fetch directly from 3GPP.<br><br><i>You can separate multiple targets with commas.</i>"
+        )
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
@@ -542,13 +569,15 @@ class TargetedSyncDialog(QDialog):
 
     def get_targets(self) -> list:
         raw_text = self.input_field.text()
-        return [t.strip() for t in raw_text.split(',') if t.strip()]
+        return [t.strip() for t in raw_text.split(",") if t.strip()]
+
 
 class ManualSpecFetcherThread(QThread):
     """
     Background worker that queries 3GPP DynaReport HTML using the shared
     scraper engine with real-time log signaling for UI troubleshooting.
     """
+
     fetch_finished = pyqtSignal(bool, dict, str)
     log_msg = pyqtSignal(str, int)
 
@@ -558,10 +587,13 @@ class ManualSpecFetcherThread(QThread):
 
     def run(self):
         try:
-            metadata = fetch_metadata_from_dynareport(
-                self.spec_number,
-                log_cb=self.log_msg.emit
-            )
+            if self.isInterruptionRequested():
+                return
+
+            metadata = fetch_metadata_from_dynareport(self.spec_number, log_cb=self.log_msg.emit)
+
+            if self.isInterruptionRequested():
+                return
 
             if metadata and metadata.get("title"):
                 spec_type = metadata.get("type") or "TS"
@@ -579,10 +611,10 @@ class ManualSpecFetcherThread(QThread):
 class AddSpecDialog(QDialog):
     """Dialog allowing users to query, preview, manually edit, and register an individual specification."""
 
-    def __init__(self, db, parent=None):
+    def __init__(self, db: SpecsDatabase, parent=None):
         super().__init__(parent)
         self.db = db
-        self.fetch_thread = None
+        self.fetch_thread: Optional[ManualSpecFetcherThread] = None
         self.sync_requested = False
         self.saved_spec_number = ""
 
@@ -704,6 +736,9 @@ class AddSpecDialog(QDialog):
         main_layout.addLayout(btn_layout)
 
     def _start_fetch(self):
+        if self.fetch_thread and self.fetch_thread.isRunning():
+            return
+
         query = self.query_input.text().strip()
         if not query:
             QMessageBox.warning(self, "Input Required", "Please enter a specification number.")
@@ -745,7 +780,15 @@ class AddSpecDialog(QDialog):
         else:
             self.lbl_status.setText(f"⚠️ {msg}")
             self.lbl_status.setStyleSheet("color: #DC2626; font-weight: bold;")
-            self.edit_number.setText(self.query_input.text().strip())
+
+            raw_num = self.query_input.text().strip()
+            if raw_num:
+                self.edit_number.setText(raw_num)
+                # Deduce TR for xx.8xx and xx.9xx study items even when the report is missing online
+                if re.search(r"\b\d{2}\.[89]\d{2}\b", raw_num):
+                    self.type_combo.setCurrentText("TR")
+                else:
+                    self.type_combo.setCurrentText("TS")
 
     def _save_spec(self):
         spec_num = self.edit_number.text().strip()
@@ -767,7 +810,19 @@ class AddSpecDialog(QDialog):
         if self.db.upsert_manual_spec(data):
             self.saved_spec_number = spec_num
             self.sync_requested = self.chk_sync_now.isChecked()
-            QMessageBox.information(self, "Success", f"Specification {data['type']} {spec_num} saved to database.")
+            QMessageBox.information(
+                self, "Success", f"Specification {data['type']} {spec_num} saved to database."
+            )
             self.accept()
         else:
-            QMessageBox.critical(self, "Error", f"Failed to save specification {data['type']} {spec_num} to database.")
+            QMessageBox.critical(
+                self, "Error", f"Failed to save specification {data['type']} {spec_num} to database."
+            )
+
+    def reject(self):
+        """Cleanly abort worker thread if dialog is dismissed while fetching."""
+        if self.fetch_thread and self.fetch_thread.isRunning():
+            self.fetch_thread.requestInterruption()
+            self.fetch_thread.quit()
+            self.fetch_thread.wait(200)
+        super().reject()

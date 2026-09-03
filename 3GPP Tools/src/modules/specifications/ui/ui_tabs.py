@@ -140,7 +140,7 @@ class SpecificationsTab(QWidget):
 
         toolbar_layout.addWidget(QLabel("<b>🌐 Network Sync:</b>"))
 
-        self.sync_menu_btn = QPushButton("🌐 Sync & Fetch ▾")
+        self.sync_menu_btn = QPushButton("🌐 Sync && Fetch ▾")
         self.sync_menu_btn.setCursor(Qt.PointingHandCursor)
         self.sync_menu_btn.setStyleSheet("""
                     QPushButton {

@@ -73,13 +73,91 @@ def deduce_spec_type(spec_number: str, raw_type: str = "") -> str:
     return "TS"
 
 
+def _parse_dynareport_content(html_text: str, clean_spec: str) -> Dict:
+    """Extracts specification attributes from DynaReport HTML, ignoring data grids."""
+    metadata = {
+        'title': '', 'type': '', 'initial_release': '',
+        'radio_technology': '', 'radio_technologies_list': [],
+        'primary_group': '',
+        'secondary_groups_raw': '', 'secondary_groups_list': [],
+        'version_dates': {},
+        'related_wis': []
+    }
+    soup = BeautifulSoup(html_text, 'html.parser')
+
+    # Decompose data grids so table headers (e.g. UID) don't collide with spec metadata
+    for grid in soup.find_all(lambda tag: tag.name in ('table', 'div') and tag.has_attr('id') and (
+        'grid' in tag['id'].lower() or 'releases' in tag['id'].lower()
+    )):
+        grid.decompose()
+
+    def get_by_id(keyword: str) -> str:
+        tag = soup.find(lambda t: t.has_attr('id') and keyword in t['id'].lower())
+        return tag.get_text(strip=True) if tag else ''
+
+    def get_field(*label_texts: str) -> str:
+        for label_text in label_texts:
+            tags = soup.find_all(
+                lambda tag: tag.name in ['td', 'th', 'span', 'b', 'strong', 'div', 'label']
+                and tag.get_text(strip=True).strip(':').lower() == label_text.lower()
+            )
+            for tag in tags:
+                sibling = tag.find_next_sibling(
+                    lambda t: t.name in ['td', 'span', 'div'] and t.get_text(strip=True)
+                )
+                if sibling:
+                    return sibling.get_text(strip=True)
+
+                parent_cell = tag.find_parent(['td', 'th'])
+                if parent_cell:
+                    next_cell = parent_cell.find_next_sibling(['td', 'th'])
+                    if next_cell:
+                        return next_cell.get_text(strip=True)
+        return ''
+
+    # 1. Title
+    title = get_by_id('lbltitle') or get_field('Specification Title', 'Title')
+    if title.lower() in ("uid", "3gpp specification detail", "specification detail", "title"):
+        title = ""
+    metadata['title'] = title
+
+    # 2. Type (TS vs TR)
+    raw_type = get_by_id('lblspectype') or get_field('Specification type', 'Spec type', 'Type')
+    metadata['type'] = deduce_spec_type(clean_spec, raw_type)
+
+    # 3. Initial Planned Release
+    raw_rel = get_by_id('lblinitialrel') or get_field('Initial planned Release', 'Initial Release')
+    metadata['initial_release'] = normalize_release(raw_rel)
+
+    # 4. Primary Responsible Group
+    raw_primary = get_by_id('lblprimarywg') or get_field('Primary responsible group', 'Primary WG')
+    metadata['primary_group'] = normalize_working_group(raw_primary)
+
+    # 5. Secondary Responsible Groups
+    raw_sec = get_by_id('lblsecondarywg') or get_field('Secondary responsible groups', 'Secondary WG')
+    metadata['secondary_groups_raw'] = raw_sec
+    if raw_sec:
+        matches = re.findall(r'([a-zA-Z]+[\s]*\d*)', raw_sec)
+        clean_matches = [normalize_working_group(m) for m in matches if m.strip()]
+        metadata['secondary_groups_list'] = list(dict.fromkeys([c for c in clean_matches if c]))
+
+    # 6. Radio Technology
+    raw_tech = get_by_id('lblradiotech') or get_field('Radio technology')
+    if raw_tech:
+        matches = re.findall(r'(2G|3G|4G|LTE|5G|6G|GSM|UMTS|NB-IOT)', raw_tech, re.IGNORECASE)
+        metadata['radio_technologies_list'] = list(dict.fromkeys([m.upper() for m in matches]))
+        metadata['radio_technology'] = ", ".join(metadata['radio_technologies_list'])
+
+    return metadata
+
+
 def fetch_metadata_from_dynareport(
     spec_number: str,
     log_cb: Optional[Callable[[str, int], None]] = None
 ) -> Dict:
     """
-    Fetches and parses specification metadata from 3GPP DynaReport HTML with full logging.
-    Handles base specs and multi-part specs (e.g. 23.801-01 -> 23801-1.htm -> 23801.htm).
+    Fetches and parses specification metadata from 3GPP DynaReport HTML with logging.
+    Tests user-entered candidate format first and only accepts pages with valid specification titles.
     """
     def log(msg: str, level: int = logging.INFO):
         logger.log(level, msg)
@@ -95,8 +173,22 @@ def fetch_metadata_from_dynareport(
         series, core, part = match_parts.group(1), match_parts.group(2), match_parts.group(3)
         base = f"{series}{core}"
         if part:
-            candidates.append(f"https://www.3gpp.org/DynaReport/{base}-{int(part)}.htm")
+            # 1. Exact user-entered format first (e.g., 23801-01.htm)
             candidates.append(f"https://www.3gpp.org/DynaReport/{base}-{part}.htm")
+
+            # 2. Integer format without leading zeros (e.g., 23801-1.htm)
+            int_part = str(int(part))
+            int_url = f"https://www.3gpp.org/DynaReport/{base}-{int_part}.htm"
+            if int_url not in candidates:
+                candidates.append(int_url)
+
+            # 3. Two-digit zero-padded format (e.g., 23801-01.htm)
+            padded = int_part.zfill(2)
+            padded_url = f"https://www.3gpp.org/DynaReport/{base}-{padded}.htm"
+            if padded_url not in candidates:
+                candidates.append(padded_url)
+
+        # 4. Base specification fallback (e.g., 23801.htm)
         candidates.append(f"https://www.3gpp.org/DynaReport/{base}.htm")
     else:
         candidates.append(f"https://www.3gpp.org/DynaReport/{clean_spec.replace('.', '')}.htm")
@@ -112,112 +204,39 @@ def fetch_metadata_from_dynareport(
         'error': ''
     }
 
-    html_text = ""
-    target_url = ""
     attempt_errors: List[str] = []
 
     for url in candidates:
+        url_name = url.split('/')[-1]
         log(f"🔍 Trying DynaReport: {url}...", logging.INFO)
         try:
             resp_text = NetworkSession.get_html(url=url, timeout=12)
-            if resp_text and ("3gpp specification" in resp_text.lower() or "title" in resp_text.lower()):
-                html_text = resp_text
-                target_url = url
-                log(f"✅ Found DynaReport at: {url}", logging.INFO)
-                break
+            if not resp_text:
+                attempt_errors.append(f"{url_name} (Empty response)")
+                continue
+
+            parsed = _parse_dynareport_content(resp_text, clean_spec)
+            if parsed.get('title'):
+                metadata.update(parsed)
+                log(f"✅ Found valid DynaReport at: {url} (Title: '{metadata['title'][:30]}...')", logging.INFO)
+                return metadata
             else:
-                attempt_errors.append(f"{url.split('/')[-1]} (Empty/Invalid content)")
+                attempt_errors.append(f"{url_name} (Blank report template - no title)")
+                log(f"ℹ️ {url_name} returned blank template without title; checking next candidate...", logging.INFO)
+
         except HttpError as http_err:
-            attempt_errors.append(f"{url.split('/')[-1]} (HTTP {http_err.status_code})")
-            log(f"⚠️ {url} returned HTTP {http_err.status_code}", logging.WARNING)
+            attempt_errors.append(f"{url_name} (HTTP {http_err.status_code})")
+            log(f"⚠️ {url_name} returned HTTP {http_err.status_code}", logging.WARNING)
         except NetworkError as net_err:
-            attempt_errors.append(f"{url.split('/')[-1]} (Network error: {net_err})")
-            log(f"⚠️ {url} network error: {net_err}", logging.WARNING)
+            attempt_errors.append(f"{url_name} (Network error)")
+            log(f"⚠️ {url_name} network error: {net_err}", logging.WARNING)
         except Exception as e:
-            attempt_errors.append(f"{url.split('/')[-1]} ({e})")
-            log(f"⚠️ {url} unexpected error: {e}", logging.WARNING)
+            attempt_errors.append(f"{url_name} ({e})")
+            log(f"⚠️ {url_name} error: {e}", logging.WARNING)
 
-    if not html_text:
-        err_detail = ", ".join(attempt_errors) if attempt_errors else "All candidate URLs failed"
-        metadata['error'] = f"Report not found on 3GPP server ({err_detail})"
-        log(f"❌ {metadata['error']} for '{spec_number}'", logging.ERROR)
-        return metadata
-
-    try:
-        soup = BeautifulSoup(html_text, 'html.parser')
-
-        # Strip data grids to prevent Work Items or Release tables from interfering with metadata
-        for grid in soup.find_all(lambda tag: tag.name in ('table', 'div') and tag.has_attr('id') and (
-            'grid' in tag['id'].lower() or 'releases' in tag['id'].lower()
-        )):
-            grid.decompose()
-
-        def get_by_id(keyword: str) -> str:
-            tag = soup.find(lambda t: t.has_attr('id') and keyword in t['id'].lower())
-            return tag.get_text(strip=True) if tag else ''
-
-        def get_field(*label_texts: str) -> str:
-            for label_text in label_texts:
-                tags = soup.find_all(
-                    lambda tag: tag.name in ['td', 'th', 'span', 'b', 'strong', 'div', 'label']
-                    and tag.get_text(strip=True).strip(':').lower() == label_text.lower()
-                )
-                for tag in tags:
-                    sibling = tag.find_next_sibling(
-                        lambda t: t.name in ['td', 'span', 'div'] and t.get_text(strip=True)
-                    )
-                    if sibling:
-                        return sibling.get_text(strip=True)
-
-                    parent_cell = tag.find_parent(['td', 'th'])
-                    if parent_cell:
-                        next_cell = parent_cell.find_next_sibling(['td', 'th'])
-                        if next_cell:
-                            return next_cell.get_text(strip=True)
-            return ''
-
-        # 1. Title
-        title = get_by_id('lbltitle') or get_field('Specification Title', 'Title')
-        if title.lower() in ("uid", "3gpp specification detail", "specification detail", "title"):
-            title = ""
-        metadata['title'] = title
-
-        # 2. Type (TS vs TR)
-        raw_type = get_by_id('lblspectype') or get_field('Specification type', 'Spec type', 'Type')
-        metadata['type'] = deduce_spec_type(clean_spec, raw_type)
-
-        # 3. Initial Planned Release
-        raw_rel = get_by_id('lblinitialrel') or get_field('Initial planned Release', 'Initial Release')
-        metadata['initial_release'] = normalize_release(raw_rel)
-
-        # 4. Primary Responsible Group
-        raw_primary = get_by_id('lblprimarywg') or get_field('Primary responsible group', 'Primary WG')
-        metadata['primary_group'] = normalize_working_group(raw_primary)
-
-        # 5. Secondary Responsible Groups
-        raw_sec = get_by_id('lblsecondarywg') or get_field('Secondary responsible groups', 'Secondary WG')
-        metadata['secondary_groups_raw'] = raw_sec
-        if raw_sec:
-            matches = re.findall(r'([a-zA-Z]+[\s]*\d*)', raw_sec)
-            clean_matches = [normalize_working_group(m) for m in matches if m.strip()]
-            metadata['secondary_groups_list'] = list(dict.fromkeys([c for c in clean_matches if c]))
-
-        # 6. Radio Technology
-        raw_tech = get_by_id('lblradiotech') or get_field('Radio technology')
-        if raw_tech:
-            matches = re.findall(r'(2G|3G|4G|LTE|5G|6G|GSM|UMTS|NB-IOT)', raw_tech, re.IGNORECASE)
-            metadata['radio_technologies_list'] = list(dict.fromkeys([m.upper() for m in matches]))
-            metadata['radio_technology'] = ", ".join(metadata['radio_technologies_list'])
-        else:
-            metadata['radio_technology'] = ""
-
-        log(f"📋 Parsed: Title='{metadata['title'][:35]}...', Type={metadata['type']}, WG={metadata['primary_group']}, Rel={metadata['initial_release']}", logging.INFO)
-
-    except Exception as e:
-        err_msg = f"Parsing error for {spec_number}: {e}"
-        metadata['error'] = err_detail = err_msg
-        log(f"❌ {err_msg}", logging.ERROR)
-
+    err_detail = ", ".join(attempt_errors) if attempt_errors else "All candidate URLs failed"
+    metadata['error'] = f"Report not found on 3GPP server ({err_detail})"
+    log(f"❌ {metadata['error']} for '{spec_number}'", logging.ERROR)
     return metadata
 
 
