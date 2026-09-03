@@ -9,6 +9,7 @@ import traceback
 from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtCore import QTimer
 
 from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from core.utils.utils import get_best_java
@@ -37,22 +38,16 @@ logging.basicConfig(
     ]
 )
 
-# Global flag to signal the event loop is active
 event_loop_running = False
 
 
 def direct_console_write(message: str):
-    """Bypasses Python logging and buffers completely to guarantee terminal output."""
+    """Bypasses Python logging buffers to guarantee direct terminal output."""
     sys.__stderr__.write(message + "\n")
     sys.__stderr__.flush()
 
 
-def startup_watchdog(timeout_seconds=6.0):
-    """
-    Monitors the main thread. Uses unbuffered stderr and raw file I/O so that
-    deadlocks in Qt or logging cannot silence the dump.
-    """
-
+def startup_watchdog(timeout_seconds=7.0):
     def _monitor():
         start_time = time.time()
         dumped = False
@@ -79,7 +74,6 @@ def startup_watchdog(timeout_seconds=6.0):
                     dump_lines.append(entry)
                     direct_console_write(entry)
 
-                # Persist directly to disk
                 try:
                     with open(dump_file_path, "w", encoding="utf-8") as f:
                         f.write("\n".join(dump_lines))
@@ -98,8 +92,7 @@ if __name__ == '__main__':
         myappid = '3GPP Delegate Tools.1.0'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
-    # Start the watchdog early
-    startup_watchdog(timeout_seconds=6.0)
+    startup_watchdog(timeout_seconds=7.0)
 
     logging.info("🏁 [STARTUP] Registering plugins...")
     register_puml2visio_plugin()
@@ -149,20 +142,17 @@ if __name__ == '__main__':
     logging.info("🏁 [STARTUP] Instantiating main window (DragDropUI)...")
     window = DragDropUI()
 
-    logging.info("🏁 [STARTUP] Calling window.show()...")
-    window.show()
 
-    # Disarm watchdog as soon as Qt processes its very first event
-    from PyQt5.QtCore import QTimer
-
-
-    def on_event_loop_started():
+    def show_main_window():
         global event_loop_running
+        logging.info("🏁 [STARTUP] Displaying window inside active event loop...")
+        window.show()
         event_loop_running = True
         logging.info("🚀 [STARTUP] Qt Event Loop running smoothly.")
 
 
-    QTimer.singleShot(50, on_event_loop_started)
+    # Schedule window display on the first tick of the event loop
+    QTimer.singleShot(0, show_main_window)
 
     logging.info("🏁 [STARTUP] Entering Qt event loop (app.exec_)...")
     sys.exit(app.exec_())
