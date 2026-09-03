@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
     QSplitter,
     QTableView,
     QVBoxLayout,
-    QWidget,
+    QWidget, QComboBox,
 )
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_WARNING, \
@@ -37,8 +37,8 @@ from modules.nas.ui.nas_dialogs import NASVersionSelectDialog
 from modules.nas.ui.nas_models import NASEvolutionMatrixModel
 from modules.specifications.core.database import SpecsDatabase
 
-RE_SPEC_FROM_COL = re.compile(r"(?:24|36|38)\.[0-9]{3}")
-RE_CLAUSE_FROM_REF = re.compile(r"((?:9|6|D\.6)(?:\.[0-9A-Za-z]+)+)")
+RE_SPEC_FROM_COL = re.compile(r"(?:24|29|36|38)\.[0-9]{3}")
+RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|D\.6)(?:\.[0-9A-Za-z]+)+)")
 
 
 class NASMessageListWorker(QThread):
@@ -243,9 +243,27 @@ class NASTab(QWidget):
         matrix_widget = QWidget()
         matrix_layout = QVBoxLayout(matrix_widget)
         matrix_layout.setContentsMargins(0, 0, 0, 0)
+
+        matrix_header_layout = QHBoxLayout()
         self.matrix_title = QLabel("Select a Message to View Evolution Matrix")
         self.matrix_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1E293B;")
-        matrix_layout.addWidget(self.matrix_title)
+        matrix_header_layout.addWidget(self.matrix_title)
+        matrix_header_layout.addStretch()
+
+        self.interface_combo = QComboBox()
+        self.interface_combo.addItems(["All Interfaces", "N4", "N4mb", "Sxa", "Sxb", "Sxc"])
+        self.interface_combo.setToolTip("Filter fields by reference point / interface applicability")
+        self.interface_combo.setStyleSheet("""
+                    QComboBox {
+                        font-size: 11px; font-weight: bold; color: #0369A1;
+                        background-color: #F0F9FF; border: 1px solid #BAE6FD;
+                        border-radius: 4px; padding: 2px 8px;
+                    }
+                """)
+        self.interface_combo.setVisible(False)
+        self.interface_combo.currentIndexChanged.connect(lambda _: self._rebuild_matrix_model())
+        matrix_header_layout.addWidget(self.interface_combo)
+        matrix_layout.addLayout(matrix_header_layout)
 
         self.matrix_table = QTableView()
         self.matrix_table.setAlternatingRowColors(True)
@@ -511,12 +529,35 @@ class NASTab(QWidget):
         spec_prefix = f" ({', '.join(specs)})" if specs else ""
         self.matrix_title.setText(f"Message{spec_prefix}: {msg_name}{title_suffix}")
 
-        model = NASEvolutionMatrixModel(df, ie_filter=ie_query, search_descriptions=need_descriptions)
+        has_appl = "applicability" in df.columns and df["applicability"].fillna("").astype(str).str.strip().ne("").any()
+        self.interface_combo.blockSignals(True)
+        self.interface_combo.setVisible(has_appl)
+        if not has_appl:
+            self.interface_combo.setCurrentIndex(0)
+        self.interface_combo.blockSignals(False)
+
+        self._current_matrix_df = df
+        self._rebuild_matrix_model()
+
+    def _rebuild_matrix_model(self):
+        if not hasattr(self, "_current_matrix_df") or self._current_matrix_df.empty:
+            return
+
+        df = self._current_matrix_df
+        ie_query = self.ie_search.text().strip()
+        search_desc = self.deep_search_btn.isChecked()
+        active_if = self.interface_combo.currentText() if self.interface_combo.isVisible() else None
+
+        model = NASEvolutionMatrixModel(
+            df,
+            ie_filter=ie_query,
+            search_descriptions=(search_desc and bool(ie_query)),
+            interface_filter=active_if,
+        )
         self.matrix_table.setModel(model)
 
         h_header = self.matrix_table.horizontalHeader()
         if model.columnCount() > 0:
-            # Avoid ResizeToContents on large datasets
             h_header.setSectionResizeMode(0, QHeaderView.Interactive)
             self.matrix_table.setColumnWidth(0, 75)
 
