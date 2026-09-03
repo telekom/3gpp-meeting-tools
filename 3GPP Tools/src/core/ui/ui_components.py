@@ -153,6 +153,82 @@ GLOBAL_STYLE = """
     }
 """
 
+# Shared toolbar button stylesheets (can be placed in src/core/ui/ui_components.py)
+
+BUTTON_STYLE_TOOLBAR_SECONDARY = """
+QPushButton {
+    background-color: #F8FAFC;
+    color: #1E293B;
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+QPushButton:hover {
+    background-color: #F1F5F9;
+    border-color: #94A3B8;
+}
+QPushButton:pressed {
+    background-color: #E2E8F0;
+}
+QPushButton:disabled {
+    background-color: #F8FAFC;
+    color: #94A3B8;
+    border-color: #E2E8F0;
+}
+"""
+
+BUTTON_STYLE_TOOLBAR_DANGER = """
+QPushButton {
+    background-color: #FEF2F2;
+    color: #DC2626;
+    border: 1px solid #FECACA;
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: bold;
+}
+QPushButton:hover {
+    background-color: #FEE2E2;
+    border-color: #F87171;
+    color: #B91C1C;
+}
+QPushButton:pressed {
+    background-color: #FECACA;
+    border-color: #EF4444;
+}
+QPushButton:disabled {
+    background-color: #F8FAFC;
+    color: #94A3B8;
+    border-color: #E2E8F0;
+}
+"""
+
+BUTTON_STYLE_TOOLBAR_WARNING = """
+QPushButton {
+    background-color: #FFFBEB;
+    color: #B45309;
+    border: 1px solid #FDE68A;
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+QPushButton:hover {
+    background-color: #FEF3C7;
+    border-color: #F59E0B;
+}
+QPushButton:pressed {
+    background-color: #FDE68A;
+}
+QPushButton:disabled {
+    background-color: #F8FAFC;
+    color: #94A3B8;
+    border-color: #E2E8F0;
+}
+"""
+
 
 def create_app_icon():
     """Generates the geometric network icon, saves it physically, and loads it for Windows."""

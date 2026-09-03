@@ -29,6 +29,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_WARNING, \
+    BUTTON_STYLE_TOOLBAR_DANGER
 from core.utils.paths import get_project_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
@@ -96,20 +98,29 @@ class SpecSearchTab(QWidget):
         # Toolbar
         # ---------------------------------------------------------------------
         toolbar = QHBoxLayout()
+        toolbar.setSpacing(8)
+
         self.fetch_btn = QPushButton("📥 Import from Specs DB")
+        self.fetch_btn.setCursor(Qt.PointingHandCursor)
+        self.fetch_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.fetch_btn.clicked.connect(self._on_fetch_clicked)
         toolbar.addWidget(self.fetch_btn)
 
         self.import_local_btn = QPushButton("📁 Import Local .docx")
+        self.import_local_btn.setCursor(Qt.PointingHandCursor)
+        self.import_local_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.import_local_btn.clicked.connect(self._on_import_local_clicked)
         toolbar.addWidget(self.import_local_btn)
 
         self.clear_ver_btn = QPushButton("🗑️ Clear Version")
+        self.clear_ver_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_ver_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_WARNING)
         self.clear_ver_btn.clicked.connect(self._on_clear_version_clicked)
         toolbar.addWidget(self.clear_ver_btn)
 
         self.wipe_db_btn = QPushButton("⚠️ Wipe DB")
-        self.wipe_db_btn.setStyleSheet("color: #D32F2F; font-weight: bold;")
+        self.wipe_db_btn.setCursor(Qt.PointingHandCursor)
+        self.wipe_db_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
         self.wipe_db_btn.clicked.connect(self._on_wipe_db_clicked)
         toolbar.addWidget(self.wipe_db_btn)
 
