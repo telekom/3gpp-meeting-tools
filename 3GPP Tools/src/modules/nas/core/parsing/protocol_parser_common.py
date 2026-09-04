@@ -10,6 +10,7 @@ from modules.nas.core.parsing.rrc_asn1_parser import RRCAsn1Parser
 from modules.nas.core.parsing.ran3_asn1_parser import RAN3Asn1Parser
 from modules.nas.core.parsing.nas_parser import NASDocxParser
 from modules.nas.core.parsing.pfcp_parser import PFCPDocxParser
+from modules.nas.core.parsing.gtpu_parser import GTPUDocxParser
 
 
 class ProtocolDocxDispatcher:
@@ -66,7 +67,12 @@ class ProtocolDocxDispatcher:
             parser = PFCPDocxParser(self.docx_paths, spec_number=spec_num)
             return parser.parse(progress_callback=progress_callback)
 
-        # 4. Route standard NAS specifications (24.501, 24.301, 24.008)
+        # 4. Route GTP-U specifications (TS 29.281)
+        if "29.281" in spec_num:
+            parser = GTPUDocxParser(self.docx_paths, spec_number=spec_num)
+            return parser.parse(progress_callback=progress_callback)
+
+        # 5. Route standard NAS specifications (24.501, 24.301, 24.008)
         parser = NASDocxParser(self.docx_paths)
         messages, ie_definitions = parser.parse(progress_callback=progress_callback)
 
