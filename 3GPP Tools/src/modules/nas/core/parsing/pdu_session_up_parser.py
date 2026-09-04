@@ -13,8 +13,9 @@ from modules.nas.core.parsing.protocol_parser_utils import (
 )
 
 RE_PART_INDEX = re.compile(r"_(\d+)_")
-RE_UP_CLAUSE_HEADER = re.compile(r"^((?:5|6)\.(?:5\.2|5\.3)(?:\.[0-9A-Za-z]+)*)\s*(.*)$")
-RE_UP_FIGURE_CAPTION = re.compile(r"^Figure\s+((?:5|6)\.5\.2\.\d+-\d+)\s*[:\.]\s*(.+)$", re.IGNORECASE)
+# Match exact frame format clauses (5.5.2.x and 6.5.2.x) and IE coding clauses (5.5.3.x and 6.5.3.x)
+RE_UP_FRAME_HEADER = re.compile(r"^((?:5|6)\.5\.2\.\d+)\s*(.*)$")
+RE_UP_IE_HEADER = re.compile(r"^((?:5|6)\.5\.3\.\d+)\s*(.*)$")
 
 # Mapping of known field names to their conditional presence triggers in TS 38.415
 CONDITIONAL_FIELD_TRIGGERS = {
@@ -74,7 +75,8 @@ class PDUSessionUPDocxParser:
             raise FileNotFoundError(f"Specification file(s) not found: {self.docx_paths}")
 
         total_files = len(valid_paths)
-        raw_tables: List[Tuple[str, str, str, Any]] = []
+        self.logger.info("Starting TS %s parsing across %d file(s)", self.spec_number, total_files)
+
         ie_definitions_dict: Dict[str, Dict[str, Any]] = {}
         frame_tables: List[Tuple[str, str, Any]] = []
 
@@ -83,25 +85,31 @@ class PDUSessionUPDocxParser:
                 progress = 10 + int(file_idx / max(1, total_files) * 45)
                 progress_callback(f"Scanning TS 38.415 {docx_path.name} ({file_idx + 1}/{total_files})...", progress)
 
+            self.logger.info("[File %d/%d] Reading %s", file_idx + 1, total_files, docx_path.name)
             root = extract_document_root(docx_path)
             if root is None:
+                self.logger.warning("Could not extract word/document.xml from %s", docx_path.name)
                 continue
 
             body = root.find(TAG_BODY)
             if body is None:
+                self.logger.warning("No body node found in %s", docx_path.name)
                 continue
 
+            in_body = False
             current_clause_num = ""
             current_clause_title = ""
             current_ie_html: List[str] = []
             pending_frame_clause = ""
             pending_frame_name = ""
+            pending_p_count = 0
 
             def _finalize_ie():
                 nonlocal current_clause_num, current_clause_title, current_ie_html
                 if current_clause_num and current_clause_title and current_ie_html:
                     norm_k = self._normalize_key(current_clause_title)
                     if norm_k not in ie_definitions_dict:
+                        self.logger.debug("Captured IE definition: [%s] '%s'", current_clause_num, current_clause_title)
                         ie_definitions_dict[norm_k] = {
                             "clause": current_clause_num,
                             "name": current_clause_title,
@@ -109,7 +117,7 @@ class PDUSessionUPDocxParser:
                             "raw_description": "".join(current_ie_html),
                             "structure_table": json.dumps([]),
                         }
-                    # Also map acronym/short token (e.g. QFI, RQI, PPI, SNP)
+                    # Map short acronym token (e.g. QFI, RQI, PPI, SNP, MSNP, PSSN, PSI)
                     paren_match = re.search(r"\(([^)]+)\)", current_clause_title)
                     if paren_match:
                         short_k = self._normalize_key(paren_match.group(1))
@@ -126,42 +134,72 @@ class PDUSessionUPDocxParser:
                     if not p_text:
                         continue
 
-                    match_hdr = RE_UP_CLAUSE_HEADER.match(p_text)
-                    if match_hdr:
-                        cl_num = match_hdr.group(1).strip()
-                        cl_title = match_hdr.group(2).strip()
+                    # Step 1: Ignore Table of Contents and front matter.
+                    # Strict match ensures TOC lines like "1 Scope 6" are ignored until the actual heading appears.
+                    if not in_body:
+                        if re.match(r"^1\.?\s+Scope$", p_text.strip(), re.IGNORECASE):
+                            in_body = True
+                            self.logger.info("Found Scope boundary ('%s'). Transitioned to specification body.", p_text.strip())
+                        continue
 
-                        # Frame Format Clauses (Clause 5.5.2.x and 6.5.2.x)
-                        if ".5.2." in cl_num and cl_title:
-                            _finalize_ie()
-                            pending_frame_clause = cl_num
-                            pending_frame_name = cl_title
-                            continue
+                    p_text_clean = re.sub(r"\s+\d+$", "", p_text).strip()
 
-                        # IE Coding Definition Clauses (Clause 5.5.3.x and 6.5.3.x)
-                        if ".5.3." in cl_num and cl_title:
-                            _finalize_ie()
-                            current_clause_num = cl_num
-                            current_clause_title = cl_title
-                            current_ie_html = [
-                                f'<h2 style="color: #0284C7; margin-top: 4px; margin-bottom: 6px; '
-                                f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
-                                f'{html.escape(cl_title)} (Clause {cl_num})</h2>'
-                            ]
-                            continue
-                        else:
-                            _finalize_ie()
+                    # Step 2: Check for Frame Format Clauses (5.5.2.1, 5.5.2.2, 6.5.2.1)
+                    match_frame = RE_UP_FRAME_HEADER.match(p_text_clean)
+                    if match_frame:
+                        _finalize_ie()
+                        cl_num = match_frame.group(1).strip()
+                        cl_title = self._clean_frame_name(match_frame.group(2), cl_num)
 
-                    # Check for Figure caption identifying a preceding frame table
-                    match_fig = RE_UP_FIGURE_CAPTION.match(p_text)
-                    if match_fig:
-                        fig_num = match_fig.group(1).strip()
-                        fig_title = match_fig.group(2).strip()
-                        if frame_tables and frame_tables[-1][1] == "":
-                            # Associate previous unnamed frame table with this caption
-                            last_idx = len(frame_tables) - 1
-                            prev_clause, _, tbl = frame_tables[last_idx]
-                            frame_tables[last_idx] = (prev_clause, fig_title, tbl)
+                        if pending_frame_clause:
+                            self.logger.warning(
+                                "Overwriting unfulfilled frame candidate [%s] '%s' with new candidate [%s] '%s'",
+                                pending_frame_clause, pending_frame_name, cl_num, cl_title
+                            )
+
+                        pending_frame_clause = cl_num
+                        pending_frame_name = cl_title
+                        pending_p_count = 0
+                        self.logger.info("Detected frame heading candidate: [%s] '%s'", cl_num, cl_title)
+                        continue
+
+                    # Step 3: Check for IE Definition Clauses (5.5.3.x and 6.5.3.x)
+                    match_ie = RE_UP_IE_HEADER.match(p_text_clean)
+                    if match_ie:
+                        _finalize_ie()
+                        current_clause_num = match_ie.group(1).strip()
+                        current_clause_title = match_ie.group(2).strip()
+                        self.logger.debug("Entering IE coding section: [%s] '%s'", current_clause_num, current_clause_title)
+                        current_ie_html = [
+                            f'<h2 style="color: #0284C7; margin-top: 4px; margin-bottom: 6px; '
+                            f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
+                            f'{html.escape(current_clause_title)} (Clause {current_clause_num})</h2>'
+                        ]
+                        if pending_frame_clause:
+                            self.logger.warning(
+                                "Entered IE coding clause [%s] while frame [%s] '%s' was still pending a table.",
+                                current_clause_num, pending_frame_clause, pending_frame_name
+                            )
+                        pending_frame_clause = ""
+                        pending_frame_name = ""
+                        continue
+                    elif re.match(r"^(?:[1-6]\.[0-9]|Annex)", p_text_clean):
+                        _finalize_ie()
+
+                    # Paragraph distance tracking between frame heading and table
+                    if pending_frame_clause:
+                        pending_p_count += 1
+                        self.logger.debug(
+                            "Paragraph %d after frame [%s]: '%s'",
+                            pending_p_count, pending_frame_clause, p_text_clean[:60]
+                        )
+                        if pending_p_count > 15:
+                            self.logger.warning(
+                                "Discarded pending frame candidate [%s] '%s' after %d paragraphs without finding a table.",
+                                pending_frame_clause, pending_frame_name, pending_p_count
+                            )
+                            pending_frame_clause = ""
+                            pending_frame_name = ""
 
                     if current_clause_num:
                         if p_text.startswith(("Description:", "Value range:", "Field length:", "Field Length:")):
@@ -182,8 +220,25 @@ class PDUSessionUPDocxParser:
                             )
 
                 elif elem.tag == TAG_TBL:
+                    num_rows = len(elem.findall(TAG_TR))
+                    self.logger.debug(
+                        "Encountered table with %d rows. Active context -> pending_frame: [%s] '%s', current_ie: [%s]",
+                        num_rows, pending_frame_clause, pending_frame_name, current_clause_num
+                    )
+
                     if pending_frame_clause:
-                        frame_tables.append((pending_frame_clause, pending_frame_name, elem))
+                        is_valid = self._is_valid_frame_table(elem)
+                        if is_valid:
+                            self.logger.info(
+                                "Assigned table (%d rows) to frame format [%s] '%s'",
+                                num_rows, pending_frame_clause, pending_frame_name
+                            )
+                            frame_tables.append((pending_frame_clause, pending_frame_name, elem))
+                        else:
+                            self.logger.warning(
+                                "Table (%d rows) following frame heading [%s] rejected by _is_valid_frame_table.",
+                                num_rows, pending_frame_clause
+                            )
                         pending_frame_clause = ""
                         pending_frame_name = ""
 
@@ -193,18 +248,22 @@ class PDUSessionUPDocxParser:
                             current_ie_html.append(tbl_html)
 
             _finalize_ie()
+            if not in_body:
+                self.logger.error("Failed to detect '1 Scope' in %s. Ingestion was skipped!", docx_path.name)
 
         if progress_callback:
             progress_callback("Extracting bit-level frame formats for PDU Session & PDU Set User Plane...", 65)
 
-        # Build message records from frame tables
+        self.logger.info("Found %d raw frame table(s) across specifications", len(frame_tables))
         messages: List[Dict[str, Any]] = []
+
         for clause_num, frame_name, tbl_elem in frame_tables:
             clean_msg_name = self._clean_frame_name(frame_name, clause_num)
+            self.logger.info("Parsing fields for frame: [%s] '%s'", clause_num, clean_msg_name)
             ies = self._parse_frame_table(tbl_elem, clause_num, ie_definitions_dict)
 
             if ies:
-                # Also store the complete HTML table figure in ie_definitions under the message name
+                self.logger.info("Extracted %d field(s) for message '%s'", len(ies), clean_msg_name)
                 tbl_figure_html = _convert_table_to_html(tbl_elem, is_figure_diagram=True)
                 ie_definitions_dict[self._normalize_key(clean_msg_name)] = {
                     "clause": clause_num,
@@ -229,16 +288,48 @@ class PDUSessionUPDocxParser:
                     "ies": ies,
                     "fields": ies,
                 })
+            else:
+                self.logger.warning("Frame [%s] '%s' yielded 0 fields after parsing!", clause_num, clean_msg_name)
 
         ie_definitions = list(ie_definitions_dict.values())
-        self.logger.info("Completed parsing TS %s: Loaded %d messages and %d definitions",
-                         self.spec_number, len(messages), len(ie_definitions))
+        self.logger.info(
+            "Completed parsing TS %s: Successfully generated %d message(s) and %d definition(s)",
+            self.spec_number, len(messages), len(ie_definitions)
+        )
+        for idx, m in enumerate(messages, 1):
+            self.logger.info("  [%d] Message: '%s' (Clause %s) with %d fields", idx, m["message_name"], m["clause"], len(m["ies"]))
+
         return messages, ie_definitions
+
+    def _is_valid_frame_table(self, tbl_elem: Any) -> bool:
+        """Verifies that a Word table contains a genuine bit/octet frame layout."""
+        rows = tbl_elem.findall(TAG_TR)
+        if len(rows) < 2:
+            self.logger.debug("Table rejected: less than 2 rows (%d)", len(rows))
+            return False
+
+        first_rows_text = " ".join(
+            _extract_tc_text(c).lower()
+            for r in rows[:2]
+            for c in r.findall(TAG_TC)
+        )
+        has_bit = "bit" in first_rows_text
+        has_octet = "octet" in first_rows_text
+
+        if not (has_bit and has_octet):
+            self.logger.debug(
+                "Table rejected by header check (has_bit=%s, has_octet=%s). Sample: '%s'",
+                has_bit, has_octet, first_rows_text[:80]
+            )
+            return False
+
+        return True
 
     def _clean_frame_name(self, raw_name: str, clause_num: str) -> str:
         s = raw_name.strip()
         s = re.sub(r"(?i)\s*format$", "", s).strip()
-        if not s:
+        s = re.sub(r"\s+\d+$", "", s).strip()
+        if not s or s.isdigit():
             if "5.5.2.1" in clause_num:
                 return "DL PDU SESSION INFORMATION (PDU Type 0)"
             elif "5.5.2.2" in clause_num:
@@ -248,41 +339,55 @@ class PDUSessionUPDocxParser:
             return f"User Plane Frame (Clause {clause_num})"
         return s
 
+    def _is_header_or_bit_scale_row(self, cells: List[Any]) -> bool:
+        """Identifies header rows and bit-scale indicator rows (e.g. 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0)."""
+        texts = [_extract_tc_text(c).strip() for c in cells if _extract_tc_text(c).strip()]
+        if not texts:
+            return True
+        # Row of pure bit numbers 0-7
+        if all(t.isdigit() and int(t) <= 7 for t in texts):
+            return True
+        # Header row containing "Bits" and "Number of Octets"
+        joined = " ".join(t.lower() for t in texts)
+        if any(k in joined for k in ("number of octet", "number of octets", "bits")):
+            non_hdr_tokens = [t for t in texts if t.lower() not in ("bits", "octets", "number of octets", "number of octet")]
+            if all(t.isdigit() and int(t) <= 7 for t in non_hdr_tokens):
+                return True
+        return False
+
     def _parse_frame_table(
         self, tbl_elem: Any, clause_num: str, ie_defs: Dict[str, Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Extracts individual bit fields and octet fields from TS 38.415 frame tables."""
         rows = tbl_elem.findall(TAG_TR)
         if not rows:
             return []
 
-        # Determine default reference points based on section
         is_pdu_set = clause_num.startswith("6.")
         default_appl = "NG-U, Xn-U, F1-U, N9" if is_pdu_set else "NG-U, Xn-U, N9"
 
-        header_idx = -1
-        for r_idx in range(min(3, len(rows))):
-            row_text = " ".join(_extract_tc_text(c).lower() for c in rows[r_idx].findall(TAG_TC))
-            if any(k in row_text for k in ("bit", "octet", "number of octet")):
-                header_idx = r_idx
-                break
-
-        data_start_idx = header_idx + 1 if header_idx != -1 else 1
         ies: List[Dict[str, Any]] = []
+        current_octet = 0
 
-        for r_offset in range(data_start_idx, len(rows)):
-            row = rows[r_offset]
+        for r_idx, row in enumerate(rows):
             cells = row.findall(TAG_TC)
-            if not cells:
+            if not cells or self._is_header_or_bit_scale_row(cells):
                 continue
 
-            # The final cell contains the Octet count/position (e.g., '1', '0 or 1', '0 or 8', '0-3')
             last_cell_text = _extract_tc_text(cells[-1]).strip()
             data_cells = cells[:-1] if len(cells) > 1 else cells
 
+            # Track octet numbering
+            if last_cell_text.isdigit():
+                current_octet += int(last_cell_text)
+            elif "or" in last_cell_text or "-" in last_cell_text:
+                current_octet += 1
+
             for c in data_cells:
                 raw_text = _extract_tc_text(c).strip()
-                if not raw_text or raw_text.lower() in ("bits", "number of octets"):
+                if not raw_text or raw_text.lower() in ("bits", "number of octets", "number of octet"):
+                    continue
+
+                if raw_text.isdigit() and int(raw_text) <= 7:
                     continue
 
                 span = self._get_tc_grid_span(c)
@@ -293,8 +398,10 @@ class PDUSessionUPDocxParser:
                 if span < 8 and (len(data_cells) > 1 or not any(k in last_cell_text for k in ("octet", "or"))):
                     length_desc = f"{span} bit" if span == 1 else f"{span} bits"
                     fmt_desc = "Flag" if span == 1 else "Bit field"
+                    bit_count = span
                 else:
                     length_desc = f"{last_cell_text} octets" if last_cell_text.isdigit() else last_cell_text
+                    bit_count = int(last_cell_text) * 8 if last_cell_text.isdigit() else 0
                     if "time" in norm_k:
                         fmt_desc = "Timestamp"
                     elif any(k in norm_k for k in ("sn", "sequencenumber", "result", "size", "importance")):
@@ -302,16 +409,28 @@ class PDUSessionUPDocxParser:
                     else:
                         fmt_desc = "Octet field"
 
-                # Determine presence requirement
+                # Multi-row split field stitching (e.g. PSSN across Octets 2 & 3)
+                if ies and ies[-1]["name"] == clean_name and bit_count > 0:
+                    prev_len_str = ies[-1]["length"]
+                    prev_match = re.match(r"^(\d+)\s+bit", prev_len_str)
+                    if prev_match:
+                        combined_bits = int(prev_match.group(1)) + bit_count
+                        ies[-1]["length"] = f"{combined_bits} bits"
+                        ies[-1]["format"] = "Bit field"
+                        self.logger.debug("Stitched multi-row field '%s': %s -> %s", clean_name, prev_len_str, ies[-1]["length"])
+                        continue
+
+                display_name = clean_name
+                if norm_k == "spare":
+                    display_name = f"Spare (Octet {current_octet})" if current_octet > 0 else f"Spare ({length_desc})"
+
                 if last_cell_text.startswith("0") or "0 or" in last_cell_text or "0-" in last_cell_text:
                     presence = CONDITIONAL_FIELD_TRIGGERS.get(norm_k, "C")
                 else:
                     presence = "M"
 
-                # Resolve Clause 5.5.3 / 6.5.3 definition link
                 ref_info = ie_defs.get(norm_k)
                 if not ref_info:
-                    # Try matching without acronym parentheses
                     base_token = re.sub(r"\(.*?\)", "", clean_name).strip()
                     ref_info = ie_defs.get(self._normalize_key(base_token))
 
@@ -320,10 +439,10 @@ class PDUSessionUPDocxParser:
 
                 ies.append({
                     "iei": "-",
-                    "name": clean_name,
-                    "field": clean_name,
-                    "information_element": clean_name,
-                    "field_path": clean_name,
+                    "name": display_name,
+                    "field": display_name,
+                    "information_element": display_name,
+                    "field_path": display_name,
                     "depth": 0,
                     "type": type_ref,
                     "type_reference": type_ref,
@@ -338,8 +457,6 @@ class PDUSessionUPDocxParser:
     @staticmethod
     def _clean_field_name(raw: str) -> str:
         s = raw.strip()
-        # Normalize PDU Type (=0) -> PDU Type
         s = re.sub(r"\(=[01]\)", "", s).strip()
-        # Clean extra spaces in Delay labels
         s = re.sub(r"\s+", " ", s).strip()
         return s
