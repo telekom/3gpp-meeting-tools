@@ -532,7 +532,25 @@ class NASTab(QWidget):
         has_appl = "applicability" in df.columns and df["applicability"].fillna("").astype(str).str.strip().ne("").any()
         self.interface_combo.blockSignals(True)
         self.interface_combo.setVisible(has_appl)
-        if not has_appl:
+        if has_appl:
+            current_choice = self.interface_combo.currentText()
+            # Extract unique interfaces from applicability column
+            unique_ifaces = set()
+            for raw_val in df["applicability"].dropna():
+                for part in str(raw_val).split(","):
+                    token = part.strip()
+                    if token and token.upper() not in ("ALL INTERFACES", "ALL"):
+                        unique_ifaces.add(token)
+
+            self.interface_combo.clear()
+            self.interface_combo.addItem("All Interfaces")
+            for iface in sorted(unique_ifaces):
+                self.interface_combo.addItem(iface)
+
+            # Preserve selection if valid in new message
+            idx = self.interface_combo.findText(current_choice)
+            self.interface_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        else:
             self.interface_combo.setCurrentIndex(0)
         self.interface_combo.blockSignals(False)
 

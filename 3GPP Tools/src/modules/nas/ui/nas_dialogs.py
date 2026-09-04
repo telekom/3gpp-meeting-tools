@@ -27,6 +27,7 @@ def get_spec_title(spec_number: str) -> str:
         "36.331": "TS 36.331 (LTE RRC)",
         "38.413": "TS 38.413 (NGAP)",
         "29.244": "TS 29.244 (PFCP)",
+        "29.281": "TS 29.281 (GTP-U)",
         "24.501": "TS 24.501 (5GS NAS)",
         "24.301": "TS 24.301 (EPS NAS)",
         "24.008": "TS 24.008 (Core Network)",
@@ -68,6 +69,7 @@ class NASVersionSelectDialog(QDialog):
         self.spec_combo.addItem("TS 36.331 (LTE RRC)", "36.331")
         self.spec_combo.addItem("TS 38.413 (NGAP)", "38.413")
         self.spec_combo.addItem("TS 29.244 (PFCP)", "29.244")
+        self.spec_combo.addItem("TS 29.281 (GTP-U)", "29.281")
         self.spec_combo.addItem("TS 24.501 (5GS NAS)", "24.501")
         self.spec_combo.addItem("TS 24.301 (EPS NAS)", "24.301")
         self.spec_combo.currentIndexChanged.connect(self._load_available_versions)
