@@ -38,7 +38,7 @@ from modules.nas.ui.nas_models import NASEvolutionMatrixModel
 from modules.specifications.core.database import SpecsDatabase
 
 RE_SPEC_FROM_COL = re.compile(r"(?:24|29|36|38)\.[0-9]{3}")
-RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|D\.6)(?:\.[0-9A-Za-z]+)+)")
+RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|5|D\.6)(?:\.[0-9A-Za-z]+)+)")
 
 
 class NASMessageListWorker(QThread):
