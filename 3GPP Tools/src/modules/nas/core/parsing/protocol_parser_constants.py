@@ -20,7 +20,7 @@ TAG_JC = f"{W_NS}jc"
 
 # Path & Specification Number Regular Expressions
 RE_PART_INDEX = re.compile(r"_(\d+)_")
-RE_SPEC_NUMBER = re.compile(r"(24|25|29|36|37|38)[._]?(301|501|331|413|423|412|473|463|244|281)")
+RE_SPEC_NUMBER = re.compile(r"(24|25|29|36|37|38)[._]?(301|501|331|413|423|412|473|463|244|281|415)")
 RE_VERSION_STEM = re.compile(r"-([a-zA-Z0-9]{3})(?:_\d+.*)?$")
 
 # Headings & Captions
