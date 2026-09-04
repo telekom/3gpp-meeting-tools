@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
+    QComboBox,
     QDialog,
     QFileDialog,
     QGroupBox,
@@ -14,6 +15,7 @@ from PyQt5.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QListView,
     QListWidget,
     QListWidgetItem,
     QMenu,
@@ -23,11 +25,15 @@ from PyQt5.QtWidgets import (
     QSplitter,
     QTableView,
     QVBoxLayout,
-    QWidget, QComboBox,
+    QWidget,
 )
 
-from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_WARNING, \
-    BUTTON_STYLE_TOOLBAR_DANGER
+from core.ui.ui_components import (
+    BUTTON_STYLE_TOOLBAR_SECONDARY,
+    BUTTON_STYLE_TOOLBAR_WARNING,
+    BUTTON_STYLE_TOOLBAR_DANGER,
+    COMBOBOX_STYLE_TOOLBAR,
+)
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
 from modules.nas.core.nas_threads import NASFetchAndImportThread
@@ -217,14 +223,14 @@ class NASTab(QWidget):
                 padding: 2px 6px;
             }
             QPushButton:hover {
-                color: #0369A1;
-                background-color: #E0F2FE;
-                border-color: #0284C7;
+                color: #1E5C99;
+                background-color: #EBF3FC;
+                border-color: #1E5C99;
             }
             QPushButton:checked {
-                color: #0369A1;
-                background-color: #E0F2FE;
-                border: 1.5px solid #0284C7;
+                color: #1E5C99;
+                background-color: #EBF3FC;
+                border: 1.5px solid #1E5C99;
             }
         """)
         self.deep_search_btn.toggled.connect(self._on_deep_search_toggled)
@@ -250,16 +256,16 @@ class NASTab(QWidget):
         matrix_header_layout.addWidget(self.matrix_title)
         matrix_header_layout.addStretch()
 
+        # Interface Filter Dropdown styled using the application-wide COMBOBOX_STYLE_TOOLBAR
         self.interface_combo = QComboBox()
-        self.interface_combo.addItems(["All Interfaces", "N4", "N4mb", "Sxa", "Sxb", "Sxc"])
+        list_view = QListView(self.interface_combo)
+        list_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        list_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.interface_combo.setView(list_view)
+        self.interface_combo.setMaxVisibleItems(25)
+        self.interface_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.interface_combo.setToolTip("Filter fields by reference point / interface applicability")
-        self.interface_combo.setStyleSheet("""
-                    QComboBox {
-                        font-size: 11px; font-weight: bold; color: #0369A1;
-                        background-color: #F0F9FF; border: 1px solid #BAE6FD;
-                        border-radius: 4px; padding: 2px 8px;
-                    }
-                """)
+        self.interface_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
         self.interface_combo.setVisible(False)
         self.interface_combo.currentIndexChanged.connect(lambda _: self._rebuild_matrix_model())
         matrix_header_layout.addWidget(self.interface_combo)
@@ -509,7 +515,6 @@ class NASTab(QWidget):
         desc_label = " (incl. Desc)" if search_desc and ie_query else ""
         title_suffix = f" (Filtered by IE{desc_label}: '{ie_query}')" if ie_query else ""
 
-        # Only pull descriptions from DB if searching with active deep search
         need_descriptions = search_desc and bool(ie_query)
 
         df = self.db.get_message_evolution_df(
@@ -534,7 +539,6 @@ class NASTab(QWidget):
         self.interface_combo.setVisible(has_appl)
         if has_appl:
             current_choice = self.interface_combo.currentText()
-            # Extract unique interfaces from applicability column
             unique_ifaces = set()
             for raw_val in df["applicability"].dropna():
                 for part in str(raw_val).split(","):
@@ -547,7 +551,8 @@ class NASTab(QWidget):
             for iface in sorted(unique_ifaces):
                 self.interface_combo.addItem(iface)
 
-            # Preserve selection if valid in new message
+            self.interface_combo.setMaxVisibleItems(max(20, len(unique_ifaces) + 2))
+
             idx = self.interface_combo.findText(current_choice)
             self.interface_combo.setCurrentIndex(idx if idx >= 0 else 0)
         else:
@@ -707,8 +712,8 @@ class NASTab(QWidget):
                 padding: 4px 15px;
             }
             QMenu::item:selected {
-                background-color: #E0F2FE;
-                color: #0369A1;
+                background-color: #EBF3FC;
+                color: #1E5C99;
             }
         """)
 
@@ -839,13 +844,6 @@ class NASTab(QWidget):
             logging.INFO,
         )
         self.refresh_versions()
-
-    def _on_import_error(self, err: str):
-        self.progress_bar.setVisible(False)
-        self.fetch_btn.setEnabled(True)
-        self.import_file_btn.setEnabled(True)
-        QMessageBox.critical(self, "Ingestion Error", err)
-        self.log_msg.emit(f"❌ Ingestion failed: {err}", logging.ERROR)
 
     def _on_clear_version_clicked(self):
         checked_versions = self.version_tree.get_checked_versions_info()

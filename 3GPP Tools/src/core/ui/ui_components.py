@@ -229,6 +229,70 @@ QPushButton:disabled {
 }
 """
 
+COMBOBOX_STYLE_TOOLBAR = """
+QComboBox {
+    combobox-popup: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: #1E293B;
+    background-color: #F8FAFC;
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+    padding: 3px 22px 3px 10px;
+    min-height: 22px;
+}
+QComboBox:hover {
+    background-color: #F1F5F9;
+    border-color: #94A3B8;
+}
+QComboBox:focus, QComboBox:on {
+    background-color: #FFFFFF;
+    border-color: #1E5C99;
+}
+QComboBox QAbstractItemView {
+    border: 1px solid #CBD5E1;
+    border-radius: 6px;
+    background-color: #FFFFFF;
+    color: #1E293B;
+    selection-background-color: #EBF3FC;
+    selection-color: #1E5C99;
+    padding: 4px;
+    outline: none;
+}
+QComboBox QAbstractItemView::item {
+    min-height: 22px;
+    padding: 2px 8px;
+    border-radius: 3px;
+}
+QComboBox QAbstractItemView::item:hover {
+    background-color: #F1F5F9;
+    color: #0F172A;
+}
+QComboBox QAbstractItemView::item:selected {
+    background-color: #EBF3FC;
+    color: #1E5C99;
+    font-weight: bold;
+}
+QScrollBar:vertical {
+    border: none;
+    background: #F8FAFC;
+    width: 8px;
+    margin: 4px 0;
+    border-radius: 4px;
+}
+QScrollBar::handle:vertical {
+    background: #CBD5E1;
+    min-height: 20px;
+    border-radius: 4px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #94A3B8;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+"""
+
 
 def create_app_icon():
     """Generates the geometric network icon, saves it physically, and loads it for Windows."""
