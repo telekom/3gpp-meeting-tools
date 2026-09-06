@@ -6,9 +6,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import networkx as nx
 
-from core.config.plot_styles import THEME_COLOR, CLUSTER_PALETTE
+from core.config.plot_styles import THEME_COLOR
 from core.utils.company_sanitizer import CompanySanitizer
 
 # Semantic color palette for standard 3GPP contribution outcomes
@@ -77,9 +76,6 @@ class ContributionStatsExporterThread(QThread):
         self.target_wis = target_wis or []
         self.config = config or {}
 
-        self.threshold = self.config.get("threshold", 1)
-        self.resolution = self.config.get("resolution", 1.5)
-
     def run(self):
         try:
             self.export_dir.mkdir(parents=True, exist_ok=True)
@@ -95,6 +91,9 @@ class ContributionStatsExporterThread(QThread):
             # Exclude withdrawn documents from statistical analysis
             df = df[df['Clean_Status'] != 'Withdrawn'].copy()
             df['Clean_Companies'] = df['Source'].apply(CompanySanitizer.get_matching_contributors)
+
+            # Working Group cleanup
+            df['WG'] = df['WG'].fillna('').replace('', '3GPP')
 
             # Extract Month (YYYY-MM) from Meeting End Date
             def extract_month(date_str):
@@ -126,15 +125,15 @@ class ContributionStatsExporterThread(QThread):
             joint_count = total_tdocs - solo_count
             joint_pct = round((joint_count / total_tdocs) * 100, 1) if total_tdocs else 0
 
+            unique_wgs = df['WG'].nunique()
             unique_wis = len(set(wi for sublist in df['Clean_WI_List'] for wi in sublist if wi != 'Unspecified'))
 
-            # Generate Charts
+            # Generate Charts (Alliance Network & Focus Matrix removed)
             html_timeline = self._generate_timeline_plot(df)
             html_status = self._generate_outcomes_plot(df)
-            html_wi = self._generate_wi_allocation_plot(df)
             html_partners = self._generate_partner_vendors_plot(df)
-            html_network = self._generate_alliance_network_plot(df)
-            html_heatmap = self._generate_heatmap_plot(df)
+            html_wg_activity = self._generate_wg_activity_plot(df)
+            html_wi = self._generate_wi_allocation_plot(df)
 
             target_str = ", ".join(sorted(list(self.target_companies))) if self.target_companies else "All Entities"
             dashboard_html = f"""<!DOCTYPE html>
@@ -152,7 +151,7 @@ class ContributionStatsExporterThread(QThread):
         .kpi-card h3 {{ margin: 0; font-size: 28px; color: #1E5C99; }}
         .kpi-card p {{ margin: 4px 0 0; color: #64748B; font-size: 11px; text-transform: uppercase; font-weight: bold; }}
         .grid-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }}
-        .chart-card {{ position: relative; background: #FFFFFF; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); padding: 40px 16px 16px 16px; height: 480px; display: flex; flex-direction: column; }}
+        .chart-card {{ position: relative; background: #FFFFFF; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); padding: 40px 16px 16px 16px; height: 460px; display: flex; flex-direction: column; }}
         .chart-card > div {{ flex-grow: 1; width: 100%; height: 100%; }}
         .fs-btn {{ position: absolute; top: 12px; right: 12px; z-index: 100; cursor: pointer; background: #EBF3FC; color: #1E5C99; border: 1px solid #BFDBFE; border-radius: 4px; padding: 4px 10px; font-weight: bold; font-size: 11px; }}
         .fs-btn:hover {{ background: #DBEAFE; }}
@@ -168,14 +167,14 @@ class ContributionStatsExporterThread(QThread):
     </script>
 </head>
 <body>
-    <h1>📊 3GPP Cross-Meeting Contribution & Alliance Audit</h1>
+    <h1>📊 3GPP Cross-Meeting Contribution & Working Group Audit</h1>
     <p class="subtitle">Focus Entities: <b>{target_str}</b> | Audited Dataset: <b>{total_tdocs} Contributions</b></p>
 
     <div class="kpi-container">
         <div class="kpi-card"><h3>{total_tdocs}</h3><p>Total TDocs</p></div>
         <div class="kpi-card"><h3>{agree_pct}%</h3><p>Agreement Rate</p></div>
+        <div class="kpi-card"><h3>{unique_wgs}</h3><p>Active Working Groups</p></div>
         <div class="kpi-card"><h3>{joint_pct}%</h3><p>Joint Contributions</p></div>
-        <div class="kpi-card"><h3>{solo_count}</h3><p>Solo Submissions</p></div>
         <div class="kpi-card"><h3>{unique_wis}</h3><p>Active Work Items</p></div>
     </div>
 
@@ -195,19 +194,14 @@ class ContributionStatsExporterThread(QThread):
             {html_partners}
         </div>
 
-        <div class="chart-card" style="grid-column: 1 / -1; height: 500px;">
+        <div class="chart-card" style="grid-column: 1 / -1; height: 480px;">
+            <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+            {html_wg_activity}
+        </div>
+
+        <div class="chart-card" style="grid-column: 1 / -1; height: 480px;">
             <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
             {html_wi}
-        </div>
-
-        <div class="chart-card" style="grid-column: 1 / -1; height: 720px;">
-            <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
-            {html_network}
-        </div>
-
-        <div class="chart-card" style="grid-column: 1 / -1; height: 600px;">
-            <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
-            {html_heatmap}
         </div>
     </div>
 </body>
@@ -274,30 +268,6 @@ class ContributionStatsExporterThread(QThread):
         )
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
-    def _generate_wi_allocation_plot(self, df: pd.DataFrame) -> str:
-        exploded_wi = df.explode('Clean_WI_List')
-        wi_counts = exploded_wi['Clean_WI_List'].value_counts()
-        wi_counts = wi_counts[wi_counts.index != 'Unspecified'].head(20).sort_values(ascending=True)
-
-        if wi_counts.empty:
-            wi_counts = exploded_wi['Clean_WI_List'].value_counts().head(20).sort_values(ascending=True)
-
-        fig = go.Figure(go.Bar(
-            x=wi_counts.values.tolist(),
-            y=wi_counts.index.tolist(),
-            orientation='h',
-            marker=dict(color=THEME_COLOR),
-            hovertemplate="<b>%{y}</b><br>TDocs: %{x}<extra></extra>"
-        ))
-        fig.update_layout(
-            title="Work Item & Study Item Allocation (Top 20 Related WIs)",
-            xaxis_title="Contributions Count",
-            yaxis_title=None,
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)'
-        )
-        return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
-
     def _generate_partner_vendors_plot(self, df: pd.DataFrame) -> str:
         partner_counts = {}
         for companies in df['Clean_Companies']:
@@ -334,122 +304,55 @@ class ContributionStatsExporterThread(QThread):
         )
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
-    def _generate_alliance_network_plot(self, df: pd.DataFrame) -> str:
-        G = nx.Graph()
-        for companies in df['Clean_Companies']:
-            if len(companies) > 1:
-                for i in range(len(companies)):
-                    for j in range(i + 1, len(companies)):
-                        c1, c2 = companies[i], companies[j]
-                        if self.target_companies and (c1 not in self.target_companies and c2 not in self.target_companies):
-                            continue
-                        if G.has_edge(c1, c2):
-                            G[c1][c2]['weight'] += 1
-                        else:
-                            G.add_edge(c1, c2, weight=1)
+    def _generate_wg_activity_plot(self, df: pd.DataFrame) -> str:
+        """Visualizes company contributions across the different Working Groups."""
+        wg_df = df[df['WG'].str.strip() != ''].copy()
+        if wg_df.empty:
+            return "<p style='padding:20px; color:#666;'>No Working Group data available.</p>"
 
-        edges_to_remove = [(u, v) for u, v, data in G.edges(data=True) if data['weight'] < self.threshold]
-        G.remove_edges_from(edges_to_remove)
-        G.remove_nodes_from(list(nx.isolates(G)))
+        grouped = wg_df.groupby(['WG', 'Clean_Status']).size().reset_index(name='Count')
+        total_per_wg = wg_df['WG'].value_counts()
+        wg_order = total_per_wg.index.tolist()
 
-        if len(G.nodes) == 0:
-            return "<p style='padding:20px; color:#666;'>Not enough co-signed documents to construct the alliance network graph.</p>"
-
-        pos = nx.spring_layout(G, k=0.6, seed=42)
-        traces = []
-
-        edge_x, edge_y = [], []
-        mid_x, mid_y, mid_text = [], [], []
-
-        for u, v, data in G.edges(data=True):
-            edge_x.extend([pos[u][0], pos[v][0], None])
-            edge_y.extend([pos[u][1], pos[v][1], None])
-            mid_x.append((pos[u][0] + pos[v][0]) / 2)
-            mid_y.append((pos[u][1] + pos[v][1]) / 2)
-            mid_text.append(f"<b>{u}</b> 🤝 <b>{v}</b><br>Shared TDocs: {data['weight']}")
-
-        traces.append(go.Scatter(
-            x=edge_x, y=edge_y, line=dict(width=1.5, color='#CBD5E1'),
-            hoverinfo='none', mode='lines', opacity=0.7
-        ))
-
-        traces.append(go.Scatter(
-            x=mid_x, y=mid_y, mode='markers', hovertext=mid_text,
-            hovertemplate="%{hovertext}<extra></extra>",
-            marker=dict(size=12, color='rgba(255,255,255,0.01)', line=dict(width=0)),
-            showlegend=False
-        ))
-
-        node_x, node_y, node_text, node_size, node_color, node_symbols = [], [], [], [], [], []
-
-        for node in G.nodes():
-            node_x.append(pos[node][0])
-            node_y.append(pos[node][1])
-            is_target = node in self.target_companies
-            neighbors = list(G.neighbors(node))
-
-            if is_target:
-                node_size.append(26)
-                node_color.append("#E20074")
-                node_symbols.append("diamond")
-                role_label = "Target Entity"
-            else:
-                node_size.append(max(12, min(len(neighbors) * 3, 22)))
-                node_color.append("#0284C7")
-                node_symbols.append("circle")
-                role_label = "Third-Party Vendor"
-
-            hover_info = f"<b>[{role_label}] {node}</b><br>Connected Allies: {len(neighbors)}<br><br><b>Top Collaborations:</b><br>"
-            neighbor_weights = sorted([(n, G[node][n]['weight']) for n in neighbors], key=lambda x: x[1], reverse=True)
-            for neighbor, weight in neighbor_weights[:8]:
-                hover_info += f"• {neighbor} ({weight} shared)<br>"
-            node_text.append(hover_info)
-
-        traces.append(go.Scatter(
-            x=node_x, y=node_y, mode='markers+text', text=list(G.nodes()),
-            textposition="top center", hovertext=node_text,
-            hovertemplate="%{hovertext}<extra></extra>", name="Entities",
-            marker=dict(size=node_size, color=node_color, symbol=node_symbols, line_width=1.5, line_color='#FFFFFF')
-        ))
-
-        fig = go.Figure(data=traces, layout=go.Layout(
-            title="Strategic Alliance Network (Highlighted: Target Companies ⬥ vs. Third-Party Vendors ●)",
-            showlegend=False, hovermode='closest', margin=dict(b=20, l=5, r=5, t=40),
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
-        ))
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        fig = px.bar(
+            grouped,
+            x='WG',
+            y='Count',
+            color='Clean_Status',
+            title="Working Group Activity by Outcome Status",
+            color_discrete_map=STATUS_COLORS,
+            category_orders={'WG': wg_order},
+            barmode='stack'
+        )
+        fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            xaxis_title="Working Group",
+            yaxis_title="Contributions Count",
+            legend_title_text="Outcome"
+        )
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
-    def _generate_heatmap_plot(self, df: pd.DataFrame) -> str:
-        exploded = df.explode('Clean_Companies')
-        exploded = exploded.dropna(subset=['Clean_Companies', 'Agenda Item'])
-        exploded = exploded[(exploded['Clean_Companies'].str.strip() != '') & (exploded['Agenda Item'].str.strip() != '')]
+    def _generate_wi_allocation_plot(self, df: pd.DataFrame) -> str:
+        exploded_wi = df.explode('Clean_WI_List')
+        wi_counts = exploded_wi['Clean_WI_List'].value_counts()
+        wi_counts = wi_counts[wi_counts.index != 'Unspecified'].head(20).sort_values(ascending=True)
 
-        if exploded.empty:
-            return "<p style='padding:20px; color:#666;'>No data available for company heatmap.</p>"
+        if wi_counts.empty:
+            wi_counts = exploded_wi['Clean_WI_List'].value_counts().head(20).sort_values(ascending=True)
 
-        top_comps = exploded['Clean_Companies'].value_counts().head(20).index
-        top_ais = exploded['Agenda Item'].value_counts().head(20).index
-
-        filtered = exploded[exploded['Clean_Companies'].isin(top_comps) & exploded['Agenda Item'].isin(top_ais)]
-        matrix = pd.crosstab(filtered['Clean_Companies'], filtered['Agenda Item'])
-
-        if matrix.empty:
-            return "<p style='padding:20px; color:#666;'>No data available for company heatmap matrix.</p>"
-
-        matrix = matrix.loc[matrix.sum(axis=1).sort_values(ascending=False).index]
-        matrix = matrix[matrix.sum(axis=0).sort_values(ascending=False).index]
-
-        fig = px.imshow(
-            matrix,
-            labels=dict(x="Agenda Item", y="Company", color="TDocs"),
-            x=matrix.columns,
-            y=matrix.index,
-            text_auto=True,
-            aspect="auto",
-            title="Company Focus Matrix (Top Companies vs. Top Topics)",
-            color_continuous_scale="Blues"
+        fig = go.Figure(go.Bar(
+            x=wi_counts.values.tolist(),
+            y=wi_counts.index.tolist(),
+            orientation='h',
+            marker=dict(color=THEME_COLOR),
+            hovertemplate="<b>%{y}</b><br>TDocs: %{x}<extra></extra>"
+        ))
+        fig.update_layout(
+            title="Work Item & Study Item Allocation (Top 20 Related WIs)",
+            xaxis_title="Contributions Count",
+            yaxis_title=None,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
         )
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")

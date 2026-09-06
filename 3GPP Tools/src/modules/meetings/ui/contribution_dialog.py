@@ -373,7 +373,7 @@ class ContributionSearchWorker(QThread):
                 return
 
             self.stage_progress.emit("Stage 3/3: Aggregating results...", 100, 100)
-            all_matched_tdocs.sort(key=lambda r: (r.get("Meeting", ""), r.get("TDoc", "")))
+            all_matched_tdocs.sort(key=lambda r: (r.get("WG", ""), r.get("Meeting", ""), r.get("TDoc", "")))
 
             summary = f"Audit complete! Found {len(all_matched_tdocs)} contributions across {total_meetings} meeting(s)."
             self.log_msg.emit(f"🏁 {summary}")
@@ -449,9 +449,11 @@ class ContributionSearchWorker(QThread):
         for row in tdocs_data:
             resolved_wi = self._extract_related_wis(row)
             row["Related WIs"] = resolved_wi
+            row["WG"] = wg_name
 
             if self._matches_filter(row):
                 row_copy = dict(row)
+                row_copy["WG"] = wg_name
                 row_copy["Meeting"] = tag
                 row_copy["docs_folder_url"] = mtg.get("docs_folder_url", "")
                 row_copy["end_date"] = mtg.get("end_date", "")
@@ -464,8 +466,8 @@ class ContributionSearchWorker(QThread):
         return matched
 
     def _extract_related_wis(self, row: dict) -> str:
-        """Fast O(1) resolution of Related WIs with zero database regex scanning."""
-        # 1. Primary Check: Dedicated 3GPP 'Related WIs' field
+        """Fast O(1) resolution of Related WIs with zero regex database scanning."""
+        # 1. Primary Check: Official 3GPP 'Related WIs' field
         for key in ["Related WIs", "Related WI", "Related WI(s)", "Work Item", "Work Items", "WI", "WID"]:
             val = str(row.get(key, "")).strip()
             if val and val.lower() not in ["", "none", "unknown", "-"]:
@@ -531,7 +533,7 @@ class ContributionSearchWorker(QThread):
 
 class ContributionResultsTableModel(QAbstractTableModel):
     COLUMNS = [
-        "Meeting", "TDoc", "Title", "Source", "Matched Company",
+        "WG", "Meeting", "TDoc", "Title", "Source", "Matched Company",
         "Type", "For", "Agenda Item", "TDoc Status", "Related WIs", "Abstract"
     ]
 
@@ -561,7 +563,7 @@ class ContributionResultsTableModel(QAbstractTableModel):
             return str(row_dict.get(col_name, ""))
 
         if role == Qt.TextAlignmentRole:
-            if col_name in ["Meeting", "TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related WIs"]:
+            if col_name in ["WG", "Meeting", "TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related WIs"]:
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
@@ -572,9 +574,11 @@ class ContributionResultsTableModel(QAbstractTableModel):
                 return QBrush(QColor("#0F766E"))
             if col_name == "Related WIs" and row_dict.get("Related WIs"):
                 return QBrush(QColor("#1E40AF"))
+            if col_name == "WG":
+                return QBrush(QColor("#1E293B"))
 
         if role == Qt.FontRole:
-            if col_name in ["TDoc", "Matched Company", "Related WIs"]:
+            if col_name in ["WG", "TDoc", "Matched Company", "Related WIs"]:
                 f = QFont()
                 f.setBold(True)
                 return f
@@ -619,7 +623,7 @@ class ContributionReportDialog(QDialog):
 
         splitter = QSplitter(Qt.Horizontal)
 
-        # Filters Sidebar
+        # Left: Filter Sidebar
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 8, 0)
@@ -678,7 +682,7 @@ class ContributionReportDialog(QDialog):
 
         splitter.addWidget(left_widget)
 
-        # Right Panel: Results, KPIs & Logs
+        # Right: Results, KPIs & Logs
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(8, 0, 0, 0)
@@ -757,17 +761,18 @@ class ContributionReportDialog(QDialog):
     def _apply_column_widths(self):
         header = self.table_view.horizontalHeader()
         widths = {
-            0: 95,   # Meeting
-            1: 95,   # TDoc
-            2: 280,  # Title
-            3: 160,  # Source
-            4: 130,  # Matched Company
-            5: 60,   # Type
-            6: 75,   # For
-            7: 85,   # Agenda Item
-            8: 95,   # TDoc Status
-            9: 140,  # Related WIs
-            10: 250  # Abstract
+            0: 65,   # WG
+            1: 95,   # Meeting
+            2: 95,   # TDoc
+            3: 280,  # Title
+            4: 160,  # Source
+            5: 130,  # Matched Company
+            6: 60,   # Type
+            7: 75,   # For
+            8: 85,   # Agenda Item
+            9: 95,   # TDoc Status
+            10: 140, # Related WIs
+            11: 250  # Abstract
         }
         for col_idx, width in widths.items():
             if col_idx < len(self.table_model.COLUMNS):
@@ -866,8 +871,9 @@ class ContributionReportDialog(QDialog):
             self.btn_stats.setEnabled(False)
             return
 
-        # 1. Total KPI
-        self.kpi_total.set_value(f"{total} TDocs", "Filtered dataset")
+        # 1. Total KPI & WG Coverage
+        wgs_count = len(set(r.get("WG", "") for r in results if r.get("WG")))
+        self.kpi_total.set_value(f"{total} TDocs", f"Across {wgs_count} WG(s)")
 
         # 2. Agreement Rate KPI
         agreed_count = sum(1 for r in results if any(w in str(r.get("TDoc Status", "")).lower() for w in ["agreed", "approved"]))
