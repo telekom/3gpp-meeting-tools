@@ -1,3 +1,4 @@
+# --- File: src/modules/meetings/core/stats/contribution_stats.py ---
 import os
 import re
 from pathlib import Path
@@ -42,11 +43,9 @@ class ContributionStatsExporterThread(QThread):
                 self.finished.emit(False, "No TDoc data available to generate statistics.")
                 return
 
-            # Exclude withdrawn documents from statistical analysis
             df = df[~df['TDoc Status'].str.lower().str.contains('withdrawn', na=False)].copy()
             df['Clean_Companies'] = df['Source'].apply(CompanySanitizer.get_matching_contributors)
 
-            # --- 1. Extract Month (YYYY-MM) from Meeting End Date ---
             def extract_month(date_str):
                 if not date_str or not isinstance(date_str, str):
                     return "Undated"
@@ -55,17 +54,18 @@ class ContributionStatsExporterThread(QThread):
 
             df['Month'] = df.get('end_date', pd.Series(dtype='object')).apply(extract_month)
 
-            # --- 2. Extract Work Item ---
-            def extract_wi(row):
-                for k in ['Work Item', 'WI', 'WID', 'Work Item / Study Item']:
+            # Extract list of Related WIs (handles single and comma-separated multiple entries)
+            def extract_wi_list(row):
+                for k in ['Related WIs', 'Work Item', 'WI', 'WID']:
                     val = str(row.get(k, '')).strip()
                     if val and val.lower() not in ['', 'none', 'unknown', '-']:
-                        return val
-                return "Unspecified"
+                        items = [w.strip() for w in re.split(r'[,;]+', val) if w.strip()]
+                        if items:
+                            return items
+                return ["Unspecified"]
 
-            df['Clean_WI'] = df.apply(extract_wi, axis=1)
+            df['Clean_WI_List'] = df.apply(extract_wi_list, axis=1)
 
-            # --- KPI Metrics Calculation ---
             total_tdocs = len(df)
             agreed_count = df['TDoc Status'].str.lower().str.contains('agreed|approved', na=False).sum()
             agree_pct = round((agreed_count / total_tdocs) * 100, 1) if total_tdocs else 0
@@ -74,25 +74,15 @@ class ContributionStatsExporterThread(QThread):
             joint_count = total_tdocs - solo_count
             joint_pct = round((joint_count / total_tdocs) * 100, 1) if total_tdocs else 0
 
-            # --- PLOT 1: Monthly Timeline Trend ---
+            unique_wis = len(set(wi for sublist in df['Clean_WI_List'] for wi in sublist if wi != 'Unspecified'))
+
             html_timeline = self._generate_timeline_plot(df)
-
-            # --- PLOT 2: Overall Outcomes ---
             html_status = self._generate_outcomes_plot(df)
-
-            # --- PLOT 3: Work Item Allocation ---
             html_wi = self._generate_wi_allocation_plot(df)
-
-            # --- PLOT 4: Top Third-Party Partner Vendors ---
             html_partners = self._generate_partner_vendors_plot(df)
-
-            # --- PLOT 5: Alliance Network (Third-Party Highlighted) ---
             html_network = self._generate_alliance_network_plot(df)
-
-            # --- PLOT 6: Company vs Topic Focus Matrix (Heatmap) ---
             html_heatmap = self._generate_heatmap_plot(df)
 
-            # --- Assemble Dashboard ---
             target_str = ", ".join(sorted(list(self.target_companies))) if self.target_companies else "All Entities"
             dashboard_html = f"""<!DOCTYPE html>
 <html>
@@ -133,7 +123,7 @@ class ContributionStatsExporterThread(QThread):
         <div class="kpi-card"><h3>{agree_pct}%</h3><p>Agreement Rate</p></div>
         <div class="kpi-card"><h3>{joint_pct}%</h3><p>Joint Contributions</p></div>
         <div class="kpi-card"><h3>{solo_count}</h3><p>Solo Submissions</p></div>
-        <div class="kpi-card"><h3>{df['Clean_WI'].nunique()}</h3><p>Active Work Items</p></div>
+        <div class="kpi-card"><h3>{unique_wis}</h3><p>Active Work Items</p></div>
     </div>
 
     <div class="grid-container">
@@ -219,16 +209,20 @@ class ContributionStatsExporterThread(QThread):
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
     def _generate_wi_allocation_plot(self, df: pd.DataFrame) -> str:
-        wi_counts = df['Clean_WI'].value_counts().reset_index()
+        exploded_wi = df.explode('Clean_WI_List')
+        wi_counts = exploded_wi['Clean_WI_List'].value_counts().reset_index()
         wi_counts.columns = ['Work Item', 'Count']
-        plot_df = wi_counts.head(20).sort_values('Count', ascending=True)
+        plot_df = wi_counts[wi_counts['Work Item'] != 'Unspecified'].head(20).sort_values('Count', ascending=True)
+
+        if plot_df.empty:
+            plot_df = wi_counts.head(20).sort_values('Count', ascending=True)
 
         fig = px.bar(
             plot_df,
             x='Count',
             y='Work Item',
             orientation='h',
-            title="Work Item & Study Item Allocation (Top 20)",
+            title="Work Item & Study Item Allocation (Top 20 Related WIs)",
             color_discrete_sequence=[THEME_COLOR]
         )
         fig.update_yaxes(tickmode='linear', dtick=1, title=None)
@@ -291,8 +285,6 @@ class ContributionStatsExporterThread(QThread):
         pos = nx.spring_layout(G, k=0.6, seed=42)
         traces = []
 
-        # Draw Edges
-        max_weight = max([data['weight'] for u, v, data in G.edges(data=True)]) if G.edges else 1
         edge_x, edge_y = [], []
         mid_x, mid_y, mid_text = [], [], []
 
@@ -315,7 +307,6 @@ class ContributionStatsExporterThread(QThread):
             showlegend=False
         ))
 
-        # Draw Nodes with Target vs Third-Party Highlighting
         node_x, node_y, node_text, node_size, node_color, node_symbols = [], [], [], [], [], []
 
         for node in G.nodes():
@@ -326,12 +317,12 @@ class ContributionStatsExporterThread(QThread):
 
             if is_target:
                 node_size.append(26)
-                node_color.append("#E20074")  # Magenta highlight for target
+                node_color.append("#E20074")
                 node_symbols.append("diamond")
                 role_label = "Target Entity"
             else:
                 node_size.append(max(12, min(len(neighbors) * 3, 22)))
-                node_color.append("#0284C7")  # Partner blue
+                node_color.append("#0284C7")
                 node_symbols.append("circle")
                 role_label = "Third-Party Vendor"
 
