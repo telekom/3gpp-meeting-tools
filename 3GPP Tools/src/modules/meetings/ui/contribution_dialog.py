@@ -1,3 +1,4 @@
+# --- File: src/modules/meetings/ui/contribution_dialog.py ---
 import os
 import re
 import logging
@@ -27,7 +28,7 @@ from modules.meetings.core.stats.contribution_stats import ContributionStatsExpo
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.ui.tdocs_components import CheckableComboBox
-from modules.meetings.ui.tdocs_dialogs import StatisticsSettingsDialog
+from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog, StatisticsSettingsDialog
 from modules.work_items.core.wi_database import WorkItemsDatabase
 
 
@@ -147,7 +148,7 @@ class WITokenInputWidget(QWidget):
 
         input_layout = QHBoxLayout()
         self.input_edit = QLineEdit()
-        self.input_edit.setPlaceholderText("Search WI acronym or code (e.g., 5G_eURLLC)...")
+        self.input_edit.setPlaceholderText("Search WI acronym or code (e.g., FS_6G_ARC)...")
         self.input_edit.returnPressed.connect(self._add_current_input)
 
         self._setup_completer()
@@ -307,9 +308,15 @@ class ContributionSearchWorker(QThread):
         self.bypass_cache = bypass_cache
         self.cache_dir = Path(cache_dir)
         self._is_cancelled = False
+        self._executor = None
 
     def cancel(self):
         self._is_cancelled = True
+        if self._executor:
+            try:
+                self._executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
 
     def run(self):
         try:
@@ -338,6 +345,7 @@ class ContributionSearchWorker(QThread):
             self.log_msg.emit(f"⚡ Starting worker pool ({max_workers} threads)...")
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                self._executor = executor
                 future_to_meeting = {
                     executor.submit(self._process_single_meeting, mtg): mtg
                     for mtg in meetings
@@ -346,7 +354,6 @@ class ContributionSearchWorker(QThread):
                 for future in as_completed(future_to_meeting):
                     if self._is_cancelled:
                         self.log_msg.emit("🛑 Operation cancelled by user.")
-                        executor.shutdown(wait=False, cancel_futures=True)
                         break
 
                     processed_count += 1
@@ -359,6 +366,11 @@ class ContributionSearchWorker(QThread):
                     except Exception as e:
                         mtg_ref = future_to_meeting[future]
                         self.log_msg.emit(f"❌ Error in meeting {mtg_ref.get('meeting_number')}: {e}")
+
+            self._executor = None
+            if self._is_cancelled:
+                self.finished.emit(False, "Search cancelled.")
+                return
 
             self.stage_progress.emit("Stage 3/3: Aggregating results...", 100, 100)
             all_matched_tdocs.sort(key=lambda r: (r.get("Meeting", ""), r.get("TDoc", "")))
@@ -375,6 +387,9 @@ class ContributionSearchWorker(QThread):
             self.finished.emit(False, str(e))
 
     def _process_single_meeting(self, mtg: dict) -> list:
+        if self._is_cancelled:
+            return []
+
         mtg_num = mtg.get("meeting_number", "Unknown")
         wg_name = mtg.get("wg_name", "")
         mtg_id = mtg.get("mtg_id")
@@ -432,6 +447,9 @@ class ContributionSearchWorker(QThread):
 
         matched = []
         for row in tdocs_data:
+            resolved_wi = self._extract_related_wis(row)
+            row["Related WIs"] = resolved_wi
+
             if self._matches_filter(row):
                 row_copy = dict(row)
                 row_copy["Meeting"] = tag
@@ -439,10 +457,42 @@ class ContributionSearchWorker(QThread):
                 row_copy["end_date"] = mtg.get("end_date", "")
                 row_copy["start_date"] = mtg.get("start_date", "")
                 row_copy["wg_name"] = wg_name
+                row_copy["Related WIs"] = resolved_wi
                 matched.append(row_copy)
 
         self.log_msg.emit(f"   ↳ [{tag}] {len(matched)} matching contribution(s).")
         return matched
+
+    def _extract_related_wis(self, row: dict) -> str:
+        """Fast O(1) resolution of Related WIs with zero database regex scanning."""
+        # 1. Primary Check: Dedicated 3GPP 'Related WIs' field
+        for key in ["Related WIs", "Related WI", "Related WI(s)", "Work Item", "Work Items", "WI", "WID"]:
+            val = str(row.get(key, "")).strip()
+            if val and val.lower() not in ["", "none", "unknown", "-"]:
+                items = [w.strip() for w in re.split(r'[,;]+', val) if w.strip()]
+                if items:
+                    return ", ".join(items)
+
+        # 2. Instant Fallback: Check 'Agenda item description' for parenthesized acronym
+        desc = str(row.get("Agenda item description", "")).strip()
+        if desc:
+            match = re.search(r'\(([A-Za-z0-9_ -]{3,35})\)', desc)
+            if match:
+                candidate = match.group(1).strip()
+                if '_' in candidate or any(c.isdigit() for c in candidate):
+                    return candidate
+
+        # 3. Instant Fallback: Check Title for bracketed tags [WI_TAG]
+        title = str(row.get("Title", "")).strip()
+        if title:
+            match = re.search(r'\[([A-Za-z0-9_ -]{3,35})\]', title)
+            if match:
+                candidate = match.group(1).strip()
+                if candidate.lower() not in ["draft", "reply", "update", "revision", "discussion", "pcr", "cr", "ls", "none"]:
+                    if '_' in candidate or any(c.isdigit() for c in candidate):
+                        return candidate
+
+        return ""
 
     def _matches_filter(self, row: dict) -> bool:
         source_raw = str(row.get("Source", "")).strip()
@@ -468,15 +518,11 @@ class ContributionSearchWorker(QThread):
             row["Matched Company"] = ", ".join(all_contributors) if all_contributors else source_raw
 
         if self.target_wis:
-            wi_val = ""
-            for key in row.keys():
-                if "WORK ITEM" in key.upper() or key.upper() in ["WI", "WID"]:
-                    wi_val = str(row.get(key, "")).strip().lower()
-                    break
-
+            wi_val = str(row.get("Related WIs", "")).strip().lower()
             title_val = str(row.get("Title", "")).strip().lower()
+            desc_val = str(row.get("Agenda item description", "")).strip().lower()
 
-            wi_hit = any((token in wi_val or token in title_val) for token in self.target_wis)
+            wi_hit = any((token in wi_val or token in title_val or token in desc_val) for token in self.target_wis)
             if not wi_hit:
                 return False
 
@@ -486,7 +532,7 @@ class ContributionSearchWorker(QThread):
 class ContributionResultsTableModel(QAbstractTableModel):
     COLUMNS = [
         "Meeting", "TDoc", "Title", "Source", "Matched Company",
-        "Type", "For", "Agenda Item", "TDoc Status", "Work Item"
+        "Type", "For", "Agenda Item", "TDoc Status", "Related WIs", "Abstract"
     ]
 
     def __init__(self, data=None):
@@ -512,15 +558,10 @@ class ContributionResultsTableModel(QAbstractTableModel):
         col_name = self.COLUMNS[index.column()]
 
         if role == Qt.DisplayRole:
-            if col_name == "Work Item":
-                for k in ["Work Item", "WI", "WID", "Work Item / Study Item"]:
-                    if k in row_dict and row_dict[k]:
-                        return str(row_dict[k])
-                return ""
             return str(row_dict.get(col_name, ""))
 
         if role == Qt.TextAlignmentRole:
-            if col_name in ["Meeting", "TDoc", "Type", "For", "Agenda Item", "TDoc Status"]:
+            if col_name in ["Meeting", "TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related WIs"]:
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
@@ -529,12 +570,22 @@ class ContributionResultsTableModel(QAbstractTableModel):
                 return QBrush(QColor("#E20074"))
             if col_name == "Matched Company":
                 return QBrush(QColor("#0F766E"))
+            if col_name == "Related WIs" and row_dict.get("Related WIs"):
+                return QBrush(QColor("#1E40AF"))
 
         if role == Qt.FontRole:
-            if col_name in ["TDoc", "Matched Company"]:
+            if col_name in ["TDoc", "Matched Company", "Related WIs"]:
                 f = QFont()
                 f.setBold(True)
                 return f
+
+        if role == Qt.ToolTipRole:
+            val = str(row_dict.get(col_name, "")).strip()
+            if col_name == "Abstract" and val:
+                return f"<div style='width: 450px; white-space: pre-wrap;'>{val}</div>"
+            elif col_name in ["Title", "Source"] and len(val) > 40:
+                return f"<div style='width: 400px; white-space: pre-wrap;'>{val}</div>"
+            return None
 
         if role == Qt.UserRole:
             return row_dict
@@ -558,7 +609,7 @@ class ContributionReportDialog(QDialog):
         self.stats_thread = None
 
         self.setWindowTitle("3GPP Company Contribution Search & Report")
-        self.resize(1280, 800)
+        self.resize(1340, 820)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -636,7 +687,7 @@ class ContributionReportDialog(QDialog):
         # In-App KPI Summary Bar
         kpi_layout = QHBoxLayout()
         kpi_layout.setSpacing(8)
-        self.kpi_total = KPICard("Total Contributions", "0 TDocs", "Filtered scope")
+        self.kpi_total = KPICard("Total Contributions", "0 TDocs", "Filtered dataset")
         self.kpi_agree = KPICard("Win / Agreement Rate", "0.0%", "Agreed / Approved")
         self.kpi_joint = KPICard("Collaboration", "0% Joint", "Co-authored")
         self.kpi_partner = KPICard("Top Partner Vendor", "None", "Most frequent ally")
@@ -673,7 +724,8 @@ class ContributionReportDialog(QDialog):
         )
         self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table_view.horizontalHeader().setStretchLastSection(True)
-        self.table_view.doubleClicked.connect(self._open_selected_tdoc)
+        self.table_view.doubleClicked.connect(self._on_table_double_clicked)
+        self._apply_column_widths()
         right_layout.addWidget(self.table_view)
 
         # Footer Actions
@@ -699,8 +751,27 @@ class ContributionReportDialog(QDialog):
         right_layout.addLayout(footer_layout)
 
         splitter.addWidget(right_widget)
-        splitter.setSizes([380, 900])
+        splitter.setSizes([380, 960])
         main_layout.addWidget(splitter)
+
+    def _apply_column_widths(self):
+        header = self.table_view.horizontalHeader()
+        widths = {
+            0: 95,   # Meeting
+            1: 95,   # TDoc
+            2: 280,  # Title
+            3: 160,  # Source
+            4: 130,  # Matched Company
+            5: 60,   # Type
+            6: 75,   # For
+            7: 85,   # Agenda Item
+            8: 95,   # TDoc Status
+            9: 140,  # Related WIs
+            10: 250  # Abstract
+        }
+        for col_idx, width in widths.items():
+            if col_idx < len(self.table_model.COLUMNS):
+                header.resizeSection(col_idx, width)
 
     def set_active_wgs(self, wgs: list):
         for i in range(1, self.wg_filter.model().rowCount()):
@@ -708,6 +779,27 @@ class ContributionReportDialog(QDialog):
             if item:
                 item.setCheckState(Qt.Checked if item.text() in wgs else Qt.Unchecked)
         self.wg_filter.update()
+
+    def _cleanup_threads(self):
+        """Cleanly halts all worker threads to prevent QThread destroyed while running."""
+        if self.worker and self.worker.isRunning():
+            self.worker.cancel()
+            self.worker.quit()
+            self.worker.wait(300)
+        if self.exporter_thread and self.exporter_thread.isRunning():
+            self.exporter_thread.quit()
+            self.exporter_thread.wait(200)
+        if self.stats_thread and self.stats_thread.isRunning():
+            self.stats_thread.quit()
+            self.stats_thread.wait(200)
+
+    def closeEvent(self, event):
+        self._cleanup_threads()
+        super().closeEvent(event)
+
+    def reject(self):
+        self._cleanup_threads()
+        super().reject()
 
     def _start_search(self):
         selected_wgs = self.wg_filter.getCheckedItems()
@@ -762,7 +854,7 @@ class ContributionReportDialog(QDialog):
         self.table_model.update_data(results)
         total = len(results)
         self.lbl_count.setText(f"Found {total} matching contribution(s).")
-        self.table_view.resizeColumnsToContents()
+        self._apply_column_widths()
 
         if total == 0:
             self.kpi_total.set_value("0 TDocs", "No matches")
@@ -774,15 +866,15 @@ class ContributionReportDialog(QDialog):
             self.btn_stats.setEnabled(False)
             return
 
-        # 1. Total
+        # 1. Total KPI
         self.kpi_total.set_value(f"{total} TDocs", "Filtered dataset")
 
-        # 2. Agreement Rate
+        # 2. Agreement Rate KPI
         agreed_count = sum(1 for r in results if any(w in str(r.get("TDoc Status", "")).lower() for w in ["agreed", "approved"]))
         agree_pct = round((agreed_count / total) * 100, 1)
         self.kpi_agree.set_value(f"{agree_pct}%", f"{agreed_count} of {total} TDocs")
 
-        # 3. Joint vs Solo & 4. Top Partner
+        # 3. Collaboration KPI & 4. Top Partner Vendor
         joint_count = 0
         partner_counts = {}
         target_companies = self.company_widget.get_selected_companies()
@@ -813,14 +905,15 @@ class ContributionReportDialog(QDialog):
         else:
             self.kpi_partner.set_value("N/A", "No co-signers")
 
-        # 5. Top Work Item
+        # 5. Top Work Item KPI (splits multi-entry Related WIs)
         wi_counts = {}
         for r in results:
-            for k in ["Work Item", "WI", "WID", "Work Item / Study Item"]:
-                val = str(r.get(k, "")).strip()
-                if val and val.lower() not in ["", "none", "unknown", "-"]:
-                    wi_counts[val] = wi_counts.get(val, 0) + 1
-                    break
+            wi_str = str(r.get("Related WIs", "")).strip()
+            if wi_str and wi_str.lower() not in ["", "none", "unknown", "-"]:
+                for item in re.split(r'[,;]+', wi_str):
+                    item_clean = item.strip()
+                    if item_clean:
+                        wi_counts[item_clean] = wi_counts.get(item_clean, 0) + 1
 
         if wi_counts:
             top_wi, wi_vol = max(wi_counts.items(), key=lambda x: x[1])
@@ -839,10 +932,18 @@ class ContributionReportDialog(QDialog):
         if not success:
             QMessageBox.warning(self, "Search Notice", msg)
 
-    def _open_selected_tdoc(self, index):
+    def _on_table_double_clicked(self, index: QModelIndex):
         row_data = self.table_model.data(index, Qt.UserRole)
         if not row_data:
             return
+
+        col_name = self.table_model.COLUMNS[index.column()]
+        if col_name == "Abstract":
+            abstract_text = str(row_data.get("Abstract", "")).strip()
+            tdoc_id = str(row_data.get("TDoc", "")).strip()
+            if abstract_text:
+                ReadOnlyViewerDialog(self, f"📄 Abstract: {tdoc_id}", abstract_text).exec_()
+                return
 
         tdoc_id = row_data.get("TDoc")
         docs_url = row_data.get("docs_folder_url")
