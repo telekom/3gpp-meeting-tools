@@ -116,8 +116,12 @@ class ExcelExporterThread(QThread):
                     # Hyperlink formatting for TDoc column
                     if col_name == "TDoc" and raw_val:
                         tdoc_id = str(raw_val).strip()
-                        if docs_base_url:
-                            cell.hyperlink = f"{docs_base_url}/{tdoc_id}.zip"
+                        # Use meeting-level URL or fall back to individual row URL for aggregated reports
+                        target_url = docs_base_url or str(row_dict.get("docs_folder_url", "")).rstrip('/')
+                        if target_url:
+                            if not target_url.startswith("http"):
+                                target_url = "https://www.3gpp.org/ftp/" + target_url.lstrip('/')
+                            cell.hyperlink = f"{target_url}/{tdoc_id}.zip"
                         cell.font = hyperlink_font
                         cell.alignment = center_align
                     else:
