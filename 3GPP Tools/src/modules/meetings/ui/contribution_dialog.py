@@ -23,14 +23,65 @@ from core.utils.company_sanitizer import CompanySanitizer
 from modules.meetings.core.excel_exporter import ExcelExporterThread
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.settings import MeetingsSettings
+from modules.meetings.core.stats.contribution_stats import ContributionStatsExporterThread
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.ui.tdocs_components import CheckableComboBox
+from modules.meetings.ui.tdocs_dialogs import StatisticsSettingsDialog
 from modules.work_items.core.wi_database import WorkItemsDatabase
 
 
+class KPICard(QFrame):
+    """Lightweight summary metric card."""
+
+    def __init__(self, title: str, default_val: str = "-", subtitle: str = "", parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+            }
+            QLabel#kpiTitle {
+                color: #64748B;
+                font-size: 10px;
+                font-weight: bold;
+                border: none;
+            }
+            QLabel#kpiValue {
+                color: #1E5C99;
+                font-size: 16px;
+                font-weight: bold;
+                border: none;
+            }
+            QLabel#kpiSub {
+                color: #94A3B8;
+                font-size: 10px;
+                border: none;
+            }
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(1)
+
+        self.lbl_title = QLabel(title.upper())
+        self.lbl_title.setObjectName("kpiTitle")
+        self.lbl_value = QLabel(default_val)
+        self.lbl_value.setObjectName("kpiValue")
+        self.lbl_sub = QLabel(subtitle)
+        self.lbl_sub.setObjectName("kpiSub")
+
+        layout.addWidget(self.lbl_title)
+        layout.addWidget(self.lbl_value)
+        layout.addWidget(self.lbl_sub)
+
+    def set_value(self, val: str, sub: str = ""):
+        self.lbl_value.setText(val)
+        if sub:
+            self.lbl_sub.setText(sub)
+
+
 class WITokenChip(QFrame):
-    """Visual removable chip/tag for selected Work Items."""
     removed = pyqtSignal(str)
 
     def __init__(self, token_text: str, parent=None):
@@ -76,7 +127,6 @@ class WITokenChip(QFrame):
 
 
 class WITokenInputWidget(QWidget):
-    """Token/tag box with autocompletion from the Work Items database."""
     tokens_changed = pyqtSignal()
 
     def __init__(self, wi_db: WorkItemsDatabase, parent=None):
@@ -147,8 +197,6 @@ class WITokenInputWidget(QWidget):
 
 
 class CompanySelectorWidget(QWidget):
-    """Searchable multi-select checkbox list populated from CompanySanitizer."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -230,7 +278,6 @@ class CompanySelectorWidget(QWidget):
 
 
 class ContributionSearchWorker(QThread):
-    """Background worker executing parallelized retrieval using TDocsParser JSON caching."""
     stage_progress = pyqtSignal(str, int, int)
     log_msg = pyqtSignal(str)
     results_ready = pyqtSignal(list)
@@ -266,7 +313,6 @@ class ContributionSearchWorker(QThread):
 
     def run(self):
         try:
-            # === STAGE 1: Resolve matching meetings ===
             self.stage_progress.emit("Stage 1/3: Resolving matching meetings...", 0, 100)
             self.log_msg.emit("🔍 Querying meetings database for target criteria...")
 
@@ -288,7 +334,6 @@ class ContributionSearchWorker(QThread):
             all_matched_tdocs = []
             processed_count = 0
 
-            # === STAGE 2: Bounded Concurrency (Laptop-Safe: max 3 workers) ===
             max_workers = min(3, os.cpu_count() or 2)
             self.log_msg.emit(f"⚡ Starting worker pool ({max_workers} threads)...")
 
@@ -315,7 +360,6 @@ class ContributionSearchWorker(QThread):
                         mtg_ref = future_to_meeting[future]
                         self.log_msg.emit(f"❌ Error in meeting {mtg_ref.get('meeting_number')}: {e}")
 
-            # === STAGE 3: Final Aggregation & Sort ===
             self.stage_progress.emit("Stage 3/3: Aggregating results...", 100, 100)
             all_matched_tdocs.sort(key=lambda r: (r.get("Meeting", ""), r.get("TDoc", "")))
 
@@ -353,7 +397,6 @@ class ContributionSearchWorker(QThread):
                 if fallback.exists():
                     excel_file = fallback
 
-        # If bypass requested or file is absent, download from 3GPP
         if self.bypass_cache or not excel_file:
             if not mtg_id:
                 self.log_msg.emit(f"⚠️ [{tag}] Missing 3GPP portal ID; skipping download.")
@@ -379,7 +422,6 @@ class ContributionSearchWorker(QThread):
             self.log_msg.emit(f"⚠️ [{tag}] No TDocs list available.")
             return []
 
-        # TDocsParser automatically checks <excel_file>.json cache first
         json_cache = str(excel_file) + ".json"
         if not self.bypass_cache and os.path.exists(json_cache):
             self.log_msg.emit(f"⚡ [{tag}] Loaded via JSON cache ({excel_file.name}).")
@@ -394,6 +436,9 @@ class ContributionSearchWorker(QThread):
                 row_copy = dict(row)
                 row_copy["Meeting"] = tag
                 row_copy["docs_folder_url"] = mtg.get("docs_folder_url", "")
+                row_copy["end_date"] = mtg.get("end_date", "")
+                row_copy["start_date"] = mtg.get("start_date", "")
+                row_copy["wg_name"] = wg_name
                 matched.append(row_copy)
 
         self.log_msg.emit(f"   ↳ [{tag}] {len(matched)} matching contribution(s).")
@@ -402,7 +447,6 @@ class ContributionSearchWorker(QThread):
     def _matches_filter(self, row: dict) -> bool:
         source_raw = str(row.get("Source", "")).strip()
 
-        # Company filter
         if self.target_companies:
             if not source_raw:
                 return False
@@ -423,7 +467,6 @@ class ContributionSearchWorker(QThread):
             all_contributors = CompanySanitizer.get_matching_contributors(source_raw)
             row["Matched Company"] = ", ".join(all_contributors) if all_contributors else source_raw
 
-        # Work Item filter
         if self.target_wis:
             wi_val = ""
             for key in row.keys():
@@ -512,9 +555,10 @@ class ContributionReportDialog(QDialog):
         self.wi_db = WorkItemsDatabase(self.meetings_db.db_path)
         self.worker = None
         self.exporter_thread = None
+        self.stats_thread = None
 
         self.setWindowTitle("3GPP Company Contribution Search & Report")
-        self.resize(1240, 780)
+        self.resize(1280, 800)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -524,7 +568,7 @@ class ContributionReportDialog(QDialog):
 
         splitter = QSplitter(Qt.Horizontal)
 
-        # Left Filter Sidebar
+        # Filters Sidebar
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 8, 0)
@@ -583,23 +627,41 @@ class ContributionReportDialog(QDialog):
 
         splitter.addWidget(left_widget)
 
-        # Right Panel: Results & Logs
+        # Right Panel: Results, KPIs & Logs
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(8, 0, 0, 0)
         right_layout.setSpacing(6)
 
+        # In-App KPI Summary Bar
+        kpi_layout = QHBoxLayout()
+        kpi_layout.setSpacing(8)
+        self.kpi_total = KPICard("Total Contributions", "0 TDocs", "Filtered scope")
+        self.kpi_agree = KPICard("Win / Agreement Rate", "0.0%", "Agreed / Approved")
+        self.kpi_joint = KPICard("Collaboration", "0% Joint", "Co-authored")
+        self.kpi_partner = KPICard("Top Partner Vendor", "None", "Most frequent ally")
+        self.kpi_wi = KPICard("Top Work Item", "None", "Highest volume WI")
+
+        kpi_layout.addWidget(self.kpi_total)
+        kpi_layout.addWidget(self.kpi_agree)
+        kpi_layout.addWidget(self.kpi_joint)
+        kpi_layout.addWidget(self.kpi_partner)
+        kpi_layout.addWidget(self.kpi_wi)
+        right_layout.addLayout(kpi_layout)
+
+        # Progress Bar & Log Viewer
         self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(16)
+        self.progress_bar.setFixedHeight(14)
         self.progress_bar.setTextVisible(False)
         right_layout.addWidget(self.progress_bar)
 
         self.log_viewer = QTextEdit()
         self.log_viewer.setReadOnly(True)
-        self.log_viewer.setMaximumHeight(90)
+        self.log_viewer.setMaximumHeight(80)
         self.log_viewer.setStyleSheet("background-color: #0F172A; color: #38BDF8; font-family: monospace; font-size: 11px;")
         right_layout.addWidget(self.log_viewer)
 
+        # Table View
         self.table_model = ContributionResultsTableModel()
         self.table_view = QTableView()
         self.table_view.setModel(self.table_model)
@@ -614,9 +676,16 @@ class ContributionReportDialog(QDialog):
         self.table_view.doubleClicked.connect(self._open_selected_tdoc)
         right_layout.addWidget(self.table_view)
 
+        # Footer Actions
         footer_layout = QHBoxLayout()
         self.lbl_count = QLabel("0 contributions found.")
         self.lbl_count.setStyleSheet("color: #64748B; font-weight: bold;")
+
+        self.btn_stats = QPushButton("📊 Statistics Dashboard...")
+        self.btn_stats.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_stats.setEnabled(False)
+        self.btn_stats.setToolTip("Compile an interactive HTML analytics report with graphs and timelines.")
+        self.btn_stats.clicked.connect(self._generate_statistics)
 
         self.btn_export = QPushButton("📥 Export to Excel...")
         self.btn_export.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -625,15 +694,15 @@ class ContributionReportDialog(QDialog):
 
         footer_layout.addWidget(self.lbl_count)
         footer_layout.addStretch()
+        footer_layout.addWidget(self.btn_stats)
         footer_layout.addWidget(self.btn_export)
         right_layout.addLayout(footer_layout)
 
         splitter.addWidget(right_widget)
-        splitter.setSizes([390, 850])
+        splitter.setSizes([380, 900])
         main_layout.addWidget(splitter)
 
     def set_active_wgs(self, wgs: list):
-        """Pre-seeds the Working Group filter with active selections."""
         for i in range(1, self.wg_filter.model().rowCount()):
             item = self.wg_filter.model().item(i)
             if item:
@@ -652,6 +721,7 @@ class ContributionReportDialog(QDialog):
         self.btn_search.setEnabled(False)
         self.btn_cancel.setEnabled(True)
         self.btn_export.setEnabled(False)
+        self.btn_stats.setEnabled(False)
         self.log_viewer.clear()
         self.progress_bar.setValue(0)
 
@@ -690,9 +760,77 @@ class ContributionReportDialog(QDialog):
 
     def _on_results_ready(self, results: list):
         self.table_model.update_data(results)
-        self.lbl_count.setText(f"Found {len(results)} matching contribution(s).")
-        self.btn_export.setEnabled(len(results) > 0)
+        total = len(results)
+        self.lbl_count.setText(f"Found {total} matching contribution(s).")
         self.table_view.resizeColumnsToContents()
+
+        if total == 0:
+            self.kpi_total.set_value("0 TDocs", "No matches")
+            self.kpi_agree.set_value("0.0%", "0 agreed")
+            self.kpi_joint.set_value("0% Joint", "0 joint")
+            self.kpi_partner.set_value("None", "No allies")
+            self.kpi_wi.set_value("None", "No WIs")
+            self.btn_export.setEnabled(False)
+            self.btn_stats.setEnabled(False)
+            return
+
+        # 1. Total
+        self.kpi_total.set_value(f"{total} TDocs", "Filtered dataset")
+
+        # 2. Agreement Rate
+        agreed_count = sum(1 for r in results if any(w in str(r.get("TDoc Status", "")).lower() for w in ["agreed", "approved"]))
+        agree_pct = round((agreed_count / total) * 100, 1)
+        self.kpi_agree.set_value(f"{agree_pct}%", f"{agreed_count} of {total} TDocs")
+
+        # 3. Joint vs Solo & 4. Top Partner
+        joint_count = 0
+        partner_counts = {}
+        target_companies = self.company_widget.get_selected_companies()
+
+        for r in results:
+            src = str(r.get("Source", ""))
+            contribs = CompanySanitizer.get_matching_contributors(src)
+            if len(contribs) > 1:
+                joint_count += 1
+
+            if target_companies:
+                targets_in_row = [c for c in contribs if c in target_companies]
+                if targets_in_row:
+                    for c in contribs:
+                        if c not in target_companies:
+                            partner_counts[c] = partner_counts.get(c, 0) + 1
+            else:
+                for c in contribs:
+                    partner_counts[c] = partner_counts.get(c, 0) + 1
+
+        joint_pct = round((joint_count / total) * 100, 1)
+        solo_count = total - joint_count
+        self.kpi_joint.set_value(f"{joint_pct}% Joint", f"{solo_count} solo, {joint_count} joint")
+
+        if partner_counts:
+            top_partner, top_count = max(partner_counts.items(), key=lambda x: x[1])
+            self.kpi_partner.set_value(top_partner, f"{top_count} joint TDocs")
+        else:
+            self.kpi_partner.set_value("N/A", "No co-signers")
+
+        # 5. Top Work Item
+        wi_counts = {}
+        for r in results:
+            for k in ["Work Item", "WI", "WID", "Work Item / Study Item"]:
+                val = str(r.get(k, "")).strip()
+                if val and val.lower() not in ["", "none", "unknown", "-"]:
+                    wi_counts[val] = wi_counts.get(val, 0) + 1
+                    break
+
+        if wi_counts:
+            top_wi, wi_vol = max(wi_counts.items(), key=lambda x: x[1])
+            disp_wi = top_wi if len(top_wi) <= 18 else top_wi[:16] + ".."
+            self.kpi_wi.set_value(disp_wi, f"{wi_vol} TDocs")
+        else:
+            self.kpi_wi.set_value("Unspecified", "No WI tagged")
+
+        self.btn_export.setEnabled(True)
+        self.btn_stats.setEnabled(True)
 
     def _on_search_finished(self, success: bool, msg: str):
         self.btn_search.setEnabled(True)
@@ -761,3 +899,39 @@ class ContributionReportDialog(QDialog):
                     logging.error(f"Failed to open Excel report: {e}")
         else:
             QMessageBox.critical(self, "Export Failed", f"Could not generate Excel report:\n{msg}")
+
+    def _generate_statistics(self):
+        data = self.table_model._data
+        if not data:
+            return
+
+        self.btn_stats.setEnabled(False)
+        self.btn_stats.setText("⏳ Generating...")
+
+        config = StatisticsSettingsDialog().load_config()
+        current_cache = self.settings.cache_dir
+        export_dir = Path(current_cache) / "Contributions_Audit" / "Export"
+
+        self.stats_thread = ContributionStatsExporterThread(
+            export_dir=export_dir,
+            tdocs_data=data,
+            target_companies=self.company_widget.get_selected_companies(),
+            target_wis=self.wi_token_widget.get_tokens(),
+            config=config,
+            parent=self
+        )
+        self.stats_thread.finished.connect(self._on_stats_finished)
+        self.stats_thread.start()
+
+    def _on_stats_finished(self, success: bool, msg: str):
+        self.btn_stats.setEnabled(True)
+        self.btn_stats.setText("📊 Statistics Dashboard...")
+
+        if success:
+            QMessageBox.information(self, "Dashboard Ready", f"Analytics dashboard generated successfully!\n\nSaved to:\n{msg}")
+            try:
+                os.startfile(msg) if hasattr(os, 'startfile') else webbrowser.open(f"file:///{msg}")
+            except Exception as e:
+                logging.error(f"Could not open dashboard: {e}")
+        else:
+            QMessageBox.warning(self, "Generation Failed", f"Could not generate statistics dashboard:\n{msg}")
