@@ -33,6 +33,7 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_window import TDocsWindow
 from modules.word_tools.core.word_comparator import WordComparatorThread
 from modules.meetings.core.tdocs_merger import TDocsMergerThread
+from modules.meetings.ui.contribution_dialog import ContributionReportDialog
 
 
 class TDocsButtonDelegate(QStyledItemDelegate):
@@ -470,6 +471,12 @@ class MeetingsTab(QWidget):
         self.btn_export_merged.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_export_merged.clicked.connect(self._export_merged_tdocs)
         right_layout.addWidget(self.btn_export_merged)
+
+        self.btn_contribution_report = QPushButton("📊 Contributions Report...")
+        self.btn_contribution_report.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_contribution_report.setToolTip("Filter and audit company contributions across multiple meetings.")
+        self.btn_contribution_report.clicked.connect(self._open_contribution_report)
+        right_layout.addWidget(self.btn_contribution_report)
 
         self.delete_all_btn = QPushButton("🗑️ Clear All Meetings")
         self.delete_all_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
@@ -972,3 +979,13 @@ class MeetingsTab(QWidget):
                         logging.error(f"Could not open merged Excel: {e}")
         else:
             QMessageBox.warning(self, "Export Failed", msg)
+
+    def _open_contribution_report(self):
+        dialog = ContributionReportDialog(self.db, self)
+        if self.enable_dates_cb.isChecked():
+            dialog.date_from.setDate(self.date_from.date())
+            dialog.date_to.setDate(self.date_to.date())
+        active_wgs = self.wg_filter.getCheckedItems()
+        if active_wgs:
+            dialog.set_active_wgs(active_wgs)
+        dialog.exec_()
