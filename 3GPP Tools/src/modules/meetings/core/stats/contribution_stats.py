@@ -4,7 +4,6 @@ import re
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 
 from core.config.plot_styles import THEME_COLOR
@@ -25,6 +24,12 @@ STATUS_COLORS = {
     'Withdrawn': '#EF4444',    # Red
     'Unknown': '#CBD5E1'       # Muted Grey
 }
+
+STATUS_ORDER = [
+    'Agreed', 'Approved', 'Merged', 'Endorsed',
+    'Noted', 'Postponed', 'Replied To', 'Available',
+    'Not Treated', 'Revised', 'Unknown'
+]
 
 
 def normalize_status(val: str) -> str:
@@ -108,27 +113,31 @@ class ContributionStatsExporterThread(QThread):
             def extract_wi_list(row):
                 for k in ['Related WIs', 'Work Item', 'WI', 'WID']:
                     val = str(row.get(k, '')).strip()
-                    if val and val.lower() not in ['', 'none', 'unknown', '-']:
-                        items = [w.strip() for w in re.split(r'[,;]+', val) if w.strip()]
+                    if val and val.lower() not in ['', 'none', 'unknown', '-', 'dummy']:
+                        items = [w.strip() for w in re.split(r'[,;]+', val) if w.strip() and w.strip().lower() != 'dummy']
                         if items:
                             return items
                 return ["Unspecified"]
 
             df['Clean_WI_List'] = df.apply(extract_wi_list, axis=1)
 
-            # High-level KPIs
             total_tdocs = len(df)
-            agreed_count = df['Clean_Status'].isin(['Agreed', 'Approved']).sum()
-            agree_pct = round((agreed_count / total_tdocs) * 100, 1) if total_tdocs else 0
+            agreed_approved_count = df['Clean_Status'].isin(['Agreed', 'Approved']).sum()
+            gross_agree_pct = round((agreed_approved_count / total_tdocs) * 100, 1) if total_tdocs else 0
+
+            # Consensus Rate: Success among completed decisions (excluding not-treated and intermediate revisions)
+            decided_success = df['Clean_Status'].isin(['Agreed', 'Approved', 'Merged', 'Endorsed']).sum()
+            total_decided = df['Clean_Status'].isin(['Agreed', 'Approved', 'Merged', 'Endorsed', 'Noted', 'Postponed']).sum()
+            consensus_pct = round((decided_success / total_decided) * 100, 1) if total_decided else 0
 
             solo_count = sum(1 for comps in df['Clean_Companies'] if len(comps) <= 1)
             joint_count = total_tdocs - solo_count
             joint_pct = round((joint_count / total_tdocs) * 100, 1) if total_tdocs else 0
 
             unique_wgs = df['WG'].nunique()
-            unique_wis = len(set(wi for sublist in df['Clean_WI_List'] for wi in sublist if wi != 'Unspecified'))
+            unique_wis = len(set(wi for sublist in df['Clean_WI_List'] for wi in sublist if wi not in ['Unspecified', 'DUMMY']))
 
-            # Generate Charts (Alliance Network & Focus Matrix removed)
+            # Generate Charts using native Python int arrays (eliminates binary bdata)
             html_timeline = self._generate_timeline_plot(df)
             html_status = self._generate_outcomes_plot(df)
             html_partners = self._generate_partner_vendors_plot(df)
@@ -172,7 +181,8 @@ class ContributionStatsExporterThread(QThread):
 
     <div class="kpi-container">
         <div class="kpi-card"><h3>{total_tdocs}</h3><p>Total TDocs</p></div>
-        <div class="kpi-card"><h3>{agree_pct}%</h3><p>Agreement Rate</p></div>
+        <div class="kpi-card"><h3>{consensus_pct}%</h3><p>Consensus Rate ({decided_success}/{total_decided} Decided)</p></div>
+        <div class="kpi-card"><h3>{gross_agree_pct}%</h3><p>Gross Agreement ({agreed_approved_count}/{total_tdocs} Gross)</p></div>
         <div class="kpi-card"><h3>{unique_wgs}</h3><p>Active Working Groups</p></div>
         <div class="kpi-card"><h3>{joint_pct}%</h3><p>Joint Contributions</p></div>
         <div class="kpi-card"><h3>{unique_wis}</h3><p>Active Work Items</p></div>
@@ -224,21 +234,30 @@ class ContributionStatsExporterThread(QThread):
             timeline_df['Month'] = timeline_df.get('Meeting', 'All')
 
         grouped = timeline_df.groupby(['Month', 'Clean_Status']).size().reset_index(name='Count')
-        grouped = grouped.sort_values('Month')
+        pivot = grouped.pivot(index='Month', columns='Clean_Status', values='Count').fillna(0)
+        months = sorted(pivot.index.tolist())
 
-        fig = px.bar(
-            grouped,
-            x='Month',
-            y='Count',
-            color='Clean_Status',
-            title="Monthly Contribution Trend by Outcome Status (End Date / Month)",
-            color_discrete_map=STATUS_COLORS,
-            barmode='stack'
-        )
+        fig = go.Figure()
+        for status in STATUS_ORDER:
+            if status in pivot.columns:
+                y_vals = [int(pivot.loc[m, status]) for m in months]
+                if sum(y_vals) > 0:
+                    fig.add_trace(go.Bar(
+                        name=status,
+                        x=months,
+                        y=y_vals,
+                        marker=dict(color=STATUS_COLORS.get(status, '#94A3B8')),
+                        hovertemplate=f"<b>{status}</b><br>Month: %{{x}}<br>TDocs: %{{y}}<extra></extra>"
+                    ))
+
         fig.update_layout(
+            barmode='stack',
+            title="Monthly Contribution Trend by Outcome Status (End Date / Month)",
+            xaxis_title="Meeting Month",
+            yaxis_title="TDocs Count",
+            legend_title_text="Outcome",
             paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            legend_title_text="Outcome"
+            plot_bgcolor='rgba(0,0,0,0)'
         )
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
@@ -246,14 +265,15 @@ class ContributionStatsExporterThread(QThread):
         counts = df['Clean_Status'].value_counts()
         counts = counts[counts.index.str.strip() != '']
 
-        labels = counts.index.tolist()
-        values = counts.values.tolist()
-        colors = [STATUS_COLORS.get(label, '#94A3B8') for label in labels]
+        labels = [s for s in STATUS_ORDER if s in counts.index]
+        values = [int(counts[s]) for s in labels]
+        colors = [STATUS_COLORS.get(s, '#94A3B8') for s in labels]
 
         fig = go.Figure(data=[go.Pie(
             labels=labels,
             values=values,
             hole=0.42,
+            sort=False,
             marker=dict(colors=colors, line=dict(color='#FFFFFF', width=1.5)),
             textinfo='percent+label',
             hovertemplate="<b>%{label}</b><br>TDocs: %{value}<br>Percentage: %{percent}<extra></extra>"
@@ -284,13 +304,14 @@ class ContributionStatsExporterThread(QThread):
         if not partner_counts:
             return "<p style='padding:20px; color:#666;'>No third-party co-authors discovered in the filtered dataset.</p>"
 
-        plot_df = pd.DataFrame(list(partner_counts.items()), columns=['Vendor', 'Joint TDocs'])
-        plot_df = plot_df.sort_values('Joint TDocs', ascending=True).tail(15)
+        sorted_partners = sorted(partner_counts.items(), key=lambda x: x[1])[-15:]
+        vendors = [p[0] for p in sorted_partners]
+        counts = [int(p[1]) for p in sorted_partners]
 
         title = "Top Co-Signing Third-Party Vendors" if self.target_companies else "Top Contributing Entities"
         fig = go.Figure(go.Bar(
-            x=plot_df['Joint TDocs'].tolist(),
-            y=plot_df['Vendor'].tolist(),
+            x=counts,
+            y=vendors,
             orientation='h',
             marker=dict(color="#0D9488"),
             hovertemplate="<b>%{y}</b><br>Joint TDocs: %{x}<extra></extra>"
@@ -305,45 +326,53 @@ class ContributionStatsExporterThread(QThread):
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
     def _generate_wg_activity_plot(self, df: pd.DataFrame) -> str:
-        """Visualizes company contributions across the different Working Groups."""
         wg_df = df[df['WG'].str.strip() != ''].copy()
         if wg_df.empty:
             return "<p style='padding:20px; color:#666;'>No Working Group data available.</p>"
 
         grouped = wg_df.groupby(['WG', 'Clean_Status']).size().reset_index(name='Count')
-        total_per_wg = wg_df['WG'].value_counts()
-        wg_order = total_per_wg.index.tolist()
+        pivot = grouped.pivot(index='WG', columns='Clean_Status', values='Count').fillna(0)
+        wgs = sorted(pivot.index.tolist(), key=lambda w: wg_df['WG'].value_counts().get(w, 0), reverse=True)
 
-        fig = px.bar(
-            grouped,
-            x='WG',
-            y='Count',
-            color='Clean_Status',
-            title="Working Group Activity by Outcome Status",
-            color_discrete_map=STATUS_COLORS,
-            category_orders={'WG': wg_order},
-            barmode='stack'
-        )
+        fig = go.Figure()
+        for status in STATUS_ORDER:
+            if status in pivot.columns:
+                y_vals = [int(pivot.loc[w, status]) for w in wgs]
+                if sum(y_vals) > 0:
+                    fig.add_trace(go.Bar(
+                        name=status,
+                        x=wgs,
+                        y=y_vals,
+                        marker=dict(color=STATUS_COLORS.get(status, '#94A3B8')),
+                        hovertemplate=f"<b>{status}</b><br>WG: %{{x}}<br>TDocs: %{{y}}<extra></extra>"
+                    ))
+
         fig.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
+            barmode='stack',
+            title="Working Group Activity by Outcome Status",
             xaxis_title="Working Group",
             yaxis_title="Contributions Count",
-            legend_title_text="Outcome"
+            legend_title_text="Outcome",
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
         )
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
     def _generate_wi_allocation_plot(self, df: pd.DataFrame) -> str:
         exploded_wi = df.explode('Clean_WI_List')
         wi_counts = exploded_wi['Clean_WI_List'].value_counts()
-        wi_counts = wi_counts[wi_counts.index != 'Unspecified'].head(20).sort_values(ascending=True)
+        # Filter out Unspecified and DUMMY placeholders
+        wi_counts = wi_counts[~wi_counts.index.isin(['Unspecified', 'DUMMY'])].head(20).sort_values(ascending=True)
 
         if wi_counts.empty:
             wi_counts = exploded_wi['Clean_WI_List'].value_counts().head(20).sort_values(ascending=True)
 
+        wis = wi_counts.index.tolist()
+        counts = [int(v) for v in wi_counts.values.tolist()]
+
         fig = go.Figure(go.Bar(
-            x=wi_counts.values.tolist(),
-            y=wi_counts.index.tolist(),
+            x=counts,
+            y=wis,
             orientation='h',
             marker=dict(color=THEME_COLOR),
             hovertemplate="<b>%{y}</b><br>TDocs: %{x}<extra></extra>"
