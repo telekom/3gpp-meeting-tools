@@ -8,8 +8,54 @@ import plotly.express as px
 import plotly.graph_objects as go
 import networkx as nx
 
-from core.config.plot_styles import PALETTE, THEME_COLOR, CLUSTER_PALETTE
+from core.config.plot_styles import THEME_COLOR, CLUSTER_PALETTE
 from core.utils.company_sanitizer import CompanySanitizer
+
+# Semantic color palette for standard 3GPP contribution outcomes
+STATUS_COLORS = {
+    'Agreed': '#10B981',       # Emerald Green
+    'Approved': '#059669',     # Deep Green
+    'Not Treated': '#94A3B8',  # Slate Grey
+    'Revised': '#6366F1',      # Indigo Blue
+    'Noted': '#F59E0B',        # Amber
+    'Postponed': '#EAB308',    # Yellow
+    'Merged': '#06B6D4',       # Cyan
+    'Endorsed': '#14B8A6',     # Teal
+    'Replied To': '#8B5CF6',   # Purple
+    'Available': '#38BDF8',    # Sky Blue
+    'Withdrawn': '#EF4444',    # Red
+    'Unknown': '#CBD5E1'       # Muted Grey
+}
+
+
+def normalize_status(val: str) -> str:
+    """Normalizes raw 3GPP outcome strings into canonical categories."""
+    s = str(val).strip().lower()
+    if not s or s in ['nan', 'none', '-', '']:
+        return 'Unknown'
+    if 'not treated' in s or 'not handled' in s:
+        return 'Not Treated'
+    if 'agreed' in s:
+        return 'Agreed'
+    if 'approved' in s:
+        return 'Approved'
+    if 'revised' in s:
+        return 'Revised'
+    if 'noted' in s:
+        return 'Noted'
+    if 'postponed' in s:
+        return 'Postponed'
+    if 'merged' in s:
+        return 'Merged'
+    if 'endorsed' in s:
+        return 'Endorsed'
+    if 'replied' in s:
+        return 'Replied To'
+    if 'available' in s:
+        return 'Available'
+    if 'withdrawn' in s:
+        return 'Withdrawn'
+    return s.title()
 
 
 class ContributionStatsExporterThread(QThread):
@@ -43,9 +89,14 @@ class ContributionStatsExporterThread(QThread):
                 self.finished.emit(False, "No TDoc data available to generate statistics.")
                 return
 
-            df = df[~df['TDoc Status'].str.lower().str.contains('withdrawn', na=False)].copy()
+            # Canonical status mapping
+            df['Clean_Status'] = df['TDoc Status'].apply(normalize_status)
+
+            # Exclude withdrawn documents from statistical analysis
+            df = df[df['Clean_Status'] != 'Withdrawn'].copy()
             df['Clean_Companies'] = df['Source'].apply(CompanySanitizer.get_matching_contributors)
 
+            # Extract Month (YYYY-MM) from Meeting End Date
             def extract_month(date_str):
                 if not date_str or not isinstance(date_str, str):
                     return "Undated"
@@ -54,7 +105,7 @@ class ContributionStatsExporterThread(QThread):
 
             df['Month'] = df.get('end_date', pd.Series(dtype='object')).apply(extract_month)
 
-            # Extract list of Related WIs (handles single and comma-separated multiple entries)
+            # Extract list of Related WIs (handles comma-separated multi-entries)
             def extract_wi_list(row):
                 for k in ['Related WIs', 'Work Item', 'WI', 'WID']:
                     val = str(row.get(k, '')).strip()
@@ -66,8 +117,9 @@ class ContributionStatsExporterThread(QThread):
 
             df['Clean_WI_List'] = df.apply(extract_wi_list, axis=1)
 
+            # High-level KPIs
             total_tdocs = len(df)
-            agreed_count = df['TDoc Status'].str.lower().str.contains('agreed|approved', na=False).sum()
+            agreed_count = df['Clean_Status'].isin(['Agreed', 'Approved']).sum()
             agree_pct = round((agreed_count / total_tdocs) * 100, 1) if total_tdocs else 0
 
             solo_count = sum(1 for comps in df['Clean_Companies'] if len(comps) <= 1)
@@ -76,6 +128,7 @@ class ContributionStatsExporterThread(QThread):
 
             unique_wis = len(set(wi for sublist in df['Clean_WI_List'] for wi in sublist if wi != 'Unspecified'))
 
+            # Generate Charts
             html_timeline = self._generate_timeline_plot(df)
             html_status = self._generate_outcomes_plot(df)
             html_wi = self._generate_wi_allocation_plot(df)
@@ -176,57 +229,73 @@ class ContributionStatsExporterThread(QThread):
             timeline_df = df.copy()
             timeline_df['Month'] = timeline_df.get('Meeting', 'All')
 
-        grouped = timeline_df.groupby(['Month', 'TDoc Status']).size().reset_index(name='Count')
+        grouped = timeline_df.groupby(['Month', 'Clean_Status']).size().reset_index(name='Count')
         grouped = grouped.sort_values('Month')
 
         fig = px.bar(
             grouped,
             x='Month',
             y='Count',
-            color='TDoc Status',
+            color='Clean_Status',
             title="Monthly Contribution Trend by Outcome Status (End Date / Month)",
-            color_discrete_sequence=PALETTE,
+            color_discrete_map=STATUS_COLORS,
             barmode='stack'
         )
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_title_text="")
+        fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            legend_title_text="Outcome"
+        )
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
     def _generate_outcomes_plot(self, df: pd.DataFrame) -> str:
-        status_counts = df['TDoc Status'].value_counts().reset_index()
-        status_counts.columns = ['Status', 'Count']
-        status_counts = status_counts[status_counts['Status'].str.strip() != '']
+        counts = df['Clean_Status'].value_counts()
+        counts = counts[counts.index.str.strip() != '']
 
-        fig = px.pie(
-            status_counts,
-            names='Status',
-            values='Count',
-            hole=0.4,
+        labels = counts.index.tolist()
+        values = counts.values.tolist()
+        colors = [STATUS_COLORS.get(label, '#94A3B8') for label in labels]
+
+        fig = go.Figure(data=[go.Pie(
+            labels=labels,
+            values=values,
+            hole=0.42,
+            marker=dict(colors=colors, line=dict(color='#FFFFFF', width=1.5)),
+            textinfo='percent+label',
+            hovertemplate="<b>%{label}</b><br>TDocs: %{value}<br>Percentage: %{percent}<extra></extra>"
+        )])
+
+        fig.update_layout(
             title="Overall Contribution Outcomes",
-            color_discrete_sequence=PALETTE
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            showlegend=True,
+            legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.02)
         )
-        fig.update_traces(textposition='inside', textinfo='percent+label')
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
     def _generate_wi_allocation_plot(self, df: pd.DataFrame) -> str:
         exploded_wi = df.explode('Clean_WI_List')
-        wi_counts = exploded_wi['Clean_WI_List'].value_counts().reset_index()
-        wi_counts.columns = ['Work Item', 'Count']
-        plot_df = wi_counts[wi_counts['Work Item'] != 'Unspecified'].head(20).sort_values('Count', ascending=True)
+        wi_counts = exploded_wi['Clean_WI_List'].value_counts()
+        wi_counts = wi_counts[wi_counts.index != 'Unspecified'].head(20).sort_values(ascending=True)
 
-        if plot_df.empty:
-            plot_df = wi_counts.head(20).sort_values('Count', ascending=True)
+        if wi_counts.empty:
+            wi_counts = exploded_wi['Clean_WI_List'].value_counts().head(20).sort_values(ascending=True)
 
-        fig = px.bar(
-            plot_df,
-            x='Count',
-            y='Work Item',
+        fig = go.Figure(go.Bar(
+            x=wi_counts.values.tolist(),
+            y=wi_counts.index.tolist(),
             orientation='h',
+            marker=dict(color=THEME_COLOR),
+            hovertemplate="<b>%{y}</b><br>TDocs: %{x}<extra></extra>"
+        ))
+        fig.update_layout(
             title="Work Item & Study Item Allocation (Top 20 Related WIs)",
-            color_discrete_sequence=[THEME_COLOR]
+            xaxis_title="Contributions Count",
+            yaxis_title=None,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
         )
-        fig.update_yaxes(tickmode='linear', dtick=1, title=None)
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
     def _generate_partner_vendors_plot(self, df: pd.DataFrame) -> str:
@@ -249,16 +318,20 @@ class ContributionStatsExporterThread(QThread):
         plot_df = plot_df.sort_values('Joint TDocs', ascending=True).tail(15)
 
         title = "Top Co-Signing Third-Party Vendors" if self.target_companies else "Top Contributing Entities"
-        fig = px.bar(
-            plot_df,
-            x='Joint TDocs',
-            y='Vendor',
+        fig = go.Figure(go.Bar(
+            x=plot_df['Joint TDocs'].tolist(),
+            y=plot_df['Vendor'].tolist(),
             orientation='h',
+            marker=dict(color="#0D9488"),
+            hovertemplate="<b>%{y}</b><br>Joint TDocs: %{x}<extra></extra>"
+        ))
+        fig.update_layout(
             title=title,
-            color_discrete_sequence=["#0D9488"]
+            xaxis_title="Joint Contributions",
+            yaxis_title=None,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
         )
-        fig.update_yaxes(tickmode='linear', dtick=1, title=None)
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
     def _generate_alliance_network_plot(self, df: pd.DataFrame) -> str:
