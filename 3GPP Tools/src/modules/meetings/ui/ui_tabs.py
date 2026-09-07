@@ -671,6 +671,9 @@ class MeetingsTab(QWidget):
         window.show()
 
     def closeEvent(self, event):
+        if hasattr(self, 'contribution_dialog') and self.contribution_dialog:
+            self.contribution_dialog.close()
+
         for win in list(self.tdoc_windows.values()):
             if win:
                 win.close()
@@ -981,11 +984,40 @@ class MeetingsTab(QWidget):
             QMessageBox.warning(self, "Export Failed", msg)
 
     def _open_contribution_report(self):
-        dialog = ContributionReportDialog(self.db, self)
+        # If the dialog is already open, bring it to the front
+        if hasattr(self, 'contribution_dialog') and self.contribution_dialog and self.contribution_dialog.isVisible():
+            self.contribution_dialog.raise_()
+            self.contribution_dialog.activateWindow()
+            return
+
+        self.contribution_dialog = ContributionReportDialog(self.db, self)
+        self.contribution_dialog.open_meeting_requested.connect(self._open_meeting_from_report)
+
         if self.enable_dates_cb.isChecked():
-            dialog.date_from.setDate(self.date_from.date())
-            dialog.date_to.setDate(self.date_to.date())
+            self.contribution_dialog.date_from.setDate(self.date_from.date())
+            self.contribution_dialog.date_to.setDate(self.date_to.date())
         active_wgs = self.wg_filter.getCheckedItems()
         if active_wgs:
-            dialog.set_active_wgs(active_wgs)
-        dialog.exec_()
+            self.contribution_dialog.set_active_wgs(active_wgs)
+
+        # Modeless launch: shows the window without blocking other tools/tabs
+        self.contribution_dialog.show()
+
+    def _open_meeting_from_report(self, wg_name: str, meeting_number: str):
+        """Opens a meeting window triggered from a row in the contributions report."""
+        results = self.db.search_meetings(wg_name=[wg_name] if wg_name else None, search_term=meeting_number)
+        target_meeting = next(
+            (m for m in results if m.get("meeting_number") == meeting_number and (not wg_name or m.get("wg_name") == wg_name)),
+            None
+        )
+        if not target_meeting and results:
+            target_meeting = results[0]
+
+        if target_meeting:
+            filepath = self._get_tdoc_list_path(target_meeting)
+            if filepath and filepath.exists():
+                self._open_tdocs_window(target_meeting, str(filepath))
+            else:
+                self._download_and_open_tdocs(target_meeting)
+        else:
+            QMessageBox.warning(self, "Meeting Not Found", f"Could not find meeting {wg_name} #{meeting_number} in the database.")
