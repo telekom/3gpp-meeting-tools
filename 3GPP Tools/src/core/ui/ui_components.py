@@ -1,10 +1,14 @@
+import os
+import urllib.parse
 from pathlib import Path
+from typing import Optional, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QPainter, QColor, QIcon, QPixmap, QFont, QPen
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QLabel, QFormLayout,
-                             QLineEdit, QCheckBox, QHBoxLayout, QPushButton,
-                             QApplication, QMessageBox)
+from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtGui import QPainter, QColor, QIcon, QPixmap, QPen
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QLabel, QFormLayout, QLineEdit,
+    QCheckBox, QHBoxLayout, QPushButton, QApplication, QMessageBox
+)
 
 from core.network.session import NetworkSession
 
@@ -356,121 +360,243 @@ def create_app_icon():
     return QIcon(str(icon_path))
 
 
-class ProxyDialog(QDialog):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Network Configuration")
-        self.setModal(True)
-        self.resize(520, 250)
+from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QLabel, QFormLayout,
+                             QLineEdit, QCheckBox, QHBoxLayout, QPushButton,
+                             QMessageBox)
+from core.network.session import NetworkSession
 
-        layout = QVBoxLayout()
+
+class ProxyTestWorker(QThread):
+    """Executes proxy connection testing in a separate thread to keep the UI fluid."""
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, proxies: dict, parent=None):
+        super().__init__(parent)
+        self.proxies = proxies
+
+    def run(self):
+        try:
+            success = NetworkSession.test_connection(self.proxies)
+            if success:
+                self.finished_signal.emit(True, "Connection to 3GPP server successful!")
+            else:
+                self.finished_signal.emit(False, "Connection failed. Check credentials, proxy address, or firewall.")
+        except Exception as e:
+            self.finished_signal.emit(False, f"Test error: {str(e)}")
+
+
+class ProxyDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Network Proxy Configuration")
+        self.setModal(True)
+        self.resize(540, 320)
+
+        self._test_worker: Optional[ProxyTestWorker] = None
+
+        self._setup_ui()
+        self._load_existing_settings()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+
         title = QLabel("📡 Proxy Configuration")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; margin-bottom: 5px;")
+        title.setStyleSheet("font-size: 15px; font-weight: bold; margin-bottom: 2px;")
         layout.addWidget(title)
 
-        desc = QLabel("Leave blank to connect directly. Required only for initial downloads.")
-        desc.setStyleSheet("color: #666; margin-bottom: 15px;")
+        desc = QLabel(
+            "Configure HTTP/HTTPS proxies. For corporate networks requiring authentication (HTTP 407), "
+            "provide your username and password below."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #64748B; font-size: 11px; margin-bottom: 10px;")
         layout.addWidget(desc)
 
         form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignRight)
+
         self.http_input = QLineEdit()
-        self.http_input.setStyleSheet("padding: 5px; border: 1px solid #ccc; border-radius: 4px;")
+        self.http_input.setPlaceholderText("e.g., proxy.company.com:8080")
+        self.http_input.setStyleSheet("padding: 4px; border: 1px solid #CBD5E1; border-radius: 4px;")
+
         self.https_input = QLineEdit()
-        self.https_input.setStyleSheet("padding: 5px; border: 1px solid #ccc; border-radius: 4px;")
-        self.sync_checkbox = QCheckBox("Use the same proxy for HTTPS")
-        self.sync_checkbox.stateChanged.connect(self.on_sync_changed)
-        self.http_input.textChanged.connect(self.on_http_changed)
+        self.https_input.setPlaceholderText("e.g., proxy.company.com:8080")
+        self.https_input.setStyleSheet("padding: 4px; border: 1px solid #CBD5E1; border-radius: 4px;")
+
+        self.sync_checkbox = QCheckBox("Use the same proxy address for HTTPS")
+        self.sync_checkbox.setChecked(True)
+        self.sync_checkbox.stateChanged.connect(self._on_sync_changed)
+        self.http_input.textChanged.connect(self._on_http_changed)
+
+        self.user_input = QLineEdit()
+        self.user_input.setPlaceholderText("Domain\\Username or Username (Optional)")
+        self.user_input.setStyleSheet("padding: 4px; border: 1px solid #CBD5E1; border-radius: 4px;")
+
+        self.pass_input = QLineEdit()
+        self.pass_input.setEchoMode(QLineEdit.Password)
+        self.pass_input.setPlaceholderText("Password (Optional)")
+        self.pass_input.setStyleSheet("padding: 4px; border: 1px solid #CBD5E1; border-radius: 4px;")
 
         form.addRow("HTTP Proxy:", self.http_input)
         form.addRow("", self.sync_checkbox)
         form.addRow("HTTPS Proxy:", self.https_input)
+        form.addRow("Username:", self.user_input)
+        form.addRow("Password:", self.pass_input)
         layout.addLayout(form)
 
         self.status_lbl = QLabel("")
         self.status_lbl.setWordWrap(True)
         self.status_lbl.setAlignment(Qt.AlignCenter)
+        self.status_lbl.setStyleSheet("font-size: 11px; color: #475569; margin: 4px 0;")
         layout.addWidget(self.status_lbl)
 
         btn_layout = QHBoxLayout()
-        self.skip_btn = QPushButton("Skip")
+
+        self.skip_btn = QPushButton("Skip (Direct)")
+        self.skip_btn.setToolTip("Clear all proxy settings and connect directly.")
         self.skip_btn.clicked.connect(self.skip)
 
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
+
         self.test_btn = QPushButton("🔄 Test Connection")
-        self.test_btn.setToolTip("Ping GitHub to verify if your proxy settings are working.")
         self.test_btn.clicked.connect(self.test_proxy)
 
-        self.save_btn = QPushButton("Save && Continue")
+        self.save_btn = QPushButton("Save && Apply")
         self.save_btn.setObjectName("primaryBtn")
+        self.save_btn.setStyleSheet("background-color: #1E5C99; color: white; font-weight: bold;")
         self.save_btn.clicked.connect(self.accept)
 
         btn_layout.addWidget(self.skip_btn)
+        btn_layout.addWidget(self.cancel_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.test_btn)
         btn_layout.addWidget(self.save_btn)
 
-        layout.addSpacing(10)
         layout.addLayout(btn_layout)
-        self.setLayout(layout)
 
-    def test_proxy(self) -> None:
-        """Tests the proxy using the shared NetworkSession tester."""
-        http_val: str = self.http_input.text().strip()
-        https_val: str = self.https_input.text().strip()
-
-        proxies: dict = {}
-        if http_val: proxies['http'] = http_val
-        if https_val: proxies['https'] = https_val
-
-        # Update button to show loading state
-        self.test_btn.setText("Testing...")
-        self.test_btn.setEnabled(False)
-        QApplication.processEvents()  # Force UI to update the button text
-
-        # Test the connection using the NetworkSession static method
-        success: bool = NetworkSession.test_connection(proxies)
-
-        # Restore button state
-        self.test_btn.setText("Test Connection")
-        self.test_btn.setEnabled(True)
-
-        if success:
-            QMessageBox.information(self, "Success", "Connection to 3GPP server successful!")
-        else:
-            QMessageBox.warning(self, "Failed", "Connection failed. Please check your proxy settings or firewall.")
-
-    def accept(self) -> None:
-        """Saves the proxy and instantly updates the running application session."""
-        # ... (Keep your existing code here that saves the proxy to your config file) ...
-
-        # ---> NEW: Update the running global session so the crawler uses it immediately
-        http_val: str = self.http_input.text().strip()
-        https_val: str = self.https_input.text().strip()
-        proxies: dict = {}
-        if http_val: proxies['http'] = http_val
-        if https_val: proxies['https'] = https_val
-
-        NetworkSession.update_proxies(proxies)
-
-        super().accept()
-
-    def on_sync_changed(self, state):
-        if state == Qt.Checked:
-            self.https_input.setEnabled(False)
+    def _on_sync_changed(self, state):
+        is_synced = (state == Qt.Checked)
+        self.https_input.setEnabled(not is_synced)
+        if is_synced:
             self.https_input.setText(self.http_input.text())
-        else:
-            self.https_input.setEnabled(True)
 
-    def on_http_changed(self, text):
+    def _on_http_changed(self, text):
         if self.sync_checkbox.isChecked():
             self.https_input.setText(text)
 
+    def _load_existing_settings(self):
+        """Pre-populates input fields from current session or environment variables."""
+        session_proxies = NetworkSession.get_instance().proxies or {}
+        http_val = session_proxies.get("http") or os.environ.get("HTTP_PROXY") or ""
+        https_val = session_proxies.get("https") or os.environ.get("HTTPS_PROXY") or ""
+
+        target_url = http_val or https_val
+        if target_url:
+            parsed = urllib.parse.urlparse(target_url)
+            host_str = parsed.hostname or ""
+            if parsed.port:
+                host_str += f":{parsed.port}"
+
+            self.http_input.setText(host_str)
+            self.https_input.setText(host_str)
+            if parsed.username:
+                self.user_input.setText(urllib.parse.unquote(parsed.username))
+            if parsed.password:
+                self.pass_input.setText(urllib.parse.unquote(parsed.password))
+
+    def _build_proxy_uri(self, raw_address: str) -> str:
+        """Assembles a valid, credentialed proxy URI with proper URL encoding."""
+        raw_address = raw_address.strip()
+        if not raw_address:
+            return ""
+
+        if "://" in raw_address:
+            scheme, netloc = raw_address.split("://", 1)
+        else:
+            scheme, netloc = "http", raw_address
+
+        username = self.user_input.text().strip()
+        password = self.pass_input.text().strip()
+
+        if username:
+            safe_user = urllib.parse.quote(username, safe="")
+            if password:
+                safe_pass = urllib.parse.quote(password, safe="")
+                auth = f"{safe_user}:{safe_pass}@"
+            else:
+                auth = f"{safe_user}@"
+            return f"{scheme}://{auth}{netloc}"
+
+        return f"{scheme}://{netloc}"
+
+    def build_proxies_dict(self) -> dict:
+        """Returns the dictionary representation suitable for requests and urllib."""
+        proxies = {}
+        http_raw = self.http_input.text().strip()
+        https_raw = self.https_input.text().strip()
+
+        if http_raw:
+            proxies["http"] = self._build_proxy_uri(http_raw)
+        if https_raw:
+            proxies["https"] = self._build_proxy_uri(https_raw)
+
+        return proxies
+
+    def test_proxy(self):
+        """Launches the background worker to test the connection without freezing the GUI."""
+        proxies = self.build_proxies_dict()
+
+        self.test_btn.setEnabled(False)
+        self.test_btn.setText("Testing...")
+        self.save_btn.setEnabled(False)
+        self.status_lbl.setText("⏳ Connecting to www.3gpp.org through proxy...")
+        self.status_lbl.setStyleSheet("color: #0284C7; font-size: 11px;")
+
+        self._test_worker = ProxyTestWorker(proxies, parent=self)
+        self._test_worker.finished_signal.connect(self._on_test_finished)
+        self._test_worker.start()
+
+    def _on_test_finished(self, success: bool, message: str):
+        self.test_btn.setEnabled(True)
+        self.test_btn.setText("🔄 Test Connection")
+        self.save_btn.setEnabled(True)
+
+        if success:
+            self.status_lbl.setText("🟢 Connection verified successfully!")
+            self.status_lbl.setStyleSheet("color: #166534; font-size: 11px;")
+            QMessageBox.information(self, "Proxy Success", message)
+        else:
+            self.status_lbl.setText("🔴 Connection failed.")
+            self.status_lbl.setStyleSheet("color: #DC2626; font-size: 11px;")
+            QMessageBox.warning(self, "Proxy Test Failed", message)
+
     def skip(self):
+        """Clears all inputs and accepts dialog to enable direct connection."""
         self.http_input.clear()
         self.https_input.clear()
+        self.user_input.clear()
+        self.pass_input.clear()
         self.accept()
 
-    def get_proxies(self):
-        return self.http_input.text().strip(), self.https_input.text().strip()
+    def accept(self):
+        """Updates NetworkSession with the current configuration."""
+        proxies = self.build_proxies_dict()
+        NetworkSession.update_proxies(proxies)
+        super().accept()
+
+    def closeEvent(self, event):
+        """Ensures any in-flight background worker thread terminates cleanly."""
+        if self._test_worker and self._test_worker.isRunning():
+            self._test_worker.terminate()
+            self._test_worker.wait(500)
+        super().closeEvent(event)
+
+    def get_proxies(self) -> Tuple[str, str]:
+        """Provides backward-compatibility with main_window.py callers."""
+        proxies = self.build_proxies_dict()
+        return proxies.get("http", ""), proxies.get("https", "")
 
 
 # --- Inside: src/core/ui/ui_components.py ---
