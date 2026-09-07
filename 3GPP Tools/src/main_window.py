@@ -416,13 +416,23 @@ class DragDropUI(QMainWindow):
         self.live_preview.toggle(checked)
 
     def open_proxy_settings(self):
-        proxy_dialog = ProxyDialog()
+        proxy_dialog = ProxyDialog(self)
         if proxy_dialog.exec_() == QDialog.Accepted:
             http_val, https_val = proxy_dialog.get_proxies()
             proxies = {}
-            if http_val: proxies['http'] = http_val
-            if https_val: proxies['https'] = https_val
+            if http_val:
+                proxies['http'] = http_val
+                os.environ['HTTP_PROXY'] = http_val
+            else:
+                os.environ.pop('HTTP_PROXY', None)
 
+            if https_val:
+                proxies['https'] = https_val
+                os.environ['HTTPS_PROXY'] = https_val
+            else:
+                os.environ.pop('HTTPS_PROXY', None)
+
+            # Configure standard library opener for urllib
             proxy_handler = urllib.request.ProxyHandler(proxies)
             opener = urllib.request.build_opener(proxy_handler)
             urllib.request.install_opener(opener)
@@ -433,6 +443,8 @@ class DragDropUI(QMainWindow):
             self.batch_tab.set_state("ready", "⏳ Re-initializing system checks...")
             self.status_bar.showMessage("⏳ Re-initializing...")
             self.tabs.setEnabled(False)
+
+            # Re-launch system initialization checks cleanly
             self._launch_init_thread(check_updates=False)
 
     def check_for_jar_updates(self):
