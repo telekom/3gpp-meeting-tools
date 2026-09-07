@@ -141,20 +141,16 @@ class ContributionStatsExporterThread(QThread):
 
             # High-level KPIs
             total_tdocs = len(df)
-            agreed_approved_count = df['Clean_Status'].isin(['Agreed', 'Approved']).sum()
-            gross_agree_pct = round((agreed_approved_count / total_tdocs) * 100, 1) if total_tdocs else 0
-
-            # Consensus Rate: Success among completed decisions (excluding not-treated and intermediate revisions)
-            decided_success = df['Clean_Status'].isin(['Agreed', 'Approved', 'Merged', 'Endorsed']).sum()
-            total_decided = df['Clean_Status'].isin(['Agreed', 'Approved', 'Merged', 'Endorsed', 'Noted', 'Postponed']).sum()
-            consensus_pct = round((decided_success / total_decided) * 100, 1) if total_decided else 0
+            agreed_approved_count = int(df['Clean_Status'].isin(['Agreed', 'Approved']).sum())
+            agree_pct = round((agreed_approved_count / total_tdocs) * 100, 1) if total_tdocs else 0
 
             solo_count = sum(1 for comps in df['Clean_Companies'] if len(comps) <= 1)
             joint_count = total_tdocs - solo_count
             joint_pct = round((joint_count / total_tdocs) * 100, 1) if total_tdocs else 0
 
-            unique_wgs = df['WG'].nunique()
-            unique_wis = len(set(wi for sublist in df['Clean_WI_List'] for wi in sublist if wi not in ['Unspecified', 'DUMMY']))
+            unique_wgs = int(df['WG'].nunique())
+            unique_wis = len(
+                set(wi for sublist in df['Clean_WI_List'] for wi in sublist if wi not in ['Unspecified', 'DUMMY']))
 
             # Generate Charts
             html_timeline = self._generate_timeline_plot(df)
@@ -200,8 +196,7 @@ class ContributionStatsExporterThread(QThread):
 
     <div class="kpi-container">
         <div class="kpi-card"><h3>{total_tdocs}</h3><p>Total TDocs</p></div>
-        <div class="kpi-card"><h3>{consensus_pct}%</h3><p>Consensus Rate ({decided_success}/{total_decided} Decided)</p></div>
-        <div class="kpi-card"><h3>{gross_agree_pct}%</h3><p>Gross Agreement ({agreed_approved_count}/{total_tdocs} Gross)</p></div>
+        <div class="kpi-card"><h3>{agreed_approved_count}</h3><p>Agreed / Approved ({agree_pct}%)</p></div>
         <div class="kpi-card"><h3>{unique_wgs}</h3><p>Active Working Groups</p></div>
         <div class="kpi-card"><h3>{joint_pct}%</h3><p>Joint Contributions</p></div>
         <div class="kpi-card"><h3>{unique_wis}</h3><p>Active Work Items</p></div>
@@ -405,6 +400,7 @@ class ContributionStatsExporterThread(QThread):
     def _generate_wi_allocation_plot(self, df: pd.DataFrame) -> str:
         exploded_wi = df.explode('Clean_WI_List')
         wi_counts = exploded_wi['Clean_WI_List'].value_counts()
+        # Filter out Unspecified and DUMMY placeholders
         wi_counts = wi_counts[~wi_counts.index.isin(['Unspecified', 'DUMMY'])].head(20).sort_values(ascending=True)
 
         if wi_counts.empty:

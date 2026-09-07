@@ -687,7 +687,7 @@ class ContributionReportDialog(QDialog):
         kpi_layout = QHBoxLayout()
         kpi_layout.setSpacing(8)
         self.kpi_total = KPICard("Total Contributions", "0 TDocs", "Filtered dataset")
-        self.kpi_agree = KPICard("Win / Agreement Rate", "0.0%", "Agreed / Approved")
+        self.kpi_agree = KPICard("Agreed / Approved", "0 TDocs", "0.0% of total")
         self.kpi_joint = KPICard("Collaboration", "0% Joint", "Co-authored")
         self.kpi_partner = KPICard("Top Co-signer", "None", "Most frequent ally")
         self.kpi_wi = KPICard("Top Work Item", "None", "Highest volume WI")
@@ -724,7 +724,6 @@ class ContributionReportDialog(QDialog):
         self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table_view.horizontalHeader().setStretchLastSection(True)
 
-        # Connect double-click and custom context menu
         self.table_view.doubleClicked.connect(self._on_table_double_clicked)
         self.table_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self._on_table_context_menu)
@@ -869,7 +868,7 @@ class ContributionReportDialog(QDialog):
 
         if total == 0:
             self.kpi_total.set_value("0 TDocs", "No matches")
-            self.kpi_agree.set_value("0.0%", "0 agreed")
+            self.kpi_agree.set_value("0 TDocs", "0.0% of total")
             self.kpi_joint.set_value("0% Joint", "0 joint")
             self.kpi_partner.set_value("None", "No allies")
             self.kpi_wi.set_value("None", "No WIs")
@@ -881,15 +880,12 @@ class ContributionReportDialog(QDialog):
         wgs_count = len(set(r.get("WG", "") for r in results if r.get("WG")))
         self.kpi_total.set_value(f"{total} TDocs", f"Across {wgs_count} WG(s)")
 
-        # 2. Agreement & Consensus Rate KPI
-        agreed_count = sum(1 for r in results if any(w in str(r.get("TDoc Status", "")).lower() for w in ["agreed", "approved"]))
-        gross_agree_pct = round((agreed_count / total) * 100, 1)
-
-        decided_success = sum(1 for r in results if any(w in str(r.get("TDoc Status", "")).lower() for w in ["agreed", "approved", "merged", "endorsed"]))
-        total_decided = sum(1 for r in results if any(w in str(r.get("TDoc Status", "")).lower() for w in ["agreed", "approved", "merged", "endorsed", "noted", "postponed"]))
-        consensus_pct = round((decided_success / total_decided) * 100, 1) if total_decided else 0
-
-        self.kpi_agree.set_value(f"{consensus_pct}% Consensus", f"{gross_agree_pct}% gross ({agreed_count}/{total})")
+        # 2. Agreed / Approved KPI (Standard 3GPP Metric)
+        agreed_count = sum(
+            1 for r in results if any(w in str(r.get("TDoc Status", "")).lower() for w in ["agreed", "approved"])
+        )
+        agree_pct = round((agreed_count / total) * 100, 1) if total else 0.0
+        self.kpi_agree.set_value(f"{agreed_count} TDocs", f"{agree_pct}% of {total} total")
 
         # 3. Collaboration KPI & 4. Top Co-signer
         joint_count = 0
@@ -922,7 +918,7 @@ class ContributionReportDialog(QDialog):
         else:
             self.kpi_partner.set_value("N/A", "No co-signers")
 
-        # 5. Top Work Item KPI (splits multi-entry Related WIs)[cite: 32]
+        # 5. Top Work Item KPI (splits multi-entry Related WIs, filters out placeholders)[cite: 32]
         wi_counts = {}
         for r in results:
             wi_str = str(r.get("Related WIs", "")).strip()
