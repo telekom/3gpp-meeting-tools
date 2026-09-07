@@ -1023,15 +1023,15 @@ class SpecificationsTab(QWidget):
                     act_word = menu.addAction(f"{word_label} {'✅' if word_exists else ''}".strip())
                     act_word.triggered.connect(lambda: self._handle_document_action(c, "word", btn))
 
-                    pdf_label = "📕 Open PDF" if pdf_exists else ("⚙️ Convert to PDF" if (word_exists or zip_exists) else "⬇️ Get & Convert to PDF")
+                    pdf_label = "📕 Open PDF" if pdf_exists else ("⚙️ Convert to PDF" if (word_exists or zip_exists) else "⬇️ Get && Convert to PDF")
                     act_pdf = menu.addAction(f"{pdf_label} {'✅' if pdf_exists else ''}".strip())
                     act_pdf.triggered.connect(lambda: self._handle_document_action(c, "pdf", btn))
 
-                    html_label = "🌐 Open HTML" if html_exists else ("⚙️ Convert to HTML" if (word_exists or zip_exists) else "⬇️ Get & Convert to HTML")
+                    html_label = "🌐 Open HTML" if html_exists else ("⚙️ Convert to HTML" if (word_exists or zip_exists) else "⬇️ Get && Convert to HTML")
                     act_html = menu.addAction(f"{html_label} {'✅' if html_exists else ''}".strip())
                     act_html.triggered.connect(lambda: self._handle_document_action(c, "html", btn))
 
-                    txt_label = "📄 Open TXT" if txt_exists else ("⚙️ Convert to TXT" if (word_exists or zip_exists) else "⬇️ Get & Convert to TXT")
+                    txt_label = "📄 Open TXT" if txt_exists else ("⚙️ Convert to TXT" if (word_exists or zip_exists) else "⬇️ Get && Convert to TXT")
                     act_txt = menu.addAction(f"{txt_label} {'✅' if txt_exists else ''}".strip())
                     act_txt.triggered.connect(lambda: self._handle_document_action(c, "txt", btn))
 
