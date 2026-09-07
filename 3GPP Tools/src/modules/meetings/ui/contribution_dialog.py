@@ -592,11 +592,13 @@ class ContributionResultsTableModel(QAbstractTableModel):
 
 
 class ContributionReportDialog(QDialog):
-    """Modeless cross-meeting contribution report dialog."""
+    """Independent modeless cross-meeting contribution report window."""
     open_meeting_requested = pyqtSignal(str, str)  # (wg_name, meeting_number)
 
     def __init__(self, meetings_db: MeetingsDatabase, parent=None):
-        super().__init__(parent, Qt.Window)
+        # Pass None as parent so the OS does not pin this window on top of the main window.
+        # Adding MinMaxButtonsHint provides standard minimize/maximize title bar buttons.
+        super().__init__(None, Qt.Window | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint)
         self.setModal(False)
 
         self.meetings_db = meetings_db

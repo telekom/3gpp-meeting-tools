@@ -984,13 +984,18 @@ class MeetingsTab(QWidget):
             QMessageBox.warning(self, "Export Failed", msg)
 
     def _open_contribution_report(self):
-        # If the dialog is already open, bring it to the front
-        if hasattr(self, 'contribution_dialog') and self.contribution_dialog and self.contribution_dialog.isVisible():
-            self.contribution_dialog.raise_()
-            self.contribution_dialog.activateWindow()
-            return
+        # If the window is already open, bring it to the front
+        if hasattr(self, 'contribution_dialog') and self.contribution_dialog is not None:
+            if self.contribution_dialog.isVisible():
+                self.contribution_dialog.raise_()
+                self.contribution_dialog.activateWindow()
+                return
+            else:
+                self.contribution_dialog.deleteLater()
+                self.contribution_dialog = None
 
-        self.contribution_dialog = ContributionReportDialog(self.db, self)
+        # Instantiate as an independent top-level window without owner pinning
+        self.contribution_dialog = ContributionReportDialog(self.db, parent=None)
         self.contribution_dialog.open_meeting_requested.connect(self._open_meeting_from_report)
 
         if self.enable_dates_cb.isChecked():
@@ -1000,7 +1005,6 @@ class MeetingsTab(QWidget):
         if active_wgs:
             self.contribution_dialog.set_active_wgs(active_wgs)
 
-        # Modeless launch: shows the window without blocking other tools/tabs
         self.contribution_dialog.show()
 
     def _open_meeting_from_report(self, wg_name: str, meeting_number: str):
