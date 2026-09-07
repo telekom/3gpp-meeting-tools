@@ -31,6 +31,24 @@ STATUS_ORDER = [
     'Not Treated', 'Revised', 'Unknown'
 ]
 
+# Committee palette for Working Groups in Top Co-signers
+WG_COLORS = {
+    'SA1': '#3B82F6',    # Blue
+    'SA2': '#10B981',    # Green
+    'SA3': '#8B5CF6',    # Purple
+    'SA4': '#F59E0B',    # Amber
+    'SA5': '#06B6D4',    # Cyan
+    'SA6': '#EC4899',    # Pink
+    'RAN1': '#F97316',   # Orange
+    'RAN2': '#6366F1',   # Indigo
+    'RAN3': '#14B8A6',   # Teal
+    'RAN4': '#84CC16',   # Lime
+    'CT1': '#E11D48',    # Rose
+    'CT3': '#A855F7',    # Violet
+    'CT4': '#0284C7',    # Sky
+}
+FALLBACK_PALETTE = ['#0D9488', '#2563EB', '#D97706', '#7C3AED', '#DB2777', '#059669', '#475569']
+
 
 def normalize_status(val: str) -> str:
     """Normalizes raw 3GPP outcome strings into canonical categories."""
@@ -109,7 +127,7 @@ class ContributionStatsExporterThread(QThread):
 
             df['Month'] = df.get('end_date', pd.Series(dtype='object')).apply(extract_month)
 
-            # Extract list of Related WIs (handles comma-separated multi-entries)
+            # Extract list of Related WIs (handles comma-separated multi-entries)[cite: 32]
             def extract_wi_list(row):
                 for k in ['Related WIs', 'Work Item', 'WI', 'WID']:
                     val = str(row.get(k, '')).strip()
@@ -121,6 +139,7 @@ class ContributionStatsExporterThread(QThread):
 
             df['Clean_WI_List'] = df.apply(extract_wi_list, axis=1)
 
+            # High-level KPIs
             total_tdocs = len(df)
             agreed_approved_count = df['Clean_Status'].isin(['Agreed', 'Approved']).sum()
             gross_agree_pct = round((agreed_approved_count / total_tdocs) * 100, 1) if total_tdocs else 0
@@ -137,10 +156,10 @@ class ContributionStatsExporterThread(QThread):
             unique_wgs = df['WG'].nunique()
             unique_wis = len(set(wi for sublist in df['Clean_WI_List'] for wi in sublist if wi not in ['Unspecified', 'DUMMY']))
 
-            # Generate Charts using native Python int arrays (eliminates binary bdata)
+            # Generate Charts
             html_timeline = self._generate_timeline_plot(df)
             html_status = self._generate_outcomes_plot(df)
-            html_partners = self._generate_partner_vendors_plot(df)
+            html_cosigners = self._generate_cosigners_plot(df)
             html_wg_activity = self._generate_wg_activity_plot(df)
             html_wi = self._generate_wi_allocation_plot(df)
 
@@ -149,7 +168,7 @@ class ContributionStatsExporterThread(QThread):
 <html>
 <head>
     <meta charset="utf-8">
-    <title>3GPP Contribution & Strategic Alliances Dashboard</title>
+    <title>3GPP Contribution & Co-signer Audit</title>
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
         body {{ font-family: 'Segoe UI', Arial, sans-serif; background-color: #F8FAFC; margin: 0; padding: 24px; color: #1E293B; }}
@@ -201,7 +220,7 @@ class ContributionStatsExporterThread(QThread):
 
         <div class="chart-card">
             <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
-            {html_partners}
+            {html_cosigners}
         </div>
 
         <div class="chart-card" style="grid-column: 1 / -1; height: 480px;">
@@ -288,44 +307,69 @@ class ContributionStatsExporterThread(QThread):
         )
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
-    def _generate_partner_vendors_plot(self, df: pd.DataFrame) -> str:
-        partner_counts = {}
-        for companies in df['Clean_Companies']:
+    def _generate_cosigners_plot(self, df: pd.DataFrame) -> str:
+        """Stacked horizontal bar chart showing Top Co-signers segmented by Working Group."""
+        co_signer_wg_counts = {}
+        co_signer_totals = {}
+
+        for _, row in df.iterrows():
+            wg = str(row.get('WG', '')).strip() or '3GPP'
+            companies = row.get('Clean_Companies', [])
+            if not isinstance(companies, list) or len(companies) <= 1:
+                continue
+
             if self.target_companies:
                 targets_in_doc = [c for c in companies if c in self.target_companies]
                 if targets_in_doc:
                     for c in companies:
                         if c not in self.target_companies:
-                            partner_counts[c] = partner_counts.get(c, 0) + 1
+                            co_signer_totals[c] = co_signer_totals.get(c, 0) + 1
+                            if c not in co_signer_wg_counts:
+                                co_signer_wg_counts[c] = {}
+                            co_signer_wg_counts[c][wg] = co_signer_wg_counts[c].get(wg, 0) + 1
             else:
                 for c in companies:
-                    partner_counts[c] = partner_counts.get(c, 0) + 1
+                    co_signer_totals[c] = co_signer_totals.get(c, 0) + 1
+                    if c not in co_signer_wg_counts:
+                        co_signer_wg_counts[c] = {}
+                    co_signer_wg_counts[c][wg] = co_signer_wg_counts[c].get(wg, 0) + 1
 
-        if not partner_counts:
-            return "<p style='padding:20px; color:#666;'>No third-party co-authors discovered in the filtered dataset.</p>"
+        if not co_signer_totals:
+            return "<p style='padding:20px; color:#666;'>No co-authored contributions discovered in the filtered dataset.</p>"
 
-        sorted_partners = sorted(partner_counts.items(), key=lambda x: x[1])[-15:]
-        vendors = [p[0] for p in sorted_partners]
-        counts = [int(p[1]) for p in sorted_partners]
+        # Take Top 15 co-signers sorted ascending by total so highest appears at the top
+        sorted_cosigners = sorted(co_signer_totals.items(), key=lambda x: x[1])[-15:]
+        top_cosigners = [c for c, _ in sorted_cosigners]
 
-        title = "Top Co-Signing Third-Party Vendors" if self.target_companies else "Top Contributing Entities"
-        fig = go.Figure(go.Bar(
-            x=counts,
-            y=vendors,
-            orientation='h',
-            marker=dict(color="#0D9488"),
-            hovertemplate="<b>%{y}</b><br>Joint TDocs: %{x}<extra></extra>"
-        ))
+        # Determine all WGs present among these top co-signers
+        all_wgs = sorted(list(set(wg for c in top_cosigners for wg in co_signer_wg_counts[c].keys())))
+
+        fig = go.Figure()
+        for i, wg in enumerate(all_wgs):
+            counts = [int(co_signer_wg_counts[c].get(wg, 0)) for c in top_cosigners]
+            color = WG_COLORS.get(wg, FALLBACK_PALETTE[i % len(FALLBACK_PALETTE)])
+            fig.add_trace(go.Bar(
+                name=wg,
+                y=top_cosigners,
+                x=counts,
+                orientation='h',
+                marker=dict(color=color),
+                hovertemplate=f"<b>%{{y}}</b><br>WG: {wg}<br>Joint TDocs: %{{x}}<extra></extra>"
+            ))
+
         fig.update_layout(
-            title=title,
-            xaxis_title="Joint Contributions",
+            barmode='stack',
+            title="Top Co-signers",
+            xaxis_title="Joint Contributions Count",
             yaxis_title=None,
+            legend_title_text="Working Group",
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)'
         )
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
     def _generate_wg_activity_plot(self, df: pd.DataFrame) -> str:
+        """Visualizes contributions across the different Working Groups."""
         wg_df = df[df['WG'].str.strip() != ''].copy()
         if wg_df.empty:
             return "<p style='padding:20px; color:#666;'>No Working Group data available.</p>"
@@ -361,7 +405,6 @@ class ContributionStatsExporterThread(QThread):
     def _generate_wi_allocation_plot(self, df: pd.DataFrame) -> str:
         exploded_wi = df.explode('Clean_WI_List')
         wi_counts = exploded_wi['Clean_WI_List'].value_counts()
-        # Filter out Unspecified and DUMMY placeholders
         wi_counts = wi_counts[~wi_counts.index.isin(['Unspecified', 'DUMMY'])].head(20).sort_values(ascending=True)
 
         if wi_counts.empty:
