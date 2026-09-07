@@ -398,28 +398,45 @@ class ContributionStatsExporterThread(QThread):
         return fig.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%")
 
     def _generate_wi_allocation_plot(self, df: pd.DataFrame) -> str:
+        """Stacked horizontal bar chart showing Top 20 Work Items segmented by Working Group."""
         exploded_wi = df.explode('Clean_WI_List')
-        wi_counts = exploded_wi['Clean_WI_List'].value_counts()
-        # Filter out Unspecified and DUMMY placeholders
-        wi_counts = wi_counts[~wi_counts.index.isin(['Unspecified', 'DUMMY'])].head(20).sort_values(ascending=True)
+        valid_wis = exploded_wi[~exploded_wi['Clean_WI_List'].isin(['Unspecified', 'DUMMY'])].copy()
 
-        if wi_counts.empty:
-            wi_counts = exploded_wi['Clean_WI_List'].value_counts().head(20).sort_values(ascending=True)
+        if valid_wis.empty:
+            valid_wis = exploded_wi[exploded_wi['Clean_WI_List'] != 'Unspecified'].copy()
 
-        wis = wi_counts.index.tolist()
-        counts = [int(v) for v in wi_counts.values.tolist()]
+        if valid_wis.empty:
+            return "<p style='padding:20px; color:#666;'>No Work Item data available.</p>"
 
-        fig = go.Figure(go.Bar(
-            x=counts,
-            y=wis,
-            orientation='h',
-            marker=dict(color=THEME_COLOR),
-            hovertemplate="<b>%{y}</b><br>TDocs: %{x}<extra></extra>"
-        ))
+        # Identify Top 20 WIs by total volume, sorted ascending so highest appears at the top
+        total_counts = valid_wis['Clean_WI_List'].value_counts().head(20).sort_values(ascending=True)
+        top_wis = total_counts.index.tolist()
+
+        # Build pivot table: rows = WI, columns = WG
+        subset = valid_wis[valid_wis['Clean_WI_List'].isin(top_wis)]
+        pivot = subset.groupby(['Clean_WI_List', 'WG']).size().unstack(fill_value=0)
+
+        all_wgs = sorted(pivot.columns.tolist())
+
+        fig = go.Figure()
+        for i, wg in enumerate(all_wgs):
+            counts = [int(pivot.loc[wi, wg]) if (wi in pivot.index and wg in pivot.columns) else 0 for wi in top_wis]
+            color = WG_COLORS.get(wg, FALLBACK_PALETTE[i % len(FALLBACK_PALETTE)])
+            fig.add_trace(go.Bar(
+                name=wg,
+                y=top_wis,
+                x=counts,
+                orientation='h',
+                marker=dict(color=color),
+                hovertemplate=f"<b>%{{y}}</b><br>WG: {wg}<br>TDocs: %{{x}}<extra></extra>"
+            ))
+
         fig.update_layout(
-            title="Work Item & Study Item Allocation (Top 20 Related WIs)",
+            barmode='stack',
+            title="Work Item & Study Item Allocation by Working Group (Top 20 Related WIs)",
             xaxis_title="Contributions Count",
             yaxis_title=None,
+            legend_title_text="Working Group",
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)'
         )
