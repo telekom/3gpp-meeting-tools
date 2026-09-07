@@ -6,14 +6,13 @@ import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QDate, QAbstractTableModel, QModelIndex
-from PyQt5.QtGui import QColor, QBrush, QFont
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QDate, QAbstractTableModel, QModelIndex, QPoint
 from PyQt5.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QLabel, QLineEdit, QPushButton, QCheckBox, QRadioButton,
     QButtonGroup, QDateEdit, QListWidget, QListWidgetItem,
     QTableView, QHeaderView, QTextEdit, QProgressBar,
-    QMessageBox, QFileDialog, QFrame, QCompleter
+    QMessageBox, QFileDialog, QFrame, QCompleter, QMenu, QApplication
 )
 
 from core.ui.ui_components import (
@@ -466,8 +465,7 @@ class ContributionSearchWorker(QThread):
         return matched
 
     def _extract_related_wis(self, row: dict) -> str:
-        """Fast O(1) resolution of Related WIs with zero regex database scanning."""
-        # 1. Primary Check: Official 3GPP 'Related WIs' field
+        # 1. Primary Check: Official 3GPP 'Related WIs' field[cite: 32]
         for key in ["Related WIs", "Related WI", "Related WI(s)", "Work Item", "Work Items", "WI", "WID"]:
             val = str(row.get(key, "")).strip()
             if val and val.lower() not in ["", "none", "unknown", "-"]:
@@ -475,7 +473,7 @@ class ContributionSearchWorker(QThread):
                 if items:
                     return ", ".join(items)
 
-        # 2. Instant Fallback: Check 'Agenda item description' for parenthesized acronym
+        # 2. Instant Fallback: Check 'Agenda item description' for parenthesized acronym[cite: 32]
         desc = str(row.get("Agenda item description", "")).strip()
         if desc:
             match = re.search(r'\(([A-Za-z0-9_ -]{3,35})\)', desc)
@@ -484,7 +482,7 @@ class ContributionSearchWorker(QThread):
                 if '_' in candidate or any(c.isdigit() for c in candidate):
                     return candidate
 
-        # 3. Instant Fallback: Check Title for bracketed tags [WI_TAG]
+        # 3. Instant Fallback: Check Title for bracketed tags [WI_TAG][cite: 6]
         title = str(row.get("Title", "")).strip()
         if title:
             match = re.search(r'\[([A-Za-z0-9_ -]{3,35})\]', title)
@@ -532,6 +530,7 @@ class ContributionSearchWorker(QThread):
 
 
 class ContributionResultsTableModel(QAbstractTableModel):
+    """Clean, neutral table model without color tints, matching application style."""
     COLUMNS = [
         "WG", "Meeting", "TDoc", "Title", "Source", "Matched Company",
         "Type", "For", "Agenda Item", "TDoc Status", "Related WIs", "Abstract"
@@ -567,22 +566,6 @@ class ContributionResultsTableModel(QAbstractTableModel):
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
-        if role == Qt.ForegroundRole:
-            if col_name == "TDoc":
-                return QBrush(QColor("#E20074"))
-            if col_name == "Matched Company":
-                return QBrush(QColor("#0F766E"))
-            if col_name == "Related WIs" and row_dict.get("Related WIs"):
-                return QBrush(QColor("#1E40AF"))
-            if col_name == "WG":
-                return QBrush(QColor("#1E293B"))
-
-        if role == Qt.FontRole:
-            if col_name in ["WG", "TDoc", "Matched Company", "Related WIs"]:
-                f = QFont()
-                f.setBold(True)
-                return f
-
         if role == Qt.ToolTipRole:
             val = str(row_dict.get(col_name, "")).strip()
             if col_name == "Abstract" and val:
@@ -603,8 +586,14 @@ class ContributionResultsTableModel(QAbstractTableModel):
 
 
 class ContributionReportDialog(QDialog):
+    """Modeless cross-meeting contribution report dialog."""
+    open_meeting_requested = pyqtSignal(str, str)  # (wg_name, meeting_number)
+
     def __init__(self, meetings_db: MeetingsDatabase, parent=None):
-        super().__init__(parent)
+        # Pass Qt.Window flag so it acts as an independent modeless desktop window
+        super().__init__(parent, Qt.Window)
+        self.setModal(False)
+
         self.meetings_db = meetings_db
         self.settings = MeetingsSettings()
         self.wi_db = WorkItemsDatabase(self.meetings_db.db_path)
@@ -728,7 +717,12 @@ class ContributionReportDialog(QDialog):
         )
         self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table_view.horizontalHeader().setStretchLastSection(True)
+
+        # Connect double-click and custom context menu
         self.table_view.doubleClicked.connect(self._on_table_double_clicked)
+        self.table_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table_view.customContextMenuRequested.connect(self._on_table_context_menu)
+
         self._apply_column_widths()
         right_layout.addWidget(self.table_view)
 
@@ -875,10 +869,15 @@ class ContributionReportDialog(QDialog):
         wgs_count = len(set(r.get("WG", "") for r in results if r.get("WG")))
         self.kpi_total.set_value(f"{total} TDocs", f"Across {wgs_count} WG(s)")
 
-        # 2. Agreement Rate KPI
+        # 2. Agreement & Consensus Rate KPI
         agreed_count = sum(1 for r in results if any(w in str(r.get("TDoc Status", "")).lower() for w in ["agreed", "approved"]))
-        agree_pct = round((agreed_count / total) * 100, 1)
-        self.kpi_agree.set_value(f"{agree_pct}%", f"{agreed_count} of {total} TDocs")
+        gross_agree_pct = round((agreed_count / total) * 100, 1)
+
+        decided_success = sum(1 for r in results if any(w in str(r.get("TDoc Status", "")).lower() for w in ["agreed", "approved", "merged", "endorsed"]))
+        total_decided = sum(1 for r in results if any(w in str(r.get("TDoc Status", "")).lower() for w in ["agreed", "approved", "merged", "endorsed", "noted", "postponed"]))
+        consensus_pct = round((decided_success / total_decided) * 100, 1) if total_decided else 0
+
+        self.kpi_agree.set_value(f"{consensus_pct}% Consensus", f"{gross_agree_pct}% gross ({agreed_count}/{total})")
 
         # 3. Collaboration KPI & 4. Top Partner Vendor
         joint_count = 0
@@ -915,10 +914,10 @@ class ContributionReportDialog(QDialog):
         wi_counts = {}
         for r in results:
             wi_str = str(r.get("Related WIs", "")).strip()
-            if wi_str and wi_str.lower() not in ["", "none", "unknown", "-"]:
+            if wi_str and wi_str.lower() not in ["", "none", "unknown", "-", "dummy"]:
                 for item in re.split(r'[,;]+', wi_str):
                     item_clean = item.strip()
-                    if item_clean:
+                    if item_clean and item_clean.lower() != 'dummy':
                         wi_counts[item_clean] = wi_counts.get(item_clean, 0) + 1
 
         if wi_counts:
@@ -938,12 +937,54 @@ class ContributionReportDialog(QDialog):
         if not success:
             QMessageBox.warning(self, "Search Notice", msg)
 
+    # --- ROW ACTIONS: OPEN MEETING & OPEN TDOC ---
+
+    def _request_open_meeting(self, row_data: dict):
+        """Requests opening the full meeting window in the main application."""
+        wg = str(row_data.get("WG", "")).strip()
+        mtg_raw = str(row_data.get("Meeting", "")).strip()
+        mtg_num = mtg_raw.split("#")[-1].strip() if "#" in mtg_raw else mtg_raw
+        if wg and mtg_num:
+            self.open_meeting_requested.emit(wg, mtg_num)
+        else:
+            QMessageBox.warning(self, "Missing Info", "Cannot identify the Working Group or meeting number for this row.")
+
+    def _open_tdoc(self, row_data: dict):
+        """Downloads and opens the document ZIP file from the meeting folder."""
+        tdoc_id = str(row_data.get("TDoc", "")).strip()
+        if not tdoc_id:
+            return
+
+        docs_url = str(row_data.get("docs_folder_url", "")).strip()
+        if not docs_url:
+            wg = row_data.get("WG", "")
+            mtg_raw = row_data.get("Meeting", "")
+            mtg_num = mtg_raw.split("#")[-1].strip() if "#" in mtg_raw else mtg_raw
+            mtgs = self.meetings_db.search_meetings(wg_name=[wg] if wg else None, search_term=mtg_num)
+            if mtgs:
+                docs_url = mtgs[0].get("docs_folder_url", "")
+
+        if docs_url:
+            full_url = docs_url if docs_url.startswith("http") else f"https://www.3gpp.org/ftp/{docs_url.lstrip('/')}"
+            target_file_url = f"{full_url.rstrip('/')}/{tdoc_id}.zip"
+            webbrowser.open(target_file_url)
+        else:
+            QMessageBox.warning(self, "Missing URL", f"No documents folder URL available for {tdoc_id}.")
+
     def _on_table_double_clicked(self, index: QModelIndex):
+        """Handles double-click navigation based on the clicked column."""
         row_data = self.table_model.data(index, Qt.UserRole)
         if not row_data:
             return
 
         col_name = self.table_model.COLUMNS[index.column()]
+
+        # Double-clicking WG or Meeting opens the meeting window
+        if col_name in ["WG", "Meeting"]:
+            self._request_open_meeting(row_data)
+            return
+
+        # Double-clicking Abstract opens the popup viewer
         if col_name == "Abstract":
             abstract_text = str(row_data.get("Abstract", "")).strip()
             tdoc_id = str(row_data.get("TDoc", "")).strip()
@@ -951,11 +992,56 @@ class ContributionReportDialog(QDialog):
                 ReadOnlyViewerDialog(self, f"📄 Abstract: {tdoc_id}", abstract_text).exec_()
                 return
 
-        tdoc_id = row_data.get("TDoc")
-        docs_url = row_data.get("docs_folder_url")
-        if tdoc_id and docs_url:
-            full_url = docs_url if docs_url.startswith("http") else f"https://www.3gpp.org/ftp/{docs_url.lstrip('/')}"
-            webbrowser.open(f"{full_url.rstrip('/')}/{tdoc_id}.zip")
+        # Double-clicking any other cell opens the TDoc document
+        self._open_tdoc(row_data)
+
+    def _on_table_context_menu(self, pos: QPoint):
+        """Row-level right-click menu with explicit actions."""
+        index = self.table_view.indexAt(pos)
+        if not index.isValid():
+            return
+
+        row_data = self.table_model.data(index, Qt.UserRole)
+        if not row_data:
+            return
+
+        menu = QMenu(self)
+        wg = row_data.get("WG", "")
+        mtg = row_data.get("Meeting", "")
+        tdoc = row_data.get("TDoc", "")
+
+        # 1. Open Meeting Table
+        act_open_mtg = menu.addAction(f"🗓️ Open Meeting Table ({mtg})")
+        act_open_mtg.triggered.connect(lambda: self._request_open_meeting(row_data))
+
+        menu.addSeparator()
+
+        # 2. Open / View TDoc
+        if tdoc:
+            act_open_tdoc = menu.addAction(f"📄 Open TDoc Document ({tdoc})")
+            act_open_tdoc.triggered.connect(lambda: self._open_tdoc(row_data))
+
+            act_portal = menu.addAction(f"🌐 View {tdoc} on 3GU Portal")
+            act_portal.triggered.connect(lambda: webbrowser.open(f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={tdoc}"))
+
+            menu.addSeparator()
+            act_copy_tdoc = menu.addAction(f"📋 Copy TDoc Number ({tdoc})")
+            act_copy_tdoc.triggered.connect(lambda: QApplication.clipboard().setText(tdoc))
+
+        title = str(row_data.get("Title", "")).strip()
+        if title:
+            act_copy_title = menu.addAction("📋 Copy Title")
+            act_copy_title.triggered.connect(lambda: QApplication.clipboard().setText(title))
+
+        abstract = str(row_data.get("Abstract", "")).strip()
+        if abstract:
+            menu.addSeparator()
+            act_view_abs = menu.addAction("📝 View Abstract...")
+            act_view_abs.triggered.connect(lambda: ReadOnlyViewerDialog(self, f"📄 Abstract: {tdoc}", abstract).exec_())
+
+        menu.exec_(self.table_view.viewport().mapToGlobal(pos))
+
+    # --- EXPORTS ---
 
     def _export_to_excel(self):
         data = self.table_model._data
