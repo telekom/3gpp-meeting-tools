@@ -26,6 +26,8 @@ from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.core.stats.contribution_stats import ContributionStatsExporterThread
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
+from modules.meetings.core.tdocs_threads import TDocActionThread
+from modules.meetings.core.url_router import URLRouter
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog, StatisticsSettingsDialog
 from modules.work_items.core.wi_database import WorkItemsDatabase
@@ -454,9 +456,13 @@ class ContributionSearchWorker(QThread):
                 row_copy = dict(row)
                 row_copy["WG"] = wg_name
                 row_copy["Meeting"] = tag
+                row_copy["meeting_number"] = mtg_num
+                row_copy["folder_name"] = folder_name
+                row_copy["url_key"] = mtg.get("url_key", "")
                 row_copy["docs_folder_url"] = mtg.get("docs_folder_url", "")
                 row_copy["end_date"] = mtg.get("end_date", "")
                 row_copy["start_date"] = mtg.get("start_date", "")
+                row_copy["is_electronic"] = mtg.get("is_electronic", 0)
                 row_copy["wg_name"] = wg_name
                 row_copy["Related WIs"] = resolved_wi
                 matched.append(row_copy)
@@ -590,7 +596,6 @@ class ContributionReportDialog(QDialog):
     open_meeting_requested = pyqtSignal(str, str)  # (wg_name, meeting_number)
 
     def __init__(self, meetings_db: MeetingsDatabase, parent=None):
-        # Pass Qt.Window flag so it acts as an independent modeless desktop window
         super().__init__(parent, Qt.Window)
         self.setModal(False)
 
@@ -600,6 +605,7 @@ class ContributionReportDialog(QDialog):
         self.worker = None
         self.exporter_thread = None
         self.stats_thread = None
+        self.active_tdoc_threads = {}
 
         self.setWindowTitle("3GPP Company Contribution Search & Report")
         self.resize(1340, 820)
@@ -683,7 +689,7 @@ class ContributionReportDialog(QDialog):
         self.kpi_total = KPICard("Total Contributions", "0 TDocs", "Filtered dataset")
         self.kpi_agree = KPICard("Win / Agreement Rate", "0.0%", "Agreed / Approved")
         self.kpi_joint = KPICard("Collaboration", "0% Joint", "Co-authored")
-        self.kpi_partner = KPICard("Top Partner Vendor", "None", "Most frequent ally")
+        self.kpi_partner = KPICard("Top Co-signer", "None", "Most frequent ally")
         self.kpi_wi = KPICard("Top Work Item", "None", "Highest volume WI")
 
         kpi_layout.addWidget(self.kpi_total)
@@ -791,6 +797,12 @@ class ContributionReportDialog(QDialog):
         if self.stats_thread and self.stats_thread.isRunning():
             self.stats_thread.quit()
             self.stats_thread.wait(200)
+        for th in list(self.active_tdoc_threads.values()):
+            if th and th.isRunning():
+                th.requestInterruption()
+                th.quit()
+                th.wait(200)
+        self.active_tdoc_threads.clear()
 
     def closeEvent(self, event):
         self._cleanup_threads()
@@ -879,7 +891,7 @@ class ContributionReportDialog(QDialog):
 
         self.kpi_agree.set_value(f"{consensus_pct}% Consensus", f"{gross_agree_pct}% gross ({agreed_count}/{total})")
 
-        # 3. Collaboration KPI & 4. Top Partner Vendor
+        # 3. Collaboration KPI & 4. Top Co-signer
         joint_count = 0
         partner_counts = {}
         target_companies = self.company_widget.get_selected_companies()
@@ -910,7 +922,7 @@ class ContributionReportDialog(QDialog):
         else:
             self.kpi_partner.set_value("N/A", "No co-signers")
 
-        # 5. Top Work Item KPI (splits multi-entry Related WIs)
+        # 5. Top Work Item KPI (splits multi-entry Related WIs)[cite: 32]
         wi_counts = {}
         for r in results:
             wi_str = str(r.get("Related WIs", "")).strip()
@@ -937,7 +949,7 @@ class ContributionReportDialog(QDialog):
         if not success:
             QMessageBox.warning(self, "Search Notice", msg)
 
-    # --- ROW ACTIONS: OPEN MEETING & OPEN TDOC ---
+    # --- ROW ACTIONS: OPEN MEETING, OPEN DOCS FOLDER, OPEN TDOC ---
 
     def _request_open_meeting(self, row_data: dict):
         """Requests opening the full meeting window in the main application."""
@@ -949,27 +961,101 @@ class ContributionReportDialog(QDialog):
         else:
             QMessageBox.warning(self, "Missing Info", "Cannot identify the Working Group or meeting number for this row.")
 
-    def _open_tdoc(self, row_data: dict):
-        """Downloads and opens the document ZIP file from the meeting folder."""
-        tdoc_id = str(row_data.get("TDoc", "")).strip()
-        if not tdoc_id:
-            return
-
+    def _open_docs_folder(self, row_data: dict):
+        """Opens the Docs folder of the meeting for this TDoc in the default web browser."""
         docs_url = str(row_data.get("docs_folder_url", "")).strip()
         if not docs_url:
             wg = row_data.get("WG", "")
-            mtg_raw = row_data.get("Meeting", "")
-            mtg_num = mtg_raw.split("#")[-1].strip() if "#" in mtg_raw else mtg_raw
+            mtg_num = row_data.get("meeting_number", "")
             mtgs = self.meetings_db.search_meetings(wg_name=[wg] if wg else None, search_term=mtg_num)
             if mtgs:
                 docs_url = mtgs[0].get("docs_folder_url", "")
 
         if docs_url:
             full_url = docs_url if docs_url.startswith("http") else f"https://www.3gpp.org/ftp/{docs_url.lstrip('/')}"
-            target_file_url = f"{full_url.rstrip('/')}/{tdoc_id}.zip"
-            webbrowser.open(target_file_url)
+            webbrowser.open(full_url)
         else:
-            QMessageBox.warning(self, "Missing URL", f"No documents folder URL available for {tdoc_id}.")
+            QMessageBox.warning(self, "Missing URL", "No documents folder URL available for this meeting.")
+
+    def _get_tdoc_download_url(self, row_data: dict) -> str:
+        """Constructs the fully qualified 3GPP FTP/HTTP download URL for the TDoc."""
+        tdoc_id = str(row_data.get("TDoc", "")).strip()
+        if not tdoc_id:
+            return ""
+
+        docs_url = str(row_data.get("docs_folder_url", "")).strip()
+        if not docs_url:
+            wg = row_data.get("WG", "")
+            mtg_num = row_data.get("meeting_number", "")
+            mtgs = self.meetings_db.search_meetings(wg_name=[wg] if wg else None, search_term=mtg_num)
+            if mtgs:
+                docs_url = mtgs[0].get("docs_folder_url", "")
+
+        if docs_url:
+            full_url = docs_url if docs_url.startswith("http") else f"https://www.3gpp.org/ftp/{docs_url.lstrip('/')}"
+            return f"{full_url.rstrip('/')}/{tdoc_id}.zip"
+        return ""
+
+    def _open_tdoc(self, row_data: dict):
+        """Downloads (if missing) and opens the actual document using TDocActionThread."""
+        tdoc_id = str(row_data.get("TDoc", "")).strip()
+        if not tdoc_id:
+            return
+
+        match = re.search(r'^(.*?)-?(?:r|rev)(\d{1,2}[a-zA-Z]?)$', tdoc_id, re.IGNORECASE)
+        base_tdoc = match.group(1).upper() if match else tdoc_id.upper()
+        target_filename = tdoc_id.upper()
+
+        if target_filename in self.active_tdoc_threads:
+            th = self.active_tdoc_threads[target_filename]
+            if th and th.isRunning():
+                return
+
+        wg_name = row_data.get("WG") or row_data.get("wg_name", "")
+        folder_name = row_data.get("folder_name") or row_data.get("meeting_number", "")
+        raw_url = row_data.get("url_key", "")
+        docs_url = row_data.get("docs_folder_url", "")
+
+        main_ftp = raw_url if raw_url.startswith("http") else (f"https://www.3gpp.org/ftp/{raw_url.lstrip('/')}" if raw_url else "")
+
+        is_active_sync = self.meetings_db.is_active_sync_meeting(
+            wg_name,
+            row_data.get("start_date", ""),
+            row_data.get("end_date", ""),
+            int(row_data.get("is_electronic", 0) or 0)
+        )
+
+        candidate_urls = URLRouter.build_priority_url_list(
+            wg_name,
+            folder_name,
+            main_ftp,
+            is_active_sync,
+            target_filename=target_filename
+        )
+
+        if docs_url:
+            clean_docs = docs_url if docs_url.startswith("http") else f"https://www.3gpp.org/ftp/{docs_url.lstrip('/')}"
+            clean_docs = clean_docs.rstrip('/')
+            if clean_docs not in candidate_urls:
+                candidate_urls.append(clean_docs)
+
+        if not candidate_urls:
+            QMessageBox.warning(self, "Missing URL", f"No candidate download routes found for {tdoc_id}.")
+            return
+
+        meeting_dir = Path(self.settings.cache_dir) / folder_name
+        meeting_dir.mkdir(parents=True, exist_ok=True)
+
+        thread = TDocActionThread(base_tdoc, target_filename, candidate_urls, meeting_dir, open_file=True)
+        self.active_tdoc_threads[target_filename] = thread
+        thread.finished_action.connect(lambda t, s, m, th=thread: self._on_tdoc_action_finished(t, s, m, th))
+        thread.start()
+
+    def _on_tdoc_action_finished(self, tdoc: str, success: bool, msg: str, thread: TDocActionThread):
+        if thread.target_filename in self.active_tdoc_threads:
+            del self.active_tdoc_threads[thread.target_filename]
+        if not success:
+            QMessageBox.warning(self, f"Action Failed: {tdoc}", msg)
 
     def _on_table_double_clicked(self, index: QModelIndex):
         """Handles double-click navigation based on the clicked column."""
@@ -992,7 +1078,7 @@ class ContributionReportDialog(QDialog):
                 ReadOnlyViewerDialog(self, f"📄 Abstract: {tdoc_id}", abstract_text).exec_()
                 return
 
-        # Double-clicking any other cell opens the TDoc document
+        # Double-clicking any other cell opens the actual TDoc document
         self._open_tdoc(row_data)
 
     def _on_table_context_menu(self, pos: QPoint):
@@ -1006,7 +1092,6 @@ class ContributionReportDialog(QDialog):
             return
 
         menu = QMenu(self)
-        wg = row_data.get("WG", "")
         mtg = row_data.get("Meeting", "")
         tdoc = row_data.get("TDoc", "")
 
@@ -1014,9 +1099,13 @@ class ContributionReportDialog(QDialog):
         act_open_mtg = menu.addAction(f"🗓️ Open Meeting Table ({mtg})")
         act_open_mtg.triggered.connect(lambda: self._request_open_meeting(row_data))
 
+        # 2. Open Docs Folder
+        act_open_docs = menu.addAction("📂 Open Docs Folder")
+        act_open_docs.triggered.connect(lambda: self._open_docs_folder(row_data))
+
         menu.addSeparator()
 
-        # 2. Open / View TDoc
+        # 3. Open / View TDoc
         if tdoc:
             act_open_tdoc = menu.addAction(f"📄 Open TDoc Document ({tdoc})")
             act_open_tdoc.triggered.connect(lambda: self._open_tdoc(row_data))
@@ -1025,8 +1114,15 @@ class ContributionReportDialog(QDialog):
             act_portal.triggered.connect(lambda: webbrowser.open(f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={tdoc}"))
 
             menu.addSeparator()
+
+            # Copy options
             act_copy_tdoc = menu.addAction(f"📋 Copy TDoc Number ({tdoc})")
             act_copy_tdoc.triggered.connect(lambda: QApplication.clipboard().setText(tdoc))
+
+            tdoc_url = self._get_tdoc_download_url(row_data)
+            if tdoc_url:
+                act_copy_url = menu.addAction("🔗 Copy URL")
+                act_copy_url.triggered.connect(lambda: QApplication.clipboard().setText(tdoc_url))
 
         title = str(row_data.get("Title", "")).strip()
         if title:
