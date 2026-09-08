@@ -1,8 +1,10 @@
+import ctypes
 import logging
 import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import tempfile
 from typing import Optional, Union
 
@@ -31,17 +33,80 @@ WD_FORMAT_TXT = 2            # wdFormatText
 
 
 def _sanitize_file_attributes(file_path: Path) -> None:
-    """Removes read-only flags and NTFS Zone.Identifier streams from the file."""
+    """Removes read-only flags and NTFS Zone.Identifier streams using native Win32 APIs."""
+    p = Path(file_path).resolve()
+    if not p.exists():
+        return
+
     try:
-        if file_path.exists():
-            os.chmod(file_path, stat.S_IWRITE | stat.S_IREAD)
+        os.chmod(p, stat.S_IWRITE | stat.S_IREAD)
     except Exception:
         pass
 
+    if os.name == "nt":
+        # Reset file attributes (removes Read-Only / Hidden flags)
+        try:
+            ctypes.windll.kernel32.SetFileAttributesW(str(p), 0x80)  # FILE_ATTRIBUTE_NORMAL
+        except Exception:
+            pass
+
+        # Unlink the NTFS Zone.Identifier alternate data stream directly
+        try:
+            zone_stream = f"{str(p)}:Zone.Identifier"
+            ctypes.windll.kernel32.DeleteFileW(zone_stream)
+        except Exception:
+            pass
+
+        # Fallback via PowerShell Unblock-File
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", f'Unblock-File -LiteralPath "{str(p)}"'],
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+            )
+        except Exception:
+            pass
+
+
+def _is_com_alive(com_obj) -> bool:
+    """Safely checks if a COM object is responsive without raising secondary RPC faults."""
+    if com_obj is None:
+        return False
     try:
-        zone_stream = Path(f"{file_path.resolve()}:Zone.Identifier")
-        if zone_stream.exists():
-            zone_stream.unlink()
+        _ = com_obj.Name
+        return True
+    except Exception:
+        return False
+
+
+def _safe_com_cleanup(word=None, doc=None, new_doc=None) -> None:
+    """Closes documents and quits Word only if the COM channel is still alive."""
+    word_alive = _is_com_alive(word)
+
+    if word_alive:
+        for d in (new_doc, doc):
+            if d is not None:
+                try:
+                    d.Close(SaveChanges=False)
+                except Exception:
+                    pass
+
+        try:
+            if hasattr(word, "ProtectedViewWindows"):
+                while word.ProtectedViewWindows.Count > 0:
+                    word.ProtectedViewWindows.Item(1).Close()
+        except Exception:
+            pass
+
+        try:
+            word.Quit()
+        except Exception:
+            pass
+
+    try:
+        pythoncom.CoUninitialize()
     except Exception:
         pass
 
@@ -114,16 +179,18 @@ def convert_doc_to_docx_word(
                 AddToRecentFiles=False,
             )
         except Exception:
-            if hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
+            if _is_com_alive(word) and hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
                 pv = word.ProtectedViewWindows.Item(1)
                 doc = pv.Edit()
-            else:
+            elif _is_com_alive(word):
                 doc = word.Documents.Open(
                     FileName=source_str,
                     ConfirmConversions=False,
                     ReadOnly=True,
                     AddToRecentFiles=False,
                 )
+            else:
+                raise RuntimeError("MS Word crashed during document opening.")
 
         if doc is None:
             raise RuntimeError(f"Word failed to acquire a valid document handle for {source.name}")
@@ -176,25 +243,7 @@ def convert_doc_to_docx_word(
         return target
 
     finally:
-        if new_doc:
-            try:
-                new_doc.Close(SaveChanges=False)
-            except Exception:
-                pass
-        if doc:
-            try:
-                doc.Close(SaveChanges=False)
-            except Exception:
-                pass
-        if word:
-            try:
-                if hasattr(word, "ProtectedViewWindows"):
-                    while word.ProtectedViewWindows.Count > 0:
-                        word.ProtectedViewWindows.Item(1).Close()
-                word.Quit()
-            except Exception:
-                pass
-        pythoncom.CoUninitialize()
+        _safe_com_cleanup(word=word, doc=doc, new_doc=new_doc)
 
 
 def convert_doc_to_docx(
@@ -202,10 +251,7 @@ def convert_doc_to_docx(
     output_path: Optional[Union[str, Path]] = None,
     logger: Optional[logging.Logger] = None,
 ) -> Path:
-    """
-    Primary Entry Point: Tries Word COM conversion first.
-    If and only if Word fails, falls back to LibreOffice.
-    """
+    """Primary Entry Point: Attempts Word COM conversion first, falling back to LibreOffice."""
     log = logger or logging.getLogger(__name__)
     source = Path(doc_path).resolve()
 
@@ -317,18 +363,30 @@ class WordConverterThread(QThread):
             word.DisplayAlerts = 0
 
             try:
-                word.AutomationSecurity = 1
+                word.AutomationSecurity = 1  # msoAutomationSecurityLow
+                word.Options.ConfirmConversions = False
                 word.Options.DoNotPromptForConvert = True
+                word.Options.WarnBeforeSavingPrintingSendingMarkup = False
+                word.Options.SaveInterval = 0
             except Exception:
                 pass
 
             try:
-                doc = word.Documents.Open(str(source), False, True, False)
-            except Exception:
-                if hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
-                    doc = word.ProtectedViewWindows.Item(1).Edit()
-                else:
-                    raise
+                doc = word.Documents.Open(
+                    FileName=str(source),
+                    ConfirmConversions=False,
+                    ReadOnly=True,
+                    AddToRecentFiles=False,
+                )
+            except Exception as open_err:
+                if _is_com_alive(word) and hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
+                    try:
+                        pv = word.ProtectedViewWindows.Item(1)
+                        doc = pv.Edit()
+                    except Exception:
+                        pass
+                if doc is None:
+                    raise open_err
 
             try:
                 set_sensitivity_label(doc)
@@ -356,11 +414,4 @@ class WordConverterThread(QThread):
             self.finished_path.emit(out_path)
 
         finally:
-            try:
-                if doc:
-                    doc.Close(SaveChanges=False)
-                if word:
-                    word.Quit()
-            except Exception:
-                pass
-            pythoncom.CoUninitialize()
+            _safe_com_cleanup(word=word, doc=doc)
