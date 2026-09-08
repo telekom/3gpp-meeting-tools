@@ -6,6 +6,8 @@ from PyQt5.QtWidgets import (
     QLineEdit, QComboBox, QCheckBox, QGroupBox, QFormLayout,
     QMessageBox
 )
+import os
+from PyQt5.QtWidgets import QFileDialog
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from modules.meetings.core.meetings_db import MeetingsDatabase
@@ -330,3 +332,113 @@ class AddMeetingDialog(QDialog):
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Save Error", f"Could not save meeting to database:\n{e}")
+
+
+class MeetingsConfigDialog(QDialog):
+    """Configuration dialog for cache path and FTP scraping preferences."""
+    def __init__(self, settings, parent=None):
+        super().__init__(parent)
+        self.settings = settings
+        self.setWindowTitle("⚙️ Meetings Configuration")
+        self.setMinimumWidth(520)
+        self.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background-color: #FFFFFF;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 4px;
+            }
+            QLineEdit {
+                padding: 6px;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #1E5C99;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        # 1. Local Cache Directory
+        cache_group = QGroupBox("📁 Local Cache Directory")
+        cache_layout = QVBoxLayout(cache_group)
+
+        cache_desc = QLabel("Directory where meeting agendas, TDoc lists, and document ZIPs are saved:")
+        cache_desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        cache_layout.addWidget(cache_desc)
+
+        path_row = QHBoxLayout()
+        self.dl_dir_input = QLineEdit(self.settings.cache_dir)
+        self.dl_dir_input.editingFinished.connect(
+            lambda: self.settings.save_settings(self.dl_dir_input.text().strip())
+        )
+        path_row.addWidget(self.dl_dir_input, 1)
+
+        btn_browse = QPushButton("Browse...")
+        btn_browse.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        btn_browse.clicked.connect(self._browse_cache_dir)
+        path_row.addWidget(btn_browse)
+
+        btn_open = QPushButton("Open")
+        btn_open.setToolTip("Open folder in File Explorer")
+        btn_open.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        btn_open.clicked.connect(self._open_cache_dir)
+        path_row.addWidget(btn_open)
+
+        cache_layout.addLayout(path_row)
+        layout.addWidget(cache_group)
+
+        # 2. Scrape Depth Configuration
+        scrape_group = QGroupBox("🕷️ 3GPP FTP Scraper Passes")
+        scrape_layout = QVBoxLayout(scrape_group)
+
+        scrape_desc = QLabel("Select operations performed during 'Sync All Meetings' or individual syncs:")
+        scrape_desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        scrape_layout.addWidget(scrape_desc)
+
+        self.chk_wg = QCheckBox("Check for New Folders (Phase 1: FTP Directory Discovery)")
+        self.chk_wg.setChecked(True)
+        self.chk_dyna = QCheckBox("Update Metadata (Phase 3: Dates & Locations via DynaReport)")
+        self.chk_dyna.setChecked(True)
+        self.chk_docs = QCheckBox("Deep Scrape 'Docs/' (Phase 2: Identify First & Last TDocs)")
+        self.chk_docs.setChecked(True)
+
+        scrape_layout.addWidget(self.chk_wg)
+        scrape_layout.addWidget(self.chk_dyna)
+        scrape_layout.addWidget(self.chk_docs)
+        layout.addWidget(scrape_group)
+
+        # 3. Footer Actions
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_done = QPushButton("Done")
+        btn_done.setObjectName("primaryBtn")
+        btn_done.setFixedWidth(90)
+        btn_done.clicked.connect(self.accept)
+        btn_layout.addWidget(btn_done)
+
+        layout.addLayout(btn_layout)
+
+    def _browse_cache_dir(self):
+        directory = QFileDialog.getExistingDirectory(self, "Select Cache Directory", self.dl_dir_input.text())
+        if directory:
+            normalized = str(Path(directory))
+            self.dl_dir_input.setText(normalized)
+            self.settings.save_settings(normalized)
+
+    def _open_cache_dir(self):
+        target = self.dl_dir_input.text().strip()
+        if target and Path(target).exists():
+            os.startfile(target) if hasattr(os, 'startfile') else webbrowser.open(f"file:///{target}")
+        else:
+            QMessageBox.warning(self, "Directory Not Found", f"The directory does not exist:\n{target}")
