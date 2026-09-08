@@ -19,12 +19,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from core.network.session import (
-    NetworkSession,
-    ProxyProfileManager,
-    SecureCredentialStore,
-    redact_sensitive_urls,
-)
+from core.network.session import NetworkSession, ProxyProfileManager
+from core.utils.dpapi import SecureCredentialStore, redact_sensitive_urls
 
 # ==========================================
 # --- GLOBAL STYLESHEET (ALL-BLUE THEME) ---
@@ -664,7 +660,6 @@ class ProxyDialog(QDialog):
 
         encrypted_payload = ""
 
-        # Only encrypt and persist if requested and host parameters are entered
         if self.remember_cred_checkbox.isChecked() and (http_host or https_host):
             payload_dict = {
                 "http_host": http_host,
