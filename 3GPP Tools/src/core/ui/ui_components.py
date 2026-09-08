@@ -152,6 +152,87 @@ GLOBAL_STYLE = """
 
 # Shared toolbar button stylesheets (can be placed in src/core/ui/ui_components.py)
 
+# ==========================================
+# --- COMMON REUSABLE UI STYLES ---
+# ==========================================
+
+CARD_FRAME_STYLE = """
+QFrame#cardFrame {
+    background-color: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+}
+"""
+
+TABLE_STYLE_CLEAN = """
+QTableWidget {
+    background-color: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 6px;
+    gridline-color: #F1F5F9;
+    font-size: 12px;
+}
+QTableWidget::item {
+    padding: 4px 8px;
+    border-bottom: 1px solid #F1F5F9;
+}
+QTableWidget::item:selected {
+    background-color: #EBF3FC;
+    color: #1E293B;
+}
+QHeaderView::section {
+    background-color: #F8FAFC;
+    color: #475569;
+    font-weight: bold;
+    font-size: 11px;
+    border: none;
+    border-bottom: 1px solid #CBD5E1;
+    padding: 6px 8px;
+}
+"""
+
+SEARCH_INPUT_STYLE = """
+QLineEdit {
+    padding: 4px 8px;
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+    font-size: 12px;
+    background-color: #FFFFFF;
+}
+QLineEdit:focus {
+    border: 1px solid #1E5C99;
+}
+"""
+
+BADGE_STYLE_PRIMARY = """
+background-color: #E6F4EA;
+color: #137333;
+font-weight: bold;
+font-size: 11px;
+border: 1px solid #CEEAD6;
+border-radius: 4px;
+padding: 2px 8px;
+"""
+
+BADGE_STYLE_MUTED = """
+background-color: #F1F5F9;
+color: #475569;
+font-size: 11px;
+border: 1px solid #E2E8F0;
+border-radius: 4px;
+padding: 2px 8px;
+"""
+
+BADGE_STYLE_INFO = """
+background-color: #EBF8FF;
+color: #2B6CB0;
+border: 1px solid #BEE3F8;
+border-radius: 4px;
+padding: 2px 8px;
+font-size: 11px;
+font-weight: bold;
+"""
+
 BUTTON_STYLE_TOOLBAR_SECONDARY = """
 QPushButton {
     background-color: #F8FAFC;

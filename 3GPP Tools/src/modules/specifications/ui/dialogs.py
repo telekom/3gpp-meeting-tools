@@ -30,6 +30,16 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.ui_components import (
+    BADGE_STYLE_INFO,
+    BADGE_STYLE_MUTED,
+    BADGE_STYLE_PRIMARY,
+    BUTTON_STYLE_TOOLBAR_SECONDARY,
+    CARD_FRAME_STYLE,
+    SEARCH_INPUT_STYLE,
+    TABLE_STYLE_CLEAN,
+)
+
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.core.scraper import fetch_metadata_from_dynareport
 
@@ -157,73 +167,19 @@ class SpecInfoDialog(QDialog):
         self.related_wis = details.get("related_wis", [])
 
         self.setWindowTitle(f"Specification Details: {spec_num}")
-        self.setMinimumWidth(620)
+        self.setMinimumWidth(640)
 
-        # Adaptive initial sizing: taller and wider when a WI table needs to be displayed
+        # Adaptive initial sizing: taller when a WI table needs to be displayed
         if self.related_wis:
-            self.resize(780, 660)
+            self.resize(760, 660)
             self.setMinimumHeight(500)
         else:
-            self.resize(640, 420)
+            self.resize(640, 400)
 
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #F8F9FA;
-            }
-            QFrame#cardFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #E2E8F0;
-                border-radius: 8px;
-            }
-            QLabel {
-                font-size: 13px;
-                color: #2D3748;
-            }
-            QPushButton {
-                padding: 6px 14px;
-                font-size: 12px;
-                border-radius: 4px;
-                border: 1px solid #CBD5E0;
-                background-color: #FFFFFF;
-                color: #2D3748;
-            }
-            QPushButton:hover {
-                background-color: #EDF2F7;
-                border-color: #A0AEC0;
-            }
-            QPushButton#primaryActionBtn {
-                background-color: #0066CC;
-                color: #FFFFFF;
-                border: 1px solid #0055AA;
-                font-weight: bold;
-            }
-            QPushButton#primaryActionBtn:hover {
-                background-color: #0052A3;
-            }
-            QTableWidget {
-                background-color: #FFFFFF;
-                border: 1px solid #E2E8F0;
-                border-radius: 6px;
-                gridline-color: #F1F5F9;
-                font-size: 12px;
-            }
-            QTableWidget::item {
-                padding: 4px 8px;
-                border-bottom: 1px solid #F1F5F9;
-            }
-            QTableWidget::item:selected {
-                background-color: #EBF8FF;
-                color: #1A202C;
-            }
-            QHeaderView::section {
-                background-color: #F8FAFC;
-                color: #4A5568;
-                font-weight: bold;
-                font-size: 11px;
-                border: none;
-                border-bottom: 1px solid #CBD5E0;
-                padding: 6px 8px;
-            }
+        # Rely on shared card styling and standard Qt dialog background
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: #F8F9FA; }}
+            {CARD_FRAME_STYLE}
         """)
 
         layout = QVBoxLayout(self)
@@ -239,15 +195,7 @@ class SpecInfoDialog(QDialog):
 
         title_row = QHBoxLayout()
         type_badge = QLabel(f"<b>{spec_type}</b>")
-        type_badge.setStyleSheet("""
-            background-color: #EBF8FF;
-            color: #2B6CB0;
-            border: 1px solid #BEE3F8;
-            border-radius: 4px;
-            padding: 2px 6px;
-            font-size: 12px;
-            font-weight: bold;
-        """)
+        type_badge.setStyleSheet(BADGE_STYLE_INFO)
 
         number_label = QLabel(f"<b>{spec_num}</b>")
         number_label.setStyleSheet("font-size: 17px; color: #1A202C; font-weight: bold;")
@@ -292,7 +240,7 @@ class SpecInfoDialog(QDialog):
 
         if ftp_url:
             ftp_label = QLabel(
-                f'<a href="{ftp_url}" style="color: #0066CC; text-decoration: none;">{ftp_url}</a>'
+                f'<a href="{ftp_url}" style="color: #1E5C99; text-decoration: none;">{ftp_url}</a>'
             )
             ftp_label.setOpenExternalLinks(True)
             ftp_label.setTextInteractionFlags(Qt.TextBrowserInteraction | Qt.TextSelectableByMouse)
@@ -300,14 +248,13 @@ class SpecInfoDialog(QDialog):
 
         if dynareport_url:
             dyna_label = QLabel(
-                f'<a href="{dynareport_url}" style="color: #0066CC; text-decoration: none;">'
+                f'<a href="{dynareport_url}" style="color: #1E5C99; text-decoration: none;">'
                 f"Open 3GPP Portal Report ({clean_number}.htm) ↗</a>"
             )
             dyna_label.setOpenExternalLinks(True)
             dyna_label.setTextInteractionFlags(Qt.TextBrowserInteraction | Qt.TextSelectableByMouse)
             form.addRow(self._make_key_label("DynaReport:"), dyna_label)
 
-        # Show a simple placeholder in the form only if there are no related WIs
         if not self.related_wis:
             self._add_row(form, "Related WIs", "None")
 
@@ -343,13 +290,14 @@ class SpecInfoDialog(QDialog):
 
         if dynareport_url:
             dynareport_btn = QPushButton("🌐 Open DynaReport")
-            dynareport_btn.setObjectName("primaryActionBtn")
+            dynareport_btn.setObjectName("primaryBtn")
             dynareport_btn.setCursor(Qt.PointingHandCursor)
             dynareport_btn.clicked.connect(lambda: webbrowser.open(dynareport_url))
             btn_layout.addWidget(dynareport_btn)
 
         if ftp_url:
             ftp_btn = QPushButton("📂 Open FTP Archive")
+            ftp_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
             ftp_btn.setCursor(Qt.PointingHandCursor)
             ftp_btn.clicked.connect(lambda: webbrowser.open(ftp_url))
             btn_layout.addWidget(ftp_btn)
@@ -357,6 +305,7 @@ class SpecInfoDialog(QDialog):
         btn_layout.addStretch()
 
         close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self.accept)
         btn_layout.addWidget(close_btn)
@@ -380,17 +329,7 @@ class SpecInfoDialog(QDialog):
         header_bar.addWidget(title_lbl)
 
         self.wi_count_badge = QLabel(f"{len(self.related_wis)} WIs")
-        self.wi_count_badge.setStyleSheet("""
-            QLabel {
-                padding: 1px 8px;
-                font-size: 11px;
-                font-weight: bold;
-                background-color: #F1F5F9;
-                color: #475569;
-                border: 1px solid #E2E8F0;
-                border-radius: 8px;
-            }
-        """)
+        self.wi_count_badge.setStyleSheet(BADGE_STYLE_MUTED)
         header_bar.addWidget(self.wi_count_badge)
         header_bar.addStretch()
 
@@ -398,37 +337,29 @@ class SpecInfoDialog(QDialog):
         self.wi_filter_input.setPlaceholderText("🔍 Filter by acronym, code, or name...")
         self.wi_filter_input.setClearButtonEnabled(True)
         self.wi_filter_input.setFixedWidth(260)
-        self.wi_filter_input.setStyleSheet("""
-            QLineEdit {
-                padding: 4px 8px;
-                border: 1px solid #CBD5E0;
-                border-radius: 4px;
-                font-size: 12px;
-                background-color: #FFFFFF;
-            }
-            QLineEdit:focus {
-                border: 1px solid #0066CC;
-            }
-        """)
+        self.wi_filter_input.setStyleSheet(SEARCH_INPUT_STYLE)
         self.wi_filter_input.textChanged.connect(self._filter_wis)
         header_bar.addWidget(self.wi_filter_input)
         card_layout.addLayout(header_bar)
 
         # Work Items Table
         self.wi_table = QTableWidget()
+        self.wi_table.setStyleSheet(TABLE_STYLE_CLEAN)
         self.wi_table.setColumnCount(5)
-        self.wi_table.setHorizontalHeaderLabels(["Role", "Acronym", "Code", "Work Item Description", "Link"])
+        self.wi_table.setHorizontalHeaderLabels(
+            ["Role", "Acronym", "Code", "Work Item Description", "Link"]
+        )
 
         header = self.wi_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Fixed)
-        self.wi_table.setColumnWidth(0, 85)
+        self.wi_table.setColumnWidth(0, 95)
         header.setSectionResizeMode(1, QHeaderView.Interactive)
         self.wi_table.setColumnWidth(1, 140)
         header.setSectionResizeMode(2, QHeaderView.Fixed)
-        self.wi_table.setColumnWidth(2, 75)
+        self.wi_table.setColumnWidth(2, 70)
         header.setSectionResizeMode(3, QHeaderView.Stretch)
         header.setSectionResizeMode(4, QHeaderView.Fixed)
-        self.wi_table.setColumnWidth(4, 75)
+        self.wi_table.setColumnWidth(4, 65)
 
         self.wi_table.verticalHeader().setVisible(False)
         self.wi_table.verticalHeader().setDefaultSectionSize(32)
@@ -458,6 +389,11 @@ class SpecInfoDialog(QDialog):
             acronym = str(wi.get("acronym", "")).strip()
             name = str(wi.get("name", "")).strip()
             is_primary = bool(wi.get("is_primary", False))
+            portal_url = (
+                f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={code}"
+                if code
+                else ""
+            )
 
             # Column 0: Role Badge (⭐ Primary vs Secondary)
             role_item = QTableWidgetItem("0" if is_primary else "1")
@@ -469,13 +405,7 @@ class SpecInfoDialog(QDialog):
             badge_layout.setAlignment(Qt.AlignCenter)
 
             role_badge = QLabel("⭐ Primary" if is_primary else "Secondary")
-            role_badge.setStyleSheet("""
-                background-color: #E6F4EA; color: #137333; font-weight: bold; font-size: 11px;
-                border: 1px solid #CEEAD6; border-radius: 4px; padding: 1px 6px;
-            """ if is_primary else """
-                background-color: #F1F5F9; color: #64748B; font-size: 11px;
-                border: 1px solid #E2E8F0; border-radius: 4px; padding: 1px 6px;
-            """)
+            role_badge.setStyleSheet(BADGE_STYLE_PRIMARY if is_primary else BADGE_STYLE_MUTED)
             badge_layout.addWidget(role_badge)
             self.wi_table.setCellWidget(row, 0, badge_widget)
 
@@ -499,33 +429,19 @@ class SpecInfoDialog(QDialog):
             name_item.setToolTip(f"{name}\nDouble-click to view on 3GPP Portal")
             self.wi_table.setItem(row, 3, name_item)
 
-            # Column 4: Action Link Button
-            open_btn = QPushButton("↗ Open")
-            open_btn.setCursor(Qt.PointingHandCursor)
-            open_btn.setToolTip(f"Open Work Item #{code} on 3GPP Portal")
-            open_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #F0F4F8;
-                    border: 1px solid #D2E3FC;
-                    border-radius: 4px;
-                    padding: 2px 8px;
-                    font-size: 11px;
-                    color: #1967D2;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #E8F0FE;
-                    border-color: #1967D2;
-                }
-            """)
-            open_btn.clicked.connect(lambda _, c=code: self._open_wi_url(c))
-
-            btn_container = QWidget()
-            btn_layout = QHBoxLayout(btn_container)
-            btn_layout.setContentsMargins(4, 2, 4, 2)
-            btn_layout.setAlignment(Qt.AlignCenter)
-            btn_layout.addWidget(open_btn)
-            self.wi_table.setCellWidget(row, 4, btn_container)
+            # Column 4: Text Hyperlink (Clean link without button boxes)
+            if portal_url:
+                link_lbl = QLabel(
+                    f'<a href="{portal_url}" style="color: #1E5C99; text-decoration: none; font-weight: 600;">Open ↗</a>'
+                )
+                link_lbl.setOpenExternalLinks(True)
+                link_lbl.setAlignment(Qt.AlignCenter)
+                link_lbl.setToolTip(f"Open Work Item #{code} on 3GPP Portal")
+                self.wi_table.setCellWidget(row, 4, link_lbl)
+            else:
+                empty_item = QTableWidgetItem("-")
+                empty_item.setTextAlignment(Qt.AlignCenter)
+                self.wi_table.setItem(row, 4, empty_item)
 
         self.wi_table.setSortingEnabled(True)
         card_layout.addWidget(self.wi_table)
@@ -581,11 +497,6 @@ class SpecInfoDialog(QDialog):
         url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={code}"
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
-            QMenu::item { padding: 6px 20px 6px 15px; color: #333333; }
-            QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-        """)
 
         act_open = menu.addAction("🌐 Open Work Item on 3GPP Portal")
         act_open.triggered.connect(lambda: self._open_wi_url(code))
