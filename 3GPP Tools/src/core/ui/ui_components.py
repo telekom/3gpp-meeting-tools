@@ -1,9 +1,30 @@
+# --- File: src/core/ui/ui_components.py ---
 import os
 import urllib.parse
 from pathlib import Path
 from typing import Optional, Tuple
 
-from PyQt5.QtGui import QPainter, QColor, QIcon, QPixmap, QPen
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPen, QPixmap
+from PyQt5.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from core.network.session import (
+    NetworkSession,
+    ProxyProfileManager,
+    SecureCredentialStore,
+    redact_sensitive_urls,
+)
 
 # ==========================================
 # --- GLOBAL STYLESHEET (ALL-BLUE THEME) ---
@@ -59,14 +80,11 @@ GLOBAL_STYLE = """
         color: #A0A0A0;
         border: 1px solid #DFDFDF;
     }
-    /* Toggled/Checked State for Live View Button */
     QPushButton:checked {
         background-color: #EBF3FC;
         border: 2px solid #395396;
         color: #395396;
     }
-
-    /* Primary Action Buttons */
     QPushButton#primaryBtn, QPushButton#pptBtn, QPushButton#svgBtn {
         background-color: #1E5C99; 
         color: white; 
@@ -75,8 +93,6 @@ GLOBAL_STYLE = """
     QPushButton#primaryBtn:hover, QPushButton#pptBtn:hover, QPushButton#svgBtn:hover {
         background-color: #15426E;
     }
-
-    /* Dropdown Menus (Export Button) */
     QMenu {
         background-color: #FFFFFF;
         border: 1px solid #CCCCCC;
@@ -97,8 +113,6 @@ GLOBAL_STYLE = """
     QPushButton::menu-indicator {
         width: 0px; 
     }
-
-    /* Splitter Handle */
     QSplitter::handle {
         background-color: #E0E0E0;
         height: 2px;
@@ -107,15 +121,11 @@ GLOBAL_STYLE = """
     QSplitter::handle:hover {
         background-color: #395396;
     }
-
-    /* Status Bar */
     QStatusBar {
         background-color: #F0F0F0;
         border-top: 1px solid #D0D0D0;
         color: #333333;
     }
-
-    /* Combobox Styling */
     QComboBox {
         padding: 4px 8px;
         border-radius: 4px;
@@ -128,8 +138,6 @@ GLOBAL_STYLE = """
         border: none;
         width: 20px;
     }
-
-    /* Dark Theme for Console & Queue List */
     QTextEdit#console, QListWidget#queueList {
         background-color: #1E1E1E; 
         color: #D4D4D4; 
@@ -149,8 +157,6 @@ GLOBAL_STYLE = """
         border-radius: 4px;
     }
 """
-
-# Shared toolbar button stylesheets (can be placed in src/core/ui/ui_components.py)
 
 # ==========================================
 # --- COMMON REUSABLE UI STYLES ---
@@ -374,16 +380,12 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 
 def create_app_icon():
     """Generates the geometric network icon, saves it physically, and loads it for Windows."""
-
-    # Define a physical path in the project root to save the icon
-    # (Falling back to current directory if get_project_root is not easily importable here)
     try:
         from core.utils.paths import get_project_root
         icon_path = get_project_root() / "3gpp_icon_cache.png"
     except ImportError:
         icon_path = Path("3gpp_icon_cache.png")
 
-    # 1. Draw the highest resolution version (256x256)
     size = 256
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
@@ -391,14 +393,12 @@ def create_app_icon():
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
 
-    # Background
     bg_color = QColor("#1A202C")
     painter.setBrush(bg_color)
     painter.setPen(Qt.NoPen)
     corner_radius = size // 5
     painter.drawRoundedRect(2, 2, size - 4, size - 4, corner_radius, corner_radius)
 
-    # Connections
     pen = QPen(QColor("#3B82F6"))
     pen.setWidth(size // 12)
     pen.setJoinStyle(Qt.RoundJoin)
@@ -416,7 +416,6 @@ def create_app_icon():
     painter.drawLine(int(center_x), int(top_y), int(br_x), int(br_y))
     painter.drawLine(int(bl_x), int(bl_y), int(br_x), int(br_y))
 
-    # Nodes
     painter.setBrush(QColor("#FFFFFF"))
     painter.setPen(Qt.NoPen)
     node_radius = size // 10
@@ -427,18 +426,8 @@ def create_app_icon():
 
     painter.end()
 
-    # 2. Save physically to disk so Windows Taskbar has a hard file to reference
     pixmap.save(str(icon_path), "PNG")
-
-    # 3. Return a QIcon loaded directly from the physical file
     return QIcon(str(icon_path))
-
-
-from PyQt5.QtCore import Qt, pyqtSignal, QThread
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QLabel, QFormLayout,
-                             QLineEdit, QCheckBox, QHBoxLayout, QPushButton,
-                             QMessageBox)
-from core.network.session import NetworkSession
 
 
 class ProxyTestWorker(QThread):
@@ -451,13 +440,10 @@ class ProxyTestWorker(QThread):
 
     def run(self):
         try:
-            success = NetworkSession.test_connection(self.proxies)
-            if success:
-                self.finished_signal.emit(True, "Connection to 3GPP server successful!")
-            else:
-                self.finished_signal.emit(False, "Connection failed. Check credentials, proxy address, or firewall.")
+            success, message = NetworkSession.test_connection(self.proxies)
+            self.finished_signal.emit(success, redact_sensitive_urls(message))
         except Exception as e:
-            self.finished_signal.emit(False, f"Test error: {str(e)}")
+            self.finished_signal.emit(False, f"Test error: {redact_sensitive_urls(str(e))}")
 
 
 class ProxyDialog(QDialog):
@@ -465,7 +451,7 @@ class ProxyDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Network Proxy Configuration")
         self.setModal(True)
-        self.resize(540, 320)
+        self.resize(540, 360)
 
         self._test_worker: Optional[ProxyTestWorker] = None
 
@@ -475,19 +461,26 @@ class ProxyDialog(QDialog):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
 
-        title = QLabel("📡 Proxy Configuration")
+        title = QLabel("🌐 Proxy Configuration & Profiles")
         title.setStyleSheet("font-size: 15px; font-weight: bold; margin-bottom: 2px;")
         layout.addWidget(title)
 
         desc = QLabel(
-            "Configure HTTP/HTTPS proxies. For corporate networks requiring authentication (HTTP 407), "
-            "provide your username and password below."
+            "Configure corporate HTTP/HTTPS proxies. Passwords are encrypted locally via Windows DPAPI "
+            "and are never saved in plain text."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #64748B; font-size: 11px; margin-bottom: 10px;")
+        desc.setStyleSheet("color: #64748B; font-size: 11px; margin-bottom: 8px;")
         layout.addWidget(desc)
 
-        form = QFormLayout()
+        self.enable_checkbox = QCheckBox("Activate this proxy profile")
+        self.enable_checkbox.setStyleSheet("font-weight: bold; color: #1E293B; margin-bottom: 6px;")
+        self.enable_checkbox.toggled.connect(self._on_enable_toggled)
+        layout.addWidget(self.enable_checkbox)
+
+        self.form_container = QWidget()
+        form = QFormLayout(self.form_container)
+        form.setContentsMargins(0, 0, 0, 0)
         form.setLabelAlignment(Qt.AlignRight)
 
         self.http_input = QLineEdit()
@@ -512,12 +505,16 @@ class ProxyDialog(QDialog):
         self.pass_input.setPlaceholderText("Password (Optional)")
         self.pass_input.setStyleSheet("padding: 4px; border: 1px solid #CBD5E1; border-radius: 4px;")
 
+        self.remember_cred_checkbox = QCheckBox("Save password securely using Windows DPAPI")
+        self.remember_cred_checkbox.setChecked(True)
+
         form.addRow("HTTP Proxy:", self.http_input)
         form.addRow("", self.sync_checkbox)
         form.addRow("HTTPS Proxy:", self.https_input)
         form.addRow("Username:", self.user_input)
         form.addRow("Password:", self.pass_input)
-        layout.addLayout(form)
+        form.addRow("", self.remember_cred_checkbox)
+        layout.addWidget(self.form_container)
 
         self.status_lbl = QLabel("")
         self.status_lbl.setWordWrap(True)
@@ -527,14 +524,14 @@ class ProxyDialog(QDialog):
 
         btn_layout = QHBoxLayout()
 
-        self.skip_btn = QPushButton("Skip (Direct)")
-        self.skip_btn.setToolTip("Clear all proxy settings and connect directly.")
-        self.skip_btn.clicked.connect(self.skip)
+        self.deactivate_btn = QPushButton("Deactivate (Direct)")
+        self.deactivate_btn.setToolTip("Turn off proxy usage without deleting saved settings.")
+        self.deactivate_btn.clicked.connect(self.deactivate_profile)
 
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self.reject)
 
-        self.test_btn = QPushButton("🔄 Test Connection")
+        self.test_btn = QPushButton("⚡ Test Connection")
         self.test_btn.clicked.connect(self.test_proxy)
 
         self.save_btn = QPushButton("Save && Apply")
@@ -542,13 +539,17 @@ class ProxyDialog(QDialog):
         self.save_btn.setStyleSheet("background-color: #1E5C99; color: white; font-weight: bold;")
         self.save_btn.clicked.connect(self.accept)
 
-        btn_layout.addWidget(self.skip_btn)
+        btn_layout.addWidget(self.deactivate_btn)
         btn_layout.addWidget(self.cancel_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.test_btn)
         btn_layout.addWidget(self.save_btn)
 
         layout.addLayout(btn_layout)
+
+    def _on_enable_toggled(self, checked: bool):
+        self.form_container.setEnabled(checked)
+        self.test_btn.setEnabled(checked)
 
     def _on_sync_changed(self, state):
         is_synced = (state == Qt.Checked)
@@ -561,36 +562,32 @@ class ProxyDialog(QDialog):
             self.https_input.setText(text)
 
     def _load_existing_settings(self):
-        """Pre-populates input fields from current session or environment variables."""
-        session_proxies = NetworkSession.get_instance().proxies or {}
-        http_val = session_proxies.get("http") or os.environ.get("HTTP_PROXY") or ""
-        https_val = session_proxies.get("https") or os.environ.get("HTTPS_PROXY") or ""
+        profile = ProxyProfileManager.load_profile()
+        self.enable_checkbox.setChecked(profile.get("enabled", False))
+        self._on_enable_toggled(self.enable_checkbox.isChecked())
 
-        target_url = http_val or https_val
-        if target_url:
-            parsed = urllib.parse.urlparse(target_url)
-            host_str = parsed.hostname or ""
-            if parsed.port:
-                host_str += f":{parsed.port}"
+        self.http_input.setText(profile.get("http_host", ""))
+        self.https_input.setText(profile.get("https_host", ""))
+        self.sync_checkbox.setChecked(profile.get("sync_https", True))
+        self.user_input.setText(profile.get("username", ""))
 
-            self.http_input.setText(host_str)
-            self.https_input.setText(host_str)
-            if parsed.username:
-                self.user_input.setText(urllib.parse.unquote(parsed.username))
-            if parsed.password:
-                self.pass_input.setText(urllib.parse.unquote(parsed.password))
+        saved_pass = ProxyProfileManager.get_decrypted_password()
+        if saved_pass:
+            self.pass_input.setText(saved_pass)
+            self.remember_cred_checkbox.setChecked(True)
+        else:
+            self.remember_cred_checkbox.setChecked(False)
 
     def _build_proxy_uri(self, raw_address: str) -> str:
-        """Assembles a valid, credentialed proxy URI with proper URL encoding."""
         raw_address = raw_address.strip()
         if not raw_address:
             return ""
 
-        if "://" in raw_address:
-            scheme, netloc = raw_address.split("://", 1)
-        else:
-            scheme, netloc = "http", raw_address
-
+        scheme, netloc = (
+            raw_address.split("://", 1)
+            if "://" in raw_address
+            else ("http", raw_address)
+        )
         username = self.user_input.text().strip()
         password = self.pass_input.text().strip()
 
@@ -606,7 +603,6 @@ class ProxyDialog(QDialog):
         return f"{scheme}://{netloc}"
 
     def build_proxies_dict(self) -> dict:
-        """Returns the dictionary representation suitable for requests and urllib."""
         proxies = {}
         http_raw = self.http_input.text().strip()
         https_raw = self.https_input.text().strip()
@@ -619,7 +615,6 @@ class ProxyDialog(QDialog):
         return proxies
 
     def test_proxy(self):
-        """Launches the background worker to test the connection without freezing the GUI."""
         proxies = self.build_proxies_dict()
 
         self.test_btn.setEnabled(False)
@@ -634,46 +629,84 @@ class ProxyDialog(QDialog):
 
     def _on_test_finished(self, success: bool, message: str):
         self.test_btn.setEnabled(True)
-        self.test_btn.setText("🔄 Test Connection")
+        self.test_btn.setText("⚡ Test Connection")
         self.save_btn.setEnabled(True)
 
         if success:
-            self.status_lbl.setText("🟢 Connection verified successfully!")
+            self.status_lbl.setText("✅ Connection verified successfully!")
             self.status_lbl.setStyleSheet("color: #166534; font-size: 11px;")
             QMessageBox.information(self, "Proxy Success", message)
         else:
-            self.status_lbl.setText("🔴 Connection failed.")
+            self.status_lbl.setText("❌ Connection failed.")
             self.status_lbl.setStyleSheet("color: #DC2626; font-size: 11px;")
             QMessageBox.warning(self, "Proxy Test Failed", message)
 
-    def skip(self):
-        """Clears all inputs and accepts dialog to enable direct connection."""
-        self.http_input.clear()
-        self.https_input.clear()
-        self.user_input.clear()
-        self.pass_input.clear()
-        self.accept()
+    def deactivate_profile(self):
+        """Turns off proxy routing while preserving the configuration for future use."""
+        profile = ProxyProfileManager.load_profile()
+        profile["enabled"] = False
+        ProxyProfileManager.save_profile(profile)
+
+        NetworkSession.update_proxies({})
+        super().accept()
 
     def accept(self):
-        """Updates NetworkSession with the current configuration."""
-        proxies = self.build_proxies_dict()
-        NetworkSession.update_proxies(proxies)
+        """
+        Validates encryption before persistence.
+        Guarantees that unencrypted passwords are NEVER written to disk,
+        updates NetworkSession, and cleanly dismisses the dialog.
+        """
+        is_enabled = self.enable_checkbox.isChecked()
+        plain_password = self.pass_input.text()
+        encrypted_pass = ""
+
+        if self.remember_cred_checkbox.isChecked() and plain_password:
+            success, enc_result = SecureCredentialStore.encrypt(plain_password)
+            if not success:
+                QMessageBox.warning(
+                    self,
+                    "Security Notice",
+                    "Windows DPAPI encryption is unavailable or encountered an error.\n\n"
+                    "Your password was NOT written to disk to prevent security risks. "
+                    "It will remain active in memory for the current session only."
+                )
+                encrypted_pass = ""
+            else:
+                encrypted_pass = enc_result
+
+        profile_data = {
+            "enabled": is_enabled,
+            "http_host": self.http_input.text().strip(),
+            "https_host": self.https_input.text().strip(),
+            "sync_https": self.sync_checkbox.isChecked(),
+            "username": self.user_input.text().strip(),
+            "encrypted_password": encrypted_pass,
+        }
+        ProxyProfileManager.save_profile(profile_data)
+
+        if is_enabled:
+            NetworkSession.update_proxies(self.build_proxies_dict())
+        else:
+            NetworkSession.update_proxies({})
+
         super().accept()
 
     def closeEvent(self, event):
-        """Ensures any in-flight background worker thread terminates cleanly."""
         if self._test_worker and self._test_worker.isRunning():
             self._test_worker.terminate()
             self._test_worker.wait(500)
         super().closeEvent(event)
 
     def get_proxies(self) -> Tuple[str, str]:
-        """Provides backward-compatibility with main_window.py callers."""
         proxies = self.build_proxies_dict()
         return proxies.get("http", ""), proxies.get("https", "")
 
 
-# --- Inside: src/core/ui/ui_components.py ---
+# ==========================================
+# --- DRAG & DROP INTERACTION WIDGET ---
+# ==========================================
+
+
 class InteractiveDropLabel(QLabel):
     file_dropped = pyqtSignal(list)
 
@@ -683,16 +716,28 @@ class InteractiveDropLabel(QLabel):
         self.setAlignment(Qt.AlignCenter)
         self.setAcceptDrops(True)
 
-        # ---> THE FIX: Added 'QLabel { ... }' to prevent style bleeding into ToolTips
-        self.default_style = "QLabel { border: 3px dashed #B0B0B0; border-radius: 10px; font-size: 15px; font-weight: bold; color: #777; background-color: #FAFAFA; }"
-        self.hover_style = "QLabel { border: 3px dashed #395396; border-radius: 10px; font-size: 15px; font-weight: bold; color: #395396; background-color: #EBF3FC; }"
-        self.busy_style = "QLabel { border: 3px dashed #D83B01; border-radius: 10px; font-size: 15px; font-weight: bold; color: #D83B01; background-color: #FDF4F0; }"
-        self.error_style = "QLabel { border: 3px dashed #D32F2F; border-radius: 10px; font-size: 15px; font-weight: bold; color: #D32F2F; background-color: #FDEDED; }"
+        self.default_style = (
+            "QLabel { border: 3px dashed #B0B0B0; border-radius: 10px; font-size: 15px; "
+            "font-weight: bold; color: #777; background-color: #FAFAFA; }"
+        )
+        self.hover_style = (
+            "QLabel { border: 3px dashed #395396; border-radius: 10px; font-size: 15px; "
+            "font-weight: bold; color: #395396; background-color: #EBF3FC; }"
+        )
+        self.busy_style = (
+            "QLabel { border: 3px dashed #D83B01; border-radius: 10px; font-size: 15px; "
+            "font-weight: bold; color: #D83B01; background-color: #FDF4F0; }"
+        )
+        self.error_style = (
+            "QLabel { border: 3px dashed #D32F2F; border-radius: 10px; font-size: 15px; "
+            "font-weight: bold; color: #D32F2F; background-color: #FDEDED; }"
+        )
 
         self.setStyleSheet(self.default_style)
 
     def set_state(self, state, text=None):
-        if text: self.setText(text)
+        if text:
+            self.setText(text)
         if state == "ready":
             self.setStyleSheet(self.default_style)
         elif state == "busy":
@@ -703,7 +748,11 @@ class InteractiveDropLabel(QLabel):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
-            if any(url.toLocalFile().lower().endswith(ext) for url in urls for ext in self.accepted_extensions):
+            if any(
+                url.toLocalFile().lower().endswith(ext)
+                for url in urls
+                for ext in self.accepted_extensions
+            ):
                 self.setStyleSheet(self.hover_style)
                 event.accept()
                 return
@@ -717,7 +766,10 @@ class InteractiveDropLabel(QLabel):
         valid_files = []
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
-            if any(file_path.lower().endswith(ext) for ext in self.accepted_extensions):
+            if any(
+                file_path.lower().endswith(ext)
+                for ext in self.accepted_extensions
+            ):
                 valid_files.append(file_path)
         if valid_files:
             self.file_dropped.emit(valid_files)
