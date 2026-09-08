@@ -1,7 +1,6 @@
 import json
 import logging
 import webbrowser
-from pathlib import Path
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -604,7 +603,7 @@ class ExcelExportDialog(QDialog):
         self.visible_count = visible_count
         self.total_count = total_count
 
-        self.config_path = Path(__file__).resolve().parents[4] / "export_config.json"
+        self.config_path = get_project_root() / "export_config.json"
         self.saved_config = self._load_saved_config()
 
         layout = QVBoxLayout(self)
