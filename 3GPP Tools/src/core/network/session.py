@@ -1,9 +1,7 @@
 # --- File: src/core/network/session.py ---
-import base64
 import json
 import logging
 import random
-import re
 import threading
 import time
 import urllib.parse
@@ -25,15 +23,12 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
+from core.utils.dpapi import (
+    SecureCredentialStore,
+    SecurityIntegrityError,
+    redact_sensitive_urls,
+)
 from core.utils.paths import get_project_root
-
-# Attempt importing Windows DPAPI securely
-try:
-    import win32crypt
-    HAS_DPAPI = True
-except ImportError:
-    HAS_DPAPI = False
-
 from core.utils.utils import get_proxies
 
 # ==========================================
@@ -71,97 +66,6 @@ class DownloadCancelledError(NetworkError):
     """Raised when a download stream is cancelled via cancellation callback."""
 
     pass
-
-
-def redact_sensitive_urls(message: str) -> str:
-    """Removes passwords from embedded URLs in error and exception strings."""
-    if not message:
-        return ""
-    return re.sub(r"(://[^:/@\s]+):([^@\s]+)@", r"\1:***@", str(message))
-
-
-# ==========================================
-# --- SECURE CREDENTIAL STORE (DPAPI) ---
-# ==========================================
-
-
-class SecureCredentialStore:
-    """
-    Guarantees OS-level DPAPI encryption for proxy data.
-    Under NO circumstances falls back to saving plaintext or unencrypted Base64.
-    """
-
-    @staticmethod
-    def is_available() -> bool:
-        return HAS_DPAPI
-
-    @classmethod
-    def encrypt(cls, plain_text: str) -> Tuple[bool, str]:
-        """
-        Encrypts plaintext string using Windows DPAPI bound to the current user.
-        Returns: (success: bool, encrypted_base64: str)
-        """
-        if not plain_text:
-            return True, ""
-
-        if not HAS_DPAPI:
-            logging.error("Security safeguard: Windows DPAPI (pywin32) is missing. Cannot encrypt.")
-            return False, ""
-
-        try:
-            encrypted_bytes = win32crypt.CryptProtectData(
-                plain_text.encode("utf-8"),
-                "3GPP_Tools_Proxy_Profile",
-                None, None, None, 0
-            )
-            return True, base64.b64encode(encrypted_bytes).decode("ascii")
-        except Exception as e:
-            logging.error(f"Failed to encrypt data via DPAPI: {redact_sensitive_urls(str(e))}")
-            return False, ""
-
-    @classmethod
-    def decrypt(cls, cipher_text: str) -> str:
-        """
-        Decrypts Base64 DPAPI ciphertext.
-        Returns plaintext string on success, or empty string if decryption fails.
-        """
-        if not cipher_text or not HAS_DPAPI:
-            return ""
-
-        try:
-            raw_bytes = base64.b64decode(cipher_text.encode("ascii"))
-            _, decrypted_bytes = win32crypt.CryptUnprotectData(
-                raw_bytes, None, None, None, 0
-            )
-            return decrypted_bytes.decode("utf-8")
-        except Exception as e:
-            logging.warning(f"Could not decrypt stored proxy profile: {redact_sensitive_urls(str(e))}")
-            return ""
-
-    @classmethod
-    def encrypt_dict(cls, data: dict) -> Tuple[bool, str]:
-        """Serializes a dictionary of proxy settings to JSON and encrypts it via DPAPI."""
-        try:
-            serialized = json.dumps(data)
-            return cls.encrypt(serialized)
-        except Exception as e:
-            logging.error(f"Failed to serialize and encrypt proxy payload: {redact_sensitive_urls(str(e))}")
-            return False, ""
-
-    @classmethod
-    def decrypt_dict(cls, cipher_text: str) -> dict:
-        """Decrypts a DPAPI ciphertext and parses it as a JSON dictionary."""
-        plain = cls.decrypt(cipher_text)
-        if not plain:
-            return {}
-        try:
-            parsed = json.loads(plain)
-            if isinstance(parsed, dict):
-                return parsed
-            return {}
-        except Exception as e:
-            logging.warning(f"Failed to parse decrypted proxy payload: {redact_sensitive_urls(str(e))}")
-            return {}
 
 
 # ==========================================
