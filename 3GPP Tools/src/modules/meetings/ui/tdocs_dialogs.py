@@ -11,6 +11,8 @@ from PyQt5.QtWidgets import (
     QFrame, QFormLayout, QWidget, QScrollArea
 )
 
+from core.utils.paths import get_project_root
+
 
 class TDocInfoDialog(QDialog):
     """Modernized TDoc Details Dialog displaying all stored database attributes,
@@ -391,7 +393,7 @@ class StatisticsSettingsDialog(QDialog):
         self.resize(550, 620)  # Made slightly taller to fit the new settings
         self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; color: #333; }")
 
-        self.config_path = Path(__file__).resolve().parents[4] / "stats_config.json"
+        self.config_path = get_project_root() / "stats_config.json"
         self.config = self.load_config()
 
         layout = QVBoxLayout(self)
