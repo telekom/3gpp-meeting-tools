@@ -4,10 +4,12 @@ import os
 import re
 import webbrowser
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -16,10 +18,14 @@ from PyQt5.QtWidgets import (
     QFrame,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -129,17 +135,37 @@ class SpecsConfigDialog(QDialog):
         return self.selected_path
 
 
+class NumericTableWidgetItem(QTableWidgetItem):
+    """Table widget item that sorts numerically rather than alphabetically."""
+
+    def __lt__(self, other):
+        try:
+            return int(self.text()) < int(other.text())
+        except (ValueError, TypeError):
+            return super().__lt__(other)
+
+
 class SpecInfoDialog(QDialog):
-    """Modernized Specification Details Dialog with clickable links, related WIs, and DynaReport integration."""
+    """Modernized Specification Details Dialog with dedicated Work Items table and search filter."""
 
     def __init__(self, details: dict, parent=None):
         super().__init__(parent)
+        self.details = details
         spec_num = details.get("number", "Unknown")
         spec_type = details.get("type", "TS")
         title = details.get("title", "No Title Available")
+        self.related_wis = details.get("related_wis", [])
 
         self.setWindowTitle(f"Specification Details: {spec_num}")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(620)
+
+        # Adaptive initial sizing: taller and wider when a WI table needs to be displayed
+        if self.related_wis:
+            self.resize(780, 660)
+            self.setMinimumHeight(500)
+        else:
+            self.resize(640, 420)
+
         self.setStyleSheet("""
             QDialog {
                 background-color: #F8F9FA;
@@ -174,31 +200,29 @@ class SpecInfoDialog(QDialog):
             QPushButton#primaryActionBtn:hover {
                 background-color: #0052A3;
             }
-            QPushButton#wiChipBtn {
-                background-color: #F0F4F8;
-                border: 1px solid #D2E3FC;
-                border-radius: 12px;
-                padding: 3px 10px;
-                font-size: 11px;
-                color: #1967D2;
+            QTableWidget {
+                background-color: #FFFFFF;
+                border: 1px solid #E2E8F0;
+                border-radius: 6px;
+                gridline-color: #F1F5F9;
+                font-size: 12px;
+            }
+            QTableWidget::item {
+                padding: 4px 8px;
+                border-bottom: 1px solid #F1F5F9;
+            }
+            QTableWidget::item:selected {
+                background-color: #EBF8FF;
+                color: #1A202C;
+            }
+            QHeaderView::section {
+                background-color: #F8FAFC;
+                color: #4A5568;
                 font-weight: bold;
-            }
-            QPushButton#wiChipBtn:hover {
-                background-color: #E8F0FE;
-                border-color: #1967D2;
-            }
-            QPushButton#wiChipPrimaryBtn {
-                background-color: #E6F4EA;
-                border: 1px solid #CEEAD6;
-                border-radius: 12px;
-                padding: 3px 10px;
                 font-size: 11px;
-                color: #137333;
-                font-weight: bold;
-            }
-            QPushButton#wiChipPrimaryBtn:hover {
-                background-color: #CEEAD6;
-                border-color: #137333;
+                border: none;
+                border-bottom: 1px solid #CBD5E0;
+                padding: 6px 8px;
             }
         """)
 
@@ -246,8 +270,8 @@ class SpecInfoDialog(QDialog):
         details_card = QFrame()
         details_card.setObjectName("cardFrame")
         form = QFormLayout(details_card)
-        form.setContentsMargins(14, 14, 14, 14)
-        form.setSpacing(10)
+        form.setContentsMargins(14, 12, 14, 12)
+        form.setSpacing(8)
         form.setLabelAlignment(Qt.AlignRight)
 
         clean_number = spec_num.split("-")[0].replace(".", "").strip()
@@ -283,40 +307,9 @@ class SpecInfoDialog(QDialog):
             dyna_label.setTextInteractionFlags(Qt.TextBrowserInteraction | Qt.TextSelectableByMouse)
             form.addRow(self._make_key_label("DynaReport:"), dyna_label)
 
-        # Related Work Items Row
-        related_wis = details.get("related_wis", [])
-        if related_wis:
-            wi_container = QWidget()
-            wi_layout = QHBoxLayout(wi_container)
-            wi_layout.setContentsMargins(0, 0, 0, 0)
-            wi_layout.setSpacing(6)
-
-            for wi in related_wis:
-                code = wi.get("wi_code", "")
-                acronym = wi.get("acronym", "")
-                is_primary = wi.get("is_primary", False)
-                label_text = (
-                    f"⭐ {acronym} ({code})"
-                    if (is_primary and acronym)
-                    else (f"{acronym} ({code})" if acronym else f"WI #{code}")
-                )
-
-                btn = QPushButton(label_text)
-                btn.setObjectName("wiChipPrimaryBtn" if is_primary else "wiChipBtn")
-                btn.setCursor(Qt.PointingHandCursor)
-                tooltip = f"{wi.get('name', '')}\nCode: {code}\nClick to open 3GPP Work Item page"
-                btn.setToolTip(tooltip.strip())
-                btn.clicked.connect(
-                    lambda _, c=code: webbrowser.open(
-                        f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={c}"
-                    )
-                )
-                wi_layout.addWidget(btn)
-
-            wi_layout.addStretch()
-            form.addRow(self._make_key_label("Related WIs:"), wi_container)
-        else:
-            self._add_row(form, "Related WIs", "-")
+        # Show a simple placeholder in the form only if there are no related WIs
+        if not self.related_wis:
+            self._add_row(form, "Related WIs", "None")
 
         excluded_keys = {
             "id",
@@ -339,7 +332,12 @@ class SpecInfoDialog(QDialog):
 
         layout.addWidget(details_card)
 
-        # 3. Action Buttons
+        # 3. Dedicated Work Items Card (Rendered only when WIs exist)
+        if self.related_wis:
+            wi_card = self._build_work_items_card()
+            layout.addWidget(wi_card, stretch=1)
+
+        # 4. Action Buttons Footer
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
 
@@ -364,6 +362,248 @@ class SpecInfoDialog(QDialog):
         btn_layout.addWidget(close_btn)
 
         layout.addLayout(btn_layout)
+
+    def _build_work_items_card(self) -> QFrame:
+        """Constructs the dedicated Work Items section with instant search and sortable table."""
+        card = QFrame()
+        card.setObjectName("cardFrame")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 12, 14, 12)
+        card_layout.setSpacing(8)
+
+        # Header bar: Section Title, Count Badge, and Search Filter
+        header_bar = QHBoxLayout()
+        header_bar.setSpacing(8)
+
+        title_lbl = QLabel("<b>Related Work Items</b>")
+        title_lbl.setStyleSheet("font-size: 13px; color: #2D3748;")
+        header_bar.addWidget(title_lbl)
+
+        self.wi_count_badge = QLabel(f"{len(self.related_wis)} WIs")
+        self.wi_count_badge.setStyleSheet("""
+            QLabel {
+                padding: 1px 8px;
+                font-size: 11px;
+                font-weight: bold;
+                background-color: #F1F5F9;
+                color: #475569;
+                border: 1px solid #E2E8F0;
+                border-radius: 8px;
+            }
+        """)
+        header_bar.addWidget(self.wi_count_badge)
+        header_bar.addStretch()
+
+        self.wi_filter_input = QLineEdit()
+        self.wi_filter_input.setPlaceholderText("🔍 Filter by acronym, code, or name...")
+        self.wi_filter_input.setClearButtonEnabled(True)
+        self.wi_filter_input.setFixedWidth(260)
+        self.wi_filter_input.setStyleSheet("""
+            QLineEdit {
+                padding: 4px 8px;
+                border: 1px solid #CBD5E0;
+                border-radius: 4px;
+                font-size: 12px;
+                background-color: #FFFFFF;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0066CC;
+            }
+        """)
+        self.wi_filter_input.textChanged.connect(self._filter_wis)
+        header_bar.addWidget(self.wi_filter_input)
+        card_layout.addLayout(header_bar)
+
+        # Work Items Table
+        self.wi_table = QTableWidget()
+        self.wi_table.setColumnCount(5)
+        self.wi_table.setHorizontalHeaderLabels(["Role", "Acronym", "Code", "Work Item Description", "Link"])
+
+        header = self.wi_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        self.wi_table.setColumnWidth(0, 85)
+        header.setSectionResizeMode(1, QHeaderView.Interactive)
+        self.wi_table.setColumnWidth(1, 140)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        self.wi_table.setColumnWidth(2, 75)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
+        self.wi_table.setColumnWidth(4, 75)
+
+        self.wi_table.verticalHeader().setVisible(False)
+        self.wi_table.verticalHeader().setDefaultSectionSize(32)
+        self.wi_table.setAlternatingRowColors(True)
+        self.wi_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.wi_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.wi_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.wi_table.cellDoubleClicked.connect(self._on_wi_double_clicked)
+        self.wi_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.wi_table.customContextMenuRequested.connect(self._show_wi_context_menu)
+
+        # Sort: Primary WIs first, then alphabetical by Acronym
+        sorted_wis = sorted(
+            self.related_wis,
+            key=lambda w: (
+                0 if bool(w.get("is_primary")) else 1,
+                str(w.get("acronym", "")).lower(),
+                str(w.get("wi_code", "")),
+            ),
+        )
+
+        self.wi_table.setSortingEnabled(False)
+        self.wi_table.setRowCount(len(sorted_wis))
+
+        for row, wi in enumerate(sorted_wis):
+            code = str(wi.get("wi_code", "")).strip()
+            acronym = str(wi.get("acronym", "")).strip()
+            name = str(wi.get("name", "")).strip()
+            is_primary = bool(wi.get("is_primary", False))
+
+            # Column 0: Role Badge (⭐ Primary vs Secondary)
+            role_item = QTableWidgetItem("0" if is_primary else "1")
+            self.wi_table.setItem(row, 0, role_item)
+
+            badge_widget = QWidget()
+            badge_layout = QHBoxLayout(badge_widget)
+            badge_layout.setContentsMargins(4, 2, 4, 2)
+            badge_layout.setAlignment(Qt.AlignCenter)
+
+            role_badge = QLabel("⭐ Primary" if is_primary else "Secondary")
+            role_badge.setStyleSheet("""
+                background-color: #E6F4EA; color: #137333; font-weight: bold; font-size: 11px;
+                border: 1px solid #CEEAD6; border-radius: 4px; padding: 1px 6px;
+            """ if is_primary else """
+                background-color: #F1F5F9; color: #64748B; font-size: 11px;
+                border: 1px solid #E2E8F0; border-radius: 4px; padding: 1px 6px;
+            """)
+            badge_layout.addWidget(role_badge)
+            self.wi_table.setCellWidget(row, 0, badge_widget)
+
+            # Column 1: Acronym
+            acronym_item = QTableWidgetItem(acronym if acronym else "-")
+            if is_primary:
+                acronym_font = acronym_item.font()
+                acronym_font.setBold(True)
+                acronym_item.setFont(acronym_font)
+            acronym_item.setToolTip(f"{name}\nDouble-click to view on 3GPP Portal")
+            self.wi_table.setItem(row, 1, acronym_item)
+
+            # Column 2: Code (Numerically sortable)
+            code_item = NumericTableWidgetItem(code)
+            code_item.setTextAlignment(Qt.AlignCenter)
+            code_item.setToolTip("Double-click to view on 3GPP Portal")
+            self.wi_table.setItem(row, 2, code_item)
+
+            # Column 3: Description
+            name_item = QTableWidgetItem(name if name else "(No description)")
+            name_item.setToolTip(f"{name}\nDouble-click to view on 3GPP Portal")
+            self.wi_table.setItem(row, 3, name_item)
+
+            # Column 4: Action Link Button
+            open_btn = QPushButton("↗ Open")
+            open_btn.setCursor(Qt.PointingHandCursor)
+            open_btn.setToolTip(f"Open Work Item #{code} on 3GPP Portal")
+            open_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #F0F4F8;
+                    border: 1px solid #D2E3FC;
+                    border-radius: 4px;
+                    padding: 2px 8px;
+                    font-size: 11px;
+                    color: #1967D2;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #E8F0FE;
+                    border-color: #1967D2;
+                }
+            """)
+            open_btn.clicked.connect(lambda _, c=code: self._open_wi_url(c))
+
+            btn_container = QWidget()
+            btn_layout = QHBoxLayout(btn_container)
+            btn_layout.setContentsMargins(4, 2, 4, 2)
+            btn_layout.setAlignment(Qt.AlignCenter)
+            btn_layout.addWidget(open_btn)
+            self.wi_table.setCellWidget(row, 4, btn_container)
+
+        self.wi_table.setSortingEnabled(True)
+        card_layout.addWidget(self.wi_table)
+        return card
+
+    def _open_wi_url(self, wi_code: str):
+        if not wi_code:
+            return
+        url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
+        webbrowser.open(url)
+
+    def _on_wi_double_clicked(self, row: int, column: int):
+        code_item = self.wi_table.item(row, 2)
+        if code_item:
+            self._open_wi_url(code_item.text().strip())
+
+    def _filter_wis(self, query: str):
+        query = query.strip().lower()
+        visible_count = 0
+        total_rows = self.wi_table.rowCount()
+
+        for row in range(total_rows):
+            acronym_item = self.wi_table.item(row, 1)
+            code_item = self.wi_table.item(row, 2)
+            name_item = self.wi_table.item(row, 3)
+
+            acronym = acronym_item.text().lower() if acronym_item else ""
+            code = code_item.text().lower() if code_item else ""
+            name = name_item.text().lower() if name_item else ""
+
+            matches = not query or (query in acronym) or (query in code) or (query in name)
+            self.wi_table.setRowHidden(row, not matches)
+            if matches:
+                visible_count += 1
+
+        if query:
+            self.wi_count_badge.setText(f"{visible_count} of {total_rows} WIs")
+        else:
+            self.wi_count_badge.setText(f"{total_rows} WIs")
+
+    def _show_wi_context_menu(self, pos):
+        item = self.wi_table.itemAt(pos)
+        if not item:
+            return
+        row = item.row()
+        code_item = self.wi_table.item(row, 2)
+        acronym_item = self.wi_table.item(row, 1)
+        name_item = self.wi_table.item(row, 3)
+
+        code = code_item.text().strip() if code_item else ""
+        acronym = acronym_item.text().strip() if acronym_item else ""
+        name = name_item.text().strip() if name_item else ""
+        url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={code}"
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
+            QMenu::item { padding: 6px 20px 6px 15px; color: #333333; }
+            QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
+        """)
+
+        act_open = menu.addAction("🌐 Open Work Item on 3GPP Portal")
+        act_open.triggered.connect(lambda: self._open_wi_url(code))
+        menu.addSeparator()
+
+        act_copy_acronym = menu.addAction("📋 Copy Acronym")
+        act_copy_acronym.triggered.connect(lambda: QApplication.clipboard().setText(acronym))
+
+        act_copy_code = menu.addAction("📋 Copy WI Code")
+        act_copy_code.triggered.connect(lambda: QApplication.clipboard().setText(code))
+
+        act_copy_name = menu.addAction("📋 Copy Description")
+        act_copy_name.triggered.connect(lambda: QApplication.clipboard().setText(name))
+
+        act_copy_link = menu.addAction("🔗 Copy Portal Link")
+        act_copy_link.triggered.connect(lambda: QApplication.clipboard().setText(url))
+
+        menu.exec_(self.wi_table.viewport().mapToGlobal(pos))
 
     def _make_key_label(self, text: str) -> QLabel:
         lbl = QLabel(f"<b>{text}</b>")
