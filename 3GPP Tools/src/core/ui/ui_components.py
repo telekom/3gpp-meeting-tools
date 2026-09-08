@@ -451,7 +451,7 @@ class ProxyDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Network Proxy Configuration")
         self.setModal(True)
-        self.resize(540, 360)
+        self.resize(540, 370)
 
         self._test_worker: Optional[ProxyTestWorker] = None
 
@@ -466,8 +466,8 @@ class ProxyDialog(QDialog):
         layout.addWidget(title)
 
         desc = QLabel(
-            "Configure corporate HTTP/HTTPS proxies. Passwords are encrypted locally via Windows DPAPI "
-            "and are never saved in plain text."
+            "Configure corporate HTTP/HTTPS proxies. All proxy parameters (hosts, ports, username, "
+            "and password) are encrypted locally via Windows DPAPI and are never stored in plain text."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #64748B; font-size: 11px; margin-bottom: 8px;")
@@ -505,8 +505,11 @@ class ProxyDialog(QDialog):
         self.pass_input.setPlaceholderText("Password (Optional)")
         self.pass_input.setStyleSheet("padding: 4px; border: 1px solid #CBD5E1; border-radius: 4px;")
 
-        self.remember_cred_checkbox = QCheckBox("Save password securely using Windows DPAPI")
+        self.remember_cred_checkbox = QCheckBox("Save proxy profile securely (Windows DPAPI)")
         self.remember_cred_checkbox.setChecked(True)
+        self.remember_cred_checkbox.setToolTip(
+            "Encrypts all proxy configuration (host, port, username, password) using OS-level DPAPI."
+        )
 
         form.addRow("HTTP Proxy:", self.http_input)
         form.addRow("", self.sync_checkbox)
@@ -525,7 +528,7 @@ class ProxyDialog(QDialog):
         btn_layout = QHBoxLayout()
 
         self.deactivate_btn = QPushButton("Deactivate (Direct)")
-        self.deactivate_btn.setToolTip("Turn off proxy usage without deleting saved settings.")
+        self.deactivate_btn.setToolTip("Turn off proxy usage while retaining encrypted settings.")
         self.deactivate_btn.clicked.connect(self.deactivate_profile)
 
         self.cancel_btn = QPushButton("Cancel")
@@ -570,13 +573,12 @@ class ProxyDialog(QDialog):
         self.https_input.setText(profile.get("https_host", ""))
         self.sync_checkbox.setChecked(profile.get("sync_https", True))
         self.user_input.setText(profile.get("username", ""))
+        self.pass_input.setText(profile.get("password", ""))
 
-        saved_pass = ProxyProfileManager.get_decrypted_password()
-        if saved_pass:
-            self.pass_input.setText(saved_pass)
-            self.remember_cred_checkbox.setChecked(True)
-        else:
-            self.remember_cred_checkbox.setChecked(False)
+        has_data = bool(
+            profile.get("http_host") or profile.get("https_host") or profile.get("username")
+        )
+        self.remember_cred_checkbox.setChecked(has_data or True)
 
     def _build_proxy_uri(self, raw_address: str) -> str:
         raw_address = raw_address.strip()
@@ -642,45 +644,51 @@ class ProxyDialog(QDialog):
             QMessageBox.warning(self, "Proxy Test Failed", message)
 
     def deactivate_profile(self):
-        """Turns off proxy routing while preserving the configuration for future use."""
-        profile = ProxyProfileManager.load_profile()
-        profile["enabled"] = False
-        ProxyProfileManager.save_profile(profile)
-
+        """Turns off proxy routing while preserving the encrypted configuration on disk."""
+        ProxyProfileManager.set_enabled(False)
         NetworkSession.update_proxies({})
         super().accept()
 
     def accept(self):
         """
         Validates encryption before persistence.
-        Guarantees that unencrypted passwords are NEVER written to disk,
-        updates NetworkSession, and cleanly dismisses the dialog.
+        Guarantees that unencrypted proxy information (hosts, ports, usernames, passwords)
+        is NEVER written to disk, updates NetworkSession, and dismisses the dialog cleanly.
         """
         is_enabled = self.enable_checkbox.isChecked()
-        plain_password = self.pass_input.text()
-        encrypted_pass = ""
+        http_host = self.http_input.text().strip()
+        https_host = self.https_input.text().strip()
+        sync_https = self.sync_checkbox.isChecked()
+        username = self.user_input.text().strip()
+        password = self.pass_input.text()
 
-        if self.remember_cred_checkbox.isChecked() and plain_password:
-            success, enc_result = SecureCredentialStore.encrypt(plain_password)
+        encrypted_payload = ""
+
+        # Only encrypt and persist if requested and host parameters are entered
+        if self.remember_cred_checkbox.isChecked() and (http_host or https_host):
+            payload_dict = {
+                "http_host": http_host,
+                "https_host": https_host,
+                "sync_https": sync_https,
+                "username": username,
+                "password": password,
+            }
+            success, enc_result = SecureCredentialStore.encrypt_dict(payload_dict)
             if not success:
                 QMessageBox.warning(
                     self,
                     "Security Notice",
                     "Windows DPAPI encryption is unavailable or encountered an error.\n\n"
-                    "Your password was NOT written to disk to prevent security risks. "
-                    "It will remain active in memory for the current session only."
+                    "Your proxy settings were NOT written to disk to prevent exposing corporate network data. "
+                    "They will remain active in memory for the current session only."
                 )
-                encrypted_pass = ""
+                encrypted_payload = ""
             else:
-                encrypted_pass = enc_result
+                encrypted_payload = enc_result
 
         profile_data = {
             "enabled": is_enabled,
-            "http_host": self.http_input.text().strip(),
-            "https_host": self.https_input.text().strip(),
-            "sync_https": self.sync_checkbox.isChecked(),
-            "username": self.user_input.text().strip(),
-            "encrypted_password": encrypted_pass,
+            "encrypted_payload": encrypted_payload,
         }
         ProxyProfileManager.save_profile(profile_data)
 
