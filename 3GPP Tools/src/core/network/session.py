@@ -87,7 +87,7 @@ def redact_sensitive_urls(message: str) -> str:
 
 class SecureCredentialStore:
     """
-    Guarantees OS-level DPAPI encryption for credentials.
+    Guarantees OS-level DPAPI encryption for proxy data.
     Under NO circumstances falls back to saving plaintext or unencrypted Base64.
     """
 
@@ -98,7 +98,7 @@ class SecureCredentialStore:
     @classmethod
     def encrypt(cls, plain_text: str) -> Tuple[bool, str]:
         """
-        Encrypts plaintext using Windows DPAPI bound to the current user.
+        Encrypts plaintext string using Windows DPAPI bound to the current user.
         Returns: (success: bool, encrypted_base64: str)
         """
         if not plain_text:
@@ -111,12 +111,12 @@ class SecureCredentialStore:
         try:
             encrypted_bytes = win32crypt.CryptProtectData(
                 plain_text.encode("utf-8"),
-                "3GPP_Tools_Proxy_Secret",
+                "3GPP_Tools_Proxy_Profile",
                 None, None, None, 0
             )
             return True, base64.b64encode(encrypted_bytes).decode("ascii")
         except Exception as e:
-            logging.error(f"Failed to encrypt credentials via DPAPI: {redact_sensitive_urls(str(e))}")
+            logging.error(f"Failed to encrypt data via DPAPI: {redact_sensitive_urls(str(e))}")
             return False, ""
 
     @classmethod
@@ -135,8 +135,33 @@ class SecureCredentialStore:
             )
             return decrypted_bytes.decode("utf-8")
         except Exception as e:
-            logging.warning(f"Could not decrypt stored proxy password: {redact_sensitive_urls(str(e))}")
+            logging.warning(f"Could not decrypt stored proxy profile: {redact_sensitive_urls(str(e))}")
             return ""
+
+    @classmethod
+    def encrypt_dict(cls, data: dict) -> Tuple[bool, str]:
+        """Serializes a dictionary of proxy settings to JSON and encrypts it via DPAPI."""
+        try:
+            serialized = json.dumps(data)
+            return cls.encrypt(serialized)
+        except Exception as e:
+            logging.error(f"Failed to serialize and encrypt proxy payload: {redact_sensitive_urls(str(e))}")
+            return False, ""
+
+    @classmethod
+    def decrypt_dict(cls, cipher_text: str) -> dict:
+        """Decrypts a DPAPI ciphertext and parses it as a JSON dictionary."""
+        plain = cls.decrypt(cipher_text)
+        if not plain:
+            return {}
+        try:
+            parsed = json.loads(plain)
+            if isinstance(parsed, dict):
+                return parsed
+            return {}
+        except Exception as e:
+            logging.warning(f"Failed to parse decrypted proxy payload: {redact_sensitive_urls(str(e))}")
+            return {}
 
 
 # ==========================================
@@ -145,38 +170,93 @@ class SecureCredentialStore:
 
 
 class ProxyProfileManager:
-    """Manages sanitized, secure proxy profile persistence in network_config.json."""
+    """Manages sanitized, fully encrypted proxy profile persistence in network_config.json."""
 
-    FORBIDDEN_PLAINTEXT_KEYS = {"password", "passwd", "plain_password", "secret", "pass"}
+    # Plaintext keys strictly banned from on-disk JSON storage
+    FORBIDDEN_PLAINTEXT_KEYS = {
+        "password", "passwd", "plain_password", "secret", "pass",
+        "http_host", "https_host", "username", "user", "proxy_url",
+        "http_proxy", "https_proxy", "encrypted_password"
+    }
 
     @classmethod
     def load_profile(cls) -> dict:
+        """
+        Loads the proxy profile into memory.
+        Decrypts all parameters (hosts, user, password) if available.
+        Automatically migrates legacy plaintext configurations to encrypted storage.
+        """
         cfg = HumannessConfig.load()
         profile = cfg.get("proxy_profile", {})
+        enabled = bool(profile.get("enabled", False))
+
+        # 1. Primary path: fully encrypted payload blob
+        encrypted_payload = str(profile.get("encrypted_payload", "")).strip()
+        if encrypted_payload:
+            decrypted = SecureCredentialStore.decrypt_dict(encrypted_payload)
+            return {
+                "enabled": enabled,
+                "http_host": str(decrypted.get("http_host", "")).strip(),
+                "https_host": str(decrypted.get("https_host", "")).strip(),
+                "sync_https": bool(decrypted.get("sync_https", True)),
+                "username": str(decrypted.get("username", "")).strip(),
+                "password": str(decrypted.get("password", "")),
+            }
+
+        # 2. Legacy Migration Path: detect older plaintext hosts/usernames
+        has_legacy_keys = any(
+            k in profile for k in ("http_host", "https_host", "username", "encrypted_password")
+        )
+        if has_legacy_keys:
+            legacy_http = str(profile.get("http_host", "")).strip()
+            legacy_https = str(profile.get("https_host", "")).strip()
+            legacy_sync = bool(profile.get("sync_https", True))
+            legacy_user = str(profile.get("username", "")).strip()
+            legacy_enc_pass = str(profile.get("encrypted_password", "")).strip()
+            legacy_pass = SecureCredentialStore.decrypt(legacy_enc_pass) if legacy_enc_pass else ""
+
+            # Encrypt everything into the new payload format and wipe plaintext immediately
+            migrated_dict = {
+                "http_host": legacy_http,
+                "https_host": legacy_https,
+                "sync_https": legacy_sync,
+                "username": legacy_user,
+                "password": legacy_pass,
+            }
+            success, enc_blob = SecureCredentialStore.encrypt_dict(migrated_dict)
+            if success:
+                cls.save_profile({"enabled": enabled, "encrypted_payload": enc_blob})
+                logging.info("🔒 Migrated legacy proxy configuration to fully encrypted storage.")
+
+            return {
+                "enabled": enabled,
+                "http_host": legacy_http,
+                "https_host": legacy_https,
+                "sync_https": legacy_sync,
+                "username": legacy_user,
+                "password": legacy_pass,
+            }
+
+        # Default empty profile
         return {
-            "enabled": bool(profile.get("enabled", False)),
-            "http_host": str(profile.get("http_host", "")).strip(),
-            "https_host": str(profile.get("https_host", "")).strip(),
-            "sync_https": bool(profile.get("sync_https", True)),
-            "username": str(profile.get("username", "")).strip(),
-            "encrypted_password": str(profile.get("encrypted_password", "")).strip(),
+            "enabled": False,
+            "http_host": "",
+            "https_host": "",
+            "sync_https": True,
+            "username": "",
+            "password": "",
         }
 
     @classmethod
     def save_profile(cls, raw_data: dict) -> None:
-        """Enforces a strict schema whitelist, discarding illicit raw password fields."""
-        for key in cls.FORBIDDEN_PLAINTEXT_KEYS:
-            if key in raw_data:
-                logging.warning(f"Security safeguard: Discarded illicit plaintext key '{key}' from profile.")
-                raw_data.pop(key, None)
-
+        """
+        Enforces a strict schema whitelist. Discards any plaintext proxy parameters
+        (hosts, ports, usernames, passwords) to guarantee that only the encrypted
+        payload blob is stored on disk.
+        """
         clean_profile = {
             "enabled": bool(raw_data.get("enabled", False)),
-            "http_host": str(raw_data.get("http_host", "")).strip(),
-            "https_host": str(raw_data.get("https_host", "")).strip(),
-            "sync_https": bool(raw_data.get("sync_https", True)),
-            "username": str(raw_data.get("username", "")).strip(),
-            "encrypted_password": str(raw_data.get("encrypted_password", "")).strip(),
+            "encrypted_payload": str(raw_data.get("encrypted_payload", "")).strip(),
         }
 
         cfg = HumannessConfig.load()
@@ -184,9 +264,17 @@ class ProxyProfileManager:
         HumannessConfig.save(cfg)
 
     @classmethod
+    def set_enabled(cls, enabled: bool) -> None:
+        """Toggles the profile's enabled status without modifying the encrypted payload."""
+        cfg = HumannessConfig.load()
+        if "proxy_profile" in cfg and isinstance(cfg["proxy_profile"], dict):
+            cfg["proxy_profile"]["enabled"] = bool(enabled)
+            HumannessConfig.save(cfg)
+
+    @classmethod
     def get_decrypted_password(cls) -> str:
-        profile = cls.load_profile()
-        return SecureCredentialStore.decrypt(profile.get("encrypted_password", ""))
+        """Backward-compatible helper returning decrypted password string."""
+        return cls.load_profile().get("password", "")
 
 
 # ==========================================
@@ -233,9 +321,15 @@ class HumannessConfig:
     def save(cls, data: dict):
         with cls._cfg_lock:
             try:
+                # Top-level safeguard: remove forbidden plaintext keys
                 for k in list(data.keys()):
                     if k in ProxyProfileManager.FORBIDDEN_PLAINTEXT_KEYS:
                         data.pop(k, None)
+
+                # Nested safeguard: purge any plaintext keys inside proxy_profile
+                if "proxy_profile" in data and isinstance(data["proxy_profile"], dict):
+                    for forbidden_key in ProxyProfileManager.FORBIDDEN_PLAINTEXT_KEYS:
+                        data["proxy_profile"].pop(forbidden_key, None)
 
                 CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
                 with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -312,7 +406,6 @@ class NetworkSession:
     """
 
     _instance: Optional[requests.Session] = None
-    # Uses RLock so that re-entrant calls from the same thread never self-deadlock
     _lock = threading.RLock()
 
     @classmethod
@@ -376,7 +469,7 @@ class NetworkSession:
     def update_proxies(cls, proxies: Dict[str, str]) -> None:
         """
         Atomically updates proxies for the global session with sanitized logging.
-        Retrieves instance BEFORE locking to prevent recursive deadlock.
+        Retrieves session instance before acquiring the lock to avoid re-entrant deadlocks.
         """
         session = cls.get_instance()
         with cls._lock:
@@ -648,7 +741,7 @@ class NetworkSession:
             http_host = profile.get("http_host", "").strip()
             https_host = profile.get("https_host", "").strip()
             user = profile.get("username", "").strip()
-            password = ProxyProfileManager.get_decrypted_password()
+            password = profile.get("password", "")
 
             def _make_uri(raw_host: str) -> str:
                 if not raw_host:
