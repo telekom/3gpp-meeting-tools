@@ -1,12 +1,13 @@
 # --- File: src/modules/meetings/ui/tdocs_menus.py ---
+import html
 import os
 import re
 import webbrowser
 from pathlib import Path
 
-from PyQt5.QtCore import QPoint, Qt
+from PyQt5.QtCore import QPoint, QMimeData
 from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QApplication, QMenu, QMessageBox, QToolTip, QWidget
+from PyQt5.QtWidgets import QApplication, QMenu, QToolTip, QWidget
 
 
 def is_tdoc_cached(meeting_dir: Path, target_name: str) -> bool:
@@ -56,9 +57,17 @@ def open_3gu_portal(base_tdoc: str):
     webbrowser.open(url)
 
 
-def _copy_text(text: str, label: str, parent: QWidget):
-    """Copies text to clipboard and flashes a non-blocking tooltip."""
-    QApplication.clipboard().setText(text)
+def _copy_to_clipboard(plain_text: str, html_text: str = None, label: str = "text", parent: QWidget = None):
+    """
+    Copies both plain text and optional rich HTML text to the clipboard.
+    Rich text apps (Outlook, Word) paste the HTML version, while plain text
+    editors (Notepad, terminal) seamlessly fall back to the plain text version.
+    """
+    mime = QMimeData()
+    mime.setText(plain_text)
+    if html_text:
+        mime.setHtml(html_text)
+    QApplication.clipboard().setMimeData(mime)
     QToolTip.showText(QCursor.pos(), f"📋 Copied {label} to clipboard!", parent)
 
 
@@ -267,27 +276,9 @@ def build_row_context_menu(
 
     # --- 6. QUICK COPY SUBMENU ---
     copy_sub = menu.addMenu("📋 Quick Copy")
-    act_copy_id = copy_sub.addAction(f"📋 Copy TDoc Number ({tdoc_id})")
-    act_copy_id.triggered.connect(
-        lambda: _copy_text(tdoc_id, "TDoc Number", parent)
-    )
 
-    title = str(row_data.get("Title", "")).strip()
-    if title:
-        act_copy_title = copy_sub.addAction("📋 Copy Title")
-        act_copy_title.triggered.connect(
-            lambda: _copy_text(title, "Title", parent)
-        )
-
-    source = str(row_data.get("Source", "")).strip()
-    citation = (
-        f"{tdoc_id}: {title} ({source})" if source else f"{tdoc_id}: {title}"
-    )
-    act_copy_cit = copy_sub.addAction("📋 Copy Full Citation")
-    act_copy_cit.triggered.connect(
-        lambda: _copy_text(citation, "Citation", parent)
-    )
-
+    # Compute baseline document URL if available
+    baseline_url = ""
     if docs_ftp_url and tdoc_id and tdoc_id.upper() != "UNKNOWN":
         clean_docs_url = docs_ftp_url.rstrip('/')
         if clean_docs_url.startswith("ftp://"):
@@ -305,9 +296,68 @@ def build_row_context_menu(
         base_tdoc = base_match.group(1).upper() if base_match else tdoc_id.upper()
         baseline_url = f"{clean_docs_url}/{base_tdoc}.zip"
 
+    # HTML formatted anchor tag for the TDoc
+    safe_tdoc = html.escape(tdoc_id)
+    if baseline_url:
+        tdoc_html_link = f'<a href="{baseline_url}">{safe_tdoc}</a>'
+    else:
+        tdoc_html_link = safe_tdoc
+
+    # Action 1: Copy TDoc Number
+    act_copy_id = copy_sub.addAction(f"📋 Copy TDoc Number ({tdoc_id})")
+    act_copy_id.triggered.connect(
+        lambda: _copy_to_clipboard(
+            plain_text=tdoc_id,
+            html_text=tdoc_html_link,
+            label="TDoc Number",
+            parent=parent
+        )
+    )
+
+    # Action 2: Copy Title
+    title = str(row_data.get("Title", "")).strip()
+    if title:
+        safe_title = html.escape(title)
+        act_copy_title = copy_sub.addAction("📋 Copy Title")
+        act_copy_title.triggered.connect(
+            lambda: _copy_to_clipboard(
+                plain_text=title,
+                html_text=safe_title,
+                label="Title",
+                parent=parent
+            )
+        )
+
+    # Action 3: Copy Full Citation
+    source = str(row_data.get("Source", "")).strip()
+    citation_plain = f"{tdoc_id}: {title} ({source})" if source else f"{tdoc_id}: {title}"
+
+    safe_source = html.escape(source)
+    if source:
+        citation_html = f"{tdoc_html_link}: {safe_title} ({safe_source})"
+    else:
+        citation_html = f"{tdoc_html_link}: {safe_title}"
+
+    act_copy_cit = copy_sub.addAction("📋 Copy Full Citation")
+    act_copy_cit.triggered.connect(
+        lambda: _copy_to_clipboard(
+            plain_text=citation_plain,
+            html_text=citation_html,
+            label="Citation",
+            parent=parent
+        )
+    )
+
+    # Action 4: Copy Baseline Document URL (Plain URL + HTML Anchor)
+    if baseline_url:
         act_copy_url = copy_sub.addAction("📋 Copy Baseline Document URL")
         act_copy_url.triggered.connect(
-            lambda: _copy_text(baseline_url, "Baseline Document URL", parent)
+            lambda: _copy_to_clipboard(
+                plain_text=baseline_url,
+                html_text=f'<a href="{baseline_url}">{baseline_url}</a>',
+                label="Baseline Document URL",
+                parent=parent
+            )
         )
 
     menu.exec_(pos or QCursor.pos())
