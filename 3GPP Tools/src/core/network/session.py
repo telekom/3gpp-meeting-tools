@@ -1,12 +1,14 @@
 # --- File: src/core/network/session.py ---
+import base64
 import json
 import logging
 import random
+import re
 import threading
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -22,6 +24,15 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QVBoxLayout,
 )
+
+from core.utils.paths import get_project_root
+
+# Attempt importing Windows DPAPI securely
+try:
+    import win32crypt
+    HAS_DPAPI = True
+except ImportError:
+    HAS_DPAPI = False
 
 from core.utils.utils import get_proxies
 
@@ -62,10 +73,126 @@ class DownloadCancelledError(NetworkError):
     pass
 
 
+def redact_sensitive_urls(message: str) -> str:
+    """Removes passwords from embedded URLs in error and exception strings."""
+    if not message:
+        return ""
+    return re.sub(r"(://[^:/@\s]+):([^@\s]+)@", r"\1:***@", str(message))
+
+
+# ==========================================
+# --- SECURE CREDENTIAL STORE (DPAPI) ---
+# ==========================================
+
+
+class SecureCredentialStore:
+    """
+    Guarantees OS-level DPAPI encryption for credentials.
+    Under NO circumstances falls back to saving plaintext or unencrypted Base64.
+    """
+
+    @staticmethod
+    def is_available() -> bool:
+        return HAS_DPAPI
+
+    @classmethod
+    def encrypt(cls, plain_text: str) -> Tuple[bool, str]:
+        """
+        Encrypts plaintext using Windows DPAPI bound to the current user.
+        Returns: (success: bool, encrypted_base64: str)
+        """
+        if not plain_text:
+            return True, ""
+
+        if not HAS_DPAPI:
+            logging.error("Security safeguard: Windows DPAPI (pywin32) is missing. Cannot encrypt.")
+            return False, ""
+
+        try:
+            encrypted_bytes = win32crypt.CryptProtectData(
+                plain_text.encode("utf-8"),
+                "3GPP_Tools_Proxy_Secret",
+                None, None, None, 0
+            )
+            return True, base64.b64encode(encrypted_bytes).decode("ascii")
+        except Exception as e:
+            logging.error(f"Failed to encrypt credentials via DPAPI: {redact_sensitive_urls(str(e))}")
+            return False, ""
+
+    @classmethod
+    def decrypt(cls, cipher_text: str) -> str:
+        """
+        Decrypts Base64 DPAPI ciphertext.
+        Returns plaintext string on success, or empty string if decryption fails.
+        """
+        if not cipher_text or not HAS_DPAPI:
+            return ""
+
+        try:
+            raw_bytes = base64.b64decode(cipher_text.encode("ascii"))
+            _, decrypted_bytes = win32crypt.CryptUnprotectData(
+                raw_bytes, None, None, None, 0
+            )
+            return decrypted_bytes.decode("utf-8")
+        except Exception as e:
+            logging.warning(f"Could not decrypt stored proxy password: {redact_sensitive_urls(str(e))}")
+            return ""
+
+
+# ==========================================
+# --- PROXY PROFILE MANAGER ---
+# ==========================================
+
+
+class ProxyProfileManager:
+    """Manages sanitized, secure proxy profile persistence in network_config.json."""
+
+    FORBIDDEN_PLAINTEXT_KEYS = {"password", "passwd", "plain_password", "secret", "pass"}
+
+    @classmethod
+    def load_profile(cls) -> dict:
+        cfg = HumannessConfig.load()
+        profile = cfg.get("proxy_profile", {})
+        return {
+            "enabled": bool(profile.get("enabled", False)),
+            "http_host": str(profile.get("http_host", "")).strip(),
+            "https_host": str(profile.get("https_host", "")).strip(),
+            "sync_https": bool(profile.get("sync_https", True)),
+            "username": str(profile.get("username", "")).strip(),
+            "encrypted_password": str(profile.get("encrypted_password", "")).strip(),
+        }
+
+    @classmethod
+    def save_profile(cls, raw_data: dict) -> None:
+        """Enforces a strict schema whitelist, discarding illicit raw password fields."""
+        for key in cls.FORBIDDEN_PLAINTEXT_KEYS:
+            if key in raw_data:
+                logging.warning(f"Security safeguard: Discarded illicit plaintext key '{key}' from profile.")
+                raw_data.pop(key, None)
+
+        clean_profile = {
+            "enabled": bool(raw_data.get("enabled", False)),
+            "http_host": str(raw_data.get("http_host", "")).strip(),
+            "https_host": str(raw_data.get("https_host", "")).strip(),
+            "sync_https": bool(raw_data.get("sync_https", True)),
+            "username": str(raw_data.get("username", "")).strip(),
+            "encrypted_password": str(raw_data.get("encrypted_password", "")).strip(),
+        }
+
+        cfg = HumannessConfig.load()
+        cfg["proxy_profile"] = clean_profile
+        HumannessConfig.save(cfg)
+
+    @classmethod
+    def get_decrypted_password(cls) -> str:
+        profile = cls.load_profile()
+        return SecureCredentialStore.decrypt(profile.get("encrypted_password", ""))
+
+
 # ==========================================
 # --- HUMANNESS CONFIGURATION ---
 # ==========================================
-CONFIG_PATH = Path.home() / "3GPP_Tools" / "network_config.json"
+CONFIG_PATH = get_project_root() / "network_config.json"
 
 DEFAULT_UAS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -78,7 +205,7 @@ DEFAULT_UAS = [
 
 class HumannessConfig:
     _cached_cfg = None
-    _cfg_lock = threading.Lock()
+    _cfg_lock = threading.RLock()
 
     @classmethod
     def load(cls) -> dict:
@@ -106,6 +233,10 @@ class HumannessConfig:
     def save(cls, data: dict):
         with cls._cfg_lock:
             try:
+                for k in list(data.keys()):
+                    if k in ProxyProfileManager.FORBIDDEN_PLAINTEXT_KEYS:
+                        data.pop(k, None)
+
                 CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
                 with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=4)
@@ -181,7 +312,8 @@ class NetworkSession:
     """
 
     _instance: Optional[requests.Session] = None
-    _lock = threading.Lock()
+    # Uses RLock so that re-entrant calls from the same thread never self-deadlock
+    _lock = threading.RLock()
 
     @classmethod
     def get_instance(cls) -> requests.Session:
@@ -224,7 +356,7 @@ class NetworkSession:
 
     @staticmethod
     def _sanitize_proxy_url(url: str) -> str:
-        """Removes username and password credentials from a proxy URL for safe logging."""
+        """Removes user credentials from a proxy URL for safe logging."""
         if not url:
             return ""
         try:
@@ -242,9 +374,12 @@ class NetworkSession:
 
     @classmethod
     def update_proxies(cls, proxies: Dict[str, str]) -> None:
-        """Atomically updates proxies for the global session with sanitized logging."""
+        """
+        Atomically updates proxies for the global session with sanitized logging.
+        Retrieves instance BEFORE locking to prevent recursive deadlock.
+        """
+        session = cls.get_instance()
         with cls._lock:
-            session = cls.get_instance()
             session.proxies = dict(proxies)
 
         safe_proxies = {
@@ -256,17 +391,23 @@ class NetworkSession:
     @staticmethod
     def test_connection(
         proxies: Dict[str, str], test_url: str = "https://www.3gpp.org"
-    ) -> bool:
-        """Tests a proxy configuration using a temporary throwaway session."""
+    ) -> Tuple[bool, str]:
+        """
+        Tests a proxy configuration using a temporary throwaway session.
+        Returns: (success: bool, sanitized_message: str)
+        """
         try:
             with requests.Session() as test_session:
                 test_session.trust_env = False
                 test_session.proxies = dict(proxies)
                 response = test_session.get(test_url, timeout=10)
-                return response.status_code == 200
+                if response.status_code == 200:
+                    return True, "Connection to 3GPP server verified successfully!"
+                return False, f"Server returned HTTP status code {response.status_code}."
         except Exception as e:
-            logging.warning(f"Proxy test failed: {e}")
-            return False
+            clean_error = redact_sensitive_urls(str(e))
+            logging.warning(f"Proxy test failed: {clean_error}")
+            return False, clean_error
 
     @classmethod
     def get_html(
@@ -275,7 +416,6 @@ class NetworkSession:
         timeout: int = 20,
         headers: Optional[Dict[str, str]] = None,
     ) -> str:
-        """Fetches and returns the decoded string content of a web page or dynamic report."""
         session = cls.get_instance()
         cls.apply_delay()
 
@@ -308,7 +448,6 @@ class NetworkSession:
         timeout: int = 20,
         headers: Optional[Dict[str, str]] = None,
     ) -> bytes:
-        """Fetches and returns raw binary bytes from a URL."""
         session = cls.get_instance()
         cls.apply_delay()
 
@@ -341,7 +480,6 @@ class NetworkSession:
         timeout: int = 20,
         headers: Optional[Dict[str, str]] = None,
     ) -> Any:
-        """Fetches and deserializes JSON content from a URL."""
         session = cls.get_instance()
         cls.apply_delay()
 
@@ -374,7 +512,6 @@ class NetworkSession:
         timeout: int = 10,
         headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, str]:
-        """Executes a lightweight HEAD request and returns response headers dictionary."""
         session = cls.get_instance()
         req_headers = cls.get_request_headers()
         if headers:
@@ -409,18 +546,6 @@ class NetworkSession:
         chunk_size: int = 16384,
         atomic: bool = True,
     ) -> int:
-        """
-        Streams and downloads a file directly to disk with cancellation checks and progress reporting.
-
-        :param url: Source URL to download from.
-        :param dest_path: Final destination path on disk.
-        :param timeout: Network timeout in seconds.
-        :param progress_cb: Optional callback receiving integer progress percent (0-100).
-        :param cancel_cb: Optional callable returning True if the download should be aborted.
-        :param chunk_size: Size of byte chunks to stream from the connection.
-        :param atomic: If True, writes to a .part file and renames upon success to avoid partial files.
-        :return: Total count of downloaded bytes.
-        """
         dest = Path(dest_path)
         dest.parent.mkdir(parents=True, exist_ok=True)
         part_path = dest.with_suffix(dest.suffix + ".part") if atomic else dest
@@ -466,7 +591,6 @@ class NetworkSession:
                                 )
                                 progress_cb(percent)
 
-            # Atomically finalize staging file
             if atomic and part_path.exists():
                 part_path.replace(dest)
 
@@ -518,7 +642,41 @@ class NetworkSession:
     def _create_session() -> requests.Session:
         session = requests.Session()
         session.trust_env = False
-        session.proxies = dict(get_proxies())
+
+        profile = ProxyProfileManager.load_profile()
+        if profile.get("enabled"):
+            http_host = profile.get("http_host", "").strip()
+            https_host = profile.get("https_host", "").strip()
+            user = profile.get("username", "").strip()
+            password = ProxyProfileManager.get_decrypted_password()
+
+            def _make_uri(raw_host: str) -> str:
+                if not raw_host:
+                    return ""
+                scheme, netloc = (
+                    raw_host.split("://", 1)
+                    if "://" in raw_host
+                    else ("http", raw_host)
+                )
+                if user:
+                    safe_u = urllib.parse.quote(user, safe="")
+                    auth = (
+                        f"{safe_u}:{urllib.parse.quote(password, safe='')}@"
+                        if password
+                        else f"{safe_u}@"
+                    )
+                    return f"{scheme}://{auth}{netloc}"
+                return f"{scheme}://{netloc}"
+
+            active_proxies = {}
+            if http_host:
+                active_proxies["http"] = _make_uri(http_host)
+            if https_host:
+                active_proxies["https"] = _make_uri(https_host)
+
+            session.proxies = active_proxies
+        else:
+            session.proxies = dict(get_proxies())
 
         session.headers.update({
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
