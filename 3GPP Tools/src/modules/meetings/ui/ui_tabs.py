@@ -361,21 +361,26 @@ class MeetingsTab(QWidget):
 
         global_search_layout = QHBoxLayout()
         global_search_layout.setSpacing(4)
+
+        # Quick TDoc Jump Card
         self.global_tdoc_input = QLineEdit()
         self.global_tdoc_input.setPlaceholderText("e.g., S2-2605740")
-        self.global_tdoc_input.setToolTip("Type a valid TDoc number. Enter opens doc; buttons allow quick navigation.")
+        self.global_tdoc_input.setToolTip(
+            "Type a valid TDoc number. Press Enter to open the document, or use the quick buttons.")
 
         self.btn_open_tdoc = QPushButton("📄 Doc")
         self.btn_open_tdoc.setCursor(Qt.PointingHandCursor)
         self.btn_open_tdoc.setFixedHeight(26)
         self.btn_open_tdoc.setObjectName("primaryBtn")
         self.btn_open_tdoc.setVisible(False)
+        self.btn_open_tdoc.setToolTip("Download and open the specified TDoc directly in Microsoft Word.")
 
         self.btn_open_meeting = QPushButton("🗓️ Mtg")
         self.btn_open_meeting.setCursor(Qt.PointingHandCursor)
         self.btn_open_meeting.setFixedHeight(26)
         self.btn_open_meeting.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_open_meeting.setVisible(False)
+        self.btn_open_meeting.setToolTip("Open the full meeting table containing this TDoc.")
 
         global_search_layout.addWidget(self.global_tdoc_input, 1)
         global_search_layout.addWidget(self.btn_open_tdoc)
@@ -416,6 +421,7 @@ class MeetingsTab(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Filter number, city, or name...")
         self.search_input.setClearButtonEnabled(True)
+        self.search_input.setToolTip("Filter visible meetings by meeting number, host city, or title.")
         self.search_input.textChanged.connect(self.refresh_table)
         right_layout.addWidget(self.search_input)
 
@@ -429,9 +435,11 @@ class MeetingsTab(QWidget):
         dates_row = QHBoxLayout()
         dates_row.setSpacing(4)
 
+        # Date Pickers
         self.date_from = QDateEdit()
         self.date_from.setCalendarPopup(True)
         self.date_from.setDate(QDate.currentDate().addYears(-1))
+        self.date_from.setToolTip("Filter meetings starting on or after this date.")
         self.date_from.dateChanged.connect(self.refresh_table)
         self.date_from.setEnabled(False)
 
@@ -442,6 +450,7 @@ class MeetingsTab(QWidget):
         self.date_to = QDateEdit()
         self.date_to.setCalendarPopup(True)
         self.date_to.setDate(QDate.currentDate().addYears(1))
+        self.date_to.setToolTip("Filter meetings ending on or before this date.")
         self.date_to.dateChanged.connect(self.refresh_table)
         self.date_to.setEnabled(False)
 
@@ -464,8 +473,11 @@ class MeetingsTab(QWidget):
         sync_btn_row = QHBoxLayout()
         sync_btn_row.setSpacing(4)
 
+        # Sync & Database Buttons
         self.update_btn = QPushButton("🔄 Sync All Meetings")
         self.update_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.update_btn.setToolTip(
+            "Run multi-phase scrape across 3GPP FTP servers according to configured scraper options.")
         self.update_btn.clicked.connect(lambda: self.update_db_requested.emit(
             self.chk_wg.isChecked(), self.chk_docs.isChecked(), self.chk_dyna.isChecked()
         ))
@@ -481,6 +493,8 @@ class MeetingsTab(QWidget):
 
         self.btn_add_meeting = QPushButton("➕ Add / Fetch Meeting...")
         self.btn_add_meeting.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_add_meeting.setToolTip(
+            "Manually query, preview, and import a specific meeting via Portal ID, number, or FTP URL.")
         self.btn_add_meeting.clicked.connect(self._open_add_meeting_dialog)
         right_layout.addWidget(self.btn_add_meeting)
 
@@ -500,8 +514,11 @@ class MeetingsTab(QWidget):
         self.btn_contribution_report.clicked.connect(self._open_contribution_report)
         right_layout.addWidget(self.btn_contribution_report)
 
+        # Export & Destructive Actions
         self.btn_export_merged = QPushButton("📥 Export Merged TDocs (Excel)")
         self.btn_export_merged.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_export_merged.setToolTip(
+            "Download and consolidate TDoc lists from all currently filtered meetings into a single Excel workbook.")
         self.btn_export_merged.clicked.connect(self._export_merged_tdocs)
         right_layout.addWidget(self.btn_export_merged)
 
@@ -509,20 +526,8 @@ class MeetingsTab(QWidget):
 
         # 6. Destructive Actions (De-emphasized at the bottom)
         self.delete_all_btn = QPushButton("🗑️ Clear All Meetings...")
-        self.delete_all_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    border: 1px dashed #FCA5A5;
-                    color: #DC2626;
-                    padding: 4px;
-                    border-radius: 4px;
-                    font-size: 11px;
-                }
-                QPushButton:hover {
-                    background-color: #FEF2F2;
-                    border-color: #EF4444;
-                }
-            """)
+        self.delete_all_btn.setToolTip("Permanently erase all meeting records and metadata from the local database.")
+        self.delete_all_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
         self.delete_all_btn.clicked.connect(self._confirm_delete_all)
         right_layout.addWidget(self.delete_all_btn)
 
