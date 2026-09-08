@@ -26,7 +26,7 @@ from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
-from modules.meetings.ui.dialogs import MeetingInfoDialog, AddMeetingDialog
+from modules.meetings.ui.dialogs import MeetingInfoDialog, AddMeetingDialog, MeetingsConfigDialog
 from modules.meetings.ui.models import MeetingsTableModel
 from modules.meetings.ui.search_controller import GlobalSearchController
 from modules.meetings.ui.tdocs_components import CheckableComboBox
@@ -230,9 +230,17 @@ class MeetingsTab(QWidget):
             self.dl_dir_input.setText(normalized_dir)
             self.settings.save_settings(normalized_dir)
 
+
     def _setup_ui(self):
         main_layout = QHBoxLayout(self)
         self.splitter = QSplitter(Qt.Horizontal)
+
+        # --- Settings Dialog & Persistent Reference Bridge ---
+        self.config_dialog = MeetingsConfigDialog(self.settings, self)
+        self.dl_dir_input = self.config_dialog.dl_dir_input
+        self.chk_wg = self.config_dialog.chk_wg
+        self.chk_dyna = self.config_dialog.chk_dyna
+        self.chk_docs = self.config_dialog.chk_docs
 
         # --- Left Side: Table View ---
         left_widget = QWidget()
@@ -282,13 +290,13 @@ class MeetingsTab(QWidget):
         # --- Comparison Cart ---
         self.cart_frame = QFrame()
         self.cart_frame.setStyleSheet("""
-            QFrame {
-                background-color: #F8FAFC;
-                border: 1px solid #CBD5E1;
-                border-radius: 6px;
-            }
-            QLabel { color: #1E293B; border: none; }
-        """)
+                QFrame {
+                    background-color: #F8FAFC;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 6px;
+                }
+                QLabel { color: #1E293B; border: none; }
+            """)
         cart_layout = QHBoxLayout(self.cart_frame)
         cart_layout.setContentsMargins(12, 8, 12, 8)
 
@@ -320,157 +328,171 @@ class MeetingsTab(QWidget):
 
         ComparisonManager.get_instance().cart_updated.connect(self._update_cart_ui)
 
-        # --- Right Side: Filter & Sync Panel ---
+        # --- Right Side: Refactored Filter & Action Panel ---
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setAlignment(Qt.AlignTop)
-        right_layout.setSpacing(6)
+        right_layout.setSpacing(10)
+        right_layout.setContentsMargins(6, 4, 6, 6)
 
+        # 1. Quick Launch
         self.btn_open_last = QPushButton("🚀 Open Last Meeting")
         self.btn_open_last.setObjectName("primaryBtn")
+        self.btn_open_last.setFixedHeight(34)
         self.btn_open_last.clicked.connect(self._open_last_meeting)
         right_layout.addWidget(self.btn_open_last)
 
-        title_lbl = QLabel("<b>Filter & Search</b>")
-        title_lbl.setStyleSheet("font-size: 13px; margin-top: 4px; color: #1E293B;")
-        right_layout.addWidget(title_lbl)
+        # 2. Smart Global TDoc Jump Card
+        jump_frame = QFrame()
+        jump_frame.setStyleSheet("""
+                QFrame {
+                    background-color: #F8FAFC;
+                    border: 1px solid #E2E8F0;
+                    border-radius: 6px;
+                }
+            """)
+        jump_layout = QVBoxLayout(jump_frame)
+        jump_layout.setContentsMargins(8, 6, 8, 6)
+        jump_layout.setSpacing(4)
 
-        right_layout.addWidget(QLabel("Working Group:"))
-        self.wg_filter = CheckableComboBox("Working Group")
-        self.wg_filter.setToolTip("Filter meetings by Working Group (e.g., SA2, RAN1).")
-        self.wg_filter.selectionChanged.connect(self.refresh_table)
+        jump_header = QLabel("⚡ <b>Quick TDoc Jump</b>")
+        jump_header.setStyleSheet("font-size: 11px; color: #475569; border: none;")
+        jump_layout.addWidget(jump_header)
 
-        self.adhoc_filter = QComboBox()
-        self.adhoc_filter.addItems(["All Meetings", "Regular", "Ad-Hoc / BIS"])
-        self.adhoc_filter.setToolTip("Show all meetings, or filter by Regular vs. Ad-Hoc/BIS.")
-        self.adhoc_filter.currentTextChanged.connect(self.refresh_table)
-
-        self.type_filter = QComboBox()
-        self.type_filter.addItems(["All Types", "In-Person", "Electronic"])
-        self.type_filter.setToolTip("Filter by In-Person or Electronic (eMeetings).")
-        self.type_filter.currentTextChanged.connect(self.refresh_table)
-
-        right_layout.addWidget(self.wg_filter)
-        right_layout.addWidget(self.adhoc_filter)
-        right_layout.addWidget(self.type_filter)
-
-        right_layout.addWidget(QLabel("Search (No. or Name):"))
-        self.search_input = QLineEdit()
-        self.search_input.setToolTip("Search across meeting numbers, locations, and names.")
-        self.search_input.textChanged.connect(self.refresh_table)
-        right_layout.addWidget(self.search_input)
-
-        # Smart Global TDoc Search
-        right_layout.addWidget(QLabel("Global TDoc Search:"))
         global_search_layout = QHBoxLayout()
+        global_search_layout.setSpacing(4)
         self.global_tdoc_input = QLineEdit()
         self.global_tdoc_input.setPlaceholderText("e.g., S2-2605740")
-        self.global_tdoc_input.setMinimumWidth(120)
-        self.global_tdoc_input.setToolTip("Type a valid TDoc. Press Enter to instantly download and open it.")
+        self.global_tdoc_input.setToolTip("Type a valid TDoc number. Enter opens doc; buttons allow quick navigation.")
 
         self.btn_open_tdoc = QPushButton("📄 Doc")
         self.btn_open_tdoc.setCursor(Qt.PointingHandCursor)
-        self.btn_open_tdoc.setFixedHeight(28)
+        self.btn_open_tdoc.setFixedHeight(26)
         self.btn_open_tdoc.setObjectName("primaryBtn")
         self.btn_open_tdoc.setVisible(False)
 
         self.btn_open_meeting = QPushButton("🗓️ Mtg")
         self.btn_open_meeting.setCursor(Qt.PointingHandCursor)
-        self.btn_open_meeting.setFixedHeight(28)
+        self.btn_open_meeting.setFixedHeight(26)
         self.btn_open_meeting.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_open_meeting.setVisible(False)
 
-        global_search_layout.addWidget(self.global_tdoc_input)
+        global_search_layout.addWidget(self.global_tdoc_input, 1)
         global_search_layout.addWidget(self.btn_open_tdoc)
         global_search_layout.addWidget(self.btn_open_meeting)
-        right_layout.addLayout(global_search_layout)
+        jump_layout.addLayout(global_search_layout)
+        right_layout.addWidget(jump_frame)
 
+        # 3. Filter & Search Controls
+        filter_title = QLabel("🔍 <b>Filters</b>")
+        filter_title.setStyleSheet("font-size: 12px; color: #1E293B; margin-top: 2px;")
+        right_layout.addWidget(filter_title)
+
+        # Working Group Selector
+        self.wg_filter = CheckableComboBox("Working Group")
+        self.wg_filter.setToolTip("Filter meetings by Working Group (e.g., SA2, RAN1).")
+        self.wg_filter.selectionChanged.connect(self.refresh_table)
+        right_layout.addWidget(self.wg_filter)
+
+        # Compact Side-by-Side Combos (Ad-Hoc & Meeting Type)
+        type_row = QHBoxLayout()
+        type_row.setSpacing(6)
+
+        self.adhoc_filter = QComboBox()
+        self.adhoc_filter.addItems(["All Meetings", "Regular", "Ad-Hoc / BIS"])
+        self.adhoc_filter.setToolTip("Filter by regular vs. ad-hoc meetings.")
+        self.adhoc_filter.currentTextChanged.connect(self.refresh_table)
+
+        self.type_filter = QComboBox()
+        self.type_filter.addItems(["All Types", "In-Person", "Electronic"])
+        self.type_filter.setToolTip("Filter by in-person vs. electronic meetings.")
+        self.type_filter.currentTextChanged.connect(self.refresh_table)
+
+        type_row.addWidget(self.adhoc_filter, 1)
+        type_row.addWidget(self.type_filter, 1)
+        right_layout.addLayout(type_row)
+
+        # Search Box
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Filter number, city, or name...")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.textChanged.connect(self.refresh_table)
+        right_layout.addWidget(self.search_input)
+
+        # Compact Date Range Selection
         self.enable_dates_cb = QCheckBox("Filter by Date Range")
-        self.enable_dates_cb.setToolTip("Enable to filter meetings within a specific date range.")
+        self.enable_dates_cb.setToolTip("Filter meetings within specific dates.")
         self.enable_dates_cb.toggled.connect(self._toggle_date_inputs)
         self.enable_dates_cb.toggled.connect(self.refresh_table)
         right_layout.addWidget(self.enable_dates_cb)
+
+        dates_row = QHBoxLayout()
+        dates_row.setSpacing(4)
 
         self.date_from = QDateEdit()
         self.date_from.setCalendarPopup(True)
         self.date_from.setDate(QDate.currentDate().addYears(-1))
         self.date_from.dateChanged.connect(self.refresh_table)
         self.date_from.setEnabled(False)
-        right_layout.addWidget(self.date_from)
+
+        arrow_lbl = QLabel("➔")
+        arrow_lbl.setAlignment(Qt.AlignCenter)
+        arrow_lbl.setStyleSheet("color: #94A3B8; font-weight: bold;")
 
         self.date_to = QDateEdit()
         self.date_to.setCalendarPopup(True)
         self.date_to.setDate(QDate.currentDate().addYears(1))
         self.date_to.dateChanged.connect(self.refresh_table)
         self.date_to.setEnabled(False)
-        right_layout.addWidget(self.date_to)
+
+        dates_row.addWidget(self.date_from, 1)
+        dates_row.addWidget(arrow_lbl)
+        dates_row.addWidget(self.date_to, 1)
+        right_layout.addLayout(dates_row)
         self.enable_dates_cb.setChecked(True)
 
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        right_layout.addWidget(line)
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.HLine)
+        sep1.setFrameShadow(QFrame.Sunken)
+        right_layout.addWidget(sep1)
 
-        # Scrape Configuration Toggle
-        self.scrape_toggle_btn = QPushButton("⚙️ Scrape Configuration (Click to Expand)")
-        self.scrape_toggle_btn.setCheckable(True)
-        self.scrape_toggle_btn.setCursor(Qt.PointingHandCursor)
-        self.scrape_toggle_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        # 4. Synchronization & Data Management
+        sync_lbl = QLabel("<b>Sync & Database</b>")
+        sync_lbl.setStyleSheet("font-size: 11px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;")
+        right_layout.addWidget(sync_lbl)
 
-        self.scrape_frame = QFrame()
-        self.scrape_frame.setVisible(False)
-        scrape_layout = QVBoxLayout(self.scrape_frame)
-        scrape_layout.setContentsMargins(10, 4, 0, 4)
+        sync_btn_row = QHBoxLayout()
+        sync_btn_row.setSpacing(4)
 
-        self.chk_wg = QCheckBox("Check for New Folders")
-        self.chk_wg.setChecked(True)
-        self.chk_dyna = QCheckBox("Update Metadata")
-        self.chk_dyna.setChecked(True)
-        self.chk_docs = QCheckBox("Deep Scrape 'Docs/'")
-        self.chk_docs.setChecked(True)
-
-        scrape_layout.addWidget(self.chk_wg)
-        scrape_layout.addWidget(self.chk_dyna)
-        scrape_layout.addWidget(self.chk_docs)
-
-        self.scrape_toggle_btn.toggled.connect(self.scrape_frame.setVisible)
-        right_layout.addWidget(self.scrape_toggle_btn)
-        right_layout.addWidget(self.scrape_frame)
-
-        # Local Cache Folder Selector
-        right_layout.addWidget(QLabel("Local Cache Directory:"))
-        cache_layout = QHBoxLayout()
-        self.dl_dir_input = QLineEdit()
-        self.dl_dir_input.setText(self.settings.cache_dir)
-        self.dl_dir_input.editingFinished.connect(lambda: self.settings.save_settings(self.dl_dir_input.text().strip()))
-
-        browse_btn = QPushButton("...")
-        browse_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        browse_btn.setFixedWidth(32)
-        browse_btn.clicked.connect(self._browse_cache_dir)
-
-        cache_layout.addWidget(self.dl_dir_input)
-        cache_layout.addWidget(browse_btn)
-        right_layout.addLayout(cache_layout)
-        right_layout.addStretch()
-
-        # Action Buttons
         self.update_btn = QPushButton("🔄 Sync All Meetings")
         self.update_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.update_btn.clicked.connect(lambda: self.update_db_requested.emit(
             self.chk_wg.isChecked(), self.chk_docs.isChecked(), self.chk_dyna.isChecked()
         ))
-        right_layout.addWidget(self.update_btn)
+        sync_btn_row.addWidget(self.update_btn, 1)
+
+        self.btn_config = QPushButton("⚙️")
+        self.btn_config.setFixedWidth(32)
+        self.btn_config.setToolTip("Configure local cache directory and scraping options...")
+        self.btn_config.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_config.clicked.connect(self.config_dialog.exec_)
+        sync_btn_row.addWidget(self.btn_config)
+        right_layout.addLayout(sync_btn_row)
 
         self.btn_add_meeting = QPushButton("➕ Add / Fetch Meeting...")
         self.btn_add_meeting.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_add_meeting.clicked.connect(self._open_add_meeting_dialog)
         right_layout.addWidget(self.btn_add_meeting)
 
-        self.btn_export_merged = QPushButton("📥 Export Merged TDocs (Excel)")
-        self.btn_export_merged.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_export_merged.clicked.connect(self._export_merged_tdocs)
-        right_layout.addWidget(self.btn_export_merged)
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.HLine)
+        sep2.setFrameShadow(QFrame.Sunken)
+        right_layout.addWidget(sep2)
+
+        # 5. Reports & Analytics
+        reports_lbl = QLabel("<b>Reports & Exports</b>")
+        reports_lbl.setStyleSheet("font-size: 11px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;")
+        right_layout.addWidget(reports_lbl)
 
         self.btn_contribution_report = QPushButton("📊 Contributions Report...")
         self.btn_contribution_report.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -478,8 +500,29 @@ class MeetingsTab(QWidget):
         self.btn_contribution_report.clicked.connect(self._open_contribution_report)
         right_layout.addWidget(self.btn_contribution_report)
 
-        self.delete_all_btn = QPushButton("🗑️ Clear All Meetings")
-        self.delete_all_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
+        self.btn_export_merged = QPushButton("📥 Export Merged TDocs (Excel)")
+        self.btn_export_merged.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_export_merged.clicked.connect(self._export_merged_tdocs)
+        right_layout.addWidget(self.btn_export_merged)
+
+        right_layout.addStretch()
+
+        # 6. Destructive Actions (De-emphasized at the bottom)
+        self.delete_all_btn = QPushButton("🗑️ Clear All Meetings...")
+        self.delete_all_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: transparent;
+                    border: 1px dashed #FCA5A5;
+                    color: #DC2626;
+                    padding: 4px;
+                    border-radius: 4px;
+                    font-size: 11px;
+                }
+                QPushButton:hover {
+                    background-color: #FEF2F2;
+                    border-color: #EF4444;
+                }
+            """)
         self.delete_all_btn.clicked.connect(self._confirm_delete_all)
         right_layout.addWidget(self.delete_all_btn)
 
