@@ -4,6 +4,7 @@ import logging
 import random
 import threading
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Union
 
@@ -221,13 +222,36 @@ class NetworkSession:
             with cls._lock:
                 session.headers.update(headers)
 
+    @staticmethod
+    def _sanitize_proxy_url(url: str) -> str:
+        """Removes username and password credentials from a proxy URL for safe logging."""
+        if not url:
+            return ""
+        try:
+            parsed = urllib.parse.urlsplit(url)
+            if parsed.username or parsed.password:
+                netloc = parsed.hostname or ""
+                if parsed.port:
+                    netloc += f":{parsed.port}"
+                return urllib.parse.urlunsplit(
+                    (parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)
+                )
+            return url
+        except Exception:
+            return "<sanitized-proxy>"
+
     @classmethod
     def update_proxies(cls, proxies: Dict[str, str]) -> None:
-        """Atomically updates proxies for the global session."""
+        """Atomically updates proxies for the global session with sanitized logging."""
         with cls._lock:
             session = cls.get_instance()
             session.proxies = dict(proxies)
-        logging.info(f"🌐 Global Network Session proxies updated: {proxies}")
+
+        safe_proxies = {
+            proto: cls._sanitize_proxy_url(url)
+            for proto, url in proxies.items()
+        }
+        logging.info(f"🌐 Global Network Session proxies updated: {safe_proxies}")
 
     @staticmethod
     def test_connection(
