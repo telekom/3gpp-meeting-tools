@@ -1,5 +1,7 @@
 # --- File: modules/meetings/ui/dialogs.py ---
 import webbrowser
+from pathlib import Path
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -89,6 +91,7 @@ class MeetingInfoDialog(QDialog):
 
         close_btn = QPushButton("Close")
         close_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        close_btn.setToolTip("Close meeting details window.")
         close_btn.clicked.connect(self.accept)
 
         btn_layout = QHBoxLayout()
@@ -145,13 +148,16 @@ class AddMeetingDialog(QDialog):
         self.wg_combo = QComboBox()
         self.wg_combo.addItem("All / Auto-Detect")
         self.wg_combo.addItems(list(MEETING_SOURCES.keys()))
+        self.wg_combo.setToolTip("Target Working Group to query, or select Auto-Detect.")
 
         self.query_input = QLineEdit()
         self.query_input.setPlaceholderText("e.g. 33120, SA3-130, 130, or FTP URL")
+        self.query_input.setToolTip("Enter a 3GPP Meeting ID (e.g., 33120), meeting number (e.g., 130), or FTP path.")
         self.query_input.returnPressed.connect(self._start_fetch)
 
         self.btn_fetch = QPushButton("🔍 Fetch Details")
         self.btn_fetch.setObjectName("primaryBtn")
+        self.btn_fetch.setToolTip("Query the 3GPP Portal and FTP archives to retrieve meeting details.")
         self.btn_fetch.clicked.connect(self._start_fetch)
 
         row_layout.addWidget(self.wg_combo)
@@ -232,10 +238,12 @@ class AddMeetingDialog(QDialog):
         self.btn_save = QPushButton("💾 Save to Database")
         self.btn_save.setObjectName("primaryBtn")
         self.btn_save.setEnabled(False)
+        self.btn_save.setToolTip("Save or update this meeting entry in the local database.")
         self.btn_save.clicked.connect(self._save_to_db)
 
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_cancel.setToolTip("Close without saving.")
         self.btn_cancel.clicked.connect(self.reject)
 
         btn_layout.addStretch()
@@ -379,6 +387,8 @@ class MeetingsConfigDialog(QDialog):
 
         path_row = QHBoxLayout()
         self.dl_dir_input = QLineEdit(self.settings.cache_dir)
+        self.dl_dir_input.setToolTip(
+            "Local filesystem directory where meeting agendas, TDoc lists, and ZIP files are stored.")
         self.dl_dir_input.editingFinished.connect(
             lambda: self.settings.save_settings(self.dl_dir_input.text().strip())
         )
@@ -386,6 +396,7 @@ class MeetingsConfigDialog(QDialog):
 
         btn_browse = QPushButton("Browse...")
         btn_browse.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        btn_browse.setToolTip("Browse and select a folder for the local cache.")
         btn_browse.clicked.connect(self._browse_cache_dir)
         path_row.addWidget(btn_browse)
 
@@ -408,10 +419,17 @@ class MeetingsConfigDialog(QDialog):
 
         self.chk_wg = QCheckBox("Check for New Folders (Phase 1: FTP Directory Discovery)")
         self.chk_wg.setChecked(True)
+        self.chk_wg.setToolTip("Phase 1: Scrapes 3GPP FTP directories to discover newly created meeting folders.")
+
         self.chk_dyna = QCheckBox("Update Metadata (Phase 3: Dates & Locations via DynaReport)")
         self.chk_dyna.setChecked(True)
+        self.chk_dyna.setToolTip(
+            "Phase 3: Fetches official start/end dates, host cities, and eMeeting flags from 3GPP DynaReport.")
+
         self.chk_docs = QCheckBox("Deep Scrape 'Docs/' (Phase 2: Identify First & Last TDocs)")
         self.chk_docs.setChecked(True)
+        self.chk_docs.setToolTip(
+            "Phase 2: Crawls the Docs/ folder of each meeting to determine the first and last allocated TDoc numbers.")
 
         scrape_layout.addWidget(self.chk_wg)
         scrape_layout.addWidget(self.chk_dyna)
@@ -421,9 +439,11 @@ class MeetingsConfigDialog(QDialog):
         # 3. Footer Actions
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
+
         btn_done = QPushButton("Done")
         btn_done.setObjectName("primaryBtn")
         btn_done.setFixedWidth(90)
+        btn_done.setToolTip("Save preferences and close settings.")
         btn_done.clicked.connect(self.accept)
         btn_layout.addWidget(btn_done)
 
