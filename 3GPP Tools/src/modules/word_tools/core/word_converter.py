@@ -1,4 +1,6 @@
 import ctypes
+import faulthandler
+import gc
 import logging
 import os
 from pathlib import Path
@@ -6,6 +8,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 from typing import Optional, Union
 
 import pythoncom
@@ -70,22 +73,31 @@ def _sanitize_file_attributes(file_path: Path) -> None:
             pass
 
 
-def _is_com_alive(com_obj) -> bool:
-    """Safely checks if a COM object is responsive without raising secondary RPC faults."""
-    if com_obj is None:
-        return False
-    try:
-        _ = com_obj.Name
-        return True
-    except Exception:
-        return False
-
-
 def _safe_com_cleanup(word=None, doc=None, new_doc=None) -> None:
-    """Closes documents and quits Word only if the COM channel is still alive."""
-    word_alive = _is_com_alive(word)
+    """
+    Safely closes Word documents, quits Word, releases COM pointers,
+    and uninitializes the COM apartment without triggering RPC SEH faults.
+    """
+    # Temporarily shield faulthandler so harmless first-chance RPC server
+    # disconnects during WINWORD exit are not dumped to stderr as fatal errors.
+    was_faulthandler_enabled = False
+    try:
+        if faulthandler.is_enabled():
+            was_faulthandler_enabled = True
+            faulthandler.disable()
+    except Exception:
+        pass
 
-    if word_alive:
+    try:
+        # 1. Wait for any background printing/exporting to complete
+        if word is not None:
+            try:
+                while word.BackgroundPrintingStatus > 0:
+                    time.sleep(0.05)
+            except Exception:
+                pass
+
+        # 2. Safely close documents
         for d in (new_doc, doc):
             if d is not None:
                 try:
@@ -93,22 +105,51 @@ def _safe_com_cleanup(word=None, doc=None, new_doc=None) -> None:
                 except Exception:
                     pass
 
+        # 3. Safely close any lingering Protected View windows
+        if word is not None:
+            try:
+                if hasattr(word, "ProtectedViewWindows"):
+                    while word.ProtectedViewWindows.Count > 0:
+                        word.ProtectedViewWindows.Item(1).Close()
+            except Exception:
+                pass
+
+            # 4. Quit Word Application
+            try:
+                word.Quit(SaveChanges=0)  # 0 = wdDoNotSaveChanges
+            except Exception:
+                pass
+
+    finally:
+        # 5. Clear all COM references in local scope
+        new_doc = None
+        doc = None
+        word = None
+
+        # 6. Force garbage collection so win32com wrapper destructors execute
         try:
-            if hasattr(word, "ProtectedViewWindows"):
-                while word.ProtectedViewWindows.Count > 0:
-                    word.ProtectedViewWindows.Item(1).Close()
+            gc.collect()
         except Exception:
             pass
 
+        # 7. Pump any remaining COM messages
         try:
-            word.Quit()
+            pythoncom.PumpWaitingMessages()
         except Exception:
             pass
 
-    try:
-        pythoncom.CoUninitialize()
-    except Exception:
-        pass
+        # 8. Uninitialize COM apartment
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+
+        # 9. Restore faulthandler if it was active
+        if was_faulthandler_enabled:
+            try:
+                faulthandler.enable()
+            except Exception:
+                pass
 
 
 def convert_doc_to_docx_word(
@@ -168,6 +209,7 @@ def convert_doc_to_docx_word(
             word.Options.DoNotPromptForConvert = True
             word.Options.WarnBeforeSavingPrintingSendingMarkup = False
             word.Options.SaveInterval = 0
+            word.Options.PrintBackground = False
         except Exception:
             pass
 
@@ -179,18 +221,19 @@ def convert_doc_to_docx_word(
                 AddToRecentFiles=False,
             )
         except Exception:
-            if _is_com_alive(word) and hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
-                pv = word.ProtectedViewWindows.Item(1)
-                doc = pv.Edit()
-            elif _is_com_alive(word):
-                doc = word.Documents.Open(
-                    FileName=source_str,
-                    ConfirmConversions=False,
-                    ReadOnly=True,
-                    AddToRecentFiles=False,
-                )
-            else:
-                raise RuntimeError("MS Word crashed during document opening.")
+            try:
+                if hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
+                    pv = word.ProtectedViewWindows.Item(1)
+                    doc = pv.Edit()
+                else:
+                    doc = word.Documents.Open(
+                        FileName=source_str,
+                        ConfirmConversions=False,
+                        ReadOnly=True,
+                        AddToRecentFiles=False,
+                    )
+            except Exception:
+                raise RuntimeError("MS Word failed to open source document.")
 
         if doc is None:
             raise RuntimeError(f"Word failed to acquire a valid document handle for {source.name}")
@@ -244,6 +287,9 @@ def convert_doc_to_docx_word(
 
     finally:
         _safe_com_cleanup(word=word, doc=doc, new_doc=new_doc)
+        word = None
+        doc = None
+        new_doc = None
 
 
 def convert_doc_to_docx(
@@ -348,6 +394,10 @@ class WordConverterThread(QThread):
     def _run_word_export(self, source: Path):
         word = None
         doc = None
+        success = False
+        out_path = ""
+        out_name = ""
+
         try:
             pythoncom.CoInitialize()
             out_dir = source.parent
@@ -368,6 +418,7 @@ class WordConverterThread(QThread):
                 word.Options.DoNotPromptForConvert = True
                 word.Options.WarnBeforeSavingPrintingSendingMarkup = False
                 word.Options.SaveInterval = 0
+                word.Options.PrintBackground = False
             except Exception:
                 pass
 
@@ -379,12 +430,12 @@ class WordConverterThread(QThread):
                     AddToRecentFiles=False,
                 )
             except Exception as open_err:
-                if _is_com_alive(word) and hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
-                    try:
+                try:
+                    if hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
                         pv = word.ProtectedViewWindows.Item(1)
                         doc = pv.Edit()
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
                 if doc is None:
                     raise open_err
 
@@ -399,6 +450,8 @@ class WordConverterThread(QThread):
                 export_format = WD_FORMAT_PDF if self.target_format == "pdf" else WD_FORMAT_XPS
                 word.Options.UpdateFieldsAtPrint = False
                 word.Options.UpdateLinksAtPrint = False
+                word.Options.PrintBackground = False
+
                 doc.ExportAsFixedFormat(
                     OutputFileName=out_path,
                     ExportFormat=export_format,
@@ -407,11 +460,24 @@ class WordConverterThread(QThread):
                     IncludeDocProps=True,
                     CreateBookmarks=1,
                 )
+
+                # Ensure Word background printer thread has completely flushed
+                try:
+                    while word.BackgroundPrintingStatus > 0:
+                        time.sleep(0.05)
+                except Exception:
+                    pass
             else:
                 doc.SaveAs2(out_path, FileFormat=self.FORMAT_MAP[self.target_format])
 
-            self.ui_log_msg.emit(f"✅ Conversion complete: {out_name}", logging.INFO)
-            self.finished_path.emit(out_path)
+            success = True
 
         finally:
+            # Clean up Word and uninitialize COM BEFORE emitting finished signals
             _safe_com_cleanup(word=word, doc=doc)
+            word = None
+            doc = None
+
+        if success:
+            self.ui_log_msg.emit(f"✅ Conversion complete: {out_name}", logging.INFO)
+            self.finished_path.emit(out_path)
