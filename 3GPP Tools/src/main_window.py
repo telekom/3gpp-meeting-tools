@@ -578,7 +578,22 @@ class DragDropUI(QMainWindow):
             self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
 
     def closeEvent(self, event):
+        logging.info("🏁 [SHUTDOWN] Window closeEvent triggered. Saving cache...")
         self.save_cache()
-        if self.wifi_monitor is not None:
+
+        # 1. Stop background WiFi monitor thread cleanly
+        if self.wifi_monitor is not None and self.wifi_monitor.isRunning():
+            logging.info("🏁 [SHUTDOWN] Stopping WifiMonitorThread...")
             self.wifi_monitor.stop()
-        super().closeEvent(event)
+
+        # 2. Stop initialization thread if still active
+        if hasattr(self, 'init_thread') and self.init_thread is not None and self.init_thread.isRunning():
+            logging.info("🏁 [SHUTDOWN] Stopping InitializationThread...")
+            self.init_thread.quit()
+            self.init_thread.wait(500)
+
+        logging.info("🏁 [SHUTDOWN] Terminating Qt application loop...")
+        event.accept()
+
+        # 3. Explicitly signal the entire Qt event loop to quit
+        QApplication.instance().quit()
