@@ -108,8 +108,20 @@ if __name__ == '__main__':
 
     logging.info("🏁 [STARTUP] Entering Qt event loop (app.exec_)...")
     exit_code = app.exec_()
-
-    # This executes if app.exec_() returns normally
     logging.info(f"🏁 [SHUTDOWN] app.exec_() exited cleanly with code {exit_code}. Terminating...")
     sys.stdout.flush()
-    os._exit(exit_code)
+
+    # 1. Disable the C-level faulthandler watchdog
+    try:
+        faulthandler.disable()
+    except Exception:
+        pass
+
+    # 2. Hard-terminate the process on Windows to bypass DLL loader-lock deadlocks
+    if os.name == 'nt':
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.TerminateProcess(kernel32.GetCurrentProcess(), exit_code)
+    else:
+        os._exit(exit_code)
