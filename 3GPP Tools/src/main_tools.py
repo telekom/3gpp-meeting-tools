@@ -117,11 +117,24 @@ if __name__ == '__main__':
     except Exception:
         pass
 
-    # 2. Hard-terminate the process on Windows to bypass DLL loader-lock deadlocks
+    # 2. Hard-terminate the process on Windows to prevent DLL loader-lock deadlocks
     if os.name == 'nt':
         import ctypes
+        import signal
 
-        kernel32 = ctypes.windll.kernel32
-        kernel32.TerminateProcess(kernel32.GetCurrentProcess(), exit_code)
+        try:
+            # Explicitly type the 64-bit Win32 API calls
+            kernel32 = ctypes.windll.kernel32
+            kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+            kernel32.TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+            kernel32.TerminateProcess.restype = ctypes.c_int
+
+            # Terminate immediately with current process pseudo-handle (0xFFFFFFFFFFFFFFFF)
+            h_process = kernel32.GetCurrentProcess()
+            if kernel32.TerminateProcess(h_process, exit_code) == 0:
+                # Fallback: Python C-runtime implementation of TerminateProcess
+                os.kill(os.getpid(), signal.SIGTERM)
+        except Exception:
+            os.kill(os.getpid(), signal.SIGTERM)
     else:
         os._exit(exit_code)

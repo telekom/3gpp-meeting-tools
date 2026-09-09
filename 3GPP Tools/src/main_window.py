@@ -603,7 +603,4 @@ class DragDropUI(QMainWindow):
 
         logging.info("🏁 [SHUTDOWN] Window closing. Releasing Qt window handle...")
         super().closeEvent(event)
-
-        # 3. Schedule an immediate, clean process exit (50ms gives Qt time to close the window)
-        logging.info("🏁 [SHUTDOWN] Triggering clean process termination...")
-        QTimer.singleShot(50, lambda: os._exit(0))
+        event.accept()
