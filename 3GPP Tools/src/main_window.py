@@ -573,16 +573,13 @@ class DragDropUI(QMainWindow):
         logging.log(level, message)
 
     def showEvent(self, event):
-        """Launches background workers independently once the window is rendered."""
+        """Ensures background services start immediately and reliably on display."""
         super().showEvent(event)
         if not getattr(self, '_services_started', False):
             self._services_started = True
-            logging.info("🏁 [STARTUP:WINDOW] DragDropUI displayed. Scheduling independent background services...")
-
-            # Decoupled launch: Each service starts on its own event-loop tick
-            QTimer.singleShot(50, self._start_ollama_monitor)
-            QTimer.singleShot(150, self._start_wifi_monitor)
-            QTimer.singleShot(300, self._start_system_init_check)
+            logging.info("🏁 [STARTUP:WINDOW] DragDropUI displayed. Starting background services...")
+            # Direct invocation guarantees workers launch without QTimer garbage-collection drops
+            self._start_background_services()
 
     def _start_background_services(self):
         """Launches all background monitors independently so one never blocks another."""
@@ -591,11 +588,11 @@ class DragDropUI(QMainWindow):
         # 1. System JAR & Visio Engine check (independent)
         self._start_system_init_check()
 
-        # 2. Network & 3GPP Wi-Fi Monitor (independent)
-        self._start_wifi_monitor()
-
-        # 3. Ollama Local LLM Monitor (independent)
+        # 2. Ollama Local LLM Monitor (independent)
         self._start_ollama_monitor()
+
+        # 3. Network & 3GPP Wi-Fi Monitor (independent)
+        self._start_wifi_monitor()
 
         logging.info("🏁 [STARTUP:SERVICES] All background service threads active.")
 
