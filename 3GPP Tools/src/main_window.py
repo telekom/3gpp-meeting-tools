@@ -579,21 +579,31 @@ class DragDropUI(QMainWindow):
 
     def closeEvent(self, event):
         logging.info("🏁 [SHUTDOWN] Window closeEvent triggered. Saving cache...")
-        self.save_cache()
+        try:
+            self.save_cache()
+        except Exception as e:
+            logging.warning(f"⚠️ [SHUTDOWN] Could not save cache: {e}")
 
-        # 1. Stop background WiFi monitor thread cleanly
+        # 1. Stop background WiFi monitor thread cleanly if active
         if self.wifi_monitor is not None and self.wifi_monitor.isRunning():
             logging.info("🏁 [SHUTDOWN] Stopping WifiMonitorThread...")
-            self.wifi_monitor.stop()
+            try:
+                self.wifi_monitor.stop()
+            except Exception as e:
+                logging.warning(f"⚠️ [SHUTDOWN] Error stopping WifiMonitor: {e}")
 
-        # 2. Stop initialization thread if still active
+        # 2. Stop initialization thread if active
         if hasattr(self, 'init_thread') and self.init_thread is not None and self.init_thread.isRunning():
             logging.info("🏁 [SHUTDOWN] Stopping InitializationThread...")
-            self.init_thread.quit()
-            self.init_thread.wait(500)
+            try:
+                self.init_thread.quit()
+                self.init_thread.wait(300)
+            except Exception as e:
+                logging.warning(f"⚠️ [SHUTDOWN] Error stopping InitializationThread: {e}")
 
-        logging.info("🏁 [SHUTDOWN] Terminating Qt application loop...")
-        event.accept()
+        logging.info("🏁 [SHUTDOWN] Window closing. Releasing Qt window handle...")
+        super().closeEvent(event)
 
-        # 3. Explicitly signal the entire Qt event loop to quit
-        QApplication.instance().quit()
+        # 3. Schedule an immediate, clean process exit (50ms gives Qt time to close the window)
+        logging.info("🏁 [SHUTDOWN] Triggering clean process termination...")
+        QTimer.singleShot(50, lambda: os._exit(0))
