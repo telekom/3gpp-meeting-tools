@@ -7,7 +7,9 @@ heartbeat monitoring for local LLM integration.
 
 import json
 import logging
-from typing import Tuple, List, Dict, Any
+import socket
+import urllib.parse
+from typing import Tuple, List, Dict, Any, Optional
 
 from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
@@ -36,7 +38,7 @@ def load_ollama_config() -> dict:
         except Exception as e:
             logging.warning(f"[Ollama] Error reading {CONFIG_PATH.name}: {e}")
 
-    # Normalize localhost to direct IPv4 to prevent Windows IPv6 / corporate DNS stalls
+    # Enforce IPv4 loopback to prevent Windows IPv6 or corporate DNS timeouts
     host = str(cfg.get("host", "")).strip()
     if host.startswith("http://localhost:"):
         cfg["host"] = host.replace("http://localhost:", "http://127.0.0.1:")
@@ -79,24 +81,34 @@ class OllamaClient:
 
     def ping_and_get_models(self) -> Tuple[bool, List[str], str]:
         """
-        Polls Ollama /api/tags to verify liveness and retrieve installed models.
-        Uses a tight 2-second timeout so unresponsive connections fail fast.
+        Fast non-blocking probe:
+        - Raw socket pre-check rejects offline instances in < 1ms without HTTP overhead.
+        - REST request queries /api/tags if the port is open.
         """
+        parsed = urllib.parse.urlsplit(self.host)
+        host_ip = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 11434
+
+        # 1. Pure TCP pre-check (< 1ms when port is closed)
+        try:
+            with socket.create_connection((host_ip, port), timeout=0.5):
+                pass
+        except OSError:
+            return False, [], "Ollama server is not running."
+        except Exception as e:
+            return False, [], f"Connection error: {e}"
+
+        # 2. Query /api/tags
         endpoint = f"{self.host}/api/tags"
         try:
-            resp = self.session.get(endpoint, timeout=(1.5, 2.0))
+            resp = self.session.get(endpoint, timeout=2.0)
             if resp.status_code == 200:
                 data = resp.json()
                 models = [str(m.get("name", "")) for m in data.get("models", []) if m.get("name")]
                 return True, models, ""
             return False, [], f"HTTP {resp.status_code}: {resp.reason}"
         except Exception as e:
-            err_str = str(e)
-            if "Connection refused" in err_str or "actively refused" in err_str or "10061" in err_str:
-                return False, [], "Ollama server is not running."
-            if "ConnectTimeout" in err_str or "timed out" in err_str:
-                return False, [], "Connection timed out."
-            return False, [], f"Connection failed ({type(e).__name__})"
+            return False, [], f"API error: {e}"
 
 
 class OllamaMonitorThread(QThread):
@@ -123,15 +135,15 @@ class OllamaMonitorThread(QThread):
 
                 is_online, models, err = self.client.ping_and_get_models()
 
-                # If selected model is missing but models exist, auto-select the first
+                # If selected model is missing but models exist, pick the first
                 if is_online and models and not selected_model:
                     selected_model = str(models[0])
                     cfg["selected_model"] = selected_model
                     save_ollama_config(cfg)
 
-                # Current fingerprint: (online_bool, active_model, total_models, error_text)
                 current_state = (bool(is_online), str(selected_model or ""), len(models), str(err or ""))
 
+                # Log only on state transitions
                 if current_state != self._last_state:
                     self._last_state = current_state
                     logging.info(
@@ -139,11 +151,8 @@ class OllamaMonitorThread(QThread):
                         f"models={len(models)}, active='{selected_model}', err='{err}'"
                     )
                 else:
-                    logging.debug(
-                        f"🦙 [Ollama Monitor] Heartbeat unchanged: online={is_online}, active='{selected_model}'"
-                    )
+                    logging.debug(f"🦙 [Ollama Monitor] Heartbeat unchanged: online={is_online}")
 
-                # Emit signal to keep UI updated
                 self.status_updated.emit(
                     bool(is_online),
                     str(selected_model or ""),
@@ -168,6 +177,6 @@ class OllamaMonitorThread(QThread):
         """Stops the polling thread gracefully on application exit."""
         self._running = False
         self.quit()
-        if not self.wait(1000):
+        if not self.wait(600):
             self.terminate()
-            self.wait(300)
+            self.wait(200)
