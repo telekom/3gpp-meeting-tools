@@ -102,7 +102,7 @@ class OllamaClient:
 class OllamaMonitorThread(QThread):
     """
     Non-blocking background thread that periodically monitors Ollama health
-    and notifies the UI when connectivity or model lists change.
+    and notifies the UI only when connectivity or model lists change.
     """
     status_updated = pyqtSignal(bool, str, list, str)
 
@@ -110,6 +110,7 @@ class OllamaMonitorThread(QThread):
         super().__init__(parent)
         self.client = client or OllamaClient()
         self._running = True
+        self._last_state: Tuple[Optional[bool], str, int, str] = (None, "", -1, "")
 
     def run(self):
         logging.info("🦙 [Ollama Monitor] Worker thread started running.")
@@ -120,21 +121,29 @@ class OllamaMonitorThread(QThread):
                 check_interval = max(5, int(cfg.get("check_interval", 10)))
                 selected_model = str(cfg.get("selected_model") or "")
 
-                logging.debug(f"🦙 [Ollama Monitor] Pinging endpoint: {self.client.host}/api/tags")
                 is_online, models, err = self.client.ping_and_get_models()
 
-                # If selected model is missing but models exist, pick the first
+                # If selected model is missing but models exist, auto-select the first
                 if is_online and models and not selected_model:
                     selected_model = str(models[0])
                     cfg["selected_model"] = selected_model
                     save_ollama_config(cfg)
 
-                logging.info(
-                    f"🦙 [Ollama Monitor] Probe result: online={is_online}, "
-                    f"models={len(models)}, active='{selected_model}', err='{err}'"
-                )
+                # Current fingerprint: (online_bool, active_model, total_models, error_text)
+                current_state = (bool(is_online), str(selected_model or ""), len(models), str(err or ""))
 
-                # Strict type coercions prevent PyQt signal signature mismatches
+                if current_state != self._last_state:
+                    self._last_state = current_state
+                    logging.info(
+                        f"🦙 [Ollama Monitor] Status changed: online={is_online}, "
+                        f"models={len(models)}, active='{selected_model}', err='{err}'"
+                    )
+                else:
+                    logging.debug(
+                        f"🦙 [Ollama Monitor] Heartbeat unchanged: online={is_online}, active='{selected_model}'"
+                    )
+
+                # Emit signal to keep UI updated
                 self.status_updated.emit(
                     bool(is_online),
                     str(selected_model or ""),

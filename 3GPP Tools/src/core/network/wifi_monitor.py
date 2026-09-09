@@ -1,6 +1,7 @@
 # --- File: src/core/network/wifi_monitor.py ---
 import logging
 import subprocess
+from typing import Optional, Tuple
 from PyQt5.QtCore import QThread, pyqtSignal
 from core.network.network_state import NetworkState
 
@@ -14,6 +15,8 @@ class WifiMonitorThread(QThread):
         self.target_keyword = "3GPPWIFI"
         self.target_server = "10.10.10.10"
         self.CREATE_NO_WINDOW = 0x08000000
+        self._last_state: Tuple[Optional[str], Optional[bool], Optional[bool]] = (None, None, None)
+        self._consecutive_empty_count = 0
 
     def run(self):
         logging.info("📶 [WiFi Monitor] Worker thread started running.")
@@ -22,6 +25,16 @@ class WifiMonitorThread(QThread):
         while self._running:
             try:
                 network_name = self._get_network_profile_name()
+
+                # Dampen transient lookup failures: require two consecutive empty detections
+                # before declaring the Wi-Fi completely disconnected
+                if not network_name and self._last_state[0]:
+                    self._consecutive_empty_count += 1
+                    if self._consecutive_empty_count < 2:
+                        network_name = self._last_state[0]
+                else:
+                    self._consecutive_empty_count = 0
+
                 is_3gpp = bool(network_name and self.target_keyword in network_name.upper())
                 server_reachable = False
 
@@ -32,6 +45,17 @@ class WifiMonitorThread(QThread):
                     break
 
                 net_state.update_state(network_name, is_3gpp, server_reachable)
+
+                current_state = (str(network_name), bool(is_3gpp), bool(server_reachable))
+                if current_state != self._last_state:
+                    self._last_state = current_state
+                    logging.info(
+                        f"📶 [WiFi Monitor] Network changed: SSID='{network_name}', "
+                        f"is_3gpp={is_3gpp}, server_reachable={server_reachable}"
+                    )
+                else:
+                    logging.debug(f"📶 [WiFi Monitor] Heartbeat unchanged: SSID='{network_name}'")
+
                 self.status_updated.emit(str(network_name), bool(is_3gpp), bool(server_reachable))
 
             except Exception as e:
@@ -48,8 +72,7 @@ class WifiMonitorThread(QThread):
         logging.info("📶 [WiFi Monitor] Worker thread cleanly exited run loop.")
 
     def _get_network_profile_name(self) -> str:
-        """Attempts fast netsh query first, falls back to non-interactive PowerShell."""
-        # Fast path: Native Windows netsh command
+        """Attempts netsh query first (3.0s timeout), falls back to non-interactive PowerShell."""
         try:
             output = subprocess.check_output(
                 ["netsh", "wlan", "show", "interfaces"],
@@ -57,7 +80,7 @@ class WifiMonitorThread(QThread):
                 stdin=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 text=True,
-                timeout=1.5
+                timeout=3.0
             )
             for line in output.splitlines():
                 if "SSID" in line and "BSSID" not in line:
@@ -69,7 +92,6 @@ class WifiMonitorThread(QThread):
         except Exception:
             pass
 
-        # Fallback: Non-interactive PowerShell with DEVNULL redirection
         try:
             output = subprocess.check_output(
                 [
@@ -83,7 +105,7 @@ class WifiMonitorThread(QThread):
                 stdin=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 text=True,
-                timeout=2.0
+                timeout=3.0
             )
             lines = [line.strip() for line in output.splitlines() if line.strip()]
             return lines[0] if lines else ""

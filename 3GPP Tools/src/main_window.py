@@ -95,13 +95,13 @@ class DragDropUI(QMainWindow):
         self.live_preview.log_msg.connect(self.log_message)
 
     def showEvent(self, event):
-        """Ensures background worker threads start reliably once the window is rendered."""
+        """Ensures background worker threads start reliably as soon as the window is displayed."""
         super().showEvent(event)
-        if not hasattr(self, '_services_started') or not self._services_started:
+        if not getattr(self, '_services_started', False):
             self._services_started = True
-            logging.info("🏁 [STARTUP:WINDOW] DragDropUI displayed. Scheduling background services...")
-            # In PyQt5, singleShot takes (msec, slot) — do not pass 'self' as an extra argument
-            QTimer.singleShot(150, self._start_background_services)
+            logging.info("🏁 [STARTUP:WINDOW] DragDropUI displayed. Starting background services...")
+            # Direct invocation guarantees workers start without being dropped by Python's GC
+            self._start_background_services()
 
     def _start_background_services(self):
         """Spawns background checkers safely with explicit diagnostic logging."""
