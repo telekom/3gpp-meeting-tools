@@ -94,49 +94,6 @@ class DragDropUI(QMainWindow):
         self.live_preview = LivePreviewManager(self.code_tab.text_input, self.jar_path)
         self.live_preview.log_msg.connect(self.log_message)
 
-    def showEvent(self, event):
-        """Ensures background worker threads start reliably as soon as the window is displayed."""
-        super().showEvent(event)
-        if not getattr(self, '_services_started', False):
-            self._services_started = True
-            logging.info("🏁 [STARTUP:WINDOW] DragDropUI displayed. Starting background services...")
-            # Direct invocation guarantees workers start without being dropped by Python's GC
-            self._start_background_services()
-
-    def _start_background_services(self):
-        """Spawns background checkers safely with explicit diagnostic logging."""
-        logging.info("🏁 [STARTUP:SERVICES] Launching background services...")
-
-        # 1. System JAR & Engine check
-        try:
-            self._launch_init_thread(check_updates=False)
-        except Exception as e:
-            logging.error(f"❌ [STARTUP:SERVICES] Error launching InitializationThread: {e}")
-
-        # 2. WiFi Monitor Thread
-        try:
-            if self.wifi_monitor is None or not self.wifi_monitor.isRunning():
-                logging.info("🏁 [STARTUP:SERVICES] Starting WifiMonitorThread...")
-                self.wifi_monitor = WifiMonitorThread(parent=self)
-                self.wifi_monitor.status_updated.connect(self._update_network_indicator)
-                self.wifi_monitor.start()
-        except Exception as e:
-            logging.error(f"❌ [STARTUP:SERVICES] Error starting WifiMonitorThread: {e}")
-            self.network_indicator.setText("🌐 Offline")
-
-        # 3. Ollama Monitor Thread
-        try:
-            if self.ollama_monitor is None or not self.ollama_monitor.isRunning():
-                logging.info("🏁 [STARTUP:SERVICES] Starting OllamaMonitorThread...")
-                self.ollama_monitor = OllamaMonitorThread(parent=self)
-                self.ollama_monitor.status_updated.connect(self._update_ollama_indicator)
-                self.ollama_monitor.start()
-        except Exception as e:
-            logging.error(f"❌ [STARTUP:SERVICES] Error starting OllamaMonitorThread: {e}")
-            self.ollama_indicator.setText("🦙 Offline")
-
-        logging.info("🏁 [STARTUP:SERVICES] All background service threads active.")
-
     def _setup_ui(self):
         central_widget = QWidget()
         main_layout = QVBoxLayout()
@@ -301,12 +258,18 @@ class DragDropUI(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
+        # Bottom Status Bar (single clean instance)
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("⏳ Initializing...")
 
-        # Ollama Status Button (Pill)
-        self.ollama_indicator = QPushButton("🦙 Ollama: Checking...")
+        # Immediate initialization of Ollama indicator from saved config
+        from core.ai.ollama_client import load_ollama_config
+        saved_cfg = load_ollama_config()
+        saved_model = saved_cfg.get("selected_model", "").strip()
+        initial_ollama_text = f"🦙 {saved_model}" if saved_model else "🦙 Ollama"
+
+        self.ollama_indicator = QPushButton(initial_ollama_text)
         self.ollama_indicator.setCursor(Qt.PointingHandCursor)
         self.ollama_indicator.setToolTip("Click to configure Ollama LLM connection")
         self.ollama_indicator.setStyleSheet("""
@@ -327,9 +290,11 @@ class DragDropUI(QMainWindow):
         self.ollama_indicator.clicked.connect(self.open_ollama_settings)
         self.status_bar.addPermanentWidget(self.ollama_indicator)
 
-        self.network_indicator = QLabel("📶 Checking Network...")
+        # Network Indicator (starts as neutral Network label instead of "Checking...")
+        self.network_indicator = QLabel("📶 Network")
         self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
         self.status_bar.addPermanentWidget(self.network_indicator)
+
         logging.info("🏁 [STARTUP:UI] _setup_ui() layout complete.")
 
     def _on_tab_changed(self, index: int):
@@ -607,8 +572,65 @@ class DragDropUI(QMainWindow):
     def log_message(self, message: str, level=logging.INFO):
         logging.log(level, message)
 
+    def showEvent(self, event):
+        """Launches background workers independently once the window is rendered."""
+        super().showEvent(event)
+        if not getattr(self, '_services_started', False):
+            self._services_started = True
+            logging.info("🏁 [STARTUP:WINDOW] DragDropUI displayed. Scheduling independent background services...")
+
+            # Decoupled launch: Each service starts on its own event-loop tick
+            QTimer.singleShot(50, self._start_ollama_monitor)
+            QTimer.singleShot(150, self._start_wifi_monitor)
+            QTimer.singleShot(300, self._start_system_init_check)
+
+    def _start_background_services(self):
+        """Launches all background monitors independently so one never blocks another."""
+        logging.info("🏁 [STARTUP:SERVICES] Launching background services...")
+
+        # 1. System JAR & Visio Engine check (independent)
+        self._start_system_init_check()
+
+        # 2. Network & 3GPP Wi-Fi Monitor (independent)
+        self._start_wifi_monitor()
+
+        # 3. Ollama Local LLM Monitor (independent)
+        self._start_ollama_monitor()
+
+        logging.info("🏁 [STARTUP:SERVICES] All background service threads active.")
+
+    def _start_system_init_check(self):
+        """Starts Visio / PlantUML engine verification independently."""
+        try:
+            self._launch_init_thread(check_updates=False)
+        except Exception as e:
+            logging.error(f"❌ Failed to start InitializationThread: {e}")
+
+    def _start_wifi_monitor(self):
+        """Starts Wi-Fi monitor independently."""
+        try:
+            if self.wifi_monitor is None or not self.wifi_monitor.isRunning():
+                logging.info("🏁 [STARTUP:SERVICES] Starting WifiMonitorThread...")
+                self.wifi_monitor = WifiMonitorThread(parent=None)
+                self.wifi_monitor.status_updated.connect(self._update_network_indicator)
+                self.wifi_monitor.start()
+        except Exception as e:
+            logging.error(f"❌ Failed to start WifiMonitorThread: {e}")
+            self.network_indicator.setText("🌐 Offline")
+
+    def _start_ollama_monitor(self):
+        """Starts Ollama monitor independently (pure socket check, <1ms)."""
+        try:
+            if self.ollama_monitor is None or not self.ollama_monitor.isRunning():
+                logging.info("🏁 [STARTUP:SERVICES] Starting OllamaMonitorThread...")
+                self.ollama_monitor = OllamaMonitorThread(parent=None)
+                self.ollama_monitor.status_updated.connect(self._update_ollama_indicator)
+                self.ollama_monitor.start()
+        except Exception as e:
+            logging.error(f"❌ Failed to start OllamaMonitorThread: {e}")
+            self.ollama_indicator.setText("🦙 Offline")
+
     def _update_network_indicator(self, ssid: str, is_3gpp: bool, server_reachable: bool):
-        logging.info(f"📶 [NETWORK:UPDATE] SSID='{ssid}', is_3gpp={is_3gpp}, reachable={server_reachable}")
         if is_3gpp and server_reachable:
             self.network_indicator.setText(f"🟢 {ssid} (Local Server Active)")
             self.network_indicator.setStyleSheet("color: #2e7d32; font-weight: bold; padding: 0 10px;")
@@ -620,17 +642,7 @@ class DragDropUI(QMainWindow):
             self.network_indicator.setText(f"🌐 {display_name}")
             self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
 
-    def open_ollama_settings(self):
-        """Opens the Ollama connection and model preferences dialog."""
-        dialog = OllamaConfigDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            # Re-read status immediately
-            if self.ollama_monitor and self.ollama_monitor.isRunning():
-                cfg = dialog.cfg
-                self.ollama_monitor.client.reconfigure(cfg.get("host"), cfg.get("proxy_mode"))
-
     def _update_ollama_indicator(self, is_online: bool, selected_model: str, models: list, error: str):
-        """Updates the status bar indicator when connectivity or models change."""
         if is_online:
             model_display = selected_model if selected_model else (models[0] if models else "Connected")
             self.ollama_indicator.setText(f"🦙 {model_display}")
@@ -669,6 +681,15 @@ class DragDropUI(QMainWindow):
                 }
             """)
 
+    def open_ollama_settings(self):
+        """Opens the Ollama connection and model preferences dialog."""
+        dialog = OllamaConfigDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            # Re-read status immediately
+            if self.ollama_monitor and self.ollama_monitor.isRunning():
+                cfg = dialog.cfg
+                self.ollama_monitor.client.reconfigure(cfg.get("host"), cfg.get("proxy_mode"))
+
     def closeEvent(self, event):
         logging.info("🏁 [SHUTDOWN] Window closeEvent triggered. Saving cache...")
         try:
@@ -676,30 +697,27 @@ class DragDropUI(QMainWindow):
         except Exception as e:
             logging.warning(f"⚠️ [SHUTDOWN] Could not save cache: {e}")
 
-        # 1. Stop background WiFi monitor thread cleanly if active
+        # 1. Stop WiFi Monitor independently
         if self.wifi_monitor is not None and self.wifi_monitor.isRunning():
-            logging.info("🏁 [SHUTDOWN] Stopping WifiMonitorThread...")
             try:
                 self.wifi_monitor.stop()
-            except Exception as e:
-                logging.warning(f"⚠️ [SHUTDOWN] Error stopping WifiMonitor: {e}")
+            except Exception:
+                pass
 
-        # Stop background Ollama monitor thread cleanly if active
+        # 2. Stop Ollama Monitor independently
         if self.ollama_monitor is not None and self.ollama_monitor.isRunning():
-            logging.info("🏁 [SHUTDOWN] Stopping OllamaMonitorThread...")
             try:
                 self.ollama_monitor.stop()
-            except Exception as e:
-                logging.warning(f"⚠️ [SHUTDOWN] Error stopping OllamaMonitor: {e}")
+            except Exception:
+                pass
 
-        # 2. Stop initialization thread if active
+        # 3. Stop initialization thread independently
         if hasattr(self, 'init_thread') and self.init_thread is not None and self.init_thread.isRunning():
-            logging.info("🏁 [SHUTDOWN] Stopping InitializationThread...")
             try:
                 self.init_thread.quit()
                 self.init_thread.wait(300)
-            except Exception as e:
-                logging.warning(f"⚠️ [SHUTDOWN] Error stopping InitializationThread: {e}")
+            except Exception:
+                pass
 
         logging.info("🏁 [SHUTDOWN] Window closing. Releasing Qt window handle...")
         super().closeEvent(event)
