@@ -149,7 +149,7 @@ class DragDropUI(QMainWindow):
             )
         )
 
-        db_path = get_project_root() / "3gpp_data.db"
+        db_path = get_project_root() / "db" / "3gpp_data.db"
         logging.info("🏁 [STARTUP:UI:TAB] 4/8 Initializing SpecificationsTab...")
         self.specs_tab = SpecificationsTab(db_path)
         self.specs_tab.update_db_requested.connect(
@@ -195,11 +195,11 @@ class DragDropUI(QMainWindow):
             )
         )
 
-        nas_db_path = get_project_root() / "3gpp_protocol_data.db"
+        nas_db_path = get_project_root() / "db" / "3gpp_protocol_data.db"
         logging.info("🏁 [STARTUP:UI:TAB] 7/8 Initializing NASTab...")
         self.nas_tab = NASTab(nas_db_path, db_path)
 
-        spec_search_db_path = get_project_root() / "3gpp_spec_search.db"
+        spec_search_db_path = get_project_root() / "db" / "3gpp_spec_search.db"
         logging.info("🏁 [STARTUP:UI:TAB] 8/8 Initializing SpecSearchTab...")
         self.spec_search_tab = SpecSearchTab(spec_search_db_path, db_path)
 

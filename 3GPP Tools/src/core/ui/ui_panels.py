@@ -163,11 +163,15 @@ class DatabaseMaintenanceDialog(QDialog):
         candidate_files = [
             {
                 "name": "3GPP Core Data (Specs, Meetings, Work Items)",
-                "path": root / "3gpp_data.db",
+                "path": root / "db" / "3gpp_data.db",
             },
             {
                 "name": "3GPP Protocol Data (NAS, NGAP, RRC, etc.)",
-                "path": root / "3gpp_protocol_data.db",
+                "path": root / "db" / "3gpp_protocol_data.db",
+            },
+            {
+                "name": "3GPP Specification Text",
+                "path": root / "db" / "3gpp_spec_search.db",
             },
         ]
 
