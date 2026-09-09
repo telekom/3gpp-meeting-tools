@@ -34,6 +34,8 @@ from modules.spec_search.ui.spec_search_tabs import SpecSearchTab
 from modules.word_tools.ui.word_tabs import WordExtractorTab
 from modules.work_items.ui.ui_tabs import WorkItemsTab
 from modules.nas.ui.nas_tabs import NASTab
+from core.ai.ollama_client import OllamaClient, OllamaMonitorThread
+from core.ai.ollama_dialog import OllamaConfigDialog
 
 
 class DragDropUI(QMainWindow):
@@ -51,6 +53,7 @@ class DragDropUI(QMainWindow):
         self.last_out_path = ""
         self.init_thread = None
         self.wifi_monitor = None
+        self.ollama_monitor = None
 
         logging.info("🏁 [STARTUP:UI] Starting _setup_ui()...")
         self._setup_ui()
@@ -114,6 +117,13 @@ class DragDropUI(QMainWindow):
             self.wifi_monitor = WifiMonitorThread(parent=None)
             self.wifi_monitor.status_updated.connect(self._update_network_indicator)
             self.wifi_monitor.start()
+
+        # Launch Ollama Background Monitor
+        if self.ollama_monitor is None or not self.ollama_monitor.isRunning():
+            logging.info("🏁 [STARTUP:SERVICES] Starting OllamaMonitorThread...")
+            self.ollama_monitor = OllamaMonitorThread(parent=self)
+            self.ollama_monitor.status_updated.connect(self._update_ollama_indicator)
+            self.ollama_monitor.start()
 
         logging.info("🏁 [STARTUP:SERVICES] Background services active.")
 
@@ -284,6 +294,28 @@ class DragDropUI(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("⏳ Initializing...")
+
+        # Ollama Status Button (Pill)
+        self.ollama_indicator = QPushButton("🦙 Ollama: Checking...")
+        self.ollama_indicator.setCursor(Qt.PointingHandCursor)
+        self.ollama_indicator.setToolTip("Click to configure Ollama LLM connection")
+        self.ollama_indicator.setStyleSheet("""
+                    QPushButton {
+                        background-color: transparent;
+                        border: 1px solid #CBD5E1;
+                        border-radius: 4px;
+                        padding: 1px 8px;
+                        font-size: 11px;
+                        font-weight: bold;
+                        color: #64748B;
+                    }
+                    QPushButton:hover {
+                        background-color: #F1F5F9;
+                        border-color: #94A3B8;
+                    }
+                """)
+        self.ollama_indicator.clicked.connect(self.open_ollama_settings)
+        self.status_bar.addPermanentWidget(self.ollama_indicator)
 
         self.network_indicator = QLabel("📶 Checking Network...")
         self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
@@ -577,6 +609,55 @@ class DragDropUI(QMainWindow):
             self.network_indicator.setText(f"🌐 {display_name}")
             self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
 
+    def open_ollama_settings(self):
+        """Opens the Ollama connection and model preferences dialog."""
+        dialog = OllamaConfigDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            # Re-read status immediately
+            if self.ollama_monitor and self.ollama_monitor.isRunning():
+                cfg = dialog.cfg
+                self.ollama_monitor.client.reconfigure(cfg.get("host"), cfg.get("proxy_mode"))
+
+    def _update_ollama_indicator(self, is_online: bool, selected_model: str, models: list, error: str):
+        """Updates the status bar indicator when connectivity or models change."""
+        if is_online:
+            model_display = selected_model if selected_model else (models[0] if models else "Connected")
+            self.ollama_indicator.setText(f"🦙 {model_display}")
+            self.ollama_indicator.setToolTip(f"Ollama Online ({len(models)} models available)\nClick to configure")
+            self.ollama_indicator.setStyleSheet("""
+                QPushButton {
+                    background-color: #F0FDF4;
+                    border: 1px solid #BBF7D0;
+                    border-radius: 4px;
+                    padding: 1px 8px;
+                    font-size: 11px;
+                    font-weight: bold;
+                    color: #15803D;
+                }
+                QPushButton:hover {
+                    background-color: #DCFCE7;
+                    border-color: #86EFAC;
+                }
+            """)
+        else:
+            self.ollama_indicator.setText("🦙 Offline")
+            self.ollama_indicator.setToolTip(f"Ollama Unreachable: {error}\nClick to configure")
+            self.ollama_indicator.setStyleSheet("""
+                QPushButton {
+                    background-color: #FEF2F2;
+                    border: 1px solid #FECACA;
+                    border-radius: 4px;
+                    padding: 1px 8px;
+                    font-size: 11px;
+                    font-weight: bold;
+                    color: #DC2626;
+                }
+                QPushButton:hover {
+                    background-color: #FEE2E2;
+                    border-color: #FCA5A5;
+                }
+            """)
+
     def closeEvent(self, event):
         logging.info("🏁 [SHUTDOWN] Window closeEvent triggered. Saving cache...")
         try:
@@ -591,6 +672,14 @@ class DragDropUI(QMainWindow):
                 self.wifi_monitor.stop()
             except Exception as e:
                 logging.warning(f"⚠️ [SHUTDOWN] Error stopping WifiMonitor: {e}")
+
+        # Stop background Ollama monitor thread cleanly if active
+        if self.ollama_monitor is not None and self.ollama_monitor.isRunning():
+            logging.info("🏁 [SHUTDOWN] Stopping OllamaMonitorThread...")
+            try:
+                self.ollama_monitor.stop()
+            except Exception as e:
+                logging.warning(f"⚠️ [SHUTDOWN] Error stopping OllamaMonitor: {e}")
 
         # 2. Stop initialization thread if active
         if hasattr(self, 'init_thread') and self.init_thread is not None and self.init_thread.isRunning():
