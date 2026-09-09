@@ -39,10 +39,6 @@ from core.ai.ollama_dialog import OllamaConfigDialog
 
 
 class DragDropUI(QMainWindow):
-    # --- Locate DragDropUI in src/main_window.py ---
-
-    # --- In src/main_window.py ---
-
     def __init__(self):
         super().__init__()
         self.setWindowTitle("3GPP Delegate Tools")
@@ -54,6 +50,7 @@ class DragDropUI(QMainWindow):
         self.init_thread = None
         self.wifi_monitor = None
         self.ollama_monitor = None
+        self._services_started = False  # Guard to prevent duplicate background starts
 
         logging.info("🏁 [STARTUP:UI] Starting _setup_ui()...")
         self._setup_ui()
@@ -97,35 +94,48 @@ class DragDropUI(QMainWindow):
         self.live_preview = LivePreviewManager(self.code_tab.text_input, self.jar_path)
         self.live_preview.log_msg.connect(self.log_message)
 
-        # Defer worker threads until the window and event loop are active
-        QTimer.singleShot(250, self._start_background_services)
-
     def showEvent(self, event):
-        """Logged to verify when Qt begins and ends rendering the window."""
-        logging.info("🏁 [STARTUP:WINDOW] DragDropUI showEvent triggered.")
+        """Ensures background worker threads start reliably once the window is rendered."""
         super().showEvent(event)
-        logging.info("🏁 [STARTUP:WINDOW] DragDropUI showEvent completed.")
+        if not hasattr(self, '_services_started') or not self._services_started:
+            self._services_started = True
+            logging.info("🏁 [STARTUP:WINDOW] DragDropUI displayed. Scheduling background services...")
+            # In PyQt5, singleShot takes (msec, slot) — do not pass 'self' as an extra argument
+            QTimer.singleShot(150, self._start_background_services)
 
     def _start_background_services(self):
-        """Spawns background checkers only after the main window is visible."""
+        """Spawns background checkers safely with explicit diagnostic logging."""
         logging.info("🏁 [STARTUP:SERVICES] Launching background services...")
 
-        self._launch_init_thread(check_updates=False)
+        # 1. System JAR & Engine check
+        try:
+            self._launch_init_thread(check_updates=False)
+        except Exception as e:
+            logging.error(f"❌ [STARTUP:SERVICES] Error launching InitializationThread: {e}")
 
-        if self.wifi_monitor is None or not self.wifi_monitor.isRunning():
-            logging.info("🏁 [STARTUP:SERVICES] Starting WifiMonitorThread...")
-            self.wifi_monitor = WifiMonitorThread(parent=None)
-            self.wifi_monitor.status_updated.connect(self._update_network_indicator)
-            self.wifi_monitor.start()
+        # 2. WiFi Monitor Thread
+        try:
+            if self.wifi_monitor is None or not self.wifi_monitor.isRunning():
+                logging.info("🏁 [STARTUP:SERVICES] Starting WifiMonitorThread...")
+                self.wifi_monitor = WifiMonitorThread(parent=self)
+                self.wifi_monitor.status_updated.connect(self._update_network_indicator)
+                self.wifi_monitor.start()
+        except Exception as e:
+            logging.error(f"❌ [STARTUP:SERVICES] Error starting WifiMonitorThread: {e}")
+            self.network_indicator.setText("🌐 Offline")
 
-        # Launch Ollama Background Monitor
-        if self.ollama_monitor is None or not self.ollama_monitor.isRunning():
-            logging.info("🏁 [STARTUP:SERVICES] Starting OllamaMonitorThread...")
-            self.ollama_monitor = OllamaMonitorThread(parent=self)
-            self.ollama_monitor.status_updated.connect(self._update_ollama_indicator)
-            self.ollama_monitor.start()
+        # 3. Ollama Monitor Thread
+        try:
+            if self.ollama_monitor is None or not self.ollama_monitor.isRunning():
+                logging.info("🏁 [STARTUP:SERVICES] Starting OllamaMonitorThread...")
+                self.ollama_monitor = OllamaMonitorThread(parent=self)
+                self.ollama_monitor.status_updated.connect(self._update_ollama_indicator)
+                self.ollama_monitor.start()
+        except Exception as e:
+            logging.error(f"❌ [STARTUP:SERVICES] Error starting OllamaMonitorThread: {e}")
+            self.ollama_indicator.setText("🦙 Offline")
 
-        logging.info("🏁 [STARTUP:SERVICES] Background services active.")
+        logging.info("🏁 [STARTUP:SERVICES] All background service threads active.")
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -597,7 +607,8 @@ class DragDropUI(QMainWindow):
     def log_message(self, message: str, level=logging.INFO):
         logging.log(level, message)
 
-    def _update_network_indicator(self, ssid, is_3gpp, server_reachable):
+    def _update_network_indicator(self, ssid: str, is_3gpp: bool, server_reachable: bool):
+        logging.info(f"📶 [NETWORK:UPDATE] SSID='{ssid}', is_3gpp={is_3gpp}, reachable={server_reachable}")
         if is_3gpp and server_reachable:
             self.network_indicator.setText(f"🟢 {ssid} (Local Server Active)")
             self.network_indicator.setStyleSheet("color: #2e7d32; font-weight: bold; padding: 0 10px;")
