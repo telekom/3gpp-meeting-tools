@@ -182,7 +182,7 @@ class ProxyProfileManager:
 # ==========================================
 # --- HUMANNESS CONFIGURATION ---
 # ==========================================
-CONFIG_PATH = get_project_root() / "network_config.json"
+CONFIG_PATH = get_project_root() / "config" / "network_config.json"
 
 DEFAULT_UAS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

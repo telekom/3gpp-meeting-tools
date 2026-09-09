@@ -9,7 +9,7 @@ class WorkItemsSettings:
 
     def __init__(self):
         # Save to the root directory next to meetings_config.json
-        self.config_file = core.utils.paths.get_project_root() / "work_items_config.json"
+        self.config_file = core.utils.paths.get_project_root() / "config" / "work_items_config.json"
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
 
     def save_filters(self, filters: dict):

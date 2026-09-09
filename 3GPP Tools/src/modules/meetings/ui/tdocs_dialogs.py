@@ -392,7 +392,7 @@ class StatisticsSettingsDialog(QDialog):
         self.resize(550, 620)  # Made slightly taller to fit the new settings
         self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; color: #333; }")
 
-        self.config_path = get_project_root() / "stats_config.json"
+        self.config_path = get_project_root() / "config" / "stats_config.json"
         self.config = self.load_config()
 
         layout = QVBoxLayout(self)
@@ -603,7 +603,7 @@ class ExcelExportDialog(QDialog):
         self.visible_count = visible_count
         self.total_count = total_count
 
-        self.config_path = get_project_root() / "export_config.json"
+        self.config_path = get_project_root() / "config" / "export_config.json"
         self.saved_config = self._load_saved_config()
 
         layout = QVBoxLayout(self)

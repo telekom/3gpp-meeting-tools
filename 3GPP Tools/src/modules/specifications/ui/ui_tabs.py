@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_DANGER
+from core.utils.paths import get_project_root
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.ui.components import HoverMenuButton
 from modules.specifications.ui.dialogs import (
@@ -51,7 +52,7 @@ class SpecificationsTab(QWidget):
         self.db = SpecsDatabase(db_path)
         self._download_threads = []
 
-        self.config_file = db_path.parent / "specs_config.json"
+        self.config_file = get_project_root() / "config" / "specs_config.json"
 
         # Defaults
         self.default_dl_dir = str(Path.home() / "3GPP_SA2_Meeting_Helper" / "specs")

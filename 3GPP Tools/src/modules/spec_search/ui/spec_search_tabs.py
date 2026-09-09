@@ -6,9 +6,10 @@ persistence of active filters and selected specification versions.
 
 import json
 import logging
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 from PyQt5.QtCore import QDate, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -42,13 +43,12 @@ from modules.spec_search.core.spec_search_threads import (
     is_change_mark_file,
 )
 from modules.spec_search.ui.spec_search_components import SpecClauseInspector, SpecSearchVersionTreeWidget
-from modules.spec_search.ui.spec_search_dialogs import SpecSearchVersionSelectDialog
-from modules.spec_search.ui.spec_search_models import SpecEvolutionMatrixModel
-from modules.specifications.core.database import SpecsDatabase
 from modules.spec_search.ui.spec_search_dialogs import (
     SpecClauseDiffDialog,
     SpecSearchVersionSelectDialog,
 )
+from modules.spec_search.ui.spec_search_models import SpecEvolutionMatrixModel
+from modules.specifications.core.database import SpecsDatabase
 
 
 class SpecSearchTab(QWidget):
@@ -60,7 +60,7 @@ class SpecSearchTab(QWidget):
         super().__init__()
         self.search_db_path = Path(search_db_path)
         self.specs_db_path = Path(specs_db_path) if specs_db_path else None
-        self.config_path = self.search_db_path.parent / "spec_search_config.json"
+        self.config_path = get_project_root() / "config" / "spec_search_config.json"
 
         try:
             settings = MeetingsSettings()

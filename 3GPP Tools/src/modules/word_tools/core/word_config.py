@@ -1,11 +1,10 @@
 # --- File: src/modules/word_tools/core/word_config.py ---
 import json
 import logging
-from pathlib import Path
 
 import core.utils.paths
 
-CONFIG_PATH = core.utils.paths.get_project_root() / "word_config.json"
+CONFIG_PATH = core.utils.paths.get_project_root() / "config" / "word_config.json"
 
 
 class WordConfig:

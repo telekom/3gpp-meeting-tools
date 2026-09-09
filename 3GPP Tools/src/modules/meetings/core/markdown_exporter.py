@@ -19,7 +19,7 @@ class MarkdownExporterThread(QThread):
 
         # Reliably resolve the root `src/` directory
         src_dir = Path(__file__).resolve().parents[3]
-        config_path = src_dir / "export_config.json"
+        config_path = src_dir / "config" / "export_config.json"
 
         # Define the exact default configuration provided
         default_config = {
