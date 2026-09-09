@@ -832,6 +832,17 @@ class NASTab(QWidget):
         self.thread.error.connect(self._on_import_error)
         self.thread.start()
 
+    def _on_import_error(self, err_msg: str):
+        self.progress_bar.setVisible(False)
+        self.fetch_btn.setEnabled(True)
+        self.import_file_btn.setEnabled(True)
+        self.log_msg.emit(f"❌ Import failed: {err_msg}", logging.ERROR)
+        QMessageBox.critical(
+            self,
+            "Import Error",
+            f"An error occurred during specification ingestion:\n{err_msg}",
+        )
+
     def _on_import_progress(self, msg: str, val: int):
         self.progress_bar.setValue(val)
         self.log_msg.emit(msg, logging.INFO)
