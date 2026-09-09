@@ -324,13 +324,16 @@ class DragDropUI(QMainWindow):
             self.task_manager_dialog.activateWindow()
 
     def on_init_complete(self, success: bool):
+        # Always re-enable tabs so non-Visio modules remain fully functional
+        self.tabs.setEnabled(True)
+
         if success:
-            self.tabs.setEnabled(True)
             self._update_system_status(False, "🟢 System Idle.")
             self.log_message("🚀 System Ready. Paste code or drop files to begin.\n" + "-" * 45)
         else:
-            self.batch_tab.set_state("error", "❌ Initialization Failed.")
-            self.status_bar.showMessage("❌ Initialization Failed. Check log for details.")
+            self.batch_tab.set_state("error", "⚠️ Visio unavailable. Visio batch conversions will be disabled.")
+            self._update_system_status(False, "🟡 System Ready (Visio Unavailable).")
+            self.log_message("⚠️ System initialized with warnings. Visio is not registered, but other modules are ready to use.\n" + "-" * 45)
 
     # --- AUTO-SAVE LOGIC ---
     def _load_cache(self):
