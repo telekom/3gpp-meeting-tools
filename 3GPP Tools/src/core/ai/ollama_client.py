@@ -16,7 +16,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, QObject
 from core.network.session import get_ai_session
 from core.utils.paths import get_project_root
 
-CONFIG_PATH = get_project_root() / "ollama_config.json"
+CONFIG_PATH = get_project_root() / "config" / "ollama_config.json"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "host": "http://127.0.0.1:11434",

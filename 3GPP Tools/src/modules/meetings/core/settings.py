@@ -5,7 +5,7 @@ import core.utils.paths
 
 class MeetingsSettings:
     def __init__(self):
-        self.config_file = core.utils.paths.get_project_root() / "meetings_config.json"
+        self.config_file = core.utils.paths.get_project_root() / "config" / "meetings_config.json"
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
         self.cache_dir = self._load_settings()
 

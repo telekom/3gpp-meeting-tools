@@ -34,6 +34,7 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_DANGER,
     COMBOBOX_STYLE_TOOLBAR,
 )
+from core.utils.paths import get_project_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
 from modules.nas.core.nas_threads import NASFetchAndImportThread
@@ -92,7 +93,7 @@ class NASTab(QWidget):
         super().__init__()
         self.nas_db_path = Path(nas_db_path)
         self.specs_db_path = Path(specs_db_path) if specs_db_path else None
-        self.config_path = self.nas_db_path.parent / "nas_config.json"
+        self.config_path = get_project_root() / "config" / "nas_config.json"
 
         self._reverse_lookup_worker: Optional[ReverseLookupWorker] = None
         self._reverse_lookup_request_id: int = 0

@@ -5,21 +5,22 @@ import logging
 import re
 import webbrowser
 from pathlib import Path
+
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QDate, QUrl
+from PyQt5.QtGui import QColor, QFont, QStandardItemModel, QStandardItem
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableView,
     QHeaderView, QTextBrowser, QCheckBox, QAbstractItemView, QFrame,
-    QLineEdit, QSpinBox, QMessageBox, QDateEdit, QTableWidget, QTableWidgetItem,
-    QColorDialog, QMenu, QApplication, QSplitter, QWidget
+    QSpinBox, QMessageBox, QDateEdit, QTableWidget, QTableWidgetItem,
+    QColorDialog, QMenu, QSplitter, QWidget
 )
-from PyQt5.QtGui import QColor, QFont, QStandardItemModel, QStandardItem
 
-from modules.emails.core.outlook_client import OutlookClient
+from core.utils.paths import get_project_root
 from modules.emails.core.general_email_db import GeneralEmailDatabase
-from modules.emails.core.general_email_sync import GeneralEmailSyncThread
+from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.ui.config_dialog import OutlookFolderPickerDialog
 
-CONFIG_PATH = Path(__file__).resolve().parents[3] / "emails_config.json"
+CONFIG_PATH = get_project_root() / "config" / "emails_config.json"
 
 
 def load_wg_email_config(wg: str) -> list:
