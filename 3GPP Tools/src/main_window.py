@@ -234,7 +234,6 @@ class DragDropUI(QMainWindow):
         self.tabs.addTab(self.work_items_tab, "📋 Work Items")
         self.tabs.addTab(self.meetings_tab, "🗓️ Meetings")
         self.tabs.addTab(self.nas_tab, "🔬 Protocols")
-        self.tabs.setEnabled(False)
 
         # Connect tab activation for lazy loading
         self.tabs.currentChanged.connect(self._on_tab_changed)
@@ -308,6 +307,9 @@ class DragDropUI(QMainWindow):
         self.init_thread.init_complete.connect(self.on_init_complete)
         self.init_thread.network_error.connect(self.open_proxy_settings)
         self.init_thread.start()
+
+        # Failsafe: Ensure UI is fully interactive within 3 seconds regardless of thread status
+        QTimer.singleShot(3000, lambda: self.tabs.setEnabled(True))
 
     # --- DIALOG & THREAD MANAGEMENT ---
     def open_db_maintenance(self):
