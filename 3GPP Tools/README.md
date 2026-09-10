@@ -22,29 +22,26 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **100% Offline & Private Intelligence:**
   * **Confidentiality & Zero Cost:** Connects directly to a locally hosted Ollama daemon (`http://127.0.0.1:11434`). Sensitive company draft positions, unreleased Change Requests (CRs), and meeting notes never leave your machine or cross external APIs.
   * **Airplane & Meeting-Room Ready:** Operates completely offline during flights and face-to-face 3GPP sessions without requiring external internet connectivity.
-* **In-App Ollama Service Manager (Start / Stop / Restart):**
-  * **Zero Terminal Management:** Start, stop, or restart the local Ollama daemon (`ollama serve`) directly from the application dialog with a single click. No need to open separate command prompt or terminal windows.
-  * **Hidden Background Subprocess:** Automatically spawns Ollama in a decoupled background process without invasive terminal pop-ups or console clutter.
-  * **Executable Auto-Discovery & Custom Paths:** Intelligently auto-discovers `ollama` binaries across `PATH`, `%LOCALAPPDATA%\Programs\Ollama`, and standard system directories, while offering a dedicated file browser for custom or portable installations.
-  * **Asynchronous Service Transitions:** Start/stop actions run in a non-blocking background thread (`OllamaServiceWorker`), ensuring the GUI remains interactive while the model loads into memory.
 * **3GPP Call Flow Sequence Generation:**
   * Directly transforms textual procedure steps (e.g., from TS 23.502 or TS 38.300) into standard PlantUML sequence diagrams.
   * Integrates real-time token streaming and prompt hot-reloading within Visio Tools.
 * **Persistent Status Bar Pill & Health Monitor:**
   * **Interactive Status Widget:** Permanent status button integrated directly into the bottom status bar displaying active connectivity and model selection (🟢 `🦙 <model_name>` when connected, 🔴 `🦙 Offline` when disconnected).
   * **Instant Socket Pre-Flight:** Worker thread performs sub-millisecond TCP socket pre-checks to `127.0.0.1:11434` prior to issuing HTTP requests, preventing UI stalls and timeout freezes when the Ollama server is stopped.
-  * **Immediate Heartbeat Synchronization:** Trigger checks immediately wake the background monitor upon service start or shutdown, syncing the status pill in real-time.
   * **Log Transition Memoization:** Heartbeat monitoring runs silently in the background, only emitting Qt signals and writing informational log records when connection states or installed model inventories actually change.
 * **Dedicated AI Network Session & Corporate Proxy Bypassing:**
   * **Bypass Corporate Proxy Traps:** Routes through a dedicated AI session factory (`get_ai_session()`) equipped with RFC 1918 loopback detection (`is_local_address()`), guaranteeing local prompts never get routed into or blocked by enterprise proxies (e.g., Zscaler, BlueCoat).
   * **Zero Scraper Delays:** AI sessions are completely decoupled from 3GPP FTP scraper sessions, bypassing humanness sleep delays to stream inference tokens with maximum throughput.
 * **Centralized Configuration & Dynamic Model Switching:**
-  * One-click configuration dialog (`OllamaConfigDialog`) to update host URLs, switch between proxy modes (*Direct/Bypass*, *Auto-Detect*, *App Proxy*), test connectivity, tune VRAM keep-alive durations, and hot-swap default models (e.g., `qwen2.5:14b`, `llama3.1:8b`, `deepseek-r1:14b`) with settings persisted across sessions in `ollama_config.json`.
+  * One-click configuration dialog (`OllamaConfigDialog`) to update host URLs, switch between proxy modes (*Direct/Bypass*, *Auto-Detect*, *App Proxy*), test connectivity, and hot-swap default models (e.g., `qwen2.5:14b`, `llama3.1:8b`, `deepseek-r1:14b`) with settings persisted across sessions in `ollama_config.json`.
 
 ---
 
 ### 🎨 Visio Tools (PlantUML & PowerPoint Converter)
 * **Live Preview IDE:** A PlantUML code editor featuring syntax highlighting, line numbering, and a 500ms debounced live-rendering engine.
+* **Decoupled Architecture & Visio-Independent PlantUML:**
+  * Operates fully independently of Microsoft Visio. PlantUML editing, live SVG/PNG previews, and automated JAR updates function properly even when Microsoft Visio is not installed on the system.
+  * **☕ Java Diagnostics Toolbar Button:** Integrated `☕ Java` button in the Console Panel header that prints complete Java environment diagnostics (version, vendor, 64-bit architecture, binary path, and active PlantUML JAR version) to the terminal output on demand.
 * **🤖 AI Call Flow to PlantUML Sequence Generator:**
   * **Modeless, Multi-Window Experience:** Runs as an independent, non-blocking window (`Qt.Window`) with its own taskbar presence. Delegates can browse specifications, search meetings, and edit diagrams simultaneously while generation takes place.
   * **Real-Time Token Streaming & Cancellation:** Leverages chunked HTTP streaming (`stream_chat`) from local Ollama instances to stream code into the preview editor as it is synthesized, with an instant cancel button to abort runaway outputs.
@@ -266,8 +263,8 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 This application strictly adheres to the **Model-View-Controller (MVC)** and **Event-Driven Architecture (EDA)** paradigms using `PyQt5`. 
 
 1. **The UI Layer (`src/modules/*/ui/` & `src/main_window.py`):** Contains Qt Widgets, `QAbstractTableModel` implementations, modeless top-level inspection dialogs (`CallFlowDialog`), and status bar permanent action widgets. The UI never performs synchronous network I/O or blocks the main event loop.
-2. **The Core Layer (`src/core/` & `src/modules/*/core/`):** Contains domain logic. All database transactions (`sqlite3` with FTS5 trigrams), REST AI communications and daemon process control (`core/ai/ollama_client.py`), prompt management with timestamp hot-reloading (`modules/puml2visio/core/prompt_manager.py`), FTP network scraping (`requests`), COM automation (`win32com` & `pythoncom`), headless LibreOffice conversions, and direct XML manipulation (`lxml` & `python-docx`) are isolated here.
-3. **The Threading Bridge:** Independent worker tasks inherit from `QThread` (e.g., `OllamaServiceWorker`, `OllamaMonitorThread`, `CallFlowGeneratorThread`, `WifiMonitorThread`, `GeneralEmailSyncThread`, `WordAgendaImporterThread`, `ContributionSearchWorker`, `TDocsDownloaderThread`, `LLMExporterThread`). Workers operate completely decoupled with their own error boundaries and communicate with the main thread strictly through thread-safe `pyqtSignals`.
+2. **The Core Layer (`src/core/` & `src/modules/*/core/`):** Contains domain logic. All database transactions (`sqlite3` with FTS5 trigrams), REST AI communications (`core/ai/ollama_client.py`), prompt management with timestamp hot-reloading (`modules/puml2visio/core/prompt_manager.py`), FTP network scraping (`requests`), COM automation (`win32com` & `pythoncom`), headless LibreOffice conversions, and direct XML manipulation (`lxml` & `python-docx`) are isolated here.
+3. **The Threading Bridge:** Independent worker tasks inherit from `QThread` (e.g., `OllamaMonitorThread`, `CallFlowGeneratorThread`, `WifiMonitorThread`, `GeneralEmailSyncThread`, `WordAgendaImporterThread`, `ContributionSearchWorker`, `TDocsDownloaderThread`, `LLMExporterThread`). Workers operate completely decoupled with their own error boundaries and communicate with the main thread strictly through thread-safe `pyqtSignals`.
 4. **The Singleton Managers & Security Utilities:** Global network state (`NetworkState`), specialized AI HTTP session creation (`session.get_ai_session()`), cryptographic credential protection (`core.utils.dpapi.SecureCredentialStore`), and Comparison Cart states are managed by thread-safe singletons and dynamic JSON config loaders.
 
 ---
@@ -280,7 +277,7 @@ To run this application natively or build it from source, you must have the foll
 2. **Microsoft Word (Desktop App)** (Required for native COM Automation Splitter, Converter, and Diff Engine)
 3. **Microsoft Outlook (Desktop App)** (Required for the eMeeting and General Email Managers)
 4. **Java Runtime Environment (JRE) 11+** (Required for the local PlantUML generation engine)
-5. *(Optional but Recommended for Local AI)* **Ollama** (Install from [ollama.com](https://ollama.com) to enable private, offline document summaries, call-flow to sequence conversion, and AI assistants. Can be launched/stopped directly from within the app.)
+5. *(Optional but Recommended for Local AI)* **Ollama** (Install from [ollama.ai](https://ollama.ai) to enable private, offline document summaries, call-flow to sequence conversion, and AI assistants).
 6. *(Optional but Recommended)* **LibreOffice (Installed or Portable)** (Required for safe, macro-free conversion of legacy Word 97–2003 `.doc` files, including SA2 Chairman's Notes and older specifications. If using portable LibreOffice, link `LibreOfficePortable.exe` using the **📂 Locate Executable** button in the Word Tools tab.)
 7. *(Optional)* **Microsoft Visio** (To view and edit generated `.vsdx` files)
 8. *(Optional)* **Microsoft PowerPoint** (For `.pptx` to `.vsdx` conversions)
@@ -314,26 +311,22 @@ python src/main_tools.py
 ### 🦙 Configuring Ollama & Local LLMs
 1. **Status Bar Quick Glance:** Observe the **bottom right status bar**. The pill will display `🦙 <selected_model>` in green if Ollama is running, or `🦙 Offline` in soft red if the server is stopped.
 2. **Launching Settings:** Click the `🦙` button in the status bar to open the **Ollama LLM Configuration** dialog.
-3. **Managing Local Ollama Service (Start / Stop / Restart):**
-   * Review the **🖥️ Local Service Control** box at the top of the dialog.
-   * If stopped, click **▶️ Start Service** to launch the Ollama daemon in the background without opening a terminal window. The status indicator will transition to 🟢 **Running (Port 11434 open)**.
-   * To shut down the daemon and free system RAM/GPU resources, click **⏹️ Stop Service**.
-   * Use **🔄 Restart** to cycle the daemon if switching models or refreshing GPU layers.
-   * If your installation is custom or portable, use **📁 Browse...** to link your `ollama.exe` binary.
-4. **Connection & Testing:**
+3. **Connection & Testing:**
    * Enter your Ollama server URL (defaults to `http://127.0.0.1:11434`).
    * Select your **Proxy Routing Mode**:
      * **Direct (Bypass Proxy - Recommended):** Ensures loopback calls never get routed into corporate firewalls or proxy walls.
      * **Auto-Detect:** Automatically uses direct connections for local/private IPs and the application proxy for external domains.
      * **Route via App Proxy:** Enforces routing through your configured corporate proxy profile.
-   * Click **🔌 Test Connection** to verify connectivity and refresh your list of locally installed models.
-5. **Selecting Default Model:** Choose your preferred model from the **Active Model** dropdown (e.g., `qwen2.5:7b`, `llama3.1:8b`) and click **Save**. The status bar pill updates immediately.
+   * Click **🔌 Test** to verify connectivity and refresh your list of locally installed models.
+4. **Selecting Default Model:** Choose your preferred model from the **Active Model** dropdown (e.g., `qwen2.5:7b`, `llama3.1:8b`) and click **Save**. The status bar pill updates immediately.
 
 ---
 
 ### 🎨 Visio Tools (PlantUML & PowerPoint Converter)
 1. **PlantUML Editor:** Type standard PlantUML code into the left pane. The Live Preview will automatically update the image on the right.
-2. **Generating Sequence Diagrams from Call Flow Text (AI):**
+2. **Inspecting Active Java Runtime:** Click the **☕ Java** button on the bottom Console Panel at any time. The terminal outputs complete details regarding the active JRE/JDK installation, including version, 64-bit architecture, binary path, and active PlantUML JAR compatibility mode.
+3. **Updating PlantUML JAR:** Click **🔄 Update JAR** to query GitHub for the latest PlantUML release. Updates execute and download independently of Microsoft Visio's installation state.
+4. **Generating Sequence Diagrams from Call Flow Text (AI):**
    * On the editor toolbar, click **🤖 Generate from Call Flow...**.
    * The generator dialog opens as an independent, modeless window. You can continue working in other tabs or searching specifications while it remains open.
    * Paste 3GPP procedural steps (e.g., from TS 23.502 or TS 38.300) into the left text box.
@@ -341,8 +334,8 @@ python src/main_tools.py
    * Click **🚀 Generate Diagram**. The model will stream PlantUML syntax token-by-token directly into the preview area.
    * Once finished, click **📥 Replace Editor** to overwrite the editor contents or **➕ Append to Editor** to insert the code into your existing diagram.
    * *(Prompt Engineering)* You can customize generation prompts without restarting the app by editing `config/prompts/callflow_system.txt` or `config/prompts/callflow_user.txt` in any text editor. The tool reloads updated prompt files automatically upon clicking generate.
-3. **Exporting Diagrams:** Click **Export Diagram ▼** and select **To Visio (.vsdx)** to generate a native Visio file, or use other options like PowerPoint, SVG, or ASCII.
-4. **Batch Process & PowerPoint Conversion:** Navigate to the **📂 Visio Tools** tab and drag-and-drop `.puml`, `.txt`, or `.pptx` (PowerPoint) files into the drop zone. The system will detect the file type and process it into an editable Visio file in the background.
+5. **Exporting Diagrams:** Click **Export Diagram ▼** and select **To Visio (.vsdx)** to generate a native Visio file, or use other options like PowerPoint, SVG, or ASCII.
+6. **Batch Process & PowerPoint Conversion:** Navigate to the **📂 Visio Tools** tab and drag-and-drop `.puml`, `.txt`, or `.pptx` (PowerPoint) files into the drop zone. The system will detect the file type and process it into an editable Visio file in the background.
 
 ---
 
@@ -512,6 +505,11 @@ If you are behind a corporate firewall:
 
 ## <a id="troubleshooting"></a>🛠️ Known Quirks / Troubleshooting
 
+* **Running Without Microsoft Visio:**
+  * Microsoft Visio is completely optional. Diagramming in PlantUML, live SVG previews, specification full-text searches, and protocol matrix features work normally without Visio.
+  * When Visio is not installed, the tool sets the status bar to `🟡 System Ready (Visio Unavailable)` and disables the Visio conversion batch tab while allowing automated PlantUML updates to download and function properly.
+* **Verifying Installed Java Version:**
+  * Click the **☕ Java** button in the Console Panel at any time to inspect which Java runtime is active, including its architecture (64-bit vs. 32-bit), vendor, and exact executable path.
 * **Corporate IT "Aktion blockiert" on Drag & Drop:**
   * If Windows Defender Attack Surface Reduction (ASR) blocks dragging downloaded `.doc` files directly from your `Downloads` folder, either:
     1. Use the **🔄 Refresh $\rightarrow$ 📝 Import Word Document...** file picker menu.
@@ -521,8 +519,7 @@ If you are behind a corporate firewall:
 * **Sensitivity Label Dialogs (Microsoft Purview / Azure Information Protection):**
   * If automated Word conversions or comparisons trigger corporate classification popups, configure your default sensitivity label string (e.g., `OFFEN` or `INTERNAL`) in `word_config.json` to allow silent headless saves.
 * **Ollama Connection Refused or Showing Offline:**
-  * Click the `🦙` status button in the bottom bar and press **▶️ Start Service** to launch the daemon directly without opening a terminal.
-  * If Ollama is installed in a non-standard directory, use **📁 Browse...** in the dialog to point to `ollama.exe`.
+  * Verify that the local daemon is active by running `ollama list` in PowerShell or Windows Terminal.
   * If running Ollama on another machine on your local network (e.g., a GPU workstation), ensure `OLLAMA_HOST=0.0.0.0` is set in the daemon environment and configure the target IP in the **🦙 Ollama Configuration** dialog.
 * **Tuning AI Diagram Output:**
   * If generated PlantUML diagrams omit expected participants or lifelines, tune the prompt templates in `config/prompts/callflow_system.txt`. The prompt engine automatically reloads changes without needing an application restart.

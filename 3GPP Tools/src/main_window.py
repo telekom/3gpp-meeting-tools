@@ -234,9 +234,11 @@ class DragDropUI(QMainWindow):
         logging.info("🏁 [STARTUP:UI:PANELS] Initializing ConsolePanel and QueuePanel...")
         self.bottom_splitter = QSplitter(Qt.Horizontal)
 
+        # Wire Console Panel buttons in _setup_ui():
         self.console_panel = ConsolePanel()
         self.console_panel.proxy_requested.connect(self.open_proxy_settings)
         self.console_panel.network_config_requested.connect(lambda: NetworkConfigDialog(self).exec_())
+        self.console_panel.java_info_requested.connect(self.display_java_info)
         self.console_panel.update_requested.connect(self.check_for_jar_updates)
         self.console_panel.task_manager_requested.connect(self.open_task_manager)
         self.console_panel.db_maintenance_requested.connect(self.open_db_maintenance)
@@ -331,18 +333,6 @@ class DragDropUI(QMainWindow):
             self.task_manager_dialog.show()
         else:
             self.task_manager_dialog.activateWindow()
-
-    def on_init_complete(self, success: bool):
-        # Always re-enable tabs so non-Visio modules remain fully functional
-        self.tabs.setEnabled(True)
-
-        if success:
-            self._update_system_status(False, "🟢 System Idle.")
-            self.log_message("🚀 System Ready. Paste code or drop files to begin.\n" + "-" * 45)
-        else:
-            self.batch_tab.set_state("error", "⚠️ Visio unavailable. Visio batch conversions will be disabled.")
-            self._update_system_status(False, "🟡 System Ready (Visio Unavailable).")
-            self.log_message("⚠️ System initialized with warnings. Visio is not registered, but other modules are ready to use.\n" + "-" * 45)
 
     # --- AUTO-SAVE LOGIC ---
     def _load_cache(self):
@@ -722,3 +712,60 @@ class DragDropUI(QMainWindow):
         logging.info("🏁 [SHUTDOWN] Window closing. Releasing Qt window handle...")
         super().closeEvent(event)
         event.accept()
+
+    def display_java_info(self):
+        """Inspects and logs full Java runtime details to the terminal output."""
+        from core.utils.utils import get_detailed_java_info
+        from modules.puml2visio.utils.utils import get_plantuml_version
+
+        info = get_detailed_java_info()
+        self.log_message("\n" + "=" * 55)
+        if not info["installed"]:
+            self.log_message("❌ Java Check: No working Java runtime found!", logging.ERROR)
+            self.log_message(
+                "   Please install Java (JRE/JDK 11+ recommended) from https://adoptium.net or oracle.com.",
+                logging.ERROR
+            )
+        else:
+            self.log_message("☕ Java Runtime Diagnostics:", logging.INFO)
+            self.log_message(f"   • Version:      Java {info['major']} ({info['version_str']})", logging.INFO)
+            self.log_message(f"   • Architecture: {info['arch']}", logging.INFO)
+            self.log_message(f"   • VM / Vendor:  {info['vendor']}", logging.INFO)
+            self.log_message(f"   • Executable:   {info['path']}", logging.INFO)
+
+            ver_file = self.jar_path.with_suffix('.version')
+            req_type = "modern" if info['major'] >= 11 else "legacy"
+            cur_type = ver_file.read_text(encoding="utf-8").strip() if ver_file.exists() else "unspecified"
+            self.log_message(f"   • Profile Mode: {req_type.capitalize()} (Active profile: {cur_type})", logging.INFO)
+            if self.jar_path.exists():
+                jar_v = get_plantuml_version(info['path'], self.jar_path)
+                self.log_message(f"   • PlantUML JAR: Version {jar_v or 'Detected'} ({self.jar_path.name})",
+                                 logging.INFO)
+            else:
+                self.log_message(f"   • PlantUML JAR: ⚠️ Missing ({self.jar_path.name})", logging.WARNING)
+        self.log_message("=" * 55 + "\n")
+
+    def on_init_complete(self, core_ready: bool, visio_ready: bool = True):
+        # Always re-enable tabs so non-Visio modules remain fully functional
+        self.tabs.setEnabled(True)
+
+        if core_ready and visio_ready:
+            self.batch_tab.set_state(
+                "ready",
+                "📥 Drag & Drop your .puml, .txt, .pptx, or .vsdx file(s) here\n\n(Batch converts between Visio & PowerPoint)"
+            )
+            self._update_system_status(False, "🟢 System Idle.")
+            self.log_message("🚀 System Ready. Paste code or drop files to begin.\n" + "-" * 45)
+        elif core_ready and not visio_ready:
+            self.batch_tab.set_state("error", "⚠️ Visio unavailable. Visio batch conversions will be disabled.")
+            self._update_system_status(False, "🟡 System Ready (Visio Unavailable).")
+            self.log_message(
+                "⚠️ System initialized: Visio is not registered (Visio batch conversions disabled), "
+                "but PlantUML, Specs, Protocols, and Word tools are ready to use.\n" + "-" * 45
+            )
+        else:
+            self.batch_tab.set_state("error", "❌ Core engine error. Java or PlantUML engine is unavailable.")
+            self._update_system_status(False, "🔴 Engine Error (Java Unavailable).")
+            self.log_message(
+                "❌ System initialized with errors. Java runtime was not detected. Please verify your Java installation.\n" + "-" * 45
+            )
