@@ -1,0 +1,5 @@
+Convert the following 3GPP procedure call flow into a PlantUML sequence diagram:
+
+---
+{call_flow_text}
+---
