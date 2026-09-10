@@ -679,13 +679,16 @@ class DragDropUI(QMainWindow):
             """)
 
     def open_ollama_settings(self):
-        """Opens the Ollama connection and model preferences dialog."""
+        """Opens the Ollama connection, model preferences, and service management dialog."""
         dialog = OllamaConfigDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            # Re-read status immediately
-            if self.ollama_monitor and self.ollama_monitor.isRunning():
-                cfg = dialog.cfg
-                self.ollama_monitor.client.reconfigure(cfg.get("host"), cfg.get("proxy_mode"))
+        dialog.exec_()
+
+        # Immediate sync: user may have started or stopped the daemon in the dialog
+        if self.ollama_monitor and self.ollama_monitor.isRunning():
+            from core.ai.ollama_client import load_ollama_config
+            cfg = load_ollama_config()
+            self.ollama_monitor.client.reconfigure(cfg.get("host"), cfg.get("proxy_mode"))
+            self.ollama_monitor.trigger_check()
 
     def closeEvent(self, event):
         logging.info("🏁 [SHUTDOWN] Window closeEvent triggered. Saving cache...")
