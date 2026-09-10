@@ -506,6 +506,7 @@ class ProcessManagerDialog(QDialog):
 class ConsolePanel(QWidget):
     proxy_requested = pyqtSignal()
     update_requested = pyqtSignal()
+    java_info_requested = pyqtSignal()
     task_manager_requested = pyqtSignal()
     network_config_requested = pyqtSignal()
     db_maintenance_requested = pyqtSignal()
@@ -546,6 +547,12 @@ class ConsolePanel(QWidget):
         self.net_cfg_btn.setToolTip("Update network settings to make the scraper look more human in behavior.")
         self.net_cfg_btn.clicked.connect(self.network_config_requested.emit)
 
+        self.java_btn = QPushButton("☕ Java")
+        self.java_btn.setFixedSize(65, 24)
+        self.java_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.java_btn.setToolTip("Inspect installed Java runtime version, vendor, architecture, and binary path.")
+        self.java_btn.clicked.connect(self.java_info_requested.emit)
+
         self.update_btn = QPushButton("🔄 Update JAR")
         self.update_btn.setFixedSize(85, 24)
         self.update_btn.setStyleSheet("padding: 2px; font-size: 11px;")
@@ -563,6 +570,7 @@ class ConsolePanel(QWidget):
         header.addWidget(self.db_btn)
         header.addWidget(self.proxy_btn)
         header.addWidget(self.net_cfg_btn)
+        header.addWidget(self.java_btn)
         header.addWidget(self.update_btn)
         header.addWidget(self.clear_btn)
 
