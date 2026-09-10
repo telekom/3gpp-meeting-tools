@@ -553,12 +553,6 @@ class ConsolePanel(QWidget):
         self.java_btn.setToolTip("Inspect installed Java runtime version, vendor, architecture, and binary path.")
         self.java_btn.clicked.connect(self.java_info_requested.emit)
 
-        self.update_btn = QPushButton("🔄 Update JAR")
-        self.update_btn.setFixedSize(85, 24)
-        self.update_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-        self.update_btn.setToolTip("Check online if a newer version of PlantUML is available.")
-        self.update_btn.clicked.connect(self.update_requested.emit)
-
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.setFixedSize(60, 24)
         self.clear_btn.setStyleSheet("padding: 2px; font-size: 11px;")
@@ -571,7 +565,6 @@ class ConsolePanel(QWidget):
         header.addWidget(self.proxy_btn)
         header.addWidget(self.net_cfg_btn)
         header.addWidget(self.java_btn)
-        header.addWidget(self.update_btn)
         header.addWidget(self.clear_btn)
 
         self.console = QTextEdit()
