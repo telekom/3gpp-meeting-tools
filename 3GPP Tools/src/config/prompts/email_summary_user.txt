@@ -1,0 +1,6 @@
+TDoc Identifier: {tdoc_id}
+Document Family: {family_tdocs}
+Total Messages Analyzed: {email_count}
+
+Cleaned Chronological Email Thread (Oldest to Newest):
+{emails_content}

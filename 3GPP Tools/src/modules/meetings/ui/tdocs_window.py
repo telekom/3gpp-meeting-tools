@@ -1403,7 +1403,22 @@ class TDocsWindow(QWidget):
         family = self.model.get_family_tdocs(base_tdoc)
         wg = self.mtg_info.get("wg_name", "SA2")
 
-        dialog = TDocEmailsDialog(base_tdoc, family, self.general_email_db.db_path, wg=wg, parent=None)
+        # Save callback supporting partial note appends without forcing a status overwrite
+        def _save_notes_proxy(target_id: str, new_status: str, new_notes: str):
+            existing_row = next((r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == target_id.upper()), {})
+            status_to_use = new_status if new_status else existing_row.get("My Status", "⚪ Neutral")
+            curr_notes = str(existing_row.get("My Notes", "")).strip()
+            merged_notes = f"{curr_notes}\n\n{new_notes}" if curr_notes else new_notes
+            self._save_user_data(target_id, status_to_use, merged_notes)
+
+        dialog = TDocEmailsDialog(
+            base_tdoc,
+            family,
+            self.general_email_db.db_path,
+            wg=wg,
+            save_callback=_save_notes_proxy,
+            parent=None
+        )
         dialog.data_changed.connect(self._refresh_email_counts)
         dialog.tdoc_selected.connect(self._open_tdoc_emails)
 
