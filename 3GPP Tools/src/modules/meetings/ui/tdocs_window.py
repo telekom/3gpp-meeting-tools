@@ -56,6 +56,7 @@ from modules.emails.core.general_email_sync import GeneralEmailSyncThread
 from modules.emails.ui.general_email_dialog import (
     GeneralEmailFoldersDialog, GeneralEmailSyncDialog, TDocEmailsDialog, load_wg_email_config
 )
+from modules.meetings.ui.tdoc_triage_dialog import TDocTriageDialog
 
 
 class DropOverlayWidget(QWidget):
@@ -114,6 +115,7 @@ class TDocsWindow(QWidget):
         self.meeting_dir = Path(filepath).parent.parent
         self.active_threads = {}
         self._email_dialogs = {}
+        self._triage_dialogs = {}
 
         self.agenda_dir = Path(filepath).parent
         self.agenda_map = AgendaManager.load_local_agenda(self.agenda_dir)
@@ -616,9 +618,12 @@ class TDocsWindow(QWidget):
                           QCursor.pos())
 
     def _show_related_menu(self, target_tdoc: str, pos: QPoint):
-        build_related_menu(self, target_tdoc, self.model.valid_tdocs, self.docs_ftp_url, self.revisions_url,
-                           self._scroll_to_tdoc, self._trigger_download_thread, self._export_llm_single,
-                           self.global_action_requested.emit, self._compose_email_draft, pos)
+        build_related_menu(
+            self, target_tdoc, self.model.valid_tdocs, self.docs_ftp_url, self.revisions_url,
+            self._scroll_to_tdoc, self._trigger_download_thread, self._export_llm_single,
+            self.global_action_requested.emit, self._compose_email_draft, pos,
+            triage_callback=self._open_tdoc_triage  # <--- Added
+        )
 
     def _compose_email_draft(self, tdoc_id: str):
         row_data = next((r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == tdoc_id.upper()),
@@ -679,6 +684,7 @@ class TDocsWindow(QWidget):
                 docs_ftp_url=self.docs_ftp_url,
                 revisions=revs,
                 parent=self,
+                triage_callback=self._open_tdoc_triage,  # <--- Added
             ).exec_()
             return
 
@@ -1511,10 +1517,50 @@ class TDocsWindow(QWidget):
                 docs_ftp_url=self.docs_ftp_url,
                 revisions=revisions,
                 parent=self,
+                triage_callback=self._open_tdoc_triage,  # <--- Added
             ).exec_(),
             unread_emails_count=unread_count,
             pos=self.table.viewport().mapToGlobal(pos),
+            triage_callback=self._open_tdoc_triage,  # <--- Added
         )
+
+    def _open_tdoc_triage(self, tdoc_id: str):
+        """Opens a modeless AI Triage dialog for the selected TDoc."""
+        if not tdoc_id:
+            return
+        tdoc_clean = tdoc_id.strip().upper()
+
+        if tdoc_clean in self._triage_dialogs:
+            dlg = self._triage_dialogs[tdoc_clean]
+            dlg.setWindowState(dlg.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+            dlg.raise_()
+            dlg.activateWindow()
+            return
+
+        # Find the row data for this TDoc or its base
+        row_data = next(
+            (r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == tdoc_clean),
+            None
+        )
+        if not row_data:
+            match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_clean, re.IGNORECASE)
+            base_tdoc = match.group(1).upper() if match else tdoc_clean
+            row_data = next(
+                (r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == base_tdoc),
+                {"TDoc": tdoc_clean}
+            )
+
+        dialog = TDocTriageDialog(
+            tdoc_data=row_data,
+            meeting_dir=self.meeting_dir,
+            docs_ftp_url=self.docs_ftp_url,
+            revisions_url=self.revisions_url,
+            save_callback=self._save_user_data,
+            parent=None  # Independent top-level modeless window
+        )
+        self._triage_dialogs[tdoc_clean] = dialog
+        dialog.finished.connect(lambda _, t=tdoc_clean: self._triage_dialogs.pop(t, None))
+        dialog.show()
 
     def closeEvent(self, event):
         if hasattr(self, 'routing_timer'):
