@@ -92,25 +92,43 @@ class GeneralEmailDatabase:
             """, match_tuples)
             conn.commit()
 
-    def get_email_counts_per_tdoc(self) -> Dict[str, Dict[str, int]]:
-        """Returns {tdoc_id: {'total': int, 'unread': int}} excluding ignored emails."""
+    def get_email_counts_per_tdoc(self) -> Dict[str, Dict]:
+        """
+        Returns a dictionary mapping tdoc_id to email statistics excluding ignored emails.
+        Stores both scalar counts and sets of unique email IDs for exact family deduplication.
+        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT m.tdoc_id,
-                       COUNT(DISTINCT e.id) AS total_count,
-                       SUM(CASE WHEN e.is_read = 0 THEN 1 ELSE 0 END) AS unread_count
-                FROM general_email_tdoc_matches m
-                JOIN general_emails e ON m.email_id = e.id
-                WHERE e.is_ignored = 0
-                GROUP BY m.tdoc_id
-            """)
+                           SELECT m.tdoc_id, e.id, e.is_read
+                           FROM general_email_tdoc_matches m
+                                    JOIN general_emails e ON m.email_id = e.id
+                           WHERE e.is_ignored = 0
+                           """)
+            raw_stats = {}
+            for tdoc_id, email_id, is_read in cursor.fetchall():
+                tdoc_key = tdoc_id.upper()
+                if tdoc_key not in raw_stats:
+                    raw_stats[tdoc_key] = {"all_ids": set(), "unread_ids": set()}
+                raw_stats[tdoc_key]["all_ids"].add(email_id)
+                if is_read == 0:
+                    raw_stats[tdoc_key]["unread_ids"].add(email_id)
+
             return {
-                row[0]: {'total': row[1], 'unread': row[2] or 0}
-                for row in cursor.fetchall()
+                tdoc: {
+                    "total": len(data["all_ids"]),
+                    "unread": len(data["unread_ids"]),
+                    "all_ids": data["all_ids"],
+                    "unread_ids": data["unread_ids"]
+                }
+                for tdoc, data in raw_stats.items()
             }
 
     def get_emails_for_tdocs(self, tdoc_ids: Set[str], show_ignored: bool = False) -> List[dict]:
+        """
+        Retrieves unique emails matching any of the specified TDocs.
+        Aggregates across multiple family matches to prevent duplicate rows in dialogs.
+        """
         if not tdoc_ids:
             return []
         placeholders = ",".join(["?"] * len(tdoc_ids))
@@ -119,12 +137,21 @@ class GeneralEmailDatabase:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute(f"""
-                SELECT DISTINCT e.*, m.tdoc_id as matched_tdoc, m.rev_matched, m.match_location
+                SELECT 
+                    e.*,
+                    GROUP_CONCAT(DISTINCT m.tdoc_id) AS matched_tdoc,
+                    MAX(m.rev_matched) AS rev_matched,
+                    CASE 
+                        WHEN SUM(CASE WHEN m.match_location = 'Subject' THEN 1 ELSE 0 END) > 0 THEN 'Subject'
+                        WHEN SUM(CASE WHEN m.match_location = 'Body' THEN 1 ELSE 0 END) > 0 THEN 'Body'
+                        ELSE 'Quoted'
+                    END AS match_location
                 FROM general_emails e
                 JOIN general_email_tdoc_matches m ON e.id = m.email_id
                 WHERE m.tdoc_id IN ({placeholders}) {ignored_clause}
+                GROUP BY e.id
                 ORDER BY e.date_received DESC
-            """, list(tdoc_ids))
+            """, [t.upper() for t in tdoc_ids])
             return [dict(row) for row in cursor.fetchall()]
 
     def set_emails_read_status(self, email_ids: List[str], is_read: bool):
