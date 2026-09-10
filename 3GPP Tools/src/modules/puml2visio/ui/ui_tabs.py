@@ -67,6 +67,7 @@ class CodeEditorTab(QWidget):
         template_layout.addWidget(self.docs_btn)
         template_layout.addWidget(self.ai_gen_btn)
         template_layout.addStretch()
+        layout.addLayout(template_layout)
 
         self.text_input = CodeDropTextEdit()
         self.text_input.setPlaceholderText(
