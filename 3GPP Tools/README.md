@@ -276,7 +276,7 @@ To run this application natively or build it from source, you must have the foll
 1. **Python 3.10+**
 2. **Microsoft Word (Desktop App)** (Required for native COM Automation Splitter, Converter, and Diff Engine)
 3. **Microsoft Outlook (Desktop App)** (Required for the eMeeting and General Email Managers)
-4. **Java Runtime Environment (JRE) 11+** (Required for the local PlantUML generation engine)
+4. **Java Runtime Environment (JRE) 11+ or 21 (LTS)** (Required for modern PlantUML rendering and automatic updates. Recommended: [Eclipse Temurin](https://adoptium.net/temurin/releases/?version=21) or `winget install EclipseAdoptium.Temurin.21.JRE`)
 5. *(Optional but Recommended for Local AI)* **Ollama** (Install from [ollama.ai](https://ollama.ai) to enable private, offline document summaries, call-flow to sequence conversion, and AI assistants).
 6. *(Optional but Recommended)* **LibreOffice (Installed or Portable)** (Required for safe, macro-free conversion of legacy Word 97–2003 `.doc` files, including SA2 Chairman's Notes and older specifications. If using portable LibreOffice, link `LibreOfficePortable.exe` using the **📂 Locate Executable** button in the Word Tools tab.)
 7. *(Optional)* **Microsoft Visio** (To view and edit generated `.vsdx` files)
@@ -324,8 +324,8 @@ python src/main_tools.py
 
 ### 🎨 Visio Tools (PlantUML & PowerPoint Converter)
 1. **PlantUML Editor:** Type standard PlantUML code into the left pane. The Live Preview will automatically update the image on the right.
-2. **Inspecting Active Java Runtime:** Click the **☕ Java** button on the bottom Console Panel at any time. The terminal outputs complete details regarding the active JRE/JDK installation, including version, 64-bit architecture, binary path, and active PlantUML JAR compatibility mode.
-3. **Updating PlantUML JAR:** Click **🔄 Update JAR** to query GitHub for the latest PlantUML release. Updates execute and download independently of Microsoft Visio's installation state.
+2. **Inspecting Active Java Runtime:** Click the **☕ Java** button on the bottom Console Panel at any time to inspect the detected Java runtime, architecture, vendor, executable path, and active PlantUML JAR compatibility profile.
+3. **Updating PlantUML JAR:** Click **🔄 Update JAR** to query GitHub for the latest PlantUML release. On Java 11+, this downloads the latest modern release; on Java 8, it keeps the build pinned to the final Java 8 release (`v1.2023.13`).
 4. **Generating Sequence Diagrams from Call Flow Text (AI):**
    * On the editor toolbar, click **🤖 Generate from Call Flow...**.
    * The generator dialog opens as an independent, modeless window. You can continue working in other tabs or searching specifications while it remains open.
@@ -416,8 +416,7 @@ python src/main_tools.py
    * Review the real-time KPI strip: **Total Contributions** (with WG coverage count), **Agreed / Approved** (total count and percentage of total submissions), **Collaboration** (% joint vs. solo), **Top Co-signer**, and **Top Work Item**.
    * Inspect the neutral, uncolored results table containing `WG`, `Meeting`, `TDoc`, `Title`, `Source`, `Matched Company`, `Type`, `For`, `Agenda Item`, `TDoc Status`, `Related WIs`, and `Abstract`.
 6. **Row Actions & Direct Navigation:**
-   * **Open Meeting Table:** Double-click the **WG** or **Meeting** cell (or right-click and select **🗓️ Open Meeting Table**) to launch that meeting's full table in `TDocsWindow`.
-   * **Open TDoc Document:** Double-click the **TDoc** cell (or right-click and select **📄 Open TDoc Document**) to automatically download, extract, and open the document directly in Microsoft Word via `TDocActionThread`.
+   * **Open Meeting Table:** Double-click the **WG** or **Meeting** cell (or right-click and select **🗓️ Open Meeting Table**) to launch that meeting's full table in `TDocsWindow`; double-clicking `Abstract` opens the clean pop-up reader; double-clicking `TDoc` (or any other cell) downloads (if missing), extracts, and opens the actual document in Word via `TDocActionThread`.
    * **Open Docs Folder:** Right-click and choose **📂 Open Docs Folder** to open the meeting's public FTP documents directory in your browser.
    * **View on 3GU Portal:** Right-click and select **🌐 View on 3GU Portal** to open the official portal page for that TDoc.
    * **Copy URL:** Right-click and choose **🔗 Copy URL** to copy the direct ZIP download link to your clipboard.
@@ -450,7 +449,7 @@ python src/main_tools.py
 5. **Managing Read & Ignored Statuses:**
    * Selecting an email automatically marks it as read.
    * Select multiple rows using `Ctrl` or `Shift` to batch **Mark Read**, **Mark Unread**, **Ignore**, or **Delete**.
-   * **`🚫 Ignore`:** Suppresses high-volume distribution list announcements or rapporteur compilation emails from badge counts across all referenced TDocs without deleting them from the database.
+   * **`🚫 Ignore`:** Suppresses high-volume distribution list announcements or rapporteur compilation emails from badge counts across all referenced TDocs without deleting them from the database. Ignored flags are preserved across re-syncs. Toggle **`Show Ignored`** to review or un-ignore them.
    * Right-click any row in the main TDocs table to mark all emails for that document family as read or unread in one click.
    * To reset generic meeting email records, click **📧 Emails ▾ $\rightarrow$ 🗑️ Wipe Generic Emails Database...**.
 
@@ -508,8 +507,9 @@ If you are behind a corporate firewall:
 * **Running Without Microsoft Visio:**
   * Microsoft Visio is completely optional. Diagramming in PlantUML, live SVG previews, specification full-text searches, and protocol matrix features work normally without Visio.
   * When Visio is not installed, the tool sets the status bar to `🟡 System Ready (Visio Unavailable)` and disables the Visio conversion batch tab while allowing automated PlantUML updates to download and function properly.
-* **Verifying Installed Java Version:**
-  * Click the **☕ Java** button in the Console Panel at any time to inspect which Java runtime is active, including its architecture (64-bit vs. 32-bit), vendor, and exact executable path.
+* **Java 8 Legacy Pinned Profile & Upgrading:**
+  * If the **☕ Java** button reports `Java 8` and `Profile Mode: Legacy`, PlantUML updates are pinned to `v1.2023.13` because upstream PlantUML dropped Java 8 compatibility after 2023.
+  * To upgrade to the latest PlantUML versions, install Java 11 or 21 (LTS) via [Adoptium Temurin](https://adoptium.net/temurin/releases/?version=21) or `winget install EclipseAdoptium.Temurin.21.JRE`. Ensure *Add to PATH* and *Set JAVA_HOME* are enabled in the installer.
 * **Corporate IT "Aktion blockiert" on Drag & Drop:**
   * If Windows Defender Attack Surface Reduction (ASR) blocks dragging downloaded `.doc` files directly from your `Downloads` folder, either:
     1. Use the **🔄 Refresh $\rightarrow$ 📝 Import Word Document...** file picker menu.
