@@ -165,15 +165,21 @@ def build_row_context_menu(
     open_details_callback,
     unread_emails_count: int = 0,
     pos: QPoint = None,
+    triage_callback=None,  # <--- Added parameter
 ):
     """Complete command center menu for row-level operations."""
     menu = QMenu(parent)
     revisions = revisions or []
     tdoc_id = str(row_data.get("TDoc", "")).strip()
 
-    # --- 1. INSPECT FULL DETAILS ---
+    # --- 1. INSPECT FULL DETAILS & AI TRIAGE ---
     act_details = menu.addAction(f"ℹ️ View Full Details for {tdoc_id}...")
     act_details.triggered.connect(open_details_callback)
+
+    if triage_callback:
+        act_triage = menu.addAction(f"🤖 AI Technical Triage for {tdoc_id}...")
+        act_triage.triggered.connect(lambda: triage_callback(tdoc_id))
+
     menu.addSeparator()
 
     # --- 2. OPEN DOCUMENT SUBMENU ---
@@ -378,6 +384,7 @@ def build_related_menu(
     global_search_callback,
     compose_email_callback,
     pos: QPoint,
+    triage_callback=None,  # <--- Added parameter
 ):
     """Context menu triggered when right-clicking hyperlinked TDoc tags."""
     menu = QMenu(parent)
@@ -408,6 +415,21 @@ def build_related_menu(
         )
 
         menu.addSeparator()
+
+        if triage_callback:
+            act_triage = menu.addAction(f"🤖 AI Technical Triage ({clean_tdoc})")
+            act_triage.triggered.connect(lambda: triage_callback(clean_tdoc))
+
+        if compose_email_callback:
+            act_email = menu.addAction(f"✉️ Draft Email ({clean_tdoc})")
+            act_email.triggered.connect(
+                lambda: compose_email_callback(clean_tdoc)
+            )
+
+        if export_llm_callback:
+            act_llm = menu.addAction("🤖 Export for LLM Analysis")
+            act_llm.triggered.connect(lambda: export_llm_callback(clean_tdoc))
+
         if compose_email_callback:
             act_email = menu.addAction(f"✉️ Draft Email ({clean_tdoc})")
             act_email.triggered.connect(

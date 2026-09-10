@@ -14,16 +14,21 @@ from core.utils.paths import get_project_root
 
 
 class TDocInfoDialog(QDialog):
-    """Modernized TDoc Details Dialog displaying all stored database attributes,
+    """Modernized TDoc Details Dialog displaying all stored database attributes."""
 
-    secretary remarks, personal statuses, revisions, and FTP links.
-    """
-
-    def __init__(self, details: dict, docs_ftp_url: str = "", revisions: list = None, parent=None):
+    def __init__(
+        self,
+        details: dict,
+        docs_ftp_url: str = "",
+        revisions: list = None,
+        parent=None,
+        triage_callback=None,  # <--- Added parameter
+    ):
         super().__init__(parent)
         self.details = details
         self.docs_ftp_url = docs_ftp_url.rstrip('/') if docs_ftp_url else ""
         self.revisions = revisions or []
+        self.triage_callback = triage_callback
 
         tdoc_id = str(details.get("TDoc", "Unknown")).strip()
         tdoc_type = str(details.get("Type", "TDoc")).strip() or "TDoc"
@@ -224,6 +229,13 @@ class TDocInfoDialog(QDialog):
         copy_btn.setToolTip("Copy formatted summary to clipboard")
         copy_btn.clicked.connect(self._copy_tdoc_summary)
         btn_layout.addWidget(copy_btn)
+
+        if self.triage_callback and tdoc_id != "Unknown":
+            triage_btn = QPushButton("🤖 AI Triage")
+            triage_btn.setCursor(Qt.PointingHandCursor)
+            triage_btn.setToolTip("Stream technical summary and impact analysis using local LLM")
+            triage_btn.clicked.connect(lambda: [self.triage_callback(tdoc_id), self.accept()])
+            btn_layout.addWidget(triage_btn)
 
         if self.docs_ftp_url and tdoc_id != "Unknown":
             ftp_btn = QPushButton("📂 Open FTP Archive")

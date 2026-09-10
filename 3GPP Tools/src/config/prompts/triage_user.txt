@@ -1,0 +1,11 @@
+Please analyze the following 3GPP document:
+
+- **TDoc Number:** {tdoc_id}
+- **Title:** {title}
+- **Source (Company):** {source}
+- **Agenda Item:** {agenda_item}
+- **Document Type:** {doc_type}
+
+---
+### Document Content Excerpt:
+{content}
