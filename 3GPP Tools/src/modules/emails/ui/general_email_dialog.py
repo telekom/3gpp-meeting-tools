@@ -19,6 +19,7 @@ from core.utils.paths import get_project_root
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.ui.config_dialog import OutlookFolderPickerDialog
+from modules.emails.ui.email_summary_dialog import EmailSummaryDialog
 
 CONFIG_PATH = get_project_root() / "config" / "emails_config.json"
 
@@ -268,7 +269,8 @@ class TDocEmailsDialog(QDialog):
     data_changed = pyqtSignal()
     tdoc_selected = pyqtSignal(str)
 
-    def __init__(self, target_tdoc: str, family_tdocs: list, db_path: Path, wg: str = "SA2", parent=None):
+    def __init__(self, target_tdoc: str, family_tdocs: list, db_path: Path, wg: str = "SA2", save_callback=None,
+                 parent=None):
         super().__init__(parent)
         self.target_tdoc = target_tdoc.upper()
         self.family_tdocs = [t.upper() for t in family_tdocs]
@@ -276,7 +278,9 @@ class TDocEmailsDialog(QDialog):
             self.family_tdocs.insert(0, self.target_tdoc)
 
         self.wg = wg
+        self.save_callback = save_callback
         self.db = GeneralEmailDatabase(db_path)
+        self._summary_dialog = None
         self.tag_colors = {f.get("tag", "").upper(): f.get("color", "#0078D7") for f in load_wg_email_config(self.wg)}
 
         # Modeless top-level window configuration
@@ -352,6 +356,16 @@ class TDocEmailsDialog(QDialog):
         self.btn_mark_all_read = QPushButton("✔️ Mark All Read")
         self.btn_mark_all_read.clicked.connect(self._mark_all_family_read)
 
+        self.btn_ai_summary = QPushButton("🤖 AI Summarize Discussion")
+        self.btn_ai_summary.setStyleSheet("""
+                    QPushButton {
+                        font-weight: bold; background-color: #F0F4F8; color: #005A9E;
+                        border: 1px solid #D2E3FC; border-radius: 4px; padding: 4px 10px;
+                    }
+                    QPushButton:hover { background-color: #E1EFFF; border-color: #005A9E; }
+                """)
+        self.btn_ai_summary.clicked.connect(self._on_ai_summarize_clicked)
+
         self.btn_open_outlook = QPushButton("🚀 Open in Outlook")
         self.btn_open_outlook.setStyleSheet("font-weight: bold; background-color: #0078D7; color: white; border-radius: 4px; padding: 4px 12px;")
         self.btn_open_outlook.clicked.connect(self._open_in_outlook)
@@ -362,6 +376,7 @@ class TDocEmailsDialog(QDialog):
         act_row.addWidget(self.btn_delete)
         act_row.addSpacing(10)
         act_row.addWidget(self.btn_mark_all_read)
+        act_row.addWidget(self.btn_ai_summary)
         act_row.addStretch()
         act_row.addWidget(self.btn_open_outlook)
         layout.addLayout(act_row)
@@ -759,3 +774,30 @@ class TDocEmailsDialog(QDialog):
         act_del.triggered.connect(self._delete_selected)
 
         menu.exec_(self.table.viewport().mapToGlobal(pos))
+
+    def _on_ai_summarize_clicked(self):
+        if not hasattr(self, "emails") or not self.emails:
+            QMessageBox.warning(self, "No Emails", "There are no emails to summarize for this document.")
+            return
+
+        selected_indices = self._get_selected_indices()
+        if len(selected_indices) > 1:
+            target_emails = [self.emails[i] for i in selected_indices]
+        else:
+            target_emails = list(self.emails)
+
+        if self._summary_dialog and self._summary_dialog.isVisible():
+            self._summary_dialog.setWindowState(
+                self._summary_dialog.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+            self._summary_dialog.raise_()
+            self._summary_dialog.activateWindow()
+            return
+
+        self._summary_dialog = EmailSummaryDialog(
+            tdoc_id=self.target_tdoc,
+            family_tdocs=self.family_tdocs,
+            emails_data=target_emails,
+            save_callback=self.save_callback,
+            parent=None
+        )
+        self._summary_dialog.show()

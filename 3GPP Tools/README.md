@@ -2,7 +2,7 @@
 
 An advanced, component-based desktop IDE designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
 
-Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, track NAS, ASN.1 (RRC / NGAP), GTP-U, and PFCP (TS 29.244) protocol message evolutions, search arbitrary substrings across specification releases using FTS5 trigram indexing with "First Added" and cutoff date detection, conduct multi-meeting company contribution audits with interactive KPI analytics and co-signer tracking, manage local SQLite databases with built-in compaction tools, track emails across working groups linked to specific TDocs and their revision families, connect seamlessly to local LLMs via Ollama for zero-cost offline intelligence, automated call-flow diagram synthesis, and real-time technical triage of meeting TDocs, and navigate, filter, and synchronize the vast 3GPP meeting, specification, and work item archives locally.
+Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, track NAS, ASN.1 (RRC / NGAP), GTP-U, and PFCP (TS 29.244) protocol message evolutions, search arbitrary substrings across specification releases using FTS5 trigram indexing with "First Added" and cutoff date detection, conduct multi-meeting company contribution audits with interactive KPI analytics and co-signer tracking, manage local SQLite databases with built-in compaction tools, track emails across working groups linked to specific TDocs and their revision families, connect seamlessly to local LLMs via Ollama for zero-cost offline intelligence, automated call-flow diagram synthesis, real-time technical triage of meeting TDocs, and streaming synthesis of email discussion threads, and navigate, filter, and synchronize the vast 3GPP meeting, specification, and work item archives locally.
 
 ---
 
@@ -32,6 +32,12 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **1-Click Integration with Personal Notes & Status:** Pick your stance directly from the embedded **My Status** dropdown (`⚪ Neutral`, `🔵 My TDoc`, `🟢 Support`, `🔴 Object`, `🟡 Monitor`) and click **💾 Save to My Notes** to append the AI triage output to your private SQLite notes with model and timestamp headers.
   * **Modeless, Multi-Window Experience:** Operates as an independent top-level window (`Qt.Window`), allowing delegates to continue browsing meetings or reading Word redlines while tokens stream.
   * **Hot-Reloadable Prompt Templates:** Prompts are decoupled into `config/prompts/triage_system.txt` and `config/prompts/triage_user.txt` for instant tuning without restarting the app.
+* **🤖 AI Email Discussion Summarizer for TDoc Families:**
+  * **Zero-Context-Bloat Quote Stripper:** Advanced quotation truncation engine (`clean_email_body_for_summary`) detects and removes historical reply chains, inline quotation headers, and disclaimers. Strips 80–90% of redundant context while preserving the delegate's direct response.
+  * **Full Audit Logging:** Detailed per-email logs in `3gpp_tools.log` reporting raw versus sanitized character lengths, percentage reduction, and warnings on unusually large non-delimited bodies to verify context cleanliness.
+  * **Chronological Argument Reconstruction:** Re-orders messages chronologically (oldest to newest) to let the LLM map how arguments evolved across multiple companies.
+  * **Structured Stance Breakdown:** Categorizes discussion into **🎯 Discussion Topic & Core Contention**, **🏢 Company Positions & Alliances**, **📝 Proposed Solutions & Revisions Mentioned**, and **📌 Current Consensus & Next Steps**.
+  * **1-Click Append to Personal Notes:** Directly appends discussion summaries to your SQLite personal notes (`user_tdocs.db`) with timestamp and model metadata.
 * **3GPP Call Flow Sequence Generation:**
   * Directly transforms textual procedure steps (e.g., from TS 23.502 or TS 38.300) into standard PlantUML sequence diagrams.
   * Integrates real-time token streaming and prompt hot-reloading within Visio Tools.
@@ -277,9 +283,9 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 This application strictly adheres to the **Model-View-Controller (MVC)** and **Event-Driven Architecture (EDA)** paradigms using `PyQt5`. 
 
-1. **The UI Layer (`src/modules/*/ui/` & `src/main_window.py`):** Contains Qt Widgets, `QAbstractTableModel` implementations, modeless top-level inspection dialogs (`CallFlowDialog`, `TDocTriageDialog`), and status bar permanent action widgets. The UI never performs synchronous network I/O or blocks the main event loop.
+1. **The UI Layer (`src/modules/*/ui/` & `src/main_window.py`):** Contains Qt Widgets, `QAbstractTableModel` implementations, modeless top-level inspection dialogs (`CallFlowDialog`, `TDocTriageDialog`, `EmailSummaryDialog`), and status bar permanent action widgets. The UI never performs synchronous network I/O or blocks the main event loop.
 2. **The Core Layer (`src/core/` & `src/modules/*/core/`):** Contains domain logic. All database transactions (`sqlite3` with FTS5 trigrams), REST AI communications (`core/ai/ollama_client.py`), prompt management with timestamp hot-reloading (`modules/puml2visio/core/prompt_manager.py`), FTP network scraping (`requests`), COM automation (`win32com` & `pythoncom`), headless LibreOffice conversions, and direct XML manipulation (`lxml` & `python-docx`) are isolated here.
-3. **The Threading Bridge:** Independent worker tasks inherit from `QThread` (e.g., `OllamaMonitorThread`, `CallFlowGeneratorThread`, `TDocTriageWorker`, `WifiMonitorThread`, `GeneralEmailSyncThread`, `WordAgendaImporterThread`, `ContributionSearchWorker`, `TDocsDownloaderThread`, `LLMExporterThread`). Workers operate completely decoupled with their own error boundaries and communicate with the main thread strictly through thread-safe `pyqtSignals`.
+3. **The Threading Bridge:** Independent worker tasks inherit from `QThread` (e.g., `OllamaMonitorThread`, `CallFlowGeneratorThread`, `TDocTriageWorker`, `EmailSummaryWorker`, `WifiMonitorThread`, `GeneralEmailSyncThread`, `WordAgendaImporterThread`, `ContributionSearchWorker`, `TDocsDownloaderThread`, `LLMExporterThread`). Workers operate completely decoupled with their own error boundaries and communicate with the main thread strictly through thread-safe `pyqtSignals`.
 4. **The Singleton Managers & Security Utilities:** Global network state (`NetworkState`), specialized AI HTTP session creation (`session.get_ai_session()`), cryptographic credential protection (`core.utils.dpapi.SecureCredentialStore`), and Comparison Cart states are managed by thread-safe singletons and dynamic JSON config loaders.
 
 ---
@@ -353,6 +359,24 @@ python src/main_tools.py
    * Adjust your stance via the **My Status** dropdown (`⚪ Neutral`, `🔵 My TDoc`, `🟢 Support`, `🔴 Object`, `🟡 Monitor`).
    * Click **💾 Save to My Notes**. The summary is appended beneath any existing notes with an explicit header and timestamp (`--- 🤖 AI Triage (<model> @ YYYY-MM-DD HH:MM) ---`). The table and sidecar database update immediately.
    * Click **📋 Copy** to copy the markdown text to your clipboard.
+
+---
+
+### 🤖 AI Summarizing TDoc Email Discussions
+1. In the TDocs window, double-click the **Emails** badge or right-click a row and select **📧 View Related Emails...**.
+2. **Triggering Discussion Summary:**
+   * **All Visible Emails:** Click the **`🤖 AI Summarize Discussion`** button on the toolbar to summarize the entire conversation thread shown in the table.
+   * **Selected Subset:** Select specific messages using `Ctrl` or `Shift` click, then click **`🤖 AI Summarize Discussion`** to summarize only that branch of the conversation.
+3. **Clean Streamed Analysis:**
+   * An independent modeless window opens immediately.
+   * The worker thread strips all nested quotation chains, headers, and listserv disclaimers, logging the exact character reductions in `3gpp_tools.log`.
+   * It sorts the debate chronologically and streams the structured technical synthesis:
+     1. **🎯 Discussion Topic & Core Contention**
+     2. **🏢 Company Positions & Alliances**
+     3. **📝 Proposed Solutions & Revisions Mentioned**
+     4. **📌 Current Consensus & Next Steps**
+4. **Notes Integration:**
+   * Click **💾 Save to My Notes** to append the discussion summary directly beneath your TDoc's personal notes in `user_tdocs.db`.
 
 ---
 
@@ -566,7 +590,8 @@ If you are behind a corporate firewall:
 * **Ollama Connection Refused or Showing Offline:**
   * Verify that the local daemon is active by running `ollama list` in PowerShell or Windows Terminal.
   * If running Ollama on another machine on your local network (e.g., a GPU workstation), ensure `OLLAMA_HOST=0.0.0.0` is set in the daemon environment and configure the target IP in the **🦙 Ollama Configuration** dialog.
-* **Tuning AI Diagram & Triage Prompts:**
+* **Tuning AI Diagram, Triage & Discussion Prompts:**
   * To customize AI triage responses, edit `config/prompts/triage_system.txt` and `config/prompts/triage_user.txt`.
+  * To customize discussion summaries, edit `config/prompts/email_summary_system.txt` and `config/prompts/email_summary_user.txt`.
   * To customize call-flow sequence generation, edit `config/prompts/callflow_system.txt` and `config/prompts/callflow_user.txt`.
   * The prompt engine detects file timestamp changes automatically and reloads them on the next inference click without restarting the application.
