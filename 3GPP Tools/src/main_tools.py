@@ -1,21 +1,19 @@
 # --- File: src/main_tools.py ---
-import sys
-import logging
-import urllib.request
-import os
 import faulthandler
-from pathlib import Path
+import logging
+import os
+import sys
+import urllib.request
 
 from PyQt5.QtWidgets import QApplication, QDialog
-from PyQt5.QtCore import QTimer
 
 from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
-from core.utils.utils import get_best_java
 from core.utils.paths import get_project_root
-from modules.meetings.plugin_loader import register_meetings_plugin
-from modules.puml2visio.plugin_loader import register_puml2visio_plugin
+from core.utils.utils import get_best_java
 from main_window import DragDropUI
+from modules.meetings.plugin_loader import register_meetings_plugin
 from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
+from modules.puml2visio.plugin_loader import register_puml2visio_plugin
 from modules.puml2visio.utils.paths import get_puml2visio_asset_path
 from modules.spec_search.plugin_loader import register_spec_search_plugin
 from modules.specifications.plugin_loader import register_specs_plugin
@@ -26,7 +24,7 @@ from modules.word_tools.plugin_loader import register_word_plugin
 # ==========================================
 # Enables pure C-level thread dumps that work even if Qt locks the Python GIL
 faulthandler.enable()
-faulthandler.dump_traceback_later(timeout=5.0, repeat=True, file=sys.__stderr__)
+faulthandler.dump_traceback_later(timeout=15.0, repeat=True, file=sys.__stderr__)
 
 log_file_path = get_project_root() / "3gpp_tools.log"
 
