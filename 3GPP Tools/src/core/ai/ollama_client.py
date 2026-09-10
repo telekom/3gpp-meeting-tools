@@ -110,6 +110,34 @@ class OllamaClient:
         except Exception as e:
             return False, [], f"API error: {e}"
 
+    def stream_chat(self, model: str, messages: List[Dict[str, str]], options: Optional[Dict[str, Any]] = None):
+        """
+        Executes a streaming request against /api/chat.
+        Yields text chunks as they arrive. Raises requests.exceptions if server drops.
+        """
+        endpoint = f"{self.host}/api/chat"
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            "options": options or {"temperature": 0.2}
+        }
+
+        # Long timeout for read operations during slow local inference
+        with self.session.post(endpoint, json=payload, stream=True, timeout=(5.0, 300.0)) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line.decode("utf-8"))
+                    delta = chunk.get("message", {}).get("content", "")
+                    if delta:
+                        yield delta
+                    if chunk.get("done", False):
+                        break
+                except Exception as parse_err:
+                    logging.warning(f"[Ollama] Stream chunk parse error: {parse_err}")
 
 class OllamaMonitorThread(QThread):
     """
@@ -180,3 +208,4 @@ class OllamaMonitorThread(QThread):
         if not self.wait(600):
             self.terminate()
             self.wait(200)
+

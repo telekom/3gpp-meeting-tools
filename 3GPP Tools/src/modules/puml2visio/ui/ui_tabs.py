@@ -11,6 +11,7 @@ from core.ui.ui_components import (
 )
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 from modules.puml2visio.ui.ui_components import CodeDropTextEdit
+from modules.puml2visio.ui.callflow_dialog import CallFlowDialog
 
 
 class CodeEditorTab(QWidget):
@@ -54,12 +55,18 @@ class CodeEditorTab(QWidget):
         self.docs_btn.setToolTip("Open the official PlantUML syntax documentation for this diagram type.")
         self.docs_btn.clicked.connect(lambda: self.docs_requested.emit(self.template_combo.currentText()))
 
+        self.ai_gen_btn = QPushButton("🤖 Generate from Call Flow...")
+        self.ai_gen_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.ai_gen_btn.setToolTip(
+            "Convert standard 3GPP call flow procedure steps into PlantUML using your local Ollama LLM.")
+        self.ai_gen_btn.clicked.connect(self._open_ai_generator)
+
         template_layout.addWidget(template_lbl)
         template_layout.addWidget(self.template_combo)
         template_layout.addWidget(self.insert_tpl_btn)
         template_layout.addWidget(self.docs_btn)
+        template_layout.addWidget(self.ai_gen_btn)
         template_layout.addStretch()
-        layout.addLayout(template_layout)
 
         self.text_input = CodeDropTextEdit()
         self.text_input.setPlaceholderText(
@@ -172,6 +179,19 @@ class CodeEditorTab(QWidget):
             self.copy_btn.setToolTip("Copy the file path of the last generated diagram.")
         self.copy_btn.style().unpolish(self.copy_btn)
         self.copy_btn.style().polish(self.copy_btn)
+
+    def _open_ai_generator(self):
+        """Launches the modal call flow AI generation dialog."""
+        dialog = CallFlowDialog(parent=self)
+        dialog.diagram_generated.connect(self._handle_generated_diagram)
+        dialog.exec_()
+
+    def _handle_generated_diagram(self, puml_code: str, replace: bool):
+        """Updates the text editor with the generated PlantUML diagram."""
+        if replace or not self.text_input.toPlainText().strip():
+            self.text_input.setPlainText(puml_code)
+        else:
+            self.text_input.appendPlainText("\n\n" + puml_code)
 
 
 class BatchConvertTab(QWidget):
