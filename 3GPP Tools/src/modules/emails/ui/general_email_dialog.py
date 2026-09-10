@@ -522,12 +522,20 @@ class TDocEmailsDialog(QDialog):
             loc_str = e.get("match_location", "Body")
             loc_item = QStandardItem(loc_str)
             loc_item.setTextAlignment(Qt.AlignCenter)
+
+            # Show all matched family documents in the tooltip
+            matched_docs = e.get("matched_tdoc", "")
+            tooltip_parts = []
+            if matched_docs:
+                tooltip_parts.append(f"Matched TDoc(s): {matched_docs}")
             if loc_str == "Quoted":
                 loc_item.setForeground(QColor("#888888"))
-                loc_item.setToolTip("TDoc was cited inside previous email quotations below.")
+                tooltip_parts.append("TDoc was cited inside previous email quotations below.")
             elif loc_str == "Subject":
                 loc_item.setForeground(QColor("#0C6B0C"))
                 loc_item.setFont(QFont("Segoe UI", weight=QFont.Bold))
+            if tooltip_parts:
+                loc_item.setToolTip("\n".join(tooltip_parts))
 
             rev_item = QStandardItem(e.get("rev_matched") or "-")
             rev_item.setTextAlignment(Qt.AlignCenter)
@@ -581,11 +589,13 @@ class TDocEmailsDialog(QDialog):
             snippet = html.escape(cleaned[start:end]).replace("\n", " ")
             snippet_hl = self._linkify_tdocs(snippet)
             loc_label = e.get("match_location", "Body")
+            matched_tdocs = e.get("matched_tdoc", "")
+            tdoc_chip = f" | <b>TDocs:</b> {html.escape(matched_tdocs)}" if matched_tdocs else ""
             match_excerpt = f"""
-            <div style='background-color: #FFF8E1; border: 1px solid #FFE082; border-radius: 4px; padding: 6px; margin: 6px 0; font-size: 11px;'>
-                <b>💡 Match Found ({loc_label}):</b> ...{snippet_hl}...
-            </div>
-            """
+                    <div style='background-color: #FFF8E1; border: 1px solid #FFE082; border-radius: 4px; padding: 6px; margin: 6px 0; font-size: 11px;'>
+                        <b>💡 Match Found ({loc_label}{tdoc_chip}):</b> ...{snippet_hl}...
+                    </div>
+                    """
 
         # Linkify the Subject Header
         subject_escaped = html.escape(e.get('subject', ''))

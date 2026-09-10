@@ -1,12 +1,16 @@
+# --- File: src/modules/meetings/ui/tdocs_models.py ---
 import re
+from functools import lru_cache
 from pathlib import Path
 from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyModel
 
 from core.utils.company_sanitizer import CompanySanitizer
 
 
+@lru_cache(maxsize=32768)
 def natural_sort_key(s):
-    return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
+    """Parses text into naturally sortable chunks with caching for sub-millisecond comparisons."""
+    return tuple(int(text) if text.isdigit() else text.lower() for text in re.split(r'([0-9]+)', str(s)))
 
 
 class TDocsTableModel(QAbstractTableModel):
@@ -25,9 +29,14 @@ class TDocsTableModel(QAbstractTableModel):
         self.loading_tdocs = set()
         self.revisions = {}
         self.email_counts = {}  # {tdoc_id: {'total': int, 'unread': int}}
+        self._email_counts = self.email_counts
+        self._tdoc_map = {}
+        self._family_cache = {}
 
         self._apply_company_sanitization(self._data)
         self._apply_user_data_logic()
+        self._rebuild_family_cache()
+        self._recompute_cached_email_stats()
 
     def _apply_company_sanitization(self, rows_to_process: list):
         """Passes the raw Source string through the Sanitizer and caches the result."""
@@ -37,11 +46,71 @@ class TDocsTableModel(QAbstractTableModel):
             # If the sanitizer returns nothing, categorize it as "Other" so it remains filterable
             row['_Sanitized_Companies'] = companies if companies else ["Other"]
 
+    def _rebuild_family_cache(self):
+        """Precomputes complete bidirectional revision lineage in a single O(N) pass."""
+        self._tdoc_map = {str(r.get("TDoc", "")).strip().upper(): r for r in self._data if r.get("TDoc")}
+        self._family_cache = {}
+
+        for tdoc_upper, row in self._tdoc_map.items():
+            family = {tdoc_upper}
+
+            # Parent revision
+            parent = str(row.get("Is revision of", "")).strip().upper()
+            if parent and parent in self._tdoc_map:
+                family.add(parent)
+                # Include siblings listed in parent's "Revised to"
+                parent_row = self._tdoc_map[parent]
+                p_children = str(parent_row.get("Revised to", "")).strip()
+                if p_children and p_children.lower() != "none":
+                    for child in p_children.split(","):
+                        c_clean = child.strip().upper()
+                        if c_clean:
+                            family.add(c_clean)
+
+            # Children revisions
+            children_str = str(row.get("Revised to", "")).strip()
+            if children_str and children_str.lower() != "none":
+                for child in children_str.split(","):
+                    c_clean = child.strip().upper()
+                    if c_clean:
+                        family.add(c_clean)
+
+            self._family_cache[tdoc_upper] = sorted(list(family))
+
+    def _recompute_cached_email_stats(self):
+        """Precomputes integer totals and sort tuples on each row using unique ID set unions."""
+        for row in self._data:
+            tdoc = str(row.get("TDoc", "")).strip().upper()
+            family = self.get_family_tdocs(tdoc)
+
+            family_all_ids = set()
+            family_unread_ids = set()
+
+            for t in family:
+                stats = self.email_counts.get(t)
+                if stats:
+                    if "all_ids" in stats:
+                        family_all_ids.update(stats["all_ids"])
+                        family_unread_ids.update(stats["unread_ids"])
+                    else:
+                        # Fallback for mock or legacy scalar dictionaries
+                        tot_num = stats.get("total", 0)
+                        un_num = stats.get("unread", 0)
+                        if tot_num:
+                            family_all_ids.add(f"{t}_tot_{tot_num}")
+                        if un_num:
+                            family_unread_ids.add(f"{t}_un_{un_num}")
+
+            tot = len(family_all_ids)
+            unread = len(family_unread_ids)
+            row['_email_tot'] = tot
+            row['_email_unread'] = unread
+            row['_email_sort_key'] = (tot, unread)
+
     def get_unmatched_sources(self) -> list:
         """Returns a sorted list of unique raw 'Source' strings that evaluated to 'Other'."""
         unmatched = set()
         for row in self._data:
-            # Check if our pre-computation assigned this to the fallback bucket
             if row.get('_Sanitized_Companies') == ["Other"]:
                 raw_source = str(row.get('Source', '')).strip()
                 if raw_source:
@@ -83,6 +152,8 @@ class TDocsTableModel(QAbstractTableModel):
         # Pre-compute for a completely fresh dataset update
         self._apply_company_sanitization(self._data)
         self._apply_user_data_logic()
+        self._rebuild_family_cache()
+        self._recompute_cached_email_stats()
         self.endResetModel()
 
     def set_loading(self, tdoc: str, is_loading: bool):
@@ -97,8 +168,10 @@ class TDocsTableModel(QAbstractTableModel):
                 break
 
     def _linkify(self, prefix: str, text: str, html: bool) -> str:
-        if not text: return ""
-        if not html: return f"{prefix}: {text}" if prefix else text
+        if not text:
+            return ""
+        if not html:
+            return f"{prefix}: {text}" if prefix else text
 
         def repl(match):
             tdoc = match.group(0)
@@ -125,64 +198,76 @@ class TDocsTableModel(QAbstractTableModel):
 
     def _format_related_tdocs(self, row_data: dict, html=False) -> str:
         parts = []
-        if r_rev_of := row_data.get("Is revision of"): parts.append(self._linkify("⬅️ Rev of", r_rev_of, html))
-        if r_rev_to := row_data.get("Revised to"): parts.append(self._linkify("➡️ Rev to", r_rev_to, html))
-        if r_orig := row_data.get("Original LS"): parts.append(self._linkify("✉️ Orig LS", r_orig, html))
-        if r_reply := row_data.get("Reply in"): parts.append(self._linkify("↩️ Reply", r_reply, html))
+        if r_rev_of := row_data.get("Is revision of"):
+            parts.append(self._linkify("⬅️ Rev of", r_rev_of, html))
+        if r_rev_to := row_data.get("Revised to"):
+            parts.append(self._linkify("➡️ Rev to", r_rev_to, html))
+        if r_orig := row_data.get("Original LS"):
+            parts.append(self._linkify("✉️ Orig LS", r_orig, html))
+        if r_reply := row_data.get("Reply in"):
+            parts.append(self._linkify("↩️ Reply", r_reply, html))
         return ("<br>" if html else "\n").join(parts)
 
     def set_email_counts(self, counts: dict):
-        """Updates the cached email counts dictionary and repaints the Emails column."""
+        """Updates the cached email counts dictionary, recomputes keys, and repaints the Emails column."""
         self.email_counts = counts or {}
-        col_idx = self._headers.index("Emails")
-        self.dataChanged.emit(self.index(0, col_idx), self.index(self.rowCount() - 1, col_idx))
+        self._email_counts = self.email_counts
+        self._recompute_cached_email_stats()
+        if "Emails" in self._headers:
+            col_idx = self._headers.index("Emails")
+            self.dataChanged.emit(self.index(0, col_idx), self.index(self.rowCount() - 1, col_idx))
 
     def get_family_tdocs(self, base_tdoc: str) -> list:
-        """Traverses Is revision of and Revised to lineage to construct the family set."""
-        family = set()
+        """Instant O(1) lineage retrieval for a TDoc and its revisions."""
         if not base_tdoc:
             return []
-        family.add(base_tdoc.upper())
+        tdoc_clean = str(base_tdoc).strip().upper()
+        if tdoc_clean in self._family_cache:
+            return self._family_cache[tdoc_clean]
 
-        tdoc_dict = {str(r.get("TDoc", "")).upper(): r for r in self._data}
-        row = tdoc_dict.get(base_tdoc.upper())
-        if not row:
-            return list(family)
-
-        # Parent revision
-        parent = str(row.get("Is revision of", "")).strip().upper()
-        if parent and parent in tdoc_dict:
-            family.add(parent)
-
-        # Children revisions
-        children_str = str(row.get("Revised to", "")).strip()
-        if children_str and children_str.lower() != "none":
-            for child in children_str.split(","):
-                c_clean = child.strip().upper()
-                if c_clean:
-                    family.add(c_clean)
-
-        return sorted(list(family))
+        # Dynamic fallback for external or unindexed documents
+        family = {tdoc_clean}
+        row = self._tdoc_map.get(tdoc_clean)
+        if row:
+            parent = str(row.get("Is revision of", "")).strip().upper()
+            if parent and parent in self._tdoc_map:
+                family.add(parent)
+            children_str = str(row.get("Revised to", "")).strip()
+            if children_str and children_str.lower() != "none":
+                for child in children_str.split(","):
+                    c_clean = child.strip().upper()
+                    if c_clean:
+                        family.add(c_clean)
+        res = sorted(list(family))
+        self._family_cache[tdoc_clean] = res
+        return res
 
     def data(self, index, role):
-        if not index.isValid(): return None
+        if not index.isValid():
+            return None
         row = self._data[index.row()]
         col_name = self._headers[index.column()]
 
-        # Render Emails badge column
+        # Render Emails badge column (Precomputed O(1) Lookups)
         if col_name == "Emails":
-            tdoc = str(row.get("TDoc", "")).upper()
-            family = self.get_family_tdocs(tdoc)
-            tot = sum(self.email_counts.get(t, {}).get("total", 0) for t in family)
-            unread = sum(self.email_counts.get(t, {}).get("unread", 0) for t in family)
+            tot = row.get('_email_tot', 0)
+            unread = row.get('_email_unread', 0)
 
             if role == Qt.DisplayRole:
                 if tot == 0:
                     return ""
                 return f"✉️ {tot} (🔵 {unread})" if unread > 0 else f"✉️ {tot}"
+            elif role == Qt.UserRole:
+                if tot == 0:
+                    return ""
+                return f"{tot} (unread: {unread})" if unread > 0 else str(tot)
+            elif role == Qt.UserRole + 2:
+                return row.get('_email_sort_key', (0, 0))
             elif role == Qt.ToolTipRole:
                 if tot == 0:
                     return "No indexed emails mentioning this TDoc or its revisions."
+                tdoc = str(row.get("TDoc", "")).upper()
+                family = self.get_family_tdocs(tdoc)
                 return f"<b>{tot} email(s) total</b> ({unread} unread) mentioning family: {', '.join(family)}"
             elif role == Qt.TextAlignmentRole:
                 return Qt.AlignCenter
@@ -192,17 +277,19 @@ class TDocsTableModel(QAbstractTableModel):
             return None
 
         if col_name == "":
-            if role == Qt.UserRole: return row.get("TDoc", "")
+            if role == Qt.UserRole:
+                return row.get("TDoc", "")
             if role == Qt.UserRole + 1:
                 tdoc = row.get("TDoc", "")
-                if tdoc in self.loading_tdocs: return "LOADING"
+                if tdoc in self.loading_tdocs:
+                    return "LOADING"
                 zip_path = self.meeting_dir / tdoc / f"{tdoc}.zip"
                 return "EXISTS" if zip_path.exists() else "MISSING"
             if role == Qt.UserRole + 2:
                 return len(self.revisions.get(row.get("TDoc", ""), [])) > 0
             return None
 
-        # Expose the sanitized companies directly to the ProxyModel via a hidden UserRole
+        # Expose sanitized companies directly to the ProxyModel
         if role == Qt.UserRole + 3 and col_name == "Source":
             return row.get('_Sanitized_Companies', ["Other"])
 
@@ -211,13 +298,17 @@ class TDocsTableModel(QAbstractTableModel):
             return str(val).strip() if val is not None else ""
 
         if role == Qt.DisplayRole:
-            if col_name == "Related TDocs": return self._format_related_tdocs(row, html=True)
+            if col_name == "Related TDocs":
+                return self._format_related_tdocs(row, html=True)
             val = row.get(col_name, "")
             val_str = str(val).strip() if val is not None else ""
 
-            if col_name == "Abstract": return "📝" if val_str else ""
-            if col_name == "My Status" and val_str == "⚪ Neutral": return ""
-            if col_name == "My Notes" and val_str: return "📓 Note"
+            if col_name == "Abstract":
+                return "📝" if val_str else ""
+            if col_name == "My Status" and val_str == "⚪ Neutral":
+                return ""
+            if col_name == "My Notes" and val_str:
+                return "📓 Note"
 
             if col_name == "Secretary Remarks":
                 linked = self._linkify("", val_str, html=True)
@@ -226,7 +317,8 @@ class TDocsTableModel(QAbstractTableModel):
             return val_str
 
         elif role == Qt.UserRole:
-            if col_name == "Related TDocs": return self._format_related_tdocs(row, html=False)
+            if col_name == "Related TDocs":
+                return self._format_related_tdocs(row, html=False)
             val = row.get(col_name, "")
             return str(val).strip() if val is not None else ""
 
@@ -241,8 +333,10 @@ class TDocsTableModel(QAbstractTableModel):
             return None
 
         elif role == Qt.TextAlignmentRole:
-            if col_name in ["TDoc", "Type", "For", "Abstract", "My Status", "My Notes", "Agenda Item", "TDoc Status",
-                            "Related TDocs"]:
+            if col_name in [
+                "TDoc", "Type", "For", "Abstract", "My Status", "My Notes",
+                "Agenda Item", "TDoc Status", "Related TDocs"
+            ]:
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
@@ -256,12 +350,16 @@ class TDocsTableModel(QAbstractTableModel):
         if orientation == Qt.Horizontal:
             col_name = self._headers[section]
             if role == Qt.DisplayRole:
-                if col_name == "Abstract": return "📝"
-                if col_name == "My Notes": return "📓"
+                if col_name == "Abstract":
+                    return "📝"
+                if col_name == "My Notes":
+                    return "📓"
                 return col_name
             elif role == Qt.ToolTipRole:
-                if col_name == "Abstract": return "Abstract"
-                if col_name == "My Notes": return "My Notes"
+                if col_name == "Abstract":
+                    return "Abstract"
+                if col_name == "My Notes":
+                    return "My Notes"
                 return col_name
         return None
 
@@ -295,17 +393,18 @@ class TDocsTableModel(QAbstractTableModel):
 
                 if info.get('Source') and not self._data[idx].get('Source'):
                     self._data[idx]['Source'] = info.get('Source')
-                    # Pre-compute sanitization since the source just updated!
                     self._apply_company_sanitization([self._data[idx]])
 
                 if info.get('For') and not self._data[idx].get('For'):
                     self._data[idx]['For'] = info.get('For')
-                if info.get('Result') and self._data[idx].get('TDoc Status', 'Unknown') in ['Unknown', '', '-',
-                                                                                            'Not Handled']:
+                if info.get('Result') and self._data[idx].get('TDoc Status', 'Unknown') in [
+                    'Unknown', '', '-', 'Not Handled'
+                ]:
                     self._data[idx]['TDoc Status'] = info.get('Result')
 
             else:
-                if ui_logger: ui_logger.emit(f"✨ Injecting new on-the-fly TDoc: {tdoc_id}", logging.INFO)
+                if ui_logger:
+                    ui_logger.emit(f"✨ Injecting new on-the-fly TDoc: {tdoc_id}", logging.INFO)
 
                 agenda_item = 'N/A'
                 doc_type = 'Revision'
@@ -316,8 +415,11 @@ class TDocsTableModel(QAbstractTableModel):
                 source = info.get('Source', '')
                 title = info.get('Title', '')
 
-                comment_match = re.search(r'(?:revision of|rev of)\s*(S2-\d{6,8}(?:r\d{1,2}[a-zA-Z]?)?)', remarks,
-                                          re.IGNORECASE)
+                comment_match = re.search(
+                    r'(?:revision of|rev of)\s*(S2-\d{6,8}(?:r\d{1,2}[a-zA-Z]?)?)',
+                    remarks,
+                    re.IGNORECASE
+                )
                 id_match = re.search(r'^(.*?)-?(?:r|rev)(\d{1,2}[a-zA-Z]?)$', tdoc_id, re.IGNORECASE)
 
                 if comment_match:
@@ -371,10 +473,8 @@ class TDocsTableModel(QAbstractTableModel):
                 new_rows.append(new_row)
 
         if new_rows:
-            # Pre-compute sanitization for any newly injected rows before saving them
             self._apply_company_sanitization(new_rows)
             self._data.extend(new_rows)
-
             self._data.sort(key=lambda x: str(x.get('TDoc', '')))
             tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
 
@@ -400,6 +500,8 @@ class TDocsTableModel(QAbstractTableModel):
 
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
         self._apply_user_data_logic()
+        self._rebuild_family_cache()
+        self._recompute_cached_email_stats()
         self.endResetModel()
 
 
@@ -416,11 +518,6 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.filter_no_comments = False
 
     def _parse_query(self, query: str):
-        """
-        Parses search queries into positive and negative tokens.
-        Supports single words, quoted multi-word phrases, and '-' or '!' negation prefixes.
-        Example: Baseline -"discussed in call" -draft -> (+['baseline'], -['discussed in call', 'draft'])
-        """
         includes = []
         excludes = []
         pattern = r'(-|!)?(?:["\']([^"\']*)["\']|(\S+))'
@@ -465,10 +562,26 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.invalidateFilter()
 
     def lessThan(self, left, right):
-        left_data = self.sourceModel().data(left, Qt.UserRole + 2)
-        right_data = self.sourceModel().data(right, Qt.UserRole + 2)
-        if self.sourceModel()._headers[left.column()] == "Agenda Item":
+        col_idx = left.column()
+        model = self.sourceModel()
+        if not model or col_idx >= len(model._headers):
+            return super().lessThan(left, right)
+
+        col_name = model._headers[col_idx]
+
+        # 1. Numerical tuple sorting for Emails (tot, unread)
+        if col_name == "Emails":
+            left_key = model.data(left, Qt.UserRole + 2) or (0, 0)
+            right_key = model.data(right, Qt.UserRole + 2) or (0, 0)
+            return left_key < right_key
+
+        # 2. Natural sorting with LRU caching for Agenda Item and TDoc
+        if col_name in ("Agenda Item", "TDoc"):
+            left_data = model.data(left, Qt.UserRole + 2) or ""
+            right_data = model.data(right, Qt.UserRole + 2) or ""
             return natural_sort_key(left_data) < natural_sort_key(right_data)
+
+        # 3. Standard string sorting for remaining columns without redundant lookups
         return super().lessThan(left, right)
 
     def filterAcceptsRow(self, source_row, source_parent):
@@ -506,12 +619,10 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 
             row_text = " ".join(searchable_parts)
 
-            # 1. Exclusion check: Any match rejects the row immediately
             for exc in self.exclude_terms:
                 if exc in row_text:
                     return False
 
-            # 2. Inclusion check: All positive terms must be present
             for inc in self.include_terms:
                 if inc not in row_text:
                     return False
