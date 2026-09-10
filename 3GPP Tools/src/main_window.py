@@ -36,6 +36,7 @@ from modules.work_items.ui.ui_tabs import WorkItemsTab
 from modules.nas.ui.nas_tabs import NASTab
 from core.ai.ollama_client import OllamaClient, OllamaMonitorThread
 from core.ai.ollama_dialog import OllamaConfigDialog
+from modules.puml2visio.ui.java_dialog import JavaMaintenanceDialog
 
 
 class DragDropUI(QMainWindow):
@@ -238,8 +239,8 @@ class DragDropUI(QMainWindow):
         self.console_panel = ConsolePanel()
         self.console_panel.proxy_requested.connect(self.open_proxy_settings)
         self.console_panel.network_config_requested.connect(lambda: NetworkConfigDialog(self).exec_())
-        self.console_panel.java_info_requested.connect(self.display_java_info)
-        self.console_panel.update_requested.connect(self.check_for_jar_updates)
+        self.console_panel.java_info_requested.connect(self.open_java_maintenance)
+        self.console_panel.update_requested.connect(self.open_java_maintenance)
         self.console_panel.task_manager_requested.connect(self.open_task_manager)
         self.console_panel.db_maintenance_requested.connect(self.open_db_maintenance)
 
@@ -769,3 +770,9 @@ class DragDropUI(QMainWindow):
             self.log_message(
                 "❌ System initialized with errors. Java runtime was not detected. Please verify your Java installation.\n" + "-" * 45
             )
+
+    def open_java_maintenance(self):
+        """Spawns the consolidated Java Runtime & PlantUML Maintenance dialog."""
+        dialog = JavaMaintenanceDialog(self.jar_path, parent=self)
+        dialog.configuration_changed.connect(lambda: self._launch_init_thread(check_updates=False))
+        dialog.exec_()
