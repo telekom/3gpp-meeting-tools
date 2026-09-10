@@ -12,14 +12,23 @@ from modules.puml2visio.core.callflow_thread import CallFlowGeneratorThread
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 
 class CallFlowDialog(QDialog):
-    """Modal dialog for generating PlantUML diagrams from specification call flow text."""
+    """Modeless dialog for generating PlantUML diagrams from specification call flow text."""
     diagram_generated = pyqtSignal(str, bool)  # (puml_code, should_replace)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("🤖 Generate PlantUML from 3GPP Call Flow")
         self.resize(1000, 680)
-        self.setModal(True)
+
+        # 1. Ensure modeless behavior (never block other windows)
+        self.setModal(False)
+
+        # 2. Configure independent top-level window controls (Minimize, Maximize, Close)
+        self.setWindowFlags(
+            Qt.Window |
+            Qt.WindowMinMaxButtonsHint |
+            Qt.WindowCloseButtonHint
+        )
 
         self.client = OllamaClient()
         self.prompt_mgr = PromptManager()

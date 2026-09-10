@@ -30,6 +30,7 @@ class CodeEditorTab(QWidget):
 
     def __init__(self):
         super().__init__()
+        self._ai_dialog = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -182,10 +183,19 @@ class CodeEditorTab(QWidget):
         self.copy_btn.style().polish(self.copy_btn)
 
     def _open_ai_generator(self):
-        """Launches the modal call flow AI generation dialog."""
-        dialog = CallFlowDialog(parent=self)
-        dialog.diagram_generated.connect(self._handle_generated_diagram)
-        dialog.exec_()
+        """Launches or brings into focus the modeless call flow AI generation window."""
+        if self._ai_dialog is None:
+            # parent=None detaches the window from the main window's Z-order stack
+            self._ai_dialog = CallFlowDialog(parent=None)
+            self._ai_dialog.diagram_generated.connect(self._handle_generated_diagram)
+
+        # Restore from minimized state if needed and bring into active focus
+        if self._ai_dialog.isMinimized():
+            self._ai_dialog.showNormal()
+
+        self._ai_dialog.show()
+        self._ai_dialog.raise_()
+        self._ai_dialog.activateWindow()
 
     def _handle_generated_diagram(self, puml_code: str, replace: bool):
         """Updates the text editor with the generated PlantUML diagram."""
@@ -232,3 +242,9 @@ class BatchConvertTab(QWidget):
 
     def set_state(self, state, text=None):
         self.drop_label.set_state(state, text)
+
+    def closeEvent(self, event):
+        """Ensure the background dialog is closed when the parent tab closes."""
+        if self._ai_dialog is not None:
+            self._ai_dialog.close()
+        super().closeEvent(event)
