@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pythoncom
 import win32com.client
+import gc
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from modules.puml2visio.utils.utils import strip_watermark, generate_cleaned_svg
@@ -47,6 +48,9 @@ class VisioReaderThread(QThread):
             if visio: visio.Quit()
             self.error_occurred.emit(f"Error reading Visio file: {str(e)}")
         finally:
+            # Destroy any remaining win32com wrappers while this
+            # thread's COM apartment still exists.
+            gc.collect()
             pythoncom.CoUninitialize()
 
 
@@ -534,7 +538,6 @@ class ConverterThread(QThread):
 
             # Encourage immediate destruction of any remaining Python
             # COM wrappers while COM is still initialized on this thread.
-            import gc
             gc.collect()
 
             self.ui_log_msg.emit(
