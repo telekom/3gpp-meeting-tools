@@ -40,12 +40,14 @@ def is_tdoc_cached(meeting_dir: Path, target_name: str) -> bool:
 
 def open_tdoc_local_folder(meeting_dir: Path, base_tdoc: str):
     """Opens the TDoc directory or meeting TDocs folder in Windows Explorer."""
-    tdocs_dir = Path(meeting_dir) / "TDocs"
+    tdocs_dir = Path(meeting_dir)
     target_sub = tdocs_dir / base_tdoc
+    print(f'opening {target_sub}')
     target = target_sub if target_sub.exists() else tdocs_dir
     if not target.exists():
         target.mkdir(parents=True, exist_ok=True)
     if hasattr(os, "startfile"):
+        print(f'finally opening {target_sub}')
         os.startfile(str(target))
     else:
         webbrowser.open(f"file:///{target}")
