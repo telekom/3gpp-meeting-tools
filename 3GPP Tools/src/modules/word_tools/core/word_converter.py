@@ -23,6 +23,10 @@ from modules.word_tools.core.libreoffice_converter import (
     is_libreoffice_available,
     get_libreoffice_missing_msg,
 )
+from modules.word_tools.core.word_media_repair import (
+    create_pdf_safe_docx,
+    list_legacy_metafiles,
+)
 
 # Word WdSaveFormat Constants
 WD_FORMAT_DOC = 0
@@ -150,6 +154,83 @@ def _safe_com_cleanup(word=None, doc=None, new_doc=None) -> None:
                 faulthandler.enable()
             except Exception:
                 pass
+
+
+
+def _is_valid_pdf(path: Path) -> bool:
+    try:
+        if not path.exists() or path.stat().st_size < 5:
+            return False
+        with path.open("rb") as fh:
+            return fh.read(5) == b"%PDF-"
+    except OSError:
+        return False
+
+
+def _export_pdf_with_word_once(source: Path, target: Path) -> None:
+    """
+    Perform one isolated Word PDF export.
+
+    Used by the media-repair diagnostic path.  Each test gets a fresh Word COM
+    instance so a failed PDF renderer cannot contaminate the next candidate.
+    """
+    word = None
+    doc = None
+    try:
+        pythoncom.CoInitialize()
+        if target.exists():
+            try:
+                target.unlink()
+            except OSError:
+                pass
+
+        word = win32com.client.DispatchEx("Word.Application")
+        word.Visible = False
+        word.DisplayAlerts = 0
+
+        try:
+            word.AutomationSecurity = 1
+            word.Options.ConfirmConversions = False
+            word.Options.DoNotPromptForConvert = True
+            word.Options.WarnBeforeSavingPrintingSendingMarkup = False
+            word.Options.SaveInterval = 0
+            word.Options.UpdateFieldsAtPrint = False
+            word.Options.UpdateLinksAtPrint = False
+            word.Options.PrintBackground = False
+        except Exception:
+            pass
+
+        doc = word.Documents.Open(
+            FileName=os.path.normpath(str(source)),
+            ConfirmConversions=False,
+            ReadOnly=True,
+            AddToRecentFiles=False,
+        )
+
+        try:
+            set_sensitivity_label(doc)
+        except Exception:
+            pass
+
+        doc.ExportAsFixedFormat(
+            OutputFileName=os.path.normpath(str(target)),
+            ExportFormat=WD_FORMAT_PDF,
+            OpenAfterExport=False,
+            OptimizeFor=0,
+            IncludeDocProps=True,
+            CreateBookmarks=1,
+        )
+
+        try:
+            while word.BackgroundPrintingStatus > 0:
+                time.sleep(0.05)
+        except Exception:
+            pass
+
+        if not _is_valid_pdf(target):
+            raise RuntimeError("Word returned without producing a valid PDF.")
+    finally:
+        _safe_com_cleanup(word=word, doc=doc)
 
 
 def convert_doc_to_docx_word(
@@ -371,17 +452,45 @@ class WordConverterThread(QThread):
                 self.finished_path.emit(str(out_path))
                 return
 
-            # 2. Automated Word-First Pipeline with LibreOffice Fallback
+            # 2. Automated Word-first pipeline.
             try:
                 self._run_word_export(source)
             except Exception as word_err:
-                if self.engine != "word" and is_libreoffice_available() and self.target_format in ("docx", "pdf", "html", "rtf", "txt"):
+                # PDF-specific recovery: we proved that malformed/problematic
+                # EMF/WMF graphics can make Word's PDF renderer abort.  Repair
+                # only a temporary DOCX and retry Word before using LibreOffice.
+                if (
+                    self.target_format == "pdf"
+                    and source.suffix.lower() == ".docx"
+                ):
+                    try:
+                        repaired = self._try_pdf_media_repair(source, word_err)
+                        if repaired:
+                            return
+                    except Exception as repair_err:
+                        self.ui_log_msg.emit(
+                            f"⚠️ Legacy-graphic PDF repair did not recover the export "
+                            f"({repair_err}).",
+                            logging.WARNING,
+                        )
+
+                if (
+                    self.engine != "word"
+                    and is_libreoffice_available()
+                    and self.target_format in ("docx", "pdf", "html", "rtf", "txt")
+                ):
                     self.ui_log_msg.emit(
-                        f"⚠️ Word COM conversion failed ({word_err}). Initiating LibreOffice fallback...",
+                        f"⚠️ Word COM conversion failed ({word_err}). "
+                        f"Initiating LibreOffice fallback...",
                         logging.WARNING,
                     )
-                    out_path = convert_document_libreoffice(source, target_format=self.target_format)
-                    self.ui_log_msg.emit(f"✅ Conversion complete (via LibreOffice): {out_path.name}", logging.INFO)
+                    out_path = convert_document_libreoffice(
+                        source, target_format=self.target_format
+                    )
+                    self.ui_log_msg.emit(
+                        f"✅ Conversion complete (via LibreOffice): {out_path.name}",
+                        logging.INFO,
+                    )
                     self.finished_path.emit(str(out_path))
                 else:
                     raise word_err
@@ -390,6 +499,82 @@ class WordConverterThread(QThread):
             self.ui_log_msg.emit(f"❌ Conversion Error: {str(e)}", logging.ERROR)
         finally:
             self.finished.emit()
+
+    def _try_pdf_media_repair(self, source: Path, original_error: Exception) -> bool:
+        """
+        Retry a failed Word PDF export once after rasterizing all EMF/WMF media
+        in a temporary DOCX.
+
+        This favors predictable conversion time over forensic identification of
+        the individual bad metafile. The original DOCX is never modified.
+        """
+        media = list_legacy_metafiles(source)
+        if not media:
+            self.ui_log_msg.emit(
+                "ℹ️ Word PDF export failed, but the DOCX contains no EMF/WMF "
+                "graphics to repair.",
+                logging.INFO,
+            )
+            return False
+
+        self.ui_log_msg.emit(
+            f"⚠️ Word PDF export failed ({original_error}). "
+            f"Found {len(media)} legacy EMF/WMF graphic(s).",
+            logging.WARNING,
+        )
+
+        work_dir = Path(tempfile.mkdtemp(prefix="3gpp_word_pdf_repair_"))
+        repaired_docx = work_dir / f"{source.stem}_pdf_safe.docx"
+        repaired_pdf = work_dir / f"{source.stem}_pdf_safe.pdf"
+        final_target = source.with_suffix(".pdf")
+
+        try:
+            def ui_log(message: str) -> None:
+                self.ui_log_msg.emit(message, logging.INFO)
+
+            replacements = create_pdf_safe_docx(
+                source_docx=source,
+                output_docx=repaired_docx,
+                log=ui_log,
+            )
+
+            if not replacements:
+                return False
+
+            self.ui_log_msg.emit(
+                "⏳ Retrying Word PDF export once using the temporary "
+                "PDF-safe document...",
+                logging.INFO,
+            )
+
+            _export_pdf_with_word_once(repaired_docx, repaired_pdf)
+
+            if not _is_valid_pdf(repaired_pdf):
+                raise RuntimeError(
+                    "Word did not produce a valid PDF from the repaired document."
+                )
+
+            if final_target.exists():
+                try:
+                    _sanitize_file_attributes(final_target)
+                    final_target.unlink()
+                except OSError:
+                    pass
+
+            shutil.copy2(repaired_pdf, final_target)
+            _sanitize_file_attributes(final_target)
+
+            self.ui_log_msg.emit(
+                f"✅ PDF conversion recovered after rasterizing "
+                f"{len(replacements)} legacy EMF/WMF graphic(s) in the "
+                f"temporary conversion copy. Original DOCX was not modified.",
+                logging.INFO,
+            )
+            self.finished_path.emit(str(final_target))
+            return True
+
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
     def _run_word_export(self, source: Path):
         word = None
