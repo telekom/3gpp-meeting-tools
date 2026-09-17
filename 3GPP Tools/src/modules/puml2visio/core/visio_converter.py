@@ -112,132 +112,411 @@ class ConverterThread(QThread):
 
         with open(self.puml_path, "r", encoding="utf-8") as f:
             raw_code = f.read()
-        final_source_code = PLANTUML_WATERMARK + "\n\n" + strip_watermark(raw_code)
+
+        final_source_code = (
+                PLANTUML_WATERMARK
+                + "\n\n"
+                + strip_watermark(raw_code)
+        )
 
         visio = None
+        doc = None
+
+        def stage(message):
+            self._emit_log(f"   🔎 {message}", logging.INFO)
+
         try:
+            # ---------------------------------------------------------
+            # STAGE 1: Start Visio
+            # ---------------------------------------------------------
+            stage("Starting Microsoft Visio COM server...")
+
             visio = win32com.client.DispatchEx("Visio.Application")
             visio.Visible = False
             visio.AlertResponse = 7
 
+            stage("Visio started successfully.")
+
+            # ---------------------------------------------------------
+            # STAGE 2: Create blank document
+            # ---------------------------------------------------------
+            stage("Creating blank Visio document...")
+
             doc = visio.Documents.Add("")
+
+            stage("Blank Visio document created.")
+
+            # ---------------------------------------------------------
+            # STAGE 3: Import SVG
+            # ---------------------------------------------------------
             page = doc.Pages(1)
             page.Name = "Sequence Diagram"
-            page.Import(str(svg_path.resolve()))
 
+            stage(f"Importing SVG: {svg_path.name}")
+
+            try:
+                page.Import(str(svg_path.resolve()))
+            except Exception as e:
+                raise RuntimeError(
+                    "SVG_IMPORT_FAILED\n"
+                    f"Visio rejected the generated SVG file:\n"
+                    f"{svg_path.resolve()}\n\n"
+                    f"Original COM error: {e}"
+                ) from e
+
+            stage(
+                f"SVG imported successfully "
+                f"({page.Shapes.Count} top-level shape(s))."
+            )
+
+            # ---------------------------------------------------------
+            # STAGE 4: Flatten imported SVG
+            # ---------------------------------------------------------
             if page.Shapes.Count > 0:
+                stage("Reading imported SVG dimensions...")
+
                 orig_w = page.Shapes(1).CellsU("Width").ResultIU
                 orig_h = page.Shapes(1).CellsU("Height").ResultIU
 
-                # --- CANVAS FIX 1: Aggressive Flattening ---
-                # Ungrouping ALL Type 2 shapes forces Visio to destroy phantom bounding boxes
-                # and snap perfectly to the true content size.
+                stage(
+                    f"Imported SVG dimensions: "
+                    f"{orig_w:.3f} × {orig_h:.3f} in."
+                )
+
+                stage("Ungrouping imported SVG shapes...")
+
+                ungroup_count = 0
                 peeling = True
+
                 while peeling:
                     peeling = False
+
                     for i in range(page.Shapes.Count, 0, -1):
                         s = page.Shapes(i)
+
                         try:
                             if s.Type == 2:  # visTypeGroup
                                 s.Ungroup()
+                                ungroup_count += 1
                                 peeling = True
-                        except:
-                            pass
+                        except Exception as e:
+                            self._emit_log(
+                                f"   ⚠️ Could not ungroup shape {i}: {e}",
+                                logging.WARNING
+                            )
 
-                # --- CANVAS FIX 2: Background Rect Deletion ---
-                # Now that everything is flat, find and delete the massive PlantUML background rect.
+                stage(
+                    f"Ungrouping completed "
+                    f"({ungroup_count} group operation(s))."
+                )
+
+                # -----------------------------------------------------
+                # STAGE 5: Remove PlantUML background
+                # -----------------------------------------------------
+                stage("Checking for PlantUML background rectangle...")
+
+                deleted_backgrounds = 0
+
                 for i in range(page.Shapes.Count, 0, -1):
                     s = page.Shapes(i)
+
                     try:
                         w = s.CellsU("Width").ResultIU
                         h = s.CellsU("Height").ResultIU
-                        # If a shape covers > 75% of the canvas, has NO text, and NO border, it is a background.
-                        # (Valid large shapes like 'alt' boxes have borders, so they are safe!)
-                        if w >= orig_w * 0.75 and h >= orig_h * 0.75:
+
+                        if (
+                                w >= orig_w * 0.75
+                                and h >= orig_h * 0.75
+                        ):
                             if len(s.Characters.Text.strip()) == 0:
-                                if s.CellsU("LinePattern").ResultIU == 0:
+                                if (
+                                        s.CellsU("LinePattern").ResultIU
+                                        == 0
+                                ):
                                     s.Delete()
-                    except:
+                                    deleted_backgrounds += 1
+
+                    except Exception:
+                        # Some imported SVG shapes do not expose all
+                        # ShapeSheet cells. They are intentionally
+                        # ignored here.
                         pass
 
+                stage(
+                    f"Background cleanup completed "
+                    f"({deleted_backgrounds} shape(s) removed)."
+                )
+
+                # -----------------------------------------------------
+                # STAGE 6: Clean text shapes
+                # -----------------------------------------------------
+                stage("Normalizing imported text shapes...")
+
+                text_shape_count = 0
+                text_shape_errors = 0
+
                 def clean_and_shrink_text(shapes):
+                    nonlocal text_shape_count
+                    nonlocal text_shape_errors
+
                     for i in range(1, shapes.Count + 1):
                         s = shapes(i)
+
                         try:
-                            if len(s.Characters.Text.strip()) > 0:
-                                s.CellsU("TopMargin").FormulaU = "0 pt"
-                                s.CellsU("BottomMargin").FormulaU = "0 pt"
-                                s.CellsU("LeftMargin").FormulaU = "0 pt"
-                                s.CellsU("RightMargin").FormulaU = "0 pt"
+                            text = s.Characters.Text
 
-                                line_pattern = s.CellsU("LinePattern").ResultIU
-                                fill_pattern = s.CellsU("FillPattern").ResultIU
+                            if len(text.strip()) > 0:
+                                text_shape_count += 1
 
-                                if line_pattern == 0 and fill_pattern == 0:
-                                    pin_x = s.CellsU("PinX").ResultIU
-                                    pin_y = s.CellsU("PinY").ResultIU
-                                    loc_pin_x = s.CellsU("LocPinX").ResultIU
-                                    loc_pin_y = s.CellsU("LocPinY").ResultIU
-                                    h = s.CellsU("Height").ResultIU
+                                s.CellsU(
+                                    "TopMargin"
+                                ).FormulaU = "0 pt"
+                                s.CellsU(
+                                    "BottomMargin"
+                                ).FormulaU = "0 pt"
+                                s.CellsU(
+                                    "LeftMargin"
+                                ).FormulaU = "0 pt"
+                                s.CellsU(
+                                    "RightMargin"
+                                ).FormulaU = "0 pt"
+
+                                line_pattern = (
+                                    s.CellsU(
+                                        "LinePattern"
+                                    ).ResultIU
+                                )
+
+                                fill_pattern = (
+                                    s.CellsU(
+                                        "FillPattern"
+                                    ).ResultIU
+                                )
+
+                                if (
+                                        line_pattern == 0
+                                        and fill_pattern == 0
+                                ):
+                                    pin_x = (
+                                        s.CellsU(
+                                            "PinX"
+                                        ).ResultIU
+                                    )
+
+                                    pin_y = (
+                                        s.CellsU(
+                                            "PinY"
+                                        ).ResultIU
+                                    )
+
+                                    loc_pin_x = (
+                                        s.CellsU(
+                                            "LocPinX"
+                                        ).ResultIU
+                                    )
+
+                                    loc_pin_y = (
+                                        s.CellsU(
+                                            "LocPinY"
+                                        ).ResultIU
+                                    )
+
+                                    h = (
+                                        s.CellsU(
+                                            "Height"
+                                        ).ResultIU
+                                    )
 
                                     left = pin_x - loc_pin_x
-                                    top = pin_y + (h - loc_pin_y)
+                                    top = pin_y + (
+                                            h - loc_pin_y
+                                    )
 
-                                    s.CellsU("LocPinX").FormulaU = "0 in"
-                                    s.CellsU("LocPinY").FormulaU = "Height"
-                                    s.CellsU("PinX").FormulaU = f"{left} in"
-                                    s.CellsU("PinY").FormulaU = f"{top} in"
+                                    s.CellsU(
+                                        "LocPinX"
+                                    ).FormulaU = "0 in"
 
-                                    s.CellsU("Width").FormulaU = "TEXTWIDTH(TheText)"
-                                    s.CellsU("Height").FormulaU = "TEXTHEIGHT(TheText, Width)"
-                        except:
-                            pass
+                                    s.CellsU(
+                                        "LocPinY"
+                                    ).FormulaU = "Height"
+
+                                    s.CellsU(
+                                        "PinX"
+                                    ).FormulaU = (
+                                        f"{left} in"
+                                    )
+
+                                    s.CellsU(
+                                        "PinY"
+                                    ).FormulaU = (
+                                        f"{top} in"
+                                    )
+
+                                    s.CellsU(
+                                        "Width"
+                                    ).FormulaU = (
+                                        "TEXTWIDTH(TheText)"
+                                    )
+
+                                    s.CellsU(
+                                        "Height"
+                                    ).FormulaU = (
+                                        "TEXTHEIGHT("
+                                        "TheText, Width)"
+                                    )
+
+                        except Exception:
+                            text_shape_errors += 1
+
                         try:
                             if s.Type == 2:
-                                clean_and_shrink_text(s.Shapes)
-                        except:
+                                clean_and_shrink_text(
+                                    s.Shapes
+                                )
+                        except Exception:
                             pass
 
                 clean_and_shrink_text(page.Shapes)
 
+                stage(
+                    f"Text normalization completed "
+                    f"({text_shape_count} text shape(s), "
+                    f"{text_shape_errors} skipped/error shape(s))."
+                )
+
+                # -----------------------------------------------------
+                # STAGE 7: Resize page
+                # -----------------------------------------------------
+                stage("Resizing Visio page to contents...")
+
                 page_sheet = page.PageSheet
-                page_sheet.CellsU("PageLeftMargin").FormulaU = "0.05 in"
-                page_sheet.CellsU("PageRightMargin").FormulaU = "0.05 in"
-                page_sheet.CellsU("PageTopMargin").FormulaU = "0.05 in"
-                page_sheet.CellsU("PageBottomMargin").FormulaU = "0.05 in"
+
+                page_sheet.CellsU(
+                    "PageLeftMargin"
+                ).FormulaU = "0.05 in"
+
+                page_sheet.CellsU(
+                    "PageRightMargin"
+                ).FormulaU = "0.05 in"
+
+                page_sheet.CellsU(
+                    "PageTopMargin"
+                ).FormulaU = "0.05 in"
+
+                page_sheet.CellsU(
+                    "PageBottomMargin"
+                ).FormulaU = "0.05 in"
+
                 try:
                     page.ResizeToFitContents()
-                except:
-                    pass
+                    stage("Page resized successfully.")
+                except Exception as e:
+                    self._emit_log(
+                        f"   ⚠️ ResizeToFitContents failed: {e}",
+                        logging.WARNING
+                    )
+
+            # ---------------------------------------------------------
+            # STAGE 8: Add PlantUML source page
+            # ---------------------------------------------------------
+            stage("Creating embedded PlantUML source page...")
 
             src_page = doc.Pages.Add()
-            src_page.PageSheet.CellsU("PageWidth").FormulaU = "8.27 in"
-            src_page.PageSheet.CellsU("PageHeight").FormulaU = "11.69 in"
+
+            src_page.PageSheet.CellsU(
+                "PageWidth"
+            ).FormulaU = "8.27 in"
+
+            src_page.PageSheet.CellsU(
+                "PageHeight"
+            ).FormulaU = "11.69 in"
+
             src_page.Name = "PlantUML Source"
 
-            text_box = src_page.DrawRectangle(0.5, 0.5, 7.77, 11.19)
-            text_box.CellsU("LinePattern").FormulaU = "0"
-            text_box.CellsU("FillPattern").FormulaU = "0"
-            text_box.CellsU("Para.HorzAlign").FormulaU = "0"
-            text_box.CellsU("VerticalAlign").FormulaU = "0"
+            text_box = src_page.DrawRectangle(
+                0.5,
+                0.5,
+                7.77,
+                11.19
+            )
+
+            text_box.CellsU(
+                "LinePattern"
+            ).FormulaU = "0"
+
+            text_box.CellsU(
+                "FillPattern"
+            ).FormulaU = "0"
+
+            text_box.CellsU(
+                "Para.HorzAlign"
+            ).FormulaU = "0"
+
+            text_box.CellsU(
+                "VerticalAlign"
+            ).FormulaU = "0"
 
             text_box.Characters.Text = final_source_code
 
+            stage("PlantUML source page created successfully.")
+
+            # ---------------------------------------------------------
+            # STAGE 9: Select diagram page
+            # ---------------------------------------------------------
             try:
                 if visio.ActiveWindow:
                     visio.ActiveWindow.Page = page
-            except:
+            except Exception:
                 pass
 
-            doc.SaveAs(str(vsdx_path.resolve()))
-            doc.Close()
-            visio.Quit()
+            # ---------------------------------------------------------
+            # STAGE 10: Save VSDX
+            # ---------------------------------------------------------
+            stage(f"Saving Visio document: {vsdx_path.name}")
 
-            self.ui_log_msg.emit(f"✅ Saved: {vsdx_path.name}")
+            try:
+                doc.SaveAs(str(vsdx_path.resolve()))
+            except Exception as e:
+                raise RuntimeError(
+                    "VSDX_SAVE_FAILED\n"
+                    f"Visio successfully imported and processed the "
+                    f"SVG, but failed while saving:\n"
+                    f"{vsdx_path.resolve()}\n\n"
+                    f"Original COM error: {e}"
+                ) from e
+
+            stage("Visio document saved successfully.")
+
+            doc.Close()
+            doc = None
+
+            visio.Quit()
+            visio = None
+
+            self.ui_log_msg.emit(
+                f"✅ Saved: {vsdx_path.name}"
+            )
 
         except Exception as e:
-            if visio: visio.Quit()
-            raise RuntimeError(f"Visio COM Error: {e}")
+            # Keep the generated SVG after a failure. This is
+            # deliberate because it gives us the exact artifact
+            # Visio attempted to import.
+
+            if doc is not None:
+                try:
+                    doc.Close()
+                except Exception:
+                    pass
+
+            if visio is not None:
+                try:
+                    visio.Quit()
+                except Exception:
+                    pass
+
+            raise RuntimeError(
+                f"Visio COM Error: {e}"
+            ) from e
 
 
 class SvgConverterThread(QThread):
