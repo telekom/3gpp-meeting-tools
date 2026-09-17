@@ -1,4 +1,3 @@
-# --- File: src/modules/meetings/core/llm_exporter.py ---
 import logging
 import re
 from pathlib import Path
@@ -16,9 +15,7 @@ def sanitize_filename(name: str) -> str:
     """Sanitize strings for safe filesystem paths by replacing invalid characters."""
     if not name:
         return "Unknown"
-    # Replace slashes, backslashes, colons, and illegal Windows characters with an underscore
     sanitized = re.sub(r'[\\/*?:"<>|]', '_', str(name).strip())
-    # Clean up redundant consecutive underscores and whitespace
     sanitized = re.sub(r'_+', '_', sanitized)
     return sanitized.strip(' ._') or "Unknown"
 
@@ -37,9 +34,7 @@ class LLMExporterThread(QThread):
         self.is_bulk = is_bulk
         self.max_chars = max_chars
 
-        # Determine the prompt, or fallback to default if empty string is passed
         self.system_prompt = system_prompt or self._get_default_prompt()
-
         self.export_dir = self.meeting_dir / "Export" / "LLM_Corpus"
 
     def _get_default_prompt(self):
@@ -53,6 +48,22 @@ class LLMExporterThread(QThread):
             "- `[DELETED: <text>]`: Denotes specific inline text removals explicitly marked via Word Track Changes.\n\n"
             "**Your Task:** Please use this corpus to analyze technical agreements, architectural changes, or contradictions within this specific Agenda Item."
         )
+
+    def _save_chunk(self, mega_file: Path, text: str, items: list):
+        """Saves the aggregated mega-file and creates a companion subfolder with individual markdown files."""
+        mega_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(mega_file, "w", encoding="utf-8") as f:
+            f.write(text)
+
+        # Companion subfolder with identical base name
+        subfolder = mega_file.parent / mega_file.stem
+        subfolder.mkdir(parents=True, exist_ok=True)
+
+        for tdoc_text, tdoc_id in items:
+            clean_text = tdoc_text.rstrip().removesuffix("---").rstrip() + "\n"
+            indiv_file = subfolder / f"{sanitize_filename(tdoc_id)}.md"
+            with open(indiv_file, "w", encoding="utf-8") as f:
+                f.write(clean_text)
 
     def run(self):
         word_app = None
@@ -73,7 +84,6 @@ class LLMExporterThread(QThread):
                 base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
                 base_tdoc = base_match.group(1).upper() if base_match else tdoc_id.upper()
 
-                # Clean and sanitize Agenda Item to prevent invalid path separators (e.g., 'N/A' -> 'N_A')
                 raw_ai = str(tdoc_data.get("Agenda Item", "Unknown")).strip()
                 ai = sanitize_filename(raw_ai.replace(" ", "_"))
 
@@ -133,7 +143,6 @@ class LLMExporterThread(QThread):
                     corpus[ai][category] = []
 
                 header = f"# TDoc: {tdoc_id}\n**Title:** {tdoc_data.get('Title', '')}\n**Source:** {tdoc_data.get('Source', '')}\n\n"
-
                 full_tdoc_text = header + md_content + "\n\n---\n"
                 corpus[ai][category].append((full_tdoc_text, tdoc_id))
 
@@ -151,6 +160,7 @@ class LLMExporterThread(QThread):
 
                         chunk_idx = 1
                         current_text = context_header
+                        current_items = []
                         has_content = False
 
                         for tdoc_text, tdoc_id in contents:
@@ -166,16 +176,16 @@ class LLMExporterThread(QThread):
                                 safe_cat = sanitize_filename(category)
                                 mega_file = self.export_dir / f"AI_{safe_ai}_Agreed_{safe_cat}{suffix}.md"
 
-                                mega_file.parent.mkdir(parents=True, exist_ok=True)
-                                with open(mega_file, "w", encoding="utf-8") as f:
-                                    f.write(current_text)
+                                self._save_chunk(mega_file, current_text, current_items)
                                 saved_files.append(mega_file.name)
 
                                 chunk_idx += 1
                                 current_text = context_header + tdoc_text
+                                current_items = [(tdoc_text, tdoc_id)]
                                 has_content = True
                             else:
                                 current_text += tdoc_text
+                                current_items.append((tdoc_text, tdoc_id))
                                 has_content = True
 
                         if has_content:
@@ -184,14 +194,21 @@ class LLMExporterThread(QThread):
                             safe_cat = sanitize_filename(category)
                             mega_file = self.export_dir / f"AI_{safe_ai}_Agreed_{safe_cat}{suffix}.md"
 
-                            mega_file.parent.mkdir(parents=True, exist_ok=True)
-                            with open(mega_file, "w", encoding="utf-8") as f:
-                                f.write(current_text)
+                            self._save_chunk(mega_file, current_text, current_items)
                             saved_files.append(mega_file.name)
 
-                self.finished.emit(True, f"Generated {len(saved_files)} Mega-Files (Chunked) in:\n{self.export_dir}")
+                self.finished.emit(True, f"Generated {len(saved_files)} Mega-Files and document subfolders in:\n{self.export_dir}")
             else:
-                self.finished.emit(True, f"Export completed for individual files.")
+                saved_single = []
+                for ai, categories in corpus.items():
+                    for category, contents in categories.items():
+                        for tdoc_text, tdoc_id in contents:
+                            clean_text = tdoc_text.rstrip().removesuffix("---").rstrip() + "\n"
+                            single_file = self.export_dir / f"{sanitize_filename(tdoc_id)}.md"
+                            with open(single_file, "w", encoding="utf-8") as f:
+                                f.write(clean_text)
+                            saved_single.append(single_file.name)
+                self.finished.emit(True, f"Exported individual file(s) ({', '.join(saved_single)}) to:\n{self.export_dir}")
 
         except Exception as e:
             logging.error(f"[LLM Exporter] Critical thread failure: {e}", exc_info=True)
