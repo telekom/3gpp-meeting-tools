@@ -99,7 +99,8 @@ class ConverterThread(QThread):
             self._emit_log(f"⚠️ Could not sanitize SVG: {e}", logging.WARNING)
 
     def _emit_log(self, message: str, level: int):
-        logging.log(level, message)
+        # QueueManager -> DragDropUI.log_message() owns Python logging.
+        # Logging here as well causes every worker message to be logged twice.
         self.ui_log_msg.emit(message)
 
     def _convert_to_vsdx(self, svg_path: Path):
@@ -487,11 +488,54 @@ class ConverterThread(QThread):
 
             stage("Visio document saved successfully.")
 
+            # ---------------------------------------------------------
+            # Explicitly release child COM proxies BEFORE closing the
+            # document / terminating the Visio COM server.
+            #
+            # win32com proxies can otherwise outlive Visio.Quit().
+            # Accessing/releasing those disconnected proxies during
+            # Python cleanup can produce RPC_E_DISCONNECTED (0x80010108)
+            # and, in some pywin32/Office combinations, a fatal process
+            # exception rather than a normal Python exception.
+            # ---------------------------------------------------------
+
+            try:
+                text_box = None
+            except Exception:
+                pass
+
+            try:
+                src_page = None
+            except Exception:
+                pass
+
+            try:
+                page_sheet = None
+            except Exception:
+                pass
+
+            try:
+                s = None
+            except Exception:
+                pass
+
+            try:
+                page = None
+            except Exception:
+                pass
+
+            # Close the document while the Visio application is alive.
             doc.Close()
             doc = None
 
+            # Now terminate Visio.
             visio.Quit()
             visio = None
+
+            # Encourage immediate destruction of any remaining Python
+            # COM wrappers while COM is still initialized on this thread.
+            import gc
+            gc.collect()
 
             self.ui_log_msg.emit(
                 f"✅ Saved: {vsdx_path.name}"
