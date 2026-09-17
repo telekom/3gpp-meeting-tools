@@ -10,11 +10,11 @@ set "PYTHONPATH=%CD%;%CD%\src;%PYTHONPATH%"
 echo ====================================================
 echo Starting 3GPP Delegate Tools...
 echo Root Directory : %CD%
-py -3.11 --version
+py -3.14 --version
 echo ====================================================
 
 :: Run application
-py -3.11 -m main_tools
+py -3.14 -m main_tools
 
 :: Only pause if the application crashed or closed with an error code
 if %ERRORLEVEL% NEQ 0 (
