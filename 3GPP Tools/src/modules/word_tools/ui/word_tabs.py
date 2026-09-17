@@ -21,7 +21,6 @@ from PyQt5.QtWidgets import (
 )
 import win32com.client
 import pythoncom
-
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     InteractiveDropLabel
@@ -37,7 +36,6 @@ from modules.word_tools.core.libreoffice_converter import (
 
 class DocumentSelectorPane(QWidget):
     """A symmetric, reusable widget handling Local, Open, and URL inputs."""
-
     def __init__(self, title: str):
         super().__init__()
         self.title = title
@@ -55,8 +53,6 @@ class DocumentSelectorPane(QWidget):
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("selector_tabs")
-
-        # Tab 1: Local File Drop
         self.drop_tab = QWidget()
         drop_layout = QVBoxLayout(self.drop_tab)
         self.drop_zone = InteractiveDropLabel("Drop .docx here", [".docx"])
@@ -64,11 +60,9 @@ class DocumentSelectorPane(QWidget):
         drop_layout.addWidget(self.drop_zone)
         self.tabs.addTab(self.drop_tab, "📁 Local")
 
-        # Tab 2: Open Documents
         self.open_tab = QWidget()
         open_layout = QVBoxLayout(self.open_tab)
         open_layout.setSpacing(6)
-
         self.open_combo = QComboBox()
         self.refresh_btn = QPushButton("↻ Refresh Active Documents")
         self.refresh_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -80,7 +74,6 @@ class DocumentSelectorPane(QWidget):
         open_layout.addStretch()
         self.tabs.addTab(self.open_tab, "🖥️ Open Docs")
 
-        # Tab 3: URL
         self.url_tab = QWidget()
         url_layout = QVBoxLayout(self.url_tab)
         url_layout.setSpacing(6)
@@ -92,7 +85,6 @@ class DocumentSelectorPane(QWidget):
         url_layout.addWidget(self.url_input)
         url_layout.addStretch()
         self.tabs.addTab(self.url_tab, "🌐 URL")
-
         layout.addWidget(self.tabs)
         self.setLayout(layout)
         self.tabs.currentChanged.connect(self._on_tab_changed)
@@ -154,7 +146,6 @@ class WordExtractorTab(QWidget):
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(10)
 
-        # LibreOffice Status & Path Configuration Banner
         self.status_banner = QWidget()
         banner_layout = QHBoxLayout(self.status_banner)
         banner_layout.setContentsMargins(12, 8, 12, 8)
@@ -163,12 +154,10 @@ class WordExtractorTab(QWidget):
         self.banner_icon = QLabel("⚠️")
         self.banner_text = QLabel()
         self.banner_text.setWordWrap(True)
-
         self.locate_btn = QPushButton("📂 Locate Executable")
         self.locate_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.locate_btn.setToolTip("Select soffice.exe or LibreOfficePortable.exe from your disk")
         self.locate_btn.clicked.connect(self._browse_for_libreoffice)
-
         self.download_btn = QPushButton("📥 Download Portable")
         self.download_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.download_btn.clicked.connect(lambda: webbrowser.open(LIBREOFFICE_DOWNLOAD_URL))
@@ -179,10 +168,8 @@ class WordExtractorTab(QWidget):
         banner_layout.addWidget(self.download_btn)
         layout.addWidget(self.status_banner)
 
-        # Operation Switcher
         switcher_layout = QHBoxLayout()
         switcher_layout.addWidget(QLabel("<b>⚙️ Operation Type:</b>"))
-
         self.op_combo = QComboBox()
         self.op_combo.addItems([
             "Convert Legacy .doc to .docx (Explicit LibreOffice)",
@@ -195,10 +182,8 @@ class WordExtractorTab(QWidget):
         switcher_layout.addStretch()
         layout.addLayout(switcher_layout)
 
-        # Stacked Sub-Panels
         self.stack = QStackedWidget()
 
-        # Card 0: Explicit LibreOffice Drag & Drop Converter
         self.card_lo_convert = QWidget()
         lo_layout = QVBoxLayout(self.card_lo_convert)
         self.lo_drop = InteractiveDropLabel(
@@ -209,7 +194,6 @@ class WordExtractorTab(QWidget):
         lo_layout.addWidget(self.lo_drop)
         self.stack.addWidget(self.card_lo_convert)
 
-        # Card 1: Visio Extractor
         self.card_visio = QWidget()
         visio_layout = QVBoxLayout(self.card_visio)
         self.visio_drop = InteractiveDropLabel(
@@ -221,7 +205,6 @@ class WordExtractorTab(QWidget):
         visio_layout.addWidget(self.visio_drop)
         self.stack.addWidget(self.card_visio)
 
-        # Card 2: Splitter
         self.card_split = QWidget()
         split_layout = QVBoxLayout(self.card_split)
 
@@ -234,7 +217,6 @@ class WordExtractorTab(QWidget):
         form.addRow("Target Clause Prefix:", self.prefix_input)
         form.addRow("Heading Depth Hierarchy:", self.depth_input)
         split_layout.addLayout(form)
-
         self.split_drop = InteractiveDropLabel(
             "📥 Drag & Drop a .docx file here to slice it into chapters", [".docx"]
         )
@@ -249,7 +231,6 @@ class WordExtractorTab(QWidget):
         split_layout.addWidget(self.split_drop)
         self.stack.addWidget(self.card_split)
 
-        # Card 3: Word Comparator
         self.card_compare = QWidget()
         compare_layout = QVBoxLayout(self.card_compare)
         compare_layout.setSpacing(10)
@@ -260,7 +241,6 @@ class WordExtractorTab(QWidget):
         panes_layout.addWidget(self.pane_a)
         panes_layout.addWidget(self.pane_b)
         compare_layout.addLayout(panes_layout)
-
         self.keep_open_cb = QCheckBox("Keep source documents (A and B) open after comparison")
         self.keep_open_cb.setChecked(True)
         compare_layout.addWidget(self.keep_open_cb)
@@ -271,20 +251,17 @@ class WordExtractorTab(QWidget):
         compare_layout.addWidget(self.run_compare_btn)
         self.stack.addWidget(self.card_compare)
 
-        # Card 4: Generic Word Converter
         self.card_convert = QWidget()
         convert_layout = QVBoxLayout(self.card_convert)
         convert_layout.setSpacing(10)
 
         self.pane_convert = DocumentSelectorPane("📄 DOCUMENT TO CONVERT")
         convert_layout.addWidget(self.pane_convert)
-
         conv_form = QFormLayout()
         self.format_combo = QComboBox()
         self.format_combo.addItems(["PDF", "DOCX", "HTML", "XPS", "RTF", "TXT"])
         conv_form.addRow("Target Format:", self.format_combo)
         convert_layout.addLayout(conv_form)
-
         self.run_convert_btn = QPushButton("🔄 Convert Document")
         self.run_convert_btn.setObjectName("primaryBtn")
         self.run_convert_btn.clicked.connect(self._trigger_conversion)
@@ -296,13 +273,27 @@ class WordExtractorTab(QWidget):
         self.op_combo.currentIndexChanged.connect(self.stack.setCurrentIndex)
 
     def _check_libreoffice_status(self):
-        soffice_bin = find_libreoffice_executable()
-        if soffice_bin:
+        """
+        Passive status check only.
+
+        Do not start LibreOffice here. In particular, LibreOffice Portable's
+        --version path can open an interactive console that waits for Enter.
+        """
+        executable = find_libreoffice_executable()
+        if executable:
+            runtime_type = (
+                "Portable"
+                if executable.name.lower() == "libreofficeportable.exe"
+                else "Installed"
+            )
             self.status_banner.setStyleSheet(
                 "background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 6px;"
             )
             self.banner_icon.setText("🟢")
-            self.banner_text.setText(f"<b>LibreOffice Ready:</b> Using <code>{soffice_bin}</code>")
+            self.banner_text.setText(
+                f"<b>LibreOffice configured ({runtime_type}):</b> "
+                f"Using <code>{executable}</code>"
+            )
             self.banner_text.setStyleSheet("color: #065F46;")
             self.locate_btn.setText("⚙️ Change Path")
             self.download_btn.setVisible(False)
@@ -312,7 +303,8 @@ class WordExtractorTab(QWidget):
             )
             self.banner_icon.setText("⚠️")
             self.banner_text.setText(
-                "<b>LibreOffice not detected.</b> If using LibreOffice Portable, click 'Locate Executable' to select it."
+                "<b>LibreOffice not detected.</b> If using LibreOffice Portable, "
+                "click 'Locate Executable' and select <code>LibreOfficePortable.exe</code>."
             )
             self.banner_text.setStyleSheet("color: #B45309;")
             self.locate_btn.setText("📂 Locate Executable")
@@ -330,6 +322,8 @@ class WordExtractorTab(QWidget):
 
         resolved = resolve_soffice_binary(file_path)
         if resolved:
+            # Deliberately do not launch/probe it here. A real conversion is the
+            # runtime check; configuration must remain side-effect free.
             WordConfig.set_libreoffice_path(str(resolved))
             self._check_libreoffice_status()
             QMessageBox.information(
@@ -341,7 +335,7 @@ class WordExtractorTab(QWidget):
             QMessageBox.warning(
                 self,
                 "Invalid Executable",
-                "Could not locate a working 'soffice.exe' inside the selected file or its directory.\n"
+                "Could not locate LibreOffice from the selected path.\n"
                 "Please select 'soffice.exe' or 'LibreOfficePortable.exe'.",
             )
 
@@ -355,7 +349,6 @@ class WordExtractorTab(QWidget):
     def _trigger_comparison(self):
         val_a_list = self.pane_a.get_inputs()
         val_b_list = self.pane_b.get_inputs()
-
         val_a = val_a_list[0] if val_a_list else ""
         val_b = val_b_list[0] if val_b_list else ""
         keep_open = self.keep_open_cb.isChecked()
@@ -366,7 +359,6 @@ class WordExtractorTab(QWidget):
     def _trigger_conversion(self):
         source_docs = self.pane_convert.get_inputs()
         target_fmt = self.format_combo.currentText().lower()
-
         for doc in source_docs:
             if doc:
                 self.convert_doc_requested.emit(doc, target_fmt)
