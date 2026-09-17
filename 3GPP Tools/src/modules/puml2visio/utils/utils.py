@@ -44,28 +44,162 @@ def get_plantuml_version(java_exe: str, jar_path: Path) -> Optional[str]:
 
 
 def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> Path:
+    """
+    Generate an SVG with PlantUML and normalize text constructs that are
+    problematic for Microsoft Office/Visio SVG import.
+
+    PlantUML can emit SVG text runs originating from legacy PlantUML
+    <font ...> markup in forms such as:
+
+        font-family="face='Courier New'"
+        font-family="color='#006A9C'"
+
+    Browsers are tolerant of these values, but Visio's SVG importer can
+    reject the entire SVG as corrupt.
+
+    The cleanup below keeps the SVG structurally intact while normalizing
+    those malformed font-family values.
+    """
     java_exe, _ = get_best_java()
-    command = [java_exe, "-jar", str(jar_path), "-tsvg", str(puml_path)]
-    kwargs = {'creationflags': 0x08000000} if os.name == 'nt' else {}
+
+    command = [
+        java_exe,
+        "-jar",
+        str(jar_path),
+        "-tsvg",
+        str(puml_path),
+    ]
+
+    kwargs = {
+        "creationflags": 0x08000000
+    } if os.name == "nt" else {}
 
     try:
-        subprocess.run(command, check=True, capture_output=True, text=True, cwd=puml_path.parent, **kwargs)
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=puml_path.parent,
+            **kwargs
+        )
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"PlantUML Syntax Error:\n{e.stderr}")
+        raise RuntimeError(
+            f"PlantUML Syntax Error:\n{e.stderr}"
+        )
 
     svg_path = puml_path.with_suffix(".svg")
+
     if not svg_path.exists():
-        raise FileNotFoundError("PlantUML finished, but SVG was not created.")
+        raise FileNotFoundError(
+            "PlantUML finished, but SVG was not created."
+        )
 
     try:
-        with open(svg_path, 'r', encoding='utf-8') as f:
+        with open(svg_path, "r", encoding="utf-8") as f:
             svg_content = f.read()
 
-        svg_content = re.sub(r'<style\b[^>]*>.*?</style>', '', svg_content, flags=re.IGNORECASE | re.DOTALL)
-        svg_content = re.sub(r'<tspan\b[^>]*>', '', svg_content, flags=re.IGNORECASE)
-        svg_content = re.sub(r'</tspan>', '', svg_content, flags=re.IGNORECASE)
+        # ---------------------------------------------------------
+        # 1. Remove embedded CSS.
+        #
+        # Existing application behaviour retained. PlantUML puts
+        # most required presentation attributes directly onto SVG
+        # elements, while the embedded style block can contain CSS
+        # constructs that Office SVG importers do not understand.
+        # ---------------------------------------------------------
+        svg_content = re.sub(
+            r"<style\b[^>]*>.*?</style>",
+            "",
+            svg_content,
+            flags=re.IGNORECASE | re.DOTALL
+        )
 
-        pattern = re.compile(r'(<text\b[^>]*?>)(.*?)(</text>)', re.IGNORECASE | re.DOTALL)
+        # ---------------------------------------------------------
+        # 2. Normalize malformed font-family values produced from
+        #    PlantUML legacy <font> markup.
+        #
+        # Examples seen in real PlantUML output:
+        #
+        #   font-family="face='Courier New'"
+        #   font-family="color='#006A9C'"
+        #
+        # The first contains a usable font name, so preserve it.
+        # The second is not a font family at all, so remove it and
+        # allow inheritance from the surrounding SVG group.
+        # ---------------------------------------------------------
+
+        def normalize_font_family(match):
+            value = match.group(1).strip()
+
+            # PlantUML <font face="..."> can appear as:
+            #
+            #   font-family="face='Courier New'"
+            #
+            # Convert it into a real SVG font-family.
+            face_match = re.fullmatch(
+                r"""face\s*=\s*['"]([^'"]+)['"]""",
+                value,
+                flags=re.IGNORECASE
+            )
+
+            if face_match:
+                font_name = face_match.group(1).strip()
+                return f'font-family="{font_name}"'
+
+            # PlantUML <font color="..."> can incorrectly appear as:
+            #
+            #   font-family="color='#006A9C'"
+            #
+            # This is not a font family. Remove the attribute.
+            # The actual SVG text colour is carried separately by
+            # the fill attribute.
+            color_match = re.fullmatch(
+                r"""color\s*=\s*['"][^'"]+['"]""",
+                value,
+                flags=re.IGNORECASE
+            )
+
+            if color_match:
+                return ""
+
+            # Ordinary font-family attributes are preserved exactly.
+            return match.group(0)
+
+        svg_content = re.sub(
+            r'font-family="([^"]*)"',
+            normalize_font_family,
+            svg_content,
+            flags=re.IGNORECASE
+        )
+
+        # ---------------------------------------------------------
+        # 3. Preserve the existing tspan-flattening behaviour.
+        #
+        # Do this AFTER normalizing font-family so attributes that
+        # PlantUML attached to tspans can be inspected first.
+        # ---------------------------------------------------------
+        svg_content = re.sub(
+            r"<tspan\b[^>]*>",
+            "",
+            svg_content,
+            flags=re.IGNORECASE
+        )
+
+        svg_content = re.sub(
+            r"</tspan>",
+            "",
+            svg_content,
+            flags=re.IGNORECASE
+        )
+
+        # ---------------------------------------------------------
+        # 4. Preserve the existing adjacent-text merging logic.
+        # ---------------------------------------------------------
+        pattern = re.compile(
+            r"(<text\b[^>]*?>)(.*?)(</text>)",
+            re.IGNORECASE | re.DOTALL
+        )
+
         matches = list(pattern.finditer(svg_content))
 
         if matches:
@@ -80,40 +214,89 @@ def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> 
             for m in matches:
                 start = m.start()
                 end = m.end()
+
                 full_open_tag = m.group(1)
                 inner_text = m.group(2)
+
                 between = svg_content[last_end:start]
 
-                y_match = re.search(r'\by="([0-9.]+)"', full_open_tag)
-                x_match = re.search(r'\bx="([0-9.]+)"', full_open_tag)
-                tl_match = re.search(r'\btextLength="([0-9.]+)"', full_open_tag)
+                y_match = re.search(
+                    r'\by="([0-9.]+)"',
+                    full_open_tag
+                )
 
-                y_val = float(y_match.group(1)) if y_match else None
-                x_val = float(x_match.group(1)) if x_match else None
-                tl_val = float(tl_match.group(1)) if tl_match else (len(inner_text.strip()) * 7.0)
+                x_match = re.search(
+                    r'\bx="([0-9.]+)"',
+                    full_open_tag
+                )
+
+                tl_match = re.search(
+                    r'\btextLength="([0-9.]+)"',
+                    full_open_tag
+                )
+
+                y_val = (
+                    float(y_match.group(1))
+                    if y_match
+                    else None
+                )
+
+                x_val = (
+                    float(x_match.group(1))
+                    if x_match
+                    else None
+                )
+
+                tl_val = (
+                    float(tl_match.group(1))
+                    if tl_match
+                    else len(inner_text.strip()) * 7.0
+                )
 
                 should_merge = False
-                if current_y is not None and y_val == current_y and x_val is not None and current_end_x is not None:
+                gap = None
+
+                if (
+                    current_y is not None
+                    and y_val == current_y
+                    and x_val is not None
+                    and current_end_x is not None
+                ):
                     if not between.strip():
                         gap = x_val - current_end_x
+
                         if -10 <= gap <= 25:
                             should_merge = True
 
                 if should_merge:
-                    if gap > 4 and not current_text.endswith(' ') and not inner_text.startswith(' '):
+                    if (
+                        gap is not None
+                        and gap > 4
+                        and not current_text.endswith(" ")
+                        and not inner_text.startswith(" ")
+                    ):
                         current_text += " " + inner_text
                     else:
                         current_text += inner_text
+
                     current_end_x = x_val + tl_val
+
                 else:
                     if current_y is not None:
                         result.append(current_start_tag)
                         result.append(current_text)
                         result.append("</text>")
+
                     result.append(between)
 
                     current_y = y_val
-                    current_end_x = x_val + tl_val if x_val is not None else None
+
+                    current_end_x = (
+                        x_val + tl_val
+                        if x_val is not None
+                        else None
+                    )
+
                     current_start_tag = full_open_tag
                     current_text = inner_text
 
@@ -125,21 +308,86 @@ def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> 
                 result.append("</text>")
 
             result.append(svg_content[last_end:])
+
             svg_content = "".join(result)
 
-        svg_content = re.sub(r'\s*textLength="[^"]*"', '', svg_content)
-        svg_content = re.sub(r'\s*lengthAdjust="[^"]*"', '', svg_content)
-        svg_content = svg_content.replace('&#160;', ' ').replace('\xa0', ' ')
+        # ---------------------------------------------------------
+        # 5. Remove SVG text measurement hints that Visio does not
+        #    need and that can interfere with Office text sizing.
+        # ---------------------------------------------------------
+        svg_content = re.sub(
+            r'\s*textLength="[^"]*"',
+            "",
+            svg_content
+        )
 
-        with open(svg_path, 'w', encoding='utf-8') as f:
+        svg_content = re.sub(
+            r'\s*lengthAdjust="[^"]*"',
+            "",
+            svg_content
+        )
+
+        # Normalize non-breaking spaces.
+        svg_content = (
+            svg_content
+            .replace("&#160;", " ")
+            .replace("\xa0", " ")
+        )
+
+        # ---------------------------------------------------------
+        # 6. Defensive validation.
+        #
+        # Do not hand malformed XML to Visio. This gives us a
+        # useful Python error instead of Visio's misleading
+        # "file is corrupt" COM exception.
+        # ---------------------------------------------------------
+        try:
+            import xml.etree.ElementTree as ET
+            ET.fromstring(svg_content)
+        except ET.ParseError as e:
+            raise RuntimeError(
+                f"Generated SVG became invalid during cleanup: {e}"
+            ) from e
+
+        # ---------------------------------------------------------
+        # 7. Defensive check for the malformed PlantUML font
+        #    constructs that caused this Visio failure.
+        # ---------------------------------------------------------
+        bad_font_family = re.search(
+            r'''font-family\s*=\s*["'][^"']*
+                (?:face|color)\s*=''',
+            svg_content,
+            flags=re.IGNORECASE | re.VERBOSE
+        )
+
+        if bad_font_family:
+            raise RuntimeError(
+                "Generated SVG still contains a malformed "
+                "PlantUML font-family attribute."
+            )
+
+        with open(svg_path, "w", encoding="utf-8") as f:
             f.write(svg_content)
 
     except Exception as e:
+        # IMPORTANT:
+        #
+        # The old implementation swallowed cleanup failures and
+        # returned the SVG anyway. That can subsequently produce
+        # Visio's opaque 'file is corrupt' error.
+        #
+        # Cleanup errors should therefore be fatal.
         if log_callback:
-            log_callback(f"⚠️ Warning: Could not clean SVG text attributes: {e}", logging.WARNING)
+            log_callback(
+                f"❌ SVG cleanup failed: {e}",
+                logging.ERROR
+            )
+
+        raise RuntimeError(
+            f"SVG cleanup failed: {e}"
+        ) from e
 
     return svg_path
-
 
 def encode_plantuml(text: str) -> str:
     compressor = zlib.compressobj(level=9, wbits=-15)
