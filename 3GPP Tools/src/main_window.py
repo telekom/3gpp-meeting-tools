@@ -542,7 +542,11 @@ class DragDropUI(QMainWindow):
         elif out_path and out_path.startswith("MEETINGS_DB"):
             self.log_message("🔄 Reloading meetings table...", logging.INFO)
             if hasattr(self, 'meetings_tab'):
-                self.meetings_tab._populate_filters()
+                # Only Phase 1 can discover/add meeting folders and therefore
+                # potentially change the available WG choices. Phases 2 and 3
+                # update Docs/DynaReport metadata only.
+                if out_path == "MEETINGS_DB_PHASE_1":
+                    self.meetings_tab._populate_filters()
                 self.meetings_tab.refresh_table()
 
         elif out_path:
