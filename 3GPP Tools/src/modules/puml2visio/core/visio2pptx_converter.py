@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pythoncom
 import win32com.client
+import gc
 from PyQt5.QtCore import QThread, pyqtSignal
 
 logger = logging.getLogger(__name__)
@@ -30,9 +31,15 @@ class VisioToPptxConverterThread(QThread):
         visio_app = None
         ppt_app = None
         emf_paths = []
+        doc = None
+        page = None
+        pres = None
+        slide = None
+        shape = None
+        sr = None
 
         try:
-            self._emit_log(f"\n⚙️ Starting Visio to PowerPoint conversion for: {self.vsdx_path.name}")
+            self._emit_log(f"⚙️ Starting Visio to PowerPoint conversion for: {self.vsdx_path.name}")
 
             # ---------------------------------------------------------
             # PHASE 1: Optimize Canvas and Export to EMF
@@ -58,10 +65,13 @@ class VisioToPptxConverterThread(QThread):
                 self._emit_log(f"   -> Optimized and exported Page {i} to temporary EMF.")
 
             # Tell Visio the document is "saved" so it closes cleanly without prompting
+            page = None
             doc.Saved = True
             doc.Close()
+            doc = None
             visio_app.Quit()
             visio_app = None
+            gc.collect()
 
             # ---------------------------------------------------------
             # PHASE 2: Import EMFs into PowerPoint and Ungroup
@@ -127,9 +137,14 @@ class VisioToPptxConverterThread(QThread):
                     raise PermissionError(f"Please close {pptx_path.name} in PowerPoint before converting.")
 
             pres.SaveAs(str(pptx_path.resolve()))
+            sr = None
+            shape = None
+            slide = None
             pres.Close()
+            pres = None
             ppt_app.Quit()
             ppt_app = None
+            gc.collect()
 
             self._emit_log(f"✅ Success! Saved as: {pptx_path.name}")
             self.finished_path.emit(str(pptx_path.resolve()))
@@ -144,16 +159,31 @@ class VisioToPptxConverterThread(QThread):
                         emf.unlink()
                     except:
                         pass
-            if visio_app:
+            sr = None
+            shape = None
+            slide = None
+            pres = None
+            page = None
+            if doc is not None:
+                try:
+                    doc.Saved = True
+                    doc.Close()
+                except Exception:
+                    pass
+                doc = None
+            if visio_app is not None:
                 try:
                     visio_app.Quit()
-                except:
+                except Exception:
                     pass
-            if ppt_app:
+                visio_app = None
+            if ppt_app is not None:
                 try:
                     ppt_app.Quit()
-                except:
+                except Exception:
                     pass
+                ppt_app = None
+            gc.collect()
             pythoncom.CoUninitialize()
 
     def _apply_canvas_fixes(self, page):

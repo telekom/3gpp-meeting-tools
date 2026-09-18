@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pythoncom
 import win32com.client
+import gc
 from PyQt5.QtCore import QThread, pyqtSignal
 
 logger = logging.getLogger(__name__)
@@ -28,9 +29,13 @@ class PptxToVisioConverterThread(QThread):
         ppt_app = None
         visio_app = None
         emf_paths = []
+        pres = None
+        slide = None
+        doc = None
+        page = None
 
         try:
-            self._emit_log(f"\n⚙️ Starting PowerPoint to Visio conversion for: {self.pptx_path.name}")
+            self._emit_log(f"⚙️ Starting PowerPoint to Visio conversion for: {self.pptx_path.name}")
 
             # ---------------------------------------------------------
             # PHASE 1: Export Slides from PowerPoint to EMF
@@ -48,9 +53,11 @@ class PptxToVisioConverterThread(QThread):
                 emf_paths.append(emf_file)
                 self._emit_log(f"   -> Exported Slide {i + 1} to temporary EMF.")
 
+            slide = None
             pres.Close()
+            pres = None
             ppt_app.Quit()
-            ppt_app = None  # Clear reference
+            ppt_app = None
 
             # ---------------------------------------------------------
             # PHASE 2: Import EMFs into Visio and Clean Up
@@ -86,9 +93,12 @@ class PptxToVisioConverterThread(QThread):
                     raise PermissionError(f"Please close {vsdx_path.name} in Visio before converting.")
 
             doc.SaveAs(str(vsdx_path.resolve()))
+            page = None
             doc.Close()
+            doc = None
             visio_app.Quit()
             visio_app = None
+            gc.collect()
 
             self._emit_log(f"✅ Success! Saved as: {vsdx_path.name}")
             self.finished_path.emit(str(vsdx_path.resolve()))
@@ -106,16 +116,28 @@ class PptxToVisioConverterThread(QThread):
                         pass
 
             # Failsafe COM cleanup
-            if ppt_app:
+            slide = None
+            pres = None
+            page = None
+            if doc is not None:
+                try:
+                    doc.Close()
+                except Exception:
+                    pass
+                doc = None
+            if ppt_app is not None:
                 try:
                     ppt_app.Quit()
-                except:
+                except Exception:
                     pass
-            if visio_app:
+                ppt_app = None
+            if visio_app is not None:
                 try:
                     visio_app.Quit()
-                except:
+                except Exception:
                     pass
+                visio_app = None
+            gc.collect()
             pythoncom.CoUninitialize()
 
     def _emit_log(self, message: str, level: int = logging.INFO):
