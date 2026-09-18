@@ -6,6 +6,8 @@ import pythoncom
 import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
+logger = logging.getLogger(__name__)
+
 
 class PptxToVisioConverterThread(QThread):
     """
@@ -92,7 +94,7 @@ class PptxToVisioConverterThread(QThread):
             self.finished_path.emit(str(vsdx_path.resolve()))
 
         except Exception as e:
-            self._emit_log(f"❌ Conversion Error: {str(e)}")
+            self._emit_log(f"❌ Conversion Error: {str(e)}", logging.ERROR)
             self.finished_path.emit("")
         finally:
             # Clean up temporary EMFs
@@ -116,10 +118,9 @@ class PptxToVisioConverterThread(QThread):
                     pass
             pythoncom.CoUninitialize()
 
-    def _emit_log(self, message: str):
-        """Helper to emit logs to the UI."""
-        logging.info(message)
-        self.ui_log_msg.emit(message)
+    def _emit_log(self, message: str, level: int = logging.INFO):
+        """Route conversion output through the central Python logger."""
+        logger.log(level, message)
 
     def _apply_canvas_fixes(self, page):
         """Reuses the proven ungrouping and text shrinkage logic from PlantUML conversions."""

@@ -6,6 +6,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.ai.ollama_client import OllamaClient
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES, COMMON_STYLE
 
+logger = logging.getLogger(__name__)
+
 class CallFlowGeneratorThread(QThread):
     """Worker thread for streaming PlantUML generation from call flow text."""
     token_received = pyqtSignal(str)
@@ -34,8 +36,10 @@ class CallFlowGeneratorThread(QThread):
         ]
 
         try:
+            logger.info(f"🤖 Generating {self.diagram_type} PlantUML call flow with model '{self.model}'...")
             for token in self.client.stream_chat(model=self.model, messages=messages):
                 if self._is_cancelled:
+                    logger.info("⏹️ PlantUML call-flow generation cancelled by user.")
                     self.generation_failed.emit("Generation cancelled by user.")
                     return
                 accumulated_text.append(token)
@@ -43,11 +47,12 @@ class CallFlowGeneratorThread(QThread):
 
             raw_code = "".join(accumulated_text)
             sanitized_code = self._post_process(raw_code)
+            logger.info("✅ PlantUML call-flow generation completed.")
             self.generation_completed.emit(sanitized_code)
 
         except Exception as e:
             if not self._is_cancelled:
-                logging.error(f"[CallFlowThread] Generation failed: {e}", exc_info=True)
+                logger.error(f"[CallFlowThread] Generation failed: {e}", exc_info=True)
                 self.generation_failed.emit(str(e))
 
     def _post_process(self, text: str) -> str:

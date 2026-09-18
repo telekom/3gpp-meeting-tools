@@ -13,6 +13,8 @@ from core.network.session import NetworkSession
 from core.utils.utils import get_best_java, get_detailed_java_info
 from modules.puml2visio.config.paths import PLANTUML_URL_LATEST, PLANTUML_URL_JAVA_8
 
+logger = logging.getLogger(__name__)
+
 
 # --- CORE UTILITIES ---
 def strip_watermark(raw_text: str) -> str:
@@ -528,5 +530,4 @@ class InitializationThread(QThread):
             self.init_complete.emit(False, False)
 
     def _emit_log(self, message: str, level: int):
-        logging.log(level, message)
-        self.ui_log_msg.emit(message)
+        logger.log(level, message)

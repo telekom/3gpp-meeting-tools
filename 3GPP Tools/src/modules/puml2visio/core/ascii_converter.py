@@ -7,6 +7,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.utils import get_best_java
 
+logger = logging.getLogger(__name__)
+
 
 # ==========================================
 # --- ASCII CONVERTER THREAD ---
@@ -35,16 +37,16 @@ class AsciiConverterThread(QThread):
             if utxt_path.exists():
                 if txt_path.exists(): txt_path.unlink()
                 utxt_path.rename(txt_path)
-                self.ui_log_msg.emit("✅ Unicode Text Art generated successfully.", logging.INFO)
+                logger.info("✅ Unicode Text Art generated successfully.")
                 self.finished_path.emit(str(txt_path))
             else:
-                self.ui_log_msg.emit(
-                    "❌ Failed to generate text art. Format may not be supported for this specific diagram type.",
-                    logging.ERROR)
+                logger.error(
+                    "❌ Failed to generate text art. Format may not be supported for this specific diagram type."
+                )
                 self.finished_path.emit("")
 
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Text Conversion Error: {e}", logging.ERROR)
+            logger.error(f"❌ Text Conversion Error: {e}")
             self.finished_path.emit("")
         finally:
             self.finished.emit()

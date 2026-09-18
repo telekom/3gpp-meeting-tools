@@ -9,6 +9,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from modules.puml2visio.utils.utils import strip_watermark, generate_cleaned_svg
 from modules.puml2visio.config.paths import PLANTUML_WATERMARK
 
+logger = logging.getLogger(__name__)
+
 
 class PptxConverterThread(QThread):
     """Background thread to generate a PowerPoint slide using Visio as an EMF translator, with a native SVG fallback."""
@@ -248,5 +250,4 @@ class PptxConverterThread(QThread):
             raise RuntimeError(f"Visio EMF Export Failed: {e}")
 
     def _emit_log(self, message: str, level: int):
-        logging.log(level, message)
-        self.ui_log_msg.emit(message)
+        logger.log(level, message)
