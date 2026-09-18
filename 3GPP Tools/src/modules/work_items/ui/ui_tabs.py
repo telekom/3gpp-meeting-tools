@@ -19,6 +19,8 @@ from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import WorkItemsScraperThread, TargetedWIScraperThread
 from modules.work_items.core.wi_settings import WorkItemsSettings
 
+logger = logging.getLogger(__name__)
+
 
 class WidDelegate(QStyledItemDelegate):
     """Renders the Latest WID as a clickable hyperlink using the common palette."""
@@ -928,6 +930,7 @@ class WorkItemsTab(QWidget):
             dialog.exec_()
 
     def _start_sync(self):
+        logger.info("🔄 [Work Items] Starting full Work Items synchronization.")
         self.sync_btn.setEnabled(False)
         self.sync_btn.setText("⏳ Syncing...")
         self.progress_bar.setVisible(True)
@@ -944,6 +947,11 @@ class WorkItemsTab(QWidget):
         self.status_lbl.setText(msg)
 
     def _on_sync_finished(self, success: bool, msg: str):
+        if success:
+            logger.info(f"✅ [Work Items] {msg}")
+        else:
+            logger.error(f"❌ [Work Items] {msg}")
+
         self.sync_btn.setEnabled(True)
         self.sync_btn.setText("🔄 Sync 3GPP WIs")
         self.progress_bar.setVisible(False)
@@ -1046,6 +1054,7 @@ class WorkItemsTab(QWidget):
                 self._start_targeted_sync(wi_code_list)
 
     def _start_targeted_sync(self, wi_codes: list):
+        logger.info(f"🔄 [Work Items] Starting targeted update for {len(wi_codes)} WI(s): {wi_codes}")
         self.sync_btn.setEnabled(False)
         self.sync_btn.setText("⏳ Updating...")
         self.progress_bar.setVisible(True)
