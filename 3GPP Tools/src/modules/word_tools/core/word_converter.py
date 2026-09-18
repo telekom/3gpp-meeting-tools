@@ -29,6 +29,8 @@ from modules.word_tools.core.word_media_repair import (
     list_legacy_metafiles,
 )
 
+logger = logging.getLogger(__name__)
+
 # Word WdSaveFormat Constants
 WD_FORMAT_DOC = 0
 WD_FORMAT_XML_DOCX = 12      # wdFormatXMLDocument (.docx)
@@ -477,10 +479,10 @@ class WordConverterThread(QThread):
 
         if input_str.startswith("http://") or input_str.startswith("https://"):
             if "sharepoint.com" in input_str.lower() or "onedrive" in input_str.lower():
-                self.ui_log_msg.emit("🔗 Corporate link detected. Delegating authentication to MS Word...", logging.INFO)
+                self._log("🔗 Corporate link detected. Delegating authentication to MS Word...", logging.INFO)
                 return input_str.split("?")[0] if "?web=" in input_str else input_str
 
-            self.ui_log_msg.emit("⏳ Downloading document via proxy...", logging.INFO)
+            self._log("⏳ Downloading document via proxy...", logging.INFO)
             import requests
             r = requests.get(input_str, allow_redirects=True, proxies=get_proxies(), timeout=30)
             r.raise_for_status()
@@ -501,11 +503,11 @@ class WordConverterThread(QThread):
             # 1. Explicit LibreOffice Engine Request
             if self.engine == "libreoffice" or (source.suffix.lower() == ".doc" and self.target_format == "docx_libreoffice"):
                 if not is_libreoffice_available():
-                    self.ui_log_msg.emit(get_libreoffice_missing_msg(), logging.ERROR)
+                    self._log(get_libreoffice_missing_msg(), logging.ERROR)
                     return
-                self.ui_log_msg.emit(f"⏳ Converting '{source.name}' to .{self.target_format} using Headless LibreOffice...", logging.INFO)
+                self._log(f"⏳ Converting '{source.name}' to .{self.target_format} using Headless LibreOffice...", logging.INFO)
                 out_path = convert_document_libreoffice(source, target_format=self.target_format)
-                self.ui_log_msg.emit(f"✅ Conversion complete: {out_path.name}", logging.INFO)
+                self._log(f"✅ Conversion complete: {out_path.name}", logging.INFO)
                 self.finished_path.emit(str(out_path))
                 return
 
@@ -525,7 +527,7 @@ class WordConverterThread(QThread):
                         if repaired:
                             return
                     except Exception as repair_err:
-                        self.ui_log_msg.emit(
+                        self._log(
                             f"⚠️ Legacy-graphic PDF repair did not recover the export "
                             f"({repair_err}).",
                             logging.WARNING,
@@ -536,7 +538,7 @@ class WordConverterThread(QThread):
                     and is_libreoffice_available()
                     and self.target_format in ("docx", "pdf", "html", "rtf", "txt")
                 ):
-                    self.ui_log_msg.emit(
+                    self._log(
                         f"⚠️ Word COM conversion failed ({word_err}). "
                         f"Initiating LibreOffice fallback...",
                         logging.WARNING,
@@ -544,7 +546,7 @@ class WordConverterThread(QThread):
                     out_path = convert_document_libreoffice(
                         source, target_format=self.target_format
                     )
-                    self.ui_log_msg.emit(
+                    self._log(
                         f"✅ Conversion complete (via LibreOffice): {out_path.name}",
                         logging.INFO,
                     )
@@ -553,7 +555,7 @@ class WordConverterThread(QThread):
                     raise word_err
 
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Conversion Error: {str(e)}", logging.ERROR)
+            self._log(f"❌ Conversion Error: {str(e)}", logging.ERROR)
         finally:
             self.finished.emit()
 
@@ -567,14 +569,14 @@ class WordConverterThread(QThread):
         """
         media = list_legacy_metafiles(source)
         if not media:
-            self.ui_log_msg.emit(
+            self._log(
                 "ℹ️ Word PDF export failed, but the DOCX contains no EMF/WMF "
                 "graphics to repair.",
                 logging.INFO,
             )
             return False
 
-        self.ui_log_msg.emit(
+        self._log(
             f"⚠️ Word PDF export failed ({original_error}). "
             f"Found {len(media)} legacy EMF/WMF graphic(s).",
             logging.WARNING,
@@ -587,7 +589,7 @@ class WordConverterThread(QThread):
 
         try:
             def ui_log(message: str) -> None:
-                self.ui_log_msg.emit(message, logging.INFO)
+                self._log(message, logging.INFO)
 
             replacements = create_pdf_safe_docx(
                 source_docx=source,
@@ -598,7 +600,7 @@ class WordConverterThread(QThread):
             if not replacements:
                 return False
 
-            self.ui_log_msg.emit(
+            self._log(
                 "⏳ Retrying Word PDF export once using the temporary "
                 "PDF-safe document...",
                 logging.INFO,
@@ -621,7 +623,7 @@ class WordConverterThread(QThread):
             shutil.copy2(repaired_pdf, final_target)
             _sanitize_file_attributes(final_target)
 
-            self.ui_log_msg.emit(
+            self._log(
                 f"✅ PDF conversion recovered after rasterizing "
                 f"{len(replacements)} legacy EMF/WMF graphic(s) in the "
                 f"temporary conversion copy. Original DOCX was not modified.",
@@ -650,7 +652,7 @@ class WordConverterThread(QThread):
             if self.target_format not in self.FORMAT_MAP:
                 raise ValueError(f"Unsupported conversion format: {self.target_format}")
 
-            self.ui_log_msg.emit(f"⏳ Spawning Word Converter Engine for {out_name}...", logging.INFO)
+            self._log(f"⏳ Spawning Word Converter Engine for {out_name}...", logging.INFO)
             word = win32com.client.DispatchEx("Word.Application")
             word.Visible = False
             word.DisplayAlerts = 0
@@ -687,7 +689,7 @@ class WordConverterThread(QThread):
             except Exception:
                 pass
 
-            self.ui_log_msg.emit(f"⏳ Converting and saving {out_name} to {self.target_format}...", logging.INFO)
+            self._log(f"⏳ Converting and saving {out_name} to {self.target_format}...", logging.INFO)
 
             if self.target_format in ("pdf", "xps"):
                 export_format = WD_FORMAT_PDF if self.target_format == "pdf" else WD_FORMAT_XPS
@@ -744,5 +746,16 @@ class WordConverterThread(QThread):
             doc = None
 
         if success:
-            self.ui_log_msg.emit(f"✅ Conversion complete: {out_name}", logging.INFO)
+            self._log(f"✅ Conversion complete: {out_name}", logging.INFO)
             self.finished_path.emit(out_path)
+
+    def _log(self, message: str, level: int = logging.INFO) -> None:
+        """
+        Send worker output through the application's central logging pipeline.
+
+        The root logging handlers send the same LogRecord to:
+          - CLI
+          - 3gpp_tools.log
+          - GuiLogHandler / application console
+        """
+        logger.log(level, message)

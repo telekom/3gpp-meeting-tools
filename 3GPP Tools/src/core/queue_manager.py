@@ -76,10 +76,25 @@ class QueueManager(QObject):
             self.processing_state_changed.emit(False, "🟢 System Idle.")
 
     def _route_log(self, *args):
-        if len(args) == 1:
-            self.log_msg.emit(args[0], logging.INFO)
-        elif len(args) >= 2:
-            self.log_msg.emit(args[0], args[1])
+        """
+        Routes worker-thread UI log signals into the application's central
+        Python logging pipeline.
+
+        Python logging is the single source of truth for terminal, file, and
+        GUI output. GuiLogHandler forwards the same LogRecord to ConsolePanel.
+        """
+        if not args:
+            return
+
+        message = str(args[0])
+        level = args[1] if len(args) >= 2 else logging.INFO
+
+        try:
+            level = int(level)
+        except (TypeError, ValueError):
+            level = logging.INFO
+
+        logging.log(level, message)
 
     def add_item(self, file_path: Path, target_format: str, params: dict = None):
         if target_format not in _TASK_REGISTRY:

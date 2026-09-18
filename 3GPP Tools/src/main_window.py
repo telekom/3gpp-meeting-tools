@@ -40,7 +40,7 @@ from modules.puml2visio.ui.java_dialog import JavaMaintenanceDialog
 
 
 class DragDropUI(QMainWindow):
-    def __init__(self):
+    def __init__(self, gui_log_handler=None):
         super().__init__()
         self.setWindowTitle("3GPP Delegate Tools")
         self.setWindowIcon(create_app_icon())
@@ -57,11 +57,31 @@ class DragDropUI(QMainWindow):
         self._setup_ui()
         logging.info("🏁 [STARTUP:UI] _setup_ui() finished successfully.")
 
-        # Global GUI Logger
-        self.gui_logger = GuiLogHandler()
-        self.gui_logger.setFormatter(logging.Formatter('%(message)s'))
-        logging.getLogger().addHandler(self.gui_logger)
-        self.gui_logger.log_emitted.connect(self.console_panel.log_message)
+        # ==========================================
+        # --- GLOBAL GUI LOGGER ---
+        # ==========================================
+        #
+        # main_tools normally creates GuiLogHandler before application startup
+        # so that logs generated before ConsolePanel exists are not lost.
+        #
+        # Keep a fallback here so DragDropUI can still be instantiated directly
+        # by development tools or other callers without having to provide a
+        # handler explicitly.
+        if gui_log_handler is None:
+            self.gui_logger = GuiLogHandler()
+            self.gui_logger.setLevel(logging.NOTSET)
+            self.gui_logger.setFormatter(
+                logging.Formatter("%(message)s")
+            )
+            logging.getLogger().addHandler(self.gui_logger)
+        else:
+            self.gui_logger = gui_log_handler
+
+        # ConsolePanel now exists because _setup_ui() has completed.
+        #
+        # attach() connects the Qt signal and immediately replays all startup
+        # records that were buffered before the panel was available.
+        self.gui_logger.attach(self.console_panel.log_message)
 
         # Wire Queue Manager
         logging.info("🏁 [STARTUP:QUEUE] Initializing QueueManager...")
