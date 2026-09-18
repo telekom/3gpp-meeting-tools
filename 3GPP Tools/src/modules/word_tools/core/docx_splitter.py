@@ -10,6 +10,8 @@ from docx.oxml.text.paragraph import CT_P
 from docx.oxml.table import CT_Tbl
 from PyQt5.QtCore import QThread, pyqtSignal
 
+logger = logging.getLogger(__name__)
+
 
 class DocxSplitter:
     def __init__(self, file_path: str):
@@ -171,13 +173,13 @@ class DocxSplitterThread(QThread):
     def _on_section_complete(self, section_title: str):
         """Thread-safe callback triggered every time a parallel worker finishes a file."""
         self.completed_count += 1
-        self.ui_log_msg.emit(f"   ↳ [{self.completed_count}] Extracted: {section_title}", logging.INFO)
+        logger.info(f"   ↳ [{self.completed_count}] Extracted: {section_title}")
 
     def run(self):
         try:
-            self.ui_log_msg.emit(
-                f"⏳ Initiating parallel document slicing (Prefix: '{self.prefix}', Depth: {self.depth})...",
-                logging.INFO)
+            logger.info(
+                f"⏳ Initiating parallel document slicing (Prefix: '{self.prefix}', Depth: {self.depth})..."
+            )
             output_dir = Path(self.file_path).parent / f"{Path(self.file_path).stem}_split"
 
             splitter = DocxSplitter(self.file_path)
@@ -185,10 +187,10 @@ class DocxSplitterThread(QThread):
             # Pass our callback directly into the engine
             generated_files = splitter.split(self.prefix, self.depth, str(output_dir), self._on_section_complete)
 
-            self.ui_log_msg.emit(
-                f"✅ Successfully split document into {len(generated_files)} optimized files at:\n{output_dir}",
-                logging.INFO)
+            logger.info(
+                f"✅ Successfully split document into {len(generated_files)} optimized files at:\n{output_dir}"
+            )
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Splitter Error: {str(e)}", logging.ERROR)
+            logger.error(f"❌ Splitter Error: {str(e)}")
         finally:
             self.finished.emit()

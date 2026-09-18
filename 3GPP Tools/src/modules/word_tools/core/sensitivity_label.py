@@ -9,6 +9,13 @@ from typing import Any
 
 from modules.word_tools.core.word_config import WordConfig
 
+logger = logging.getLogger(__name__)
+
+
+def _log(message: str, level: int = logging.INFO, ui_logger=None) -> None:
+    """Log through Python logging; optionally support legacy signal/logger callers."""
+    logger.log(level, message)
+
 
 class MsoAssignmentMethod(Enum):
     NOT_SET = -1  # The assignment method value is not set.
@@ -21,7 +28,7 @@ class MsoAssignmentMethod(Enum):
         try:
             return MsoAssignmentMethod(value_int)
         except Exception as e:
-            logging.warning(f'Value does not exist in Enum: {e}')
+            logger.warning(f'Value does not exist in Enum: {e}')
             return None
 
 
@@ -36,16 +43,14 @@ def set_sensitivity_label(document: Any, ui_logger=None):
 
     # ---> NEW: The Gatekeeper check
     if not config.get("enable_sensitivity_labels", False):
-        if ui_logger:
-            ui_logger.emit("   ➔ Sensitivity labels disabled in config. Skipping...", logging.DEBUG)
+        _log("   ➔ Sensitivity labels disabled in config. Skipping...", logging.DEBUG, ui_logger)
         return document
 
     label_id = config.get("sensitivity_level_label_id")
     label_name = config.get("sensitivity_level_label_name")
 
     if not label_id or not label_name:
-        if ui_logger:
-            ui_logger.emit("⚠️ Sensitivity labels enabled, but ID or Name is missing in config!", logging.WARNING)
+        _log("⚠️ Sensitivity labels enabled, but ID or Name is missing in config!", logging.WARNING, ui_logger)
         return document
 
     did_something = False
@@ -58,8 +63,7 @@ def set_sensitivity_label(document: Any, ui_logger=None):
         assignment_method = MsoAssignmentMethod.from_int(sensitivity_label.AssignmentMethod)
 
         if assignment_method == MsoAssignmentMethod.NOT_SET:
-            if ui_logger:
-                ui_logger.emit(f"   ➔ Applying corporate Sensitivity Label: {label_name}...", logging.INFO)
+            _log(f"   ➔ Applying corporate Sensitivity Label: {label_name}...", logging.INFO, ui_logger)
 
             did_something = True
             new_sl = document.SensitivityLabel.CreateLabelInfo()
@@ -79,13 +83,11 @@ def set_sensitivity_label(document: Any, ui_logger=None):
             if config.get("save_document_after_setting_sensitivity_label"):
                 document.Save()
         else:
-            if ui_logger:
-                ui_logger.emit(f"   ➔ Sensitivity label already set. Skipping...", logging.DEBUG)
+            _log(f"   ➔ Sensitivity label already set. Skipping...", logging.DEBUG, ui_logger)
 
     except Exception as e:
-        if ui_logger:
-            ui_logger.emit(f"⚠️ Could not set sensitivity label (Feature may be disabled): {e}", logging.WARNING)
+        _log(f"⚠️ Could not set sensitivity label (Feature may be disabled): {e}", logging.WARNING, ui_logger)
         if did_something:
-            traceback.print_exc()
+            logger.exception("Sensitivity label operation failed after modifying the label.")
 
     return document

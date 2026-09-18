@@ -8,6 +8,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.utils import get_proxies
 
+logger = logging.getLogger(__name__)
+
 
 class WordComparatorThread(QThread):
     ui_log_msg = pyqtSignal(str, int)
@@ -26,13 +28,13 @@ class WordComparatorThread(QThread):
 
         if input_str.startswith("http://") or input_str.startswith("https://"):
             if "sharepoint.com" in input_str.lower() or "onedrive" in input_str.lower():
-                self.ui_log_msg.emit(
-                    f"🔗 Corporate link detected for Document {doc_label}. Delegating secure authentication to MS Word...",
-                    logging.INFO)
+                logger.info(
+                    f"🔗 Corporate link detected for Document {doc_label}. Delegating secure authentication to MS Word..."
+                )
                 clean_url = input_str.split("?")[0] if "?web=" in input_str else input_str
                 return clean_url
 
-            self.ui_log_msg.emit(f"⏳ Downloading Document {doc_label} via proxy...", logging.INFO)
+            logger.info(f"⏳ Downloading Document {doc_label} via proxy...")
             import requests
             proxies = get_proxies()
             r = requests.get(input_str, allow_redirects=True, proxies=proxies, timeout=30)
@@ -53,19 +55,19 @@ class WordComparatorThread(QThread):
         try:
             pythoncom.CoInitialize()
 
-            self.ui_log_msg.emit("⏳ Step 1: Initializing paths...", logging.INFO)
+            logger.info("⏳ Step 1: Initializing paths...")
             path_a = self._resolve_path(self.doc_a, "A")
             path_b = self._resolve_path(self.doc_b, "B")
 
             file_a_name = Path(path_a).name
             file_b_name = Path(path_b).name
-            self.ui_log_msg.emit(f"   ➔ Doc A (Base): {file_a_name}", logging.INFO)
-            self.ui_log_msg.emit(f"   ➔ Doc B (Rev) : {file_b_name}", logging.INFO)
+            logger.info(f"   ➔ Doc A (Base): {file_a_name}")
+            logger.info(f"   ➔ Doc B (Rev) : {file_b_name}")
 
             if Path(path_a).resolve() == Path(path_b).resolve():
-                self.ui_log_msg.emit("⚠️ WARNING: Document A and Document B are the exact same file!", logging.WARNING)
+                logger.warning("⚠️ WARNING: Document A and Document B are the exact same file!")
 
-            self.ui_log_msg.emit("⏳ Step 2: Creating local sandbox copies...", logging.INFO)
+            logger.info("⏳ Step 2: Creating local sandbox copies...")
             import shutil
             import os
             import stat
@@ -83,7 +85,7 @@ class WordComparatorThread(QThread):
             os.chmod(temp_path_a, stat.S_IWRITE)
             os.chmod(temp_path_b, stat.S_IWRITE)
 
-            self.ui_log_msg.emit("⏳ Step 3: Spawning Native Word Diff Engine...", logging.INFO)
+            logger.info("⏳ Step 3: Spawning Native Word Diff Engine...")
             word = win32com.client.Dispatch("Word.Application")
             word.Visible = True
 
@@ -96,10 +98,10 @@ class WordComparatorThread(QThread):
             # Disable alerts so InsertFile doesn't throw hidden "conversion" popups
             word.DisplayAlerts = 0
 
-            self.ui_log_msg.emit("⏳ Step 4: Bypassing corporate locks via Skeleton Key...", logging.INFO)
+            logger.info("⏳ Step 4: Bypassing corporate locks via Skeleton Key...")
 
             def process_sandbox_doc(filepath, label, original_filename):
-                self.ui_log_msg.emit(f"   ➔ Extracting Doc {label} into unlocked container...", logging.INFO)
+                logger.info(f"   ➔ Extracting Doc {label} into unlocked container...")
 
                 # 1. Create a pristine, completely unlocked blank document
                 doc = word.Documents.Add()
@@ -113,7 +115,7 @@ class WordComparatorThread(QThread):
 
                 # ---> NEW: Apply Sensitivity Label BEFORE saving to prevent IT popup blockers!
                 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
-                set_sensitivity_label(doc, self.ui_log_msg)
+                set_sensitivity_label(doc)
 
                 # 4. Save the document using the exact original filename
                 save_dir = temp_dir / f"unlocked_{label}"
@@ -127,7 +129,7 @@ class WordComparatorThread(QThread):
             doc_original = process_sandbox_doc(temp_path_a, "A", file_a_name)
             doc_revised = process_sandbox_doc(temp_path_b, "B", file_b_name)
 
-            self.ui_log_msg.emit("⏳ Step 5: Executing CompareDocuments engine...", logging.INFO)
+            logger.info("⏳ Step 5: Executing CompareDocuments engine...")
 
             # Restore alerts for the user
             word.DisplayAlerts = -1
@@ -144,7 +146,7 @@ class WordComparatorThread(QThread):
                 CompareFields=True
             )
 
-            self.ui_log_msg.emit("⏳ Step 6: Closing source documents...", logging.INFO)
+            logger.info("⏳ Step 6: Closing source documents...")
             try:
                 doc_original.Close(SaveChanges=False)
                 doc_revised.Close(SaveChanges=False)
@@ -157,16 +159,16 @@ class WordComparatorThread(QThread):
                 cmp_doc.Activate()
             word.Activate()
 
-            self.ui_log_msg.emit("✅ Comparison generated successfully!", logging.INFO)
+            logger.info("✅ Comparison generated successfully!")
 
         except Exception as e:
             import traceback
             err_trace = traceback.format_exc()
-            self.ui_log_msg.emit(f"❌ Comparison Error: {str(e)}\n\nTraceback:\n{err_trace}", logging.ERROR)
-            print(f"Detailed Comparison Traceback:\n{err_trace}")
+            logger.error(f"❌ Comparison Error: {str(e)}\n\nTraceback:\n{err_trace}")
+
 
         finally:
-            self.ui_log_msg.emit("🧹 Step 7: Cleaning up thread...", logging.INFO)
+            logger.info("🧹 Step 7: Cleaning up thread...")
 
             if word and original_security is not None:
                 try:
@@ -186,7 +188,7 @@ class WordComparatorThread(QThread):
                     import shutil
                     shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception as e:
-                print(f"Cleanup warning: {e}")
+                logger.warning(f"Cleanup warning: {e}")
 
             pythoncom.CoUninitialize()
             self.finished.emit()
