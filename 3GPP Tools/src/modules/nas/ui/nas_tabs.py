@@ -535,7 +535,15 @@ class NASTab(QWidget):
         spec_prefix = f" ({', '.join(specs)})" if specs else ""
         self.matrix_title.setText(f"Message{spec_prefix}: {msg_name}{title_suffix}")
 
-        has_appl = "applicability" in df.columns and df["applicability"].fillna("").astype(str).str.strip().ne("").any()
+        has_appl = bool(
+            "applicability" in df.columns
+            and df["applicability"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .ne("")
+            .any()
+        )
         self.interface_combo.blockSignals(True)
         self.interface_combo.setVisible(has_appl)
         if has_appl:
