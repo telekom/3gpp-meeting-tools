@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pythoncom
 import win32com.client
+import gc
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from modules.puml2visio.utils.utils import strip_watermark, generate_cleaned_svg
@@ -27,7 +28,7 @@ class PptxConverterThread(QThread):
         ppt = None
         emf_path = None
         try:
-            self._emit_log(f"\n⚙️ Generating PowerPoint slide for: {self.puml_path.name}", logging.INFO)
+            self._emit_log(f"⚙️ Generating PowerPoint slide for: {self.puml_path.name}", logging.INFO)
 
             # Step 1: Generate standard SVG from PlantUML
             svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self._emit_log)
@@ -130,15 +131,27 @@ class PptxConverterThread(QThread):
             self._emit_log(f"❌ PowerPoint COM Error: {str(e)}", logging.ERROR)
             self.finished_path.emit("")
         finally:
+            # Destroy any local COM wrappers while this thread's apartment still exists.
+            try:
+                shape = None
+                slide = None
+                pres = None
+            except Exception:
+                pass
+            gc.collect()
             pythoncom.CoUninitialize()
 
     def _create_emf_via_visio(self, svg_path: Path) -> Path:
-        """Silently uses Visio to parse the SVG, fix text padding, and export as a native Microsoft EMF."""
-        visio = win32com.client.DispatchEx("Visio.Application")
-        visio.Visible = False
-        visio.AlertResponse = 7
+        """Use an isolated Visio COM server to translate SVG to EMF safely."""
+        visio = None
         doc = None
+        page = None
+        page_sheet = None
+        s = None
         try:
+            visio = win32com.client.DispatchEx("Visio.Application")
+            visio.Visible = False
+            visio.AlertResponse = 7
             doc = visio.Documents.Add("")
             page = doc.Pages(1)
             page.Import(str(svg_path.resolve()))
@@ -232,22 +245,36 @@ class PptxConverterThread(QThread):
 
             page.Export(str(emf_path.resolve()))
 
-            if doc: doc.Close()
+            # Release child COM proxies before closing their parent document/application.
+            s = None
+            page_sheet = None
+            page = None
+
+            doc.Close()
+            doc = None
             visio.Quit()
+            visio = None
+            gc.collect()
             return emf_path
 
         except Exception as e:
-            if doc:
+            s = None
+            page_sheet = None
+            page = None
+            if doc is not None:
                 try:
                     doc.Close()
-                except:
+                except Exception:
                     pass
-            if visio:
+                doc = None
+            if visio is not None:
                 try:
                     visio.Quit()
-                except:
+                except Exception:
                     pass
-            raise RuntimeError(f"Visio EMF Export Failed: {e}")
+                visio = None
+            gc.collect()
+            raise RuntimeError(f"Visio EMF Export Failed: {e}") from e
 
     def _emit_log(self, message: str, level: int):
         logger.log(level, message)

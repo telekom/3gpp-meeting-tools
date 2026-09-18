@@ -24,6 +24,8 @@ class VisioReaderThread(QThread):
     def run(self):
         pythoncom.CoInitialize()
         visio = None
+        doc = None
+        page = None
         try:
             visio = win32com.client.DispatchEx("Visio.Application")
             visio.Visible = False
@@ -39,15 +41,30 @@ class VisioReaderThread(QThread):
                         source_code = strip_watermark(raw_text)
                     break
 
+            page = None
             doc.Close()
+            doc = None
             visio.Quit()
+            visio = None
 
             if source_code:
                 self.text_extracted.emit(source_code)
             else:
                 self.error_occurred.emit("Could not find 'PlantUML Source' page in this Visio file.")
         except Exception as e:
-            if visio: visio.Quit()
+            page = None
+            if doc is not None:
+                try:
+                    doc.Close()
+                except Exception:
+                    pass
+                doc = None
+            if visio is not None:
+                try:
+                    visio.Quit()
+                except Exception:
+                    pass
+                visio = None
             self.error_occurred.emit(f"Error reading Visio file: {str(e)}")
         finally:
             # Destroy any remaining win32com wrappers while this
@@ -68,7 +85,7 @@ class ConverterThread(QThread):
     def run(self):
         pythoncom.CoInitialize()
         try:
-            self._emit_log(f"\n⚙️ Processing: {self.puml_path.name}", logging.INFO)
+            self._emit_log(f"⚙️ Processing: {self.puml_path.name}", logging.INFO)
 
             svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self._emit_log)
             self._sanitize_svg_for_visio(svg_path)  # Clean SVG before Visio import
@@ -84,6 +101,7 @@ class ConverterThread(QThread):
             self._emit_log(f"❌ Error: {str(e)}\n{'-' * 45}", logging.ERROR)
             self.finished_path.emit("")
         finally:
+            gc.collect()
             pythoncom.CoUninitialize()
 
     def _sanitize_svg_for_visio(self, svg_path: Path) -> None:
@@ -559,6 +577,9 @@ class ConverterThread(QThread):
                     visio.Quit()
                 except Exception:
                     pass
+                visio = None
+
+            gc.collect()
 
             raise RuntimeError(
                 f"Visio COM Error: {e}"
@@ -579,7 +600,7 @@ class SvgConverterThread(QThread):
 
     def run(self):
         try:
-            self._emit_log(f"\n⚙️ Generating SVG for: {self.puml_path.name}")
+            self._emit_log(f"⚙️ Generating SVG for: {self.puml_path.name}")
 
             svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self._emit_log)
 
