@@ -386,6 +386,27 @@ class MeetingsTab(QWidget):
         global_search_layout.addWidget(self.btn_open_tdoc)
         global_search_layout.addWidget(self.btn_open_meeting)
         jump_layout.addLayout(global_search_layout)
+
+        # Shown only when strict Quick TDoc Jump cannot resolve the document
+        # and same-year meetings have incomplete Docs-derived TDoc metadata.
+        self.tdoc_metadata_warning = QLabel()
+        self.tdoc_metadata_warning.setWordWrap(True)
+        self.tdoc_metadata_warning.setStyleSheet(
+            "color: #B45309; font-size: 10px; border: none; background: transparent;"
+        )
+        self.tdoc_metadata_warning.setVisible(False)
+        jump_layout.addWidget(self.tdoc_metadata_warning)
+
+        self.btn_update_tdoc_metadata = QPushButton("🔄 Update TDoc metadata")
+        self.btn_update_tdoc_metadata.setStyleSheet(BUTTON_STYLE_TOOLBAR_WARNING)
+        self.btn_update_tdoc_metadata.setFixedHeight(26)
+        self.btn_update_tdoc_metadata.setVisible(False)
+        self.btn_update_tdoc_metadata.setToolTip(
+            "Deep-scrape the Docs/ folders of the affected meetings to rebuild their first/last TDoc ranges."
+        )
+        self.btn_update_tdoc_metadata.clicked.connect(self._update_incomplete_tdoc_metadata)
+        jump_layout.addWidget(self.btn_update_tdoc_metadata)
+
         right_layout.addWidget(jump_frame)
 
         # 3. Filter & Search Controls
@@ -535,6 +556,72 @@ class MeetingsTab(QWidget):
         self.splitter.setSizes([750, 250])
         main_layout.addWidget(self.splitter)
         self._populate_filters()
+
+    def _set_tdoc_metadata_warning(self, meetings: list):
+        """Update the inline Quick TDoc Jump metadata-gap warning."""
+        if not meetings:
+            self.tdoc_metadata_warning.clear()
+            self.tdoc_metadata_warning.setVisible(False)
+            self.btn_update_tdoc_metadata.setVisible(False)
+            self.btn_update_tdoc_metadata.setEnabled(True)
+            self.btn_update_tdoc_metadata.setText("🔄 Update TDoc metadata")
+            return
+
+        refreshable = [m for m in meetings if (m.get("url_key") or "").strip()]
+        unavailable = len(meetings) - len(refreshable)
+
+        wg_name = meetings[0].get("wg_name", "")
+        start_date = meetings[0].get("start_date", "")
+        year = start_date[:4] if len(start_date) >= 4 else ""
+
+        count = len(meetings)
+        noun = "meeting" if count == 1 else "meetings"
+        message = (
+            f"⚠ No indexed TDoc range matched. {count} {wg_name} {noun}"
+            f"{f' from {year}' if year else ''} have incomplete TDoc metadata."
+        )
+        if refreshable:
+            message += " A Docs/ metadata refresh may make this TDoc discoverable."
+        if unavailable:
+            missing_noun = "meeting has" if unavailable == 1 else "meetings have"
+            message += f" {unavailable} {missing_noun} no FTP path and cannot be refreshed automatically."
+
+        self.tdoc_metadata_warning.setText(message)
+        self.tdoc_metadata_warning.setVisible(True)
+        self.btn_update_tdoc_metadata.setVisible(bool(refreshable))
+        self.btn_update_tdoc_metadata.setEnabled(bool(refreshable))
+        self.btn_update_tdoc_metadata.setText("🔄 Update TDoc metadata")
+
+    def _update_incomplete_tdoc_metadata(self):
+        """
+        Run only scraper Phase 2 for same-WG/same-year meetings whose TDoc
+        range is incomplete.
+        """
+        meetings = getattr(self.search_controller, "current_incomplete_meetings", [])
+        refreshable = [m for m in meetings if (m.get("url_key") or "").strip()]
+        if not refreshable:
+            return
+
+        targets = [
+            {"wg": meeting.get("wg_name"), "meeting": meeting.get("meeting_number")}
+            for meeting in refreshable
+            if meeting.get("wg_name") and meeting.get("meeting_number")
+        ]
+        if not targets:
+            return
+
+        self.tdoc_metadata_warning.setText(
+            f"⏳ Requested Docs/ metadata refresh for {len(targets)} "
+            f"{'meeting' if len(targets) == 1 else 'meetings'}. "
+            "Re-run the Quick TDoc Jump after synchronization completes."
+        )
+
+        # update_specific_requested(targets, sync_wg, sync_docs, sync_dyna)
+        #
+        # Do not leave this local button disabled here: MeetingsTab emits the
+        # request, but synchronization is owned by the outer meetings plugin
+        # and this controller has no completion signal to re-enable it safely.
+        self.update_specific_requested.emit(targets, False, True, False)
 
     def _open_add_meeting_dialog(self):
         dialog = AddMeetingDialog(self.db, self)

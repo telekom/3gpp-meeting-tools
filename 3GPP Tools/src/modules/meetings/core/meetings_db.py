@@ -488,28 +488,114 @@ class MeetingsDatabase:
 
         return False
 
-    def find_meeting_by_tdoc(self, tdoc_str: str) -> dict:
-        match = re.match(r'^([A-Za-z0-9]+)-?(\d+)', tdoc_str.strip(), re.IGNORECASE)
+    @staticmethod
+    def _parse_tdoc_identity(tdoc_str: str):
+        """
+        Parse a TDoc into its prefix, numeric value, encoded year, and owning WG.
+
+        3GPP TDoc numbers encode the two-digit meeting year at the start of the
+        numeric portion, e.g. S2-2605740 -> 2026.
+        """
+        match = re.match(r'^([A-Za-z0-9]+)-?(\d+)', (tdoc_str or "").strip(), re.IGNORECASE)
         if not match:
-            return {}
+            return None
 
         prefix = match.group(1).upper()
-        num = int(match.group(2))
+        numeric_str = match.group(2)
+        if len(numeric_str) < 2:
+            return None
 
-        query = '''
-            SELECT m.*, w.name as wg_name 
+        wg_map = {
+            "SP": "SA",
+            "S1": "SA1", "S2": "SA2", "S3": "SA3", "S4": "SA4", "S5": "SA5", "S6": "SA6",
+            "RP": "RAN",
+            "R1": "RAN1", "R2": "RAN2", "R3": "RAN3", "R4": "RAN4",
+            "CP": "CT",
+            "C1": "CT1", "C2": "CT2", "C3": "CT3", "C4": "CT4", "C5": "CT5", "C6": "CT6",
+        }
+        wg_name = wg_map.get(prefix)
+        if not wg_name:
+            return None
+
+        return {
+            "prefix": prefix,
+            "number": int(numeric_str),
+            "year": 2000 + int(numeric_str[:2]),
+            "wg_name": wg_name,
+        }
+
+    def find_meeting_by_tdoc(self, tdoc_str: str) -> dict:
+        """
+        Find the meeting owning a TDoc using a strict WG + year + range match.
+
+        Deliberately does not fall back to a different year: opening a document
+        from the wrong meeting is worse than reporting incomplete local metadata.
+        """
+        identity = self._parse_tdoc_identity(tdoc_str)
+        if not identity:
+            return {}
+
+        query = """
+            SELECT m.*, w.name as wg_name
             FROM meetings m
             JOIN working_groups w ON m.wg_id = w.id
-            WHERE m.first_tdoc_num <= ? AND m.last_tdoc_num >= ?
-              AND (UPPER(m.first_tdoc_prefix) = ? OR UPPER(m.last_tdoc_prefix) = ?)
-        '''
+            WHERE UPPER(w.name) = ?
+              AND SUBSTR(m.start_date, 1, 4) = ?
+              AND m.first_tdoc_num > 0
+              AND m.last_tdoc_num > 0
+              AND m.first_tdoc_num <= ?
+              AND m.last_tdoc_num >= ?
+              AND (
+                    UPPER(m.first_tdoc_prefix) = ?
+                 OR UPPER(m.last_tdoc_prefix) = ?
+              )
+            ORDER BY m.start_date DESC, m.id DESC
+            LIMIT 1
+        """
+
+        params = (
+            identity["wg_name"].upper(),
+            str(identity["year"]),
+            identity["number"],
+            identity["number"],
+            identity["prefix"],
+            identity["prefix"],
+        )
 
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute(query, (num, num, prefix, prefix))
+            cursor.execute(query, params)
             row = cursor.fetchone()
+            return dict(row) if row else {}
 
-            if row:
-                return dict(row)
-        return {}
+    def find_incomplete_tdoc_meetings(self, tdoc_str: str) -> list:
+        """
+        Return same-WG, same-year meetings whose Docs-derived TDoc range is
+        incomplete. The UI can offer a targeted Phase-2 refresh for these rows.
+        """
+        identity = self._parse_tdoc_identity(tdoc_str)
+        if not identity:
+            return []
+
+        query = """
+            SELECT m.*, w.name as wg_name
+            FROM meetings m
+            JOIN working_groups w ON m.wg_id = w.id
+            WHERE UPPER(w.name) = ?
+              AND SUBSTR(m.start_date, 1, 4) = ?
+              AND (
+                    COALESCE(m.first_tdoc_num, 0) <= 0
+                 OR COALESCE(m.last_tdoc_num, 0) <= 0
+                 OR COALESCE(TRIM(m.first_tdoc_prefix), '') = ''
+                 OR COALESCE(TRIM(m.last_tdoc_prefix), '') = ''
+              )
+            ORDER BY m.start_date ASC, m.sort_number ASC, m.id ASC
+        """
+
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, (identity["wg_name"].upper(), str(identity["year"])))
+            return [dict(row) for row in cursor.fetchall()]
+

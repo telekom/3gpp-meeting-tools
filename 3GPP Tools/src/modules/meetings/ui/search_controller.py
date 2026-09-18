@@ -9,6 +9,7 @@ class GlobalSearchController:
     def __init__(self, main_tab):
         self.tab = main_tab  # Store a reference to the main MeetingsTab
         self.current_found_meeting = None
+        self.current_incomplete_meetings = []
 
     def connect_signals(self):
         """Wires up the UI elements from the main tab."""
@@ -21,10 +22,13 @@ class GlobalSearchController:
         text = text.strip()
         match = re.match(r'^([A-Za-z0-9]+-\d+)(r\d+[a-zA-Z]?)?$', text, re.IGNORECASE)
 
+        self.current_found_meeting = None
+        self.current_incomplete_meetings = []
+        self.tab.btn_open_tdoc.setVisible(False)
+        self.tab.btn_open_meeting.setVisible(False)
+        self.tab._set_tdoc_metadata_warning([])
+
         if not match:
-            self.tab.btn_open_tdoc.setVisible(False)
-            self.tab.btn_open_meeting.setVisible(False)
-            self.current_found_meeting = None
             return
 
         meeting = self.tab.db.find_meeting_by_tdoc(text)
@@ -36,10 +40,12 @@ class GlobalSearchController:
             mtg_name = f"{meeting.get('wg_name', '')} {meeting.get('meeting_number', '')}"
             self.tab.btn_open_meeting.setToolTip(f"Open the full TDocs table for {mtg_name}")
             self.tab.btn_open_tdoc.setToolTip(f"Instantly download {text.upper()} from {mtg_name}")
-        else:
-            self.tab.btn_open_tdoc.setVisible(False)
-            self.tab.btn_open_meeting.setVisible(False)
-            self.current_found_meeting = None
+            return
+
+        # Strict lookup failed. Check same-WG/same-year meetings for missing
+        # Docs-derived first/last TDoc metadata.
+        self.current_incomplete_meetings = self.tab.db.find_incomplete_tdoc_meetings(text)
+        self.tab._set_tdoc_metadata_warning(self.current_incomplete_meetings)
 
     def action_open_tdoc_only(self):
         # 🐛 FIX: Removed the .isVisible() check. If this is triggered programmatically
