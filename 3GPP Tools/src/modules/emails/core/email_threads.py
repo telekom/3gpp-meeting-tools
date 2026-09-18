@@ -6,6 +6,8 @@ from modules.emails.core.email_parser import EmailParser
 from modules.emails.core.email_db import EmailDatabase
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 class EmailSyncThread(QThread):
     # Signals to update the UI safely
@@ -24,6 +26,10 @@ class EmailSyncThread(QThread):
         self.start_date = start_date
         self.end_date = end_date
 
+    def _report(self, message: str, level: int = logging.INFO):
+        logger.log(level, message)
+        self.log_msg.emit(message, level)
+
     def run(self):
         import pythoncom
         import datetime
@@ -37,7 +43,7 @@ class EmailSyncThread(QThread):
                 filter_start = start_dt - datetime.timedelta(days=3)
                 filter_end = end_dt + datetime.timedelta(days=4)  # +4 ensures we cover the end of the final day
 
-            self.log_msg.emit(f"Connecting to Outlook folder: {self.source_path}...", logging.INFO)
+            self._report(f"Connecting to Outlook folder: {self.source_path}...", logging.INFO)
             source_folder = OutlookClient.get_folder_by_path(self.source_path)
 
             if not source_folder:
@@ -46,7 +52,7 @@ class EmailSyncThread(QThread):
 
             items = source_folder.Items
             total_items = len(items)
-            self.log_msg.emit(f"Found {total_items} items. Scanning for 3GPP eMeeting emails...", logging.INFO)
+            self._report(f"Found {total_items} items. Scanning for 3GPP eMeeting emails...", logging.INFO)
 
             items.Sort("[ReceivedTime]", True)
 
@@ -100,11 +106,11 @@ class EmailSyncThread(QThread):
                 self.db.save_emails_batch(batch_data)
 
             self.progress_update.emit(total_items, total_items)
-            self.log_msg.emit(f"✅ Sync complete! Extracted {valid_count} valid TDoc emails.", logging.INFO)
+            self._report(f"✅ Sync complete! Extracted {valid_count} valid TDoc emails.", logging.INFO)
             self.finished.emit(True, f"Successfully synced {valid_count} emails.")
 
         except Exception as e:
-            self.log_msg.emit(f"Fatal error during sync: {str(e)}", logging.ERROR)
+            self._report(f"Fatal error during sync: {str(e)}", logging.ERROR)
             self.finished.emit(False, str(e))
         finally:
             pythoncom.CoUninitialize()
@@ -184,6 +190,10 @@ class EmailTargetRescanThread(QThread):
         self.start_date = start_date
         self.end_date = end_date
 
+    def _report(self, message: str, level: int = logging.INFO):
+        logger.log(level, message)
+        self.log_msg.emit(message, level)
+
     def run(self):
         import pythoncom
         pythoncom.CoInitialize()
@@ -197,7 +207,7 @@ class EmailTargetRescanThread(QThread):
                 filter_start = start_dt - datetime.timedelta(days=3)
                 filter_end = end_dt + datetime.timedelta(days=4)  # +4 ensures we cover the end of the final day
 
-            self.log_msg.emit(f"Scanning Target folder: {self.target_path}...", logging.INFO)
+            self._report(f"Scanning Target folder: {self.target_path}...", logging.INFO)
             target_base = OutlookClient.get_folder_by_path(self.target_path)
 
             if not target_base:
@@ -212,7 +222,7 @@ class EmailTargetRescanThread(QThread):
             for folder in folders_to_scan:
                 total_items_to_scan += len(folder.Items)
 
-            self.log_msg.emit(f"Found {total_items_to_scan} total items. Scanning...", logging.INFO)
+            self._report(f"Found {total_items_to_scan} total items. Scanning...", logging.INFO)
 
             processed_count = 0
             valid_count = 0
@@ -277,11 +287,11 @@ class EmailTargetRescanThread(QThread):
                 self.db.save_emails_batch(batch_data)
 
             self.progress_update.emit(total_items_to_scan, total_items_to_scan)
-            self.log_msg.emit(f"✅ Rescan complete! Updated {valid_count} emails.", logging.INFO)
+            self._report(f"✅ Rescan complete! Updated {valid_count} emails.", logging.INFO)
             self.finished.emit(True, f"Successfully rescanned {valid_count} Target emails.")
 
         except Exception as e:
-            self.log_msg.emit(f"Error during rescan: {str(e)}", logging.ERROR)
+            self._report(f"Error during rescan: {str(e)}", logging.ERROR)
             self.finished.emit(False, str(e))
         finally:
             pythoncom.CoUninitialize()

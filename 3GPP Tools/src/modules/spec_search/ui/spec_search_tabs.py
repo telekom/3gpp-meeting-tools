@@ -50,6 +50,8 @@ from modules.spec_search.ui.spec_search_dialogs import (
 from modules.spec_search.ui.spec_search_models import SpecEvolutionMatrixModel
 from modules.specifications.core.database import SpecsDatabase
 
+logger = logging.getLogger(__name__)
+
 
 class SpecSearchTab(QWidget):
     """Main Search Tab: Tree, Query Inputs, Cutoff Date Filter, Tabbed Evolution Matrix, and Inspector."""
@@ -476,7 +478,7 @@ class SpecSearchTab(QWidget):
         clean_paths = [p for p in paths if not is_change_mark_file(p)]
         if len(clean_paths) < len(paths):
             skipped = len(paths) - len(clean_paths)
-            self.log_msg.emit(f"ℹ️ Skipped {skipped} revision mark (-rm) file(s).", logging.INFO)
+            logger.log(logging.INFO, f"ℹ️ Skipped {skipped} revision mark (-rm) file(s).")
 
         grouped: Dict[str, List[Path]] = {}
         for fp in clean_paths:
@@ -519,13 +521,13 @@ class SpecSearchTab(QWidget):
 
     def _on_import_progress(self, msg: str, val: int):
         self.progress_bar.setValue(val)
-        self.log_msg.emit(msg, logging.INFO)
+        logger.log(logging.INFO, msg)
 
     def _on_import_success(self, specs_count: int, clauses_count: int):
         self.progress_bar.setVisible(False)
         self.fetch_btn.setEnabled(True)
         self.import_local_btn.setEnabled(True)
-        self.log_msg.emit(f"✅ Indexed {specs_count} specification(s) ({clauses_count} total clauses).", logging.INFO)
+        logger.log(logging.INFO, f"✅ Indexed {specs_count} specification(s) ({clauses_count} total clauses).")
         self.refresh_versions()
         self._save_config()
 
@@ -534,7 +536,7 @@ class SpecSearchTab(QWidget):
         self.fetch_btn.setEnabled(True)
         self.import_local_btn.setEnabled(True)
         QMessageBox.critical(self, "Indexing Error", err)
-        self.log_msg.emit(f"❌ Indexing error: {err}", logging.ERROR)
+        logger.log(logging.ERROR, f"❌ Indexing error: {err}")
 
     def _delete_single_version(self, spec_number: str, version: str):
         if QMessageBox.question(self, "Confirm Delete", f"Delete TS {spec_number} v{version}?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
@@ -602,7 +604,7 @@ class SpecSearchTab(QWidget):
         self.inspector.clear_display()
         self.matrix_title.setText("Type a query above to see Release Evolution Matrix")
         self._save_config()
-        self.log_msg.emit("🧹 Specification Search DB wiped successfully.", logging.INFO)
+        logger.log(logging.INFO, "🧹 Specification Search DB wiped successfully.")
 
     def _on_wipe_db_error(self, err: str):
         self.progress_bar.setVisible(False)
@@ -613,7 +615,7 @@ class SpecSearchTab(QWidget):
         self.clear_ver_btn.setEnabled(True)
 
         QMessageBox.critical(self, "Wipe Error", f"Failed to wipe search database: {err}")
-        self.log_msg.emit(f"❌ Wipe error: {err}", logging.ERROR)
+        logger.log(logging.ERROR, f"❌ Wipe error: {err}")
 
     def _open_clause_diff_dialog(self, spec_num: str, version: str, clause_num: str, clause_title: str):
         """Opens the interactive clause comparison dialog for LLM export."""

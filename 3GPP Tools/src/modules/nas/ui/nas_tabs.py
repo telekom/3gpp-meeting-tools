@@ -44,6 +44,8 @@ from modules.nas.ui.nas_dialogs import NASVersionSelectDialog
 from modules.nas.ui.nas_models import NASEvolutionMatrixModel
 from modules.specifications.core.database import SpecsDatabase
 
+logger = logging.getLogger(__name__)
+
 RE_SPEC_FROM_COL = re.compile(r"(?:24|29|36|38)\.[0-9]{3}")
 RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|5|D\.6)(?:\.[0-9A-Za-z]+)+)")
 
@@ -409,7 +411,7 @@ class NASTab(QWidget):
                 self.current_selected_message_name = None
                 self.refresh_versions()
                 self._save_config()
-                self.log_msg.emit(f"🗑️ Deleted TS {spec_number} v{version} from database.", logging.INFO)
+                logger.log(logging.INFO, f"🗑️ Deleted TS {spec_number} v{version} from database.")
             else:
                 QMessageBox.warning(self, "Error", f"Failed to delete TS {spec_number} v{version}.")
 
@@ -427,7 +429,7 @@ class NASTab(QWidget):
             self.current_selected_message_name = None
             self.refresh_versions()
             self._save_config()
-            self.log_msg.emit(f"🗑️ Deleted all versions of TS {spec_number} from database.", logging.INFO)
+            logger.log(logging.INFO, f"🗑️ Deleted all versions of TS {spec_number} from database.")
 
     # -------------------------------------------------------------------------
     # Message & Matrix Handlers
@@ -845,7 +847,7 @@ class NASTab(QWidget):
         self.progress_bar.setVisible(False)
         self.fetch_btn.setEnabled(True)
         self.import_file_btn.setEnabled(True)
-        self.log_msg.emit(f"❌ Import failed: {err_msg}", logging.ERROR)
+        logger.log(logging.ERROR, f"❌ Import failed: {err_msg}")
         QMessageBox.critical(
             self,
             "Import Error",
@@ -854,15 +856,14 @@ class NASTab(QWidget):
 
     def _on_import_progress(self, msg: str, val: int):
         self.progress_bar.setValue(val)
-        self.log_msg.emit(msg, logging.INFO)
+        logger.log(logging.INFO, msg)
 
     def _on_import_success(self, spec_count: int, msg_count: int):
         self.progress_bar.setVisible(False)
         self.fetch_btn.setEnabled(True)
         self.import_file_btn.setEnabled(True)
-        self.log_msg.emit(
-            f"✅ Successfully ingested {spec_count} specification(s) ({msg_count} total messages/PDUs).",
-            logging.INFO,
+        logger.info(
+            f"✅ Successfully ingested {spec_count} specification(s) ({msg_count} total messages/PDUs)."
         )
         self.refresh_versions()
 
@@ -904,7 +905,7 @@ class NASTab(QWidget):
             self.msg_list.clear()
             self.matrix_table.setModel(None)
             self.inspector.clear_display()
-            self.log_msg.emit("🧹 Protocol Database wiped.", logging.INFO)
+            logger.log(logging.INFO, "🧹 Protocol Database wiped.")
 
     def _on_import_cross_ref_spec_requested(self, spec_number: str, major_version: int):
         if not self.specs_db:

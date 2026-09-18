@@ -12,6 +12,8 @@ from core.network.session import (
     NetworkSession,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class SpecDownloadThread(QThread):
     """
@@ -30,13 +32,16 @@ class SpecDownloadThread(QThread):
         self.dest_path = Path(dest_path)
         self.timeout = timeout
 
+    def _log(self, message: str, level: int = logging.INFO):
+        logger.log(level, message)
+
     def run(self):
         if not self.url:
             self.error.emit("Download URL is empty.")
             return
 
         try:
-            self.ui_log_msg.emit(
+            self._log(
                 f"⬇️ Downloading: {self.dest_path.name}...", logging.INFO
             )
 
@@ -51,25 +56,25 @@ class SpecDownloadThread(QThread):
             )
 
             size_kb = downloaded_bytes / 1024.0
-            self.ui_log_msg.emit(
+            self._log(
                 f"✅ Successfully downloaded {self.dest_path.name} ({size_kb:.1f} KB)",
                 logging.INFO,
             )
             self.finished_success.emit(self.dest_path)
 
         except DownloadCancelledError:
-            self.ui_log_msg.emit(
+            self._log(
                 f"⚠️ Download cancelled: {self.dest_path.name}", logging.WARNING
             )
 
         except HttpError as e:
             err_msg = f"HTTP {e.status_code} downloading {self.dest_path.name}: {e}"
             logging.error(err_msg)
-            self.ui_log_msg.emit(f"❌ {err_msg}", logging.ERROR)
+            self._log(f"❌ {err_msg}", logging.ERROR)
             self.error.emit(str(e))
 
         except NetworkError as e:
             err_msg = f"Network error downloading {self.dest_path.name}: {e}"
             logging.error(err_msg)
-            self.ui_log_msg.emit(f"❌ {err_msg}", logging.ERROR)
+            self._log(f"❌ {err_msg}", logging.ERROR)
             self.error.emit(str(e))
