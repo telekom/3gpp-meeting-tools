@@ -682,10 +682,28 @@ class MeetingsTab(QWidget):
             print(f"🔵 {msg}")
 
     def _populate_filters(self):
+        """
+        Refresh the available WG choices without discarding the user's current
+        selection. Database synchronization may discover new WGs, but a UI
+        refresh must not silently reset existing filters.
+        """
+        selected_wgs = set(self.wg_filter.getCheckedItems())
         wgs = self.db.get_working_groups()
+
         self.wg_filter.blockSignals(True)
-        self.wg_filter.updateItems(wgs)
-        self.wg_filter.blockSignals(False)
+        try:
+            self.wg_filter.updateItems(wgs)
+
+            # CheckableComboBox reserves row 0 for its "all/summary" entry.
+            # Restore only selections that still exist in the refreshed list.
+            model = self.wg_filter.model()
+            for i in range(1, model.rowCount()):
+                item = model.item(i)
+                item.setCheckState(Qt.Checked if item.text() in selected_wgs else Qt.Unchecked)
+
+            self.wg_filter.updateText()
+        finally:
+            self.wg_filter.blockSignals(False)
 
     def refresh_table(self):
         self.save_filters_timer.start()
