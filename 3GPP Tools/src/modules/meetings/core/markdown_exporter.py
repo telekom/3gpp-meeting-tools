@@ -2,8 +2,11 @@
 import json
 import os
 import re
+import logging
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
+
+logger = logging.getLogger(__name__)
 
 
 class MarkdownExporterThread(QThread):
@@ -42,14 +45,14 @@ class MarkdownExporterThread(QThread):
                     json.dump(default_config, f, indent=4)
                 self.config = default_config
             except Exception as e:
-                print(f"Failed to create default config file: {e}")
+                logger.error(f"[MarkdownExporter] Failed to create default config file: {e}")
                 self.config = default_config
         else:
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     self.config = json.load(f)
             except Exception as e:
-                print(f"Failed to load config, falling back to defaults: {e}")
+                logger.error(f"[MarkdownExporter] Failed to load config, falling back to defaults: {e}")
                 self.config = default_config
 
     def run(self):
@@ -140,6 +143,7 @@ class MarkdownExporterThread(QThread):
             self.finished.emit(True, f"Successfully exported Markdown reports to:\n{self.export_dir}")
 
         except Exception as e:
+            logger.error(f"[MarkdownExporter] Export failed: {e}", exc_info=True)
             self.finished.emit(False, str(e))
 
     def _write_table(self, f, title, docs, columns):

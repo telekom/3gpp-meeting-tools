@@ -1,8 +1,11 @@
 # --- File: modules/meetings/ui/search_controller.py ---
 import re
+import logging
 from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QMessageBox, QPushButton
 from modules.meetings.core.tdocs_threads import TDocActionThread
+
+logger = logging.getLogger(__name__)
 
 
 class GlobalSearchController:
@@ -106,7 +109,9 @@ class GlobalSearchController:
     def _download_global_tdoc(self, meeting: dict, base_tdoc: str, target_filename: str, has_rev: bool,
                               silent_cart: bool = False):
         docs_url = meeting.get("docs_folder_url")
-        if not docs_url: return
+        if not docs_url:
+            logger.warning(f"[GlobalSearch] No Docs URL available for {target_filename}.")
+            return
         if not docs_url.startswith("http"): docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip('/')
 
         current_cache = self.tab.dl_dir_input.text().strip() if hasattr(self.tab,
@@ -144,6 +149,7 @@ class GlobalSearchController:
         self.tab.global_tdoc_input.setEnabled(True)
 
         if not success:
+            logger.error(f"[GlobalSearch] TDoc action failed for {tdoc_name}: {msg}")
             QMessageBox.warning(self.tab, f"Action Failed: {tdoc_name}", msg)
             return
 

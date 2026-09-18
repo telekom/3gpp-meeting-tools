@@ -1,7 +1,10 @@
 # --- File: modules/meetings/core/settings.py ---
 import json
+import logging
 from pathlib import Path
 import core.utils.paths
+
+logger = logging.getLogger(__name__)
 
 class MeetingsSettings:
     def __init__(self):
@@ -33,7 +36,7 @@ class MeetingsSettings:
                 json.dump(data, f, indent=4)
             self.cache_dir = download_dir
         except Exception as e:
-            print(f"Error saving config: {e}")
+            logger.error(f"[MeetingsSettings] Error saving config: {e}")
 
     def save_last_meeting(self, mtg_info: dict):
         try:
@@ -49,7 +52,7 @@ class MeetingsSettings:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
-            print(f"Error saving last meeting state: {e}")
+            logger.error(f"[MeetingsSettings] Error saving last meeting state: {e}")
 
     def get_last_meeting(self) -> tuple:
         """Returns (last_id, last_num, last_wg). Returns (None, None, None) if missing."""
@@ -74,7 +77,7 @@ class MeetingsSettings:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
-            print(f"Error saving filters: {e}")
+            logger.error(f"[MeetingsSettings] Error saving filters: {e}")
 
     def get_filters(self) -> dict:
         if not self.config_file.exists():

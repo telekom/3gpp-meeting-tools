@@ -575,7 +575,7 @@ class StatisticsSettingsDialog(QDialog):
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4)
         except Exception as e:
-            print(f"Failed to save configuration: {e}")
+            logging.error(f"[StatisticsSettings] Failed to save configuration: {e}", exc_info=True)
 
         self.accept()
 

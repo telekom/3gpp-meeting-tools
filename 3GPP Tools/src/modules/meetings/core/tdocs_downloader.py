@@ -1,10 +1,13 @@
 # --- File: modules/meetings/core/tdocs_downloader.py ---
 import re
+import logging
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 
 # Import your global network session manager
 from core.network.session import NetworkSession
+
+logger = logging.getLogger(__name__)
 
 
 class TDocsDownloaderThread(QThread):
@@ -21,6 +24,7 @@ class TDocsDownloaderThread(QThread):
         agenda_dir = self.local_path / "Agenda"
 
         try:
+            logger.info(f"⬇️ [TDocs List] Downloading meeting document list for MtgId={self.mtg_id}...")
             # 1. Create the Agenda subfolder safely
             agenda_dir.mkdir(parents=True, exist_ok=True)
 
@@ -52,7 +56,9 @@ class TDocsDownloaderThread(QThread):
                     if chunk:
                         f.write(chunk)
 
+            logger.info(f"✅ [TDocs List] Saved: {filepath}")
             self.finished.emit(True, str(filepath), self.mtg_id)
 
         except Exception as e:
+            logger.error(f"❌ [TDocs List] Download failed for MtgId={self.mtg_id}: {e}", exc_info=True)
             self.finished.emit(False, str(e), self.mtg_id)

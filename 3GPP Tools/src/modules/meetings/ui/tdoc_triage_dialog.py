@@ -1,5 +1,6 @@
 # --- File: src/modules/meetings/ui/tdoc_triage_dialog.py ---
 import datetime
+import logging
 from pathlib import Path
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QCursor
@@ -12,6 +13,8 @@ from core.ai.ollama_client import OllamaClient, load_ollama_config
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from modules.meetings.core.tdoc_triage_worker import TDocTriageWorker
 from modules.meetings.ui.tdocs_dialogs import MY_STATUS_OPTIONS
+
+logger = logging.getLogger(__name__)
 
 
 class TDocTriageDialog(QDialog):
@@ -266,6 +269,7 @@ class TDocTriageDialog(QDialog):
         self.save_notes_btn.setEnabled(True)
 
     def _handle_failed(self, err_msg: str):
+        logger.warning(f"[AI Triage Dialog] Worker failed/cancelled for {self.tdoc_id}: {err_msg}")
         self.status_lbl.setText("⚠️ Failed / Cancelled")
         self.status_lbl.setStyleSheet("color: #DC2626; font-weight: bold;")
         self.cancel_btn.setEnabled(False)

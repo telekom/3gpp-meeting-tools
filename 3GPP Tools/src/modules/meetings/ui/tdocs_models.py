@@ -1,10 +1,13 @@
 # --- File: src/modules/meetings/ui/tdocs_models.py ---
 import re
+import logging
 from functools import lru_cache
 from pathlib import Path
 from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyModel
 
 from core.utils.company_sanitizer import CompanySanitizer
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=32768)
@@ -364,7 +367,6 @@ class TDocsTableModel(QAbstractTableModel):
         return None
 
     def merge_agenda_data(self, agenda_data: dict, ui_logger=None):
-        import logging
         self.beginResetModel()
 
         existing_tdocs = {row.get('TDoc', ''): idx for idx, row in enumerate(self._data)}
@@ -403,8 +405,7 @@ class TDocsTableModel(QAbstractTableModel):
                     self._data[idx]['TDoc Status'] = info.get('Result')
 
             else:
-                if ui_logger:
-                    ui_logger.emit(f"✨ Injecting new on-the-fly TDoc: {tdoc_id}", logging.INFO)
+                logger.info(f"✨ Injecting new on-the-fly TDoc: {tdoc_id}")
 
                 agenda_item = 'N/A'
                 doc_type = 'Revision'

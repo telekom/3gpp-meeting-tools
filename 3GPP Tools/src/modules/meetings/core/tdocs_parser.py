@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import docx
 
+logger = logging.getLogger(__name__)
+
 
 class TDocsParser:
     @staticmethod
@@ -99,7 +101,7 @@ class TDocsParser:
         from bs4 import BeautifulSoup
         import logging
 
-        if ui_logger: ui_logger.emit("⏳ Parsing TdocsByAgenda HTML (Word Export)...", logging.INFO)
+        if ui_logger: logger.log("⏳ Parsing TdocsByAgenda HTML (Word Export)...", logging.INFO)
         data = {}
 
         try:
@@ -108,7 +110,7 @@ class TDocsParser:
 
             tables = soup.find_all('table')
             if not tables:
-                if ui_logger: ui_logger.emit("❌ No tables found in HTML.", logging.ERROR)
+                if ui_logger: logger.log("❌ No tables found in HTML.", logging.ERROR)
                 return data
 
             target_table = None
@@ -119,7 +121,7 @@ class TDocsParser:
                     break
 
             if not target_table:
-                if ui_logger: ui_logger.emit("❌ Could not identify the main TDoc table in HTML.", logging.ERROR)
+                if ui_logger: logger.log("❌ Could not identify the main TDoc table in HTML.", logging.ERROR)
                 return data
 
             rows = target_table.find_all('tr')
@@ -140,7 +142,7 @@ class TDocsParser:
             type_idx = next((i for i, h in enumerate(headers) if 'type' in h), -1)
 
             if td_idx == -1:
-                if ui_logger: ui_logger.emit("❌ 'TD#' column missing in HTML table.", logging.ERROR)
+                if ui_logger: logger.log("❌ 'TD#' column missing in HTML table.", logging.ERROR)
                 return data
 
             for row in rows[1:]:
@@ -167,7 +169,7 @@ class TDocsParser:
                     cols) > type_idx else ""
 
                 if ui_logger and (comments or email_disc):
-                    ui_logger.emit(f"   ➔ Extracted agenda remarks for {tdoc_id}", logging.DEBUG)
+                    logger.log(f"   ➔ Extracted agenda remarks for {tdoc_id}", logging.DEBUG)
 
                 data[tdoc_id] = {
                     'Comments': comments,
@@ -179,10 +181,10 @@ class TDocsParser:
                     'Type': doc_type
                 }
 
-            if ui_logger: ui_logger.emit(f"✅ Successfully parsed {len(data)} TDocs from Agenda HTML.", logging.INFO)
+            if ui_logger: logger.log(f"✅ Successfully parsed {len(data)} TDocs from Agenda HTML.", logging.INFO)
 
         except Exception as e:
-            if ui_logger: ui_logger.emit(f"❌ Error parsing HTML: {str(e)}", logging.ERROR)
+            if ui_logger: logger.log(f"❌ Error parsing HTML: {str(e)}", logging.ERROR)
 
         return data
 
