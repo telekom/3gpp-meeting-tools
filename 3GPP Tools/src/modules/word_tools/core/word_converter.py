@@ -9,6 +9,7 @@ import stat
 import subprocess
 import tempfile
 import time
+from contextlib import contextmanager
 from typing import Optional, Union
 
 import pythoncom
@@ -77,7 +78,52 @@ def _sanitize_file_attributes(file_path: Path) -> None:
             pass
 
 
-def _safe_com_cleanup(word=None, doc=None, new_doc=None) -> None:
+
+def _is_rpc_disconnect_error(exc: BaseException) -> bool:
+    """Detect Word COM/RPC disconnects after WINWORD becomes unavailable."""
+    rpc_hresults = {
+        -2147023170,  # 0x800706BE RPC_S_CALL_FAILED
+        -2147023174,  # 0x800706BA RPC_S_SERVER_UNAVAILABLE
+        -2147417848,  # 0x80010108 RPC_E_DISCONNECTED
+        -2147418111,  # 0x80010001 RPC_E_CALL_REJECTED
+    }
+    hresult = getattr(exc, "hresult", None)
+    if isinstance(hresult, int) and hresult in rpc_hresults:
+        return True
+    msg = str(exc).lower()
+    return any(marker in msg for marker in (
+        "0x800706be", "0x800706ba", "0x80010108", "0x80010001",
+        "remote procedure call failed", "rpc server is unavailable",
+        "object invoked has disconnected", "call was rejected by callee",
+    ))
+
+
+@contextmanager
+def _suppress_faulthandler_for_word_com():
+    """
+    Suppress only faulthandler's process-wide native dump during fragile Word
+    export calls. Python/pywin32 exceptions still propagate normally.
+    """
+    try:
+        was_enabled = faulthandler.is_enabled()
+    except Exception:
+        was_enabled = False
+    try:
+        if was_enabled:
+            try:
+                faulthandler.disable()
+            except Exception:
+                pass
+        yield
+    finally:
+        if was_enabled:
+            try:
+                faulthandler.enable()
+            except Exception:
+                pass
+
+
+def _safe_com_cleanup(word=None, doc=None, new_doc=None, com_server_dead: bool = False) -> None:
     """
     Safely closes Word documents, quits Word, releases COM pointers,
     and uninitializes the COM apartment without triggering RPC SEH faults.
@@ -93,8 +139,14 @@ def _safe_com_cleanup(word=None, doc=None, new_doc=None) -> None:
         pass
 
     try:
+        # A disconnected WINWORD RPC server must not receive further COM calls.
+        if com_server_dead:
+            new_doc = None
+            doc = None
+            word = None
+
         # 1. Wait for any background printing/exporting to complete
-        if word is not None:
+        if word is not None and not com_server_dead:
             try:
                 while word.BackgroundPrintingStatus > 0:
                     time.sleep(0.05)
@@ -102,7 +154,7 @@ def _safe_com_cleanup(word=None, doc=None, new_doc=None) -> None:
                 pass
 
         # 2. Safely close documents
-        for d in (new_doc, doc):
+        for d in (() if com_server_dead else (new_doc, doc)):
             if d is not None:
                 try:
                     d.Close(SaveChanges=False)
@@ -110,7 +162,7 @@ def _safe_com_cleanup(word=None, doc=None, new_doc=None) -> None:
                     pass
 
         # 3. Safely close any lingering Protected View windows
-        if word is not None:
+        if word is not None and not com_server_dead:
             try:
                 if hasattr(word, "ProtectedViewWindows"):
                     while word.ProtectedViewWindows.Count > 0:
@@ -176,6 +228,7 @@ def _export_pdf_with_word_once(source: Path, target: Path) -> None:
     """
     word = None
     doc = None
+    com_server_dead = False
     try:
         pythoncom.CoInitialize()
         if target.exists():
@@ -212,14 +265,15 @@ def _export_pdf_with_word_once(source: Path, target: Path) -> None:
         except Exception:
             pass
 
-        doc.ExportAsFixedFormat(
-            OutputFileName=os.path.normpath(str(target)),
-            ExportFormat=WD_FORMAT_PDF,
-            OpenAfterExport=False,
-            OptimizeFor=0,
-            IncludeDocProps=True,
-            CreateBookmarks=1,
-        )
+        with _suppress_faulthandler_for_word_com():
+            doc.ExportAsFixedFormat(
+                OutputFileName=os.path.normpath(str(target)),
+                ExportFormat=WD_FORMAT_PDF,
+                OpenAfterExport=False,
+                OptimizeFor=0,
+                IncludeDocProps=True,
+                CreateBookmarks=1,
+            )
 
         try:
             while word.BackgroundPrintingStatus > 0:
@@ -229,8 +283,11 @@ def _export_pdf_with_word_once(source: Path, target: Path) -> None:
 
         if not _is_valid_pdf(target):
             raise RuntimeError("Word returned without producing a valid PDF.")
+    except Exception as exc:
+        com_server_dead = _is_rpc_disconnect_error(exc)
+        raise
     finally:
-        _safe_com_cleanup(word=word, doc=doc)
+        _safe_com_cleanup(word=word, doc=doc, com_server_dead=com_server_dead)
 
 
 def convert_doc_to_docx_word(
@@ -582,6 +639,7 @@ class WordConverterThread(QThread):
         success = False
         out_path = ""
         out_name = ""
+        com_server_dead = False
 
         try:
             pythoncom.CoInitialize()
@@ -637,14 +695,23 @@ class WordConverterThread(QThread):
                 word.Options.UpdateLinksAtPrint = False
                 word.Options.PrintBackground = False
 
-                doc.ExportAsFixedFormat(
-                    OutputFileName=out_path,
-                    ExportFormat=export_format,
-                    OpenAfterExport=False,
-                    OptimizeFor=0,
-                    IncludeDocProps=True,
-                    CreateBookmarks=1,
-                )
+                try:
+                    with _suppress_faulthandler_for_word_com():
+                        doc.ExportAsFixedFormat(
+                            OutputFileName=out_path,
+                            ExportFormat=export_format,
+                            OpenAfterExport=False,
+                            OptimizeFor=0,
+                            IncludeDocProps=True,
+                            CreateBookmarks=1,
+                        )
+                except Exception as export_err:
+                    com_server_dead = _is_rpc_disconnect_error(export_err)
+                    if com_server_dead:
+                        raise RuntimeError(
+                            f"Microsoft Word export lost its COM/RPC connection ({export_err})."
+                        ) from export_err
+                    raise
 
                 # Ensure Word background printer thread has completely flushed
                 try:
@@ -655,11 +722,24 @@ class WordConverterThread(QThread):
             else:
                 doc.SaveAs2(out_path, FileFormat=self.FORMAT_MAP[self.target_format])
 
+            if self.target_format == "pdf" and not _is_valid_pdf(Path(out_path)):
+                raise RuntimeError(
+                    "Microsoft Word returned from PDF export without producing a valid PDF."
+                )
+
             success = True
 
+        except Exception as exc:
+            if _is_rpc_disconnect_error(exc):
+                com_server_dead = True
+            raise
         finally:
-            # Clean up Word and uninitialize COM BEFORE emitting finished signals
-            _safe_com_cleanup(word=word, doc=doc)
+            # Do not call back into WINWORD after its RPC server has disconnected.
+            _safe_com_cleanup(
+                word=word,
+                doc=doc,
+                com_server_dead=com_server_dead,
+            )
             word = None
             doc = None
 
