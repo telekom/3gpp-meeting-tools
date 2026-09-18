@@ -7,6 +7,8 @@ import pythoncom
 import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
+logger = logging.getLogger(__name__)
+
 
 class VisioToPptxConverterThread(QThread):
     """
@@ -133,7 +135,7 @@ class VisioToPptxConverterThread(QThread):
             self.finished_path.emit(str(pptx_path.resolve()))
 
         except Exception as e:
-            self._emit_log(f"❌ Conversion Error: {str(e)}")
+            self._emit_log(f"❌ Conversion Error: {str(e)}", logging.ERROR)
             self.finished_path.emit("")
         finally:
             for emf in emf_paths:
@@ -204,6 +206,5 @@ class VisioToPptxConverterThread(QThread):
 
         clean_and_shrink_text(page.Shapes)
 
-    def _emit_log(self, message: str):
-        logging.info(message)
-        self.ui_log_msg.emit(message)
+    def _emit_log(self, message: str, level: int = logging.INFO):
+        logger.log(level, message)

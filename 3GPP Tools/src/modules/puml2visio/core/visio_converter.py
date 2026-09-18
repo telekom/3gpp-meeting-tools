@@ -10,6 +10,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from modules.puml2visio.utils.utils import strip_watermark, generate_cleaned_svg
 from modules.puml2visio.config.paths import PLANTUML_WATERMARK
 
+logger = logging.getLogger(__name__)
+
 
 class VisioReaderThread(QThread):
     text_extracted = pyqtSignal(str)
@@ -102,10 +104,9 @@ class ConverterThread(QThread):
         except Exception as e:
             self._emit_log(f"⚠️ Could not sanitize SVG: {e}", logging.WARNING)
 
-    def _emit_log(self, message: str, level: int):
-        # QueueManager -> DragDropUI.log_message() owns Python logging.
-        # Logging here as well causes every worker message to be logged twice.
-        self.ui_log_msg.emit(message)
+    def _emit_log(self, message: str, level: int = logging.INFO):
+        """Route worker output through the central Python logger."""
+        logger.log(level, message)
 
     def _convert_to_vsdx(self, svg_path: Path):
         vsdx_path = svg_path.with_suffix(".vsdx")
@@ -540,9 +541,7 @@ class ConverterThread(QThread):
             # COM wrappers while COM is still initialized on this thread.
             gc.collect()
 
-            self.ui_log_msg.emit(
-                f"✅ Saved: {vsdx_path.name}"
-            )
+            self._emit_log(f"✅ Saved: {vsdx_path.name}", logging.INFO)
 
         except Exception as e:
             # Keep the generated SVG after a failure. This is
@@ -575,18 +574,21 @@ class SvgConverterThread(QThread):
         self.puml_path = puml_path
         self.jar_path = jar_path
 
+    def _emit_log(self, message: str, level: int = logging.INFO):
+        logger.log(level, message)
+
     def run(self):
         try:
-            self.ui_log_msg.emit(f"\n⚙️ Generating SVG for: {self.puml_path.name}")
+            self._emit_log(f"\n⚙️ Generating SVG for: {self.puml_path.name}")
 
-            svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self.ui_log_msg.emit)
+            svg_path = generate_cleaned_svg(self.puml_path, self.jar_path, self._emit_log)
 
             if svg_path.exists():
-                self.ui_log_msg.emit(f"✅ Success! SVG saved: {svg_path.name}\n{'-' * 45}")
+                self._emit_log(f"✅ Success! SVG saved: {svg_path.name}\n{'-' * 45}")
                 self.finished_path.emit(str(svg_path.resolve()))
             else:
-                self.ui_log_msg.emit("❌ Error: PlantUML finished but SVG was not created.")
+                self._emit_log("❌ Error: PlantUML finished but SVG was not created.", logging.ERROR)
                 self.finished_path.emit("")
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Error: {str(e)}\n{'-' * 45}")
+            self._emit_log(f"❌ Error: {str(e)}\n{'-' * 45}", logging.ERROR)
             self.finished_path.emit("")

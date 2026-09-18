@@ -9,6 +9,8 @@ from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
 
 from modules.puml2visio.utils.utils import generate_cleaned_svg
 
+logger = logging.getLogger(__name__)
+
 # Lightweight HTML wrapper (Status text removed from DOM)
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html>
@@ -141,14 +143,14 @@ class LivePreviewManager(QObject):
             url = f"file://{self.html_path.resolve().as_posix()}"
             webbrowser.open(url)
 
-            self.log_msg.emit("👁️ Live Preview activated. Rendering to default browser.", logging.INFO)
+            logger.info("👁️ Live Preview activated. Rendering to default browser.")
             self._trigger_generation()
         else:
             self.text_edit.textChanged.disconnect(self._on_text_changed)
             self.debounce_timer.stop()
             self._pending_update = False
             self.svg_path.write_text(OFFLINE_SVG, encoding="utf-8")
-            self.log_msg.emit("🙈 Live Preview deactivated.", logging.INFO)
+            logger.info("🙈 Live Preview deactivated.")
 
     def update_now(self):
         if self.active:
