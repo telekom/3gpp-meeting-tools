@@ -1,7 +1,10 @@
 import zipfile
+import logging
 import io
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
+
+logger = logging.getLogger(__name__)
 
 
 class WordExtractorThread(QThread):
@@ -12,7 +15,7 @@ class WordExtractorThread(QThread):
         self.docx_path = Path(docx_path)
 
     def run(self):
-        self.ui_log_msg.emit(f"\n📄 Analyzing Word Document: {self.docx_path.name}...")
+        logger.info(f"\n📄 Analyzing Word Document: {self.docx_path.name}...")
         output_dir = self.docx_path.parent
         extracted_files = []
 
@@ -25,7 +28,7 @@ class WordExtractorThread(QThread):
                     with open(out_name, 'wb') as out:
                         out.write(data)
                     extracted_files.append(out_name)
-                    self.ui_log_msg.emit(f"✅ Extracted native Visio object: {out_name.name}")
+                    logger.info(f"✅ Extracted native Visio object: {out_name.name}")
 
                 bins = [f for f in z.namelist() if f.startswith('word/embeddings/') and f.endswith('.bin')]
                 for i, emb in enumerate(bins):
@@ -44,15 +47,15 @@ class WordExtractorThread(QThread):
                                     with open(out_name, 'wb') as out:
                                         out.write(vsdx_data)
                                     extracted_files.append(out_name)
-                                    self.ui_log_msg.emit(f"✅ Extracted OLE Visio object: {out_name.name}")
+                                    logger.info(f"✅ Extracted OLE Visio object: {out_name.name}")
                         except zipfile.BadZipFile:
                             pass
 
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Error reading Word file: {e}")
+            logger.info(f"❌ Error reading Word file: {e}")
 
         if not extracted_files:
-            self.ui_log_msg.emit("⚠️ No embedded Visio files found in this document.")
+            logger.info("⚠️ No embedded Visio files found in this document.")
         else:
-            self.ui_log_msg.emit(
+            logger.info(
                 f"🎉 Successfully extracted {len(extracted_files)} Visio file(s) to the document's folder!")
