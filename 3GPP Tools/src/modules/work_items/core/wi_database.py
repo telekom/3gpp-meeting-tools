@@ -1,6 +1,9 @@
 import re
+import logging
 import sqlite3
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class WorkItemsDatabase:
@@ -102,8 +105,7 @@ class WorkItemsDatabase:
                 row = cursor.fetchone()
                 return row[0] if row else 0
         except Exception as e:
-            import logging
-            logging.error(f"Failed to count Work Items: {e}")
+            logger.error(f"Failed to count Work Items: {e}", exc_info=True)
             return 0
 
     def search_work_items(self, search_term: str = None, releases: list = None,
@@ -150,8 +152,7 @@ class WorkItemsDatabase:
                 columns = [col[0] for col in cursor.description]
                 return [dict(zip(columns, row)) for row in cursor.fetchall()]
         except Exception as e:
-            import logging
-            logging.error(f"Failed to search Work Items: {e}")
+            logger.error(f"Failed to search Work Items: {e}", exc_info=True)
             return []
 
     def get_work_item_details(self, wi_code: str) -> dict:
@@ -192,8 +193,7 @@ class WorkItemsDatabase:
                 details['linked_specs'] = self.get_linked_specs_for_wi(wi_code)
                 return details
         except Exception as e:
-            import logging
-            logging.error(f"Failed to fetch details for WI {wi_code}: {e}")
+            logger.error(f"Failed to fetch details for WI {wi_code}: {e}", exc_info=True)
             return {}
 
     def get_linked_specs_for_wi(self, wi_code: str) -> list:
@@ -213,8 +213,7 @@ class WorkItemsDatabase:
                 cols = [col[0] for col in cursor.description]
                 return [dict(zip(cols, row)) for row in cursor.fetchall()]
         except Exception as e:
-            import logging
-            logging.error(f"Failed to fetch linked specs for WI {wi_code}: {e}")
+            logger.error(f"Failed to fetch linked specs for WI {wi_code}: {e}", exc_info=True)
             return []
 
     def get_filter_options(self) -> dict:
@@ -245,8 +244,7 @@ class WorkItemsDatabase:
                 options['groups'] = [str(r[0]).strip() for r in cursor.fetchall()]
 
         except Exception as e:
-            import logging
-            logging.error(f"Error fetching WI filter options: {e}")
+            logger.error(f"Error fetching WI filter options: {e}", exc_info=True)
         return options
 
     def delete_work_item(self, code: str):
@@ -260,8 +258,7 @@ class WorkItemsDatabase:
                 cursor.execute("DELETE FROM work_items WHERE code = ?", (code,))
                 conn.commit()
         except Exception as e:
-            import logging
-            logging.error(f"Failed to delete Work Item {code}: {e}")
+            logger.error(f"Failed to delete Work Item {code}: {e}", exc_info=True)
 
     def delete_work_items(self, code_list: list):
         """Deletes multiple Work Items and their associated mappings in a single transaction."""
@@ -277,8 +274,7 @@ class WorkItemsDatabase:
                 cursor.execute(f"DELETE FROM work_items WHERE code IN ({placeholders})", code_list)
                 conn.commit()
         except Exception as e:
-            import logging
-            logging.error(f"Failed to batch delete Work Items: {e}")
+            logger.error(f"Failed to batch delete Work Items: {e}", exc_info=True)
 
     def upsert_work_items(self, wg_name: str, items: list):
         """Bulk inserts or updates Work Items and maps them to their Working Group."""
@@ -358,5 +354,4 @@ class WorkItemsDatabase:
                     ''', remark_tuples)
                 conn.commit()
         except Exception as e:
-            import logging
-            logging.error(f"Failed to batch update Work Items metadata: {e}", exc_info=True)
+            logger.error(f"Failed to batch update Work Items metadata: {e}", exc_info=True)

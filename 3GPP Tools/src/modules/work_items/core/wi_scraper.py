@@ -1,5 +1,4 @@
 import concurrent.futures
-import concurrent.futures
 import logging
 import re
 
@@ -8,6 +7,8 @@ from bs4 import BeautifulSoup
 
 from core.network.session import NetworkSession
 from modules.work_items.core.wi_database import WorkItemsDatabase
+
+logger = logging.getLogger(__name__)
 
 
 class WorkItemsScraperThread(QThread):
@@ -27,11 +28,15 @@ class WorkItemsScraperThread(QThread):
             "CT": "CP", "CT1": "C1", "CT3": "C3", "CT4": "C4", "CT6": "C6"
         }
 
+    def _report(self, current: int, total: int, message: str, level: int = logging.INFO):
+        logger.log(level, message)
+        self.progress.emit(current, total, message)
+
     def run(self):
         # Instantiate a local DB connection inside the thread
         db = WorkItemsDatabase(self.db_path)
         total_wgs = len(self.wgs)
-        self.progress.emit(0, total_wgs, "Initializing Work Items parallel sync...")
+        self._report(0, total_wgs, "🔄 Initializing Work Items parallel sync...")
 
         completed = 0
 
@@ -54,10 +59,11 @@ class WorkItemsScraperThread(QThread):
                     else:
                         msg = f"No active WIs found for {wg_name}."
 
-                    self.progress.emit(completed, total_wgs, msg)
+                    self._report(completed, total_wgs, msg)
                 except Exception as e:
-                    self.progress.emit(completed, total_wgs, f"Error syncing {wg_name}: {str(e)}")
+                    self._report(completed, total_wgs, f"❌ Error syncing {wg_name}: {e}", logging.ERROR)
 
+        logger.info("✅ Successfully synced Work Items for all Working Groups.")
         self.finished_sync.emit(True, "Successfully synced Work Items for all Working Groups.")
 
     def _fetch_and_parse(self, wg_name: str, wg_code: str) -> list:
@@ -110,16 +116,6 @@ class WorkItemsScraperThread(QThread):
         return parsed_items
 
 
-import re
-import logging
-import concurrent.futures
-from bs4 import BeautifulSoup
-from PyQt5.QtCore import QThread, pyqtSignal
-
-from core.network.session import NetworkSession
-from modules.work_items.core.wi_database import WorkItemsDatabase
-
-
 class TargetedWIScraperThread(QThread):
     progress = pyqtSignal(int, int, str)
     finished_sync = pyqtSignal(bool, str)
@@ -137,7 +133,7 @@ class TargetedWIScraperThread(QThread):
         db = WorkItemsDatabase(self.db_path)
         total_targets = len(self.target_wi_codes)
 
-        logging.info(f"TargetedWIScraperThread starting for {total_targets} WIs: {self.target_wi_codes}")
+        logger.info(f"TargetedWIScraperThread starting for {total_targets} WIs: {self.target_wi_codes}")
         self.progress.emit(0, total_targets, "Initializing targeted Work Item update...")
 
         completed = 0
@@ -160,36 +156,37 @@ class TargetedWIScraperThread(QThread):
                         metadata['code'] = wi_code
                         batch_metadata.append(metadata)
                         msg = f"Parsed metadata for WI {wi_code}."
-                        logging.debug(f"Successfully scraped WI {wi_code}: {metadata}")
+                        logger.debug(f"Successfully scraped WI {wi_code}: {metadata}")
                     else:
                         msg = f"No metadata found for WI {wi_code}."
-                        logging.warning(msg)
+                        logger.warning(msg)
 
                     self.progress.emit(completed, total_targets, msg)
                 except Exception as e:
                     error_msg = f"Error parsing WI {wi_code}: {str(e)}"
-                    logging.error(error_msg, exc_info=True)
+                    logger.error(error_msg, exc_info=True)
                     self.progress.emit(completed, total_targets, error_msg)
 
         # Perform a single, high-speed atomic transaction for all updated records
         if batch_metadata:
-            logging.info(f"Sending {len(batch_metadata)} parsed WIs to the database for update.")
+            logger.info(f"Sending {len(batch_metadata)} parsed WIs to the database for update.")
             self.progress.emit(completed, total_targets, "Saving batch to database...")
             try:
                 db.update_work_items_metadata(batch_metadata)
             except Exception as e:
-                logging.error(f"Database transaction failed: {e}", exc_info=True)
+                logger.error(f"Database transaction failed: {e}", exc_info=True)
                 self.finished_sync.emit(False, f"Database transaction failed: {str(e)}")
                 return
         else:
-            logging.warning("batch_metadata is empty! Skipping database update.")
+            logger.warning("batch_metadata is empty! Skipping database update.")
 
+        logger.info(f"✅ Successfully processed {len(batch_metadata)} Work Items.")
         self.finished_sync.emit(True, f"Successfully processed {len(batch_metadata)} Work Items.")
 
     def _fetch_and_parse_details(self, wi_code: str) -> dict:
         # FIXED: Removed the markdown brackets from the URL string
         url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
-        logging.info(f"Fetching WI details from: {url}")
+        logger.info(f"Fetching WI details from: {url}")
 
         session = NetworkSession.get_instance()
         NetworkSession.apply_humanness(session)

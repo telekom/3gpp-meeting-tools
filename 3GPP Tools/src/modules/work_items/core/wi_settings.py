@@ -1,7 +1,10 @@
 # --- File: src/modules/work_items/core/wi_settings.py ---
 import json
-from pathlib import Path
+import logging
+
 import core.utils.paths
+
+logger = logging.getLogger(__name__)
 
 
 class WorkItemsSettings:
@@ -20,8 +23,8 @@ class WorkItemsSettings:
                 try:
                     with open(self.config_file, 'r', encoding='utf-8') as f:
                         data = json.load(f)
-                except json.JSONDecodeError:
-                    # Recover gracefully if the file exists but is empty (0 bytes) or corrupted
+                except json.JSONDecodeError as e:
+                    logger.warning(f"[WorkItemsSettings] Invalid JSON in {self.config_file}; resetting filters: {e}")
                     data = {}
 
             data['filters'] = filters
@@ -29,8 +32,7 @@ class WorkItemsSettings:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
-            import logging
-            logging.error(f"Error saving WI filters: {e}")
+            logger.error(f"Error saving WI filters: {e}")
 
     def get_filters(self) -> dict:
         """Retrieves the saved filters from the JSON configuration file."""
@@ -40,9 +42,9 @@ class WorkItemsSettings:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             return data.get("filters", {})
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            logger.warning(f"[WorkItemsSettings] Invalid JSON in {self.config_file}; using defaults: {e}")
             return {}
         except Exception as e:
-            import logging
-            logging.error(f"Error loading WI filters: {e}")
+            logger.error(f"Error loading WI filters: {e}")
             return {}
