@@ -8,6 +8,7 @@ import urllib.request
 from PyQt5.QtWidgets import QApplication, QDialog
 
 from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
+from core.ui.ui_panels import GuiLogHandler
 from core.utils.paths import get_project_root
 from core.utils.utils import get_best_java
 from main_window import DragDropUI
@@ -19,12 +20,17 @@ from modules.spec_search.plugin_loader import register_spec_search_plugin
 from modules.specifications.plugin_loader import register_specs_plugin
 from modules.word_tools.plugin_loader import register_word_plugin
 
+
 # ==========================================
 # --- FAULTHANDLER & LOGGING SETUP ---
 # ==========================================
-# Enables pure C-level thread dumps that work even if Qt locks the Python GIL
+# Enables pure C-level thread dumps that work even if Qt locks the Python GIL.
 faulthandler.enable()
-faulthandler.dump_traceback_later(timeout=15.0, repeat=True, file=sys.__stderr__)
+faulthandler.dump_traceback_later(
+    timeout=15.0,
+    repeat=True,
+    file=sys.__stderr__
+)
 
 log_file_path = get_project_root() / "3gpp_tools.log"
 
@@ -32,19 +38,37 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(log_file_path, mode="a", encoding="utf-8"),
-        logging.StreamHandler(sys.stdout)
-    ]
+        logging.FileHandler(
+            log_file_path,
+            mode="a",
+            encoding="utf-8"
+        ),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 
-def direct_console_write(message: str):
-    """Bypasses Python buffers to guarantee immediate terminal output."""
-    sys.__stderr__.write(message + "\n")
-    sys.__stderr__.flush()
+# ==========================================
+# --- GUI LOGGING BRIDGE ---
+# ==========================================
+#
+# Install the GUI handler before the first application log record is emitted.
+#
+# ConsolePanel does not exist yet, so GuiLogHandler buffers these early records.
+# DragDropUI attaches the ConsolePanel later and the buffered records are then
+# replayed in their original order.
+#
+# The GUI intentionally uses message-only formatting while the terminal/file
+# handlers retain timestamps and log levels.
+gui_log_handler = GuiLogHandler()
+gui_log_handler.setLevel(logging.NOTSET)
+gui_log_handler.setFormatter(logging.Formatter("%(message)s"))
+logging.getLogger().addHandler(gui_log_handler)
+
 
 if __name__ == '__main__':
     if os.name == 'nt':
         import ctypes
+
         myappid = '3GPP Delegate Tools.1.0'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
@@ -66,73 +90,118 @@ if __name__ == '__main__':
     version_file = jar_path.with_suffix('.version')
 
     needs_download = False
+
     if not jar_path.exists():
         needs_download = True
     else:
         _, java_major = get_best_java()
+
         if java_major > 0:
             required_type = "modern" if java_major >= 11 else "legacy"
             current_type = None
+
             if version_file.exists():
                 try:
-                    current_type = version_file.read_text(encoding="utf-8").strip()
+                    current_type = version_file.read_text(
+                        encoding="utf-8"
+                    ).strip()
                 except Exception:
                     pass
+
             if current_type != required_type:
                 needs_download = True
 
     if needs_download:
         logging.info("🏁 [STARTUP] Prompting for proxy settings...")
+
         proxy_dialog = ProxyDialog()
+
         if proxy_dialog.exec_() == QDialog.Accepted:
             http_val, https_val = proxy_dialog.get_proxies()
             proxies = {}
-            if http_val: proxies['http'] = http_val
-            if https_val: proxies['https'] = https_val
+
+            if http_val:
+                proxies['http'] = http_val
+
+            if https_val:
+                proxies['https'] = https_val
+
             if proxies:
                 proxy_handler = urllib.request.ProxyHandler(proxies)
                 opener = urllib.request.build_opener(proxy_handler)
                 urllib.request.install_opener(opener)
 
-    logging.info("🏁 [STARTUP] Instantiating main window (DragDropUI)...")
-    window = DragDropUI()
+    logging.info(
+        "🏁 [STARTUP] Instantiating main window (DragDropUI)..."
+    )
 
-    direct_console_write("🏁 [STARTUP] Displaying main window...")
+    window = DragDropUI(gui_log_handler=gui_log_handler)
+
+    logging.info("🏁 [STARTUP] Displaying main window...")
     window.show()
-    direct_console_write("🚀 [STARTUP] window.show() completed successfully.")
+    logging.info(
+        "🚀 [STARTUP] window.show() completed successfully."
+    )
 
-    # Window displayed successfully; cancel the hang watchdog
+    # Window displayed successfully; cancel the hang watchdog.
     faulthandler.cancel_dump_traceback_later()
 
-    logging.info("🏁 [STARTUP] Entering Qt event loop (app.exec_)...")
+    logging.info(
+        "🏁 [STARTUP] Entering Qt event loop (app.exec_)..."
+    )
+
     exit_code = app.exec_()
-    logging.info(f"🏁 [SHUTDOWN] app.exec_() exited cleanly with code {exit_code}. Terminating...")
+
+    logging.info(
+        f"🏁 [SHUTDOWN] app.exec_() exited cleanly with code "
+        f"{exit_code}. Terminating..."
+    )
+
     sys.stdout.flush()
 
-    # 1. Disable the C-level faulthandler watchdog
+    # 1. Disable the C-level faulthandler watchdog.
     try:
         faulthandler.disable()
     except Exception:
         pass
 
-    # 2. Hard-terminate the process on Windows to prevent DLL loader-lock deadlocks
+    # 2. Hard-terminate the process on Windows to prevent DLL
+    #    loader-lock deadlocks.
     if os.name == 'nt':
         import ctypes
         import signal
 
         try:
-            # Explicitly type the 64-bit Win32 API calls
+            # Explicitly type the 64-bit Win32 API calls.
             kernel32 = ctypes.windll.kernel32
+
             kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-            kernel32.TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+
+            kernel32.TerminateProcess.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_uint,
+            ]
             kernel32.TerminateProcess.restype = ctypes.c_int
 
-            # Terminate immediately with current process pseudo-handle (0xFFFFFFFFFFFFFFFF)
+            # Terminate immediately with the current process pseudo-handle.
             h_process = kernel32.GetCurrentProcess()
-            if kernel32.TerminateProcess(h_process, exit_code) == 0:
-                # Fallback: Python C-runtime implementation of TerminateProcess
-                os.kill(os.getpid(), signal.SIGTERM)
+
+            if kernel32.TerminateProcess(
+                h_process,
+                exit_code
+            ) == 0:
+                # Fallback: Python C-runtime implementation of
+                # TerminateProcess.
+                os.kill(
+                    os.getpid(),
+                    signal.SIGTERM
+                )
+
         except Exception:
-            os.kill(os.getpid(), signal.SIGTERM)
+            os.kill(
+                os.getpid(),
+                signal.SIGTERM
+            )
+
     else:
         os._exit(exit_code)

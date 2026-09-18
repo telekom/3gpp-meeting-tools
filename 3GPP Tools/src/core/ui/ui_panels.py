@@ -35,18 +35,75 @@ def format_file_size(size_bytes: int) -> str:
 # ==========================================
 class GuiLogHandler(logging.Handler, QObject):
     """
-    Intercepts standard Python logging calls globally and emits them as Qt signals.
-    This safely bridges background thread logging to the main UI thread.
+    Bridges standard Python logging into the Qt GUI console.
+
+    The handler can be installed before ConsolePanel exists. Log records emitted
+    during early application startup are buffered and replayed, in order, when
+    attach() is called.
+
+    Once attached, log records are forwarded through a Qt signal. This keeps
+    logging from worker threads safe because the actual ConsolePanel update is
+    performed on the Qt GUI thread.
     """
+
     log_emitted = pyqtSignal(str, int)
 
     def __init__(self):
         logging.Handler.__init__(self)
         QObject.__init__(self)
 
+        self._attached = False
+        self._buffer = []
+
     def emit(self, record):
-        msg = self.format(record)
-        self.log_emitted.emit(msg, record.levelno)
+        """
+        Format and forward a LogRecord.
+
+        Before the GUI console is attached, records are retained in memory.
+        Afterwards they are emitted through the Qt signal immediately.
+        """
+        try:
+            msg = self.format(record)
+            level = record.levelno
+
+            self.acquire()
+            try:
+                if not self._attached:
+                    self._buffer.append((msg, level))
+                    return
+            finally:
+                self.release()
+
+            self.log_emitted.emit(msg, level)
+
+        except Exception:
+            self.handleError(record)
+
+    def attach(self, slot):
+        """
+        Attach the GUI console slot and replay all buffered startup records.
+
+        This should normally be called once, after ConsolePanel has been
+        constructed. Repeated calls are ignored to prevent duplicate signal
+        connections and duplicate log output.
+        """
+        self.acquire()
+        try:
+            if self._attached:
+                return
+
+            self.log_emitted.connect(slot)
+            self._attached = True
+
+            buffered_records = self._buffer
+            self._buffer = []
+        finally:
+            self.release()
+
+        # Replay outside the logging.Handler lock. The slot executes on the Qt
+        # GUI thread and may indirectly cause further logging.
+        for message, level in buffered_records:
+            self.log_emitted.emit(message, level)
 
 
 # ==========================================
