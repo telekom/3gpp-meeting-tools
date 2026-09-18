@@ -15,7 +15,7 @@ class WordExtractorThread(QThread):
         self.docx_path = Path(docx_path)
 
     def run(self):
-        logger.info(f"\n📄 Analyzing Word Document: {self.docx_path.name}...")
+        logger.info(f"📄 Analyzing Word Document: {self.docx_path.name}...")
         output_dir = self.docx_path.parent
         extracted_files = []
 

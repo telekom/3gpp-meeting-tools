@@ -87,7 +87,6 @@ class DragDropUI(QMainWindow):
         logging.info("🏁 [STARTUP:QUEUE] Initializing QueueManager...")
         app_context = {"jar_path": self.jar_path}
         self.queue_manager = QueueManager(app_context=app_context)
-        self.queue_manager.log_msg.connect(self.log_message)
         self.queue_manager.queue_updated.connect(self.queue_panel.update_list)
         self.queue_manager.processing_state_changed.connect(self._update_system_status)
         self.queue_manager.conversion_success.connect(self.on_conversion_success)
@@ -264,9 +263,6 @@ class DragDropUI(QMainWindow):
         self.console_panel.task_manager_requested.connect(self.open_task_manager)
         self.console_panel.db_maintenance_requested.connect(self.open_db_maintenance)
 
-        self.specs_tab.log_msg.connect(self.console_panel.log_message)
-        self.nas_tab.log_msg.connect(self.console_panel.log_message)
-        self.spec_search_tab.log_msg.connect(self.console_panel.log_message)
 
         self.queue_panel = QueuePanel()
 

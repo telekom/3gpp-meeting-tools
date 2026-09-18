@@ -3,6 +3,8 @@ import re
 from pathlib import Path
 from PyQt5.QtCore import QObject, pyqtSignal, QThread
 
+logger = logging.getLogger(__name__)
+
 # ==========================================
 # --- GLOBAL TASK REGISTRY ---
 # ==========================================
@@ -98,7 +100,7 @@ class QueueManager(QObject):
 
     def add_item(self, file_path: Path, target_format: str, params: dict = None):
         if target_format not in _TASK_REGISTRY:
-            self.log_msg.emit(f"❌ System Error: Unknown task format '{target_format}'.", logging.ERROR)
+            logger.log(logging.ERROR, f"❌ System Error: Unknown task format '{target_format}'.")
             return
 
         self.file_queue.append((file_path, target_format, params or {}))
@@ -110,7 +112,7 @@ class QueueManager(QObject):
 
     def add_batch(self, file_paths: list, target_format: str = "vsdx"):
         if target_format not in _TASK_REGISTRY:
-            self.log_msg.emit(f"❌ System Error: Unknown batch task format '{target_format}'.", logging.ERROR)
+            logger.log(logging.ERROR, f"❌ System Error: Unknown batch task format '{target_format}'.")
             return
 
         for fp in file_paths:
@@ -124,7 +126,7 @@ class QueueManager(QObject):
     def abort_current_task(self):
         """Forcefully stops the currently running QThread."""
         if hasattr(self, 'conv_thread') and self.conv_thread and self.conv_thread.isRunning():
-            self.log_msg.emit("🛑 Forcefully aborting current task...", logging.WARNING)
+            logger.log(logging.WARNING, "🛑 Forcefully aborting current task...")
 
             # Force terminate the thread
             self.conv_thread.terminate()
@@ -134,8 +136,7 @@ class QueueManager(QObject):
             self.is_processing = False
             self._update_status("Task Aborted.")
             self.processing_state_changed.emit(False, "Aborted")
-            self.log_msg.emit("ℹ️ Task aborted. If Office apps act strangely, clear them in the COM Process Manager.",
-                              logging.INFO)
+            logger.log(logging.INFO, "ℹ️ Task aborted. If Office apps act strangely, clear them in the COM Process Manager.")
 
             # Broadcast the updated state so the UI catches up
             self._broadcast_queue_update()
@@ -166,7 +167,7 @@ class QueueManager(QObject):
 
         registry_entry = _TASK_REGISTRY.get(target_format)
         if not registry_entry:
-            self.log_msg.emit(f"❌ Task '{target_format}' is no longer registered.", logging.ERROR)
+            logger.log(logging.ERROR, f"❌ Task '{target_format}' is no longer registered.")
             self.process_next()
             return
 
@@ -190,5 +191,5 @@ class QueueManager(QObject):
             self.conv_thread.start()
 
         except Exception as e:
-            self.log_msg.emit(f"❌ Failed to execute task '{target_format}': {str(e)}", logging.ERROR)
+            logger.log(logging.ERROR, f"❌ Failed to execute task '{target_format}': {str(e)}")
             self.process_next()

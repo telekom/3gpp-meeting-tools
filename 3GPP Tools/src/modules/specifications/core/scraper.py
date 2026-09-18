@@ -245,6 +245,9 @@ class SpecsCrawlerThread(QThread):
     finished = pyqtSignal()
     finished_path = pyqtSignal(str)
 
+    def _log(self, message: str, level: int = logging.INFO):
+        logger.log(level, message)
+
     def __init__(self, db_path: Path, force_metadata_update: bool = False,
                  target_specs: list = None, root_url: str = "https://www.3gpp.org/ftp/Specs/archive/") -> None:
         super().__init__()
@@ -275,11 +278,11 @@ class SpecsCrawlerThread(QThread):
 
             return list(dict.fromkeys(links))
         except Exception as e:
-            self.ui_log_msg.emit(f"⚠️ Error fetching {url}: {e}", logging.WARNING)
+            self._log(f"⚠️ Error fetching {url}: {e}", logging.WARNING)
             return []
 
     def fetch_metadata_from_dynareport(self, spec_number: str) -> Dict:
-        return fetch_metadata_from_dynareport(spec_number, log_cb=self.ui_log_msg.emit)
+        return fetch_metadata_from_dynareport(spec_number, log_cb=self._log)
 
     def fetch_spec_files(self, series_name: str, series_url: str, spec_number: str, spec_url: str) -> dict:
         file_links: List[Tuple[str, str]] = self.fetch_links(spec_url)
@@ -308,7 +311,7 @@ class SpecsCrawlerThread(QThread):
             spec_tasks: List[Tuple[str, str, str, str, bool]] = []
 
             if self.target_specs:
-                self.ui_log_msg.emit(f"⏳ Starting Targeted Update for: {', '.join(self.target_specs)}...", logging.INFO)
+                self._log(f"⏳ Starting Targeted Update for: {', '.join(self.target_specs)}...", logging.INFO)
 
                 for target in self.target_specs:
                     if '.' not in target:
@@ -316,7 +319,7 @@ class SpecsCrawlerThread(QThread):
                         series_folder = f"{series_number}_series"
                         series_url = urljoin(self.root_url, f"{series_folder}/")
 
-                        self.ui_log_msg.emit(f"⏳ Mapping entire {series_number} series directory...", logging.INFO)
+                        self._log(f"⏳ Mapping entire {series_number} series directory...", logging.INFO)
                         spec_links = self.fetch_links(series_url)
 
                         for href, spec_url in spec_links:
@@ -337,7 +340,7 @@ class SpecsCrawlerThread(QThread):
                         needs_meta = True if self.force_metadata_update else (self.db.needs_metadata(target) or True)
                         spec_tasks.append((series_number, series_url, target, spec_url, needs_meta))
             else:
-                self.ui_log_msg.emit("⏳ Mapping directories in parallel... (This is fast)", logging.INFO)
+                self._log("⏳ Mapping directories in parallel... (This is fast)", logging.INFO)
 
                 raw_links = self.fetch_links(self.root_url)
                 series_links = []
@@ -372,7 +375,7 @@ class SpecsCrawlerThread(QThread):
             total_specs: int = len(spec_tasks)
 
             # PASS 1: FAST FTP SYNC
-            self.ui_log_msg.emit(f"📥 Pass 1: Fetching available files for {total_specs} specifications...", logging.INFO)
+            self._log(f"📥 Pass 1: Fetching available files for {total_specs} specifications...", logging.INFO)
             completed: int = 0
 
             with ThreadPoolExecutor(max_workers=15) as executor:
@@ -384,7 +387,7 @@ class SpecsCrawlerThread(QThread):
                 for future in as_completed(futures):
                     completed += 1
                     if completed % 50 == 0 or completed == total_specs:
-                        self.ui_log_msg.emit(f"⏳ Files fetched: {completed}/{total_specs}...", logging.INFO)
+                        self._log(f"⏳ Files fetched: {completed}/{total_specs}...", logging.INFO)
 
                     try:
                         result = future.result()
@@ -400,16 +403,16 @@ class SpecsCrawlerThread(QThread):
                                 spec_num, result['spec_url'], f_name, f_ver, f_url
                             )
                     except Exception as e:
-                        self.ui_log_msg.emit(f"❌ File fetch error: {e}", logging.ERROR)
+                        self._log(f"❌ File fetch error: {e}", logging.ERROR)
 
-            self.ui_log_msg.emit("✅ Pass 1 Complete. Unblocking interface...", logging.INFO)
+            self._log("✅ Pass 1 Complete. Unblocking interface...", logging.INFO)
             self.finished_path.emit("SPECS_DB_PASS_ONE")
 
             # PASS 2: PORTAL METADATA, DATES & WIS SYNC
             specs_needing_meta = [task for task in spec_tasks if task[4]]
 
             if specs_needing_meta:
-                self.ui_log_msg.emit(
+                self._log(
                     f"⏳ Pass 2: Fetching portal metadata, release dates & related WIs for {len(specs_needing_meta)} specifications...",
                     logging.INFO
                 )
@@ -427,7 +430,7 @@ class SpecsCrawlerThread(QThread):
                         completed_meta += 1
 
                         if completed_meta % 20 == 0 or completed_meta == len(specs_needing_meta):
-                            self.ui_log_msg.emit(f"⏳ Metadata fetched: {completed_meta}/{len(specs_needing_meta)}...", logging.INFO)
+                            self._log(f"⏳ Metadata fetched: {completed_meta}/{len(specs_needing_meta)}...", logging.INFO)
 
                         try:
                             metadata = future.result()
@@ -438,16 +441,16 @@ class SpecsCrawlerThread(QThread):
                                     self.db.update_spec_wis(spec_num, metadata['related_wis'])
                                 if metadata.get('version_dates'):
                                     self.db.update_file_dates(spec_num, metadata['version_dates'])
-                                    self.ui_log_msg.emit(f"💾 Updated {len(metadata['version_dates'])} dates in DB for {spec_num}", logging.INFO)
+                                    self._log(f"💾 Updated {len(metadata['version_dates'])} dates in DB for {spec_num}", logging.INFO)
                         except Exception as e:
-                            self.ui_log_msg.emit(f"❌ Metadata DB update error for {spec_num}: {e}", logging.ERROR)
+                            self._log(f"❌ Metadata DB update error for {spec_num}: {e}", logging.ERROR)
             else:
-                self.ui_log_msg.emit("ℹ️ Pass 2 skipped: All specifications already have cached metadata.", logging.INFO)
+                self._log("ℹ️ Pass 2 skipped: All specifications already have cached metadata.", logging.INFO)
 
-            self.ui_log_msg.emit("✅ 3GPP Database Update Fully Complete!", logging.INFO)
+            self._log("✅ 3GPP Database Update Fully Complete!", logging.INFO)
             self.finished_path.emit("SPECS_DB_PASS_TWO")
 
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Database Update Failed: {str(e)}", logging.ERROR)
+            self._log(f"❌ Database Update Failed: {str(e)}", logging.ERROR)
         finally:
             self.finished.emit()

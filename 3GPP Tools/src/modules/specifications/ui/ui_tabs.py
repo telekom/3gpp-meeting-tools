@@ -41,6 +41,8 @@ from modules.specifications.ui.dialogs import (
 )
 from modules.specifications.ui.threads import SpecDownloadThread
 
+logger = logging.getLogger(__name__)
+
 
 class SpecificationsTab(QWidget):
     update_db_requested = pyqtSignal(bool)
@@ -107,7 +109,7 @@ class SpecificationsTab(QWidget):
                     if isinstance(saved_filters, dict):
                         self.table_filters.update(saved_filters)
             except Exception as e:
-                print(f"Error loading specs_config.json: {e}")
+                logger.error(f"Error loading specs_config.json: {e}", exc_info=True)
         else:
             self.download_dir = self.default_dl_dir
 
@@ -125,7 +127,7 @@ class SpecificationsTab(QWidget):
             with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
-            print(f"Error saving specs_config.json: {e}")
+            logger.error(f"Error saving specs_config.json: {e}", exc_info=True)
 
     # ==========================================
     # --- UI SETUP ---
@@ -1065,7 +1067,7 @@ class SpecificationsTab(QWidget):
                 self.table.setCellWidget(row_idx, 2, cell_widget)
 
         except Exception as e:
-            print(f"Error during refresh_table: {e}")
+            logger.error(f"Error during refresh_table: {e}", exc_info=True)
 
     # ==========================================
     # --- DOCUMENT FETCH & EXTRACTION ---
@@ -1139,13 +1141,12 @@ class SpecificationsTab(QWidget):
                                 btn.setEnabled(False)
 
                             conv_thread = WordConverterThread(str(doc_path), doc_type)
-                            conv_thread.ui_log_msg.connect(self._handle_converter_log)
-
+                    
                             def on_success(p, c=combo, b=btn, txt=orig_text):
                                 try:
                                     os.startfile(p)
                                 except Exception as e:
-                                    print(f"Error opening converted file: {e}")
+                                    logger.error(f"Error opening converted file: {e}", exc_info=True)
 
                                 try:
                                     if not sip.isdeleted(c):
@@ -1205,8 +1206,7 @@ class SpecificationsTab(QWidget):
                 btn.setEnabled(False)
 
             thread = SpecDownloadThread(c_data["url"], zip_path)
-            thread.ui_log_msg.connect(self._handle_converter_log)
-
+    
             def _on_success(zp):
                 try:
                     if not sip.isdeleted(combo):
@@ -1278,7 +1278,6 @@ class SpecificationsTab(QWidget):
             btn.setEnabled(False)
 
         thread = SpecDownloadThread(c_data["url"], zip_path)
-        thread.ui_log_msg.connect(self._handle_converter_log)
 
         def _on_success(zp):
             try:
@@ -1316,8 +1315,6 @@ class SpecificationsTab(QWidget):
         )
         thread.start()
 
-    def _handle_converter_log(self, msg: str, level: int):
-        self.log_msg.emit(msg, level)
 
     def _open_add_spec_dialog(self):
         dialog = AddSpecDialog(self.db, self)
@@ -1339,7 +1336,7 @@ class SpecificationsTab(QWidget):
                 self.favorites.discard(spec_num)
                 self._save_settings()
                 self.refresh_table()
-                self.log_msg.emit(f"🗑️ Deleted TS {spec_num} from specifications database.", logging.INFO)
+                logger.log(logging.INFO, f"🗑️ Deleted TS {spec_num} from specifications database.")
             else:
                 QMessageBox.warning(self, "Delete Error", f"Could not delete TS {spec_num}.")
 
@@ -1358,7 +1355,7 @@ class SpecificationsTab(QWidget):
                     deleted_count += 1
             self._save_settings()
             self.refresh_table()
-            self.log_msg.emit(f"🗑️ Deleted {deleted_count} specification(s) from database.", logging.INFO)
+            logger.log(logging.INFO, f"🗑️ Deleted {deleted_count} specification(s) from database.")
 
     def _on_wipe_db_clicked(self):
         reply = QMessageBox.critical(
@@ -1372,6 +1369,6 @@ class SpecificationsTab(QWidget):
                 self.favorites.clear()
                 self._save_settings()
                 self.refresh_table()
-                self.log_msg.emit("🧹 Specifications database wiped successfully.", logging.INFO)
+                logger.log(logging.INFO, "🧹 Specifications database wiped successfully.")
             else:
                 QMessageBox.critical(self, "Wipe Failed", "Failed to wipe specifications database.")
