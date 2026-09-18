@@ -11,6 +11,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.network.session import NetworkSession
 from modules.meetings.core.meetings_db import MeetingsDatabase
 
+logger = logging.getLogger(__name__)
+
 MEETING_SOURCES = {
     "RAN": {"ftp": ["https://www.3gpp.org/ftp/tsg_ran/TSG_RAN/", "https://www.3gpp.org/ftp/tsg_ran/TSG_RAN/TSGR_AHs/"],
             "dyna": "https://www.3gpp.org/dynareport?code=Meetings-RP.htm"},
@@ -94,12 +96,12 @@ class MeetingsCrawlerThread(QThread):
     def fetch_wg_directories(self, wg_name: str, ftp_base_url: str, is_ah_folder: bool = False) -> list:
         meeting_tasks = []
         try:
-            self.ui_log_msg.emit(f"🌐 Parsing {ftp_base_url}", logging.INFO)
+            logger.log(f"🌐 Parsing {ftp_base_url}", logging.INFO)
             html = NetworkSession.get_html(ftp_base_url)
 
             hrefs = self.href_pattern.findall(html)
             if not hrefs:
-                self.ui_log_msg.emit(f"⚠️ [Debug] NO links found for {ftp_base_url.split('/')[-2]}.", logging.WARNING)
+                logger.log(f"⚠️ [Debug] NO links found for {ftp_base_url.split('/')[-2]}.", logging.WARNING)
                 return meeting_tasks
 
             for href in hrefs:
@@ -129,12 +131,10 @@ class MeetingsCrawlerThread(QThread):
                     "docs_url": docs_url
                 })
 
-            self.ui_log_msg.emit(
-                f"✅ {wg_name}: Found {len(meeting_tasks)} meeting folders in {ftp_base_url.split('/')[-2]}.",
-                logging.INFO)
+            logger.log(f"✅ {wg_name}: Found {len(meeting_tasks)} meeting folders in {ftp_base_url.split('/')[-2]}.", logging.INFO)
 
         except Exception as e:
-            self.ui_log_msg.emit(f"⚠️ Directory Fetch Error for {ftp_base_url}: {e}", logging.WARNING)
+            logger.log(f"⚠️ Directory Fetch Error for {ftp_base_url}: {e}", logging.WARNING)
         return meeting_tasks
 
     def process_individual_meeting(self, task: dict) -> tuple:
@@ -283,7 +283,7 @@ class MeetingsCrawlerThread(QThread):
                 results.append((wg_name, full_num, url_key, mtg_id, m_name, town, start_d, end_d, new_m_num))
 
         except Exception as e:
-            self.ui_log_msg.emit(f"⚠️ DynaReport Error for {wg_name}: {e}", logging.WARNING)
+            logger.log(f"⚠️ DynaReport Error for {wg_name}: {e}", logging.WARNING)
 
         return results
 
@@ -293,7 +293,7 @@ class MeetingsCrawlerThread(QThread):
             all_tasks = []
 
             if self.sync_wg:
-                self.ui_log_msg.emit("⏳ [Phase 1/3] Mapping WG directories...", logging.INFO)
+                logger.log("⏳ [Phase 1/3] Mapping WG directories...", logging.INFO)
                 mapped = set()
 
                 with ThreadPoolExecutor(max_workers=15) as executor:
@@ -312,19 +312,16 @@ class MeetingsCrawlerThread(QThread):
                                 mapped.add(f"{t['wg_name']}:{t['meeting_num']}")
 
                 if all_tasks:
-                    self.ui_log_msg.emit(f"⏳ Bulk-saving {len(all_tasks)} folders to local Database... (This is fast)",
-                                         logging.INFO)
+                    logger.log(f"⏳ Bulk-saving {len(all_tasks)} folders to local Database... (This is fast)", logging.INFO)
                     self.db.insert_meetings_bulk(all_tasks)
-                    self.ui_log_msg.emit(f"✅ [Phase 1/3] Successfully mapped & saved {len(all_tasks)} meeting folders.",
-                                         logging.INFO)
+                    logger.log(f"✅ [Phase 1/3] Successfully mapped & saved {len(all_tasks)} meeting folders.", logging.INFO)
 
                 if self.target_meetings:
                     for t in self.target_meetings:
                         if f"{t['wg']}:{t['meeting']}" not in mapped:
-                            self.ui_log_msg.emit(f"⚠️ Target {t['wg']}:{t['meeting']} not found on FTP!",
-                                                 logging.WARNING)
+                            logger.log(f"⚠️ Target {t['wg']}:{t['meeting']} not found on FTP!", logging.WARNING)
             else:
-                self.ui_log_msg.emit("⏭️ [Phase 1/3] Skipping Directory Mapping (loading DB)...", logging.INFO)
+                logger.log("⏭️ [Phase 1/3] Skipping Directory Mapping (loading DB)...", logging.INFO)
                 for m in self.db.search_meetings():
                     if self.target_meetings and not any(
                             t["wg"] == m["wg_name"] and t["meeting"] == m["meeting_number"] for t in
@@ -341,10 +338,9 @@ class MeetingsCrawlerThread(QThread):
 
             if self.sync_docs:
                 if not all_tasks:
-                    self.ui_log_msg.emit("⚠️ No meetings available to scan for Docs.", logging.WARNING)
+                    logger.log("⚠️ No meetings available to scan for Docs.", logging.WARNING)
                 else:
-                    self.ui_log_msg.emit(f"⏳ [Phase 2/3] Deep scraping Docs for {len(all_tasks)} meetings...",
-                                         logging.INFO)
+                    logger.log(f"⏳ [Phase 2/3] Deep scraping Docs for {len(all_tasks)} meetings...", logging.INFO)
                     completed, tdocs_found = 0, 0
                     p2_start = time.time()
 
@@ -364,28 +360,25 @@ class MeetingsCrawlerThread(QThread):
                                 tdocs_found += count
                                 all_docs_data.append(docs_tuple)
                             except Exception as e:
-                                self.ui_log_msg.emit(f"❌ Error scraping {task['folder_name']}: {e}", logging.ERROR)
+                                logger.log(f"❌ Error scraping {task['folder_name']}: {e}", logging.ERROR)
 
                             if completed % 10 == 0 or completed == len(all_tasks):
                                 elapsed = time.time() - p2_start
                                 rate = completed / elapsed if elapsed > 0 else 0
-                                self.ui_log_msg.emit(
-                                    f"⏳ Scanned {completed}/{len(all_tasks)} Docs folders "
-                                    f"| TDocs: {tdocs_found} | Speed: {rate:.1f} mtg/sec",
-                                    logging.INFO
-                                )
+                                logger.log(f"⏳ Scanned {completed}/{len(all_tasks)} Docs folders "
+                                    f"| TDocs: {tdocs_found} | Speed: {rate:.1f} mtg/sec", logging.INFO)
 
                     if all_docs_data:
                         self.db.update_meeting_docs_bulk(all_docs_data)
 
-                    self.ui_log_msg.emit(f"✅ Pass 2 Complete. Indexed {tdocs_found} total TDocs.", logging.INFO)
+                    logger.log(f"✅ Pass 2 Complete. Indexed {tdocs_found} total TDocs.", logging.INFO)
             else:
-                self.ui_log_msg.emit("⏭️ [Phase 2/3] Skipping Docs folder deep scrape...", logging.INFO)
+                logger.log("⏭️ [Phase 2/3] Skipping Docs folder deep scrape...", logging.INFO)
 
             self.finished_path.emit("MEETINGS_DB_PHASE_2")
 
             if self.sync_dyna:
-                self.ui_log_msg.emit("⏳ [Phase 3/3] Updating metadata from DynaReports...", logging.INFO)
+                logger.log("⏳ [Phase 3/3] Updating metadata from DynaReports...", logging.INFO)
                 wgs_to_fetch = {t["wg"] for t in
                                 self.target_meetings} if self.target_meetings else MEETING_SOURCES.keys()
 
@@ -406,22 +399,21 @@ class MeetingsCrawlerThread(QThread):
                         if res := future.result():
                             all_metadata.extend(res)
                         completed_dyna += 1
-                        self.ui_log_msg.emit(f"⏳ DynaReports: {completed_dyna}/{total_dyna} pages processed...",
-                                             logging.INFO)
+                        logger.log(f"⏳ DynaReports: {completed_dyna}/{total_dyna} pages processed...", logging.INFO)
 
                 if all_metadata:
-                    self.ui_log_msg.emit(f"⏳ Bulk-saving metadata for {len(all_metadata)} meetings...", logging.INFO)
+                    logger.log(f"⏳ Bulk-saving metadata for {len(all_metadata)} meetings...", logging.INFO)
                     self.db.update_meeting_metadata_bulk(all_metadata)
 
-                self.ui_log_msg.emit("✅ Pass 3 Complete.", logging.INFO)
+                logger.log("✅ Pass 3 Complete.", logging.INFO)
             else:
-                self.ui_log_msg.emit("⏭️ [Phase 3/3] Skipping DynaReports metadata update...", logging.INFO)
+                logger.log("⏭️ [Phase 3/3] Skipping DynaReports metadata update...", logging.INFO)
 
-            self.ui_log_msg.emit(f"✅ 3GPP Sync Fully Complete in {time.time() - start_time:.1f}s!", logging.INFO)
+            logger.log(f"✅ 3GPP Sync Fully Complete in {time.time() - start_time:.1f}s!", logging.INFO)
             self.finished_path.emit("MEETINGS_DB_PHASE_3")
 
         except Exception as e:
-            self.ui_log_msg.emit(f"❌ Critical Failure: {str(e)}", logging.ERROR)
+            logger.log(f"❌ Critical Failure: {str(e)}", logging.ERROR)
         finally:
             self.finished.emit()
 

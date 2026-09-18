@@ -1,5 +1,6 @@
 # --- File: modules/meetings/ui/dialogs.py ---
 import webbrowser
+import logging
 from pathlib import Path
 
 from PyQt5.QtCore import Qt
@@ -14,6 +15,8 @@ from PyQt5.QtWidgets import QFileDialog
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.scraper import ManualMeetingFetcherThread, MEETING_SOURCES
+
+logger = logging.getLogger(__name__)
 
 
 def _format_meeting_info(data: dict) -> str:
@@ -339,6 +342,7 @@ class AddMeetingDialog(QDialog):
             QMessageBox.information(self, "Meeting Saved", f"Meeting {wg} #{num} was successfully saved to your database.")
             self.accept()
         except Exception as e:
+            logger.error(f"[AddMeetingDialog] Could not save meeting to database: {e}", exc_info=True)
             QMessageBox.critical(self, "Save Error", f"Could not save meeting to database:\n{e}")
 
 

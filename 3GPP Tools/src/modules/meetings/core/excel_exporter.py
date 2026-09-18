@@ -9,6 +9,8 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+logger = logging.getLogger(__name__)
+
 
 class ExcelExporterThread(QThread):
     progress = pyqtSignal(str)
@@ -40,6 +42,7 @@ class ExcelExporterThread(QThread):
 
     def run(self):
         try:
+            logger.info(f"[ExcelExporter] Exporting {len(self.rows_data)} row(s) to {self.output_path}")
             self.progress.emit("Initializing Deutsche Telekom styled workbook...")
             wb = openpyxl.Workbook()
             ws = wb.active
@@ -164,9 +167,11 @@ class ExcelExporterThread(QThread):
             self.output_path.parent.mkdir(parents=True, exist_ok=True)
             wb.save(str(self.output_path))
 
+            logger.info(f"[ExcelExporter] Saved: {self.output_path}")
             self.finished.emit(True, str(self.output_path))
 
         except PermissionError:
+            logger.warning(f"[ExcelExporter] Cannot write {self.output_path}; file may be open in Excel.")
             self.finished.emit(
                 False,
                 f"Cannot write to '{self.output_path.name}'. Please close the spreadsheet if open in Excel."

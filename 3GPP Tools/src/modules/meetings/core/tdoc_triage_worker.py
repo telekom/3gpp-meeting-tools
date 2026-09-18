@@ -14,6 +14,7 @@ from modules.meetings.core.llm_exporter import LLM_EXTRACTOR_VERSION
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 
 PROMPTS_DIR = get_project_root() / "config" / "prompts"
+logger = logging.getLogger(__name__)
 
 
 def load_prompt_file(filename: str, fallback_default: str) -> str:
@@ -133,6 +134,7 @@ class TDocTriageWorker(QThread):
         word_app = None
         try:
             tdoc_id = str(self.tdoc_data.get("TDoc", "")).strip()
+            logger.info(f"🤖 [AI Triage] Starting triage for {tdoc_id or 'unknown TDoc'} using model '{self.model}'...")
             if not tdoc_id:
                 self.generation_failed.emit("Invalid or empty TDoc identifier.")
                 return
@@ -239,6 +241,7 @@ class TDocTriageWorker(QThread):
                 self.token_received.emit(delta)
 
             full_triage = "".join(accumulated).strip()
+            logger.info(f"✅ [AI Triage] Completed triage for {tdoc_id}.")
             self.generation_completed.emit(full_triage)
 
         except Exception as e:

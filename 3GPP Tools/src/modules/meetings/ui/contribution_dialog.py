@@ -32,6 +32,8 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog, StatisticsSettingsDialog
 from modules.work_items.core.wi_database import WorkItemsDatabase
 
+logger = logging.getLogger(__name__)
+
 
 class KPICard(QFrame):
     """Lightweight summary metric card."""
@@ -311,6 +313,10 @@ class ContributionSearchWorker(QThread):
         self._is_cancelled = False
         self._executor = None
 
+    def _log(self, message: str, level: int = logging.INFO):
+        logger.log(level, message)
+        self.log_msg.emit(message)
+
     def cancel(self):
         self._is_cancelled = True
         if self._executor:
@@ -322,7 +328,7 @@ class ContributionSearchWorker(QThread):
     def run(self):
         try:
             self.stage_progress.emit("Stage 1/3: Resolving matching meetings...", 0, 100)
-            self.log_msg.emit("🔍 Querying meetings database for target criteria...")
+            self._log("🔍 Querying meetings database for target criteria...")
 
             meetings = self.meetings_db.search_meetings(
                 wg_name=self.wgs if self.wgs else None,
@@ -332,18 +338,18 @@ class ContributionSearchWorker(QThread):
 
             total_meetings = len(meetings)
             if total_meetings == 0:
-                self.log_msg.emit("⚠️ No meetings found matching the selected criteria.")
+                self._log("⚠️ No meetings found matching the selected criteria.", logging.WARNING)
                 self.results_ready.emit([])
                 self.finished.emit(True, "No meetings found.")
                 return
 
-            self.log_msg.emit(f"✅ Found {total_meetings} meeting(s) to process.")
+            self._log(f"✅ Found {total_meetings} meeting(s) to process.")
 
             all_matched_tdocs = []
             processed_count = 0
 
             max_workers = min(3, os.cpu_count() or 2)
-            self.log_msg.emit(f"⚡ Starting worker pool ({max_workers} threads)...")
+            self._log(f"⚡ Starting worker pool ({max_workers} threads)...")
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 self._executor = executor
@@ -354,7 +360,7 @@ class ContributionSearchWorker(QThread):
 
                 for future in as_completed(future_to_meeting):
                     if self._is_cancelled:
-                        self.log_msg.emit("🛑 Operation cancelled by user.")
+                        self._log("🛑 Operation cancelled by user.", logging.INFO)
                         break
 
                     processed_count += 1
@@ -366,7 +372,7 @@ class ContributionSearchWorker(QThread):
                         all_matched_tdocs.extend(matches)
                     except Exception as e:
                         mtg_ref = future_to_meeting[future]
-                        self.log_msg.emit(f"❌ Error in meeting {mtg_ref.get('meeting_number')}: {e}")
+                        self._log(f"❌ Error in meeting {mtg_ref.get('meeting_number')}: {e}", logging.ERROR)
 
             self._executor = None
             if self._is_cancelled:
@@ -377,14 +383,14 @@ class ContributionSearchWorker(QThread):
             all_matched_tdocs.sort(key=lambda r: (r.get("WG", ""), r.get("Meeting", ""), r.get("TDoc", "")))
 
             summary = f"Audit complete! Found {len(all_matched_tdocs)} contributions across {total_meetings} meeting(s)."
-            self.log_msg.emit(f"🏁 {summary}")
+            self._log(f"🏁 {summary}")
             self.results_ready.emit(all_matched_tdocs)
             self.finished.emit(True, summary)
 
         except Exception as e:
             err = f"Error during contribution search: {e}"
             logging.error(err, exc_info=True)
-            self.log_msg.emit(f"❌ {err}")
+            self._log(f"❌ {err}", logging.ERROR)
             self.finished.emit(False, str(e))
 
     def _process_single_meeting(self, mtg: dict) -> list:
@@ -415,10 +421,10 @@ class ContributionSearchWorker(QThread):
 
         if self.bypass_cache or not excel_file:
             if not mtg_id:
-                self.log_msg.emit(f"⚠️ [{tag}] Missing 3GPP portal ID; skipping download.")
+                self._log(f"⚠️ [{tag}] Missing 3GPP portal ID; skipping download.", logging.WARNING)
                 return []
 
-            self.log_msg.emit(f"📥 [{tag}] Downloading TDocs workbook from 3GPP...")
+            self._log(f"📥 [{tag}] Downloading TDocs workbook from 3GPP...")
             dl = TDocsDownloaderThread(mtg_id, local_mtg_dir)
             dl.run()
 
@@ -435,14 +441,14 @@ class ContributionSearchWorker(QThread):
                         excel_file = fallback
 
         if not excel_file or not excel_file.exists():
-            self.log_msg.emit(f"⚠️ [{tag}] No TDocs list available.")
+            self._log(f"⚠️ [{tag}] No TDocs list available.", logging.WARNING)
             return []
 
         json_cache = str(excel_file) + ".json"
         if not self.bypass_cache and os.path.exists(json_cache):
-            self.log_msg.emit(f"⚡ [{tag}] Loaded via JSON cache ({excel_file.name}).")
+            self._log(f"⚡ [{tag}] Loaded via JSON cache ({excel_file.name}).")
         else:
-            self.log_msg.emit(f"⚙️ [{tag}] Ingesting spreadsheet ({excel_file.name})...")
+            self._log(f"⚙️ [{tag}] Ingesting spreadsheet ({excel_file.name})...")
 
         tdocs_data = TDocsParser.parse_tdocs_excel(str(excel_file))
 
@@ -467,7 +473,7 @@ class ContributionSearchWorker(QThread):
                 row_copy["Related WIs"] = resolved_wi
                 matched.append(row_copy)
 
-        self.log_msg.emit(f"   ↳ [{tag}] {len(matched)} matching contribution(s).")
+        self._log(f"   ↳ [{tag}] {len(matched)} matching contribution(s).")
         return matched
 
     def _extract_related_wis(self, row: dict) -> str:

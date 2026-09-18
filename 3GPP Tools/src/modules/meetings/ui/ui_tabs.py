@@ -668,18 +668,9 @@ class MeetingsTab(QWidget):
             self.btn_compare.setEnabled(False)
 
             self.cmp_thread = WordComparatorThread(mgr.slot_a['path'], mgr.slot_b['path'])
-            self.cmp_thread.ui_log_msg.connect(self._handle_compare_log)
             self.cmp_thread.finished.connect(lambda: self.btn_compare.setText("⚖️ Compare in Word"))
             self.cmp_thread.finished.connect(lambda: self.btn_compare.setEnabled(True))
             self.cmp_thread.start()
-
-    def _handle_compare_log(self, msg: str, level: int):
-        if level == logging.ERROR:
-            print(f"🔴 {msg}")
-        elif level == logging.WARNING:
-            print(f"🟠 {msg}")
-        else:
-            print(f"🔵 {msg}")
 
     def _populate_filters(self):
         """

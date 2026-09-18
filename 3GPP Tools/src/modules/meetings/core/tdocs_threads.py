@@ -271,9 +271,7 @@ class TdocsByAgendaThread(QThread):
                 f"💾 [Agenda Saved] Saved locally to: {agenda_path.resolve()}"
             )
 
-            agenda_data = TDocsParser.parse_tdocs_by_agenda(
-                str(agenda_path), self.ui_log_msg
-            )
+            agenda_data = TDocsParser.parse_tdocs_by_agenda(str(agenda_path))
             logging.info(
                 f"✅ [Parsing Complete] Successfully parsed {len(agenda_data)} items from TdocsByAgenda."
             )
