@@ -486,10 +486,11 @@ class NASTab(QWidget):
             if spec_num:
                 item.setToolTip(f"Specification: TS {spec_num}\nClause: {m['clause']}")
 
+            self.msg_list.addItem(item)
+
             if msg_query and msg_query not in item_text.lower():
                 item.setHidden(True)
 
-            self.msg_list.addItem(item)
             if target_msg_name and msg_name == target_msg_name:
                 target_item = item
 
