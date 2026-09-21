@@ -231,7 +231,7 @@ def get_best_java(log_callback=None) -> Tuple[str, int]:
         portable_dirs = [
             root / "jre" / "bin",
             root / "tools" / "java" / "bin",
-            root / "modules" / "puml2visio" / "assets" / "jre" / "bin",
+            root / "assets" / "jre" / "bin",
         ]
         # Also check one folder level down (e.g. root/jre/jdk-21.0.2+13-jre/bin)
         for base in [root / "jre", root / "tools"]:
