@@ -291,10 +291,22 @@ class SpecsCrawlerThread(QThread):
         for href, file_url in file_links:
             clean_file_name: str = file_url.split('/')[-1]
             if clean_file_name.endswith('.zip'):
-                version_str: str = ""
                 match = self.version_pattern.search(clean_file_name)
-                if match:
-                    version_str = file_version_to_version(match.group(1))
+                if not match:
+                    self._log(
+                        f"Skipping non-version archive ZIP for {spec_number}: {clean_file_name}",
+                        logging.DEBUG
+                    )
+                    continue
+
+                version_str = file_version_to_version(match.group(1))
+                if not version_str:
+                    self._log(
+                        f"Skipping archive ZIP with undecodable version for {spec_number}: {clean_file_name}",
+                        logging.DEBUG
+                    )
+                    continue
+
                 files_to_save.append((clean_file_name, version_str, file_url))
 
         return {
