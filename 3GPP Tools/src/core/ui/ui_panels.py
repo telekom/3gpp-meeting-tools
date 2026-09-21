@@ -13,6 +13,7 @@ from PyQt5.QtCore import pyqtSignal, Qt, QObject
 from PyQt5.QtGui import QColor, QBrush, QFont
 
 from core.process_manager import ProcessManager
+from core.ui.database_inspector import DatabaseInspectorDialog
 from core.utils.paths import get_project_root
 
 
@@ -120,7 +121,7 @@ class DatabaseMaintenanceDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Database Maintenance & Compaction")
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
-        self.resize(680, 320)
+        self.resize(780, 360)
         self.setStyleSheet("background-color: #FAFAFA;")
 
         self._setup_ui()
@@ -135,9 +136,9 @@ class DatabaseMaintenanceDialog(QDialog):
         layout.addWidget(title)
 
         desc = QLabel(
-            "SQLite preserves deleted pages on an internal freelist, meaning database files do not shrink "
-            "automatically. Compacting runs a full <b>VACUUM</b> and flushes Write-Ahead Logs (WAL) to reclaim "
-            "disk space and defragment indices."
+            "Inspect database contents, schemas, and diagnostics in read-only mode. SQLite preserves deleted pages on an "
+            "internal freelist, so compacting runs a full <b>VACUUM</b> and flushes Write-Ahead Logs (WAL) to "
+            "reclaim disk space and defragment indices."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #64748B; font-size: 11px; margin-bottom: 8px;")
@@ -145,7 +146,7 @@ class DatabaseMaintenanceDialog(QDialog):
 
         self.table = QTableWidget()
         self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["Database", "File Size", "WAL Log", "Status", "Action"])
+        self.table.setHorizontalHeaderLabels(["Database", "File Size", "WAL Log", "Status", "Actions"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -289,10 +290,13 @@ class DatabaseMaintenanceDialog(QDialog):
                 status_item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_idx, 3, status_item)
 
-                # Action button styled to match standard tables
-                btn_compact = QPushButton("Compact")
-                btn_compact.setFixedHeight(22)
-                btn_compact.setStyleSheet("""
+                # Keep destructive maintenance separate from the read-only inspector.
+                action_widget = QWidget()
+                action_layout = QHBoxLayout(action_widget)
+                action_layout.setContentsMargins(0, 0, 0, 0)
+                action_layout.setSpacing(4)
+
+                action_style = """
                     QPushButton {
                         background-color: #F1F5F9;
                         border: 1px solid #CBD5E1;
@@ -306,9 +310,24 @@ class DatabaseMaintenanceDialog(QDialog):
                         background-color: #E0F2FE;
                         border-color: #0284C7;
                     }
-                """)
+                """
+
+                btn_inspect = QPushButton("Inspect")
+                btn_inspect.setFixedHeight(22)
+                btn_inspect.setStyleSheet(action_style)
+                btn_inspect.setToolTip("Browse tables, schema, and diagnostics in read-only mode.")
+                btn_inspect.clicked.connect(
+                    lambda _, p=db_path, n=entry["name"]: self._inspect_database(p, n)
+                )
+
+                btn_compact = QPushButton("Compact")
+                btn_compact.setFixedHeight(22)
+                btn_compact.setStyleSheet(action_style)
                 btn_compact.clicked.connect(lambda _, p=db_path, r=row_idx: self._vacuum_single(p, r))
-                self.table.setCellWidget(row_idx, 4, btn_compact)
+
+                action_layout.addWidget(btn_inspect)
+                action_layout.addWidget(btn_compact)
+                self.table.setCellWidget(row_idx, 4, action_widget)
 
             else:
                 empty_size = QTableWidgetItem("Not Created")
@@ -332,6 +351,15 @@ class DatabaseMaintenanceDialog(QDialog):
                 lbl_none.setFont(base_font)
                 lbl_none.setAlignment(Qt.AlignCenter)
                 self.table.setCellWidget(row_idx, 4, lbl_none)
+
+    def _inspect_database(self, db_path: Path, display_name: str):
+        """Open the reusable read-only SQLite inspector for a tracked database."""
+        if not db_path.exists():
+            QMessageBox.warning(self, "Database Missing", f"Database does not exist:\n{db_path}")
+            return
+
+        dialog = DatabaseInspectorDialog(db_path, display_name, self)
+        dialog.exec_()
 
     def _vacuum_database_file(self, db_path: Path) -> Tuple[bool, int, int, str]:
         """
@@ -589,7 +617,7 @@ class ConsolePanel(QWidget):
         self.db_btn = QPushButton("🗄️ Database")
         self.db_btn.setFixedSize(85, 24)
         self.db_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-        self.db_btn.setToolTip("Inspect database sizes, compact freelists (VACUUM), and flush WAL logs.")
+        self.db_btn.setToolTip("Browse database contents and diagnostics, inspect sizes, and compact SQLite files.")
         self.db_btn.clicked.connect(self.db_maintenance_requested.emit)
 
         self.proxy_btn = QPushButton("📡 Proxy")
