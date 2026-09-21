@@ -168,6 +168,19 @@ class SpecsDatabase:
     def insert_or_update_file(self, series_name: str, series_url: str, spec_number: str,
                               spec_url: str, filename: str, version: str, file_url: str,
                               upload_date: Optional[str] = None):
+        # Archive directories contain a small number of historical/non-standard ZIPs
+        # whose filenames do not encode a valid 3GPP version. They are not selectable
+        # specification versions and must not enter the version table.
+        clean_version = (version or "").strip()
+        if not clean_version:
+            self.logger.debug(
+                "Skipping specification archive file without a decoded version: %s (%s)",
+                filename, spec_number
+            )
+            return
+
+        version = clean_version
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('INSERT OR IGNORE INTO series (name, url) VALUES (?, ?)', (series_name, series_url))
@@ -335,6 +348,8 @@ class SpecsDatabase:
             LEFT JOIN spec_secondary_group_map sg_map ON sp.id = sg_map.spec_id
             LEFT JOIN working_groups s_grp ON sg_map.group_id = s_grp.id
             WHERE 1=1
+              AND f.version IS NOT NULL
+              AND TRIM(f.version) != ''
         """
         params = []
 
