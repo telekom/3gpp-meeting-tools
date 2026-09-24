@@ -51,11 +51,8 @@ class AssistantTab(QWidget):
         self._activities: List[ResearchActivity] = []
         self._evidence: Dict[str, Evidence] = {}
         self._last_result: Optional[AgentResult] = None
-
         self._setup_ui()
-
-        # Explicit idle state. Ollama monitor/service state does not own the
-        # editor's enabled state; availability is handled when Send is used.
+        # Explicit idle state; independent of Ollama monitor state.
         self._set_running(False)
         self.status_label.setText("Ready")
 
@@ -124,9 +121,7 @@ class AssistantTab(QWidget):
 
         input_row = QHBoxLayout()
         self.question_input = QLineEdit()
-        self.question_input.setPlaceholderText(
-            "Ask about 3GPP specifications, procedures, messages or IEs..."
-        )
+        self.question_input.setPlaceholderText("Ask about 3GPP specifications, procedures, messages or IEs...")
         self.question_input.returnPressed.connect(self._on_send)
         input_row.addWidget(self.question_input, stretch=1)
 
@@ -159,8 +154,7 @@ class AssistantTab(QWidget):
         try:
             adapter = OllamaAgentAdapter()
         except Exception as exc:
-            self._append_system_message(f"Could not initialize the local model: {exc}", error=True)
-            self._set_running(False)
+            self._append_system_message(f"Could not initialize the local model: {exc}")
             return
 
         worker = AgentResearchWorker(
@@ -206,14 +200,15 @@ class AssistantTab(QWidget):
 
     def _on_result(self, result: AgentResult) -> None:
         self._last_result = result
+        # Final result is authoritative in case an evidence signal was missed.
         for evidence in result.evidence:
             if evidence.id not in self._evidence:
                 self._evidence[evidence.id] = evidence
                 self._add_source_row(evidence)
 
+        rendered = self._render_answer(result.answer)
         self.conversation_browser.append(
-            "<div style='margin:10px 0 4px 0;'><b>Assistant</b></div>"
-            + self._render_answer(result.answer)
+            "<div style='margin:10px 0 4px 0;'><b>Assistant</b></div>" + rendered
         )
         self._conversation.append({"role": "assistant", "content": result.answer})
         if result.warnings:
@@ -223,18 +218,15 @@ class AssistantTab(QWidget):
                 + "</div>"
             )
         self.status_label.setText("Ready")
-        self._set_running(False)
 
     def _on_cancelled(self, result) -> None:
         self._append_system_message("Research stopped.")
         self.status_label.setText("Stopped")
-        self._set_running(False)
 
     def _on_failed(self, message: str, result) -> None:
         logger.error("Assistant research failed: %s", message)
         self._append_system_message(message, error=True)
         self.status_label.setText("Failed")
-        self._set_running(False)
 
     def _on_worker_finished(self) -> None:
         worker = self._worker
@@ -247,6 +239,7 @@ class AssistantTab(QWidget):
             self.status_label.setText("Stopped")
 
     def shutdown(self, wait_ms: int = 500) -> None:
+        """Request cooperative cancellation during application shutdown."""
         worker = self._worker
         if worker is None or not worker.isRunning():
             return
@@ -280,6 +273,8 @@ class AssistantTab(QWidget):
 
     def _render_answer(self, answer: str) -> str:
         escaped = html.escape(answer).replace("\n", "<br>")
+        # Only IDs present in the application evidence store are made visually
+        # citation-like. Unknown IDs remain ordinary escaped text.
         for evidence_id in sorted(self._evidence, key=len, reverse=True):
             escaped = escaped.replace(
                 f"[{evidence_id}]",
@@ -289,14 +284,17 @@ class AssistantTab(QWidget):
 
     def _add_source_row(self, evidence: Evidence) -> None:
         source = self._source_label(evidence)
-        details = []
+        detail_parts = []
         if evidence.version:
-            details.append(f"v{evidence.version}")
+            detail_parts.append(f"v{evidence.version}")
         if evidence.clause:
-            details.append(f"Clause {evidence.clause}")
-        item = QTreeWidgetItem([evidence.id, source, " — ".join(details)])
+            detail_parts.append(f"Clause {evidence.clause}")
+        item = QTreeWidgetItem(
+            [evidence.id, source, " — ".join(detail_parts)]
+        )
         item.setData(0, Qt.UserRole, evidence.id)
-        item.setToolTip(1, evidence.title or source)
+        tooltip = evidence.title or source
+        item.setToolTip(1, tooltip)
         self.sources_tree.addTopLevelItem(item)
         for column in range(3):
             self.sources_tree.resizeColumnToContents(column)
@@ -328,7 +326,7 @@ class AssistantTab(QWidget):
         QMessageBox.information(
             self,
             f"{evidence.id} — {header}",
-            text[:12000] + ("\n\n[Content shortened for display]" if len(text) > 12000 else ""),
+            (text[:12000] + ("\n\n[Content shortened for display]" if len(text) > 12000 else "")),
         )
 
     def _toggle_activity(self, checked: bool) -> None:
