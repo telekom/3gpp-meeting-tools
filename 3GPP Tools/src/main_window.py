@@ -34,6 +34,7 @@ from modules.spec_search.ui.spec_search_tabs import SpecSearchTab
 from modules.word_tools.ui.word_tabs import WordExtractorTab
 from modules.work_items.ui.ui_tabs import WorkItemsTab
 from modules.nas.ui.nas_tabs import NASTab
+from modules.assistant.ui.assistant_tab import AssistantTab
 from core.ai.ollama_client import OllamaClient, OllamaMonitorThread
 from core.ai.ollama_dialog import OllamaConfigDialog
 from modules.puml2visio.ui.java_dialog import JavaMaintenanceDialog
@@ -216,12 +217,19 @@ class DragDropUI(QMainWindow):
         )
 
         nas_db_path = get_project_root() / "db" / "3gpp_protocol_data.db"
-        logging.info("🏁 [STARTUP:UI:TAB] 7/8 Initializing NASTab...")
+        logging.info("🏁 [STARTUP:UI:TAB] 7/9 Initializing NASTab...")
         self.nas_tab = NASTab(nas_db_path, db_path)
 
         spec_search_db_path = get_project_root() / "db" / "3gpp_spec_search.db"
-        logging.info("🏁 [STARTUP:UI:TAB] 8/8 Initializing SpecSearchTab...")
+        logging.info("🏁 [STARTUP:UI:TAB] 8/9 Initializing SpecSearchTab...")
         self.spec_search_tab = SpecSearchTab(spec_search_db_path, db_path)
+
+        logging.info("🏁 [STARTUP:UI:TAB] 9/9 Initializing AssistantTab...")
+        self.assistant_tab = AssistantTab(
+            specs_db_path=db_path,
+            spec_search_db_path=spec_search_db_path,
+            protocol_db_path=nas_db_path,
+        )
 
         self.tabs.addTab(self.code_tab, "📝 PlantUML")
         self.tabs.addTab(self.batch_tab, "🔄 Visio")
@@ -231,6 +239,7 @@ class DragDropUI(QMainWindow):
         self.tabs.addTab(self.work_items_tab, "📋 Work Items")
         self.tabs.addTab(self.meetings_tab, "🗓️ Meetings")
         self.tabs.addTab(self.nas_tab, "🔬 Protocols")
+        self.tabs.addTab(self.assistant_tab, "🤖 Assistant")
 
         # Connect tab activation for lazy loading
         self.tabs.currentChanged.connect(self._on_tab_changed)
@@ -729,6 +738,13 @@ class DragDropUI(QMainWindow):
                 self.init_thread.wait(300)
             except Exception:
                 pass
+
+        # 4. Cooperatively stop an active Assistant research run.
+        if hasattr(self, "assistant_tab") and self.assistant_tab is not None:
+            try:
+                self.assistant_tab.shutdown(wait_ms=500)
+            except Exception as e:
+                logging.warning(f"⚠️ [SHUTDOWN] Could not stop Assistant worker cleanly: {e}")
 
         logging.info("🏁 [SHUTDOWN] Window closing. Releasing Qt window handle...")
         super().closeEvent(event)

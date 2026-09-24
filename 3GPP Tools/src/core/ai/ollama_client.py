@@ -272,6 +272,7 @@ class OllamaClient:
         self.host = raw_host
         self.proxy_mode = proxy_mode or cfg.get("proxy_mode", "direct")
         self.timeout = cfg.get("timeout", 60)
+        self.keep_alive = cfg.get("keep_alive", "5m")
         self.session = get_ai_session(self.host, self.proxy_mode)
 
     def reconfigure(self, host: str, proxy_mode: str):
@@ -280,7 +281,55 @@ class OllamaClient:
         if self.host.startswith("http://localhost:"):
             self.host = self.host.replace("http://localhost:", "http://127.0.0.1:")
         self.proxy_mode = proxy_mode
+        cfg = load_ollama_config()
+        self.timeout = cfg.get("timeout", 60)
+        self.keep_alive = cfg.get("keep_alive", "5m")
         self.session = get_ai_session(self.host, self.proxy_mode)
+
+    def chat(
+        self,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        options: Optional[Dict[str, Any]] = None,
+        keep_alive: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Execute a complete non-streaming /api/chat request.
+
+        Unlike stream_chat(), this method preserves the complete Ollama response,
+        including message.tool_calls and timing/token metadata.  It is intentionally
+        provider-level infrastructure; agent policy remains outside OllamaClient.
+        """
+        model = str(model or "").strip()
+        if not model:
+            raise ValueError("Ollama chat requires a model name.")
+        if not isinstance(messages, list) or not messages:
+            raise ValueError("Ollama chat requires at least one message.")
+
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": options or {"temperature": 0.2},
+            "keep_alive": keep_alive if keep_alive is not None else self.keep_alive,
+        }
+        if tools:
+            payload["tools"] = tools
+
+        request_timeout = float(timeout if timeout is not None else self.timeout)
+        endpoint = f"{self.host}/api/chat"
+        with self.session.post(
+            endpoint,
+            json=payload,
+            timeout=(5.0, request_timeout),
+        ) as resp:
+            resp.raise_for_status()
+            data = resp.json()
+
+        if not isinstance(data, dict):
+            raise ValueError("Ollama /api/chat returned a non-object JSON response.")
+        return data
 
     def ping_and_get_models(self) -> Tuple[bool, List[str], str]:
         """
@@ -323,10 +372,16 @@ class OllamaClient:
             "model": model,
             "messages": messages,
             "stream": True,
-            "options": options or {"temperature": 0.2}
+            "options": options or {"temperature": 0.2},
+            "keep_alive": self.keep_alive,
         }
 
-        with self.session.post(endpoint, json=payload, stream=True, timeout=(5.0, 300.0)) as resp:
+        with self.session.post(
+            endpoint,
+            json=payload,
+            stream=True,
+            timeout=(5.0, float(self.timeout)),
+        ) as resp:
             resp.raise_for_status()
             for line in resp.iter_lines():
                 if not line:
