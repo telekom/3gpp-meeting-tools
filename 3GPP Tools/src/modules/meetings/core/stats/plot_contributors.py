@@ -28,11 +28,30 @@ def generate_top_contributors_plot(df, export_dir, theme_color, top_count, prefi
 
 
 def generate_company_ai_heatmap(df, export_dir, prefix_id="Global", save_html=False, top_comps_count=25, top_ais_count=25):
-    # Explode companies so co-signers get properly mapped to the matrix
-    exploded_df = df.explode('Clean_Companies')
-    exploded_df = exploded_df.dropna(subset=['Clean_Companies', 'Agenda Item'])
-    exploded_df = exploded_df[(exploded_df['Clean_Companies'].str.strip() != '') &
-                              (exploded_df['Agenda Item'].str.strip() != '')]
+    # Explode companies so co-signers get properly mapped to the matrix.
+    #
+    # explode() deliberately duplicates the source DataFrame index when one
+    # TDoc has multiple contributors.  The index has no semantic meaning for
+    # the statistics, so normalize it immediately.  Keeping duplicate labels
+    # can cause pandas/Plotly reindex operations to fail with:
+    # "cannot reindex on an axis with duplicate labels".
+    exploded_df = (
+        df.explode('Clean_Companies', ignore_index=True)
+        .dropna(subset=['Clean_Companies', 'Agenda Item'])
+        .copy()
+    )
+
+    exploded_df['Clean_Companies'] = (
+        exploded_df['Clean_Companies'].astype(str).str.strip()
+    )
+    exploded_df['Agenda Item'] = (
+        exploded_df['Agenda Item'].astype(str).str.strip()
+    )
+
+    exploded_df = exploded_df[
+        (exploded_df['Clean_Companies'] != '') &
+        (exploded_df['Agenda Item'] != '')
+        ].reset_index(drop=True)
 
     # Target Top N Companies and Top N AIs via dynamic variables
     top_comps = exploded_df['Clean_Companies'].value_counts().head(top_comps_count).index

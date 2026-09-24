@@ -51,8 +51,16 @@ class StatisticsExporterThread(QThread):
                 self.finished.emit(False, "No TDoc data available to generate statistics.")
                 return
 
-            df = df[~df['TDoc Status'].str.lower().str.contains('withdrawn', na=False)].copy()
-            df['Clean_Companies'] = df['Source'].apply(CompanySanitizer.get_matching_contributors)
+            df = df[
+                ~df['TDoc Status'].astype(str).str.lower().str.contains(
+                    'withdrawn',
+                    na=False
+                )
+            ].copy().reset_index(drop=True)
+
+            df['Clean_Companies'] = df['Source'].apply(
+                CompanySanitizer.get_matching_contributors
+            )
 
             global_factions = compute_global_communities(df, self.cfg_resolution)
 
@@ -101,7 +109,9 @@ class StatisticsExporterThread(QThread):
                                          is_visible=True))
 
             for idx, ai_name in enumerate(unique_ais):
-                ai_df = df[df['Agenda Item'].str.strip() == ai_name].copy()
+                ai_df = df[
+                    df['Agenda Item'].astype(str).str.strip() == ai_name
+                    ].copy().reset_index(drop=True)
                 if ai_df.empty: continue
 
                 safe_id = f"ai_{idx}"
