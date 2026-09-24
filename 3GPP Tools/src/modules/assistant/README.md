@@ -1148,3 +1148,25 @@ Run the application in its normal PyQt/Ollama environment and verify:
 
 After this gate, the next work should be real-model evaluation/tuning rather
 than adding more UI features.
+
+
+## Protocol discovery correction
+
+Real-model testing exposed a missing semantic operation: a question such as
+"What messages are defined for PFCP?" cannot validly call
+`find_protocol_message`, because that tool requires a message name that the
+model does not yet know.
+
+The public tool set therefore now includes:
+
+```text
+list_protocol_messages(protocol, version=None, release=None, limit=100)
+```
+
+This is a structured discovery tool and creates structured protocol evidence.
+`find_protocol_message` remains the detailed lookup for a known message.
+
+Research activity now includes the concrete `ToolResult.message` for failures,
+so an `INVALID_REQUEST` displays why it was rejected. Repeated invalid tool
+calls also trigger an explicit schema-recovery instruction rather than allowing
+the model to churn through the full research budget.

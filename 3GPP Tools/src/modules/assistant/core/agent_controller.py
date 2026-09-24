@@ -33,11 +33,13 @@ class ModelAdapter(Protocol):
 class AgentControllerConfig:
     max_iterations: int = 12
     max_consecutive_model_errors: int = 2
+    max_consecutive_invalid_tool_calls: int = 3
     max_conversation_messages: int = 10
     finalization_without_tools: bool = True
     def __post_init__(self):
         if self.max_iterations < 1: raise ValueError("max_iterations must be >= 1")
         if self.max_consecutive_model_errors < 0: raise ValueError("max_consecutive_model_errors must be >= 0")
+        if self.max_consecutive_invalid_tool_calls < 1: raise ValueError("max_consecutive_invalid_tool_calls must be >= 1")
         if self.max_conversation_messages < 0: raise ValueError("max_conversation_messages must be >= 0")
 
 class AgentController:
@@ -67,6 +69,7 @@ class AgentController:
         messages=[{"role":"system","content":DEFAULT_SYSTEM_PROMPT},*context,{"role":"user","content":question}]
         cache: Dict[str,Tuple[ToolResult,List[str]]]={}
         model_errors=0
+        invalid_tool_calls=0
         self._activity(run,"research_started","Research started.")
         try:
             for iteration in range(1,self.config.max_iterations+1):
@@ -95,6 +98,10 @@ class AgentController:
                         else:
                             tt=time.perf_counter()
                             result=self.tools.execute(call.name,call.arguments)
+                            if result.status == ToolStatus.INVALID_REQUEST:
+                                invalid_tool_calls += 1
+                            else:
+                                invalid_tool_calls = 0
                             eids=self._capture_evidence(run,call.name,result)
                             cache[key]=(result,eids)
                             run.trace.add("tool_finished",tool=call.name,arguments=call.arguments,
@@ -105,6 +112,15 @@ class AgentController:
                             call_id=call.call_id))
                         self._activity(run,"tool_completed",self._result_activity_text(call.name,result),
                                        tool=call.name,status=result.status.value,evidence_ids=eids)
+                        if invalid_tool_calls >= self.config.max_consecutive_invalid_tool_calls:
+                            messages.append({"role":"user","content":(
+                                "Repeated invalid tool calls detected. Read the schemas carefully. "
+                                "For discovering all messages of a protocol use "
+                                "list_protocol_messages(protocol=...). For a known specific message use "
+                                "find_protocol_message(message=..., protocol=...). Do not repeat the same invalid call."
+                            )})
+                            run.trace.add("invalid_tool_recovery_prompt", consecutive=invalid_tool_calls)
+                            invalid_tool_calls=0
                     continue
 
                 answer=response.content.strip()
@@ -178,7 +194,7 @@ class AgentController:
                 title=data.get("clause_title") or data.get("title"),content=data.get("content",""),
                 content_complete=bool(data.get("content_complete",result.status==ToolStatus.FOUND)),
                 metadata={**result.metadata,"result_id":data.get("result_id")})
-        elif tool_name in ("find_protocol_message","find_protocol_ie"):
+        elif tool_name in ("list_protocol_messages","find_protocol_message","find_protocol_ie"):
             specs=data.get("specifications") or []; versions=data.get("versions") or []
             ev=run.add_evidence(EvidenceSourceType.PROTOCOL_KNOWLEDGE,"Structured protocol knowledge",
                 specification=str(specs[0]) if len(specs)==1 else None,
@@ -219,12 +235,15 @@ class AgentController:
     @staticmethod
     def _activity_text(name,args):
         labels={"list_protocols":"Checking structured protocol coverage.",
+        "list_protocol_messages":"Listing protocol messages.",
         "get_spec_clause":"Reading a selected specification clause."}
         if name in labels:return labels[name]
         q=args.get("query") or args.get("message") or args.get("ie") or args.get("specification") or ""
         return f"{name}: {q}".rstrip(": ")
     @staticmethod
     def _result_activity_text(name,result):
+        if result.message:
+            return f"{name}: {result.status.value} — {result.message}"
         return f"{name}: {result.status.value}."
     def _result(self, run, outcome, *, answer="", cited_evidence_ids=None, warnings=None, error=""):
         return AgentResult(

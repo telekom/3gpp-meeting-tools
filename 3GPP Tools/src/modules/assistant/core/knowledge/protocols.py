@@ -64,6 +64,76 @@ class ProtocolKnowledgeService:
         message = "" if db_available else f"Protocol DB is unavailable: {self.db_path}"
         return ToolResult(status, data=data, message=message)
 
+    def list_messages(self, protocol: str, *, version=None, release=None, limit: int = 100) -> ToolResult:
+        """List messages/PDUs for a protocol without requiring a known message name."""
+        protocol = str(protocol or "").strip()
+        if not protocol:
+            return ToolResult(ToolStatus.INVALID_REQUEST, message="Protocol name must not be empty.")
+        descriptors = self._resolve_descriptors(protocol)
+        if not descriptors:
+            return ToolResult(ToolStatus.INVALID_REQUEST, message=f"Unknown protocol: {protocol}")
+        try:
+            db = self._database()
+            imported = db.get_imported_versions()
+        except FileNotFoundError:
+            return ToolResult(ToolStatus.SOURCE_UNAVAILABLE, message=f"Protocol DB is unavailable: {self.db_path}")
+        except Exception as exc:
+            return ToolResult(ToolStatus.ERROR, message=f"Could not inspect protocol database: {exc}")
+
+        selected = self._select_versions(imported, descriptors, version, release)
+        if not selected:
+            return ToolResult(
+                ToolStatus.SOURCE_UNAVAILABLE, data=[],
+                message=f"No structured protocol data is imported for {protocol}.",
+                metadata={"protocol": protocol, "parser_supported": all(d.parser_supported for d in descriptors)},
+            )
+        version_ids = [int(v["id"]) for v in selected if v.get("id") is not None]
+        try:
+            rows = db.get_messages_list(version_ids)
+        except Exception as exc:
+            return ToolResult(ToolStatus.ERROR, message=f"Protocol message listing failed: {exc}")
+
+        items, seen = [], set()
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("message_name", "") or "").strip()
+            if not name:
+                continue
+            key = (name.casefold(), str(row.get("spec_number","")), str(row.get("version","")))
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append({
+                "message": name,
+                "clause": str(row.get("clause", "") or ""),
+                "specification": str(row.get("spec_number", "") or ""),
+                "version": str(row.get("version", "") or ""),
+            })
+        items.sort(key=lambda x: x["message"].casefold())
+        try:
+            max_results = max(1, min(int(limit), 250))
+        except (TypeError, ValueError):
+            max_results = 100
+        total = len(items)
+        returned = items[:max_results]
+        if not returned:
+            return ToolResult(ToolStatus.NOT_FOUND, data=[],
+                              message=f"No structured messages are stored for {protocol}.",
+                              metadata={"searched_versions": _version_labels(selected)})
+        return ToolResult(
+            ToolStatus.FOUND,
+            data={
+                "protocol": descriptors[0].display_name if len(descriptors) == 1 else protocol,
+                "specifications": sorted({x["specification"] for x in returned if x["specification"]}),
+                "versions": _sort_versions([x["version"] for x in returned if x["version"]], reverse=True),
+                "messages": returned,
+                "source_kind": "structured_protocol_knowledge",
+            },
+            metadata={"searched_versions": _version_labels(selected), "returned": len(returned),
+                      "total_messages": total, "more_available": total > len(returned)},
+        )
+
     def find_message(
         self,
         message: str,
