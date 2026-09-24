@@ -9,7 +9,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QGroupBox, QDialogButtonBox,
-    QSpinBox, QFileDialog, QMessageBox, QFrame
+    QSpinBox, QFileDialog, QMessageBox, QFrame, QCheckBox
 )
 
 from core.ai.ollama_client import (
@@ -38,6 +38,7 @@ class OllamaConfigDialog(QDialog):
             proxy_mode=self.cfg.get("proxy_mode", "direct")
         )
         self.service_worker = None
+        self._close_after_service_action = False
 
         self._setup_ui()
         self._load_current_values()
@@ -192,10 +193,12 @@ class OllamaConfigDialog(QDialog):
         # 4. ADVANCED SETTINGS GROUP
         # ==========================================
         adv_group = QGroupBox("⚙️ Advanced Settings")
-        adv_layout = QHBoxLayout(adv_group)
+        adv_layout = QVBoxLayout(adv_group)
+
+        runtime_row = QHBoxLayout()
 
         # Keep-Alive
-        adv_layout.addWidget(QLabel("VRAM Keep-Alive:"))
+        runtime_row.addWidget(QLabel("VRAM Keep-Alive:"))
         self.keep_alive_combo = QComboBox()
         self.keep_alive_combo.addItem("5 minutes (Default)", "5m")
         self.keep_alive_combo.addItem("10 minutes", "10m")
@@ -203,21 +206,54 @@ class OllamaConfigDialog(QDialog):
         self.keep_alive_combo.addItem("1 hour", "1h")
         self.keep_alive_combo.addItem("Indefinite (-1)", "-1")
         self.keep_alive_combo.addItem("Unload immediately (0s)", "0s")
-        adv_layout.addWidget(self.keep_alive_combo)
+        runtime_row.addWidget(self.keep_alive_combo)
 
         # Request Timeout
-        adv_layout.addWidget(QLabel("Timeout (s):"))
+        runtime_row.addWidget(QLabel("Timeout (s):"))
         self.timeout_spin = QSpinBox()
         self.timeout_spin.setRange(10, 600)
         self.timeout_spin.setValue(60)
-        adv_layout.addWidget(self.timeout_spin)
+        runtime_row.addWidget(self.timeout_spin)
 
         # Check interval
-        adv_layout.addWidget(QLabel("Heartbeat (s):"))
+        runtime_row.addWidget(QLabel("Heartbeat (s):"))
         self.interval_spin = QSpinBox()
         self.interval_spin.setRange(5, 60)
         self.interval_spin.setValue(10)
-        adv_layout.addWidget(self.interval_spin)
+        runtime_row.addWidget(self.interval_spin)
+        adv_layout.addLayout(runtime_row)
+
+        hardware_row = QHBoxLayout()
+        hardware_label = QLabel("Local GPU:")
+        hardware_label.setToolTip(
+            "These settings affect only a local Ollama daemon started/restarted by 3GPP Tools."
+        )
+        hardware_row.addWidget(hardware_label)
+
+        self.vulkan_checkbox = QCheckBox("Enable Vulkan")
+        self.vulkan_checkbox.setToolTip(
+            "Sets OLLAMA_VULKAN=1 when 3GPP Tools starts the local Ollama service. "
+            "Useful for Intel/AMD Vulkan acceleration."
+        )
+        hardware_row.addWidget(self.vulkan_checkbox)
+
+        self.igpu_checkbox = QCheckBox("Allow integrated GPU (iGPU)")
+        self.igpu_checkbox.setToolTip(
+            "Sets OLLAMA_IGPU_ENABLE=1 and enables Vulkan when 3GPP Tools starts "
+            "the local Ollama service. Required on systems such as Intel Arc integrated GPUs."
+        )
+        self.igpu_checkbox.toggled.connect(self._on_igpu_toggled)
+        hardware_row.addWidget(self.igpu_checkbox)
+        hardware_row.addStretch()
+        adv_layout.addLayout(hardware_row)
+
+        gpu_note = QLabel(
+            "GPU settings apply when 3GPP Tools starts/restarts a local Ollama service. "
+            "Restart Ollama after changing them. Existing Windows environment variables remain valid."
+        )
+        gpu_note.setWordWrap(True)
+        gpu_note.setStyleSheet("color: #64748B; font-size: 10px;")
+        adv_layout.addWidget(gpu_note)
 
         layout.addWidget(adv_group)
 
@@ -259,9 +295,23 @@ class OllamaConfigDialog(QDialog):
         self.timeout_spin.setValue(int(self.cfg.get("timeout", 60)))
         self.interval_spin.setValue(int(self.cfg.get("check_interval", 10)))
 
+        # Local GPU daemon overrides. Defaults preserve previous behavior.
+        self.vulkan_checkbox.setChecked(bool(self.cfg.get("enable_vulkan", False)))
+        self.igpu_checkbox.setChecked(bool(self.cfg.get("enable_igpu", False)))
+        self._on_igpu_toggled(self.igpu_checkbox.isChecked())
+
         # Refresh local service and API state
         self._refresh_service_status()
         self._test_connection()
+
+    def _on_igpu_toggled(self, checked: bool):
+        # Ollama's integrated-GPU path uses Vulkan. Keep the relationship
+        # explicit in the UI rather than saving a contradictory configuration.
+        if checked:
+            self.vulkan_checkbox.setChecked(True)
+            self.vulkan_checkbox.setEnabled(False)
+        else:
+            self.vulkan_checkbox.setEnabled(True)
 
     def _on_host_changed(self, text: str):
         is_local = is_local_host(text.strip())
@@ -337,7 +387,11 @@ class OllamaConfigDialog(QDialog):
         if success:
             # Refresh connection and models
             self._test_connection()
+            if self._close_after_service_action:
+                self._close_after_service_action = False
+                self.accept()
         else:
+            self._close_after_service_action = False
             QMessageBox.warning(self, "Service Management", f"Action failed:\n{message}")
 
     def _test_connection(self):
@@ -379,6 +433,10 @@ class OllamaConfigDialog(QDialog):
         keep_alive = self.keep_alive_combo.currentData()
         timeout = self.timeout_spin.value()
         interval = self.interval_spin.value()
+        enable_vulkan = self.vulkan_checkbox.isChecked()
+        enable_igpu = self.igpu_checkbox.isChecked()
+        old_enable_vulkan = bool(self.cfg.get("enable_vulkan", False))
+        old_enable_igpu = bool(self.cfg.get("enable_igpu", False))
 
         self.cfg["host"] = host
         self.cfg["selected_model"] = selected_model
@@ -387,7 +445,28 @@ class OllamaConfigDialog(QDialog):
         self.cfg["keep_alive"] = keep_alive
         self.cfg["timeout"] = timeout
         self.cfg["check_interval"] = interval
+        self.cfg["enable_vulkan"] = enable_vulkan
+        self.cfg["enable_igpu"] = enable_igpu
 
         save_ollama_config(self.cfg)
         self.settings_saved.emit()
+
+        hardware_changed = (
+            enable_vulkan != old_enable_vulkan
+            or enable_igpu != old_enable_igpu
+        )
+        if hardware_changed and is_local_host(host) and is_ollama_port_open(host):
+            answer = QMessageBox.question(
+                self,
+                "Restart Ollama?",
+                "The local GPU settings changed. They take effect when the Ollama "
+                "daemon is restarted.\n\nRestart Ollama now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if answer == QMessageBox.Yes:
+                self._close_after_service_action = True
+                self._execute_service_action("restart")
+                return
+
         self.accept()

@@ -31,7 +31,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "timeout": 60,
     "check_interval": 10,
     "keep_alive": "5m",
-    "custom_binary_path": ""
+    "custom_binary_path": "",
+    "enable_vulkan": False,
+    "enable_igpu": False
 }
 
 
@@ -137,6 +139,39 @@ def find_ollama_binary(custom_path: str = "") -> Optional[str]:
     return None
 
 
+
+def build_ollama_service_environment(cfg: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    """Builds the environment for an Ollama daemon started by 3GPP Tools.
+
+    Hardware settings are opt-in application overrides. When disabled, the
+    corresponding environment variable is left untouched so an existing user
+    or system environment configuration remains authoritative.
+    """
+    cfg = cfg or load_ollama_config()
+    env = os.environ.copy()
+
+    if bool(cfg.get("enable_vulkan", False)):
+        env["OLLAMA_VULKAN"] = "1"
+
+    if bool(cfg.get("enable_igpu", False)):
+        # Integrated-GPU scheduling currently relies on the Vulkan path.
+        env["OLLAMA_IGPU_ENABLE"] = "1"
+        env["OLLAMA_VULKAN"] = "1"
+
+    return env
+
+
+def describe_ollama_hardware_overrides(cfg: Optional[Dict[str, Any]] = None) -> str:
+    """Human-readable summary for logs/UI diagnostics."""
+    cfg = cfg or load_ollama_config()
+    enabled = []
+    if bool(cfg.get("enable_vulkan", False)) or bool(cfg.get("enable_igpu", False)):
+        enabled.append("Vulkan")
+    if bool(cfg.get("enable_igpu", False)):
+        enabled.append("iGPU")
+    return ", ".join(enabled) if enabled else "system/default"
+
+
 def start_ollama_service(custom_path: str = "", host: str = None) -> Tuple[bool, str]:
     """
     Starts the local Ollama daemon in the background without creating console windows.
@@ -160,11 +195,17 @@ def start_ollama_service(custom_path: str = "", host: str = None) -> Tuple[bool,
         if os.name == "nt":
             creationflags = 0x08000000  # CREATE_NO_WINDOW
 
+        service_env = build_ollama_service_environment(cfg)
+        logging.info(
+            "[Ollama] Starting local service with hardware overrides: %s",
+            describe_ollama_hardware_overrides(cfg),
+        )
         subprocess.Popen(
             [binary, "serve"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=creationflags
+            creationflags=creationflags,
+            env=service_env,
         )
     except Exception as e:
         return False, f"Failed to launch Ollama: {e}"
@@ -295,11 +336,11 @@ class OllamaClient:
         keep_alive: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Execute a complete non-streaming /api/chat request.
+        """Executes a complete non-streaming /api/chat request.
 
-        Unlike stream_chat(), this method preserves the complete Ollama response,
-        including message.tool_calls and timing/token metadata.  It is intentionally
-        provider-level infrastructure; agent policy remains outside OllamaClient.
+        Preserves the complete Ollama response, including native tool calls and
+        timing/token metadata. Hardware selection belongs to the Ollama daemon,
+        not to individual chat requests.
         """
         model = str(model or "").strip()
         if not model:
