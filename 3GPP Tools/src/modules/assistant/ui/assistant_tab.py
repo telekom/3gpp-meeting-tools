@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import html
+import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
-    QSplitter, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem,
+    QApplication, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QPlainTextEdit, QSplitter, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget,
 )
 
@@ -51,6 +53,7 @@ class AssistantTab(QWidget):
         self._activities: List[ResearchActivity] = []
         self._evidence: Dict[str, Evidence] = {}
         self._last_result: Optional[AgentResult] = None
+        self._exchange_events: List[dict] = []
         self._setup_ui()
         # Explicit idle state; independent of Ollama monitor state.
         self._set_running(False)
@@ -116,7 +119,35 @@ class AssistantTab(QWidget):
 
         detail_splitter.setSizes([430, 520])
         splitter.addWidget(detail_splitter)
-        splitter.setSizes([480, 240])
+
+        exchange_group = QGroupBox()
+        exchange_layout = QVBoxLayout(exchange_group)
+        exchange_header = QHBoxLayout()
+        self.exchange_toggle = QToolButton()
+        self.exchange_toggle.setText("▶ Ollama exchange details")
+        self.exchange_toggle.setCheckable(True)
+        self.exchange_toggle.setChecked(False)
+        self.exchange_toggle.clicked.connect(self._toggle_exchange)
+        exchange_header.addWidget(self.exchange_toggle)
+        exchange_header.addStretch()
+        self.copy_exchange_btn = QPushButton("Copy Trace")
+        self.copy_exchange_btn.clicked.connect(self._copy_exchange_trace)
+        exchange_header.addWidget(self.copy_exchange_btn)
+        self.clear_exchange_btn = QPushButton("Clear")
+        self.clear_exchange_btn.clicked.connect(self._clear_exchange_trace)
+        exchange_header.addWidget(self.clear_exchange_btn)
+        exchange_layout.addLayout(exchange_header)
+        self.exchange_browser = QPlainTextEdit()
+        self.exchange_browser.setReadOnly(True)
+        self.exchange_browser.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.exchange_browser.setPlaceholderText(
+            "Raw requests sent to Ollama and responses returned by Ollama appear here."
+        )
+        self.exchange_browser.setVisible(False)
+        exchange_layout.addWidget(self.exchange_browser)
+        splitter.addWidget(exchange_group)
+
+        splitter.setSizes([480, 240, 36])
         layout.addWidget(splitter)
 
         input_row = QHBoxLayout()
@@ -149,6 +180,7 @@ class AssistantTab(QWidget):
         self._last_result = None
         self.activity_browser.clear()
         self.sources_tree.clear()
+        self._clear_exchange_trace()
         self._update_activity_count()
 
         try:
@@ -169,6 +201,7 @@ class AssistantTab(QWidget):
         worker.research_started.connect(self._on_research_started)
         worker.activity_updated.connect(self._on_activity)
         worker.evidence_added.connect(self._on_evidence)
+        worker.exchange_observed.connect(self._on_exchange)
         worker.result_ready.connect(self._on_result)
         worker.research_cancelled.connect(self._on_cancelled)
         worker.research_failed.connect(self._on_failed)
@@ -197,6 +230,55 @@ class AssistantTab(QWidget):
     def _on_evidence(self, evidence: Evidence) -> None:
         self._evidence[evidence.id] = evidence
         self._add_source_row(evidence)
+
+
+    def _on_exchange(self, event: object) -> None:
+        if not isinstance(event, dict):
+            return
+        event = dict(event)
+        self._exchange_events.append(event)
+        stamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        direction = str(event.get("direction") or "event")
+        labels = {
+            "request": "APP -> OLLAMA",
+            "response_headers": "OLLAMA -> APP [HEADERS]",
+            "response": "OLLAMA -> APP",
+            "response_chunk": "OLLAMA -> APP [STREAM CHUNK]",
+        }
+        label = labels.get(direction, direction.upper())
+        if direction == "request":
+            body = {k: event.get(k) for k in ("method", "endpoint", "payload") if k in event}
+        elif direction == "response_headers":
+            body = {k: event.get(k) for k in ("status_code", "reason", "headers") if k in event}
+        elif direction == "response_chunk":
+            raw = event.get("raw", "")
+            try:
+                body = json.loads(raw)
+            except Exception:
+                body = raw
+        else:
+            body = event.get("payload", event)
+        if isinstance(body, (dict, list)):
+            rendered = json.dumps(body, indent=2, ensure_ascii=False, default=str)
+        else:
+            rendered = str(body)
+        self.exchange_browser.appendPlainText(f"[{stamp}] {label}\n{rendered}\n")
+
+    def _toggle_exchange(self, checked: bool) -> None:
+        self.exchange_browser.setVisible(checked)
+        self.exchange_toggle.setText(
+            ("▼" if checked else "▶") + " Ollama exchange details"
+        )
+
+    def _copy_exchange_trace(self) -> None:
+        text = self.exchange_browser.toPlainText()
+        if text:
+            QApplication.clipboard().setText(text)
+
+    def _clear_exchange_trace(self) -> None:
+        self._exchange_events.clear()
+        if hasattr(self, "exchange_browser"):
+            self.exchange_browser.clear()
 
     def _on_result(self, result: AgentResult) -> None:
         self._last_result = result
