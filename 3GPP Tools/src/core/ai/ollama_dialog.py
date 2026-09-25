@@ -9,12 +9,14 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QGroupBox, QDialogButtonBox,
-    QSpinBox, QFileDialog, QMessageBox, QFrame, QCheckBox
+    QSpinBox, QFileDialog, QMessageBox, QFrame, QCheckBox, QTableWidget,
+    QTableWidgetItem, QHeaderView, QAbstractItemView
 )
 
 from core.ai.ollama_client import (
     OllamaClient,
     OllamaServiceWorker,
+    OllamaDiagnosticsWorker,
     load_ollama_config,
     save_ollama_config,
     find_ollama_binary,
@@ -38,6 +40,7 @@ class OllamaConfigDialog(QDialog):
             proxy_mode=self.cfg.get("proxy_mode", "direct")
         )
         self.service_worker = None
+        self.diagnostics_worker = None
         self._close_after_service_action = False
 
         self._setup_ui()
@@ -190,7 +193,61 @@ class OllamaConfigDialog(QDialog):
         layout.addWidget(model_group)
 
         # ==========================================
-        # 4. ADVANCED SETTINGS GROUP
+        # 4. RUNTIME DIAGNOSTICS GROUP
+        # ==========================================
+        diagnostics_group = QGroupBox("📊 Ollama Runtime Diagnostics")
+        diagnostics_layout = QVBoxLayout(diagnostics_group)
+        diagnostics_layout.setSpacing(7)
+
+        summary_row = QHBoxLayout()
+        self.version_label = QLabel("Version: Checking...")
+        self.version_label.setStyleSheet("font-weight: bold;")
+        summary_row.addWidget(self.version_label)
+
+        self.runtime_label = QLabel("Runtime: Checking...")
+        self.runtime_label.setStyleSheet("font-weight: bold;")
+        summary_row.addWidget(self.runtime_label, 1)
+
+        self.refresh_diagnostics_btn = QPushButton("🔄 Refresh Diagnostics")
+        self.refresh_diagnostics_btn.setToolTip(
+            "Refresh Ollama version, installed-model metadata, and actual CPU/GPU model placement"
+        )
+        self.refresh_diagnostics_btn.clicked.connect(self._refresh_diagnostics)
+        summary_row.addWidget(self.refresh_diagnostics_btn)
+        diagnostics_layout.addLayout(summary_row)
+
+        self.acceleration_label = QLabel("Acceleration: Checking...")
+        self.acceleration_label.setWordWrap(True)
+        self.acceleration_label.setStyleSheet("color: #475569; font-size: 11px;")
+        diagnostics_layout.addWidget(self.acceleration_label)
+
+        self.models_table = QTableWidget(0, 6)
+        self.models_table.setHorizontalHeaderLabels(
+            ["Model", "Size", "Parameters", "Quantization", "Loaded", "Processor"]
+        )
+        self.models_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.models_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.models_table.setAlternatingRowColors(True)
+        self.models_table.verticalHeader().setVisible(False)
+        self.models_table.setMinimumHeight(120)
+        header = self.models_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        for column in range(1, 6):
+            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+        diagnostics_layout.addWidget(self.models_table)
+
+        diagnostics_note = QLabel(
+            "Processor shows observed placement for currently loaded models. "
+            "It is derived from Ollama runtime VRAM placement, not from the configured GPU checkboxes."
+        )
+        diagnostics_note.setWordWrap(True)
+        diagnostics_note.setStyleSheet("color: #64748B; font-size: 10px;")
+        diagnostics_layout.addWidget(diagnostics_note)
+
+        layout.addWidget(diagnostics_group)
+
+        # ==========================================
+        # 5. ADVANCED SETTINGS GROUP
         # ==========================================
         adv_group = QGroupBox("⚙️ Advanced Settings")
         adv_layout = QVBoxLayout(adv_group)
@@ -303,6 +360,7 @@ class OllamaConfigDialog(QDialog):
         # Refresh local service and API state
         self._refresh_service_status()
         self._test_connection()
+        self._refresh_diagnostics()
 
     def _on_igpu_toggled(self, checked: bool):
         # Ollama's integrated-GPU path uses Vulkan. Keep the relationship
@@ -385,8 +443,9 @@ class OllamaConfigDialog(QDialog):
         self._refresh_service_status()
 
         if success:
-            # Refresh connection and models
+            # Refresh connection, models, and runtime diagnostics
             self._test_connection()
+            self._refresh_diagnostics()
             if self._close_after_service_action:
                 self._close_after_service_action = False
                 self.accept()
@@ -424,6 +483,77 @@ class OllamaConfigDialog(QDialog):
             self.status_label.setStyleSheet("color: #DC2626; font-weight: bold;")
 
         self._refresh_service_status()
+
+    def _refresh_diagnostics(self):
+        """Refreshes runtime diagnostics asynchronously to keep the dialog responsive."""
+        if self.diagnostics_worker is not None and self.diagnostics_worker.isRunning():
+            return
+
+        host = self.host_input.text().strip() or "http://127.0.0.1:11434"
+        proxy_mode = self.proxy_combo.currentData()
+        self.client.reconfigure(host, proxy_mode)
+
+        self.refresh_diagnostics_btn.setEnabled(False)
+        self.version_label.setText("Version: Checking...")
+        self.runtime_label.setText("Runtime: Checking...")
+        self.acceleration_label.setText("Acceleration: Checking...")
+
+        self.diagnostics_worker = OllamaDiagnosticsWorker(self.client, self)
+        self.diagnostics_worker.finished.connect(self._on_diagnostics_finished)
+        self.diagnostics_worker.finished.connect(self.diagnostics_worker.deleteLater)
+        self.diagnostics_worker.start()
+
+    def _on_diagnostics_finished(self, info: dict):
+        self.refresh_diagnostics_btn.setEnabled(True)
+        self.diagnostics_worker = None
+
+        if not info.get("online"):
+            error = info.get("error") or "Ollama server is not available."
+            self.version_label.setText("Version: Unavailable")
+            self.runtime_label.setText("Runtime: Offline")
+            self.acceleration_label.setText(f"Acceleration: Unavailable ({error})")
+            self.models_table.setRowCount(0)
+            return
+
+        version = info.get("version") or "Unknown"
+        installed = list(info.get("models") or [])
+        running = list(info.get("running_models") or [])
+        running_by_name = {m.get("name"): m for m in running if m.get("name")}
+
+        self.version_label.setText(f"Version: {version}")
+        if running:
+            self.runtime_label.setText(f"Runtime: {len(running)} model(s) loaded")
+            processor_text = ", ".join(
+                f"{m.get('name')}: {m.get('processor', 'Unknown')}" for m in running
+            )
+            self.acceleration_label.setText(f"Acceleration: {processor_text}")
+        else:
+            self.runtime_label.setText("Runtime: No model currently loaded")
+            self.acceleration_label.setText(
+                "Acceleration: Not observable until a model is loaded. "
+                "Run a prompt and refresh diagnostics."
+            )
+
+        self.models_table.setRowCount(len(installed))
+        for row, model in enumerate(installed):
+            name = model.get("name", "")
+            runtime = running_by_name.get(name, {})
+            values = [
+                name,
+                model.get("size", "-"),
+                model.get("parameter_size", "-"),
+                model.get("quantization", "-"),
+                "Yes" if runtime else "No",
+                runtime.get("processor", "-") if runtime else "-",
+            ]
+            for column, value in enumerate(values):
+                self.models_table.setItem(row, column, QTableWidgetItem(str(value)))
+
+        error = str(info.get("error") or "").strip()
+        if error:
+            self.acceleration_label.setToolTip(error)
+        else:
+            self.acceleration_label.setToolTip("")
 
     def _save_and_close(self):
         host = self.host_input.text().strip() or "http://127.0.0.1:11434"

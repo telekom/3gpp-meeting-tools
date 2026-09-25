@@ -302,6 +302,23 @@ class OllamaServiceWorker(QThread):
         self.finished.emit(success, msg)
 
 
+class OllamaDiagnosticsWorker(QThread):
+    """Fetches Ollama runtime/model diagnostics without blocking the Qt GUI."""
+
+    finished = pyqtSignal(dict)
+
+    def __init__(self, client, parent: QObject = None):
+        super().__init__(parent)
+        self.client = client
+
+    def run(self):
+        try:
+            self.finished.emit(self.client.get_diagnostics())
+        except Exception as exc:
+            logging.exception("[Ollama] Diagnostics worker failed")
+            self.finished.emit({"online": False, "error": str(exc), "version": "", "models": [], "running_models": []})
+
+
 class OllamaClient:
     """Core communication client for the Ollama REST API."""
 
@@ -371,6 +388,108 @@ class OllamaClient:
         if not isinstance(data, dict):
             raise ValueError("Ollama /api/chat returned a non-object JSON response.")
         return data
+
+    @staticmethod
+    def _format_bytes(value: Any) -> str:
+        """Formats Ollama byte counts for compact diagnostics UI display."""
+        try:
+            size = float(value or 0)
+        except (TypeError, ValueError):
+            return "-"
+        if size <= 0:
+            return "-"
+        units = ("B", "KB", "MB", "GB", "TB")
+        unit = 0
+        while size >= 1024.0 and unit < len(units) - 1:
+            size /= 1024.0
+            unit += 1
+        return f"{size:.1f} {units[unit]}" if unit >= 2 else f"{size:.0f} {units[unit]}"
+
+    @staticmethod
+    def _processor_summary(size: Any, size_vram: Any) -> str:
+        """Derives Ollama's CPU/GPU split from /api/ps memory placement."""
+        try:
+            total = float(size or 0)
+            vram = max(0.0, float(size_vram or 0))
+        except (TypeError, ValueError):
+            return "Unknown"
+        if total <= 0:
+            return "Unknown"
+        gpu_pct = max(0, min(100, round((vram / total) * 100)))
+        cpu_pct = 100 - gpu_pct
+        if gpu_pct >= 99:
+            return "100% GPU"
+        if gpu_pct <= 1:
+            return "100% CPU"
+        return f"{gpu_pct}% GPU / {cpu_pct}% CPU"
+
+    def get_diagnostics(self) -> Dict[str, Any]:
+        """Returns version, installed-model metadata, and current runtime placement.
+
+        /api/tags supplies installed model metadata. /api/ps supplies models currently
+        loaded in memory, including size_vram and context_length. The GPU/CPU split is
+        derived from size_vram / size and therefore describes observed runtime placement,
+        not merely the configured Vulkan/iGPU preference.
+        """
+        result: Dict[str, Any] = {
+            "online": False,
+            "error": "",
+            "version": "Unknown",
+            "models": [],
+            "running_models": [],
+        }
+
+        # Reuse the normal connectivity path first so diagnostics fail quickly offline.
+        online, _, err = self.ping_and_get_models()
+        if not online:
+            result["error"] = err
+            return result
+        result["online"] = True
+
+        # Version is informational: older Ollama builds may not expose this endpoint.
+        try:
+            resp = self.session.get(f"{self.host}/api/version", timeout=2.0)
+            if resp.status_code == 200:
+                result["version"] = str(resp.json().get("version") or "Unknown")
+        except Exception as exc:
+            logging.debug("[Ollama] Version diagnostics unavailable: %s", exc)
+
+        try:
+            resp = self.session.get(f"{self.host}/api/tags", timeout=3.0)
+            resp.raise_for_status()
+            data = resp.json()
+            for item in data.get("models", []):
+                details = item.get("details") or {}
+                result["models"].append({
+                    "name": str(item.get("name") or item.get("model") or ""),
+                    "size": self._format_bytes(item.get("size")),
+                    "parameter_size": str(details.get("parameter_size") or "-"),
+                    "quantization": str(details.get("quantization_level") or "-"),
+                    "family": str(details.get("family") or "-"),
+                })
+        except Exception as exc:
+            result["error"] = f"Installed model query failed: {exc}"
+            return result
+
+        # Runtime information is optional so diagnostics still work with older servers.
+        try:
+            resp = self.session.get(f"{self.host}/api/ps", timeout=3.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get("models", []):
+                    result["running_models"].append({
+                        "name": str(item.get("name") or item.get("model") or ""),
+                        "processor": self._processor_summary(item.get("size"), item.get("size_vram")),
+                        "size": self._format_bytes(item.get("size")),
+                        "vram": self._format_bytes(item.get("size_vram")),
+                        "context_length": item.get("context_length") or "-",
+                    })
+            else:
+                logging.debug("[Ollama] /api/ps unavailable: HTTP %s", resp.status_code)
+        except Exception as exc:
+            logging.debug("[Ollama] Runtime diagnostics unavailable: %s", exc)
+
+        return result
 
     def ping_and_get_models(self) -> Tuple[bool, List[str], str]:
         """
