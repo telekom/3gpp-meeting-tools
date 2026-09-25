@@ -32,6 +32,7 @@ class AgentResearchWorker(QThread):
     research_started = pyqtSignal()
     activity_updated = pyqtSignal(object)   # ResearchActivity
     evidence_added = pyqtSignal(object)     # Evidence
+    exchange_observed = pyqtSignal(object)  # Raw Ollama request/response event
     result_ready = pyqtSignal(object)       # AgentResult
     research_cancelled = pyqtSignal(object) # AgentResult
     research_failed = pyqtSignal(str, object)  # user-facing error, AgentResult|None
@@ -50,6 +51,9 @@ class AgentResearchWorker(QThread):
         self.question = str(question or "").strip()
         self.tool_registry = tool_registry
         self.adapter = adapter or OllamaAgentAdapter()
+        # OllamaClient invokes this callback in this worker thread. Re-emitting
+        # through a Qt signal safely queues the event for the GUI thread.
+        self.adapter.client.exchange_callback = self._on_exchange
         self.conversation_context: List[Dict[str, str]] = [
             dict(item) for item in (conversation_context or [])
         ]
@@ -122,6 +126,9 @@ class AgentResearchWorker(QThread):
 
     def _on_evidence(self, evidence: Evidence) -> None:
         self.evidence_added.emit(evidence)
+
+    def _on_exchange(self, event: object) -> None:
+        self.exchange_observed.emit(event)
 
     def _emit_pre_run_cancelled(self) -> None:
         # No ResearchRun exists yet, so there is no AgentResult to expose.

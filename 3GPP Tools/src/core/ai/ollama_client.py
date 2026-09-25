@@ -332,6 +332,8 @@ class OllamaClient:
         self.timeout = cfg.get("timeout", 60)
         self.keep_alive = cfg.get("keep_alive", "5m")
         self.session = get_ai_session(self.host, self.proxy_mode)
+        # Optional observer used by diagnostic UIs. Called from the requesting thread.
+        self.exchange_callback = None
 
     def reconfigure(self, host: str, proxy_mode: str):
         """Re-initializes session when user changes host or proxy settings."""
@@ -377,13 +379,31 @@ class OllamaClient:
 
         request_timeout = float(timeout if timeout is not None else self.timeout)
         endpoint = f"{self.host}/api/chat"
+        trace = self.exchange_callback
+        if callable(trace):
+            trace({
+                "direction": "request",
+                "method": "POST",
+                "endpoint": endpoint,
+                "payload": payload,
+            })
+
         with self.session.post(
             endpoint,
             json=payload,
             timeout=(5.0, request_timeout),
         ) as resp:
+            if callable(trace):
+                trace({
+                    "direction": "response_headers",
+                    "status_code": resp.status_code,
+                    "reason": resp.reason,
+                    "headers": dict(resp.headers),
+                })
             resp.raise_for_status()
             data = resp.json()
+            if callable(trace):
+                trace({"direction": "response", "payload": data})
 
         if not isinstance(data, dict):
             raise ValueError("Ollama /api/chat returned a non-object JSON response.")
@@ -536,18 +556,37 @@ class OllamaClient:
             "keep_alive": self.keep_alive,
         }
 
+        trace = self.exchange_callback
+        if callable(trace):
+            trace({
+                "direction": "request",
+                "method": "POST",
+                "endpoint": endpoint,
+                "payload": payload,
+            })
+
         with self.session.post(
             endpoint,
             json=payload,
             stream=True,
             timeout=(5.0, float(self.timeout)),
         ) as resp:
+            if callable(trace):
+                trace({
+                    "direction": "response_headers",
+                    "status_code": resp.status_code,
+                    "reason": resp.reason,
+                    "headers": dict(resp.headers),
+                })
             resp.raise_for_status()
             for line in resp.iter_lines():
                 if not line:
                     continue
+                raw_line = line.decode("utf-8", errors="replace")
+                if callable(trace):
+                    trace({"direction": "response_chunk", "raw": raw_line})
                 try:
-                    chunk = json.loads(line.decode("utf-8"))
+                    chunk = json.loads(raw_line)
                     delta = chunk.get("message", {}).get("content", "")
                     if delta:
                         yield delta

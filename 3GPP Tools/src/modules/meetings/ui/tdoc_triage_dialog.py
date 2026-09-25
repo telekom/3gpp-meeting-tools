@@ -1,9 +1,10 @@
 # --- File: src/modules/meetings/ui/tdoc_triage_dialog.py ---
 import datetime
 import logging
+import json
 from pathlib import Path
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QCursor
+from PyQt5.QtGui import QCursor, QTextCursor
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPlainTextEdit,
     QPushButton, QComboBox, QMessageBox, QFrame, QApplication, QToolTip
@@ -21,6 +22,7 @@ class TDocTriageDialog(QDialog):
     """Modeless technical triage dialog for streaming AI proposal summaries."""
 
     notes_updated = pyqtSignal(str, str, str)  # (tdoc_id, status, notes)
+    exchange_trace = pyqtSignal(object)
 
     def __init__(
         self,
@@ -52,6 +54,10 @@ class TDocTriageDialog(QDialog):
 
         self.client = OllamaClient()
         self.worker: TDocTriageWorker = None
+        # OllamaClient invokes this callback from the worker thread. Re-emitting through
+        # a Qt signal safely marshals the trace event back to the GUI thread.
+        self.client.exchange_callback = self.exchange_trace.emit
+        self.exchange_trace.connect(self._handle_exchange_trace)
 
         self._setup_ui()
         self._refresh_models()
@@ -146,6 +152,45 @@ class TDocTriageDialog(QDialog):
         """)
         layout.addWidget(self.output_text, stretch=1)
 
+        # --- Processing / Ollama Exchange Inspector ---
+        trace_header = QHBoxLayout()
+        self.trace_toggle_btn = QPushButton("▶ Show Process && Ollama Exchange")
+        self.trace_toggle_btn.setCheckable(True)
+        self.trace_toggle_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.trace_toggle_btn.toggled.connect(self._toggle_trace_panel)
+        trace_header.addWidget(self.trace_toggle_btn)
+        trace_header.addStretch()
+
+        self.copy_trace_btn = QPushButton("📋 Copy Trace")
+        self.copy_trace_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.copy_trace_btn.clicked.connect(self._copy_trace)
+        self.copy_trace_btn.setVisible(False)
+        trace_header.addWidget(self.copy_trace_btn)
+
+        self.clear_trace_btn = QPushButton("🧹 Clear")
+        self.clear_trace_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.clear_trace_btn.clicked.connect(self._clear_trace)
+        self.clear_trace_btn.setVisible(False)
+        trace_header.addWidget(self.clear_trace_btn)
+        layout.addLayout(trace_header)
+
+        self.trace_text = QPlainTextEdit()
+        self.trace_text.setReadOnly(True)
+        self.trace_text.setMaximumHeight(260)
+        self.trace_text.setPlaceholderText("Processing steps and the exact Ollama HTTP payload/stream will appear here.")
+        self.trace_text.setStyleSheet("""
+            QPlainTextEdit {
+                font-family: Consolas, 'Courier New', monospace;
+                font-size: 10px;
+                background-color: #F8FAFC;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 6px;
+            }
+        """)
+        self.trace_text.setVisible(False)
+        layout.addWidget(self.trace_text)
+
         # --- Bottom Action Bar ---
         btn_bar = QHBoxLayout()
         btn_bar.setSpacing(8)
@@ -233,6 +278,8 @@ class TDocTriageDialog(QDialog):
             return
 
         self.output_text.clear()
+        self.trace_text.clear()
+        self._append_trace("STEP", "Initializing triage worker")
         self.status_lbl.setText("⏳ Initializing triage worker...")
         self.status_lbl.setStyleSheet("color: #2563EB; font-weight: bold;")
         self.cancel_btn.setEnabled(True)
@@ -256,10 +303,68 @@ class TDocTriageDialog(QDialog):
 
     def _handle_progress(self, msg: str):
         self.status_lbl.setText(msg)
+        self._append_trace("STEP", msg)
 
     def _handle_token(self, delta: str):
-        self.output_text.insertPlainText(delta)
-        self.output_text.ensureCursorVisible()
+        # Never use the editor's visible/user cursor as the stream insertion point.
+        # A temporary cursor anchored at document end keeps streaming append-only even
+        # when the user clicks, selects, or edits elsewhere in the summary.
+        user_cursor = self.output_text.textCursor()
+        was_at_end = user_cursor.position() == self.output_text.document().characterCount() - 1
+        stream_cursor = QTextCursor(self.output_text.document())
+        stream_cursor.movePosition(QTextCursor.End)
+        stream_cursor.insertText(delta)
+        if was_at_end:
+            self.output_text.setTextCursor(stream_cursor)
+            self.output_text.ensureCursorVisible()
+        else:
+            self.output_text.setTextCursor(user_cursor)
+
+    def _toggle_trace_panel(self, checked: bool):
+        self.trace_text.setVisible(checked)
+        self.copy_trace_btn.setVisible(checked)
+        self.clear_trace_btn.setVisible(checked)
+        self.trace_toggle_btn.setText(
+            "▼ Hide Process && Ollama Exchange" if checked
+            else "▶ Show Process && Ollama Exchange"
+        )
+
+    def _append_trace(self, category: str, text: str):
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        self.trace_text.appendPlainText(f"[{timestamp}] {category}\n{text}\n")
+
+    def _handle_exchange_trace(self, event: object):
+        if not isinstance(event, dict):
+            self._append_trace("OLLAMA", str(event))
+            return
+        direction = event.get("direction", "unknown")
+        if direction == "request":
+            details = {
+                "method": event.get("method"),
+                "endpoint": event.get("endpoint"),
+                "payload": event.get("payload"),
+            }
+            self._append_trace("APP → OLLAMA", json.dumps(details, indent=2, ensure_ascii=False))
+        elif direction == "response_headers":
+            details = {
+                "status_code": event.get("status_code"),
+                "reason": event.get("reason"),
+                "headers": event.get("headers", {}),
+            }
+            self._append_trace("OLLAMA → APP [HEADERS]", json.dumps(details, indent=2, ensure_ascii=False))
+        elif direction == "response_chunk":
+            self._append_trace("OLLAMA → APP [STREAM CHUNK]", str(event.get("raw", "")))
+        else:
+            self._append_trace("OLLAMA", json.dumps(event, indent=2, ensure_ascii=False, default=str))
+
+    def _copy_trace(self):
+        text = self.trace_text.toPlainText()
+        if text:
+            QApplication.clipboard().setText(text)
+            QToolTip.showText(QCursor.pos(), "📋 Ollama exchange trace copied!", self)
+
+    def _clear_trace(self):
+        self.trace_text.clear()
 
     def _handle_complete(self, full_text: str):
         self.status_lbl.setText("✅ Completed")
