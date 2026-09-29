@@ -29,6 +29,35 @@ def file_version_to_version(file_version: str) -> str:
     except Exception:
         return ""
 
+
+def normalize_dynareport_spec_number(spec_number: str) -> str:
+    """Return the canonical 3GPP DynaReport identifier for a specification.
+
+    Examples:
+        23.501 -> 23501
+        23.801-01 -> 23801-01
+        TR 23.801-01 -> 23801-01
+    """
+    import re
+
+    clean_spec = str(spec_number or "").strip()
+    clean_spec = re.sub(r'^(?:3GPP\s+)?(?:TS|TR)\s*', '', clean_spec, flags=re.IGNORECASE).strip()
+    match = re.fullmatch(r'(\d{2})\.?(\d{3})(?:[-_.](\d{1,2}))?', clean_spec)
+    if not match:
+        return ""
+
+    series, core, part = match.groups()
+    identifier = f"{series}{core}"
+    if part:
+        identifier += f"-{part}"
+    return identifier
+
+
+def build_dynareport_url(spec_number: str) -> str:
+    """Build the canonical DynaReport URL while preserving a specification part."""
+    identifier = normalize_dynareport_spec_number(spec_number)
+    return f"https://www.3gpp.org/DynaReport/{identifier}.htm" if identifier else ""
+
 def open_extracted_documents(directory_path: Path) -> list:
     """
     Scans a directory for valid 3GPP document files and opens them natively.

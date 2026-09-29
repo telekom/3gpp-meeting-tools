@@ -640,9 +640,9 @@ class SpecificationsTab(QWidget):
             )
 
     def _open_web_report(self, spec_num: str):
-        clean_number = spec_num.replace(".", "")
-        url = f"https://www.3gpp.org/DynaReport/{clean_number}.htm"
-        webbrowser.open(url)
+        url = build_dynareport_url(spec_num)
+        if url:
+            webbrowser.open(url)
 
     # ==========================================
     # --- TABLE REFRESH & RENDERING ---

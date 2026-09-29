@@ -42,6 +42,7 @@ from core.ui.ui_components import (
 
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.core.scraper import fetch_metadata_from_dynareport
+from modules.specifications.utils.utils import normalize_dynareport_spec_number, build_dynareport_url
 
 
 class SpecsConfigDialog(QDialog):
@@ -222,10 +223,8 @@ class SpecInfoDialog(QDialog):
         form.setSpacing(8)
         form.setLabelAlignment(Qt.AlignRight)
 
-        clean_number = spec_num.split("-")[0].replace(".", "").strip()
-        dynareport_url = (
-            f"https://www.3gpp.org/DynaReport/{clean_number}.htm" if clean_number else ""
-        )
+        clean_number = normalize_dynareport_spec_number(spec_num)
+        dynareport_url = build_dynareport_url(spec_num)
         ftp_url = details.get("url", "")
 
         primary_group = details.get("primary_group") or "-"
