@@ -150,7 +150,12 @@ class WifiMonitorThread(QThread):
     def stop(self):
         """Cleanly signals thread to stop and joins."""
         self._running = False
+        # run() does not use a Qt event loop, so quit() alone cannot stop it.
+        # Allow an in-flight COM/netsh/TCP probe to finish. The netsh fallback
+        # itself has a 2 s timeout, so 3.5 s comfortably covers one iteration.
         self.quit()
-        if not self.wait(600):
-            self.terminate()
-            self.wait(200)
+        if not self.wait(3500):
+            logging.warning(
+                "Wi-Fi monitor did not stop within 3.5 s; leaving it to exit "
+                "cooperatively instead of force-terminating the QThread."
+            )
