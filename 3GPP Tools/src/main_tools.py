@@ -81,7 +81,8 @@ if __name__ == '__main__':
     logging.info("🏁 [STARTUP] Plugins registered successfully.")
 
     app = QApplication(sys.argv)
-    app.setWindowIcon(create_app_icon())
+    app_icon = create_app_icon()
+    app.setWindowIcon(app_icon)
     app.setStyle("Fusion")
     app.setStyleSheet(GLOBAL_STYLE)
     app.setQuitOnLastWindowClosed(True)
@@ -136,6 +137,10 @@ if __name__ == '__main__':
     )
 
     window = DragDropUI(gui_log_handler=gui_log_handler)
+    # Explicitly set the icon on the native top-level window as well as on
+    # QApplication. This avoids relying solely on Qt icon inheritance when
+    # Windows creates the taskbar/title-bar representation for python.exe.
+    window.setWindowIcon(app_icon)
 
     logging.info("🏁 [STARTUP] Displaying main window...")
     window.show()
