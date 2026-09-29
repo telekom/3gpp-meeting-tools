@@ -1,11 +1,10 @@
 # --- File: src/core/ui/ui_components.py ---
-import os
 import urllib.parse
 from pathlib import Path
 from typing import Optional, Tuple
 
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPen, QPixmap
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -375,55 +374,22 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 
 
 def create_app_icon():
-    """Generates the geometric network icon, saves it physically, and loads it for Windows."""
+    """Load the stable application icon used by Qt and the Windows shell."""
     try:
         from core.utils.paths import get_project_root
-        icon_path = get_project_root() / "3gpp_icon_cache.png"
+        icon_path = get_project_root() / "assets" / "3gpp_tools.ico"
     except ImportError:
-        icon_path = Path("3gpp_icon_cache.png")
+        icon_path = Path("assets") / "3gpp_tools.ico"
 
-    size = 256
-    pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.transparent)
+    if icon_path.is_file():
+        return QIcon(str(icon_path))
 
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
-
-    bg_color = QColor("#1A202C")
-    painter.setBrush(bg_color)
-    painter.setPen(Qt.NoPen)
-    corner_radius = size // 5
-    painter.drawRoundedRect(2, 2, size - 4, size - 4, corner_radius, corner_radius)
-
-    pen = QPen(QColor("#3B82F6"))
-    pen.setWidth(size // 12)
-    pen.setJoinStyle(Qt.RoundJoin)
-    pen.setCapStyle(Qt.RoundCap)
-    painter.setPen(pen)
-
-    center_x = size / 2
-    top_y = size * 0.28
-    bl_x = size * 0.25
-    bl_y = size * 0.72
-    br_x = size * 0.75
-    br_y = size * 0.72
-
-    painter.drawLine(int(center_x), int(top_y), int(bl_x), int(bl_y))
-    painter.drawLine(int(center_x), int(top_y), int(br_x), int(br_y))
-    painter.drawLine(int(bl_x), int(bl_y), int(br_x), int(br_y))
-
-    painter.setBrush(QColor("#FFFFFF"))
-    painter.setPen(Qt.NoPen)
-    node_radius = size // 10
-
-    painter.drawEllipse(int(center_x - node_radius), int(top_y - node_radius), node_radius * 2, node_radius * 2)
-    painter.drawEllipse(int(bl_x - node_radius), int(bl_y - node_radius), node_radius * 2, node_radius * 2)
-    painter.drawEllipse(int(br_x - node_radius), int(br_y - node_radius), node_radius * 2, node_radius * 2)
-
-    painter.end()
-
-    pixmap.save(str(icon_path), "PNG")
-    return QIcon(str(icon_path))
+    # Keep startup resilient if an installation is missing the optional asset.
+    # QIcon() lets Qt/Windows fall back cleanly instead of creating or rewriting
+    # files in the project directory during application startup.
+    import logging
+    logging.warning("Application icon not found: %s", icon_path)
+    return QIcon()
 
 
 class ProxyTestWorker(QThread):
