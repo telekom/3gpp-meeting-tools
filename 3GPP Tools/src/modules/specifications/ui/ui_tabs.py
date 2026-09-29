@@ -1023,7 +1023,7 @@ class SpecificationsTab(QWidget):
 
                     menu.clear()
 
-                    word_label = "📝 Open Word Document" if word_exists else ("⚙️ Extract Word Document" if zip_exists else "⬇️ Download & Open Word")
+                    word_label = "📝 Open Word Document" if word_exists else ("⚙️ Extract Word Document" if zip_exists else "⬇️ Download && Open Word")
                     act_word = menu.addAction(f"{word_label} {'✅' if word_exists else ''}".strip())
                     act_word.triggered.connect(lambda: self._handle_document_action(c, "word", btn))
 
