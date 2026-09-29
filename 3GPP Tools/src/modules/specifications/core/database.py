@@ -548,7 +548,7 @@ class SpecsDatabase:
 
                 # Insert or update specification
                 clean_num = spec_number.replace(".", "")
-                dyna_url = f"https://www.3gpp.org/DynaReport/{clean_num}.htm"
+                dyna_url = build_dynareport_url(spec_number)
                 cursor.execute("""
                     INSERT INTO specifications (series_id, number, url, title, type, initial_release, radio_technology, primary_group_id)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
