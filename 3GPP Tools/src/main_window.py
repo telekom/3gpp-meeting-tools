@@ -593,26 +593,33 @@ class DragDropUI(QMainWindow):
         logging.log(level, message)
 
     def showEvent(self, event):
-        """Ensures background services start immediately and reliably on display."""
         super().showEvent(event)
-        if not getattr(self, '_services_started', False):
+
+        if not self._services_started:
             self._services_started = True
-            logging.info("🏁 [STARTUP:WINDOW] DragDropUI displayed. Starting background services...")
-            # Direct invocation guarantees workers launch without QTimer garbage-collection drops
-            self._start_background_services()
+
+            logging.info(
+                "🏁 [STARTUP:WINDOW] DragDropUI displayed. "
+                "Scheduling background services..."
+            )
+
+            QTimer.singleShot(0, self._start_background_services)
 
     def _start_background_services(self):
         """Launches all background monitors independently so one never blocks another."""
         logging.info("🏁 [STARTUP:SERVICES] Launching background services...")
 
-        # 1. System JAR & Visio Engine check (independent)
+        logging.info("🏁 [STARTUP:SERVICES] 1/3 Starting system init...")
         self._start_system_init_check()
+        logging.info("🏁 [STARTUP:SERVICES] 1/3 System init launched.")
 
-        # 2. Ollama Local LLM Monitor (independent)
+        logging.info("🏁 [STARTUP:SERVICES] 2/3 Starting Ollama monitor...")
         self._start_ollama_monitor()
+        logging.info("🏁 [STARTUP:SERVICES] 2/3 Ollama monitor launched.")
 
-        # 3. Network & 3GPP Wi-Fi Monitor (independent)
+        logging.info("🏁 [STARTUP:SERVICES] 3/3 Starting Wi-Fi monitor...")
         self._start_wifi_monitor()
+        logging.info("🏁 [STARTUP:SERVICES] 3/3 Wi-Fi monitor launched.")
 
         logging.info("🏁 [STARTUP:SERVICES] All background service threads active.")
 
@@ -739,7 +746,14 @@ class DragDropUI(QMainWindow):
             except Exception:
                 pass
 
-        # 4. Cooperatively stop an active Assistant research run.
+        # 4. Cooperatively finish short-lived NAS query workers.
+        if hasattr(self, "nas_tab") and self.nas_tab is not None:
+            try:
+                self.nas_tab.shutdown(wait_ms=1500)
+            except Exception as e:
+                logging.warning(f"⚠️ [SHUTDOWN] Could not stop NAS workers cleanly: {e}")
+
+        # 5. Cooperatively stop an active Assistant research run.
         if hasattr(self, "assistant_tab") and self.assistant_tab is not None:
             try:
                 self.assistant_tab.shutdown(wait_ms=500)
