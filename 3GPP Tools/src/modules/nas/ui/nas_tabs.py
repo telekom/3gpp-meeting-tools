@@ -99,8 +99,9 @@ class NASTab(QWidget):
 
         self._reverse_lookup_worker: Optional[ReverseLookupWorker] = None
         self._reverse_lookup_request_id: int = 0
-        self._msg_query_worker: Optional[NASMessageListWorker] = None
+        self._msg_query_workers: Dict[int, NASMessageListWorker] = {}
         self._msg_query_req_id: int = 0
+        self._reverse_lookup_workers: Dict[int, ReverseLookupWorker] = {}
 
         try:
             settings = MeetingsSettings()
@@ -386,7 +387,11 @@ class NASTab(QWidget):
             self._loading_config = False
             self._initialized_filters = True
 
-        self._populate_messages()
+        # NASVersionTreeWidget.populate() emits selection_changed once after the
+        # tree has been rebuilt. That signal already invokes
+        # _on_version_selection_changed() -> _populate_messages(). Do not call
+        # _populate_messages() a second time here: doing so used to start a
+        # worker and immediately terminate it during NASTab construction.
 
     def _on_version_selection_changed(self):
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
@@ -454,19 +459,27 @@ class NASTab(QWidget):
         self._msg_query_req_id += 1
         req_id = self._msg_query_req_id
 
-        if self._msg_query_worker and self._msg_query_worker.isRunning():
-            self._msg_query_worker.terminate()
-            self._msg_query_worker.wait()
-
-        self._msg_query_worker = NASMessageListWorker(
+        # Do not terminate an in-flight QThread. QThread.terminate() can stop a
+        # worker while native/SQLite code holds internal locks, which can leave
+        # Qt/native state inconsistent. Request IDs already make stale results
+        # harmless, so let older workers finish naturally.
+        worker = NASMessageListWorker(
             db=self.db,
             ie_query=ie_query,
-            version_ids=self.selected_version_ids,
+            version_ids=list(self.selected_version_ids),
             search_desc=search_desc,
             request_id=req_id,
         )
-        self._msg_query_worker.results_ready.connect(self._on_message_list_ready)
-        self._msg_query_worker.start()
+        self._msg_query_workers[req_id] = worker
+        worker.results_ready.connect(self._on_message_list_ready)
+        worker.finished.connect(lambda rid=req_id: self._release_msg_query_worker(rid))
+        worker.start()
+
+    def _release_msg_query_worker(self, req_id: int):
+        """Release a completed message-query worker without touching running workers."""
+        worker = self._msg_query_workers.pop(req_id, None)
+        if worker is not None:
+            worker.deleteLater()
 
     def _on_message_list_ready(self, messages: List[Dict[str, Any]], req_id: int):
         if req_id != self._msg_query_req_id:
@@ -673,23 +686,31 @@ class NASTab(QWidget):
             resolved_name = defs[0]["ie_name"]
             search_target_name = clean_type or resolved_name
 
-            if self._reverse_lookup_worker and self._reverse_lookup_worker.isRunning():
-                self._reverse_lookup_worker.terminate()
-                self._reverse_lookup_worker.wait()
-
             self._reverse_lookup_request_id += 1
             current_req_id = self._reverse_lookup_request_id
 
-            self._reverse_lookup_worker = ReverseLookupWorker(
+            # As with message queries, never force-terminate a running worker.
+            # Stale results are rejected by request_id in the completion slot.
+            worker = ReverseLookupWorker(
                 db=self.db,
                 clause=clause,
                 ie_name=search_target_name,
                 spec_number=spec_num,
-                version_ids=self.selected_version_ids,
+                version_ids=list(self.selected_version_ids),
                 request_id=current_req_id,
             )
-            self._reverse_lookup_worker.results_ready.connect(self._on_reverse_lookup_finished)
-            self._reverse_lookup_worker.start()
+            self._reverse_lookup_workers[current_req_id] = worker
+            worker.results_ready.connect(self._on_reverse_lookup_finished)
+            worker.finished.connect(
+                lambda rid=current_req_id: self._release_reverse_lookup_worker(rid)
+            )
+            worker.start()
+
+    def _release_reverse_lookup_worker(self, req_id: int):
+        """Release a completed reverse-lookup worker safely."""
+        worker = self._reverse_lookup_workers.pop(req_id, None)
+        if worker is not None:
+            worker.deleteLater()
 
     def _on_reverse_lookup_finished(self, containing_msgs: List[Dict[str, Any]], req_id: int):
         if req_id == self._reverse_lookup_request_id:
@@ -937,6 +958,21 @@ class NASTab(QWidget):
 
         if dialog.exec_() == QDialog.Accepted and dialog.selected_files_info:
             self._start_batch_ingestion(dialog.selected_files_info)
+
+
+    def shutdown(self, wait_ms: int = 1500):
+        """Cooperatively wait for short-lived NAS query workers during app shutdown."""
+        self._msg_search_timer.stop()
+        self._ie_search_timer.stop()
+
+        workers = list(self._msg_query_workers.values()) + list(self._reverse_lookup_workers.values())
+        for worker in workers:
+            if worker.isRunning():
+                worker.requestInterruption()
+
+        for worker in workers:
+            if worker.isRunning():
+                worker.wait(wait_ms)
 
 
 class ReverseLookupWorker(QThread):
