@@ -664,7 +664,12 @@ class OllamaMonitorThread(QThread):
     def stop(self):
         """Stops the polling thread gracefully on application exit."""
         self._running = False
+        # run() does not use a Qt event loop, so quit() alone cannot stop it.
+        # The worker checks _running every 250 ms; allow the current bounded
+        # network probe to finish rather than killing native code mid-call.
         self.quit()
-        if not self.wait(600):
-            self.terminate()
-            self.wait(200)
+        if not self.wait(3500):
+            logging.warning(
+                "Ollama monitor did not stop within 3.5 s; leaving it to exit "
+                "cooperatively instead of force-terminating the QThread."
+            )
