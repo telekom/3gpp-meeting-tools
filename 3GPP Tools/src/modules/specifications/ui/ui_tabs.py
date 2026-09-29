@@ -40,6 +40,7 @@ from modules.specifications.ui.dialogs import (
     TargetedSyncDialog,
 )
 from modules.specifications.ui.threads import SpecDownloadThread
+from modules.specifications.utils.utils import build_dynareport_url
 
 logger = logging.getLogger(__name__)
 

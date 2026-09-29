@@ -4,6 +4,8 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from modules.specifications.utils.utils import build_dynareport_url
+
 
 class SpecsDatabase:
     def __init__(self, db_path: Path):
