@@ -245,6 +245,25 @@ class TDocsTableModel(QAbstractTableModel):
         self._family_cache[tdoc_clean] = res
         return res
 
+    @staticmethod
+    def _split_related_wis(value) -> list:
+        """Normalizes the Related WIs cell into individual WI/SI identifiers."""
+        if value is None:
+            return ["(No WI)"]
+        text = str(value).strip()
+        if not text or text.lower() in {"none", "nan", "-"}:
+            return ["(No WI)"]
+
+        # 3GPP lists may contain more than one WI. Accept the common separators
+        # without splitting characters that legitimately occur inside WI acronyms.
+        parts = [part.strip() for part in re.split(r"[,;\n]+", text) if part.strip()]
+        return parts or ["(No WI)"]
+
+    def get_related_wis(self, row: int) -> list:
+        if row < 0 or row >= len(self._data):
+            return []
+        return self._split_related_wis(self._data[row].get("Related WIs", ""))
+
     def data(self, index, role):
         if not index.isValid():
             return None
@@ -514,6 +533,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.type_filters = set()
         self.status_filters = set()
         self.ai_filters = set()
+        self.wi_filters = set()
         self.company_filters = set()
         self.my_status_filters = set()
         self.filter_no_comments = False
@@ -552,6 +572,10 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 
     def setAIFilters(self, ais):
         self.ai_filters = set(ais)
+        self.invalidateFilter()
+
+    def setWIFilters(self, wis):
+        self.wi_filters = set(wis)
         self.invalidateFilter()
 
     def setCompanyFilters(self, companies):
@@ -599,6 +623,12 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         if model.data(model.index(source_row, 4, source_parent), Qt.UserRole) not in self.type_filters:
             return False
         if model.data(model.index(source_row, 10, source_parent), Qt.UserRole) not in self.ai_filters:
+            return False
+
+        # Related WIs are metadata from the official TDoc list and are intentionally
+        # not exposed as a visible table column. Match if any WI on the row is selected.
+        row_wis = model.get_related_wis(source_row)
+        if not row_wis or not self.wi_filters.intersection(row_wis):
             return False
         if model.data(model.index(source_row, 11, source_parent), Qt.UserRole) not in self.status_filters:
             return False
