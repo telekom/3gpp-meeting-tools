@@ -3,6 +3,7 @@ import webbrowser
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -11,6 +12,9 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QAbstractItemView,
+    QShortcut,
     QMessageBox,
     QPushButton,
     QSpinBox,
@@ -259,6 +263,33 @@ class WordExtractorTab(QWidget):
         self.excerpt_drop.file_dropped.connect(self._scan_excerpt_files)
         excerpt_layout.addWidget(self.excerpt_drop)
 
+        source_row = QHBoxLayout()
+        self.excerpt_source_list = QListWidget()
+        self.excerpt_source_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.excerpt_source_list.setMaximumHeight(105)
+        self.excerpt_source_list.setToolTip("Select one or more source documents. Press Delete to remove them.")
+        source_row.addWidget(self.excerpt_source_list, 1)
+
+        source_buttons = QVBoxLayout()
+        self.excerpt_remove_btn = QPushButton("Remove Selected")
+        self.excerpt_remove_btn.setEnabled(False)
+        self.excerpt_remove_btn.clicked.connect(self._remove_excerpt_sources)
+        self.excerpt_clear_sources_btn = QPushButton("Clear All")
+        self.excerpt_clear_sources_btn.setEnabled(False)
+        self.excerpt_clear_sources_btn.clicked.connect(self._clear_excerpt_sources)
+        source_buttons.addWidget(self.excerpt_remove_btn)
+        source_buttons.addWidget(self.excerpt_clear_sources_btn)
+        source_buttons.addStretch()
+        source_row.addLayout(source_buttons)
+        excerpt_layout.addLayout(source_row)
+
+        self.excerpt_source_list.itemSelectionChanged.connect(
+            lambda: self.excerpt_remove_btn.setEnabled(bool(self.excerpt_source_list.selectedItems()))
+        )
+        self._excerpt_delete_shortcut = QShortcut(QKeySequence.Delete, self.excerpt_source_list)
+        self._excerpt_delete_shortcut.activated.connect(self._remove_excerpt_sources)
+        self.excerpt_order_combo.currentIndexChanged.connect(self._rescan_excerpt_sources)
+
         filter_row = QHBoxLayout()
         self.excerpt_filter = QLineEdit()
         self.excerpt_filter.setPlaceholderText("Filter headings (e.g. registration, NWDAF, 6.3.2)...")
@@ -290,6 +321,7 @@ class WordExtractorTab(QWidget):
         excerpt_layout.addLayout(action_row)
         self.stack.addWidget(self.card_excerpt)
 
+        self._excerpt_input_paths = []
         self._excerpt_paths = []
         self._excerpt_headings = []
         self._excerpt_scan_thread = None
@@ -339,14 +371,58 @@ class WordExtractorTab(QWidget):
     def _scan_excerpt_files(self, files):
         if not files:
             return
-        self.excerpt_extract_btn.setEnabled(False)
+        # A new drop defines the current document set. Preserve this exact list so
+        # the optional drop-order mode remains meaningful after removals/rescans.
+        self._excerpt_input_paths = list(dict.fromkeys(str(Path(f)) for f in files))
+        self._refresh_excerpt_source_list()
+        self._rescan_excerpt_sources()
+
+    def _refresh_excerpt_source_list(self):
+        self.excerpt_source_list.clear()
+        for path in self._excerpt_input_paths:
+            self.excerpt_source_list.addItem(Path(path).name)
+        has_sources = bool(self._excerpt_input_paths)
+        self.excerpt_clear_sources_btn.setEnabled(has_sources)
+        self.excerpt_remove_btn.setEnabled(False)
+
+    def _invalidate_excerpt_scan(self):
+        self._excerpt_paths = []
+        self._excerpt_headings = []
         self.excerpt_tree.clear()
-        self.excerpt_drop.set_state("ready", f"Scanning {len(files)} document(s)...")
+        self.excerpt_extract_btn.setEnabled(False)
+
+    def _rescan_excerpt_sources(self):
+        self._invalidate_excerpt_scan()
+        if not self._excerpt_input_paths:
+            self.excerpt_drop.set_state("idle", "📥 Drop one or more .docx files here to scan their headings")
+            return
+        if self._excerpt_scan_thread is not None and self._excerpt_scan_thread.isRunning():
+            return
+        self.excerpt_drop.set_state("ready", f"Scanning {len(self._excerpt_input_paths)} document(s)...")
         mode = self.excerpt_order_combo.currentData()
-        self._excerpt_scan_thread = WordHeadingScanThread(files, mode)
+        self._excerpt_scan_thread = WordHeadingScanThread(list(self._excerpt_input_paths), mode)
         self._excerpt_scan_thread.scanned.connect(self._on_excerpt_scanned)
         self._excerpt_scan_thread.failed.connect(self._on_excerpt_scan_failed)
         self._excerpt_scan_thread.start()
+
+    def _remove_excerpt_sources(self):
+        selected_rows = sorted(
+            {self.excerpt_source_list.row(item) for item in self.excerpt_source_list.selectedItems()},
+            reverse=True,
+        )
+        if not selected_rows:
+            return
+        for row in selected_rows:
+            if 0 <= row < len(self._excerpt_input_paths):
+                del self._excerpt_input_paths[row]
+        self._refresh_excerpt_source_list()
+        self._rescan_excerpt_sources()
+
+    def _clear_excerpt_sources(self):
+        self._excerpt_input_paths = []
+        self._refresh_excerpt_source_list()
+        self._invalidate_excerpt_scan()
+        self.excerpt_drop.set_state("idle", "📥 Drop one or more .docx files here to scan their headings")
 
     def _on_excerpt_scanned(self, ordered_paths, headings):
         self._excerpt_paths = list(ordered_paths)

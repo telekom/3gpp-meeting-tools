@@ -274,6 +274,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Installed & Portable Support:** Seamless auto-detection of system-installed LibreOffice and single-click integration for portable distributions (`LibreOfficePortable.exe`).
 * **Corporate IT Bypass (Sensitivity Labels):** Automatically injects configurable Microsoft Purview Sensitivity Labels (e.g., "OFFEN") directly into COM objects to bypass blocking corporate IT popup dialogs during automated saves.
 * **Intelligent DocxSplitter:** Safely slices massive 3GPP TS/TR specifications into individual Word documents based on Heading 1 or Heading 2 boundaries, perfectly preserving styles, images, and Visio objects.
+* **Selective Heading Excerpt Extractor:** Load one or multiple `.docx` files, scan their heading hierarchy, select arbitrary clauses/sections, and combine the selected excerpts into a single Word document. Multi-part specifications can be naturally ordered by filename or kept in drag-and-drop order; parent selections automatically include their complete subtree without duplicating explicitly selected child headings. The workflow preserves Word formatting and embedded content belonging to the retained sections while excluding unrelated document content.
 * **Background Word-to-PDF Converter:** A headless Word automation thread that silently converts generated files to PDFs or XPS without interrupting your workflow.
 * **Native Visio Extractor:** Parses the raw XML (`document.xml`) of a `.docx` file, identifies embedded `OLEObject` bins, and extracts raw `.vsdx` Visio diagrams straight out of the Word document to your local disk.
 
@@ -541,10 +542,15 @@ python src/main_tools.py
 
 ---
 
-### 📝 Slicing & Comparing Word Documents
-1. In the **Comparison Cart** at the bottom of the Meetings Tab, sequentially select documents. The round-robin queue will automatically populate Slot A and Slot B with local files or fetched 3GPP Revisions.
-2. Click **Compare in Word**. The tool will spawn a background process, temporarily remove file locks, and present a native Word redline comparison.
-3. For large specs, navigate to the **Spec Splitter** tab, drag a `.docx` file, choose a Heading depth (e.g., "Level 2" for clauses like `6.1`, `6.2`), and click Split.
+### 📝 Slicing, Extracting & Comparing Word Documents
+1. **Compare documents:** In the **Comparison Cart** at the bottom of the Meetings Tab, sequentially select documents. The round-robin queue automatically populates Slot A and Slot B with local files or fetched 3GPP revisions. Click **Compare in Word** to generate a native Word redline comparison in the background.
+2. **Split a large specification:** In **Word Tools**, select **Subtractive Slicing (Split by Clause)**, choose the target clause prefix and heading depth, and drop a `.docx` file. The splitter creates individual chapter/section documents while retaining the source document's formatting and embedded content.
+3. **Build a selective excerpt from headings:** Select **Extract Sections by Heading** and drop one or more `.docx` files. This is intended both for single large specifications and for specifications split across several Word files.
+   * Choose **Filename order** (default) to naturally sort multi-part specification files by filename, or **Drop order** when the order in which the files were added should be preserved.
+   * The **Source Documents** list shows every file currently included. Select one or more entries and use **Remove Selected** (or the `Delete` key) to remove them; **Clear All** resets the complete input set. Changing the source set or ordering refreshes the heading structure.
+   * Scan/browse the combined hierarchical heading tree, use the heading filter plus **Expand All / Collapse All** for large documents, and check the sections to retain. Selecting a parent heading includes its complete subtree; selecting both a parent and one of its children does not duplicate the child content.
+   * Non-contiguous selections are combined directly into **one output `.docx`** in document order. For example, selecting `4.2` and `7.3` produces an excerpt containing those two complete sections one after another. The original Table of Contents is not added automatically.
+   * Extraction operates on copies of the source documents and uses native Word processing where required for multi-file assembly, with the goal of retaining styles, tables, figures, equations, and embedded/OLE content used by the selected sections without carrying unrelated excerpt content into the result. Original source files are not modified.
 
 ---
 
