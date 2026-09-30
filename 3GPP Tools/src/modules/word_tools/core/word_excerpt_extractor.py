@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
@@ -174,6 +175,41 @@ class WordExcerptEngine:
             shutil.rmtree(work, ignore_errors=True)
 
     @staticmethod
+    def _copy_formatting_parts(source: Path, target: Path):
+        """Copy package-level formatting definitions from source into target.
+
+        The merge itself is performed by Word in a fresh writable document.  Once
+        Word has closed the output, replacing these OOXML parts makes same-named
+        styles resolve exactly as in the 3GPP source without invoking OrganizerCopy
+        (which can be blocked by managed Office policy).
+        """
+        parts = (
+            "word/styles.xml",
+            "word/stylesWithEffects.xml",
+            "word/theme/theme1.xml",
+            "word/fontTable.xml",
+        )
+        tmp = target.with_name(target.name + ".formatting.tmp")
+        with zipfile.ZipFile(source, "r") as src, zipfile.ZipFile(target, "r") as dst, \
+                zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as out:
+            source_names = set(src.namelist())
+            replaced = set()
+            for item in dst.infolist():
+                name = item.filename
+                if name in parts and name in source_names:
+                    out.writestr(item, src.read(name))
+                    replaced.add(name)
+                else:
+                    out.writestr(item, dst.read(name))
+            # stylesWithEffects.xml is optional and may not exist in the fresh file.
+            for name in parts:
+                if name in source_names and name not in replaced:
+                    out.writestr(name, src.read(name))
+                    replaced.add(name)
+        os.replace(tmp, target)
+        logger.info("   -> Restored source formatting package parts: %s", ", ".join(sorted(replaced)))
+
+    @staticmethod
     def _merge_with_word(fragments: Sequence[Path], output: Path):
         if not fragments:
             raise ValueError("No document fragments were generated.")
@@ -209,24 +245,18 @@ class WordExcerptEngine:
             except Exception:
                 pass
 
-            # Do not use a source fragment as the merge destination. Corporate
-            # protection/sensitivity metadata inherited from that file can make
-            # its ranges non-editable even when Documents.Open(ReadOnly=False)
-            # succeeds. A fresh Word document is writable and InsertFile still
-            # imports the selected content, styles, numbering and embedded OLE.
+            # Always merge into a fresh writable document.  Source-derived documents
+            # may inherit sensitivity/protection state and reject Range edits.
             dest = word.Documents.Add()
-
-            for index, fragment in enumerate(fragments):
+            for index, fragment in enumerate(fragments, start=1):
                 logger.info(
                     "   -> Merging excerpt fragment %d/%d: %s",
-                    index + 1, len(fragments), fragment.name,
+                    index, len(fragments), fragment.name,
                 )
                 rng = dest.Range(dest.Content.End - 1, dest.Content.End - 1)
                 rng.InsertFile(FileName=os.path.normpath(str(fragment)))
 
             # Apply the corporate label only after all editing is complete.
-            # Applying it earlier can make subsequent Range operations unavailable
-            # in managed Office environments.
             try:
                 set_sensitivity_label(dest)
             except Exception:
@@ -238,16 +268,23 @@ class WordExcerptEngine:
                 FileName=os.path.normpath(str(output)),
                 FileFormat=12,  # wdFormatXMLDocument
             )
+            dest.Close(SaveChanges=False)
+            dest = None
+            word.Quit(SaveChanges=0)
+            word = None
 
             if not output.exists() or output.stat().st_size == 0:
                 raise RuntimeError("Microsoft Word returned without producing the excerpt file.")
+
+            # Word has finished with the file, so patch package-level style/theme
+            # definitions directly.  This avoids both protected-document editing and
+            # OrganizerCopy, while leaving merged content/relationships/OLE intact.
+            WordExcerptEngine._copy_formatting_parts(fragments[0], output)
 
         except Exception as exc:
             com_server_dead = is_rpc_disconnect(exc)
             raise
         finally:
-            # Never call back into WINWORD after its RPC server has disconnected;
-            # doing so is what caused the repeated 0x800706BA/0x800706BE dumps.
             if not com_server_dead:
                 if dest is not None:
                     try:
@@ -260,7 +297,6 @@ class WordExcerptEngine:
                         word.Quit(SaveChanges=0)
                     except Exception:
                         pass
-
             dest = None
             word = None
             if com_initialized:
@@ -268,6 +304,7 @@ class WordExcerptEngine:
                     pythoncom.CoUninitialize()
                 except Exception:
                     pass
+
 
 
 class WordExcerptThread(QThread):
