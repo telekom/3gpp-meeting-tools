@@ -148,7 +148,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ### 📡 3GPP Meeting, Specification & Work Items Database
 * **Asynchronous Three-Phase Syncing Engine:** 
   * **Phase 1 (FTP Directory Mapping):** Scrapes the 3GPP FTP archives in parallel to instantly populate your database with all available meeting numbers, gracefully handling hidden RAN Ad-Hoc (`TSGR_AHs`) subdirectories.
-  * **Phase 2 (Deep Document Scrape):** Crawls the `Docs/` folder of every meeting. Uses smart regex stripping to ignore file extensions and revisions, mathematically sorting the files to determine the first and last TDocs of the meeting.
+  * **Phase 2 (Deep Document Scrape):** Crawls each meeting-specific `Docs/` folder, robustly parses linked TDoc filenames, and determines the first and last TDocs of the meeting for fast global document lookup.
   * **Phase 3 (DynaReport Upserting):** Injects metadata (Location, Start/End Dates, Ad-Hoc/Electronic status) by fetching the legacy 3GPP Portal HTML tables.
 * **Targeted Quick Fetch:** Instantly sync individual specifications (e.g., `23.801-01`) or entire specification series (e.g., `23`) directly from the FTP server without needing to run a lengthy full database sync.
 
@@ -163,7 +163,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Work Items Table & Local Specs Inspector:** The Work Items tab features dedicated **WG** and **Linked Specs** columns, local specification inspectors (`LinkedSpecsDialog`), and one-click citation copy actions.
 
 * **Intelligent TDocs Manager:**
-  * **Smart Global TDoc Search:** Instantly locate and download any document across the entire database. Just type a TDoc number (e.g., `S2-2605740r11`) and the UI will dynamically reveal minimalist quick-actions to download the specific file or open its parent meeting context—all without leaving the main dashboard.
+  * **Smart Global TDoc Search:** Instantly locate and download any document across the entire database. Just type a TDoc number (e.g., `S2-2605740r11`) and the UI will dynamically reveal minimalist quick-actions to download the specific file or open its parent meeting context—all without leaving the main dashboard. If the local meeting ranges are missing or stale, the UI can trigger a targeted `Docs/` metadata refresh and automatically re-evaluate the entered TDoc when the range update completes.
   * **🤖 Instant AI Technical Triage:** Right-click any proposal row or open its details card to launch the AI Triage assistant. Streams a focused summary covering the problem statement, proposed normative changes, and contentious impact points, with 1-click status assignment and note persistence into SQLite.
   * **Persistent Personal Notes & Status (Sidecar Database):** Keep a private, local SQLite database that "overlays" your data onto the 3GPP list. Double-click any TDoc to assign a color-coded status (🟢 Support, 🔴 Object, 🟡 Monitor) and save personal notes. Your data survives perfectly even when downloading fresh 3GPP Excel updates.
   * **Smart Revision Inheritance:** When a TDoc gets a new revision during a meeting, the new child document automatically inherits a "Ghost" version of the personal notes and status you assigned to the base document!
@@ -461,8 +461,9 @@ python src/main_tools.py
    * **Drag & Drop:** Drag any `.docx`, `.doc`, or `.htm` session document anywhere onto the TDocs window. A visual frosted drop overlay will highlight the window.
    * **Menu Import:** Alternatively, click the **🔄 Refresh** menu and select **📝 Import Word Document (.docx / .doc)...**.
    * The file is automatically copied to `{meeting_dir}/Agenda/`, converted in the background via LibreOffice (if `.doc`), parsed, and merged into the table without freezing the UI.
-7. Click the Action column to automatically download, unzip, and open documents, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
-8. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
+7. **Exporting Meeting TDocs:** Open **Export ▾** and choose **📦 Export TDocs + Excel...**. If table cells are selected, the corresponding unique TDocs are exported; otherwise all currently visible/filtered TDocs are used. The tool reuses locally cached documents where available, downloads missing base TDocs, extracts their contents into per-TDoc folders under the meeting's `Export/` directory, and generates an accompanying Excel manifest using the existing TDoc export format.
+8. Click the Action column to automatically download, unzip, and open documents, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
+9. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
 
 ---
 
