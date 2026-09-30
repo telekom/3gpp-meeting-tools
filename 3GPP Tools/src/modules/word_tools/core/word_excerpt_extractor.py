@@ -1,0 +1,256 @@
+import logging
+import os
+import re
+import shutil
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterable, List, Sequence, Tuple
+
+import pythoncom
+import win32com.client
+from docx import Document
+from docx.oxml.table import CT_Tbl
+from docx.oxml.text.paragraph import CT_P
+from docx.text.paragraph import Paragraph
+from PyQt5.QtCore import QThread, pyqtSignal
+
+from modules.word_tools.core.sensitivity_label import set_sensitivity_label
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class HeadingInfo:
+    id: str
+    source_path: str
+    source_index: int
+    block_index: int
+    end_index: int
+    level: int
+    text: str
+
+
+def natural_key(path: str):
+    name = Path(path).name.lower()
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)]
+
+
+def order_sources(paths: Sequence[str], mode: str = "filename") -> List[str]:
+    clean = [str(Path(p)) for p in paths if p]
+    return sorted(clean, key=natural_key) if mode == "filename" else clean
+
+
+class WordHeadingScanner:
+    @staticmethod
+    def _blocks(doc):
+        return [x for x in doc.element.body if isinstance(x, (CT_P, CT_Tbl))]
+
+    @staticmethod
+    def _heading_level(para: Paragraph) -> int:
+        style_name = ""
+        try:
+            style_name = para.style.name or ""
+        except Exception:
+            pass
+        match = re.match(r"^Heading\s+(\d+)$", style_name, re.I)
+        if match:
+            return int(match.group(1))
+        try:
+            outline = para._p.pPr.outlineLvl
+            if outline is not None:
+                return int(outline.val) + 1
+        except Exception:
+            pass
+        return 0
+
+    def scan(self, paths: Sequence[str], order_mode: str = "filename") -> List[HeadingInfo]:
+        ordered = order_sources(paths, order_mode)
+        result: List[HeadingInfo] = []
+        for source_index, path in enumerate(ordered):
+            doc = Document(path)
+            blocks = self._blocks(doc)
+            raw = []
+            for block_index, block in enumerate(blocks):
+                if not isinstance(block, CT_P):
+                    continue
+                para = Paragraph(block, doc)
+                text = para.text.strip()
+                if not text:
+                    continue
+                level = self._heading_level(para)
+                if level:
+                    raw.append((block_index, level, text))
+            for i, (block_index, level, text) in enumerate(raw):
+                end_index = len(blocks)
+                for next_block, next_level, _ in raw[i + 1:]:
+                    if next_level <= level:
+                        end_index = next_block
+                        break
+                result.append(HeadingInfo(
+                    id=f"{source_index}:{block_index}", source_path=path,
+                    source_index=source_index, block_index=block_index,
+                    end_index=end_index, level=level, text=text,
+                ))
+        return result
+
+
+class WordExcerptEngine:
+    def __init__(self, source_paths: Sequence[str], headings: Sequence[HeadingInfo]):
+        self.source_paths = list(source_paths)
+        self.headings = {h.id: h for h in headings}
+
+    def _normalize(self, selected_ids: Iterable[str]) -> List[HeadingInfo]:
+        chosen = [self.headings[x] for x in selected_ids if x in self.headings]
+        chosen.sort(key=lambda h: (h.source_index, h.block_index))
+        result = []
+        for h in chosen:
+            if any(
+                p.source_index == h.source_index
+                and p.block_index <= h.block_index < p.end_index
+                for p in result
+            ):
+                continue
+            result.append(h)
+        return result
+
+    @staticmethod
+    def _safe_remove(block, body):
+        if isinstance(block, CT_P):
+            try:
+                sect_pr = block.pPr.sectPr if block.pPr is not None else None
+                if sect_pr is not None:
+                    body.append(sect_pr)
+            except Exception:
+                pass
+        parent = block.getparent()
+        if parent is not None:
+            parent.remove(block)
+
+    def _make_fragment(self, source: Path, ranges: List[Tuple[int, int]], target: Path):
+        shutil.copy2(source, target)
+        doc = Document(target)
+        blocks = [x for x in doc.element.body if isinstance(x, (CT_P, CT_Tbl))]
+        keep = set()
+        for start, end in ranges:
+            keep.update(range(start, min(end, len(blocks))))
+        body = doc.element.body
+        for i, block in reversed(list(enumerate(blocks))):
+            if i not in keep:
+                self._safe_remove(block, body)
+        doc.save(target)
+
+    def extract(self, selected_ids: Iterable[str], output_path: str) -> Path:
+        selected = self._normalize(selected_ids)
+        if not selected:
+            raise ValueError("No headings selected.")
+
+        grouped: Dict[str, List[Tuple[int, int]]] = {}
+        source_order: List[str] = []
+        for h in selected:
+            if h.source_path not in grouped:
+                grouped[h.source_path] = []
+                source_order.append(h.source_path)
+            grouped[h.source_path].append((h.block_index, h.end_index))
+
+        output = Path(output_path).resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        work = Path(tempfile.mkdtemp(prefix="3gpp_word_excerpt_"))
+        fragments = []
+        try:
+            for idx, source_path in enumerate(source_order):
+                fragment = work / f"fragment_{idx:03d}.docx"
+                self._make_fragment(Path(source_path), grouped[source_path], fragment)
+                fragments.append(fragment)
+            self._merge_with_word(fragments, output)
+            return output
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    @staticmethod
+    def _merge_with_word(fragments: Sequence[Path], output: Path):
+        word = None
+        dest = None
+        try:
+            pythoncom.CoInitialize()
+            word = win32com.client.DispatchEx("Word.Application")
+            word.Visible = False
+            word.DisplayAlerts = 0
+            try:
+                word.AutomationSecurity = 3
+            except Exception:
+                pass
+
+            # Start from the first fragment, preserving its document-level styles,
+            # theme, sections, numbering and other package-level definitions.
+            dest = word.Documents.Open(str(fragments[0]), ReadOnly=False, AddToRecentFiles=False)
+            for fragment in fragments[1:]:
+                rng = dest.Range(dest.Content.End - 1, dest.Content.End - 1)
+                rng.InsertBreak(7)  # wdPageBreak
+                rng = dest.Range(dest.Content.End - 1, dest.Content.End - 1)
+                rng.InsertFile(FileName=str(fragment))
+
+            try:
+                set_sensitivity_label(dest)
+            except Exception:
+                pass
+            if output.exists():
+                output.unlink()
+            dest.SaveAs2(FileName=str(output), FileFormat=12)
+        finally:
+            if dest is not None:
+                try:
+                    dest.Close(SaveChanges=False)
+                except Exception:
+                    pass
+            if word is not None:
+                try:
+                    word.Quit(SaveChanges=0)
+                except Exception:
+                    pass
+            pythoncom.CoUninitialize()
+
+
+class WordExcerptThread(QThread):
+    finished_path = pyqtSignal(str)
+    failed = pyqtSignal(str)
+    finished = pyqtSignal()
+
+    def __init__(self, source_paths, headings, selected_ids, output_path):
+        super().__init__()
+        self.source_paths = source_paths
+        self.headings = headings
+        self.selected_ids = selected_ids
+        self.output_path = output_path
+
+    def run(self):
+        try:
+            logger.info("Extracting %d selected heading(s)...", len(self.selected_ids))
+            out = WordExcerptEngine(self.source_paths, self.headings).extract(
+                self.selected_ids, self.output_path
+            )
+            logger.info("Excerpt created: %s", out)
+            self.finished_path.emit(str(out))
+        except Exception as exc:
+            logger.exception("Word excerpt extraction failed")
+            self.failed.emit(str(exc))
+        finally:
+            self.finished.emit()
+
+class WordHeadingScanThread(QThread):
+    scanned = pyqtSignal(object, object)  # ordered paths, headings
+    failed = pyqtSignal(str)
+
+    def __init__(self, source_paths, order_mode="filename"):
+        super().__init__()
+        self.source_paths = list(source_paths)
+        self.order_mode = order_mode
+
+    def run(self):
+        try:
+            ordered = order_sources(self.source_paths, self.order_mode)
+            headings = WordHeadingScanner().scan(ordered, "drop")
+            self.scanned.emit(ordered, headings)
+        except Exception as exc:
+            logger.exception("Heading scan failed")
+            self.failed.emit(str(exc))
