@@ -138,7 +138,16 @@ class MeetingsCrawlerThread(QThread):
         return meeting_tasks
 
     def process_individual_meeting(self, task: dict) -> tuple:
-        base_docs_url = task.get("docs_url", urljoin(task["absolute_url"], "Docs/"))
+        # IMPORTANT: do not use urljoin(base, "Docs/") here. Phase-2 tasks loaded
+        # from the DB provide absolute_url without a trailing slash. urljoin would
+        # then treat the meeting folder as a file and replace it, e.g.
+        # .../WG3_Security/TSGS3_130_Prague + Docs/ -> .../WG3_Security/Docs/.
+        # Append Docs/ explicitly so the meeting-specific folder is preserved.
+        explicit_docs_url = str(task.get("docs_url") or "").strip()
+        if explicit_docs_url:
+            base_docs_url = explicit_docs_url
+        else:
+            base_docs_url = task["absolute_url"].rstrip("/") + "/Docs/"
         first_tdoc, first_pfx, first_num = "", "", 0
         last_tdoc, last_pfx, last_num = "", "", 0
         tdoc_count = 0
@@ -257,7 +266,12 @@ class MeetingsCrawlerThread(QThread):
                         parts = re.split(r'/ftp/', href, flags=re.IGNORECASE)
                         if len(parts) > 1:
                             path_after_ftp = unquote(parts[1].split('?')[0].strip('/'))
-                            if not url_key or len(path_after_ftp) < len(url_key):
+                            # Prefer a meeting-specific FTP path over a WG-root link.
+                            # Some DynaReport rows expose more than one FTP link; the
+                            # meeting folder is the deeper path and is what Phase 2 needs.
+                            path_depth = len([p for p in path_after_ftp.split('/') if p])
+                            current_depth = len([p for p in url_key.split('/') if p]) if url_key else -1
+                            if not url_key or path_depth > current_depth:
                                 url_key = path_after_ftp
 
                 start_d, end_d, town = "", "", ""
@@ -379,10 +393,15 @@ class MeetingsCrawlerThread(QThread):
                             self.target_meetings):
                         continue
                     if m.get('url_key'):
+                        url_key = str(m["url_key"]).strip("/")
+                        absolute_url = f"https://www.3gpp.org/ftp/{url_key}"
                         all_tasks.append({
-                            "wg_name": m["wg_name"], "folder_name": m.get("folder_name", m["meeting_number"]),
-                            "meeting_num": m["meeting_number"], "url_key": m["url_key"],
-                            "absolute_url": f"https://www.3gpp.org/ftp/{m['url_key']}"
+                            "wg_name": m["wg_name"],
+                            "folder_name": m.get("folder_name") or m["meeting_number"],
+                            "meeting_num": m["meeting_number"],
+                            "url_key": url_key,
+                            "absolute_url": absolute_url,
+                            "docs_url": absolute_url.rstrip("/") + "/Docs/",
                         })
 
             self.finished_path.emit("MEETINGS_DB_PHASE_1")
