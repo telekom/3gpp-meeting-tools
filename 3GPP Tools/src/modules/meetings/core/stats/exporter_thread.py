@@ -2,6 +2,7 @@
 import os
 import re
 import html
+import json
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 import pandas as pd
@@ -113,6 +114,23 @@ class StatisticsExporterThread(QThread):
             else:
                 df['Clean_WI_List'] = [[] for _ in range(len(df))]
 
+            # Compact browser-side dataset used for interactive cross-filtering.
+            # Raw TDoc text is intentionally not embedded; only dimensions needed by the dashboard.
+            interactive_rows = []
+            for _, row in df.iterrows():
+                interactive_rows.append({
+                    'tdoc': str(row.get('TDoc', '') or ''),
+                    'ai': str(row.get('Agenda Item', '') or '').strip(),
+                    'aiDisplay': str(row.get('AI_Display', row.get('Agenda Item', '')) or '').strip(),
+                    'wis': list(row.get('Clean_WI_List', []) or []),
+                    'companies': list(row.get('Clean_Companies', []) or []),
+                    'status': str(row.get('TDoc Status', '') or '').strip(),
+                    'isRevision': bool(str(row.get('Is revision of', '') or '').strip()) or bool(
+                        re.search(r'(?:r|rev)\\d{1,2}[a-zA-Z]?$', str(row.get('TDoc', '') or ''), re.IGNORECASE)
+                    ),
+                })
+            interactive_json = json.dumps(interactive_rows, ensure_ascii=False).replace('</', '<\\/')
+
             global_factions = compute_global_communities(df, self.cfg_resolution)
 
             # --- GENERATE GLOBAL PLOTS ---
@@ -179,7 +197,7 @@ class StatisticsExporterThread(QThread):
                 safe_id = f"wi_{wi_idx}"
                 safe_wi_prefix = "WI_" + re.sub(r'[\\/*?:"<>|]', '_', wi_name)
                 dropdown_options.append(
-                    f'<option value="{safe_id}">🧩 {html.escape(wi_name)} ({len(wi_df)} TDocs)</option>')
+                    f'<option value="{safe_id}" data-wi="{html.escape(wi_name, quote=True)}">🧩 {html.escape(wi_name)} ({len(wi_df)} TDocs)</option>')
                 wi_html_ai, wi_table_ai = generate_ai_volume_plot(wi_df, plots_dir, self.THEME_COLOR, safe_wi_prefix, self.cfg_export_html)
                 wi_html_status, wi_table_status = generate_outcomes_plot(wi_df, plots_dir, self.PALETTE, safe_wi_prefix, self.cfg_export_html)
                 wi_html_comp, wi_companies, wi_table_comp = generate_top_contributors_plot(
@@ -211,7 +229,7 @@ class StatisticsExporterThread(QThread):
 
                 ai_display = str(ai_df['AI_Display'].iloc[0]) if 'AI_Display' in ai_df.columns else ai_name
                 dropdown_options.append(
-                    f'<option value="{safe_id}">📌 {html.escape(ai_display)} ({len(ai_df)} TDocs)</option>')
+                    f'<option value="{safe_id}" data-ai="{html.escape(ai_name, quote=True)}">📌 {html.escape(ai_display)} ({len(ai_df)} TDocs)</option>')
 
                 ai_html_status, ai_table_status = generate_outcomes_plot(ai_df, plots_dir, self.PALETTE, safe_ai_prefix,
                                                         save_html=self.cfg_export_html)
@@ -281,6 +299,20 @@ class StatisticsExporterThread(QThread):
                     .custom-tooltip .custom-tooltip-text {{ visibility: hidden; width: 320px; background-color: #333; color: #fff; text-align: left; border-radius: 6px; padding: 15px; font-size: 13px; position: absolute; z-index: 1000; bottom: 125%; left: -10px; opacity: 0; transition: opacity 0.3s; box-shadow: 0 4px 8px rgba(0,0,0,0.2); line-height: 1.4; }}
                     .custom-tooltip:hover .custom-tooltip-text {{ visibility: visible; opacity: 1; }}
                     .export-data-link {{ display:inline-block; padding:7px 11px; border:1px solid #99C9FF; border-radius:5px; background:#E1F0FF; color:#005A9E; text-decoration:none; font-weight:bold; font-size:12px; }}
+                    .interactive-filter-bar {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:-15px auto 22px; max-width:1200px; padding:10px 12px; background:#FFFFFF; border:1px solid #E2E8F0; border-radius:7px; box-shadow:0 2px 4px rgba(0,0,0,.04); }}
+                    .interactive-filter-label {{ font-size:12px; font-weight:bold; color:#475569; }}
+                    .filter-chip {{ display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border-radius:14px; background:#E1F0FF; border:1px solid #99C9FF; color:#005A9E; font-size:11px; font-weight:bold; }}
+                    .filter-chip button {{ border:0; background:transparent; cursor:pointer; color:#005A9E; font-weight:bold; padding:0; }}
+                    .clear-crossfilters {{ border:1px solid #CBD5E1; background:#F8FAFC; color:#475569; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:11px; }}
+                    .crossfilter-summary {{ margin-left:auto; color:#64748B; font-size:11px; }}
+                    .data-tools {{ display:flex; gap:7px; align-items:center; margin:0 0 8px 0; flex-wrap:wrap; }}
+                    .data-search {{ flex:1 1 220px; min-width:160px; border:1px solid #CBD5E1; border-radius:4px; padding:6px 8px; font-size:12px; }}
+                    .data-tools button {{ cursor:pointer; border:1px solid #CBD5E1; background:#F8FAFC; color:#334155; border-radius:4px; padding:5px 8px; font-size:11px; font-weight:bold; }}
+                    .data-row-count {{ color:#64748B; font-size:11px; white-space:nowrap; }}
+                    .data-table th {{ cursor:pointer; user-select:none; }}
+                    .sort-indicator {{ color:#94A3B8; font-size:10px; }}
+                    .data-table tr.table-filter-hidden {{ display:none; }}
+                    .plotly-click-hint {{ text-align:center; color:#64748B; font-size:11px; margin-top:-4px; }}
                 </style>
                 <script>
                     function switchAI(selectedId) {{
@@ -291,6 +323,7 @@ class StatisticsExporterThread(QThread):
                         if(activeSec) {{
                             activeSec.style.display = 'block';
                             window.dispatchEvent(new Event('resize'));
+                            setTimeout(() => {{ wirePlotlyCrossFiltering(); renderDashboardFilters(); }}, 40);
                         }}
                     }}
                     function toggleChartData(btn, mode) {{
@@ -312,6 +345,174 @@ class StatisticsExporterThread(QThread):
                         btn.innerHTML = card.classList.contains('fullscreen') ? '✖ Close' : '⛶ Expand';
                         setTimeout(() => {{ window.dispatchEvent(new Event('resize')); }}, 50);
                     }}
+
+                    const dashboardFilters = {{company: new Set(), ai: new Set(), status: new Set()}};
+                    let dashboardRows = [];
+
+                    function currentScopeRows() {{
+                        const selected = document.getElementById('scope-select')?.value || 'global';
+                        let rows = dashboardRows;
+                        if(selected.startsWith('wi_')) {{
+                            const option = document.querySelector(`#scope-select option[value="${{selected}}"]`);
+                            const wi = option?.dataset?.wi || '';
+                            if(wi) rows = rows.filter(r => (r.wis || []).includes(wi));
+                        }} else if(selected.startsWith('ai_')) {{
+                            const option = document.querySelector(`#scope-select option[value="${{selected}}"]`);
+                            const ai = option?.dataset?.ai || '';
+                            if(ai) rows = rows.filter(r => r.ai === ai);
+                        }}
+                        return rows;
+                    }}
+
+                    function filteredRows() {{
+                        return currentScopeRows().filter(r =>
+                            (!dashboardFilters.company.size || (r.companies || []).some(c => dashboardFilters.company.has(c))) &&
+                            (!dashboardFilters.ai.size || dashboardFilters.ai.has(r.ai)) &&
+                            (!dashboardFilters.status.size || dashboardFilters.status.has(r.status))
+                        );
+                    }}
+
+                    function addDashboardFilter(dimension, value) {{
+                        if(!value || !dashboardFilters[dimension]) return;
+                        dashboardFilters[dimension].add(String(value));
+                        renderDashboardFilters();
+                    }}
+                    function removeDashboardFilter(dimension, value) {{
+                        dashboardFilters[dimension]?.delete(String(value));
+                        renderDashboardFilters();
+                    }}
+                    function clearDashboardFilters() {{
+                        Object.values(dashboardFilters).forEach(s => s.clear());
+                        renderDashboardFilters();
+                    }}
+                    function renderDashboardFilters() {{
+                        const host = document.getElementById('active-crossfilters');
+                        if(!host) return;
+                        host.innerHTML = '';
+                        const names = {{company:'Company', ai:'AI', status:'Status'}};
+                        Object.entries(dashboardFilters).forEach(([dim, values]) => {{
+                            values.forEach(value => {{
+                                const chip = document.createElement('span');
+                                chip.className='filter-chip';
+                                chip.append(document.createTextNode(`${{names[dim]}}: ${{value}}`));
+                                const b=document.createElement('button'); b.textContent='×';
+                                b.onclick=()=>removeDashboardFilter(dim,value); chip.appendChild(b);
+                                host.appendChild(chip);
+                            }});
+                        }});
+                        const rows=filteredRows();
+                        const summary=document.getElementById('crossfilter-summary');
+                        if(summary) summary.textContent=`${{rows.length}} TDocs match active scope + filters`;
+                        applyTableCrossFilters();
+                    }}
+
+                    function tableCardDimension(card) {{
+                        const txt=(card?.querySelector('.custom-tooltip-text')?.textContent || '').toLowerCase();
+                        if(txt.includes('top contributors') || txt.includes('specialization')) return 'company';
+                        if(txt.includes('agenda items by volume') || txt.includes('agenda items by status') || txt.includes('revision activity')) return 'ai';
+                        if(txt.includes('tdoc outcomes')) return 'status';
+                        return '';
+                    }}
+                    function applyTableCrossFilters() {{
+                        document.querySelectorAll('.dashboard-view-panel').forEach(panel => {{
+                            if(panel.style.display==='none') return;
+                            panel.querySelectorAll('.data-table').forEach(table => {{
+                                const card=table.closest('.chart-card');
+                                const dim=tableCardDimension(card);
+                                const allowed=filteredRows();
+                                let values=null;
+                                if(dim==='company') values=new Set(allowed.flatMap(r=>r.companies||[]));
+                                if(dim==='ai') values=new Set(allowed.map(r=>r.ai));
+                                if(dim==='status') values=new Set(allowed.map(r=>r.status));
+                                Array.from(table.tBodies[0]?.rows || []).forEach(row => {{
+                                    if(!values || !dim) return;
+                                    const value=(row.cells[0]?.dataset.value || row.cells[0]?.textContent || '').trim();
+                                    row.dataset.crossVisible = values.has(value) ? '1':'0';
+                                }});
+                                const search=table.closest('.data-pane')?.querySelector('.data-search');
+                                if(search) filterStatsTable(search); else refreshTableVisibility(table,'');
+                            }});
+                        }});
+                    }}
+
+                    function refreshTableVisibility(table, query) {{
+                        query=(query||'').toLowerCase();
+                        let visible=0, total=0;
+                        Array.from(table.tBodies[0]?.rows || []).forEach(row => {{
+                            total++;
+                            const searchOk=!query || row.textContent.toLowerCase().includes(query);
+                            const crossOk=row.dataset.crossVisible !== '0';
+                            row.classList.toggle('table-filter-hidden', !(searchOk && crossOk));
+                            if(searchOk && crossOk) visible++;
+                        }});
+                        const count=table.closest('.data-pane')?.querySelector('.data-row-count');
+                        if(count) count.textContent=`${{visible}} / ${{total}} rows`;
+                    }}
+                    function filterStatsTable(input) {{
+                        const table=input.closest('.data-pane')?.querySelector('.data-table');
+                        if(table) refreshTableVisibility(table,input.value);
+                    }}
+                    function parseSortValue(v) {{
+                        const cleaned=String(v).trim().replace(/[% ,]/g,'');
+                        return cleaned!=='' && !Number.isNaN(Number(cleaned)) ? Number(cleaned) : String(v).toLowerCase();
+                    }}
+                    function sortStatsTable(th) {{
+                        const table=th.closest('table'), body=table?.tBodies[0]; if(!body) return;
+                        const idx=Array.from(th.parentNode.children).indexOf(th);
+                        const asc=th.dataset.sort !== 'asc';
+                        table.querySelectorAll('th').forEach(h=>{{h.dataset.sort=''; const i=h.querySelector('.sort-indicator'); if(i)i.textContent='↕';}});
+                        th.dataset.sort=asc?'asc':'desc'; const indicator=th.querySelector('.sort-indicator'); if(indicator)indicator.textContent=asc?'↑':'↓';
+                        const rows=Array.from(body.rows);
+                        rows.sort((a,b)=>{{
+                            const av=parseSortValue(a.cells[idx]?.dataset.value ?? a.cells[idx]?.textContent ?? '');
+                            const bv=parseSortValue(b.cells[idx]?.dataset.value ?? b.cells[idx]?.textContent ?? '');
+                            const cmp=(typeof av==='number' && typeof bv==='number') ? av-bv : String(av).localeCompare(String(bv),undefined,{{numeric:true,sensitivity:'base'}});
+                            return asc?cmp:-cmp;
+                        }});
+                        rows.forEach(r=>body.appendChild(r));
+                    }}
+                    function visibleTableMatrix(btn) {{
+                        const pane=btn.closest('.data-pane'), table=pane?.querySelector('.data-table'); if(!table)return [];
+                        const headers=Array.from(table.tHead?.rows[0]?.cells||[]).map(c=>c.textContent.replace(/[↕↑↓]/g,'').trim());
+                        const rows=Array.from(table.tBodies[0]?.rows||[]).filter(r=>!r.classList.contains('table-filter-hidden'))
+                            .map(r=>Array.from(r.cells).map(c=>c.dataset.value ?? c.textContent.trim()));
+                        return [headers,...rows];
+                    }}
+                    function csvEscape(v){{const s=String(v??''); return /[",\n]/.test(s)?`"${{s.replace(/"/g,'""')}}"`:s;}}
+                    function copyVisibleTable(btn) {{
+                        const m=visibleTableMatrix(btn); if(!m.length)return;
+                        navigator.clipboard?.writeText(m.map(r=>r.join('\t')).join('\n'));
+                        const old=btn.textContent; btn.textContent='✓ Copied'; setTimeout(()=>btn.textContent=old,900);
+                    }}
+                    function downloadVisibleTableCsv(btn) {{
+                        const m=visibleTableMatrix(btn); if(!m.length)return;
+                        const csv='\uFEFF'+m.map(r=>r.map(csvEscape).join(',')).join('\r\n');
+                        const blob=new Blob([csv],{{type:'text/csv;charset=utf-8;'}}), url=URL.createObjectURL(blob);
+                        const a=document.createElement('a'); a.href=url; a.download='statistics_table.csv'; a.click(); URL.revokeObjectURL(url);
+                    }}
+                    function wirePlotlyCrossFiltering() {{
+                        document.querySelectorAll('.js-plotly-plot').forEach(plot => {{
+                            if(plot.dataset.crossfilterWired) return;
+                            plot.dataset.crossfilterWired='1';
+                            plot.on('plotly_click', ev => {{
+                                const pt=ev?.points?.[0]; if(!pt) return;
+                                const dim=pt.data?.meta?.filterDimension; if(!dim) return;
+                                let value='';
+                                if(pt.customdata && Array.isArray(pt.customdata)) value=pt.customdata[0];
+                                else if(pt.customdata != null) value=pt.customdata;
+                                else if(dim==='company') value=pt.y;
+                                else if(dim==='status') value=pt.label;
+                                if(value) addDashboardFilter(dim,String(value));
+                            }});
+                        }});
+                    }}
+                    document.addEventListener('DOMContentLoaded', () => {{
+                        const raw=document.getElementById('dashboard-filter-data');
+                        try {{ dashboardRows=JSON.parse(raw?.textContent || '[]'); }} catch(e) {{ dashboardRows=[]; }}
+                        wirePlotlyCrossFiltering();
+                        document.querySelectorAll('.data-search').forEach(filterStatsTable);
+                        renderDashboardFilters();
+                    }});
                 </script>
             </head>
             <body>
@@ -323,6 +524,13 @@ class StatisticsExporterThread(QThread):
                         {" ".join(dropdown_options)}
                     </select>
                 </div>
+                <div class="interactive-filter-bar">
+                    <span class="interactive-filter-label">🔎 Interactive filters:</span>
+                    <span id="active-crossfilters"></span>
+                    <button type="button" class="clear-crossfilters" onclick="clearDashboardFilters()">Clear filters</button>
+                    <span id="crossfilter-summary" class="crossfilter-summary"></span>
+                </div>
+                <script type="application/json" id="dashboard-filter-data">{interactive_json}</script>
 
                 {" ".join(views_html_buffer)}
             </body>

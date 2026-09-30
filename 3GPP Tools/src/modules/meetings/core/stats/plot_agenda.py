@@ -26,7 +26,9 @@ def generate_ai_volume_plot(df, export_dir, theme_color, prefix_id="Global", sav
         meta = df[['Agenda Item', 'AI_Display']].drop_duplicates('Agenda Item')
         ai_counts = ai_counts.merge(meta, on='Agenda Item', how='left')
     fig_ai = px.bar(ai_counts, x=axis_col, y='Count', title="Agenda Items by TDoc Volume",
-                    color_discrete_sequence=[theme_color], hover_name=hover_name, hover_data=hover_data)
+                    color_discrete_sequence=[theme_color], hover_name=hover_name, hover_data=hover_data,
+                    custom_data=['Agenda Item'])
+    fig_ai.update_traces(meta={'filterDimension': 'ai'})
     fig_ai.update_xaxes(type='category', categoryorder='total descending', title="Agenda Item / Topic")
     fig_ai.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
 
@@ -60,7 +62,9 @@ def generate_ai_status_plot(df, export_dir, palette, prefix_id="Global", save_ht
         plot_df = plot_df.merge(meta, on='Agenda Item', how='left')
     hover_name = 'AI_Display' if 'AI_Display' in plot_df.columns else 'Agenda Item'
     fig = px.bar(plot_df, x=axis_col, y='Count', color='TDoc Status', title="Agenda Items by Outcome Status",
-                 color_discrete_sequence=palette, barmode='stack', hover_name=hover_name, hover_data={'Agenda Item': True})
+                 color_discrete_sequence=palette, barmode='stack', hover_name=hover_name, hover_data={'Agenda Item': True},
+                 custom_data=['Agenda Item'])
+    fig.update_traces(meta={'filterDimension': 'ai'})
     fig.update_xaxes(type='category', categoryorder='total descending', title="Agenda Item / Topic")
     fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     if save_html:
