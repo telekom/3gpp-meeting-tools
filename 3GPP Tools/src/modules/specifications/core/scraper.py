@@ -199,9 +199,13 @@ def fetch_metadata_from_dynareport(
     Tests user-entered candidate format first and only accepts pages with valid specification titles.
     """
     def log(msg: str, level: int = logging.INFO):
-        logger.log(level, msg)
+        # Use exactly one logging path. SpecsCrawlerThread supplies _log as the
+        # callback, and _log itself writes to Python logging; logging here as
+        # well caused every DynaReport message to appear twice.
         if log_cb:
             log_cb(msg, level)
+        else:
+            logger.log(level, msg)
 
     clean_spec = spec_number.strip()
     cleaned_num = re.sub(r'^(?:3GPP\s+)?(?:TS|TR)\s*', '', clean_spec, flags=re.IGNORECASE).strip()

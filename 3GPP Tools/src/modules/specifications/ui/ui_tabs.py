@@ -984,14 +984,30 @@ class SpecificationsTab(QWidget):
 
                     current_dir = Path(self.download_dir) / c_data["spec_num"]
                     stem = Path(c_data["fname"]).stem.lower()
-                    zip_exists = (c_data["fname"].lower() in files_cache)
 
+                    # Re-scan the directory whenever button state is refreshed.
+                    # The old code used the refresh_table() snapshot (files_cache),
+                    # which became stale immediately after extracting/converting a file.
+                    current_files = []
+                    if current_dir.exists():
+                        try:
+                            current_files = [
+                                f.name.lower()
+                                for f in current_dir.iterdir()
+                                if f.is_file()
+                            ]
+                        except OSError:
+                            current_files = []
+
+                    zip_exists = c_data["fname"].lower() in current_files
                     word_exists = any(
-                        f.startswith(stem) and (f.endswith(".docx") or f.endswith(".doc")) for f in files_cache)
-                    pdf_exists = any(f.startswith(stem) and f.endswith(".pdf") for f in files_cache)
-                    html_exists = any(f.startswith(stem) and f.endswith(".html") for f in files_cache)
-                    txt_exists = any(f.startswith(stem) and f.endswith(".txt") for f in files_cache)
-                    dir_ready = bool(files_cache)
+                        f.startswith(stem) and (f.endswith(".docx") or f.endswith(".doc"))
+                        for f in current_files
+                    )
+                    pdf_exists = any(f.startswith(stem) and f.endswith(".pdf") for f in current_files)
+                    html_exists = any(f.startswith(stem) and f.endswith(".html") for f in current_files)
+                    txt_exists = any(f.startswith(stem) and f.endswith(".txt") for f in current_files)
+                    dir_ready = bool(current_files)
 
                     base_style = """
                         QPushButton {
