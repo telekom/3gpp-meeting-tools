@@ -169,7 +169,7 @@ class TDocsParser:
                     cols) > type_idx else ""
 
                 if ui_logger and (comments or email_disc):
-                    logger.log(f"   ➔ Extracted agenda remarks for {tdoc_id}", logging.DEBUG)
+                    logger.log(logging.DEBUG, f"   ➔ Extracted agenda remarks for {tdoc_id}")
 
                 data[tdoc_id] = {
                     'Comments': comments,

@@ -209,6 +209,7 @@ class TDocsWindow(QWidget):
         self.folder_btn.setToolTip("Access local cache folders, on-site server pages, export reports, and remote FTP directories.")
 
         self.folder_menu = QMenu(self)
+        self.folder_menu.setToolTipsVisible(True)
         self.folder_menu.aboutToShow.connect(self._populate_resources_menu)
         self.folder_btn.setMenu(self.folder_menu)
 
@@ -219,13 +220,49 @@ class TDocsWindow(QWidget):
 
         self.export_btn = QPushButton("📤 Export ▾")
         self.export_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.export_btn.setToolTip("Export the TDocs table to Excel, LLM Markdown corpus, or summary reports.")
+        self.export_btn.setToolTip(
+            "Export meeting TDoc metadata, document packages, LLM-ready content, or Markdown reports."
+        )
 
         export_menu = QMenu(self)
-        export_menu.addAction("📊 Export to Excel (.xlsx)...", self._open_excel_export_dialog)
-        export_menu.addAction("📦 Export TDocs + Excel...", self._export_tdocs_package)
-        export_menu.addAction("🤖 Export Visible to LLM (Corpus)", self._export_llm_visible)
-        export_menu.addAction("📝 Export Markdown Summary Reports", self._export_reports)
+        export_menu.setToolTipsVisible(True)
+
+        act_export_excel = export_menu.addAction(
+            "📊 Export to Excel (.xlsx)...", self._open_excel_export_dialog
+        )
+        act_export_excel.setToolTip(
+            "Export TDoc metadata to a formatted Excel workbook. "
+            "You can choose visible/all rows, columns, their order, and the destination file."
+        )
+        act_export_excel.setStatusTip(act_export_excel.toolTip())
+
+        act_export_package = export_menu.addAction(
+            "📦 Export TDocs + Excel...", self._export_tdocs_package
+        )
+        act_export_package.setToolTip(
+            "Create a self-contained package under this meeting's Export folder. "
+            "Exports selected TDoc rows, or all currently visible rows when nothing is selected, "
+            "using cached documents where available and including an Excel manifest."
+        )
+        act_export_package.setStatusTip(act_export_package.toolTip())
+
+        act_export_llm = export_menu.addAction(
+            "🤖 Export Visible to LLM (Corpus)", self._export_llm_visible
+        )
+        act_export_llm.setToolTip(
+            "Compile all currently visible/filtered TDocs into an LLM-ready Markdown corpus, "
+            "using the configured corpus size and system-prompt settings."
+        )
+        act_export_llm.setStatusTip(act_export_llm.toolTip())
+
+        act_export_reports = export_menu.addAction(
+            "📝 Export Markdown Summary Reports", self._export_reports
+        )
+        act_export_reports.setToolTip(
+            "Generate Markdown summary reports for the meeting from the currently loaded TDoc data."
+        )
+        act_export_reports.setStatusTip(act_export_reports.toolTip())
+
         self.export_btn.setMenu(export_menu)
 
         self.stats_btn = QPushButton("📊 Statistics")
@@ -297,7 +334,11 @@ class TDocsWindow(QWidget):
 
         self.folder_menu.addSeparator()
         self.folder_menu.addAction("⚠️ View Unmatched Companies", self._show_unmatched_companies)
-        self.folder_menu.addAction("📝 Export Markdown Reports", self._export_reports)
+        act_resource_md_export = self.folder_menu.addAction("📝 Export Markdown Reports", self._export_reports)
+        act_resource_md_export.setToolTip(
+            "Generate Markdown summary reports for the meeting from the currently loaded TDoc data."
+        )
+        act_resource_md_export.setStatusTip(act_resource_md_export.toolTip())
 
         if NetworkState.get_instance().is_local_active():
             self.folder_menu.addSeparator()
