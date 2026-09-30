@@ -145,26 +145,77 @@ class MeetingsCrawlerThread(QThread):
         final_docs_url = base_docs_url
 
         def fetch_and_parse(url):
-            html = NetworkSession.get_html(url, timeout=5)
-            tdocs_raw = self.tdoc_pattern.findall(html)
-            parsed = []
-            for f in tdocs_raw:
-                clean_name = re.sub(r'\.[a-zA-Z0-9]{2,4}$', '', f.strip())
+            logger.info(
+                f"🔎 [Docs Scan] {task.get('wg_name', '')} #{task.get('meeting_num', '')}: {url}"
+            )
+            html = NetworkSession.get_html(url, timeout=8)
+
+            # Prefer the actual href target. The current 3GPP directory renderer does
+            # not guarantee that the visible anchor text is the literal filename.
+            soup = BeautifulSoup(html, "html.parser")
+            filenames = []
+            for anchor in soup.find_all("a", href=True):
+                href = unquote(str(anchor.get("href", ""))).replace("\\", "/")
+                filename = href.split("?")[0].rstrip("/").split("/")[-1].strip()
+                if re.search(r'\.(?:zip|doc|docx|pdf)$', filename, re.IGNORECASE):
+                    filenames.append(filename)
+
+            # Compatibility fallback for older/simple directory listings where the
+            # filename is exposed only as anchor text.
+            if not filenames:
+                filenames = self.tdoc_pattern.findall(html)
+
+            parsed_by_name = {}
+            for filename in filenames:
+                clean_name = re.sub(r'\.(?:zip|doc|docx|pdf)$', '', filename.strip(), flags=re.IGNORECASE)
                 match = re.match(r'^([A-Za-z0-9]+)-?(\d+)', clean_name)
-                if match:
-                    parsed.append({"clean": clean_name, "prefix": match.group(1).upper(), "num": int(match.group(2))})
+                if not match:
+                    continue
+                parsed_by_name[clean_name.upper()] = {
+                    "clean": clean_name,
+                    "prefix": match.group(1).upper(),
+                    "num": int(match.group(2)),
+                }
+
+            parsed = list(parsed_by_name.values())
+            parsed.sort(key=lambda x: (x["num"], x["clean"].lower()))
+
             if parsed:
-                parsed.sort(key=lambda x: (x["num"], x["clean"]))
+                logger.info(
+                    f"✅ [Docs Scan] {task.get('wg_name', '')} #{task.get('meeting_num', '')}: "
+                    f"found {len(parsed)} TDoc file(s), range {parsed[0]['clean']} -> {parsed[-1]['clean']}"
+                )
+            else:
+                logger.warning(
+                    f"⚠️ [Docs Scan] {task.get('wg_name', '')} #{task.get('meeting_num', '')}: "
+                    f"directory loaded but no TDoc filenames were recognized at {url}"
+                )
             return parsed
 
+        parsed_list = []
         try:
             parsed_list = fetch_and_parse(base_docs_url)
-            if not parsed_list and "Docs/" in base_docs_url:
-                fallback_url = base_docs_url.replace("Docs/", "docs/")
-                parsed_list = fetch_and_parse(fallback_url)
-                if parsed_list: final_docs_url = fallback_url
-        except Exception:
-            parsed_list = []
+        except Exception as exc:
+            logger.warning(
+                f"⚠️ [Docs Scan] {task.get('wg_name', '')} #{task.get('meeting_num', '')}: "
+                f"failed to read {base_docs_url}: {exc}"
+            )
+
+        # Some historical 3GPP folders use lowercase 'docs'. Try that form only
+        # when the canonical URL did not yield a usable listing.
+        if not parsed_list and re.search(r'/Docs/?$', base_docs_url, re.IGNORECASE):
+            fallback_url = re.sub(r'/Docs/?$', '/docs/', base_docs_url, flags=re.IGNORECASE)
+            if fallback_url != base_docs_url:
+                try:
+                    fallback_list = fetch_and_parse(fallback_url)
+                    if fallback_list:
+                        parsed_list = fallback_list
+                        final_docs_url = fallback_url
+                except Exception as exc:
+                    logger.warning(
+                        f"⚠️ [Docs Scan] {task.get('wg_name', '')} #{task.get('meeting_num', '')}: "
+                        f"lowercase fallback failed at {fallback_url}: {exc}"
+                    )
 
         if parsed_list:
             tdoc_count = len(parsed_list)
