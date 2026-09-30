@@ -14,6 +14,7 @@ class AgendaItem:
         self.ai_num = ai_num.strip()
         self.description = description.strip()
         self.acronym = self._extract_acronym(self.description)
+        self.topic_suffix = self._extract_topic_suffix(self.description, self.acronym)
 
     @staticmethod
     def _extract_acronym(desc: str) -> Optional[str]:
@@ -25,6 +26,19 @@ class AgendaItem:
             if len(candidate) <= 25 and not candidate.lower().startswith("excluding"):
                 return candidate
         return None
+
+    @staticmethod
+    def _extract_topic_suffix(desc: str, acronym: Optional[str]) -> Optional[str]:
+        """Return a concise sub-topic following the WI/SI acronym, when present."""
+        if not acronym:
+            return None
+        marker = f"({acronym})"
+        pos = desc.rfind(marker)
+        if pos < 0:
+            return None
+        suffix = desc[pos + len(marker):].strip()
+        suffix = re.sub(r"^[\s\-–—:;]+", "", suffix).strip()
+        return suffix or None
 
     @property
     def display_label(self) -> str:
