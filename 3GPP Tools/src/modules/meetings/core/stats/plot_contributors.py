@@ -10,7 +10,8 @@ def generate_top_contributors_plot(df, export_dir, theme_color, top_count, prefi
     top_df = comp_counts.head(top_count)
     plot_df = top_df.sort_values('Count', ascending=True)
     fig_comp = px.bar(plot_df, x='Count', y='Company', orientation='h', title=f"Top {top_count} Contributing Companies",
-                      color_discrete_sequence=[theme_color])
+                      color_discrete_sequence=[theme_color], custom_data=['Company'])
+    fig_comp.update_traces(meta={'filterDimension': 'company'})
     fig_comp.update_yaxes(type='category', categoryorder='total ascending', tickmode='linear', dtick=1, title=None)
     fig_comp.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     if save_html:

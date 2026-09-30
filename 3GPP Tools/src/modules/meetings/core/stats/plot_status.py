@@ -11,7 +11,8 @@ def generate_outcomes_plot(df, export_dir, palette, prefix_id="Global", save_htm
     status_counts['Percentage'] = status_counts['Count'].apply(lambda x: f"{(100*x/total):.1f}%" if total else "0.0%")
 
     fig_status = px.pie(status_counts, names='Status', values='Count', hole=0.4,
-                        title="TDoc Outcomes", color_discrete_sequence=palette)
+                        title="TDoc Outcomes", color_discrete_sequence=palette, custom_data=['Status'])
+    fig_status.update_traces(meta={'filterDimension': 'status'})
     fig_status.update_traces(textposition='inside', textinfo='percent+label')
     fig_status.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     if save_html:
