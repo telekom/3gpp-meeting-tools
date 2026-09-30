@@ -1,7 +1,7 @@
 # --- File: src/modules/meetings/ui/tdocs_components.py ---
 import logging
 from PyQt5.QtCore import pyqtSignal, QEvent, Qt
-from PyQt5.QtGui import QStandardItemModel, QStandardItem, QPalette
+from PyQt5.QtGui import QStandardItemModel, QStandardItem, QPalette, QColor, QBrush
 from PyQt5.QtWidgets import QComboBox, QListView, QStylePainter, QStyleOptionComboBox, QStyle
 
 
@@ -152,6 +152,23 @@ class CheckableComboBox(QComboBox):
 
         self.model().blockSignals(False)
         self.update()  # Trigger paintEvent to update the button text
+
+    def setAvailability(self, available_values):
+        """Grey zero-intersection choices while keeping every option selectable."""
+        available = {str(value) for value in (available_values or [])}
+        muted_brush = QBrush(QColor("#94A3B8"))
+        normal_brush = QBrush(self.palette().color(QPalette.Text))
+
+        for i in range(1, self.model().rowCount()):
+            item = self.model().item(i)
+            if not item:
+                continue
+            value = str(item.data(Qt.UserRole))
+            is_available = value in available
+            item.setForeground(normal_brush if is_available else muted_brush)
+            item.setData(is_available, Qt.UserRole + 1)
+
+        self.update()
 
     def getCheckedItems(self):
         checked = []

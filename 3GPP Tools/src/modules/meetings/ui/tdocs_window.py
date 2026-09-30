@@ -550,38 +550,83 @@ class TDocsWindow(QWidget):
 
     def _apply_search_filter(self):
         self.proxy.setGlobalFilter(self.search_input.text())
+        self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_type_changed(self, types):
         self.proxy.setTypeFilters(types)
+        self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_ai_changed(self, ais):
         self.proxy.setAIFilters(ais)
+        self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_wi_changed(self, wis):
         self.proxy.setWIFilters(wis)
+        self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_status_changed(self, statuses):
         self.proxy.setStatusFilters(statuses)
+        self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_my_status_changed(self, statuses):
         self.proxy.setMyStatusFilters(statuses)
+        self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_company_changed(self, companies):
         self.proxy.setCompanyFilters(companies)
+        self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
     def _on_no_comments_toggled(self, checked):
         self.proxy.setNoCommentsFilter(checked)
+        self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
     def _update_count_label(self):
         self.count_lbl.setText(f"Showing {self.proxy.rowCount()} of {self.model.rowCount()} TDocs")
+
+    def _update_filter_facets(self):
+        """Update zero-intersection styling for every metadata filter."""
+        if not hasattr(self, "proxy") or not hasattr(self, "model"):
+            return
+
+        facets = {
+            "company": set(),
+            "type": set(),
+            "ai": set(),
+            "wi": set(),
+            "status": set(),
+            "my_status": set(),
+        }
+
+        # Each facet is evaluated with all active constraints except itself.
+        # This answers: "Would selecting this option yield rows given my other filters?"
+        for row_idx, row in enumerate(self.model._data):
+            if self.proxy.rowMatchesFilters(row_idx, exclude_filter="company"):
+                facets["company"].update(row.get("_Sanitized_Companies", ["Other"]))
+            if self.proxy.rowMatchesFilters(row_idx, exclude_filter="type"):
+                facets["type"].add(str(row.get("Type", "") or "").strip())
+            if self.proxy.rowMatchesFilters(row_idx, exclude_filter="ai"):
+                facets["ai"].add(str(row.get("Agenda Item", "") or "").strip())
+            if self.proxy.rowMatchesFilters(row_idx, exclude_filter="wi"):
+                facets["wi"].update(self.model.get_related_wis(row_idx))
+            if self.proxy.rowMatchesFilters(row_idx, exclude_filter="status"):
+                facets["status"].add(str(row.get("TDoc Status", "") or "").strip())
+            if self.proxy.rowMatchesFilters(row_idx, exclude_filter="my_status"):
+                facets["my_status"].add(str(row.get("My Status", "") or "").strip())
+
+        self.company_combo.setAvailability(facets["company"])
+        self.type_combo.setAvailability(facets["type"])
+        self.ai_combo.setAvailability(facets["ai"])
+        self.wi_combo.setAvailability(facets["wi"])
+        self.status_combo.setAvailability(facets["status"])
+        self.my_status_combo.setAvailability(facets["my_status"])
 
     def _refresh_comboboxes(self):
         def sanitize(val): return str(val).strip() if val is not None else ""
@@ -616,6 +661,7 @@ class TDocsWindow(QWidget):
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
         self.proxy.setCompanyFilters(self.company_combo.getCheckedItems())
         self.proxy.setMyStatusFilters(self.my_status_combo.getCheckedItems())
+        self._update_filter_facets()
 
         QTimer.singleShot(0, self._update_count_label)
 
@@ -665,6 +711,7 @@ class TDocsWindow(QWidget):
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
         self.proxy.setCompanyFilters(self.company_combo.getCheckedItems())
         self.proxy.setMyStatusFilters(self.my_status_combo.getCheckedItems())
+        self._update_filter_facets()
 
         QTimer.singleShot(0, self._update_count_label)
 
