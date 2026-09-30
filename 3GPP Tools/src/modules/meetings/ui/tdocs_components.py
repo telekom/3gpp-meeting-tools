@@ -103,7 +103,8 @@ class CheckableComboBox(QComboBox):
         self.model().appendRow(item_all)
 
         for text in items:
-            display_text = str(text) if text else "(Empty)"
+            raw_value = str(text)
+            display_text = display_labels.get(raw_value, raw_value if raw_value else "(Empty)")
             item = QStandardItem(display_text)
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked)
@@ -111,8 +112,9 @@ class CheckableComboBox(QComboBox):
             self.model().appendRow(item)
         self.update()
 
-    def updateItems(self, items):
+    def updateItems(self, items, display_labels=None):
         previously_checked = set(self.getCheckedItems())
+        display_labels = display_labels or {}
 
         was_all_checked = True
         if self.model().rowCount() > 0:
@@ -133,17 +135,18 @@ class CheckableComboBox(QComboBox):
 
         all_checked_now = True
         for text in items:
-            display_text = str(text) if text else "(Empty)"
+            raw_value = str(text)
+            display_text = display_labels.get(raw_value, raw_value if raw_value else "(Empty)")
             item = QStandardItem(display_text)
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
 
-            if was_all_checked or text in previously_checked:
+            if was_all_checked or raw_value in previously_checked:
                 item.setCheckState(Qt.Checked)
             else:
                 item.setCheckState(Qt.Unchecked)
                 all_checked_now = False
 
-            item.setData(str(text), Qt.UserRole)
+            item.setData(raw_value, Qt.UserRole)
             self.model().appendRow(item)
 
         root_item = self.model().item(0)

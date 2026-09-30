@@ -647,8 +647,14 @@ class TDocsWindow(QWidget):
             unique_companies.update(r.get("_Sanitized_Companies", ["Other"]))
         sorted_companies = sorted(list(unique_companies), key=lambda x: x.lower())
 
+        ai_display_labels = {}
+        for ai_num in unique_ais:
+            agenda_item = self.agenda_map.get(ai_num)
+            acronym = getattr(agenda_item, "acronym", None) if agenda_item else None
+            ai_display_labels[ai_num] = f"{ai_num} ({acronym})" if acronym else ai_num
+
         self.type_combo.updateItems(unique_types)
-        self.ai_combo.updateItems(unique_ais)
+        self.ai_combo.updateItems(unique_ais, display_labels=ai_display_labels)
         self._update_ai_tooltips()
         self.wi_combo.updateItems(unique_wis)
         self.status_combo.updateItems(unique_statuses)
@@ -673,7 +679,7 @@ class TDocsWindow(QWidget):
             item = model.item(i)
             if not item:
                 continue
-            ai_num = item.text().strip()
+            ai_num = str(item.data(Qt.UserRole) or "").strip()
             agenda_item = self.agenda_map.get(ai_num)
             if agenda_item:
                 if hasattr(agenda_item, 'full_tooltip'):
@@ -1371,7 +1377,7 @@ class TDocsWindow(QWidget):
             self.refresh_btn.setText("✅ Agenda Cached")
             QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
             self.agenda_map = AgendaManager.load_local_agenda(self.agenda_dir)
-            self._update_ai_tooltips()
+            self._refresh_comboboxes()
             QMessageBox.information(self, "Agenda CSV Cached", msg)
         else:
             QMessageBox.warning(self, "Download Failed", msg)
