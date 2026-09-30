@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QShortcut,
     QMessageBox,
     QPushButton,
+    QProgressBar,
     QSpinBox,
     QTreeWidget,
     QTreeWidgetItem,
@@ -283,6 +284,16 @@ class WordExtractorTab(QWidget):
         source_row.addLayout(source_buttons)
         excerpt_layout.addLayout(source_row)
 
+        self.excerpt_progress_label = QLabel("Ready to scan.")
+        self.excerpt_progress_label.setVisible(False)
+        self.excerpt_progress = QProgressBar()
+        self.excerpt_progress.setRange(0, 100)
+        self.excerpt_progress.setValue(0)
+        self.excerpt_progress.setTextVisible(True)
+        self.excerpt_progress.setVisible(False)
+        excerpt_layout.addWidget(self.excerpt_progress_label)
+        excerpt_layout.addWidget(self.excerpt_progress)
+
         self.excerpt_source_list.itemSelectionChanged.connect(
             lambda: self.excerpt_remove_btn.setEnabled(bool(self.excerpt_source_list.selectedItems()))
         )
@@ -399,9 +410,14 @@ class WordExtractorTab(QWidget):
         if self._excerpt_scan_thread is not None and self._excerpt_scan_thread.isRunning():
             return
         self.excerpt_drop.set_state("ready", f"Scanning {len(self._excerpt_input_paths)} document(s)...")
+        self.excerpt_progress.setValue(0)
+        self.excerpt_progress.setVisible(True)
+        self.excerpt_progress_label.setText(f"Preparing to parse {len(self._excerpt_input_paths)} document(s)...")
+        self.excerpt_progress_label.setVisible(True)
         mode = self.excerpt_order_combo.currentData()
         self._excerpt_scan_thread = WordHeadingScanThread(list(self._excerpt_input_paths), mode)
         self._excerpt_scan_thread.scanned.connect(self._on_excerpt_scanned)
+        self._excerpt_scan_thread.progress.connect(self._on_excerpt_scan_progress)
         self._excerpt_scan_thread.failed.connect(self._on_excerpt_scan_failed)
         self._excerpt_scan_thread.start()
 
@@ -424,6 +440,10 @@ class WordExtractorTab(QWidget):
         self._invalidate_excerpt_scan()
         self.excerpt_drop.set_state("idle", "📥 Drop one or more .docx files here to scan their headings")
 
+    def _on_excerpt_scan_progress(self, percent, message):
+        self.excerpt_progress.setValue(percent)
+        self.excerpt_progress_label.setText(message)
+
     def _on_excerpt_scanned(self, ordered_paths, headings):
         self._excerpt_paths = list(ordered_paths)
         self._excerpt_headings = list(headings)
@@ -432,9 +452,14 @@ class WordExtractorTab(QWidget):
             "ready", f"Ready: {len(headings)} headings from {len(ordered_paths)} document(s)"
         )
         self.excerpt_extract_btn.setEnabled(bool(headings))
+        self.excerpt_progress.setValue(100)
+        self.excerpt_progress_label.setText(f"Scan complete: {len(headings)} headings found.")
 
     def _on_excerpt_scan_failed(self, message):
         self.excerpt_drop.set_state("error", "Heading scan failed")
+        self.excerpt_progress.setVisible(True)
+        self.excerpt_progress_label.setVisible(True)
+        self.excerpt_progress_label.setText("Heading scan failed.")
         QMessageBox.critical(self, "Heading Scan Failed", message)
 
     def _populate_excerpt_tree(self):

@@ -64,14 +64,20 @@ class WordHeadingScanner:
             pass
         return 0
 
-    def scan(self, paths: Sequence[str], order_mode: str = "filename") -> List[HeadingInfo]:
+    def scan(self, paths: Sequence[str], order_mode: str = "filename", progress_callback=None) -> List[HeadingInfo]:
         ordered = order_sources(paths, order_mode)
         result: List[HeadingInfo] = []
+        total_files = len(ordered)
         for source_index, path in enumerate(ordered):
+            if progress_callback:
+                progress_callback(source_index, total_files, 0, 1, path)
             doc = Document(path)
             blocks = self._blocks(doc)
+            total_blocks = max(1, len(blocks))
             raw = []
             for block_index, block in enumerate(blocks):
+                if progress_callback and (block_index % 100 == 0 or block_index == total_blocks - 1):
+                    progress_callback(source_index, total_files, block_index + 1, total_blocks, path)
                 if not isinstance(block, CT_P):
                     continue
                 para = Paragraph(block, doc)
@@ -293,6 +299,7 @@ class WordExcerptThread(QThread):
 class WordHeadingScanThread(QThread):
     scanned = pyqtSignal(object, object)  # ordered paths, headings
     failed = pyqtSignal(str)
+    progress = pyqtSignal(int, str)
 
     def __init__(self, source_paths, order_mode="filename"):
         super().__init__()
@@ -302,7 +309,14 @@ class WordHeadingScanThread(QThread):
     def run(self):
         try:
             ordered = order_sources(self.source_paths, self.order_mode)
-            headings = WordHeadingScanner().scan(ordered, "drop")
+            def report(file_index, total_files, block_index, total_blocks, path):
+                file_fraction = block_index / max(1, total_blocks)
+                percent = int(((file_index + file_fraction) / max(1, total_files)) * 100)
+                percent = max(0, min(99, percent))
+                self.progress.emit(percent, f"Parsing {Path(path).name} - document {file_index + 1} of {total_files}")
+
+            headings = WordHeadingScanner().scan(ordered, "drop", report)
+            self.progress.emit(100, f"Parsed {len(ordered)} document(s)")
             self.scanned.emit(ordered, headings)
         except Exception as exc:
             logger.exception("Heading scan failed")
