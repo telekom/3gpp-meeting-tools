@@ -230,7 +230,7 @@ class SpecsDatabase:
         Maps related Work Items to a specification and inserts stubs into work_items
         if the WI has not been fully synchronized yet.
         """
-        if not wis_list:
+        if wis_list is None:
             return
 
         with self._get_connection() as conn:
@@ -286,56 +286,77 @@ class SpecsDatabase:
             return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
     def update_spec_metadata(self, spec_number: str, metadata: dict):
+        """Apply successfully parsed metadata without erasing fields that failed to parse."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            primary_group_id = None
-            p_group = metadata.get('primary_group')
-            if p_group:
-                cursor.execute('INSERT OR IGNORE INTO working_groups (name) VALUES (?)', (p_group,))
-                cursor.execute('SELECT id FROM working_groups WHERE name = ?', (p_group,))
-                primary_group_id = cursor.fetchone()[0]
-
-            cursor.execute('''
-                UPDATE specifications 
-                SET title = ?, type = ?, initial_release = ?, radio_technology = ?, 
-                    primary_group_id = ?, secondary_groups = ?
-                WHERE number = ?
-            ''', (
-                metadata.get('title'), metadata.get('type'), metadata.get('initial_release'),
-                metadata.get('radio_technology'), primary_group_id, metadata.get('secondary_groups_raw'),
-                spec_number
-            ))
-
             cursor.execute('SELECT id FROM specifications WHERE number = ?', (spec_number,))
             spec_row = cursor.fetchone()
             if not spec_row:
                 return
             spec_id = spec_row[0]
 
-            cursor.execute('DELETE FROM spec_radio_tech_map WHERE spec_id = ?', (spec_id,))
-            cursor.execute('DELETE FROM spec_secondary_group_map WHERE spec_id = ?', (spec_id,))
+            scalar_updates = []
+            scalar_values = []
+            for column, key in (
+                ('title', 'title'), ('type', 'type'),
+                ('initial_release', 'initial_release'),
+                ('radio_technology', 'radio_technology'),
+                ('secondary_groups', 'secondary_groups_raw'),
+            ):
+                value = metadata.get(key)
+                if value is not None:
+                    scalar_updates.append(f'{column} = ?')
+                    scalar_values.append(value)
 
-            techs = metadata.get('radio_technologies_list', [])
-            for tech in techs:
-                cursor.execute('INSERT OR IGNORE INTO radio_technologies (name) VALUES (?)', (tech,))
-                cursor.execute('SELECT id FROM radio_technologies WHERE name = ?', (tech,))
-                tech_id = cursor.fetchone()[0]
-                cursor.execute('INSERT OR IGNORE INTO spec_radio_tech_map (spec_id, tech_id) VALUES (?, ?)',
-                               (spec_id, tech_id))
+            if metadata.get('primary_group') is not None:
+                primary_group_id = None
+                p_group = metadata.get('primary_group')
+                if p_group:
+                    cursor.execute('INSERT OR IGNORE INTO working_groups (name) VALUES (?)', (p_group,))
+                    cursor.execute('SELECT id FROM working_groups WHERE name = ?', (p_group,))
+                    primary_group_id = cursor.fetchone()[0]
+                scalar_updates.append('primary_group_id = ?')
+                scalar_values.append(primary_group_id)
 
-            sec_groups = metadata.get('secondary_groups_list', [])
-            for sg in sec_groups:
-                cursor.execute('INSERT OR IGNORE INTO working_groups (name) VALUES (?)', (sg,))
-                cursor.execute('SELECT id FROM working_groups WHERE name = ?', (sg,))
-                sg_id = cursor.fetchone()[0]
-                cursor.execute('INSERT OR IGNORE INTO spec_secondary_group_map (spec_id, group_id) VALUES (?, ?)',
-                               (spec_id, sg_id))
+            if scalar_updates:
+                cursor.execute(
+                    f"UPDATE specifications SET {', '.join(scalar_updates)} WHERE number = ?",
+                    (*scalar_values, spec_number)
+                )
+
+            techs = metadata.get('radio_technologies_list')
+            if techs is not None:
+                cursor.execute('DELETE FROM spec_radio_tech_map WHERE spec_id = ?', (spec_id,))
+                for tech in techs:
+                    cursor.execute('INSERT OR IGNORE INTO radio_technologies (name) VALUES (?)', (tech,))
+                    cursor.execute('SELECT id FROM radio_technologies WHERE name = ?', (tech,))
+                    tech_id = cursor.fetchone()[0]
+                    cursor.execute('INSERT OR IGNORE INTO spec_radio_tech_map (spec_id, tech_id) VALUES (?, ?)',
+                                   (spec_id, tech_id))
+
+            sec_groups = metadata.get('secondary_groups_list')
+            if sec_groups is not None:
+                cursor.execute('DELETE FROM spec_secondary_group_map WHERE spec_id = ?', (spec_id,))
+                for sg in sec_groups:
+                    cursor.execute('INSERT OR IGNORE INTO working_groups (name) VALUES (?)', (sg,))
+                    cursor.execute('SELECT id FROM working_groups WHERE name = ?', (sg,))
+                    sg_id = cursor.fetchone()[0]
+                    cursor.execute('INSERT OR IGNORE INTO spec_secondary_group_map (spec_id, group_id) VALUES (?, ?)',
+                                   (spec_id, sg_id))
 
     def needs_metadata(self, spec_number: str) -> bool:
-        query = "SELECT title FROM specifications WHERE number = ?"
+        """Return True when core DynaReport metadata is absent or clearly incomplete."""
+        query = """
+            SELECT title, type, primary_group_id
+            FROM specifications
+            WHERE number = ?
+        """
         with self._get_connection() as conn:
             result = conn.cursor().execute(query, (spec_number,)).fetchone()
-            return not result or not result[0]
+            if not result:
+                return True
+            title, spec_type, primary_group_id = result
+            return not title or not spec_type or primary_group_id is None
 
     def search_files(self, spec_number: str = None, release_version: str = None,
                      series: str = None, tech: str = None, group: str = None, spec_type: str = None) -> list:

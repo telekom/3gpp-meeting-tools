@@ -74,82 +74,121 @@ def deduce_spec_type(spec_number: str, raw_type: str = "") -> str:
 
 
 def _parse_dynareport_content(html_text: str, clean_spec: str) -> Dict:
-    """Extracts specification attributes from DynaReport HTML, ignoring data grids."""
-    metadata = {
-        'title': '', 'type': '', 'initial_release': '',
-        'radio_technology': '', 'radio_technologies_list': [],
-        'primary_group': '',
-        'secondary_groups_raw': '', 'secondary_groups_list': [],
-        'version_dates': {},
-        'related_wis': []
-    }
+    """Parse the current 3GPP DynaReport/SpecificationDetails page."""
     soup = BeautifulSoup(html_text, 'html.parser')
+    metadata = {
+        'number': None,
+        'title': None, 'type': None, 'initial_release': None,
+        'radio_technology': None, 'radio_technologies_list': None,
+        'primary_group': None,
+        'secondary_groups_raw': None, 'secondary_groups_list': None,
+        'version_dates': None,
+        'related_wis': None,
+    }
 
-    # Decompose data grids so table headers (e.g. UID) don't collide with spec metadata
-    for grid in soup.find_all(lambda tag: tag.name in ('table', 'div') and tag.has_attr('id') and (
-        'grid' in tag['id'].lower() or 'releases' in tag['id'].lower()
-    )):
-        grid.decompose()
+    def text_by_id(element_id: str) -> Optional[str]:
+        tag = soup.find(id=element_id)
+        return tag.get_text(" ", strip=True) if tag else None
 
-    def get_by_id(keyword: str) -> str:
-        tag = soup.find(lambda t: t.has_attr('id') and keyword in t['id'].lower())
-        return tag.get_text(strip=True) if tag else ''
+    # Stable IDs on the redirected SpecificationDetails page.
+    metadata['number'] = text_by_id('referenceVal')
+    metadata['title'] = text_by_id('titleVal')
+    raw_type = text_by_id('typeVal')
+    if raw_type is not None:
+        metadata['type'] = deduce_spec_type(clean_spec, raw_type)
+    raw_rel = text_by_id('initialPlannedReleaseVal')
+    if raw_rel is not None:
+        metadata['initial_release'] = normalize_release(raw_rel)
 
-    def get_field(*label_texts: str) -> str:
-        for label_text in label_texts:
-            tags = soup.find_all(
-                lambda tag: tag.name in ['td', 'th', 'span', 'b', 'strong', 'div', 'label']
-                and tag.get_text(strip=True).strip(':').lower() == label_text.lower()
-            )
-            for tag in tags:
-                sibling = tag.find_next_sibling(
-                    lambda t: t.name in ['td', 'span', 'div'] and t.get_text(strip=True)
-                )
-                if sibling:
-                    return sibling.get_text(strip=True)
+    # Radio technologies are checkboxes: labels exist for every technology, so only
+    # checked inputs are authoritative.
+    tech_table = soup.find(id='radioTechnologyVals')
+    if tech_table is not None:
+        techs = []
+        for inp in tech_table.find_all('input', attrs={'type': 'checkbox'}):
+            if not inp.has_attr('checked'):
+                continue
+            label = tech_table.find('label', attrs={'for': inp.get('id')})
+            if label:
+                tech = label.get_text(" ", strip=True).upper()
+                if tech and tech not in techs:
+                    techs.append(tech)
+        metadata['radio_technologies_list'] = techs
+        metadata['radio_technology'] = ", ".join(techs)
 
-                parent_cell = tag.find_parent(['td', 'th'])
-                if parent_cell:
-                    next_cell = parent_cell.find_next_sibling(['td', 'th'])
-                    if next_cell:
-                        return next_cell.get_text(strip=True)
-        return ''
+    # Responsibility values do not have value IDs; read the value cell beside the label.
+    def value_cell_for_label(label_id: str) -> Optional[str]:
+        label = soup.find(id=label_id)
+        if label is None:
+            return None
+        cell = label.find_parent(['td', 'th'])
+        value_cell = cell.find_next_sibling(['td', 'th']) if cell else None
+        return value_cell.get_text(" ", strip=True) if value_cell else None
 
-    # 1. Title
-    title = get_by_id('lbltitle') or get_field('Specification Title', 'Title')
-    if title.lower() in ("uid", "3gpp specification detail", "specification detail", "title"):
-        title = ""
-    metadata['title'] = title
+    raw_primary = value_cell_for_label('PrimaryResponsibleGroupLbl')
+    if raw_primary is not None:
+        metadata['primary_group'] = normalize_working_group(raw_primary)
 
-    # 2. Type (TS vs TR)
-    raw_type = get_by_id('lblspectype') or get_field('Specification type', 'Spec type', 'Type')
-    metadata['type'] = deduce_spec_type(clean_spec, raw_type)
+    raw_secondary = value_cell_for_label('SecondaryResponsibleGroupsLbl')
+    if raw_secondary is not None:
+        raw_secondary = '' if raw_secondary.strip() in ('-', 'N/A') else raw_secondary.strip()
+        metadata['secondary_groups_raw'] = raw_secondary
+        groups = []
+        if raw_secondary:
+            for token in re.split(r'[,;/]+', raw_secondary):
+                group = normalize_working_group(token)
+                if group and group not in groups:
+                    groups.append(group)
+        metadata['secondary_groups_list'] = groups
 
-    # 3. Initial Planned Release
-    raw_rel = get_by_id('lblinitialrel') or get_field('Initial planned Release', 'Initial Release')
-    metadata['initial_release'] = normalize_release(raw_rel)
+    # Related WI grid. Presence of the grid means [] is an authoritative empty result.
+    wi_table = soup.find(id='SpecificationRelatedWorkItems_relatedWiGrid_ctl00')
+    if wi_table is not None:
+        wis = []
+        for row in wi_table.select('tbody > tr'):
+            cells = row.find_all('td', recursive=False)
+            if len(cells) < 4:
+                continue
+            code = cells[0].get_text(" ", strip=True)
+            if not code or not code.isdigit():
+                continue
+            acronym = cells[1].get_text(" ", strip=True)
+            title = cells[2].get_text(" ", strip=True)
+            groups_raw = cells[3].get_text(" ", strip=True)
+            responsible_groups = []
+            if groups_raw not in ('', '-', 'N/A'):
+                for token in re.split(r'[,;/]+', groups_raw):
+                    group = normalize_working_group(token)
+                    if group and group not in responsible_groups:
+                        responsible_groups.append(group)
+            is_primary = len(cells) >= 6 and cells[5].get_text(" ", strip=True).lower() == 'true'
+            wis.append({
+                'code': code, 'acronym': acronym, 'title': title,
+                'responsible_groups': responsible_groups, 'is_primary': is_primary,
+            })
+        metadata['related_wis'] = wis
 
-    # 4. Primary Responsible Group
-    raw_primary = get_by_id('lblprimarywg') or get_field('Primary responsible group', 'Primary WG')
-    metadata['primary_group'] = normalize_working_group(raw_primary)
-
-    # 5. Secondary Responsible Groups
-    raw_sec = get_by_id('lblsecondarywg') or get_field('Secondary responsible groups', 'Secondary WG')
-    metadata['secondary_groups_raw'] = raw_sec
-    if raw_sec:
-        matches = re.findall(r'([a-zA-Z]+[\s]*\d*)', raw_sec)
-        clean_matches = [normalize_working_group(m) for m in matches if m.strip()]
-        metadata['secondary_groups_list'] = list(dict.fromkeys([c for c in clean_matches if c]))
-
-    # 6. Radio Technology
-    raw_tech = get_by_id('lblradiotech') or get_field('Radio technology')
-    if raw_tech:
-        matches = re.findall(r'(2G|3G|4G|LTE|5G|6G|GSM|UMTS|NB-IOT)', raw_tech, re.IGNORECASE)
-        metadata['radio_technologies_list'] = list(dict.fromkeys([m.upper() for m in matches]))
-        metadata['radio_technology'] = ", ".join(metadata['radio_technologies_list'])
+    # Every release panel has its own version grid. Only non-empty dates are applied;
+    # a blank Portal date must not erase an existing DB date.
+    version_tables = soup.find_all('table', id=re.compile(r'specificationsVersionGrid_ctl00$'))
+    if version_tables:
+        version_dates = {}
+        for table in version_tables:
+            for row in table.select('tbody > tr'):
+                cells = row.find_all('td', recursive=False)
+                if len(cells) < 3:
+                    continue
+                version_link = cells[1].find('a')
+                version = version_link.get_text(" ", strip=True) if version_link else cells[1].get_text(" ", strip=True)
+                if not RE_VERSION_STR.fullmatch(version):
+                    continue
+                date_text = cells[2].get_text(" ", strip=True)
+                date_match = RE_DATE.search(date_text)
+                if date_match:
+                    version_dates[version] = normalize_date(date_match.group(0))
+        metadata['version_dates'] = version_dates
 
     return metadata
-
 
 def fetch_metadata_from_dynareport(
     spec_number: str,
@@ -216,13 +255,19 @@ def fetch_metadata_from_dynareport(
                 continue
 
             parsed = _parse_dynareport_content(resp_text, clean_spec)
-            if parsed.get('title'):
+            returned_number = (parsed.get('number') or '').strip()
+            requested_number = clean_spec.strip()
+            if returned_number and returned_number.lower() != requested_number.lower():
+                attempt_errors.append(f"{url_name} (returned {returned_number}, expected {requested_number})")
+                log(f"⚠️ Rejecting DynaReport {url_name}: returned specification {returned_number}, expected {requested_number}", logging.WARNING)
+                continue
+            if parsed.get('title') and returned_number:
                 metadata.update(parsed)
                 log(f"✅ Found valid DynaReport at: {url} (Title: '{metadata['title'][:30]}...')", logging.INFO)
                 return metadata
             else:
-                attempt_errors.append(f"{url_name} (Blank report template - no title)")
-                log(f"ℹ️ {url_name} returned blank template without title; checking next candidate...", logging.INFO)
+                attempt_errors.append(f"{url_name} (Blank/invalid report template)")
+                log(f"ℹ️ {url_name} returned an invalid report template; checking next candidate...", logging.INFO)
 
         except HttpError as http_err:
             attempt_errors.append(f"{url_name} (HTTP {http_err.status_code})")
@@ -248,12 +293,31 @@ class SpecsCrawlerThread(QThread):
     def _log(self, message: str, level: int = logging.INFO):
         logger.log(level, message)
 
+    @staticmethod
+    def _normalize_target_spec(value: str) -> str:
+        """Return a canonical series/spec identifier and discard UI decoration."""
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+
+        # Whole-series targets (e.g. "23").
+        if re.fullmatch(r"\d{2,3}", raw):
+            return raw
+
+        # Specific specs, including multipart forms such as 33.801-01.
+        match = re.match(r"^(\d{2}\.\d{2,3}(?:-[A-Za-z0-9]+)?)", raw)
+        return match.group(1) if match else ""
+
     def __init__(self, db_path: Path, force_metadata_update: bool = False,
                  target_specs: list = None, root_url: str = "https://www.3gpp.org/ftp/Specs/archive/") -> None:
         super().__init__()
         self.db: SpecsDatabase = SpecsDatabase(db_path)
         self.force_metadata_update: bool = force_metadata_update
-        self.target_specs: list = target_specs or []
+
+        raw_targets = target_specs or []
+        normalized_targets = [self._normalize_target_spec(t) for t in raw_targets]
+        self.target_specs: list = list(dict.fromkeys(t for t in normalized_targets if t))
+
         self.root_url: str = root_url
 
         self.spec_folder_pattern: re.Pattern = re.compile(r'^(\d{2}\.\d{2,3}(?:-[a-zA-Z0-9]+)?)/?$')
@@ -349,7 +413,8 @@ class SpecsCrawlerThread(QThread):
                         series_url = urljoin(self.root_url, f"{series_folder}/")
                         spec_url = urljoin(series_url, f"{target}/")
 
-                        needs_meta = True if self.force_metadata_update else (self.db.needs_metadata(target) or True)
+                        # An explicit single-spec sync is also an explicit metadata refresh.
+                        needs_meta = True
                         spec_tasks.append((series_number, series_url, target, spec_url, needs_meta))
             else:
                 self._log("⏳ Mapping directories in parallel... (This is fast)", logging.INFO)
@@ -449,7 +514,7 @@ class SpecsCrawlerThread(QThread):
                             if metadata:
                                 if metadata.get('title'):
                                     self.db.update_spec_metadata(spec_num, metadata)
-                                if metadata.get('related_wis'):
+                                if metadata.get('related_wis') is not None:
                                     self.db.update_spec_wis(spec_num, metadata['related_wis'])
                                 if metadata.get('version_dates'):
                                     self.db.update_file_dates(spec_num, metadata['version_dates'])

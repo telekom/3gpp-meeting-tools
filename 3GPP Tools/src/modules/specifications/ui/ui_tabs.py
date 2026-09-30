@@ -247,7 +247,8 @@ class SpecificationsTab(QWidget):
         self.spec_search_input.setPlaceholderText("Spec Number or Title...")
         self.spec_search_input.setText(self.saved_search)
         self.spec_search_input.setClearButtonEnabled(True)
-        self.spec_search_input.setToolTip("Filter instantly by specification number (e.g., '23.501') or title keywords.")
+        self.spec_search_input.setToolTip(
+            "Filter instantly by specification number (e.g., '23.501') or title keywords.")
         self.spec_search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self.spec_search_input, stretch=2)
 
@@ -572,7 +573,16 @@ class SpecificationsTab(QWidget):
             if widget:
                 num_label = widget.findChild(QLabel, "specNumberLabel")
                 if num_label:
-                    target_specs.append(num_label.text().strip())
+                    # Never use decorated UI text (e.g. "33.801-01 ⭐") as an identifier.
+                    canonical = num_label.property("specNumber")
+                    if canonical:
+                        target_specs.append(str(canonical).strip())
+                    else:
+                        # Compatibility fallback for widgets created by older code.
+                        display_text = num_label.text().strip()
+                        match = re.match(r"^(\d{2}\.\d{2,3}(?:-[A-Za-z0-9]+)?)", display_text)
+                        if match:
+                            target_specs.append(match.group(1))
 
         if not target_specs:
             return
@@ -864,6 +874,8 @@ class SpecificationsTab(QWidget):
                 display_title = f"{spec_num} ⭐" if is_fav else spec_num
                 spec_label = QLabel(display_title)
                 spec_label.setObjectName("specNumberLabel")
+                # Keep the canonical identifier separate from decorated display text.
+                spec_label.setProperty("specNumber", spec_num)
                 spec_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #1A202C;")
                 if is_fav:
                     spec_label.setToolTip("Marked as Favorite")
@@ -964,7 +976,8 @@ class SpecificationsTab(QWidget):
                 """)
                 doc_action_btn.setMenu(doc_menu)
 
-                def _update_btn_state(index_ignore=0, c=version_combo, btn=doc_action_btn, menu=doc_menu, files_cache=local_files):
+                def _update_btn_state(index_ignore=0, c=version_combo, btn=doc_action_btn, menu=doc_menu,
+                                      files_cache=local_files):
                     c_data = c.currentData()
                     if not c_data:
                         return
@@ -973,7 +986,8 @@ class SpecificationsTab(QWidget):
                     stem = Path(c_data["fname"]).stem.lower()
                     zip_exists = (c_data["fname"].lower() in files_cache)
 
-                    word_exists = any(f.startswith(stem) and (f.endswith(".docx") or f.endswith(".doc")) for f in files_cache)
+                    word_exists = any(
+                        f.startswith(stem) and (f.endswith(".docx") or f.endswith(".doc")) for f in files_cache)
                     pdf_exists = any(f.startswith(stem) and f.endswith(".pdf") for f in files_cache)
                     html_exists = any(f.startswith(stem) and f.endswith(".html") for f in files_cache)
                     txt_exists = any(f.startswith(stem) and f.endswith(".txt") for f in files_cache)
@@ -1023,19 +1037,23 @@ class SpecificationsTab(QWidget):
 
                     menu.clear()
 
-                    word_label = "📝 Open Word Document" if word_exists else ("⚙️ Extract Word Document" if zip_exists else "⬇️ Download && Open Word")
+                    word_label = "📝 Open Word Document" if word_exists else (
+                        "⚙️ Extract Word Document" if zip_exists else "⬇️ Download && Open Word")
                     act_word = menu.addAction(f"{word_label} {'✅' if word_exists else ''}".strip())
                     act_word.triggered.connect(lambda: self._handle_document_action(c, "word", btn))
 
-                    pdf_label = "📕 Open PDF" if pdf_exists else ("⚙️ Convert to PDF" if (word_exists or zip_exists) else "⬇️ Get && Convert to PDF")
+                    pdf_label = "📕 Open PDF" if pdf_exists else (
+                        "⚙️ Convert to PDF" if (word_exists or zip_exists) else "⬇️ Get && Convert to PDF")
                     act_pdf = menu.addAction(f"{pdf_label} {'✅' if pdf_exists else ''}".strip())
                     act_pdf.triggered.connect(lambda: self._handle_document_action(c, "pdf", btn))
 
-                    html_label = "🌐 Open HTML" if html_exists else ("⚙️ Convert to HTML" if (word_exists or zip_exists) else "⬇️ Get && Convert to HTML")
+                    html_label = "🌐 Open HTML" if html_exists else (
+                        "⚙️ Convert to HTML" if (word_exists or zip_exists) else "⬇️ Get && Convert to HTML")
                     act_html = menu.addAction(f"{html_label} {'✅' if html_exists else ''}".strip())
                     act_html.triggered.connect(lambda: self._handle_document_action(c, "html", btn))
 
-                    txt_label = "📄 Open TXT" if txt_exists else ("⚙️ Convert to TXT" if (word_exists or zip_exists) else "⬇️ Get && Convert to TXT")
+                    txt_label = "📄 Open TXT" if txt_exists else (
+                        "⚙️ Convert to TXT" if (word_exists or zip_exists) else "⬇️ Get && Convert to TXT")
                     act_txt = menu.addAction(f"{txt_label} {'✅' if txt_exists else ''}".strip())
                     act_txt.triggered.connect(lambda: self._handle_document_action(c, "txt", btn))
 
@@ -1142,7 +1160,7 @@ class SpecificationsTab(QWidget):
                                 btn.setEnabled(False)
 
                             conv_thread = WordConverterThread(str(doc_path), doc_type)
-                    
+
                             def on_success(p, c=combo, b=btn, txt=orig_text):
                                 try:
                                     os.startfile(p)
@@ -1207,7 +1225,7 @@ class SpecificationsTab(QWidget):
                 btn.setEnabled(False)
 
             thread = SpecDownloadThread(c_data["url"], zip_path)
-    
+
             def _on_success(zp):
                 try:
                     if not sip.isdeleted(combo):
@@ -1315,7 +1333,6 @@ class SpecificationsTab(QWidget):
             lambda t=thread: self._download_threads.remove(t) if t in self._download_threads else None
         )
         thread.start()
-
 
     def _open_add_spec_dialog(self):
         dialog = AddSpecDialog(self.db, self)
