@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import networkx as nx
 import textwrap
+from .stats_html import dataframe_to_html_table
 
 
 def _get_cluster_letter(index: int) -> str:
@@ -66,6 +67,7 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
     html_cluster_contribs = ""
     html_cohesion_plot = ""
     html_faction_list = ""
+    tables = {"network": "", "cluster": "", "cohesion": ""}
 
     cluster_color_map = {name: cluster_palette[i % len(cluster_palette)] for i, name in cluster_names.items()}
 
@@ -136,6 +138,15 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
             marker=dict(showscale=False, size=node_size, color=node_color, line_width=1, line_color='#fff')
         ))
 
+        edge_rows = []
+        for u, v, data in sorted(G.edges(data=True), key=lambda e: e[2]['weight'], reverse=True):
+            edge_rows.append({
+                'Company A': u, 'Company B': v, 'Shared TDocs': data['weight'],
+                'Faction A': cluster_names.get(community_map.get(u, -1), 'Unknown'),
+                'Faction B': cluster_names.get(community_map.get(v, -1), 'Unknown'),
+            })
+        tables["network"] = dataframe_to_html_table(pd.DataFrame(edge_rows), "No alliance edge data available.")
+
         fig_net = go.Figure(data=traces, layout=go.Layout(
             title=f'Strategic Co-Signing Alliances (Threshold >= {threshold})',
             showlegend=False, hovermode='closest', margin=dict(b=20, l=5, r=5, t=40),
@@ -183,6 +194,9 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
 
         if not contribs_df.empty:
             contribs_df = contribs_df.sort_values('Contributions', ascending=True)
+            tables["cluster"] = dataframe_to_html_table(
+                contribs_df.sort_values('Contributions', ascending=False).copy()
+            )
             bar_colors = [cluster_color_map[f] for f in contribs_df['Faction']]
 
             fig_contribs = go.Figure(go.Bar(
@@ -204,6 +218,9 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
                 bubble_colors = [cluster_color_map[f] for f in bubble_df['Faction']]
                 max_contrib = float(bubble_df['Contributions'].max())
 
+                tables["cohesion"] = dataframe_to_html_table(
+                    bubble_df[['Faction', 'Member Count', 'Cohesion Score', 'Contributions', 'Members']].copy()
+                )
                 fig_cohesion = go.Figure(go.Scatter(
                     x=bubble_df['Member Count'].tolist(), y=bubble_df['Cohesion Score'].tolist(), mode='markers',
                     text=bubble_df['Faction'].tolist(), hovertext=bubble_df['Members'].tolist(),
@@ -227,4 +244,4 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
                                                           default_height="100%", default_width="100%",
                                                           config=svg_config_coh)
 
-    return html_network, html_cluster_contribs, html_cohesion_plot, html_faction_list
+    return html_network, html_cluster_contribs, html_cohesion_plot, html_faction_list, tables
