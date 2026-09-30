@@ -571,31 +571,46 @@ class MeetingsDatabase:
 
     def find_incomplete_tdoc_meetings(self, tdoc_str: str) -> list:
         """
-        Return same-WG, same-year meetings whose Docs-derived TDoc range is
-        incomplete. The UI can offer a targeted Phase-2 refresh for these rows.
+        Return refreshable same-WG/same-year candidate meetings for an unresolved TDoc.
+
+        Historically this method returned only rows whose first/last TDoc metadata
+        was empty. That misses the equally important case where a meeting has a
+        populated but stale range. Quick TDoc Jump calls this method only after the
+        strict range lookup failed, so at that point every same-WG/same-year meeting
+        with an FTP path is a legitimate Phase-2 repair candidate.
+
+        Candidates with incomplete ranges are ordered first, followed by populated
+        ranges ordered chronologically. The existing method name is retained to keep
+        the UI/controller API backward compatible.
         """
         identity = self._parse_tdoc_identity(tdoc_str)
         if not identity:
             return []
 
         query = """
-            SELECT m.*, w.name as wg_name
+            SELECT m.*, w.name as wg_name,
+                   CASE WHEN (
+                        COALESCE(m.first_tdoc_num, 0) <= 0
+                     OR COALESCE(m.last_tdoc_num, 0) <= 0
+                     OR COALESCE(TRIM(m.first_tdoc_prefix), '') = ''
+                     OR COALESCE(TRIM(m.last_tdoc_prefix), '') = ''
+                   ) THEN 0 ELSE 1 END AS range_complete
             FROM meetings m
             JOIN working_groups w ON m.wg_id = w.id
             WHERE UPPER(w.name) = ?
               AND SUBSTR(m.start_date, 1, 4) = ?
-              AND (
-                    COALESCE(m.first_tdoc_num, 0) <= 0
-                 OR COALESCE(m.last_tdoc_num, 0) <= 0
-                 OR COALESCE(TRIM(m.first_tdoc_prefix), '') = ''
-                 OR COALESCE(TRIM(m.last_tdoc_prefix), '') = ''
-              )
-            ORDER BY m.start_date ASC, m.sort_number ASC, m.id ASC
+              AND COALESCE(TRIM(m.url_key), '') != ''
+            ORDER BY range_complete ASC, m.start_date ASC, m.sort_number ASC, m.id ASC
         """
 
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute(query, (identity["wg_name"].upper(), str(identity["year"])))
-            return [dict(row) for row in cursor.fetchall()]
+            rows = [dict(row) for row in cursor.fetchall()]
+
+        # range_complete is an internal ranking helper, not part of the meeting model.
+        for row in rows:
+            row.pop("range_complete", None)
+        return rows
 
