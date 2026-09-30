@@ -557,6 +557,12 @@ class MeetingsTab(QWidget):
         main_layout.addWidget(self.splitter)
         self._populate_filters()
 
+    def refresh_quick_tdoc_lookup(self):
+        """Re-evaluate the current Quick TDoc Jump after meeting metadata changes."""
+        text = self.global_tdoc_input.text().strip()
+        if text:
+            self.search_controller.on_tdoc_input_changed(text)
+
     def _set_tdoc_metadata_warning(self, meetings: list):
         """Update the inline Quick TDoc Jump metadata-gap warning."""
         if not meetings:
