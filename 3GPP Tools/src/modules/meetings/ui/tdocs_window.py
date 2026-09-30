@@ -428,6 +428,10 @@ class TDocsWindow(QWidget):
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
+        self.wi_combo = CheckableComboBox("WI")
+        self.wi_combo.selectionChanged.connect(self._on_wi_changed)
+        filter_layout.addWidget(self.wi_combo)
+
         self.status_combo = CheckableComboBox("TDoc Status")
         self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
@@ -556,6 +560,10 @@ class TDocsWindow(QWidget):
         self.proxy.setAIFilters(ais)
         QTimer.singleShot(0, self._update_count_label)
 
+    def _on_wi_changed(self, wis):
+        self.proxy.setWIFilters(wis)
+        QTimer.singleShot(0, self._update_count_label)
+
     def _on_status_changed(self, statuses):
         self.proxy.setStatusFilters(statuses)
         QTimer.singleShot(0, self._update_count_label)
@@ -581,6 +589,11 @@ class TDocsWindow(QWidget):
         unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in self.model._data)))
         unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in self.model._data)),
                             key=natural_sort_key)
+        unique_wis = sorted({
+            wi
+            for row_idx in range(self.model.rowCount())
+            for wi in self.model.get_related_wis(row_idx)
+        }, key=lambda x: x.lower())
         unique_statuses = sorted(list(set(sanitize(r.get("TDoc Status", "")) for r in self.model._data)))
         unique_my_statuses = sorted(list(set(sanitize(r.get("My Status", "")) for r in self.model._data)))
 
@@ -592,12 +605,14 @@ class TDocsWindow(QWidget):
         self.type_combo.updateItems(unique_types)
         self.ai_combo.updateItems(unique_ais)
         self._update_ai_tooltips()
+        self.wi_combo.updateItems(unique_wis)
         self.status_combo.updateItems(unique_statuses)
         self.company_combo.updateItems(sorted_companies)
         self.my_status_combo.updateItems(unique_my_statuses)
 
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
+        self.proxy.setWIFilters(self.wi_combo.getCheckedItems())
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
         self.proxy.setCompanyFilters(self.company_combo.getCheckedItems())
         self.proxy.setMyStatusFilters(self.my_status_combo.getCheckedItems())
@@ -636,7 +651,7 @@ class TDocsWindow(QWidget):
             self.chk_no_comments.blockSignals(False)
             self.proxy.setNoCommentsFilter(False)
 
-        for combo in [self.company_combo, self.type_combo, self.ai_combo, self.status_combo, self.my_status_combo]:
+        for combo in [self.company_combo, self.type_combo, self.ai_combo, self.wi_combo, self.status_combo, self.my_status_combo]:
             combo.blockSignals(True)
             combo.model().item(0).setCheckState(Qt.Checked)
             for i in range(1, combo.model().rowCount()):
@@ -646,6 +661,7 @@ class TDocsWindow(QWidget):
 
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
+        self.proxy.setWIFilters(self.wi_combo.getCheckedItems())
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
         self.proxy.setCompanyFilters(self.company_combo.getCheckedItems())
         self.proxy.setMyStatusFilters(self.my_status_combo.getCheckedItems())
