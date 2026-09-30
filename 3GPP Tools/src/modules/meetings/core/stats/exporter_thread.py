@@ -14,6 +14,8 @@ from .plot_agenda import generate_ai_volume_plot, generate_ai_status_plot
 from .plot_status import generate_outcomes_plot
 from .plot_contributors import generate_top_contributors_plot, generate_company_ai_heatmap
 from .plot_alliances import compute_global_communities, generate_alliance_plots
+from .plot_insights import (generate_revision_intensity_plot, generate_company_specialization_plot,
+                            build_revision_stats, build_company_specialization)
 
 
 class StatisticsExporterThread(QThread):
@@ -100,6 +102,17 @@ class StatisticsExporterThread(QThread):
             for col in ai_meta_df.columns:
                 df[col] = ai_meta_df[col]
 
+            def extract_wi_list(value):
+                text = str(value or '').strip()
+                if not text or text.lower() in {'none', 'nan', '-', 'unknown', 'dummy'}:
+                    return []
+                return [part.strip() for part in re.split(r'[,;\n]+', text) if part.strip()]
+
+            if 'Related WIs' in df.columns:
+                df['Clean_WI_List'] = df['Related WIs'].apply(extract_wi_list)
+            else:
+                df['Clean_WI_List'] = [[] for _ in range(len(df))]
+
             global_factions = compute_global_communities(df, self.cfg_resolution)
 
             # --- GENERATE GLOBAL PLOTS ---
@@ -125,6 +138,10 @@ class StatisticsExporterThread(QThread):
                                                                                                global_factions,
                                                                                                prefix_id="Global",
                                                                                                save_html=self.cfg_export_html)
+            g_html_revision, g_table_revision = generate_revision_intensity_plot(
+                df, plots_dir, self.THEME_COLOR, prefix_id="Global", save_html=self.cfg_export_html)
+            g_html_specialization, g_table_specialization = generate_company_specialization_plot(
+                df, plots_dir, self.THEME_COLOR, prefix_id="Global", save_html=self.cfg_export_html)
 
             raw_ais = df['Agenda Item'].dropna().unique()
 
@@ -148,7 +165,39 @@ class StatisticsExporterThread(QThread):
                                          comp_table=g_table_comp, ai_status_table=g_table_ai_status,
                                          heatmap_table=g_table_heatmap, network_table=g_alliance_tables.get("network", ""),
                                          cluster_table=g_alliance_tables.get("cluster", ""), cohesion_table=g_alliance_tables.get("cohesion", ""),
+                                         revision_html=g_html_revision, revision_table=g_table_revision,
+                                         specialization_html=g_html_specialization, specialization_table=g_table_specialization,
                                          is_visible=True))
+
+            unique_wis = sorted({wi for wis in df['Clean_WI_List'] for wi in wis}, key=lambda x: x.lower())
+            if unique_wis:
+                dropdown_options.append('<option disabled>──────── Work / Study Items ────────</option>')
+            for wi_idx, wi_name in enumerate(unique_wis):
+                wi_df = df[df['Clean_WI_List'].apply(lambda values, w=wi_name: w in values)].copy().reset_index(drop=True)
+                if wi_df.empty:
+                    continue
+                safe_id = f"wi_{wi_idx}"
+                safe_wi_prefix = "WI_" + re.sub(r'[\\/*?:"<>|]', '_', wi_name)
+                dropdown_options.append(
+                    f'<option value="{safe_id}">🧩 {html.escape(wi_name)} ({len(wi_df)} TDocs)</option>')
+                wi_html_ai, wi_table_ai = generate_ai_volume_plot(wi_df, plots_dir, self.THEME_COLOR, safe_wi_prefix, self.cfg_export_html)
+                wi_html_status, wi_table_status = generate_outcomes_plot(wi_df, plots_dir, self.PALETTE, safe_wi_prefix, self.cfg_export_html)
+                wi_html_comp, wi_companies, wi_table_comp = generate_top_contributors_plot(
+                    wi_df, plots_dir, self.THEME_COLOR, self.cfg_top_count, safe_wi_prefix, self.cfg_export_html)
+                wi_html_net, wi_html_cluster, wi_html_cohesion, wi_html_list, wi_alliance_tables = generate_alliance_plots(
+                    wi_df, plots_dir, self.cfg_threshold, self.CLUSTER_PALETTE, global_factions, safe_wi_prefix, self.cfg_export_html)
+                wi_html_revision, wi_table_revision = generate_revision_intensity_plot(
+                    wi_df, plots_dir, self.THEME_COLOR, safe_wi_prefix, self.cfg_export_html)
+                views_html_buffer.append(self._compile_view_block(
+                    safe_id, len(wi_df), wi_companies, wi_html_ai, wi_html_status, wi_html_comp,
+                    wi_html_net, wi_html_cluster, wi_html_cohesion, wi_html_list,
+                    ai_volume_table=wi_table_ai, status_table=wi_table_status, comp_table=wi_table_comp,
+                    network_table=wi_alliance_tables.get('network', ''), cluster_table=wi_alliance_tables.get('cluster', ''),
+                    cohesion_table=wi_alliance_tables.get('cohesion', ''), revision_html=wi_html_revision,
+                    revision_table=wi_table_revision, is_visible=False))
+
+            if unique_ais:
+                dropdown_options.append('<option disabled>──────── Agenda Items ────────</option>')
 
             for idx, ai_name in enumerate(unique_ais):
                 ai_df = df[
@@ -231,6 +280,7 @@ class StatisticsExporterThread(QThread):
                     .custom-tooltip {{ pointer-events: auto; position: relative; display: inline-block; cursor: help; color: #005A9E; font-size: 16px; margin-left: 8px; }}
                     .custom-tooltip .custom-tooltip-text {{ visibility: hidden; width: 320px; background-color: #333; color: #fff; text-align: left; border-radius: 6px; padding: 15px; font-size: 13px; position: absolute; z-index: 1000; bottom: 125%; left: -10px; opacity: 0; transition: opacity 0.3s; box-shadow: 0 4px 8px rgba(0,0,0,0.2); line-height: 1.4; }}
                     .custom-tooltip:hover .custom-tooltip-text {{ visibility: visible; opacity: 1; }}
+                    .export-data-link {{ display:inline-block; padding:7px 11px; border:1px solid #99C9FF; border-radius:5px; background:#E1F0FF; color:#005A9E; text-decoration:none; font-weight:bold; font-size:12px; }}
                 </style>
                 <script>
                     function switchAI(selectedId) {{
@@ -279,6 +329,13 @@ class StatisticsExporterThread(QThread):
             </html>
             """
 
+            xlsx_path = self.export_dir / "Statistics_Data.xlsx"
+            self._export_statistics_workbook(df, xlsx_path)
+            dashboard_template = dashboard_template.replace(
+                '<h1>📊',
+                '<div style="text-align:right;margin-bottom:8px;"><a class="export-data-link" href="Statistics_Data.xlsx">📥 Statistics Data (Excel)</a></div><h1>📊',
+                1,
+            )
             out_file = self.export_dir / "Statistics_Report.html"
             with open(out_file, "w", encoding="utf-8") as f:
                 f.write(dashboard_template)
@@ -288,11 +345,47 @@ class StatisticsExporterThread(QThread):
         except Exception as e:
             self.finished.emit(False, str(e))
 
+    def _export_statistics_workbook(self, df: pd.DataFrame, path: Path):
+        """Write reusable aggregated statistics behind the HTML dashboard."""
+        ai_cols = ['Agenda Item', 'AI_Acronym', 'AI_Topic']
+        ai_volume = (df.groupby(ai_cols, dropna=False).size().reset_index(name='TDocs')
+                     .sort_values('TDocs', ascending=False))
+        status = df['TDoc Status'].fillna('').astype(str).value_counts().rename_axis('Status').reset_index(name='TDocs')
+        company_rows = []
+        for _, row in df.iterrows():
+            for company in set(row.get('Clean_Companies', []) or []):
+                company_rows.append({'Company': company, 'Agenda Item': row.get('Agenda Item', ''),
+                                     'WI': '; '.join(row.get('Clean_WI_List', []) or []), 'TDoc': row.get('TDoc', '')})
+        company_df = pd.DataFrame(company_rows)
+        company_volume = (company_df.groupby('Company').size().reset_index(name='TDocs').sort_values('TDocs', ascending=False)
+                          if not company_df.empty else pd.DataFrame(columns=['Company', 'TDocs']))
+        wi_rows = []
+        for _, row in df.iterrows():
+            for wi in row.get('Clean_WI_List', []) or []:
+                wi_rows.append({'WI/SI': wi, 'TDoc': row.get('TDoc', ''), 'Agenda Item': row.get('Agenda Item', ''),
+                                'Status': row.get('TDoc Status', '')})
+        wi_df = pd.DataFrame(wi_rows)
+        wi_volume = (wi_df.groupby('WI/SI').size().reset_index(name='TDocs').sort_values('TDocs', ascending=False)
+                     if not wi_df.empty else pd.DataFrame(columns=['WI/SI', 'TDocs']))
+        revision = build_revision_stats(df).drop(columns=['_Axis'], errors='ignore')
+        specialization = build_company_specialization(df)
+        with pd.ExcelWriter(path, engine='openpyxl') as writer:
+            ai_volume.to_excel(writer, sheet_name='AI Volume', index=False)
+            status.to_excel(writer, sheet_name='Outcomes', index=False)
+            wi_volume.to_excel(writer, sheet_name='WI-SI Volume', index=False)
+            company_volume.to_excel(writer, sheet_name='Company Volume', index=False)
+            revision.to_excel(writer, sheet_name='Revision Activity', index=False)
+            specialization.to_excel(writer, sheet_name='Specialization', index=False)
+            if not company_df.empty:
+                pd.crosstab(company_df['Company'], company_df['Agenda Item']).to_excel(writer, sheet_name='Company x AI')
+            if not wi_df.empty:
+                pd.crosstab(wi_df['WI/SI'], wi_df['Agenda Item']).to_excel(writer, sheet_name='WI-SI x AI')
+
     def _compile_view_block(self, scope_id, total_tdocs, total_companies, ai_volume_html, status_html, comp_html,
                             net_html, cluster_html, cohesion_html, list_html,
                             ai_status_html=None, heatmap_html=None, ai_volume_table="", status_table="",
                             comp_table="", ai_status_table="", heatmap_table="", network_table="", cluster_table="",
-                            cohesion_table="", is_visible=False):
+                            cohesion_table="", revision_html="", revision_table="", specialization_html="", specialization_table="", is_visible=False):
 
         display_style = "block" if is_visible else "none"
 
@@ -334,6 +427,28 @@ class StatisticsExporterThread(QThread):
                 <div class="chart-pane">__HEATMAP_HTML__</div><div class="data-pane">__HEATMAP_TABLE__</div>
             </div>
             """.replace("__HEATMAP_HTML__", str(heatmap_html)).replace("__HEATMAP_TABLE__", str(heatmap_table))
+
+        revision_card = ""
+        if revision_html:
+            revision_card = """
+            <div class="chart-card" style="grid-column: 1 / -1; height: 520px;">
+                <div class="info-title-container"><span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Revision Activity:</b> Shows original TDocs and subsequent revisions per Agenda Item. Revision intensity is descriptive and does not imply quality.</span></span></div>
+                <div class="view-toggle"><button class="view-btn active" onclick="toggleChartData(this,'chart')">Chart</button><button class="view-btn" onclick="toggleChartData(this,'data')">Data</button></div>
+                <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                <div class="chart-pane">__REVISION_HTML__</div><div class="data-pane">__REVISION_TABLE__</div>
+            </div>
+            """.replace("__REVISION_HTML__", str(revision_html)).replace("__REVISION_TABLE__", str(revision_table))
+
+        specialization_card = ""
+        if specialization_html:
+            specialization_card = """
+            <div class="chart-card" style="grid-column: 1 / -1; height: 560px;">
+                <div class="info-title-container"><span class="custom-tooltip">ⓘ<span class="custom-tooltip-text"><b>Company Topic Specialization:</b> Bubble size is contribution volume; horizontal position is the share of each company's TDocs concentrated in its most frequent topic.</span></span></div>
+                <div class="view-toggle"><button class="view-btn active" onclick="toggleChartData(this,'chart')">Chart</button><button class="view-btn" onclick="toggleChartData(this,'data')">Data</button></div>
+                <button class="fs-btn" onclick="toggleFullscreen(this)">⛶ Expand</button>
+                <div class="chart-pane">__SPECIALIZATION_HTML__</div><div class="data-pane">__SPECIALIZATION_TABLE__</div>
+            </div>
+            """.replace("__SPECIALIZATION_HTML__", str(specialization_html)).replace("__SPECIALIZATION_TABLE__", str(specialization_table))
 
         grid_col_span = "" if scope_id != "global" else "grid-column: span 1;"
 
@@ -394,6 +509,9 @@ class StatisticsExporterThread(QThread):
                     <div class="chart-pane">__COHESION_HTML__</div><div class="data-pane">__COHESION_TABLE__</div>
                 </div>
 
+                __REVISION_CARD__
+                __SPECIALIZATION_CARD__
+
                 <div class="chart-card" style="grid-column: 1 / -1; height: auto; padding: 20px;">
                     __LIST_HTML__
                 </div>
@@ -422,6 +540,8 @@ class StatisticsExporterThread(QThread):
         html_template = html_template.replace("__CLUSTER_TABLE__", str(cluster_table))
         html_template = html_template.replace("__COHESION_HTML__", str(cohesion_html))
         html_template = html_template.replace("__COHESION_TABLE__", str(cohesion_table))
+        html_template = html_template.replace("__REVISION_CARD__", str(revision_card))
+        html_template = html_template.replace("__SPECIALIZATION_CARD__", str(specialization_card))
         html_template = html_template.replace("__LIST_HTML__", str(list_html))
 
         return html_template
