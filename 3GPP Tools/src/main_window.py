@@ -574,6 +574,12 @@ class DragDropUI(QMainWindow):
                     self.meetings_tab._populate_filters()
                 self.meetings_tab.refresh_table()
 
+                # Phase 2 updates the Docs-derived first/last TDoc ranges.
+                # Re-evaluate an unchanged Quick TDoc Jump immediately so a
+                # newly resolved meeting appears without requiring retyping.
+                if out_path == "MEETINGS_DB_PHASE_2":
+                    self.meetings_tab.refresh_quick_tdoc_lookup()
+
         elif out_path:
             self.last_out_path = out_path
             self.code_tab.set_copy_path_enabled(True, out_path)
