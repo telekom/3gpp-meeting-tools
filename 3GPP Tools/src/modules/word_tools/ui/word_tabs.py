@@ -14,6 +14,8 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QTreeWidget,
+    QTreeWidgetItem,
     QStackedWidget,
     QTabWidget,
     QVBoxLayout,
@@ -26,6 +28,10 @@ from core.ui.ui_components import (
     InteractiveDropLabel
 )
 from modules.word_tools.core.word_config import WordConfig
+from modules.word_tools.core.word_excerpt_extractor import (
+    WordExcerptThread,
+    WordHeadingScanThread,
+)
 from modules.word_tools.core.libreoffice_converter import (
     LIBREOFFICE_DOWNLOAD_URL,
     is_libreoffice_available,
@@ -175,6 +181,7 @@ class WordExtractorTab(QWidget):
             "Convert Legacy .doc to .docx (Explicit LibreOffice)",
             "Extract Embedded Visio Diagrams",
             "Subtractive Slicing (Split by Clause)",
+            "Extract Sections by Heading",
             "Compare Documents (Native Word Diff)",
             "Convert Document Format (Auto / Word)",
         ])
@@ -231,6 +238,63 @@ class WordExtractorTab(QWidget):
         split_layout.addWidget(self.split_drop)
         self.stack.addWidget(self.card_split)
 
+        # Interactive heading browser / excerpt extractor. This card is self-contained
+        # so adding it does not require another main-window signal/worker integration.
+        self.card_excerpt = QWidget()
+        excerpt_layout = QVBoxLayout(self.card_excerpt)
+        excerpt_layout.setSpacing(8)
+
+        excerpt_top = QHBoxLayout()
+        self.excerpt_order_combo = QComboBox()
+        self.excerpt_order_combo.addItem("Filename (natural alphabetical)", "filename")
+        self.excerpt_order_combo.addItem("Drop order", "drop")
+        excerpt_top.addWidget(QLabel("<b>Source order:</b>"))
+        excerpt_top.addWidget(self.excerpt_order_combo)
+        excerpt_top.addStretch()
+        excerpt_layout.addLayout(excerpt_top)
+
+        self.excerpt_drop = InteractiveDropLabel(
+            "📥 Drop one or more .docx files here to scan their headings", [".docx"]
+        )
+        self.excerpt_drop.file_dropped.connect(self._scan_excerpt_files)
+        excerpt_layout.addWidget(self.excerpt_drop)
+
+        filter_row = QHBoxLayout()
+        self.excerpt_filter = QLineEdit()
+        self.excerpt_filter.setPlaceholderText("Filter headings (e.g. registration, NWDAF, 6.3.2)...")
+        self.excerpt_filter.textChanged.connect(self._filter_excerpt_tree)
+        filter_row.addWidget(self.excerpt_filter, 1)
+        self.excerpt_expand_btn = QPushButton("Expand All")
+        self.excerpt_collapse_btn = QPushButton("Collapse All")
+        self.excerpt_expand_btn.clicked.connect(lambda: self.excerpt_tree.expandAll())
+        self.excerpt_collapse_btn.clicked.connect(lambda: self.excerpt_tree.collapseAll())
+        filter_row.addWidget(self.excerpt_expand_btn)
+        filter_row.addWidget(self.excerpt_collapse_btn)
+        excerpt_layout.addLayout(filter_row)
+
+        self.excerpt_tree = QTreeWidget()
+        self.excerpt_tree.setHeaderLabels(["Heading", "Source file"])
+        self.excerpt_tree.setColumnWidth(0, 560)
+        excerpt_layout.addWidget(self.excerpt_tree, 1)
+
+        action_row = QHBoxLayout()
+        self.excerpt_clear_btn = QPushButton("Clear Selection")
+        self.excerpt_clear_btn.clicked.connect(self._clear_excerpt_selection)
+        self.excerpt_extract_btn = QPushButton("✂️ Extract Selected Sections")
+        self.excerpt_extract_btn.setObjectName("primaryBtn")
+        self.excerpt_extract_btn.setEnabled(False)
+        self.excerpt_extract_btn.clicked.connect(self._extract_selected_sections)
+        action_row.addWidget(self.excerpt_clear_btn)
+        action_row.addStretch()
+        action_row.addWidget(self.excerpt_extract_btn)
+        excerpt_layout.addLayout(action_row)
+        self.stack.addWidget(self.card_excerpt)
+
+        self._excerpt_paths = []
+        self._excerpt_headings = []
+        self._excerpt_scan_thread = None
+        self._excerpt_extract_thread = None
+
         self.card_compare = QWidget()
         compare_layout = QVBoxLayout(self.card_compare)
         compare_layout.setSpacing(10)
@@ -271,6 +335,130 @@ class WordExtractorTab(QWidget):
         layout.addWidget(self.stack)
         self.setLayout(layout)
         self.op_combo.currentIndexChanged.connect(self.stack.setCurrentIndex)
+
+    def _scan_excerpt_files(self, files):
+        if not files:
+            return
+        self.excerpt_extract_btn.setEnabled(False)
+        self.excerpt_tree.clear()
+        self.excerpt_drop.set_state("ready", f"Scanning {len(files)} document(s)...")
+        mode = self.excerpt_order_combo.currentData()
+        self._excerpt_scan_thread = WordHeadingScanThread(files, mode)
+        self._excerpt_scan_thread.scanned.connect(self._on_excerpt_scanned)
+        self._excerpt_scan_thread.failed.connect(self._on_excerpt_scan_failed)
+        self._excerpt_scan_thread.start()
+
+    def _on_excerpt_scanned(self, ordered_paths, headings):
+        self._excerpt_paths = list(ordered_paths)
+        self._excerpt_headings = list(headings)
+        self._populate_excerpt_tree()
+        self.excerpt_drop.set_state(
+            "ready", f"Ready: {len(headings)} headings from {len(ordered_paths)} document(s)"
+        )
+        self.excerpt_extract_btn.setEnabled(bool(headings))
+
+    def _on_excerpt_scan_failed(self, message):
+        self.excerpt_drop.set_state("error", "Heading scan failed")
+        QMessageBox.critical(self, "Heading Scan Failed", message)
+
+    def _populate_excerpt_tree(self):
+        self.excerpt_tree.clear()
+        by_source = {}
+        for h in self._excerpt_headings:
+            by_source.setdefault(h.source_path, []).append(h)
+
+        for source_path in self._excerpt_paths:
+            source_item = QTreeWidgetItem([Path(source_path).name, Path(source_path).name])
+            source_item.setFlags(source_item.flags() & ~Qt.ItemIsUserCheckable)
+            self.excerpt_tree.addTopLevelItem(source_item)
+            parents = {}
+            for h in by_source.get(source_path, []):
+                item = QTreeWidgetItem([h.text, Path(source_path).name])
+                item.setData(0, Qt.UserRole, h.id)
+                item.setCheckState(0, Qt.Unchecked)
+                parent = None
+                for level in range(h.level - 1, 0, -1):
+                    if level in parents:
+                        parent = parents[level]
+                        break
+                (parent or source_item).addChild(item)
+                parents[h.level] = item
+                for level in list(parents):
+                    if level > h.level:
+                        del parents[level]
+        self.excerpt_tree.expandToDepth(1)
+
+    def _filter_excerpt_tree(self, text):
+        needle = text.strip().lower()
+
+        def visit(item):
+            own_match = not needle or needle in item.text(0).lower()
+            child_match = False
+            for i in range(item.childCount()):
+                child_match = visit(item.child(i)) or child_match
+            visible = own_match or child_match
+            item.setHidden(not visible)
+            if needle and child_match:
+                item.setExpanded(True)
+            return visible
+
+        for i in range(self.excerpt_tree.topLevelItemCount()):
+            visit(self.excerpt_tree.topLevelItem(i))
+
+    def _clear_excerpt_selection(self):
+        def clear(item):
+            if item.data(0, Qt.UserRole):
+                item.setCheckState(0, Qt.Unchecked)
+            for i in range(item.childCount()):
+                clear(item.child(i))
+        for i in range(self.excerpt_tree.topLevelItemCount()):
+            clear(self.excerpt_tree.topLevelItem(i))
+
+    def _selected_excerpt_ids(self):
+        selected = []
+        def collect(item):
+            heading_id = item.data(0, Qt.UserRole)
+            if heading_id and item.checkState(0) == Qt.Checked:
+                selected.append(heading_id)
+            for i in range(item.childCount()):
+                collect(item.child(i))
+        for i in range(self.excerpt_tree.topLevelItemCount()):
+            collect(self.excerpt_tree.topLevelItem(i))
+        return selected
+
+    def _extract_selected_sections(self):
+        selected = self._selected_excerpt_ids()
+        if not selected:
+            QMessageBox.information(self, "No Selection", "Select at least one heading to extract.")
+            return
+        default_dir = str(Path(self._excerpt_paths[0]).parent) if self._excerpt_paths else ""
+        output, _ = QFileDialog.getSaveFileName(
+            self, "Save Extracted Sections", str(Path(default_dir) / "extracted_sections.docx"),
+            "Word Document (*.docx)"
+        )
+        if not output:
+            return
+        if not output.lower().endswith(".docx"):
+            output += ".docx"
+        self.excerpt_extract_btn.setEnabled(False)
+        self.excerpt_extract_btn.setText("⏳ Extracting...")
+        self._excerpt_extract_thread = WordExcerptThread(
+            self._excerpt_paths, self._excerpt_headings, selected, output
+        )
+        self._excerpt_extract_thread.finished_path.connect(self._on_excerpt_finished)
+        self._excerpt_extract_thread.failed.connect(self._on_excerpt_extract_failed)
+        self._excerpt_extract_thread.finished.connect(self._reset_excerpt_button)
+        self._excerpt_extract_thread.start()
+
+    def _on_excerpt_finished(self, path):
+        QMessageBox.information(self, "Extraction Complete", f"Created:\n{path}")
+
+    def _on_excerpt_extract_failed(self, message):
+        QMessageBox.critical(self, "Extraction Failed", message)
+
+    def _reset_excerpt_button(self):
+        self.excerpt_extract_btn.setText("✂️ Extract Selected Sections")
+        self.excerpt_extract_btn.setEnabled(bool(self._excerpt_headings))
 
     def _check_libreoffice_status(self):
         """
