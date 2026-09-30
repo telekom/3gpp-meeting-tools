@@ -586,6 +586,50 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.my_status_filters = set(statuses)
         self.invalidateFilter()
 
+    def rowMatchesFilters(self, source_row, exclude_filter=None):
+        """Return whether a source row matches active filters, optionally ignoring one facet."""
+        model = self.sourceModel()
+        if not model or source_row < 0 or source_row >= model.rowCount():
+            return False
+
+        row = model._data[source_row]
+
+        if exclude_filter != "no_comments" and self.filter_no_comments:
+            if str(row.get("Secretary Remarks", "") or "").strip():
+                return False
+
+        if exclude_filter != "type" and str(row.get("Type", "") or "").strip() not in self.type_filters:
+            return False
+        if exclude_filter != "ai" and str(row.get("Agenda Item", "") or "").strip() not in self.ai_filters:
+            return False
+        if exclude_filter != "wi":
+            row_wis = model.get_related_wis(source_row)
+            if not row_wis or not self.wi_filters.intersection(row_wis):
+                return False
+        if exclude_filter != "status" and str(row.get("TDoc Status", "") or "").strip() not in self.status_filters:
+            return False
+        if exclude_filter != "my_status" and str(row.get("My Status", "") or "").strip() not in self.my_status_filters:
+            return False
+        if exclude_filter != "company":
+            row_companies = row.get("_Sanitized_Companies", ["Other"])
+            if not row_companies or not self.company_filters.intersection(row_companies):
+                return False
+
+        if self.include_terms or self.exclude_terms:
+            searchable_parts = []
+            for key in ["TDoc", "Title", "Source", "Abstract", "Secretary Remarks", "My Notes"]:
+                data = row.get(key, "")
+                if data:
+                    searchable_parts.append(str(data).lower())
+            searchable_parts.append(model._format_related_tdocs(row, html=False).lower())
+            row_text = " ".join(searchable_parts)
+            if any(exc in row_text for exc in self.exclude_terms):
+                return False
+            if any(inc not in row_text for inc in self.include_terms):
+                return False
+
+        return True
+
     def lessThan(self, left, right):
         col_idx = left.column()
         model = self.sourceModel()
@@ -610,52 +654,4 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         return super().lessThan(left, right)
 
     def filterAcceptsRow(self, source_row, source_parent):
-        model = self.sourceModel()
-        if not model:
-            return False
-
-        if self.filter_no_comments:
-            remarks = model.data(model.index(source_row, 7, source_parent), Qt.UserRole)
-            if remarks and str(remarks).strip():
-                return False
-
-        # Apply standard metadata filters
-        if model.data(model.index(source_row, 4, source_parent), Qt.UserRole) not in self.type_filters:
-            return False
-        if model.data(model.index(source_row, 10, source_parent), Qt.UserRole) not in self.ai_filters:
-            return False
-
-        # Related WIs are metadata from the official TDoc list and are intentionally
-        # not exposed as a visible table column. Match if any WI on the row is selected.
-        row_wis = model.get_related_wis(source_row)
-        if not row_wis or not self.wi_filters.intersection(row_wis):
-            return False
-        if model.data(model.index(source_row, 11, source_parent), Qt.UserRole) not in self.status_filters:
-            return False
-        if model.data(model.index(source_row, 8, source_parent), Qt.UserRole) not in self.my_status_filters:
-            return False
-
-        # Apply Company Filter
-        row_companies = model.data(model.index(source_row, 3, source_parent), Qt.UserRole + 3)
-        if not row_companies or not self.company_filters.intersection(row_companies):
-            return False
-
-        # Text search (Inclusion & Exclusion) across searchable columns
-        if self.include_terms or self.exclude_terms:
-            searchable_parts = []
-            for col in [1, 2, 3, 6, 7, 9, 12]:
-                data = model.data(model.index(source_row, col, source_parent), Qt.UserRole)
-                if data:
-                    searchable_parts.append(str(data).lower())
-
-            row_text = " ".join(searchable_parts)
-
-            for exc in self.exclude_terms:
-                if exc in row_text:
-                    return False
-
-            for inc in self.include_terms:
-                if inc not in row_text:
-                    return False
-
-        return True
+        return self.rowMatchesFilters(source_row)
