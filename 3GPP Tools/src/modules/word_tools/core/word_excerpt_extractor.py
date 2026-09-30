@@ -169,46 +169,99 @@ class WordExcerptEngine:
 
     @staticmethod
     def _merge_with_word(fragments: Sequence[Path], output: Path):
+        if not fragments:
+            raise ValueError("No document fragments were generated.")
+
         word = None
         dest = None
+        com_initialized = False
+        com_server_dead = False
+
+        def is_rpc_disconnect(exc: BaseException) -> bool:
+            hresult = getattr(exc, "hresult", None)
+            if hresult in (-2147023170, -2147023174, -2147417848, -2147418111):
+                return True
+            msg = str(exc).lower()
+            return any(marker in msg for marker in (
+                "0x800706be", "0x800706ba", "0x80010108", "0x80010001",
+                "remote procedure call failed", "rpc server is unavailable",
+                "object invoked has disconnected", "call was rejected by callee",
+            ))
+
         try:
             pythoncom.CoInitialize()
+            com_initialized = True
             word = win32com.client.DispatchEx("Word.Application")
             word.Visible = False
             word.DisplayAlerts = 0
             try:
                 word.AutomationSecurity = 3
+                word.Options.ConfirmConversions = False
+                word.Options.DoNotPromptForConvert = True
+                word.Options.WarnBeforeSavingPrintingSendingMarkup = False
+                word.Options.SaveInterval = 0
             except Exception:
                 pass
 
-            # Start from the first fragment, preserving its document-level styles,
-            # theme, sections, numbering and other package-level definitions.
-            dest = word.Documents.Open(str(fragments[0]), ReadOnly=False, AddToRecentFiles=False)
-            for fragment in fragments[1:]:
-                rng = dest.Range(dest.Content.End - 1, dest.Content.End - 1)
-                rng.InsertBreak(7)  # wdPageBreak
-                rng = dest.Range(dest.Content.End - 1, dest.Content.End - 1)
-                rng.InsertFile(FileName=str(fragment))
+            # Do not use a source fragment as the merge destination. Corporate
+            # protection/sensitivity metadata inherited from that file can make
+            # its ranges non-editable even when Documents.Open(ReadOnly=False)
+            # succeeds. A fresh Word document is writable and InsertFile still
+            # imports the selected content, styles, numbering and embedded OLE.
+            dest = word.Documents.Add()
 
+            for index, fragment in enumerate(fragments):
+                logger.info(
+                    "   -> Merging excerpt fragment %d/%d: %s",
+                    index + 1, len(fragments), fragment.name,
+                )
+                rng = dest.Range(dest.Content.End - 1, dest.Content.End - 1)
+                rng.InsertFile(FileName=os.path.normpath(str(fragment)))
+
+            # Apply the corporate label only after all editing is complete.
+            # Applying it earlier can make subsequent Range operations unavailable
+            # in managed Office environments.
             try:
                 set_sensitivity_label(dest)
             except Exception:
-                pass
+                logger.warning("Could not apply sensitivity label to excerpt output.", exc_info=True)
+
             if output.exists():
                 output.unlink()
-            dest.SaveAs2(FileName=str(output), FileFormat=12)
+            dest.SaveAs2(
+                FileName=os.path.normpath(str(output)),
+                FileFormat=12,  # wdFormatXMLDocument
+            )
+
+            if not output.exists() or output.stat().st_size == 0:
+                raise RuntimeError("Microsoft Word returned without producing the excerpt file.")
+
+        except Exception as exc:
+            com_server_dead = is_rpc_disconnect(exc)
+            raise
         finally:
-            if dest is not None:
+            # Never call back into WINWORD after its RPC server has disconnected;
+            # doing so is what caused the repeated 0x800706BA/0x800706BE dumps.
+            if not com_server_dead:
+                if dest is not None:
+                    try:
+                        dest.Close(SaveChanges=False)
+                    except Exception as exc:
+                        if is_rpc_disconnect(exc):
+                            com_server_dead = True
+                if word is not None and not com_server_dead:
+                    try:
+                        word.Quit(SaveChanges=0)
+                    except Exception:
+                        pass
+
+            dest = None
+            word = None
+            if com_initialized:
                 try:
-                    dest.Close(SaveChanges=False)
+                    pythoncom.CoUninitialize()
                 except Exception:
                     pass
-            if word is not None:
-                try:
-                    word.Quit(SaveChanges=0)
-                except Exception:
-                    pass
-            pythoncom.CoUninitialize()
 
 
 class WordExcerptThread(QThread):
