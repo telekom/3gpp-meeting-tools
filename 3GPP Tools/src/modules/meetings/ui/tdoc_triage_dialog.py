@@ -74,10 +74,12 @@ class TDocTriageDialog(QDialog):
 
         top_strip.addWidget(QLabel("🦙 Model:"))
         self.model_combo = QComboBox()
+        self.model_combo.setToolTip('Choose the local Ollama model used for technical triage.')
         self.model_combo.setMinimumWidth(180)
         top_strip.addWidget(self.model_combo)
 
         self.refresh_btn = QPushButton("🔄 Refresh")
+        self.refresh_btn.setToolTip('Refresh the list of models currently available from Ollama.')
         self.refresh_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.refresh_btn.clicked.connect(self._refresh_models)
         top_strip.addWidget(self.refresh_btn)
@@ -155,6 +157,7 @@ class TDocTriageDialog(QDialog):
         # --- Processing / Ollama Exchange Inspector ---
         trace_header = QHBoxLayout()
         self.trace_toggle_btn = QPushButton("▶ Show Process && Ollama Exchange")
+        self.trace_toggle_btn.setToolTip('Show or hide processing steps and the exact application/Ollama exchange trace.')
         self.trace_toggle_btn.setCheckable(True)
         self.trace_toggle_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.trace_toggle_btn.toggled.connect(self._toggle_trace_panel)
@@ -162,12 +165,14 @@ class TDocTriageDialog(QDialog):
         trace_header.addStretch()
 
         self.copy_trace_btn = QPushButton("📋 Copy Trace")
+        self.copy_trace_btn.setToolTip('Copy the complete processing and Ollama exchange trace to the clipboard.')
         self.copy_trace_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.copy_trace_btn.clicked.connect(self._copy_trace)
         self.copy_trace_btn.setVisible(False)
         trace_header.addWidget(self.copy_trace_btn)
 
         self.clear_trace_btn = QPushButton("🧹 Clear")
+        self.clear_trace_btn.setToolTip('Clear the displayed processing and Ollama exchange trace.')
         self.clear_trace_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.clear_trace_btn.clicked.connect(self._clear_trace)
         self.clear_trace_btn.setVisible(False)
@@ -198,6 +203,7 @@ class TDocTriageDialog(QDialog):
         # My Status Combo
         btn_bar.addWidget(QLabel("<b>My Status:</b>"))
         self.status_combo = QComboBox()
+        self.status_combo.setToolTip('Choose the personal status saved together with the triage result.')
         self.status_combo.addItems(MY_STATUS_OPTIONS)
         curr_status = str(self.tdoc_data.get("My Status", "⚪ Neutral")).replace("🔄 ", "").strip()
         self.status_combo.setCurrentText(
@@ -210,6 +216,7 @@ class TDocTriageDialog(QDialog):
 
         # Save to My Notes
         self.save_notes_btn = QPushButton("💾 Save to My Notes")
+        self.save_notes_btn.setToolTip('Append the current AI triage result to My Notes and save the selected personal status.')
         self.save_notes_btn.setObjectName("primaryBtn")
         self.save_notes_btn.setEnabled(False)
         self.save_notes_btn.setStyleSheet("""
@@ -225,6 +232,7 @@ class TDocTriageDialog(QDialog):
 
         # Copy Summary
         self.copy_btn = QPushButton("📋 Copy")
+        self.copy_btn.setToolTip('Copy the current AI triage summary to the clipboard.')
         self.copy_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.copy_btn.clicked.connect(self._copy_summary)
         btn_bar.addWidget(self.copy_btn)
@@ -233,6 +241,7 @@ class TDocTriageDialog(QDialog):
 
         # Stop / Cancel
         self.cancel_btn = QPushButton("⏹️ Stop")
+        self.cancel_btn.setToolTip('Stop the currently running triage generation.')
         self.cancel_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self._cancel_triage)
@@ -240,12 +249,14 @@ class TDocTriageDialog(QDialog):
 
         # Regenerate
         self.regen_btn = QPushButton("🔄 Re-analyze")
+        self.regen_btn.setToolTip('Run the technical triage again using the currently selected Ollama model.')
         self.regen_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.regen_btn.clicked.connect(self._start_triage)
         btn_bar.addWidget(self.regen_btn)
 
         # Close
         self.close_btn = QPushButton("Close")
+        self.close_btn.setToolTip('Close this triage window. A running generation will be cancelled.')
         self.close_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.close_btn.clicked.connect(self.close)
         btn_bar.addWidget(self.close_btn)
