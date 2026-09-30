@@ -225,6 +225,7 @@ class TDocInfoDialog(QDialog):
         btn_layout.setSpacing(8)
 
         copy_btn = QPushButton("📋 Copy Info")
+        copy_btn.setToolTip('Copy all displayed text to the clipboard and close the viewer.')
         copy_btn.setCursor(Qt.PointingHandCursor)
         copy_btn.setToolTip("Copy formatted summary to clipboard")
         copy_btn.clicked.connect(self._copy_tdoc_summary)
@@ -239,6 +240,7 @@ class TDocInfoDialog(QDialog):
 
         if self.docs_ftp_url and tdoc_id != "Unknown":
             ftp_btn = QPushButton("📂 Open FTP Archive")
+            ftp_btn.setToolTip('Open the ZIP archive for this TDoc in the configured 3GPP document location.')
             ftp_btn.setObjectName("primaryActionBtn")
             ftp_btn.setCursor(Qt.PointingHandCursor)
             ftp_btn.clicked.connect(lambda: webbrowser.open(f"{self.docs_ftp_url}/{tdoc_id}.zip"))
@@ -247,6 +249,7 @@ class TDocInfoDialog(QDialog):
         btn_layout.addStretch()
 
         close_btn = QPushButton("Close")
+        close_btn.setToolTip('Close this dialog.')
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self.accept)
         btn_layout.addWidget(close_btn)
@@ -378,6 +381,7 @@ class InteractiveNotesDialog(QDialog):
 
         btn_layout = QHBoxLayout()
         save_btn = QPushButton("💾 Save Notes")
+        save_btn.setToolTip('Save My Status and My Notes for this TDoc.')
         save_btn.setStyleSheet(
             "padding: 6px 15px; font-weight: bold; background-color: #0C6B0C; color: white; border-radius: 4px;"
         )
@@ -418,6 +422,7 @@ class StatisticsSettingsDialog(QDialog):
         layout.addWidget(desc_lbl)
 
         self.slider = QSlider(Qt.Horizontal)
+        self.slider.setToolTip('Adjust community-detection sensitivity: lower values favor fewer/larger factions; higher values favor more/smaller factions.')
         self.slider.setMinimum(5)
         self.slider.setMaximum(25)
         self.slider.setSingleStep(1)
@@ -435,6 +440,7 @@ class StatisticsSettingsDialog(QDialog):
         thresh_layout.addWidget(QLabel("Minimum Shared Documents (Graph Filter):"))
         thresh_layout.addStretch()
         self.thresh_spin = QSpinBox()
+        self.thresh_spin.setToolTip('Minimum number of shared documents required before a contributor relationship is included in the graph.')
         self.thresh_spin.setRange(1, 20)
         self.thresh_spin.setValue(self.config.get("threshold", 1))
         self.thresh_spin.setStyleSheet("padding: 4px; border: 1px solid #CCC; background: white; width: 60px;")
@@ -445,6 +451,7 @@ class StatisticsSettingsDialog(QDialog):
         top_layout.addWidget(QLabel("Top Contributors to Display in Chart:"))
         top_layout.addStretch()
         self.top_spin = QSpinBox()
+        self.top_spin.setToolTip('Maximum number of top contributors displayed in the contributor chart.')
         self.top_spin.setRange(10, 100)
         self.top_spin.setSingleStep(5)
         self.top_spin.setValue(self.config.get("top_count", 30))
@@ -457,6 +464,7 @@ class StatisticsSettingsDialog(QDialog):
         hm_comp_layout.addWidget(QLabel("Heatmap: Top Companies to Display:"))
         hm_comp_layout.addStretch()
         self.hm_comp_spin = QSpinBox()
+        self.hm_comp_spin.setToolTip('Maximum number of companies displayed in the company heatmap.')
         self.hm_comp_spin.setRange(5, 200)
         self.hm_comp_spin.setSingleStep(5)
         self.hm_comp_spin.setValue(self.config.get("heatmap_top_companies", 25))
@@ -468,6 +476,7 @@ class StatisticsSettingsDialog(QDialog):
         hm_ai_layout.addWidget(QLabel("Heatmap: Top Agenda Items to Display:"))
         hm_ai_layout.addStretch()
         self.hm_ai_spin = QSpinBox()
+        self.hm_ai_spin.setToolTip('Maximum number of Agenda Items displayed in the Agenda Item heatmap.')
         self.hm_ai_spin.setRange(5, 200)
         self.hm_ai_spin.setSingleStep(5)
         self.hm_ai_spin.setValue(self.config.get("heatmap_top_ais", 25))
@@ -476,6 +485,7 @@ class StatisticsSettingsDialog(QDialog):
         layout.addLayout(hm_ai_layout)
 
         self.export_html_chk = QCheckBox("Export standalone HTML plots (Warning: Creates hundreds of MBs of files)")
+        self.export_html_chk.setToolTip('Also export standalone interactive HTML plots. This can create very large output files.')
         self.export_html_chk.setChecked(self.config.get("export_html_plots", False))
         self.export_html_chk.setStyleSheet("font-weight: bold; color: #D83B01; margin-top: 5px;")
         layout.addWidget(self.export_html_chk)
@@ -495,6 +505,7 @@ class StatisticsSettingsDialog(QDialog):
         llm_layout.addWidget(QLabel("Max Characters per File (Chunk Limit):"))
         llm_layout.addStretch()
         self.llm_spin = QSpinBox()
+        self.llm_spin.setToolTip('Maximum character count per generated LLM corpus chunk.')
         self.llm_spin.setRange(10000, 5000000)
         self.llm_spin.setSingleStep(10000)
         self.llm_spin.setValue(self.config.get("llm_max_chars", 200000))
@@ -505,6 +516,7 @@ class StatisticsSettingsDialog(QDialog):
         layout.addSpacing(10)
         layout.addWidget(QLabel("<b>System Prompt / Context Guide:</b>"))
         self.prompt_edit = QTextEdit()
+        self.prompt_edit.setToolTip('System/context prompt embedded with LLM corpus exports to guide downstream analysis.')
         self.prompt_edit.setPlainText(self.config.get("llm_system_prompt", self._get_default_prompt()))
         self.prompt_edit.setStyleSheet(
             "padding: 8px; border: 1px solid #CCC; background: white; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px;")
@@ -662,22 +674,27 @@ class ExcelExportDialog(QDialog):
         btn_style = "QPushButton { padding: 5px 10px; font-size: 11px; background: white; border: 1px solid #CCC; border-radius: 4px; } QPushButton:hover { background: #EAEAEA; }"
 
         btn_up = QPushButton("▲ Move Up")
+        btn_up.setToolTip('Move the selected export column one position upward.')
         btn_up.setStyleSheet(btn_style)
         btn_up.clicked.connect(self._move_item_up)
 
         btn_down = QPushButton("▼ Move Down")
+        btn_down.setToolTip('Move the selected export column one position downward.')
         btn_down.setStyleSheet(btn_style)
         btn_down.clicked.connect(self._move_item_down)
 
         btn_all = QPushButton("☑️ Select All")
+        btn_all.setToolTip('Select all available columns for Excel export.')
         btn_all.setStyleSheet(btn_style)
         btn_all.clicked.connect(lambda: self._set_all_checked(True))
 
         btn_none = QPushButton("◻️ Clear All")
+        btn_none.setToolTip('Clear all selected Excel export columns.')
         btn_none.setStyleSheet(btn_style)
         btn_none.clicked.connect(lambda: self._set_all_checked(False))
 
         btn_reset = QPushButton("🔄 Reset")
+        btn_reset.setToolTip('Restore the default export column selection and order.')
         btn_reset.setStyleSheet(btn_style)
         btn_reset.clicked.connect(self._reset_defaults)
 
@@ -694,6 +711,7 @@ class ExcelExportDialog(QDialog):
 
         # --- Options ---
         self.chk_auto_open = QCheckBox("Automatically open spreadsheet after export")
+        self.chk_auto_open.setToolTip('Open the generated Excel workbook automatically after a successful export.')
         self.chk_auto_open.setChecked(self.saved_config.get("auto_open", True))
         self.chk_auto_open.setStyleSheet("font-size: 12px;")
         layout.addWidget(self.chk_auto_open)
@@ -701,6 +719,7 @@ class ExcelExportDialog(QDialog):
         # --- Dialog Buttons ---
         btn_layout = QHBoxLayout()
         export_btn = QPushButton("📊 Export to Excel")
+        export_btn.setToolTip('Export the chosen rows and columns to a formatted Excel workbook.')
         export_btn.setStyleSheet("padding: 7px 20px; font-weight: bold; background-color: #005A9E; color: white; border-radius: 4px;")
         export_btn.clicked.connect(self._on_export_clicked)
 
