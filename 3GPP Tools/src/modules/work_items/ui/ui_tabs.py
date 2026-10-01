@@ -5,7 +5,7 @@ from pathlib import Path
 import logging
 
 from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QTimer, QEvent, QRect, pyqtSignal
-from PyQt5.QtGui import QColor, QPalette
+from PyQt5.QtGui import QColor, QPalette, QBrush, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableView, QHeaderView,
     QPushButton, QProgressBar, QMessageBox, QLineEdit, QMenu, QStyle,
@@ -507,7 +507,8 @@ class WorkItemsTableModel(QAbstractTableModel):
     def __init__(self, data=None):
         super().__init__()
         self._data = data or []
-        self._headers = ["Code", "Acronym", "Name", "WG", "Latest WID", "Release", "Specs", "Start Date", "End Date", "Remarks"]
+        self.search_term = ""
+        self._headers = ["Code", "Acronym", "Name", "WG", "Latest WID", "Release", "Status", "Specs", "Start Date", "End Date", "Remarks"]
 
     def data(self, index, role):
         if not index.isValid():
@@ -524,6 +525,11 @@ class WorkItemsTableModel(QAbstractTableModel):
             }
             if col_name == "Remarks" and role == Qt.DisplayRole:
                 return ""
+
+            if col_name == "Status" and role == Qt.DisplayRole:
+                end_date = str(row.get("end_date") or "").strip()
+                finished = bool(end_date and end_date < datetime.now().strftime("%Y-%m-%d"))
+                return "Finished" if finished else "Active"
 
             if col_name == "Specs" and role == Qt.DisplayRole:
                 cnt = row.get("spec_count", 0)
@@ -543,6 +549,32 @@ class WorkItemsTableModel(QAbstractTableModel):
                 parsed_remarks.sort(key=lambda x: x[0], reverse=True)
                 return [item[1] for item in parsed_remarks]
             return []
+
+        elif role == Qt.BackgroundRole:
+            if col_name == "Acronym" and self.search_term:
+                acronym = str(row.get("acronym") or "").strip().casefold()
+                if acronym == self.search_term.casefold():
+                    return QBrush(QColor("#DBEAFE"))
+            if col_name == "Release" and str(row.get("release") or "").strip():
+                return QBrush(QColor("#F1F5F9"))
+            if col_name == "Status":
+                end_date = str(row.get("end_date") or "").strip()
+                finished = bool(end_date and end_date < datetime.now().strftime("%Y-%m-%d"))
+                return QBrush(QColor("#F1F5F9" if finished else "#ECFDF5"))
+
+        elif role == Qt.ForegroundRole:
+            if col_name == "Acronym" and self.search_term and str(row.get("acronym") or "").strip().casefold() == self.search_term.casefold():
+                return QBrush(QColor("#1E5C99"))
+            if col_name == "Status":
+                end_date = str(row.get("end_date") or "").strip()
+                finished = bool(end_date and end_date < datetime.now().strftime("%Y-%m-%d"))
+                return QBrush(QColor("#475569" if finished else "#065F46"))
+
+        elif role == Qt.FontRole:
+            if col_name in ["Acronym", "Release", "Status"]:
+                font = QFont()
+                font.setBold(True)
+                return font
 
         elif role == Qt.ToolTipRole:
             if col_name == "Name":
@@ -583,6 +615,9 @@ class WorkItemsTableModel(QAbstractTableModel):
         if 0 <= row_idx < len(self._data):
             return self._data[row_idx]
         return {}
+
+    def set_search_term(self, term: str):
+        self.search_term = (term or "").strip()
 
     def update_data(self, new_data):
         self.beginResetModel()
@@ -807,10 +842,10 @@ class WorkItemsTab(QWidget):
 
         self.specs_delegate = SpecsDelegate(self.table)
         self.specs_delegate.specs_clicked.connect(self._on_specs_clicked)
-        self.table.setItemDelegateForColumn(6, self.specs_delegate)
+        self.table.setItemDelegateForColumn(7, self.specs_delegate)
 
-        header.setSectionResizeMode(9, QHeaderView.Stretch)
-        self.table.setItemDelegateForColumn(9, RemarksDelegate(self.table))
+        header.setSectionResizeMode(10, QHeaderView.Stretch)
+        self.table.setItemDelegateForColumn(10, RemarksDelegate(self.table))
 
         self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
         main_layout.addWidget(self.table)
@@ -871,6 +906,7 @@ class WorkItemsTab(QWidget):
         )
 
         self._loaded_data = chunk
+        self.table_model.set_search_term(search_term)
         self.table_model.update_data(self._loaded_data)
         self._update_count_label()
 
@@ -901,10 +937,17 @@ class WorkItemsTab(QWidget):
 
     def _update_count_label(self):
         loaded = len(self._loaded_data)
+        query = self.search_input.text().strip()
+        exact_count = 0
+        if query:
+            exact_count = sum(1 for r in self._loaded_data if str(r.get("acronym") or "").strip().casefold() == query.casefold())
+        prefix = f'{self._total_count} matches for "{query}"' if query else f"{self._total_count} Work Items"
+        if query and exact_count:
+            prefix += f" · Exact acronym: {exact_count}"
         if self._total_count > loaded:
-            self.count_label.setText(f"Showing {loaded} of {self._total_count} Work Items (scroll down to load more)")
+            self.count_label.setText(f"{prefix} · showing {loaded} (scroll for more)")
         else:
-            self.count_label.setText(f"Showing {self._total_count} Work Items")
+            self.count_label.setText(prefix)
 
     def _on_row_double_clicked(self, index):
         if not index.isValid():
