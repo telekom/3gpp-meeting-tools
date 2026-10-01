@@ -230,8 +230,32 @@ class WordExcerptEngine:
                 fragment = work / f"fragment_{idx:03d}.docx"
                 self._make_fragment(Path(source_path), grouped[source_path], fragment)
                 fragments.append(fragment)
-            self._progress(55, "Finalizing excerpt with Microsoft Word...")
-            self._merge_with_word(fragments, output)
+            if len(fragments) == 1:
+                # A fragment produced from one source document is already a complete
+                # formatting-preserving DOCX.  Do not round-trip it through Word's
+                # InsertFile/SaveAs2 path; that adds no value and has proven fragile
+                # with managed Office installations.
+                self._progress(55, "Finalizing single-document excerpt...")
+                logger.info("   -> Single source fragment: skipping Microsoft Word merge.")
+                if output.exists():
+                    output.unlink()
+                shutil.copy2(fragments[0], output)
+                if not output.exists() or output.stat().st_size == 0:
+                    raise RuntimeError("Failed to create the single-document excerpt output.")
+
+                # The fragment was saved directly from a copy of the source package,
+                # so its formatting parts already originate from that source.  Apply
+                # only the required corporate label in a fresh Word session.
+                self._progress(80, "Applying corporate sensitivity label...")
+                pythoncom.CoInitialize()
+                try:
+                    self._apply_label_in_fresh_word(output)
+                finally:
+                    pythoncom.CoUninitialize()
+            else:
+                self._progress(55, "Combining excerpts with Microsoft Word...")
+                self._merge_with_word(fragments, output)
+
             self._progress(100, "Extraction complete.")
             return output
         finally:
