@@ -366,6 +366,7 @@ class ContributionSearchWorker(QThread):
         primary_only: bool,
         target_wis: list,
         target_ais: list,
+        wi_ai_or: bool,
         bypass_cache: bool,
         cache_dir: str,
         parent=None
@@ -379,6 +380,7 @@ class ContributionSearchWorker(QThread):
         self.primary_only = primary_only
         self.target_wis = [w.strip().lower() for w in target_wis if w.strip()]
         self.target_ais = {self._normalize_ai(ai) for ai in target_ais if self._normalize_ai(ai)}
+        self.wi_ai_or = bool(wi_ai_or)
         self.bypass_cache = bypass_cache
         self.cache_dir = Path(cache_dir)
         self._is_cancelled = False
@@ -606,18 +608,27 @@ class ContributionSearchWorker(QThread):
             all_contributors = CompanySanitizer.get_matching_contributors(source_raw)
             row["Matched Company"] = ", ".join(all_contributors) if all_contributors else source_raw
 
+        # WI and AI are separate facets. By default both active facets must match.
+        # Optional OR mode is useful for queries spanning a WI plus specific AIs
+        # that are not tagged with that WI (e.g. AIML WI OR AI 20.6.21).
+        wi_hit = None
         if self.target_wis:
             wi_val = str(row.get("Related WIs", "")).strip().lower()
             title_val = str(row.get("Title", "")).strip().lower()
             desc_val = str(row.get("Agenda item description", "")).strip().lower()
-
             wi_hit = any((token in wi_val or token in title_val or token in desc_val) for token in self.target_wis)
-            if not wi_hit:
-                return False
 
+        ai_hit = None
         if self.target_ais:
             row_ai = self._normalize_ai(row.get("Agenda Item", ""))
-            if row_ai not in self.target_ais:
+            ai_hit = row_ai in self.target_ais
+
+        active_hits = [hit for hit in (wi_hit, ai_hit) if hit is not None]
+        if active_hits:
+            if self.wi_ai_or:
+                if not any(active_hits):
+                    return False
+            elif not all(active_hits):
                 return False
 
         return True
@@ -746,6 +757,14 @@ class ContributionReportDialog(QDialog):
         left_layout.addWidget(QLabel("Agenda Items:"))
         self.ai_token_widget = AITokenInputWidget(self)
         left_layout.addWidget(self.ai_token_widget)
+
+        self.chk_wi_ai_or = QCheckBox("Match WI OR Agenda Item")
+        self.chk_wi_ai_or.setChecked(False)
+        self.chk_wi_ai_or.setToolTip(
+            "When enabled, a contribution may match either a selected WI or a selected Agenda Item. "
+            "When disabled, it must match both when both filters are populated."
+        )
+        left_layout.addWidget(self.chk_wi_ai_or)
 
         left_layout.addWidget(QLabel("Companies (from Sanitizer):"))
         self.company_widget = CompanySelectorWidget(self)
@@ -911,6 +930,7 @@ class ContributionReportDialog(QDialog):
         primary_only = self.company_widget.is_primary_only()
         target_wis = self.wi_token_widget.get_tokens()
         target_ais = self.ai_token_widget.get_tokens()
+        wi_ai_or = self.chk_wi_ai_or.isChecked()
         date_from = self.date_from.date().toString("yyyy-MM-dd")
         date_to = self.date_to.date().toString("yyyy-MM-dd")
         bypass = self.chk_bypass_cache.isChecked()
@@ -931,6 +951,7 @@ class ContributionReportDialog(QDialog):
             primary_only=primary_only,
             target_wis=target_wis,
             target_ais=target_ais,
+            wi_ai_or=wi_ai_or,
             bypass_cache=bypass,
             cache_dir=self.settings.cache_dir,
             parent=self
