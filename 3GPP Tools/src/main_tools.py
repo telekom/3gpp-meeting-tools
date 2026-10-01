@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import QApplication, QDialog
 
 from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from core.ui.ui_panels import GuiLogHandler
-from core.utils.paths import get_project_root
+from core.utils.paths import ensure_app_data_dirs, get_app_data_root, get_project_root
 from core.utils.utils import get_best_java
 from main_window import DragDropUI
 from modules.meetings.plugin_loader import register_meetings_plugin
@@ -66,6 +66,19 @@ logging.getLogger().addHandler(gui_log_handler)
 
 
 if __name__ == '__main__':
+    # Ensure application-owned caches, specification storage and temporary
+    # directories exist before plugins or UI components start using them.
+    logging.info("🏁 [STARTUP:PATHS] Ensuring application data directories...")
+    try:
+        ensure_app_data_dirs()
+    except Exception:
+        logging.exception("❌ [STARTUP:PATHS] Could not initialize application data directories.")
+        raise
+    logging.info(
+        "🏁 [STARTUP:PATHS] Application data directories ready: %s",
+        get_app_data_root(),
+    )
+
     if os.name == 'nt':
         import ctypes
 
