@@ -17,7 +17,8 @@ from PyQt5.QtWidgets import (
 
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
-    BUTTON_STYLE_TOOLBAR_DANGER
+    BUTTON_STYLE_TOOLBAR_DANGER,
+    SEARCH_INPUT_STYLE
 )
 from core.utils.company_sanitizer import CompanySanitizer
 from modules.meetings.core.excel_exporter import ExcelExporterThread
@@ -85,7 +86,7 @@ class KPICard(QFrame):
             self.lbl_sub.setText(sub)
 
 
-class WITokenChip(QFrame):
+class FilterTokenChip(QFrame):
     removed = pyqtSignal(str)
 
     def __init__(self, token_text: str, parent=None):
@@ -152,6 +153,7 @@ class WITokenInputWidget(QWidget):
         input_layout = QHBoxLayout()
         self.input_edit = QLineEdit()
         self.input_edit.setPlaceholderText("Search WI acronym or code (e.g., FS_6G_ARC)...")
+        self.input_edit.setStyleSheet(SEARCH_INPUT_STYLE)
         self.input_edit.returnPressed.connect(self._add_current_input)
 
         self._setup_completer()
@@ -180,7 +182,7 @@ class WITokenInputWidget(QWidget):
         text = self.input_edit.text().strip()
         if text and text not in self.selected_tokens:
             self.selected_tokens.add(text)
-            chip = WITokenChip(text, self)
+            chip = FilterTokenChip(text, self)
             chip.removed.connect(self._remove_token)
             self.chips_layout.addWidget(chip)
             self.input_edit.clear()
@@ -191,13 +193,80 @@ class WITokenInputWidget(QWidget):
             self.selected_tokens.remove(token)
             for i in range(self.chips_layout.count()):
                 widget = self.chips_layout.itemAt(i).widget()
-                if isinstance(widget, WITokenChip) and widget.token_text == token:
+                if isinstance(widget, FilterTokenChip) and widget.token_text == token:
                     widget.deleteLater()
                     break
             self.tokens_changed.emit()
 
     def get_tokens(self) -> list:
         return list(self.selected_tokens)
+
+
+class AITokenInputWidget(QWidget):
+    """Token input for exact Agenda Item filtering across meetings."""
+    tokens_changed = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.selected_tokens = set()
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(4)
+
+        self.chips_widget = QWidget()
+        self.chips_layout = QHBoxLayout(self.chips_widget)
+        self.chips_layout.setContentsMargins(0, 0, 0, 0)
+        self.chips_layout.setSpacing(4)
+        self.chips_layout.setAlignment(Qt.AlignLeft)
+        main_layout.addWidget(self.chips_widget)
+
+        input_layout = QHBoxLayout()
+        self.input_edit = QLineEdit()
+        self.input_edit.setPlaceholderText("Add Agenda Item (e.g., 6.2.1)...")
+        self.input_edit.setStyleSheet(SEARCH_INPUT_STYLE)
+        self.input_edit.setToolTip(
+            "Filter by exact Agenda Item number. Add multiple AIs to match any of them."
+        )
+        self.input_edit.returnPressed.connect(self._add_current_input)
+
+        btn_add = QPushButton("Add")
+        btn_add.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        btn_add.setFixedWidth(50)
+        btn_add.clicked.connect(self._add_current_input)
+
+        input_layout.addWidget(self.input_edit)
+        input_layout.addWidget(btn_add)
+        main_layout.addLayout(input_layout)
+
+    @staticmethod
+    def _normalize_ai(value: str) -> str:
+        text = str(value or "").strip()
+        text = re.sub(r"^AI\s*[:#-]?\s*", "", text, flags=re.IGNORECASE)
+        return re.sub(r"\s+", "", text)
+
+    def _add_current_input(self):
+        text = self._normalize_ai(self.input_edit.text())
+        if text and text not in self.selected_tokens:
+            self.selected_tokens.add(text)
+            chip = FilterTokenChip(text, self)
+            chip.removed.connect(self._remove_token)
+            self.chips_layout.addWidget(chip)
+            self.input_edit.clear()
+            self.tokens_changed.emit()
+
+    def _remove_token(self, token: str):
+        if token in self.selected_tokens:
+            self.selected_tokens.remove(token)
+            for i in range(self.chips_layout.count()):
+                widget = self.chips_layout.itemAt(i).widget()
+                if isinstance(widget, FilterTokenChip) and widget.token_text == token:
+                    widget.deleteLater()
+                    break
+            self.tokens_changed.emit()
+
+    def get_tokens(self) -> list:
+        return sorted(self.selected_tokens)
 
 
 class CompanySelectorWidget(QWidget):
@@ -296,6 +365,7 @@ class ContributionSearchWorker(QThread):
         target_companies: set,
         primary_only: bool,
         target_wis: list,
+        target_ais: list,
         bypass_cache: bool,
         cache_dir: str,
         parent=None
@@ -308,6 +378,7 @@ class ContributionSearchWorker(QThread):
         self.target_companies = target_companies
         self.primary_only = primary_only
         self.target_wis = [w.strip().lower() for w in target_wis if w.strip()]
+        self.target_ais = {self._normalize_ai(ai) for ai in target_ais if self._normalize_ai(ai)}
         self.bypass_cache = bypass_cache
         self.cache_dir = Path(cache_dir)
         self._is_cancelled = False
@@ -506,6 +577,12 @@ class ContributionSearchWorker(QThread):
 
         return ""
 
+    @staticmethod
+    def _normalize_ai(value: str) -> str:
+        text = str(value or "").strip()
+        text = re.sub(r"^AI\s*[:#-]?\s*", "", text, flags=re.IGNORECASE)
+        return re.sub(r"\s+", "", text).lower()
+
     def _matches_filter(self, row: dict) -> bool:
         source_raw = str(row.get("Source", "")).strip()
 
@@ -536,6 +613,11 @@ class ContributionSearchWorker(QThread):
 
             wi_hit = any((token in wi_val or token in title_val or token in desc_val) for token in self.target_wis)
             if not wi_hit:
+                return False
+
+        if self.target_ais:
+            row_ai = self._normalize_ai(row.get("Agenda Item", ""))
+            if row_ai not in self.target_ais:
                 return False
 
         return True
@@ -660,6 +742,10 @@ class ContributionReportDialog(QDialog):
         left_layout.addWidget(QLabel("Work Items (Acronym / Code):"))
         self.wi_token_widget = WITokenInputWidget(self.wi_db, self)
         left_layout.addWidget(self.wi_token_widget)
+
+        left_layout.addWidget(QLabel("Agenda Items:"))
+        self.ai_token_widget = AITokenInputWidget(self)
+        left_layout.addWidget(self.ai_token_widget)
 
         left_layout.addWidget(QLabel("Companies (from Sanitizer):"))
         self.company_widget = CompanySelectorWidget(self)
@@ -824,6 +910,7 @@ class ContributionReportDialog(QDialog):
         target_companies = self.company_widget.get_selected_companies()
         primary_only = self.company_widget.is_primary_only()
         target_wis = self.wi_token_widget.get_tokens()
+        target_ais = self.ai_token_widget.get_tokens()
         date_from = self.date_from.date().toString("yyyy-MM-dd")
         date_to = self.date_to.date().toString("yyyy-MM-dd")
         bypass = self.chk_bypass_cache.isChecked()
@@ -843,6 +930,7 @@ class ContributionReportDialog(QDialog):
             target_companies=target_companies,
             primary_only=primary_only,
             target_wis=target_wis,
+            target_ais=target_ais,
             bypass_cache=bypass,
             cache_dir=self.settings.cache_dir,
             parent=self
