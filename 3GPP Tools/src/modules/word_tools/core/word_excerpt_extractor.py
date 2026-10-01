@@ -1,7 +1,10 @@
+import json
 import logging
 import os
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -155,43 +158,52 @@ class WordExcerptEngine:
         return [(start, end) for start, end in merged]
 
     def _make_fragment(self, source: Path, ranges: List[Tuple[int, int]], target: Path):
-        """Create a formatting-safe fragment without O(n^2) body deletion.
+        """Build the expensive python-docx fragment in a separate process.
 
-        The complete source package is copied first and saved again through
-        python-docx, exactly like the proven legacy path.  The optimization is
-        limited to rebuilding the document body from the *existing* XML nodes
-        instead of calling parent.remove() thousands of times.  Package-level
-        styles, numbering, relationships, media and other parts therefore keep
-        the same preservation semantics as before.
+        Keeping this work outside the GUI process is intentional: very large 3GPP
+        specifications can spend minutes serializing a DOCX package.  A QThread
+        still shares the application's Python interpreter/GIL, whereas this helper
+        process cannot starve the Qt event loop.  The helper uses the same
+        formatting-safe python-docx body reconstruction as the in-process version.
         """
-        shutil.copy2(source, target)
-        doc = Document(target)
-        body = doc.element.body
-        children = list(body)
-        blocks = [x for x in children if isinstance(x, (CT_P, CT_Tbl))]
-        merged = self._merge_ranges(ranges, len(blocks))
+        helper = Path(__file__).with_name("word_excerpt_fragment_worker.py")
+        if not helper.is_file():
+            raise RuntimeError(f"Excerpt fragment worker not found: {helper}")
 
-        keep_indexes = set()
-        for start, end in merged:
-            keep_indexes.update(range(start, end))
-
-        keep_ids = {id(blocks[i]) for i in keep_indexes}
-        kept_blocks = len(keep_ids)
+        merged = self._merge_ranges(ranges, 2**31 - 1)
         logger.info(
-            "   -> Preparing excerpt fragment from %s: keeping %d/%d body blocks in %d range(s)",
-            source.name, kept_blocks, len(blocks), len(merged),
+            "   -> Starting isolated excerpt preparation for %s (%d selected range(s))",
+            source.name, len(merged),
         )
 
-        # Preserve every non paragraph/table body child (notably the body-level
-        # sectPr) and preserve selected paragraph/table elements verbatim.
-        # Replacing the child list in one operation avoids the legacy O(n^2)
-        # repeated sibling removal on very large specifications.
-        retained = [
-            child for child in children
-            if not isinstance(child, (CT_P, CT_Tbl)) or id(child) in keep_ids
+        cmd = [
+            sys.executable,
+            str(helper),
+            str(source),
+            str(target),
+            json.dumps(merged),
         ]
-        body[:] = retained
-        doc.save(target)
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            creationflags=creationflags,
+            check=False,
+        )
+        if result.stdout.strip():
+            for line in result.stdout.splitlines():
+                logger.info("   [excerpt worker] %s", line)
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or "Unknown worker failure"
+            raise RuntimeError(
+                f"Isolated excerpt preparation failed for {source.name}: {detail}"
+            )
+        if not target.exists() or target.stat().st_size == 0:
+            raise RuntimeError(
+                f"Isolated excerpt preparation produced no fragment for {source.name}."
+            )
+
 
     def extract(self, selected_ids: Iterable[str], output_path: str) -> Path:
         selected = self._normalize(selected_ids)
