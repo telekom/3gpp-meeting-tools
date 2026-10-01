@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QDate, QAbstractTableModel, QModelIndex, QPoint
+from PyQt5.QtGui import QColor, QBrush, QFont
 from PyQt5.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QLabel, QLineEdit, QPushButton, QCheckBox, QRadioButton,
@@ -631,11 +632,20 @@ class ContributionSearchWorker(QThread):
             elif not all(active_hits):
                 return False
 
+        # Preserve the actual reason this row passed the WI/AI facet. The table
+        # uses this annotation for restrained match-origin highlighting.
+        match_parts = []
+        if wi_hit is True:
+            match_parts.append("WI")
+        if ai_hit is True:
+            match_parts.append("AI")
+        row["_Filter Match"] = " + ".join(match_parts)
+
         return True
 
 
 class ContributionResultsTableModel(QAbstractTableModel):
-    """Clean, neutral table model without color tints, matching application style."""
+    """Contribution results with restrained semantic highlighting for status cells."""
     COLUMNS = [
         "WG", "Meeting", "TDoc", "Title", "Source", "Matched Company",
         "Type", "For", "Agenda Item", "TDoc Status", "Related WIs", "Abstract"
@@ -666,6 +676,67 @@ class ContributionResultsTableModel(QAbstractTableModel):
         if role == Qt.DisplayRole:
             return str(row_dict.get(col_name, ""))
 
+        # Compact metadata badges: restrained fills make short Type/For values
+        # scannable without coloring the complete row.
+        if col_name in ("Type", "For"):
+            value = str(row_dict.get(col_name, "") or "").strip()
+            if value:
+                if role == Qt.BackgroundRole:
+                    return QBrush(QColor("#EBF3FC" if col_name == "Type" else "#F1F5F9"))
+                if role == Qt.ForegroundRole:
+                    return QBrush(QColor("#1E5C99" if col_name == "Type" else "#475569"))
+                if role == Qt.FontRole:
+                    font = QFont()
+                    font.setBold(True)
+                    return font
+
+        # Explain WI/AI OR searches visually. Only the matching facet cells are
+        # tinted, based on the worker's explicit match annotation.
+        match_origin = str(row_dict.get("_Filter Match", ""))
+        if col_name == "Related WIs" and "WI" in match_origin:
+            if role == Qt.BackgroundRole:
+                return QBrush(QColor("#EFF6FF"))
+            if role == Qt.ForegroundRole:
+                return QBrush(QColor("#1D4ED8"))
+            if role == Qt.FontRole:
+                font = QFont()
+                font.setBold(True)
+                return font
+        if col_name == "Agenda Item" and "AI" in match_origin:
+            if role == Qt.BackgroundRole:
+                return QBrush(QColor("#F5F3FF"))
+            if role == Qt.ForegroundRole:
+                return QBrush(QColor("#6D28D9"))
+            if role == Qt.FontRole:
+                font = QFont()
+                font.setBold(True)
+                return font
+
+        if col_name == "TDoc Status":
+            status = str(row_dict.get(col_name, "") or "").strip().lower()
+            if role == Qt.BackgroundRole:
+                if "agreed" in status or "approved" in status:
+                    return QBrush(QColor("#E6F4EA"))
+                if "noted" in status or "postponed" in status:
+                    return QBrush(QColor("#FEF7E0"))
+                if any(term in status for term in ("withdrawn", "rejected", "not agreed", "not-agreed")):
+                    return QBrush(QColor("#FCE8E6"))
+                if status:
+                    return QBrush(QColor("#F1F3F4"))
+            if role == Qt.ForegroundRole:
+                if "agreed" in status or "approved" in status:
+                    return QBrush(QColor("#137333"))
+                if "noted" in status or "postponed" in status:
+                    return QBrush(QColor("#B06000"))
+                if any(term in status for term in ("withdrawn", "rejected", "not agreed", "not-agreed")):
+                    return QBrush(QColor("#C5221F"))
+                if status:
+                    return QBrush(QColor("#3C4043"))
+            if role == Qt.FontRole and status:
+                font = QFont()
+                font.setBold(True)
+                return font
+
         if role == Qt.TextAlignmentRole:
             if col_name in ["WG", "Meeting", "TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related WIs"]:
                 return Qt.AlignCenter
@@ -673,6 +744,11 @@ class ContributionResultsTableModel(QAbstractTableModel):
 
         if role == Qt.ToolTipRole:
             val = str(row_dict.get(col_name, "")).strip()
+            match_origin = str(row_dict.get("_Filter Match", ""))
+            if col_name == "Related WIs" and "WI" in match_origin:
+                return f"Matched the active WI filter.\n{val}" if val else "Matched the active WI filter."
+            if col_name == "Agenda Item" and "AI" in match_origin:
+                return f"Matched the active Agenda Item filter.\n{val}" if val else "Matched the active Agenda Item filter."
             if col_name == "Abstract" and val:
                 return f"<div style='width: 450px; white-space: pre-wrap;'>{val}</div>"
             elif col_name in ["Title", "Source"] and len(val) > 40:
@@ -812,6 +888,17 @@ class ContributionReportDialog(QDialog):
         kpi_layout.addWidget(self.kpi_wi)
         right_layout.addLayout(kpi_layout)
 
+        # Persistent summary of the criteria that produced the current result set.
+        self.filter_summary_lbl = QLabel("No search run yet.")
+        self.filter_summary_lbl.setWordWrap(True)
+        self.filter_summary_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.filter_summary_lbl.setStyleSheet(
+            "QLabel { background-color: #F8FAFC; color: #475569; "
+            "border: 1px solid #E2E8F0; border-radius: 4px; "
+            "padding: 5px 8px; font-size: 11px; }"
+        )
+        right_layout.addWidget(self.filter_summary_lbl)
+
         # Progress Bar & Log Viewer
         self.progress_bar = QProgressBar()
         self.progress_bar.setFixedHeight(14)
@@ -934,6 +1021,24 @@ class ContributionReportDialog(QDialog):
         date_from = self.date_from.date().toString("yyyy-MM-dd")
         date_to = self.date_to.date().toString("yyyy-MM-dd")
         bypass = self.chk_bypass_cache.isChecked()
+
+        summary_parts = []
+        if selected_wgs:
+            summary_parts.append("WG: " + ", ".join(selected_wgs))
+        summary_parts.append(f"{date_from} → {date_to}")
+        if target_companies:
+            company_rule = "primary" if primary_only else "any co-author"
+            summary_parts.append("Companies: " + ", ".join(sorted(target_companies)) + f" ({company_rule})")
+        wi_text = ", ".join(sorted(target_wis)) if target_wis else ""
+        ai_text = ", ".join(sorted(target_ais)) if target_ais else ""
+        if wi_text and ai_text:
+            joiner = " OR " if wi_ai_or else " AND "
+            summary_parts.append(f"WI: {wi_text}{joiner}AI: {ai_text}")
+        elif wi_text:
+            summary_parts.append(f"WI: {wi_text}")
+        elif ai_text:
+            summary_parts.append(f"AI: {ai_text}")
+        self.filter_summary_lbl.setText("  •  ".join(summary_parts) if summary_parts else "All contributions")
 
         self.btn_search.setEnabled(False)
         self.btn_cancel.setEnabled(True)
