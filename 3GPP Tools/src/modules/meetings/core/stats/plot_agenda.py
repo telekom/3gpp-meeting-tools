@@ -45,7 +45,7 @@ def generate_ai_volume_plot(df, export_dir, theme_color, prefix_id="Global", sav
     table_cols.append('Count')
     table = ai_counts[table_cols].rename(columns={'AI_Acronym': 'Acronym', 'AI_Topic': 'Topic', 'Count': 'TDocs'})
 
-    return (fig_ai.to_html(full_html=False, include_plotlyjs='cdn', default_height="100%", default_width="100%",
+    return (fig_ai.to_html(full_html=False, include_plotlyjs=False, default_height="100%", default_width="100%",
                            config=svg_config), dataframe_to_html_table(table))
 
 
