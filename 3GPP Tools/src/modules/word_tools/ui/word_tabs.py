@@ -558,7 +558,15 @@ class WordExtractorTab(QWidget):
         self._excerpt_extract_thread.start()
 
     def _on_excerpt_extract_progress(self, percent, message):
-        self.excerpt_progress.setValue(percent)
+        # Fragment preparation can legitimately take minutes for very large DOCX
+        # packages and does not expose meaningful sub-progress.  Use Qt's busy
+        # indicator during that isolated stage so the UI visibly remains alive.
+        if message.startswith("Preparing excerpt from "):
+            self.excerpt_progress.setRange(0, 0)
+        else:
+            if self.excerpt_progress.minimum() == 0 and self.excerpt_progress.maximum() == 0:
+                self.excerpt_progress.setRange(0, 100)
+            self.excerpt_progress.setValue(percent)
         self.excerpt_progress_label.setText(message)
 
     def _on_excerpt_finished(self, path):
