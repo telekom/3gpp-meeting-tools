@@ -6,7 +6,7 @@ import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QDate, QAbstractTableModel, QModelIndex, QPoint
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QDate, QAbstractTableModel, QModelIndex, QPoint, QStringListModel, QTimer
 from PyQt5.QtGui import QColor, QBrush, QFont
 from PyQt5.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
@@ -169,15 +169,32 @@ class WITokenInputWidget(QWidget):
         main_layout.addLayout(input_layout)
 
     def _setup_completer(self):
+        # Query the WI DB as the user types instead of taking an arbitrary
+        # first-N snapshot. This keeps older WIs (e.g. eNA) discoverable.
+        self._suggestion_model = QStringListModel(self)
+        self._completer = QCompleter(self._suggestion_model, self)
+        self._completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._completer.setFilterMode(Qt.MatchContains)
+        self._completer.setCompletionMode(QCompleter.PopupCompletion)
+        self.input_edit.setCompleter(self._completer)
+
+        self._suggest_timer = QTimer(self)
+        self._suggest_timer.setSingleShot(True)
+        self._suggest_timer.setInterval(180)
+        self._suggest_timer.timeout.connect(self._refresh_suggestions)
+        self.input_edit.textEdited.connect(lambda _: self._suggest_timer.start())
+
+    def _refresh_suggestions(self):
+        text = self.input_edit.text().strip()
+        if not text:
+            self._suggestion_model.setStringList([])
+            return
         try:
-            items = self.wi_db.search_work_items(limit=1500)
-            acronyms = sorted(list({item.get('acronym') for item in items if item.get('acronym')}))
-            completer = QCompleter(acronyms, self)
-            completer.setCaseSensitivity(Qt.CaseInsensitive)
-            completer.setFilterMode(Qt.MatchContains)
-            self.input_edit.setCompleter(completer)
+            rows = self.wi_db.search_work_item_suggestions(text, limit=40)
+            self._suggestion_model.setStringList([r["acronym"] for r in rows])
+            self._completer.complete()
         except Exception as e:
-            logging.warning(f"Could not initialize WI completer: {e}")
+            logging.warning(f"Could not refresh WI suggestions: {e}")
 
     def _add_current_input(self):
         text = self.input_edit.text().strip()

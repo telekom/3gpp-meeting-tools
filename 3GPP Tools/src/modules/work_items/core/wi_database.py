@@ -138,8 +138,29 @@ class WorkItemsDatabase:
             ) sp ON wi.code = sp.wi_code
             {where_sql}
             GROUP BY wi.code
-            ORDER BY CAST(wi.code AS INTEGER) DESC
         """
+
+        # Prefer the WI the user most likely meant: exact acronym first, then
+        # acronym prefix/contains, followed by name/code matches. This keeps
+        # broad discovery while making short acronyms such as eNA deterministic.
+        if search_term:
+            normalized = search_term.strip().lower()
+            query += """
+                ORDER BY
+                    CASE
+                        WHEN LOWER(TRIM(wi.acronym)) = ? THEN 0
+                        WHEN LOWER(TRIM(wi.acronym)) LIKE ? THEN 1
+                        WHEN LOWER(TRIM(wi.acronym)) LIKE ? THEN 2
+                        WHEN LOWER(TRIM(wi.name)) LIKE ? THEN 3
+                        WHEN LOWER(TRIM(wi.code)) LIKE ? THEN 4
+                        ELSE 5
+                    END,
+                    CAST(wi.code AS INTEGER) DESC
+            """
+            params.extend([normalized, normalized + '%', '%' + normalized + '%',
+                           '%' + normalized + '%', '%' + normalized + '%'])
+        else:
+            query += " ORDER BY CAST(wi.code AS INTEGER) DESC"
 
         if limit is not None:
             query += " LIMIT ? OFFSET ?"
@@ -154,6 +175,26 @@ class WorkItemsDatabase:
         except Exception as e:
             logger.error(f"Failed to search Work Items: {e}", exc_info=True)
             return []
+
+    def search_work_item_suggestions(self, search_term: str, limit: int = 40) -> list:
+        """Return ranked WI autocomplete candidates without an arbitrary global snapshot limit."""
+        term = (search_term or "").strip()
+        if not term:
+            return []
+        rows = self.search_work_items(search_term=term, status="all", limit=limit)
+        suggestions = []
+        seen = set()
+        for row in rows:
+            acronym = str(row.get("acronym") or "").strip()
+            code = str(row.get("code") or "").strip()
+            if not acronym:
+                continue
+            key = acronym.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            suggestions.append({"acronym": acronym, "code": code, "name": str(row.get("name") or "").strip()})
+        return suggestions
 
     def get_work_item_details(self, wi_code: str) -> dict:
         """Retrieves comprehensive details for a single Work Item."""
