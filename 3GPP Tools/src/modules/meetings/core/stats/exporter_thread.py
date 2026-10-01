@@ -124,6 +124,7 @@ class StatisticsExporterThread(QThread):
                     'aiDisplay': str(row.get('AI_Display', row.get('Agenda Item', '')) or '').strip(),
                     'wis': list(row.get('Clean_WI_List', []) or []),
                     'companies': list(row.get('Clean_Companies', []) or []),
+                    'source': str(row.get('Source', '') or ''),
                     'status': str(row.get('TDoc Status', '') or '').strip(),
                     'isRevision': bool(str(row.get('Is revision of', '') or '').strip()) or bool(
                         re.search(r'(?:r|rev)\\d{1,2}[a-zA-Z]?$', str(row.get('TDoc', '') or ''), re.IGNORECASE)
@@ -313,6 +314,13 @@ class StatisticsExporterThread(QThread):
                     .sort-indicator {{ color:#94A3B8; font-size:10px; }}
                     .data-table tr.table-filter-hidden {{ display:none; }}
                     .plotly-click-hint {{ text-align:center; color:#64748B; font-size:11px; margin-top:-4px; }}
+                    .filter-chip.inactive {{ opacity:.45; border-style:dashed; }}
+                    .matching-explorer {{ max-width:1200px; margin:-12px auto 24px; background:#FFF; border:1px solid #E2E8F0; border-radius:7px; padding:10px 12px; }}
+                    .matching-explorer summary {{ cursor:pointer; font-weight:bold; color:#334155; }}
+                    .matching-tools {{ display:flex; gap:7px; align-items:center; margin:10px 0 8px; flex-wrap:wrap; }}
+                    .matching-tools input {{ flex:1 1 260px; min-width:180px; border:1px solid #CBD5E1; border-radius:4px; padding:6px 8px; }}
+                    .matching-tools button {{ cursor:pointer; border:1px solid #CBD5E1; background:#F8FAFC; border-radius:4px; padding:5px 8px; font-size:11px; font-weight:bold; }}
+
                 </style>
                 <script>
                     function switchAI(selectedId) {{
@@ -323,7 +331,7 @@ class StatisticsExporterThread(QThread):
                         if(activeSec) {{
                             activeSec.style.display = 'block';
                             window.dispatchEvent(new Event('resize'));
-                            setTimeout(() => {{ wirePlotlyCrossFiltering(); renderDashboardFilters(); }}, 40);
+                            renderDashboardFilters();
                         }}
                     }}
                     function toggleChartData(btn, mode) {{
@@ -348,102 +356,164 @@ class StatisticsExporterThread(QThread):
 
                     const dashboardFilters = {{company: new Set(), ai: new Set(), status: new Set()}};
                     let dashboardRows = [];
+                    let matchingSearch = '';
+                    let matchingShowAll = false;
+                    const MATCHING_PREVIEW_LIMIT = 100;
+
+                    function currentScopeInfo() {{
+                        const select = document.getElementById('scope-select');
+                        const selected = select?.value || 'global';
+                        const option = select?.selectedOptions?.[0];
+                        return {{
+                            id: selected,
+                            wi: option?.dataset?.wi || '',
+                            ai: option?.dataset?.ai || '',
+                            isAiScope: selected.startsWith('ai_')
+                        }};
+                    }}
 
                     function currentScopeRows() {{
-                        const selected = document.getElementById('scope-select')?.value || 'global';
+                        const scope = currentScopeInfo();
                         let rows = dashboardRows;
-                        if(selected.startsWith('wi_')) {{
-                            const option = document.querySelector(`#scope-select option[value="${{selected}}"]`);
-                            const wi = option?.dataset?.wi || '';
-                            if(wi) rows = rows.filter(r => (r.wis || []).includes(wi));
-                        }} else if(selected.startsWith('ai_')) {{
-                            const option = document.querySelector(`#scope-select option[value="${{selected}}"]`);
-                            const ai = option?.dataset?.ai || '';
-                            if(ai) rows = rows.filter(r => r.ai === ai);
-                        }}
+                        if(scope.wi) rows = rows.filter(r => (r.wis || []).includes(scope.wi));
+                        if(scope.ai) rows = rows.filter(r => r.ai === scope.ai);
                         return rows;
                     }}
 
                     function filteredRows() {{
+                        const scope = currentScopeInfo();
                         return currentScopeRows().filter(r =>
                             (!dashboardFilters.company.size || (r.companies || []).some(c => dashboardFilters.company.has(c))) &&
-                            (!dashboardFilters.ai.size || dashboardFilters.ai.has(r.ai)) &&
+                            (scope.isAiScope || !dashboardFilters.ai.size || dashboardFilters.ai.has(r.ai)) &&
                             (!dashboardFilters.status.size || dashboardFilters.status.has(r.status))
                         );
                     }}
 
-                    function addDashboardFilter(dimension, value) {{
+                    function toggleDashboardFilter(dimension, value) {{
+                        value = String(value ?? '').trim();
                         if(!value || !dashboardFilters[dimension]) return;
-                        dashboardFilters[dimension].add(String(value));
+                        const scope = currentScopeInfo();
+                        if(dimension === 'ai' && scope.isAiScope) return;
+                        const set = dashboardFilters[dimension];
+                        set.has(value) ? set.delete(value) : set.add(value);
+                        matchingShowAll = false;
                         renderDashboardFilters();
                     }}
+
                     function removeDashboardFilter(dimension, value) {{
                         dashboardFilters[dimension]?.delete(String(value));
+                        matchingShowAll = false;
                         renderDashboardFilters();
                     }}
+
                     function clearDashboardFilters() {{
                         Object.values(dashboardFilters).forEach(s => s.clear());
+                        matchingSearch = '';
+                        matchingShowAll = false;
+                        const input = document.getElementById('matching-search');
+                        if(input) input.value = '';
                         renderDashboardFilters();
                     }}
+
                     function renderDashboardFilters() {{
                         const host = document.getElementById('active-crossfilters');
                         if(!host) return;
                         host.innerHTML = '';
+                        const scope = currentScopeInfo();
                         const names = {{company:'Company', ai:'AI', status:'Status'}};
                         Object.entries(dashboardFilters).forEach(([dim, values]) => {{
                             values.forEach(value => {{
                                 const chip = document.createElement('span');
-                                chip.className='filter-chip';
+                                chip.className = 'filter-chip' + (dim === 'ai' && scope.isAiScope ? ' inactive' : '');
+                                if(dim === 'ai' && scope.isAiScope) chip.title = 'AI filters are temporarily ignored because the selected scope already fixes the Agenda Item.';
                                 chip.append(document.createTextNode(`${{names[dim]}}: ${{value}}`));
                                 const b=document.createElement('button'); b.textContent='×';
                                 b.onclick=()=>removeDashboardFilter(dim,value); chip.appendChild(b);
                                 host.appendChild(chip);
                             }});
                         }});
-                        const rows=filteredRows();
+                        const scopeRows = currentScopeRows();
+                        const rows = filteredRows();
                         const summary=document.getElementById('crossfilter-summary');
-                        if(summary) summary.textContent=`${{rows.length}} TDocs match active scope + filters`;
-                        applyTableCrossFilters();
+                        if(summary) summary.textContent=`${{rows.length}} / ${{scopeRows.length}} TDocs match`;
+                        renderMatchingTDocs();
                     }}
 
-                    function tableCardDimension(card) {{
-                        const txt=(card?.querySelector('.custom-tooltip-text')?.textContent || '').toLowerCase();
-                        if(txt.includes('top contributors') || txt.includes('specialization')) return 'company';
-                        if(txt.includes('agenda items by volume') || txt.includes('agenda items by status') || txt.includes('revision activity')) return 'ai';
-                        if(txt.includes('tdoc outcomes')) return 'status';
-                        return '';
+                    function handleDashboardPlotClick(ev) {{
+                        const pt=ev?.points?.[0]; if(!pt) return;
+                        const dim=pt.data?.meta?.filterDimension; if(!dim || !dashboardFilters[dim]) return;
+                        let value='';
+                        if(Array.isArray(pt.customdata)) value=pt.customdata[0];
+                        else if(pt.customdata != null) value=pt.customdata;
+                        else if(dim==='company') value=pt.y;
+                        else if(dim==='status') value=pt.label;
+                        toggleDashboardFilter(dim, value);
                     }}
-                    function applyTableCrossFilters() {{
-                        document.querySelectorAll('.dashboard-view-panel').forEach(panel => {{
-                            if(panel.style.display==='none') return;
-                            panel.querySelectorAll('.data-table').forEach(table => {{
-                                const card=table.closest('.chart-card');
-                                const dim=tableCardDimension(card);
-                                const allowed=filteredRows();
-                                let values=null;
-                                if(dim==='company') values=new Set(allowed.flatMap(r=>r.companies||[]));
-                                if(dim==='ai') values=new Set(allowed.map(r=>r.ai));
-                                if(dim==='status') values=new Set(allowed.map(r=>r.status));
-                                Array.from(table.tBodies[0]?.rows || []).forEach(row => {{
-                                    if(!values || !dim) return;
-                                    const value=(row.cells[0]?.dataset.value || row.cells[0]?.textContent || '').trim();
-                                    row.dataset.crossVisible = values.has(value) ? '1':'0';
-                                }});
-                                const search=table.closest('.data-pane')?.querySelector('.data-search');
-                                if(search) filterStatsTable(search); else refreshTableVisibility(table,'');
-                            }});
+
+                    function initializeDashboard() {{
+                        const raw=document.getElementById('dashboard-filter-data');
+                        try {{ dashboardRows=JSON.parse(raw?.textContent || '[]'); }} catch(e) {{ dashboardRows=[]; }}
+                        document.querySelectorAll('.plotly-graph-div').forEach(plot => {{
+                            if(plot.dataset.exploreWired || typeof plot.on !== 'function' || !Array.isArray(plot.data)) return;
+                            const interactive = plot.data.some(trace => dashboardFilters[trace?.meta?.filterDimension]);
+                            if(!interactive) return;
+                            plot.on('plotly_click', handleDashboardPlotClick);
+                            plot.dataset.exploreWired='1';
+                            const pane=plot.closest('.chart-pane');
+                            const card=plot.closest('.chart-card');
+                            if(pane && card && !card.querySelector('.plotly-click-hint')) {{
+                                const hint=document.createElement('div');
+                                hint.className='plotly-click-hint';
+                                hint.textContent='Click a bar, slice or point to explore matching TDocs.';
+                                pane.appendChild(hint);
+                            }}
                         }});
+                        document.querySelectorAll('.data-search').forEach(filterStatsTable);
+                        renderDashboardFilters();
                     }}
+
+                    function matchingRowsAfterSearch() {{
+                        const q=(matchingSearch||'').trim().toLowerCase();
+                        const rows=filteredRows();
+                        if(!q) return rows;
+                        return rows.filter(r => [r.tdoc,r.ai,r.aiDisplay,(r.wis||[]).join(' '),r.source,(r.companies||[]).join(' '),r.status]
+                            .some(v => String(v||'').toLowerCase().includes(q)));
+                    }}
+
+                    function escapeHtml(value) {{
+                        return String(value ?? '').replace(/[&<>\"']/g, ch => ({{'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}}[ch]));
+                    }}
+
+                    function renderMatchingTDocs() {{
+                        const body=document.getElementById('matching-tdocs-body');
+                        const count=document.getElementById('matching-row-count');
+                        if(!body) return;
+                        const rows=matchingRowsAfterSearch();
+                        const shown=matchingShowAll ? rows : rows.slice(0, MATCHING_PREVIEW_LIMIT);
+                        body.innerHTML=shown.map((r,i)=>`<tr data-original-index="${{i}}"><td data-value="${{escapeHtml(r.tdoc)}}">${{escapeHtml(r.tdoc)}}</td><td data-value="${{escapeHtml(r.ai)}}">${{escapeHtml(r.ai)}}</td><td data-value="${{escapeHtml(r.aiDisplay)}}">${{escapeHtml(r.aiDisplay)}}</td><td data-value="${{escapeHtml((r.wis||[]).join('; '))}}">${{escapeHtml((r.wis||[]).join('; '))}}</td><td data-value="${{escapeHtml(r.source || (r.companies||[]).join(', '))}}">${{escapeHtml(r.source || (r.companies||[]).join(', '))}}</td><td data-value="${{escapeHtml(r.status)}}">${{escapeHtml(r.status)}}</td></tr>`).join('');
+                        if(count) count.textContent = shown.length < rows.length ? `Showing ${{shown.length}} of ${{rows.length}}` : `${{rows.length}} rows`;
+                        const more=document.getElementById('matching-show-all');
+                        if(more) {{
+                            more.style.display = rows.length > MATCHING_PREVIEW_LIMIT ? 'inline-block' : 'none';
+                            more.textContent = matchingShowAll ? 'Show first 100' : 'Show all';
+                        }}
+                    }}
+
+                    function filterMatchingTDocs(input) {{
+                        matchingSearch=input.value || '';
+                        matchingShowAll=false;
+                        renderMatchingTDocs();
+                    }}
+                    function toggleMatchingShowAll() {{ matchingShowAll=!matchingShowAll; renderMatchingTDocs(); }}
 
                     function refreshTableVisibility(table, query) {{
                         query=(query||'').toLowerCase();
                         let visible=0, total=0;
                         Array.from(table.tBodies[0]?.rows || []).forEach(row => {{
                             total++;
-                            const searchOk=!query || row.textContent.toLowerCase().includes(query);
-                            const crossOk=row.dataset.crossVisible !== '0';
-                            row.classList.toggle('table-filter-hidden', !(searchOk && crossOk));
-                            if(searchOk && crossOk) visible++;
+                            const show=!query || row.textContent.toLowerCase().includes(query);
+                            row.classList.toggle('table-filter-hidden', !show);
+                            if(show) visible++;
                         }});
                         const count=table.closest('.data-pane')?.querySelector('.data-row-count');
                         if(count) count.textContent=`${{visible}} / ${{total}} rows`;
@@ -471,6 +541,14 @@ class StatisticsExporterThread(QThread):
                         }});
                         rows.forEach(r=>body.appendChild(r));
                     }}
+                    function resetStatsTable(btn) {{
+                        const pane=btn.closest('.data-pane'); if(!pane) return;
+                        const input=pane.querySelector('.data-search'); if(input) input.value='';
+                        const table=pane.querySelector('.data-table'), body=table?.tBodies[0];
+                        if(body) Array.from(body.rows).sort((a,b)=>Number(a.dataset.originalIndex||0)-Number(b.dataset.originalIndex||0)).forEach(r=>body.appendChild(r));
+                        table?.querySelectorAll('th').forEach(h=>{{h.dataset.sort=''; const i=h.querySelector('.sort-indicator'); if(i)i.textContent='↕';}});
+                        if(table) refreshTableVisibility(table,'');
+                    }}
                     function visibleTableMatrix(btn) {{
                         const pane=btn.closest('.data-pane'), table=pane?.querySelector('.data-table'); if(!table)return [];
                         const headers=Array.from(table.tHead?.rows[0]?.cells||[]).map(c=>c.textContent.replace(/[↕↑↓]/g,'').trim());
@@ -478,41 +556,33 @@ class StatisticsExporterThread(QThread):
                             .map(r=>Array.from(r.cells).map(c=>c.dataset.value ?? c.textContent.trim()));
                         return [headers,...rows];
                     }}
-                    function csvEscape(v){{const s=String(v??''); return /[",\n]/.test(s)?`"${{s.replace(/"/g,'""')}}"`:s;}}
+                    function csvEscape(v){{const s=String(v??''); return /[",\\n]/.test(s)?`"${{s.replace(/"/g,'""')}}"`:s;}}
                     function copyVisibleTable(btn) {{
                         const m=visibleTableMatrix(btn); if(!m.length)return;
-                        navigator.clipboard?.writeText(m.map(r=>r.join('\t')).join('\n'));
+                        navigator.clipboard?.writeText(m.map(r=>r.join('\\t')).join('\\n'));
                         const old=btn.textContent; btn.textContent='✓ Copied'; setTimeout(()=>btn.textContent=old,900);
                     }}
                     function downloadVisibleTableCsv(btn) {{
                         const m=visibleTableMatrix(btn); if(!m.length)return;
-                        const csv='\uFEFF'+m.map(r=>r.map(csvEscape).join(',')).join('\r\n');
+                        const csv='\\uFEFF'+m.map(r=>r.map(csvEscape).join(',')).join('\\r\\n');
                         const blob=new Blob([csv],{{type:'text/csv;charset=utf-8;'}}), url=URL.createObjectURL(blob);
-                        const a=document.createElement('a'); a.href=url; a.download='statistics_table.csv'; a.click(); URL.revokeObjectURL(url);
+                        const a=document.createElement('a'); a.href=url;
+                        const scope=document.getElementById('scope-select')?.selectedOptions?.[0]?.textContent?.trim() || 'Statistics';
+                        a.download=(scope.replace(/[^a-z0-9_-]+/gi,'_') || 'Statistics')+'_table.csv'; a.click(); URL.revokeObjectURL(url);
                     }}
-                    function wirePlotlyCrossFiltering() {{
-                        document.querySelectorAll('.js-plotly-plot').forEach(plot => {{
-                            if(plot.dataset.crossfilterWired) return;
-                            plot.dataset.crossfilterWired='1';
-                            plot.on('plotly_click', ev => {{
-                                const pt=ev?.points?.[0]; if(!pt) return;
-                                const dim=pt.data?.meta?.filterDimension; if(!dim) return;
-                                let value='';
-                                if(pt.customdata && Array.isArray(pt.customdata)) value=pt.customdata[0];
-                                else if(pt.customdata != null) value=pt.customdata;
-                                else if(dim==='company') value=pt.y;
-                                else if(dim==='status') value=pt.label;
-                                if(value) addDashboardFilter(dim,String(value));
-                            }});
-                        }});
+                    function matchingMatrix() {{
+                        const rows=matchingRowsAfterSearch();
+                        return [['TDoc','AI','Topic','WI/SI','Source','Status'], ...rows.map(r=>[r.tdoc,r.ai,r.aiDisplay,(r.wis||[]).join('; '),r.source || (r.companies||[]).join(', '),r.status])];
                     }}
-                    document.addEventListener('DOMContentLoaded', () => {{
-                        const raw=document.getElementById('dashboard-filter-data');
-                        try {{ dashboardRows=JSON.parse(raw?.textContent || '[]'); }} catch(e) {{ dashboardRows=[]; }}
-                        wirePlotlyCrossFiltering();
-                        document.querySelectorAll('.data-search').forEach(filterStatsTable);
-                        renderDashboardFilters();
-                    }});
+                    function copyMatchingTDocs(btn) {{
+                        const m=matchingMatrix(); navigator.clipboard?.writeText(m.map(r=>r.join('\\t')).join('\\n'));
+                        const old=btn.textContent; btn.textContent='✓ Copied'; setTimeout(()=>btn.textContent=old,900);
+                    }}
+                    function downloadMatchingTDocsCsv() {{
+                        const m=matchingMatrix(); const csv='\\uFEFF'+m.map(r=>r.map(csvEscape).join(',')).join('\\r\\n');
+                        const blob=new Blob([csv],{{type:'text/csv;charset=utf-8;'}}), url=URL.createObjectURL(blob);
+                        const a=document.createElement('a'); a.href=url; a.download='Matching_TDocs.csv'; a.click(); URL.revokeObjectURL(url);
+                    }}
                 </script>
             </head>
             <body>
@@ -525,14 +595,37 @@ class StatisticsExporterThread(QThread):
                     </select>
                 </div>
                 <div class="interactive-filter-bar">
-                    <span class="interactive-filter-label">🔎 Interactive filters:</span>
+                    <span class="interactive-filter-label">🔎 Explore data:</span>
                     <span id="active-crossfilters"></span>
                     <button type="button" class="clear-crossfilters" onclick="clearDashboardFilters()">Clear filters</button>
                     <span id="crossfilter-summary" class="crossfilter-summary"></span>
                 </div>
                 <script type="application/json" id="dashboard-filter-data">{interactive_json}</script>
+                <details class="matching-explorer" id="matching-explorer">
+                    <summary>Matching TDocs</summary>
+                    <div class="matching-tools">
+                        <input id="matching-search" type="search" placeholder="Search matching TDocs..." oninput="filterMatchingTDocs(this)">
+                        <span id="matching-row-count" class="data-row-count"></span>
+                        <button id="matching-show-all" type="button" onclick="toggleMatchingShowAll()">Show all</button>
+                        <button type="button" onclick="copyMatchingTDocs(this)">📋 Copy</button>
+                        <button type="button" onclick="downloadMatchingTDocsCsv()">⬇ CSV</button>
+                    </div>
+                    <div class="data-table-wrap" style="max-height:420px;">
+                        <table class="data-table" id="matching-tdocs-table"><thead><tr>
+                            <th onclick="sortStatsTable(this)">TDoc <span class="sort-indicator">↕</span></th>
+                            <th onclick="sortStatsTable(this)">AI <span class="sort-indicator">↕</span></th>
+                            <th onclick="sortStatsTable(this)">Topic <span class="sort-indicator">↕</span></th>
+                            <th onclick="sortStatsTable(this)">WI/SI <span class="sort-indicator">↕</span></th>
+                            <th onclick="sortStatsTable(this)">Source <span class="sort-indicator">↕</span></th>
+                            <th onclick="sortStatsTable(this)">Status <span class="sort-indicator">↕</span></th>
+                        </tr></thead><tbody id="matching-tdocs-body"></tbody></table>
+                    </div>
+                </details>
 
                 {" ".join(views_html_buffer)}
+                <script>
+                    window.addEventListener('load', initializeDashboard, {{once:true}});
+                </script>
             </body>
             </html>
             """
