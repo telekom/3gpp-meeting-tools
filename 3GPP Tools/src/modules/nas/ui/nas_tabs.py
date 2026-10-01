@@ -34,7 +34,7 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_DANGER,
     COMBOBOX_STYLE_TOOLBAR,
 )
-from core.utils.paths import get_project_root
+from core.utils.paths import get_project_root, get_specs_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
 from modules.nas.core.nas_threads import NASFetchAndImportThread
@@ -107,7 +107,7 @@ class NASTab(QWidget):
             settings = MeetingsSettings()
             self.cache_dir = Path(settings.cache_dir).parent / "specs"
         except Exception:
-            self.cache_dir = Path.home() / "3GPP_Delegate_Helper" / "specs"
+            self.cache_dir = get_specs_root()
 
         self.db = NASDatabase(self.nas_db_path)
         self.specs_db = (

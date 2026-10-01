@@ -20,6 +20,7 @@ from docx.oxml.text.paragraph import CT_P
 from docx.text.paragraph import Paragraph
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.paths import get_temp_root
 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
 
 logger = logging.getLogger(__name__)
@@ -221,7 +222,7 @@ class WordExcerptEngine:
 
         output = Path(output_path).resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
-        work = Path(tempfile.mkdtemp(prefix="3gpp_word_excerpt_"))
+        work = Path(tempfile.mkdtemp(prefix="word_excerpt_", dir=str(get_temp_root())))
         fragments = []
         try:
             total = max(1, len(source_order))
@@ -397,51 +398,71 @@ class WordExcerptEngine:
 
     @staticmethod
     def _merge_with_word(fragments: Sequence[Path], output: Path):
+        """Merge multiple excerpts by editing a copy of the first fragment.
+
+        The working document lives under the application temp root (the fragment
+        job directory).  This avoids Documents.Add()/SaveAs2() and keeps Word away
+        from OneDrive/network/user-selected destinations until finalization is done.
+        """
         if not fragments:
             raise ValueError("No document fragments were generated.")
+        if len(fragments) < 2:
+            raise ValueError("Word merge is only required for multiple fragments.")
+
+        working = fragments[0].parent / "merged.docx"
+        if working.exists():
+            working.unlink()
+        shutil.copy2(fragments[0], working)
 
         word = None
         dest = None
         com_initialized = False
         com_server_dead = False
-
         try:
             pythoncom.CoInitialize()
             com_initialized = True
             word = win32com.client.DispatchEx("Word.Application")
             WordExcerptEngine._configure_word(word)
 
-            # Merge in a fresh writable document. Do NOT invoke sensitivity labeling
-            # in this session: managed-label add-ins/policy can disconnect Word COM.
-            dest = word.Documents.Add()
-            for index, fragment in enumerate(fragments, start=1):
+            logger.info("   -> Opening first excerpt fragment as merge base: %s", fragments[0].name)
+            dest = word.Documents.Open(
+                os.path.normpath(str(working)),
+                ReadOnly=False,
+                AddToRecentFiles=False,
+            )
+            for index, fragment in enumerate(fragments[1:], start=2):
                 logger.info(
-                    "   -> Merging excerpt fragment %d/%d: %s",
+                    "   -> Appending excerpt fragment %d/%d: %s",
                     index, len(fragments), fragment.name,
                 )
                 rng = dest.Range(dest.Content.End - 1, dest.Content.End - 1)
                 rng.InsertFile(FileName=os.path.normpath(str(fragment)))
 
-            if output.exists():
-                output.unlink()
-            dest.SaveAs2(
-                FileName=os.path.normpath(str(output)),
-                FileFormat=12,  # wdFormatXMLDocument
-            )
+            # The merge base already has a filename, so ordinary Save() is enough.
+            # Avoid SaveAs2(), which proved unstable in managed Word environments.
+            dest.Save()
             dest.Close(SaveChanges=False)
             dest = None
             word.Quit(SaveChanges=0)
             word = None
 
+            if not working.exists() or working.stat().st_size == 0:
+                raise RuntimeError("Microsoft Word returned without producing the merged excerpt.")
+
+            # Reassert first-source formatting only after Word has released the file.
+            WordExcerptEngine._copy_formatting_parts(fragments[0], working)
+
+            # Apply the required corporate label to the local working file.
+            WordExcerptEngine._apply_label_in_fresh_word(working)
+
+            # Only a completely finalized, closed file is copied to the user target.
+            output.parent.mkdir(parents=True, exist_ok=True)
+            if output.exists():
+                output.unlink()
+            shutil.copy2(working, output)
             if not output.exists() or output.stat().st_size == 0:
-                raise RuntimeError("Microsoft Word returned without producing the excerpt file.")
-
-            # Word must be completely out of the way before direct package access.
-            WordExcerptEngine._copy_formatting_parts(fragments[0], output)
-
-            # Only now invoke managed sensitivity-label handling, in an isolated Word
-            # instance so an add-in/RPC failure cannot strand the merge output locked.
-            WordExcerptEngine._apply_label_in_fresh_word(output)
+                raise RuntimeError("Failed to copy the finalized merged excerpt to its destination.")
+            logger.info("   -> Finalized merged excerpt copied to: %s", output)
 
         except Exception as exc:
             com_server_dead = WordExcerptEngine._is_rpc_disconnect(exc)
