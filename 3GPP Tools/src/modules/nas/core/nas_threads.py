@@ -6,7 +6,7 @@ import zipfile
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.network.session import NetworkSession
-from core.utils.paths import get_project_root
+from core.utils.paths import get_app_data_root, get_project_root, get_specs_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
@@ -30,9 +30,9 @@ def get_candidate_cache_dirs() -> List[Path]:
     except Exception as e:
         logging.warning(f"Could not load MeetingsSettings for NAS cache resolution: {e}")
 
-    home_helper = Path.home() / "3GPP_Delegate_Helper"
+    home_helper = get_app_data_root()
     candidate_paths.extend([
-        home_helper / "specs",
+        get_specs_root(),
         home_helper / "cache" / "specs",
         home_helper,
     ])

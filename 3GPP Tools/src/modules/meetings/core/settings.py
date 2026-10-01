@@ -13,7 +13,7 @@ class MeetingsSettings:
         self.cache_dir = self._load_settings()
 
     def _load_settings(self) -> str:
-        fallback = str(Path.home() / "3GPP_Delegate_Helper" / "cache")
+        fallback = str(core.utils.paths.get_cache_root())
         if self.config_file.exists():
             try:
                 with open(self.config_file, 'r', encoding='utf-8') as f:

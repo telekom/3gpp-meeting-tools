@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import (
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_WARNING, \
     BUTTON_STYLE_TOOLBAR_DANGER
-from core.utils.paths import get_project_root
+from core.utils.paths import get_project_root, get_specs_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase
@@ -68,7 +68,7 @@ class SpecSearchTab(QWidget):
             settings = MeetingsSettings()
             self.cache_dir = Path(settings.cache_dir).parent / "specs"
         except Exception:
-            self.cache_dir = Path.home() / "3GPP_Delegate_Helper" / "specs"
+            self.cache_dir = get_specs_root()
 
         self.db = SpecSearchDatabase(self.search_db_path)
         self.specs_db = SpecsDatabase(self.specs_db_path) if self.specs_db_path and self.specs_db_path.exists() else None
