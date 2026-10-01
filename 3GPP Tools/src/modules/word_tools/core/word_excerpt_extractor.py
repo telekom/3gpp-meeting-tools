@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -237,13 +238,12 @@ class WordExcerptEngine:
             shutil.rmtree(work, ignore_errors=True)
 
     @staticmethod
-    def _copy_formatting_parts(source: Path, target: Path):
-        """Copy package-level formatting definitions from source into target.
+    def _copy_formatting_parts(source: Path, target: Path, attempts: int = 12, delay: float = 0.5):
+        """Restore source formatting parts after Word has fully released the output.
 
-        The merge itself is performed by Word in a fresh writable document.  Once
-        Word has closed the output, replacing these OOXML parts makes same-named
-        styles resolve exactly as in the 3GPP source without invoking OrganizerCopy
-        (which can be blocked by managed Office policy).
+        Office and OneDrive can retain a file handle briefly after Document.Close()/
+        Application.Quit().  Retry only sharing/permission failures; other ZIP/package
+        errors are real failures and should surface immediately.
         """
         parts = (
             "word/styles.xml",
@@ -252,24 +252,124 @@ class WordExcerptEngine:
             "word/fontTable.xml",
         )
         tmp = target.with_name(target.name + ".formatting.tmp")
-        with zipfile.ZipFile(source, "r") as src, zipfile.ZipFile(target, "r") as dst, \
-                zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as out:
-            source_names = set(src.namelist())
-            replaced = set()
-            for item in dst.infolist():
-                name = item.filename
-                if name in parts and name in source_names:
-                    out.writestr(item, src.read(name))
-                    replaced.add(name)
-                else:
-                    out.writestr(item, dst.read(name))
-            # stylesWithEffects.xml is optional and may not exist in the fresh file.
-            for name in parts:
-                if name in source_names and name not in replaced:
-                    out.writestr(name, src.read(name))
-                    replaced.add(name)
-        os.replace(tmp, target)
-        logger.info("   -> Restored source formatting package parts: %s", ", ".join(sorted(replaced)))
+        last_exc = None
+        for attempt in range(1, attempts + 1):
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+                with zipfile.ZipFile(source, "r") as src, zipfile.ZipFile(target, "r") as dst, \
+                        zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as out:
+                    source_names = set(src.namelist())
+                    replaced = set()
+                    for item in dst.infolist():
+                        name = item.filename
+                        if name in parts and name in source_names:
+                            out.writestr(item, src.read(name))
+                            replaced.add(name)
+                        else:
+                            out.writestr(item, dst.read(name))
+                    for name in parts:
+                        if name in source_names and name not in replaced:
+                            out.writestr(name, src.read(name))
+                            replaced.add(name)
+                os.replace(tmp, target)
+                logger.info(
+                    "   -> Restored source formatting package parts: %s",
+                    ", ".join(sorted(replaced)),
+                )
+                return
+            except PermissionError as exc:
+                last_exc = exc
+                try:
+                    if tmp.exists():
+                        tmp.unlink()
+                except OSError:
+                    pass
+                if attempt == attempts:
+                    break
+                logger.info(
+                    "   -> Output is still locked; retrying formatting restore (%d/%d)...",
+                    attempt, attempts,
+                )
+                time.sleep(delay)
+        raise RuntimeError(
+            f"Microsoft Word/OneDrive did not release the output file in time: {target}"
+        ) from last_exc
+
+    @staticmethod
+    def _configure_word(word):
+        word.Visible = False
+        word.DisplayAlerts = 0
+        try:
+            word.AutomationSecurity = 3
+            word.Options.ConfirmConversions = False
+            word.Options.DoNotPromptForConvert = True
+            word.Options.WarnBeforeSavingPrintingSendingMarkup = False
+            word.Options.SaveInterval = 0
+        except Exception:
+            pass
+
+    @staticmethod
+    def _is_rpc_disconnect(exc: BaseException) -> bool:
+        hresult = getattr(exc, "hresult", None)
+        if hresult in (-2147023170, -2147023174, -2147417848, -2147418111):
+            return True
+        msg = str(exc).lower()
+        return any(marker in msg for marker in (
+            "0x800706be", "0x800706ba", "0x80010108", "0x80010001",
+            "remote procedure call failed", "rpc server is unavailable",
+            "object invoked has disconnected", "call was rejected by callee",
+        ))
+
+    @staticmethod
+    def _apply_label_in_fresh_word(output: Path):
+        """Apply the corporate label only after package patching is complete.
+
+        A dedicated Word instance isolates sensitivity-label add-in/policy failures
+        from the merge session.  Label failure is deliberately fatal: returning an
+        unlabeled corporate document would be misleading.
+        """
+        word = None
+        doc = None
+        server_dead = False
+        try:
+            word = win32com.client.DispatchEx("Word.Application")
+            WordExcerptEngine._configure_word(word)
+            logger.info("   -> Reopening finalized excerpt for sensitivity labeling...")
+            doc = word.Documents.Open(
+                os.path.normpath(str(output)),
+                ReadOnly=False,
+                AddToRecentFiles=False,
+            )
+            set_sensitivity_label(doc)
+            doc.Save()
+            doc.Close(SaveChanges=False)
+            doc = None
+            word.Quit(SaveChanges=0)
+            word = None
+            logger.info("   -> Sensitivity label applied successfully.")
+        except Exception as exc:
+            server_dead = WordExcerptEngine._is_rpc_disconnect(exc)
+            raise RuntimeError(
+                "The excerpt was created and formatted, but Microsoft Word failed "
+                "while applying the required corporate sensitivity label. The output "
+                "was not reported as successfully completed."
+            ) from exc
+        finally:
+            if not server_dead:
+                if doc is not None:
+                    try:
+                        doc.Close(SaveChanges=False)
+                    except Exception as exc:
+                        if WordExcerptEngine._is_rpc_disconnect(exc):
+                            server_dead = True
+                if word is not None and not server_dead:
+                    try:
+                        word.Quit(SaveChanges=0)
+                    except Exception:
+                        pass
+            doc = None
+            word = None
 
     @staticmethod
     def _merge_with_word(fragments: Sequence[Path], output: Path):
@@ -281,34 +381,14 @@ class WordExcerptEngine:
         com_initialized = False
         com_server_dead = False
 
-        def is_rpc_disconnect(exc: BaseException) -> bool:
-            hresult = getattr(exc, "hresult", None)
-            if hresult in (-2147023170, -2147023174, -2147417848, -2147418111):
-                return True
-            msg = str(exc).lower()
-            return any(marker in msg for marker in (
-                "0x800706be", "0x800706ba", "0x80010108", "0x80010001",
-                "remote procedure call failed", "rpc server is unavailable",
-                "object invoked has disconnected", "call was rejected by callee",
-            ))
-
         try:
             pythoncom.CoInitialize()
             com_initialized = True
             word = win32com.client.DispatchEx("Word.Application")
-            word.Visible = False
-            word.DisplayAlerts = 0
-            try:
-                word.AutomationSecurity = 3
-                word.Options.ConfirmConversions = False
-                word.Options.DoNotPromptForConvert = True
-                word.Options.WarnBeforeSavingPrintingSendingMarkup = False
-                word.Options.SaveInterval = 0
-            except Exception:
-                pass
+            WordExcerptEngine._configure_word(word)
 
-            # Always merge into a fresh writable document.  Source-derived documents
-            # may inherit sensitivity/protection state and reject Range edits.
+            # Merge in a fresh writable document. Do NOT invoke sensitivity labeling
+            # in this session: managed-label add-ins/policy can disconnect Word COM.
             dest = word.Documents.Add()
             for index, fragment in enumerate(fragments, start=1):
                 logger.info(
@@ -317,12 +397,6 @@ class WordExcerptEngine:
                 )
                 rng = dest.Range(dest.Content.End - 1, dest.Content.End - 1)
                 rng.InsertFile(FileName=os.path.normpath(str(fragment)))
-
-            # Apply the corporate label only after all editing is complete.
-            try:
-                set_sensitivity_label(dest)
-            except Exception:
-                logger.warning("Could not apply sensitivity label to excerpt output.", exc_info=True)
 
             if output.exists():
                 output.unlink()
@@ -338,13 +412,15 @@ class WordExcerptEngine:
             if not output.exists() or output.stat().st_size == 0:
                 raise RuntimeError("Microsoft Word returned without producing the excerpt file.")
 
-            # Word has finished with the file, so patch package-level style/theme
-            # definitions directly.  This avoids both protected-document editing and
-            # OrganizerCopy, while leaving merged content/relationships/OLE intact.
+            # Word must be completely out of the way before direct package access.
             WordExcerptEngine._copy_formatting_parts(fragments[0], output)
 
+            # Only now invoke managed sensitivity-label handling, in an isolated Word
+            # instance so an add-in/RPC failure cannot strand the merge output locked.
+            WordExcerptEngine._apply_label_in_fresh_word(output)
+
         except Exception as exc:
-            com_server_dead = is_rpc_disconnect(exc)
+            com_server_dead = WordExcerptEngine._is_rpc_disconnect(exc)
             raise
         finally:
             if not com_server_dead:
@@ -352,7 +428,7 @@ class WordExcerptEngine:
                     try:
                         dest.Close(SaveChanges=False)
                     except Exception as exc:
-                        if is_rpc_disconnect(exc):
+                        if WordExcerptEngine._is_rpc_disconnect(exc):
                             com_server_dead = True
                 if word is not None and not com_server_dead:
                     try:
