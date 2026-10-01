@@ -103,9 +103,14 @@ class WordHeadingScanner:
 
 
 class WordExcerptEngine:
-    def __init__(self, source_paths: Sequence[str], headings: Sequence[HeadingInfo]):
+    def __init__(self, source_paths: Sequence[str], headings: Sequence[HeadingInfo], progress_callback=None):
         self.source_paths = list(source_paths)
         self.headings = {h.id: h for h in headings}
+        self.progress_callback = progress_callback
+
+    def _progress(self, percent: int, message: str):
+        if self.progress_callback:
+            self.progress_callback(max(0, min(100, int(percent))), message)
 
     def _normalize(self, selected_ids: Iterable[str]) -> List[HeadingInfo]:
         chosen = [self.headings[x] for x in selected_ids if x in self.headings]
@@ -134,17 +139,58 @@ class WordExcerptEngine:
         if parent is not None:
             parent.remove(block)
 
+    @staticmethod
+    def _merge_ranges(ranges: List[Tuple[int, int]], block_count: int) -> List[Tuple[int, int]]:
+        normalized = sorted(
+            (max(0, start), min(end, block_count))
+            for start, end in ranges
+            if start < end and start < block_count
+        )
+        merged: List[List[int]] = []
+        for start, end in normalized:
+            if not merged or start > merged[-1][1]:
+                merged.append([start, end])
+            else:
+                merged[-1][1] = max(merged[-1][1], end)
+        return [(start, end) for start, end in merged]
+
     def _make_fragment(self, source: Path, ranges: List[Tuple[int, int]], target: Path):
+        """Create a formatting-safe fragment without O(n^2) body deletion.
+
+        The complete source package is copied first and saved again through
+        python-docx, exactly like the proven legacy path.  The optimization is
+        limited to rebuilding the document body from the *existing* XML nodes
+        instead of calling parent.remove() thousands of times.  Package-level
+        styles, numbering, relationships, media and other parts therefore keep
+        the same preservation semantics as before.
+        """
         shutil.copy2(source, target)
         doc = Document(target)
-        blocks = [x for x in doc.element.body if isinstance(x, (CT_P, CT_Tbl))]
-        keep = set()
-        for start, end in ranges:
-            keep.update(range(start, min(end, len(blocks))))
         body = doc.element.body
-        for i, block in reversed(list(enumerate(blocks))):
-            if i not in keep:
-                self._safe_remove(block, body)
+        children = list(body)
+        blocks = [x for x in children if isinstance(x, (CT_P, CT_Tbl))]
+        merged = self._merge_ranges(ranges, len(blocks))
+
+        keep_indexes = set()
+        for start, end in merged:
+            keep_indexes.update(range(start, end))
+
+        keep_ids = {id(blocks[i]) for i in keep_indexes}
+        kept_blocks = len(keep_ids)
+        logger.info(
+            "   -> Preparing excerpt fragment from %s: keeping %d/%d body blocks in %d range(s)",
+            source.name, kept_blocks, len(blocks), len(merged),
+        )
+
+        # Preserve every non paragraph/table body child (notably the body-level
+        # sectPr) and preserve selected paragraph/table elements verbatim.
+        # Replacing the child list in one operation avoids the legacy O(n^2)
+        # repeated sibling removal on very large specifications.
+        retained = [
+            child for child in children
+            if not isinstance(child, (CT_P, CT_Tbl)) or id(child) in keep_ids
+        ]
+        body[:] = retained
         doc.save(target)
 
     def extract(self, selected_ids: Iterable[str], output_path: str) -> Path:
@@ -165,11 +211,15 @@ class WordExcerptEngine:
         work = Path(tempfile.mkdtemp(prefix="3gpp_word_excerpt_"))
         fragments = []
         try:
+            total = max(1, len(source_order))
             for idx, source_path in enumerate(source_order):
+                self._progress(5 + int(45 * idx / total), f"Preparing excerpt from {Path(source_path).name}...")
                 fragment = work / f"fragment_{idx:03d}.docx"
                 self._make_fragment(Path(source_path), grouped[source_path], fragment)
                 fragments.append(fragment)
+            self._progress(55, "Finalizing excerpt with Microsoft Word...")
             self._merge_with_word(fragments, output)
+            self._progress(100, "Extraction complete.")
             return output
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -310,6 +360,7 @@ class WordExcerptEngine:
 class WordExcerptThread(QThread):
     finished_path = pyqtSignal(str)
     failed = pyqtSignal(str)
+    progress = pyqtSignal(int, str)
     finished = pyqtSignal()
 
     def __init__(self, source_paths, headings, selected_ids, output_path):
@@ -322,9 +373,10 @@ class WordExcerptThread(QThread):
     def run(self):
         try:
             logger.info("Extracting %d selected heading(s)...", len(self.selected_ids))
-            out = WordExcerptEngine(self.source_paths, self.headings).extract(
-                self.selected_ids, self.output_path
-            )
+            out = WordExcerptEngine(
+                self.source_paths, self.headings,
+                progress_callback=lambda percent, message: self.progress.emit(percent, message),
+            ).extract(self.selected_ids, self.output_path)
             logger.info("Excerpt created: %s", out)
             self.finished_path.emit(str(out))
         except Exception as exc:

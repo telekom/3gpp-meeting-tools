@@ -546,10 +546,20 @@ class WordExtractorTab(QWidget):
         self._excerpt_extract_thread = WordExcerptThread(
             self._excerpt_paths, self._excerpt_headings, selected, output
         )
+        self.excerpt_progress.setRange(0, 100)
+        self.excerpt_progress.setValue(0)
+        self.excerpt_progress.setVisible(True)
+        self.excerpt_progress_label.setText("Preparing extraction...")
+        self.excerpt_progress_label.setVisible(True)
         self._excerpt_extract_thread.finished_path.connect(self._on_excerpt_finished)
         self._excerpt_extract_thread.failed.connect(self._on_excerpt_extract_failed)
+        self._excerpt_extract_thread.progress.connect(self._on_excerpt_extract_progress)
         self._excerpt_extract_thread.finished.connect(self._reset_excerpt_button)
         self._excerpt_extract_thread.start()
+
+    def _on_excerpt_extract_progress(self, percent, message):
+        self.excerpt_progress.setValue(percent)
+        self.excerpt_progress_label.setText(message)
 
     def _on_excerpt_finished(self, path):
         QMessageBox.information(self, "Extraction Complete", f"Created:\n{path}")
