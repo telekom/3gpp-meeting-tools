@@ -382,9 +382,27 @@ class WordExtractorTab(QWidget):
     def _scan_excerpt_files(self, files):
         if not files:
             return
-        # A new drop defines the current document set. Preserve this exact list so
-        # the optional drop-order mode remains meaningful after removals/rescans.
-        self._excerpt_input_paths = list(dict.fromkeys(str(Path(f)) for f in files))
+
+        # Additional drops extend the current source set instead of replacing it.
+        # Compare normalized absolute paths so the same Windows file is not added
+        # twice through different path spellings/casing. Preserve first-drop order.
+        existing = {
+            str(Path(path).resolve()).casefold()
+            for path in self._excerpt_input_paths
+        }
+        added = False
+        for file_path in files:
+            path = str(Path(file_path).resolve())
+            key = path.casefold()
+            if key in existing:
+                continue
+            self._excerpt_input_paths.append(path)
+            existing.add(key)
+            added = True
+
+        if not added:
+            return
+
         self._refresh_excerpt_source_list()
         self._rescan_excerpt_sources()
 
