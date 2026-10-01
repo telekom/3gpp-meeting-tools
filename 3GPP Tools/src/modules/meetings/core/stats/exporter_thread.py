@@ -7,6 +7,7 @@ from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 import pandas as pd
 import plotly.express as px
+from plotly.offline import get_plotlyjs_version
 
 from core.config.plot_styles import PALETTE, THEME_COLOR, CLUSTER_PALETTE
 from core.utils.company_sanitizer import CompanySanitizer
@@ -256,13 +257,15 @@ class StatisticsExporterThread(QThread):
                     cohesion_table=ai_alliance_tables.get("cohesion", ""), is_visible=False
                 ))
 
+            plotly_js_version = get_plotlyjs_version()
+
             dashboard_template = f"""
             <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="utf-8">
                 <title>3GPP Multi-Scope Statistics - {meeting_name}</title>
-                <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+                <script src="https://cdn.plot.ly/plotly-{plotly_js_version}.min.js"></script>
                 <style>
                     body {{ font-family: 'Segoe UI', Arial, sans-serif; background-color: #FAFAFA; margin: 0; padding: 20px; }}
                     h1 {{ color: #333; text-align: center; margin-bottom: 10px; }}
