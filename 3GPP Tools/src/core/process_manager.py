@@ -1,6 +1,8 @@
 import subprocess
 import json
 import logging
+import platform
+from typing import Dict, List, Optional
 
 
 class ProcessManager:
@@ -35,6 +37,87 @@ class ProcessManager:
         except Exception as e:
             logging.error(f"Process check failed: {e}")
             return []
+
+
+    @staticmethod
+    def get_open_office_documents(app_name: str) -> List[Dict]:
+        """Return open user documents for Word or PowerPoint via COM."""
+        if platform.system() != "Windows":
+            return []
+
+        app_key = app_name.lower()
+        if app_key == "winword":
+            try:
+                from modules.word_tools.core.document_opener import list_open_word_documents
+                return list_open_word_documents()
+            except Exception as exc:
+                logging.warning("Could not enumerate open Word documents: %s", exc)
+                return []
+
+        if app_key != "powerpnt":
+            return []
+
+        import pythoncom
+        import win32com.client
+        pythoncom.CoInitialize()
+        try:
+            try:
+                app = win32com.client.GetActiveObject("PowerPoint.Application")
+            except Exception:
+                return []
+            result = []
+            for presentation in app.Presentations:
+                try:
+                    full_name = str(presentation.FullName or "").strip()
+                    name = str(presentation.Name or "").strip() or "Untitled Presentation"
+                    result.append({"name": name, "full_name": full_name, "modified": None})
+                except Exception:
+                    continue
+            return result
+        finally:
+            pythoncom.CoUninitialize()
+
+    @staticmethod
+    def close_office_documents(app_name: str, excluded_paths=None, discard_changes: bool = False) -> Dict:
+        """Gracefully close Word/PowerPoint documents, optionally discarding changes."""
+        excluded = {str(x).casefold() for x in (excluded_paths or []) if x}
+        app_key = app_name.lower()
+
+        if app_key == "winword":
+            from modules.word_tools.core.document_opener import close_open_word_documents
+            return close_open_word_documents(excluded_paths=excluded_paths, discard_changes=discard_changes)
+
+        summary = {"closed": 0, "excluded": 0, "failed": []}
+        if app_key != "powerpnt" or platform.system() != "Windows":
+            return summary
+
+        import pythoncom
+        import win32com.client
+        pythoncom.CoInitialize()
+        try:
+            try:
+                app = win32com.client.GetActiveObject("PowerPoint.Application")
+            except Exception:
+                return summary
+            presentations = [app.Presentations.Item(i) for i in range(app.Presentations.Count, 0, -1)]
+            for presentation in presentations:
+                try:
+                    full_name = str(presentation.FullName or "").strip()
+                    key = full_name.casefold() if full_name else str(presentation.Name).casefold()
+                    if key in excluded:
+                        summary["excluded"] += 1
+                        continue
+                    if discard_changes:
+                        # PowerPoint has no Close(saveChanges) argument. Mark it saved so
+                        # Close() does not prompt and therefore deliberately discards edits.
+                        presentation.Saved = True
+                    presentation.Close()
+                    summary["closed"] += 1
+                except Exception as exc:
+                    summary["failed"].append(str(exc))
+            return summary
+        finally:
+            pythoncom.CoUninitialize()
 
     @staticmethod
     def kill_process(pid: int):

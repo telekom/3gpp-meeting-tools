@@ -94,3 +94,86 @@ def open_document(file_path: Union[str, Path]) -> None:
             )
 
     _open_with_default_application(path)
+
+
+def list_open_word_documents():
+    """Return metadata for documents in the currently running Word instance."""
+    if platform.system() != "Windows":
+        return []
+
+    import pythoncom
+    import win32com.client
+
+    pythoncom.CoInitialize()
+    try:
+        try:
+            word = win32com.client.GetActiveObject("Word.Application")
+        except Exception:
+            return []
+
+        documents = []
+        for doc in word.Documents:
+            try:
+                name = str(doc.Name or "").strip() or "Untitled Document"
+                full_name = str(doc.FullName or "").strip()
+                saved = bool(doc.Saved)
+                documents.append({
+                    "name": name,
+                    "full_name": full_name,
+                    "modified": not saved,
+                })
+            except Exception:
+                continue
+        return documents
+    finally:
+        pythoncom.CoUninitialize()
+
+
+def close_open_word_documents(excluded_paths=None, discard_changes: bool = False):
+    """
+    Close documents in the active Word instance while leaving exclusions open.
+
+    Normal mode uses wdPromptToSaveChanges so Word retains its normal save
+    confirmation for modified documents. Destructive mode uses
+    wdDoNotSaveChanges explicitly. The Word application itself is never quit;
+    if all documents close, Word decides its normal UI/session behaviour.
+    """
+    summary = {"closed": 0, "excluded": 0, "failed": []}
+    if platform.system() != "Windows":
+        return summary
+
+    excluded = {str(x).casefold() for x in (excluded_paths or []) if x}
+
+    import pythoncom
+    import win32com.client
+
+    wd_do_not_save_changes = 0
+    wd_prompt_to_save_changes = -2
+
+    pythoncom.CoInitialize()
+    try:
+        try:
+            word = win32com.client.GetActiveObject("Word.Application")
+        except Exception:
+            return summary
+
+        # Snapshot in reverse order because closing mutates Documents.
+        docs = [word.Documents.Item(i) for i in range(word.Documents.Count, 0, -1)]
+        for doc in docs:
+            try:
+                full_name = str(doc.FullName or "").strip()
+                name = str(doc.Name or "").strip() or "Untitled Document"
+                key = full_name.casefold() if full_name else name.casefold()
+                if key in excluded:
+                    summary["excluded"] += 1
+                    continue
+
+                save_option = wd_do_not_save_changes if discard_changes else wd_prompt_to_save_changes
+                doc.Close(SaveChanges=save_option)
+                summary["closed"] += 1
+            except Exception as exc:
+                summary["failed"].append(f"{name}: {exc}")
+
+        return summary
+    finally:
+        pythoncom.CoUninitialize()
