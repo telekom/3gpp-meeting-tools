@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTextEdit, QListWidget, QDialog, QTreeWidget, QTreeWidgetItem,
-    QHeaderView, QTableWidget, QTableWidgetItem, QMessageBox, QApplication
+    QHeaderView, QTableWidget, QTableWidgetItem, QMessageBox, QApplication, QCheckBox
 )
 from PyQt5.QtCore import pyqtSignal, Qt, QObject
 from PyQt5.QtGui import QColor, QBrush, QFont
@@ -443,14 +443,16 @@ class ProcessManagerDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("COM Process Manager")
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
-        self.resize(650, 450)
+        self.resize(820, 520)
         self.setStyleSheet("background-color: #FAFAFA;")
 
         self.apps = {
             "Microsoft Visio": "visio",
             "Microsoft PowerPoint": "powerpnt",
-            "Microsoft Word": "winword"
+            "Microsoft Word": "winword",
         }
+        # Session-only exclusions. Keys are full paths where available, otherwise names.
+        self._kept_open = {"winword": set(), "powerpnt": set()}
 
         self._setup_ui()
         self._refresh_stats()
@@ -459,23 +461,25 @@ class ProcessManagerDialog(QDialog):
         layout = QVBoxLayout()
         layout.setContentsMargins(20, 20, 20, 20)
 
-        title = QLabel("🖥️ Active Office Processes")
+        title = QLabel("🖥️ Active Office Processes & Documents")
         title.setStyleSheet("font-size: 16px; font-weight: bold; color: #333; margin-bottom: 5px;")
         layout.addWidget(title)
 
         desc = QLabel(
-            "Expand an application to view individual documents. You can kill specific frozen documents or safely purge all headless background ghosts."
+            "Word and PowerPoint documents can be closed normally without terminating Office. "
+            "Mark important documents as Keep open (for example the current agenda). "
+            "Close & Discard Changes deliberately drops unsaved edits. Kill remains the emergency fallback."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #666; margin-bottom: 10px;")
         layout.addWidget(desc)
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Application / Document", "Details", "Action"])
+        self.tree.setHeaderLabels(["Application / Document", "Details", "Keep open", "Emergency"])
         self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-
+        self.tree.header().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.tree.setStyleSheet("""
             QTreeWidget { background-color: white; border: 1px solid #DDD; border-radius: 6px; outline: none; }
             QTreeWidget::item { padding: 4px; border-bottom: 1px solid #F0F0F0; }
@@ -483,22 +487,22 @@ class ProcessManagerDialog(QDialog):
         layout.addWidget(self.tree)
 
         btn_layout = QHBoxLayout()
-
         refresh_btn = QPushButton("🔄 Refresh List")
         refresh_btn.setMinimumHeight(30)
         refresh_btn.clicked.connect(self._refresh_stats)
-
         close_btn = QPushButton("Close")
         close_btn.setMinimumHeight(30)
         close_btn.setMinimumWidth(80)
         close_btn.clicked.connect(self.accept)
-
         btn_layout.addStretch()
         btn_layout.addWidget(refresh_btn)
         btn_layout.addWidget(close_btn)
-
         layout.addLayout(btn_layout)
         self.setLayout(layout)
+
+    @staticmethod
+    def _doc_key(doc):
+        return (doc.get("full_name") or doc.get("name") or "").casefold()
 
     def _refresh_stats(self):
         expanded_states = {}
@@ -511,18 +515,19 @@ class ProcessManagerDialog(QDialog):
 
         for display_name, exe_name in self.apps.items():
             app_procs = [p for p in data if p["Name"].lower() == exe_name.lower()]
-
-            if not app_procs:
+            documents = ProcessManager.get_open_office_documents(exe_name) if exe_name in self._kept_open else []
+            if not app_procs and not documents:
                 continue
 
             total = len(app_procs)
             ghosts = sum(1 for p in app_procs if p["IsGhost"])
-
             app_item = QTreeWidgetItem(self.tree)
-            app_item.setText(0, f"{display_name}")
-            app_item.setText(1, f"Total: {total} | Ghosts: {ghosts}")
+            app_item.setText(0, display_name)
+            detail = f"Processes: {total} | Ghosts: {ghosts}"
+            if exe_name in self._kept_open:
+                detail += f" | Documents: {len(documents)}"
+            app_item.setText(1, detail)
             app_item.setForeground(0, QBrush(QColor("#333333")))
-
             font = app_item.font(0)
             font.setBold(True)
             app_item.setFont(0, font)
@@ -532,7 +537,22 @@ class ProcessManagerDialog(QDialog):
             act_layout.setContentsMargins(0, 0, 0, 0)
             act_layout.setSpacing(5)
 
+            if exe_name in self._kept_open and documents:
+                btn_close = QPushButton("Close Documents")
+                btn_close.setToolTip("Close all documents except those marked Keep open. Modified documents use Office's normal save prompt.")
+                btn_close.clicked.connect(lambda _, app=exe_name: self._close_documents(app, False))
+                act_layout.addWidget(btn_close)
+
+                btn_discard = QPushButton("Close & Discard Changes")
+                btn_discard.setToolTip("Close all documents except Keep open and deliberately discard any unsaved edits.")
+                btn_discard.setStyleSheet(
+                    "background-color: #FFF7ED; color: #9A3412; border: 1px solid #FDBA74; padding: 2px 8px; border-radius: 3px;"
+                )
+                btn_discard.clicked.connect(lambda _, app=exe_name: self._close_documents(app, True))
+                act_layout.addWidget(btn_discard)
+
             btn_kill_all = QPushButton("Kill All")
+            btn_kill_all.setToolTip("Force-terminate every process for this application. Use only when graceful closing is not possible.")
             btn_kill_all.setStyleSheet(
                 "background-color: #FDF4F0; color: #D83B01; border: 1px solid #F3C3B1; padding: 2px 8px; border-radius: 3px;"
             )
@@ -541,36 +561,73 @@ class ProcessManagerDialog(QDialog):
 
             if ghosts > 0:
                 btn_kill_ghosts = QPushButton("Kill Ghosts")
-                btn_kill_ghosts.setStyleSheet(
-                    "background-color: #FAFAFA; color: #555; border: 1px solid #CCC; padding: 2px 8px; border-radius: 3px;"
-                )
                 btn_kill_ghosts.clicked.connect(lambda _, app=exe_name: self._kill_ghosts(app))
                 act_layout.addWidget(btn_kill_ghosts)
+            self.tree.setItemWidget(app_item, 3, action_widget)
 
-            self.tree.setItemWidget(app_item, 2, action_widget)
+            if documents:
+                for doc in documents:
+                    child = QTreeWidgetItem(app_item)
+                    prefix = "✏️" if doc.get("modified") is True else "📄"
+                    child.setText(0, f"{prefix} {doc.get('name', 'Untitled Document')}")
+                    full_name = doc.get("full_name") or "Unsaved document"
+                    child.setText(1, full_name)
+                    key = self._doc_key(doc)
+                    keep = QCheckBox("Keep open")
+                    keep.setChecked(key in self._kept_open[exe_name])
+                    keep.toggled.connect(lambda checked, app=exe_name, k=key: self._set_kept_open(app, k, checked))
+                    self.tree.setItemWidget(child, 2, keep)
+            else:
+                for proc in app_procs:
+                    child = QTreeWidgetItem(app_item)
+                    if proc["IsGhost"]:
+                        child.setText(0, "👻 Headless Background Instance")
+                        child.setForeground(0, QBrush(QColor("#D83B01")))
+                    else:
+                        child.setText(0, f"📄 {proc.get('Title', '').strip() or 'Untitled Document'}")
+                    child.setText(1, f"PID: {proc['Id']}")
+                    btn_kill = QPushButton("Kill")
+                    btn_kill.clicked.connect(lambda _, pid=proc["Id"]: self._kill_single(pid))
+                    self.tree.setItemWidget(child, 3, btn_kill)
 
-            if expanded_states.get(f"{display_name}", False):
-                app_item.setExpanded(True)
+            app_item.setExpanded(expanded_states.get(display_name, True))
 
-            for p in app_procs:
-                child = QTreeWidgetItem(app_item)
+    def _set_kept_open(self, app_name, key, checked):
+        if checked:
+            self._kept_open[app_name].add(key)
+        else:
+            self._kept_open[app_name].discard(key)
 
-                if p["IsGhost"]:
-                    child.setText(0, "👻 Headless Background Instance")
-                    child.setForeground(0, QBrush(QColor("#D83B01")))
-                else:
-                    doc_title = p.get("Title", "").strip() or "Untitled Document"
-                    child.setText(0, f"📄 {doc_title}")
-                    child.setForeground(0, QBrush(QColor("#166534")))
+    def _close_documents(self, app_name, discard_changes):
+        excluded = list(self._kept_open.get(app_name, set()))
+        if discard_changes:
+            answer = QMessageBox.warning(
+                self,
+                "Discard Unsaved Changes?",
+                "This will close all non-excluded documents and permanently discard any unsaved changes.\n\n"
+                "Documents marked Keep open are not affected.",
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+            if answer != QMessageBox.Yes:
+                return
 
-                child.setText(1, f"PID: {p['Id']}")
-
-                btn_kill_single = QPushButton("Kill")
-                btn_kill_single.setStyleSheet(
-                    "background-color: #FAFAFA; color: #555; border: 1px solid #CCC; padding: 2px 8px; border-radius: 3px;"
+        try:
+            result = ProcessManager.close_office_documents(
+                app_name, excluded_paths=excluded, discard_changes=discard_changes
+            )
+            if result.get("failed"):
+                QMessageBox.warning(
+                    self,
+                    "Some Documents Could Not Be Closed",
+                    "Closed: {}\nKept open: {}\nFailed: {}".format(
+                        result.get("closed", 0), result.get("excluded", 0), len(result["failed"])
+                    ),
                 )
-                btn_kill_single.clicked.connect(lambda _, pid=p['Id']: self._kill_single(pid))
-                self.tree.setItemWidget(child, 2, btn_kill_single)
+        except Exception as exc:
+            logging.exception("Graceful Office close failed")
+            QMessageBox.critical(self, "Close Failed", str(exc))
+        self._refresh_stats()
 
     def _kill_ghosts(self, app_name):
         ProcessManager.kill_app_ghosts(app_name)
