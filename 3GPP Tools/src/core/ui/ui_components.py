@@ -192,6 +192,40 @@ QHeaderView::section {
 }
 """
 
+
+
+TREE_STYLE_CLEAN = """
+QTreeWidget {
+    background-color: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 6px;
+    alternate-background-color: #F8FAFC;
+    font-size: 12px;
+    outline: none;
+}
+QTreeWidget::item {
+    min-height: 28px;
+    padding: 2px 6px;
+    border-bottom: 1px solid #F1F5F9;
+}
+QTreeWidget::item:selected {
+    background-color: #EBF3FC;
+    color: #1E293B;
+}
+QTreeWidget::item:hover {
+    background-color: #F8FAFC;
+}
+QHeaderView::section {
+    background-color: #F8FAFC;
+    color: #475569;
+    font-weight: bold;
+    font-size: 11px;
+    border: none;
+    border-bottom: 1px solid #CBD5E1;
+    padding: 6px 8px;
+}
+"""
+
 SEARCH_INPUT_STYLE = """
 QLineEdit {
     padding: 4px 8px;
