@@ -41,6 +41,7 @@ from modules.specifications.ui.dialogs import (
 )
 from modules.specifications.ui.threads import SpecDownloadThread
 from modules.specifications.utils.utils import build_dynareport_url
+from modules.word_tools.core.document_opener import open_document
 
 logger = logging.getLogger(__name__)
 
@@ -1155,7 +1156,7 @@ class SpecificationsTab(QWidget):
             for doc_path in extracted_docs:
                 try:
                     if doc_type == "word":
-                        os.startfile(str(doc_path))
+                        open_document(doc_path)
 
                         # Refresh badges to show 📝 immediately after Word extraction
                         try:

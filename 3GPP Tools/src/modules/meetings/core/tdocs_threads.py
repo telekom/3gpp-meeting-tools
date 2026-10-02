@@ -18,6 +18,7 @@ from modules.word_tools.core.libreoffice_converter import (
     is_libreoffice_available,
     get_libreoffice_missing_msg,
 )
+from modules.word_tools.core.document_opener import open_document
 
 
 class TDocsRevisionsFetcherThread(QThread):
@@ -166,14 +167,14 @@ class TDocActionThread(QThread):
             return
 
         if self.open_file:
-            import os
-            import webbrowser
-
             for doc in self.extracted_doc_paths:
-                if hasattr(os, "startfile"):
-                    os.startfile(str(doc))
-                else:
-                    webbrowser.open(f"file:///{doc}")
+                try:
+                    open_document(doc)
+                except Exception as exc:
+                    logging.error(
+                        f"❌ Could not open extracted document '{doc}': {exc}",
+                        exc_info=True,
+                    )
 
         msg = (
             "Opened successfully."
