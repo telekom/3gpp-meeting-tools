@@ -30,7 +30,7 @@ from modules.meetings.ui.dialogs import MeetingInfoDialog, AddMeetingDialog, Mee
 from modules.meetings.ui.models import MeetingsTableModel
 from modules.meetings.ui.search_controller import GlobalSearchController
 from modules.meetings.ui.tdocs_components import CheckableComboBox
-from modules.meetings.ui.tdocs_window import TDocsWindow
+from modules.meetings.ui.tdocs_window import TDocsWindow, _open_terminal
 from modules.word_tools.core.word_comparator import WordComparatorThread
 from modules.meetings.core.tdocs_merger import TDocsMergerThread
 from modules.meetings.ui.contribution_dialog import ContributionReportDialog
@@ -927,6 +927,14 @@ class MeetingsTab(QWidget):
                     menu.addAction("📁 Open Local Cache Folder").triggered.connect(
                         lambda _, p=str(local_path): os.startfile(p) if hasattr(os, 'startfile') else webbrowser.open(
                             f"file:///{p}")
+                    )
+
+                    terminal_action = menu.addAction("💻 Open Terminal in Meeting Cache")
+                    terminal_action.setToolTip(
+                        "Open Windows Terminal with this meeting's local cache folder as its working directory."
+                    )
+                    terminal_action.triggered.connect(
+                        lambda _, p=local_path: _open_terminal(p, self)
                     )
 
                     menu.addAction("📋 Download Agenda CSV").triggered.connect(

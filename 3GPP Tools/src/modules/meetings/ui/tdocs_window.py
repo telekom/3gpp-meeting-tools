@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import urllib.parse
 import webbrowser
 from pathlib import Path
@@ -104,6 +105,34 @@ def _open_folder(p: Path):
         os.startfile(str(p)) if hasattr(os, 'startfile') else webbrowser.open(f"file:///{p}")
     else:
         QMessageBox.warning(None, "Not Found", "Target file/folder does not exist yet.")
+
+
+def _open_terminal(path: Path, parent=None):
+    """Open a terminal with its working directory set to the meeting cache."""
+    path = Path(path)
+    if not path.is_dir():
+        QMessageBox.warning(parent, "Not Found", "The local meeting cache folder does not exist.")
+        return
+
+    try:
+        subprocess.Popen(["wt.exe", "-d", str(path)], cwd=str(path))
+        return
+    except FileNotFoundError:
+        # Windows Terminal is not installed or its app execution alias is unavailable.
+        pass
+    except OSError as exc:
+        QMessageBox.critical(parent, "Terminal Error", f"Could not open Windows Terminal:\n{exc}")
+        return
+
+    # Keep the fallback useful on Windows installations without Windows Terminal.
+    escaped_path = str(path).replace("'", "''")
+    try:
+        subprocess.Popen(
+            ["powershell.exe", "-NoExit", "-Command", f"Set-Location -LiteralPath '{escaped_path}'"],
+            cwd=str(path),
+        )
+    except OSError as exc:
+        QMessageBox.critical(parent, "Terminal Error", f"Could not open a terminal:\n{exc}")
 
 
 class TDocsWindow(QWidget):
@@ -340,6 +369,12 @@ class TDocsWindow(QWidget):
     def _populate_resources_menu(self):
         self.folder_menu.clear()
         self.folder_menu.addAction("📁 Local: Meeting Folder", self._open_meeting_folder)
+        if self.meeting_dir.is_dir():
+            act = self.folder_menu.addAction(
+                "💻 Open Terminal in Meeting Cache",
+                lambda: _open_terminal(self.meeting_dir, self),
+            )
+            act.setToolTip("Open Windows Terminal with this meeting's local cache folder as its working directory.")
         local_agenda_csv = self.agenda_dir / "agenda.csv"
         if local_agenda_csv.exists():
             self.folder_menu.addAction("📋 Local: agenda.csv", lambda: _open_folder(local_agenda_csv))
