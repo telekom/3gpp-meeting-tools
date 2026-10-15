@@ -1,3 +1,4 @@
+# --- File: src/core/ui/ui_panels.py ---
 import logging
 import os
 from pathlib import Path
@@ -796,7 +797,7 @@ class ConsolePanel(QWidget):
         self.db_btn.clicked.connect(self.db_maintenance_requested.emit)
 
         self.proxy_btn = QPushButton("📡 Proxy")
-        self.proxy_btn.setFixedSize(70, 24)
+        self.proxy_btn.setFixedSize(95, 24)
         self.proxy_btn.setStyleSheet("padding: 2px; font-size: 11px;")
         self.proxy_btn.setToolTip("Update network proxy settings and retry system initialization.")
         self.proxy_btn.clicked.connect(self.proxy_requested.emit)
@@ -838,6 +839,32 @@ class ConsolePanel(QWidget):
 
     def clear_log(self):
         self.console.clear()
+
+    def set_proxy_status(self, enabled: bool, tooltip: str = ""):
+        """Updates the Terminal toolbar Proxy button to reflect active proxy state."""
+        if enabled:
+            self.proxy_btn.setText("🛡️ Proxy: ON")
+            self.proxy_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #F0FDF4;
+                    color: #15803D;
+                    border: 1px solid #BBF7D0;
+                    border-radius: 4px;
+                    padding: 2px 6px;
+                    font-size: 11px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #DCFCE7;
+                    border-color: #86EFAC;
+                }
+            """)
+        else:
+            self.proxy_btn.setText("📡 Proxy")
+            self.proxy_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+
+        if tooltip:
+            self.proxy_btn.setToolTip(tooltip)
 
     def log_message(self, message: str, level=logging.INFO):
         color = "#D4D4D4"
