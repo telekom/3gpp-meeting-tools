@@ -7,6 +7,7 @@ import urllib.request
 
 from PyQt5.QtWidgets import QApplication, QDialog
 
+from core.network.session import NetworkSession
 from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from core.ui.ui_panels import GuiLogHandler
 from core.utils.paths import ensure_app_data_dirs, get_app_data_root, get_project_root
@@ -131,19 +132,12 @@ if __name__ == '__main__':
         proxy_dialog = ProxyDialog()
 
         if proxy_dialog.exec_() == QDialog.Accepted:
-            http_val, https_val = proxy_dialog.get_proxies()
-            proxies = {}
-
-            if http_val:
-                proxies['http'] = http_val
-
-            if https_val:
-                proxies['https'] = https_val
-
-            if proxies:
-                proxy_handler = urllib.request.ProxyHandler(proxies)
-                opener = urllib.request.build_opener(proxy_handler)
-                urllib.request.install_opener(opener)
+            active_proxies = {
+                k: v for k, v in (NetworkSession.get_instance().proxies or {}).items() if v
+            }
+            proxy_handler = urllib.request.ProxyHandler(active_proxies)
+            opener = urllib.request.build_opener(proxy_handler)
+            urllib.request.install_opener(opener)
 
     logging.info(
         "🏁 [STARTUP] Instantiating main window (DragDropUI)..."

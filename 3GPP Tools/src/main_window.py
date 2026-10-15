@@ -1,3 +1,4 @@
+# --- File: src/main_window.py ---
 import datetime
 import logging
 import os
@@ -13,7 +14,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.config.config import HELP_URL
-from core.network.session import NetworkConfigDialog
+from core.network.session import NetworkConfigDialog, NetworkSession, ProxyProfileManager
 from core.network.wifi_monitor import WifiMonitorThread
 from core.queue_manager import QueueManager
 from core.ui.ui_components import ProxyDialog, create_app_icon
@@ -272,7 +273,6 @@ class DragDropUI(QMainWindow):
         self.console_panel.task_manager_requested.connect(self.open_task_manager)
         self.console_panel.db_maintenance_requested.connect(self.open_db_maintenance)
 
-
         self.queue_panel = QueuePanel()
 
         self.bottom_splitter.addWidget(self.console_panel)
@@ -301,27 +301,37 @@ class DragDropUI(QMainWindow):
         self.ollama_indicator.setCursor(Qt.PointingHandCursor)
         self.ollama_indicator.setToolTip("Click to configure Ollama LLM connection")
         self.ollama_indicator.setStyleSheet("""
-                    QPushButton {
-                        background-color: transparent;
-                        border: 1px solid #CBD5E1;
-                        border-radius: 4px;
-                        padding: 1px 8px;
-                        font-size: 11px;
-                        font-weight: bold;
-                        color: #64748B;
-                    }
-                    QPushButton:hover {
-                        background-color: #F1F5F9;
-                        border-color: #94A3B8;
-                    }
-                """)
+            QPushButton {
+                background-color: transparent;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 1px 8px;
+                font-size: 11px;
+                font-weight: bold;
+                color: #64748B;
+            }
+            QPushButton:hover {
+                background-color: #F1F5F9;
+                border-color: #94A3B8;
+            }
+        """)
         self.ollama_indicator.clicked.connect(self.open_ollama_settings)
         self.status_bar.addPermanentWidget(self.ollama_indicator)
+
+        # Proxy Indicator Pill (clickable, sits between Ollama and Network indicators)
+        self.proxy_indicator = QPushButton("🌐 Direct")
+        self.proxy_indicator.setCursor(Qt.PointingHandCursor)
+        self.proxy_indicator.clicked.connect(self.open_proxy_settings)
+        self.status_bar.addPermanentWidget(self.proxy_indicator)
 
         # Network Indicator (starts as neutral Network label instead of "Checking...")
         self.network_indicator = QLabel("📶 Network")
         self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
         self.status_bar.addPermanentWidget(self.network_indicator)
+
+        # Sync initial proxy state from encrypted profile / environment
+        self._sync_proxy_environment_from_session()
+        self._update_proxy_indicator()
 
         logging.info("🏁 [STARTUP:UI] _setup_ui() layout complete.")
 
@@ -443,29 +453,96 @@ class DragDropUI(QMainWindow):
     def toggle_live_view(self, checked):
         self.live_preview.toggle(checked)
 
+    def _sync_proxy_environment_from_session(self):
+        """
+        Ensures urllib and os.environ match NetworkSession's active proxies on startup
+        and after proxy dialog changes.
+        """
+        session = NetworkSession.get_instance()
+        proxies = {k: v for k, v in (session.proxies or {}).items() if v}
+
+        if proxies.get("http"):
+            os.environ["HTTP_PROXY"] = proxies["http"]
+        else:
+            os.environ.pop("HTTP_PROXY", None)
+
+        if proxies.get("https"):
+            os.environ["HTTPS_PROXY"] = proxies["https"]
+        else:
+            os.environ.pop("HTTPS_PROXY", None)
+
+        proxy_handler = urllib.request.ProxyHandler(proxies)
+        opener = urllib.request.build_opener(proxy_handler)
+        urllib.request.install_opener(opener)
+
+    def _update_proxy_indicator(self):
+        """Updates both the bottom status bar pill and the ConsolePanel Proxy button."""
+        session = NetworkSession.get_instance()
+        active_proxies = {
+            proto: NetworkSession._sanitize_proxy_url(url)
+            for proto, url in (session.proxies or {}).items()
+            if url
+        }
+
+        if active_proxies:
+            details = "\n".join(f"• {k.upper()}: {v}" for k, v in active_proxies.items())
+            tooltip = f"Proxy Active:\n{details}\n\nClick to configure proxy settings"
+
+            self.proxy_indicator.setText("🛡️ Proxy: ON")
+            self.proxy_indicator.setToolTip(tooltip)
+            self.proxy_indicator.setStyleSheet("""
+                QPushButton {
+                    background-color: #EBF8FF;
+                    border: 1px solid #90CDF4;
+                    border-radius: 4px;
+                    padding: 1px 8px;
+                    font-size: 11px;
+                    font-weight: bold;
+                    color: #1E5C99;
+                }
+                QPushButton:hover {
+                    background-color: #BEE3F8;
+                    border-color: #63B3ED;
+                }
+            """)
+            self.console_panel.set_proxy_status(True, tooltip)
+        else:
+            profile = ProxyProfileManager.load_profile()
+            has_saved = bool(profile.get("http_host") or profile.get("https_host"))
+            state_note = " (Saved profile inactive)" if has_saved else ""
+            tooltip = f"Direct Connection — No proxy active{state_note}\nClick to configure proxy settings"
+
+            self.proxy_indicator.setText("🌐 Direct")
+            self.proxy_indicator.setToolTip(tooltip)
+            self.proxy_indicator.setStyleSheet("""
+                QPushButton {
+                    background-color: transparent;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 4px;
+                    padding: 1px 8px;
+                    font-size: 11px;
+                    font-weight: bold;
+                    color: #64748B;
+                }
+                QPushButton:hover {
+                    background-color: #F1F5F9;
+                    border-color: #94A3B8;
+                }
+            """)
+            self.console_panel.set_proxy_status(False, tooltip)
+
     def open_proxy_settings(self):
         proxy_dialog = ProxyDialog(self)
         if proxy_dialog.exec_() == QDialog.Accepted:
-            http_val, https_val = proxy_dialog.get_proxies()
-            proxies = {}
-            if http_val:
-                proxies['http'] = http_val
-                os.environ['HTTP_PROXY'] = http_val
-            else:
-                os.environ.pop('HTTP_PROXY', None)
+            # ProxyDialog.accept() / deactivate_profile() already updated NetworkSession.
+            # Sync urllib/os.environ and refresh the GUI proxy indicators:
+            self._sync_proxy_environment_from_session()
+            self._update_proxy_indicator()
 
-            if https_val:
-                proxies['https'] = https_val
-                os.environ['HTTPS_PROXY'] = https_val
-            else:
-                os.environ.pop('HTTPS_PROXY', None)
-
-            # Configure standard library opener for urllib
-            proxy_handler = urllib.request.ProxyHandler(proxies)
-            opener = urllib.request.build_opener(proxy_handler)
-            urllib.request.install_opener(opener)
-
-            status = "updated" if proxies else "cleared (direct connection)"
+            active_proxies = {
+                k: v for k, v in (NetworkSession.get_instance().proxies or {}).items() if v
+            }
+            status = "activated" if active_proxies else "deactivated (direct connection)"
             self.log_message(f"✅ Proxy settings {status}. Retrying system checks...", logging.INFO)
 
             self.batch_tab.set_state("ready", "⏳ Re-initializing system checks...")
