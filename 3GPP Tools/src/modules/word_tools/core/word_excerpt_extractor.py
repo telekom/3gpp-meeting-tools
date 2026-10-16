@@ -430,6 +430,25 @@ class WordExcerptEngine:
                 ReadOnly=False,
                 AddToRecentFiles=False,
             )
+
+            # -----------------------------------------------------------------
+            # FIX: Unprotect and Pre-apply Sensitivity Label on the Merge Base
+            # -----------------------------------------------------------------
+            # Corporate enterprise policies (Microsoft Purview) lock unlabeled
+            # documents for editing upon open. Pre-applying the label and unlocking
+            # protection here ensures rng.InsertFile() never throws error -2146823683.
+            try:
+                if dest.ProtectionType != -1:
+                    dest.Unprotect()
+            except Exception:
+                pass
+
+            try:
+                set_sensitivity_label(dest)
+            except Exception as label_exc:
+                logger.warning("   -> Pre-labeling merge base encountered an issue (will retry at finalization): %s",
+                               label_exc)
+
             for index, fragment in enumerate(fragments[1:], start=2):
                 logger.info(
                     "   -> Appending excerpt fragment %d/%d: %s",
