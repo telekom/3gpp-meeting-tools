@@ -34,6 +34,7 @@ from modules.specifications.ui.components import HoverMenuButton
 from modules.specifications.ui.dialogs import (
     AddSpecDialog,
     AdvancedSyncDialog,
+    SpecClauseExcerptDialog,
     SpecInfoDialog,
     SpecsConfigDialog,
     TableFilterDialog,
@@ -1076,6 +1077,12 @@ class SpecificationsTab(QWidget):
 
                     menu.addSeparator()
 
+                    # Add the new Clause Excerpt action here:
+                    act_excerpt = menu.addAction("✂️ Extract Clauses (Excerpt)...")
+                    act_excerpt.triggered.connect(lambda: self._open_clause_excerpt_dialog(c))
+
+                    menu.addSeparator()
+
                     zip_label = "📦 Show ZIP Archive ✅" if zip_exists else "📥 Download ZIP Archive"
                     act_zip = menu.addAction(zip_label)
                     act_zip.triggered.connect(lambda: self._handle_zip_action(c, btn))
@@ -1108,6 +1115,42 @@ class SpecificationsTab(QWidget):
     # ==========================================
     # --- DOCUMENT FETCH & EXTRACTION ---
     # ==========================================
+    def _open_clause_excerpt_dialog(self, combo: QComboBox):
+        if sip.isdeleted(combo):
+            return
+        c_data = combo.currentData()
+        if not c_data:
+            return
+
+        spec_num = c_data["spec_num"]
+        spec_dl_dir = Path(self.download_dir) / spec_num
+        spec_type = "TS"
+        details = self.db.get_spec_details(spec_num)
+        if details and details.get("type"):
+            spec_type = details["type"]
+
+        dialog = SpecClauseExcerptDialog(
+            spec_num=spec_num,
+            spec_type=spec_type,
+            version=c_data.get("version", ""),
+            fname=c_data.get("fname", ""),
+            url=c_data.get("url", ""),
+            spec_dl_dir=spec_dl_dir,
+            parent=self,
+        )
+
+        def _on_extraction_done(p: Path, c=combo):
+            try:
+                if not sip.isdeleted(c):
+                    idx = c.currentIndex()
+                    self._update_combo_item_badges(c, idx)
+                    c.currentIndexChanged.emit(idx)
+            except RuntimeError:
+                pass
+
+        dialog.extraction_completed.connect(_on_extraction_done)
+        dialog.show()
+
     def _handle_document_action(self, combo: QComboBox, doc_type: str, btn: QPushButton):
         if sip.isdeleted(combo):
             return
