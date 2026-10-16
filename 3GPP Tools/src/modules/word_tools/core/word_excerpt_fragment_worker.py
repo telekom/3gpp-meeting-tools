@@ -4,18 +4,28 @@ This helper intentionally runs in a separate Python process so serialization of
 very large DOCX packages cannot starve the PyQt GUI event loop.
 """
 import json
+import os
 import re
 import shutil
+import stat
 import sys
 from pathlib import Path
 from typing import List, Tuple
 
 from docx import Document
+from docx.oxml.ns import qn
 from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
+from lxml import etree
 
 
-# Matches r:id="rId...", r:embed="rId...", r:link="rId..." in surviving body XML
+# Pre-resolve namespace-qualified attribute names for fast C-level lookup
+_ATTR_R_ID = qn("r:id")
+_ATTR_R_EMBED = qn("r:embed")
+_ATTR_R_LINK = qn("r:link")
+_REL_ATTRS = (_ATTR_R_ID, _ATTR_R_EMBED, _ATTR_R_LINK)
+
+# Fallback regex only if non-standard r:* attributes exist
 RE_ACTIVE_RIDS = re.compile(r'\br:(?:id|embed|link)="([^"]+)"')
 
 # Relationship types that carry heavy binary payloads (images, Visio/OLE, embedded packages)
@@ -36,7 +46,7 @@ def merge_ranges(ranges: List[Tuple[int, int]], block_count: int) -> List[Tuple[
         for start, end in ranges
         if int(start) < int(end) and int(start) < block_count
     )
-    merged = []
+    merged: List[List[int]] = []
     for start, end in normalized:
         if not merged or start > merged[-1][1]:
             merged.append([start, end])
@@ -47,12 +57,25 @@ def merge_ranges(ranges: List[Tuple[int, int]], block_count: int) -> List[Tuple[
 
 def prune_unused_media(doc) -> int:
     """
-    Garbage Collector: Scans the surviving document body XML for active Relationship IDs (rId).
+    Garbage Collector: Scans the surviving document body for active Relationship IDs (rId).
     Unlinks any heavy media/OLE/package relationships that are no longer referenced by the
     extracted clauses so python-docx omits their binary streams on save.
     """
-    xml_str = doc.element.body.xml
-    used_rids = set(RE_ACTIVE_RIDS.findall(xml_str))
+    body = doc.element.body
+
+    # Fast C-level attribute scan via lxml (avoids pretty-printing body.xml into a huge string)
+    used_rids = set()
+    for elem in body.iter():
+        attrib = elem.attrib
+        if attrib:
+            for attr_name in _REL_ATTRS:
+                val = attrib.get(attr_name)
+                if val is not None:
+                    used_rids.add(val)
+
+    # Also check unparsed VML/AlternateContent raw XML fragments if any exist via fast tostring
+    raw_xml = etree.tostring(body, encoding="unicode")
+    used_rids.update(RE_ACTIVE_RIDS.findall(raw_xml))
 
     rels = doc.part.rels
     pruned_count = 0
@@ -69,27 +92,43 @@ def prune_unused_media(doc) -> int:
 
 def make_fragment(source: Path, target: Path, ranges: List[Tuple[int, int]]) -> None:
     shutil.copy2(source, target)
+    # Ensure target is writable in case source had a read-only flag from IT/SharePoint/ZIP
+    try:
+        os.chmod(target, stat.S_IWRITE | stat.S_IREAD)
+    except OSError:
+        pass
+
     doc = Document(target)
     body = doc.element.body
-    children = list(body)
-    blocks = [x for x in children if isinstance(x, (CT_P, CT_Tbl))]
-    merged = merge_ranges(ranges, len(blocks))
 
-    keep_indexes = set()
+    # Fast single-pass separation of blocks vs body-level structural elements (e.g. final sectPr, bookmarks)
+    blocks = []
+    non_blocks = []
+    for child in body:
+        if isinstance(child, (CT_P, CT_Tbl)):
+            blocks.append(child)
+        else:
+            non_blocks.append(child)
+
+    total_blocks = len(blocks)
+    merged = merge_ranges(ranges, total_blocks)
+
+    # Slice blocks directly using merged ranges instead of hashing thousands of element IDs
+    retained = []
     for start, end in merged:
-        keep_indexes.update(range(start, end))
-    keep_ids = {id(blocks[i]) for i in keep_indexes}
+        retained.extend(blocks[start:end])
 
+    kept_count = len(retained)
     print(
-        f"Preparing {source.name}: keeping {len(keep_ids)}/{len(blocks)} "
+        f"Preparing {source.name}: keeping {kept_count}/{total_blocks} "
         f"body blocks in {len(merged)} range(s)",
         flush=True,
     )
 
-    retained = [
-        child for child in children
-        if not isinstance(child, (CT_P, CT_Tbl)) or id(child) in keep_ids
-    ]
+    # Preserve non-block body elements (such as the trailing document <w:sectPr>) at the end
+    retained.extend(non_blocks)
+
+    # O(N) C-level bulk replacement of body children
     body[:] = retained
 
     # Prune orphaned Visio, OLE, and image relationships before saving
