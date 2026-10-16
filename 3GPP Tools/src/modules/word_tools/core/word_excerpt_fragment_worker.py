@@ -23,14 +23,14 @@ ARCHITECTURAL NOTES & LESSONS LEARNED:
    By keeping the parsed tree 100% read-only and serializing ONLY the kept nodes via
    `etree.tostring(child)`, we achieve near-instantaneous execution (~0.01s).
 
-3. Formatting & Security Descriptor Preservation:
-   - File metadata, enterprise ACLs, and sensitivity classifications are preserved
-     by seeding the target file with `shutil.copy2(source, target)`.
-   - Trailing body elements (like the root `<w:sectPr>` controlling page margins,
-     headers, and footers) are retained so document layout is never lost.
-   - All other package parts (styles.xml, numbering.xml, theme, fontTable.xml) are
-     streamed byte-for-byte directly from the original ZIP package without re-compression
-     overhead or loss of formatting definitions.
+3. Multi-File Word Merge Compatibility & Unlocking:
+   - Strips NTFS `:Zone.Identifier` (Mark-of-the-Web) alternate data streams that
+     `shutil.copy2` copies from downloaded 3GPP ZIPs, preventing Word COM from
+     opening fragments in Protected View ("locked for editing").
+   - Strips `<w:documentProtection>` and `<w:writeProtection>` from `word/settings.xml`
+     so Word COM `InsertFile` never fails with error -2146823683 ("locked for editing").
+   - Cleans `[Content_Types].xml` overrides for pruned media/OLE parts so Word's
+     OPC validator never flags missing package parts during `InsertFile`.
 """
 import io
 import json
@@ -57,6 +57,7 @@ R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 TAG_BODY = f"{{{W_NS}}}body"
 TAG_P = f"{{{W_NS}}}p"
 TAG_TBL = f"{{{W_NS}}}tbl"
+TAG_SECTPR = f"{{{W_NS}}}sectPr"
 
 # 3GPP document body flow consists of paragraphs (<w:p>) and tables (<w:tbl>).
 # Any other body child (such as the document-level <w:sectPr>) is considered structural.
@@ -72,6 +73,12 @@ REL_ATTRS = (
 
 # Fallback regex for legacy VML shapes or non-standard AlternateContent blocks
 RE_ACTIVE_RIDS = re.compile(rb'\br:(?:id|embed|link)="([^"]+)"')
+
+# Regexes to strip editing locks from word/settings.xml so Word COM InsertFile never fails
+RE_DOC_PROTECTION = re.compile(
+    rb"<(?:w:)?(?:documentProtection|writeProtection)\b[^>]*/?>",
+    re.IGNORECASE,
+)
 
 # Relationship types carrying heavy binary payloads (images, Visio diagrams, OLE binaries)
 # that should be removed if no longer referenced in the extracted excerpt
@@ -108,6 +115,35 @@ def merge_ranges(ranges: List[Tuple[int, int]], block_count: int) -> List[Tuple[
         else:
             merged[-1][1] = max(merged[-1][1], end)
     return [(start, end) for start, end in merged]
+
+
+def _clean_content_types(content_types_bytes: bytes, pruned_zip_paths: Set[str], parser) -> bytes:
+    """Remove <Override> entries in [Content_Types].xml for pruned binary parts."""
+    if not pruned_zip_paths:
+        return content_types_bytes
+    try:
+        ct_root = etree.fromstring(content_types_bytes, parser=parser)
+        to_remove = []
+        for child in ct_root:
+            part_name = child.get("PartName", "")
+            if part_name.startswith("/"):
+                norm_part = part_name.lstrip("/")
+            else:
+                norm_part = part_name
+            if norm_part in pruned_zip_paths:
+                to_remove.append(child)
+        if not to_remove:
+            return content_types_bytes
+        for child in to_remove:
+            ct_root.remove(child)
+        return etree.tostring(
+            ct_root,
+            encoding="utf-8",
+            xml_declaration=True,
+            standalone="yes",
+        )
+    except Exception:
+        return content_types_bytes
 
 
 def make_fragment(source: Path, target: Path, ranges: List[Tuple[int, int]]) -> None:
@@ -186,7 +222,6 @@ def make_fragment(source: Path, target: Path, ranges: List[Tuple[int, int]]) -> 
         xml_prefix = doc_xml_bytes[:body_open_end]
         xml_suffix = b"</w:body></w:document>"
     else:
-        # Fallback for documents using the default namespace without the 'w:' prefix
         body_tag_pos = doc_xml_bytes.find(b"<body")
         body_open_end = doc_xml_bytes.find(b">", body_tag_pos) + 1
         xml_prefix = doc_xml_bytes[:body_open_end]
@@ -196,15 +231,19 @@ def make_fragment(source: Path, target: Path, ranges: List[Tuple[int, int]]) -> 
     used_rids: Set[str] = set()
 
     # Pass B: Iterate through the body children.
-    # - Blocks (<w:p>, <w:tbl>) are kept only if their index is in `keep_block_indices`.
-    # - Non-blocks (such as the final <w:sectPr> containing page orientation,
-    #   margins, and header/footer references) are ALWAYS kept.
+    # - Keep selected content blocks (<w:p>, <w:tbl>).
+    # - Keep ONLY <w:sectPr> among non-block body children (omitting any orphaned
+    #   body-level <w:permStart>, <w:bookmarkStart>, or <w:sdt> lock markers).
     block_idx = 0
     for child in body:
-        is_block = child.tag in BLOCK_TAGS
-        keep = (block_idx in keep_block_indices) if is_block else True
-        if is_block:
+        tag = child.tag
+        if tag in BLOCK_TAGS:
+            keep = block_idx in keep_block_indices
             block_idx += 1
+        elif tag == TAG_SECTPR:
+            keep = True
+        else:
+            keep = False
 
         if keep:
             # Serialize only the surviving element to UTF-8 XML bytes
@@ -290,7 +329,7 @@ def make_fragment(source: Path, target: Path, ranges: List[Tuple[int, int]]) -> 
         )
 
     # -----------------------------------------------------------------------
-    # Step 5: Assemble Output DOCX in RAM & Write Atomically to Disk
+    # Step 5: Assemble Output DOCX in RAM & Write Unlocked File to Disk
     # -----------------------------------------------------------------------
     # 1. We construct the entire slimmed DOCX inside an in-memory buffer (`io.BytesIO`).
     #    Any unreferenced heavy media binaries (often 20MB - 100MB+) are skipped entirely.
@@ -306,7 +345,6 @@ def make_fragment(source: Path, target: Path, ranges: List[Tuple[int, int]]) -> 
     ) as zout:
         for item in zin.infolist():
             filename = item.filename
-            # Skip media/OLE binaries unreferenced by the kept excerpt
             if filename in pruned_zip_paths:
                 continue
 
@@ -314,6 +352,15 @@ def make_fragment(source: Path, target: Path, ranges: List[Tuple[int, int]]) -> 
                 zout.writestr(item, new_doc_xml)
             elif filename == "word/_rels/document.xml.rels" and new_rels_xml is not None:
                 zout.writestr(item, new_rels_xml)
+            elif filename == "[Content_Types].xml" and pruned_zip_paths:
+                ct_bytes = zin.read(filename)
+                zout.writestr(item, _clean_content_types(ct_bytes, pruned_zip_paths, parser))
+            elif filename == "word/settings.xml":
+                # Strip <w:documentProtection> and <w:writeProtection> so Word COM
+                # never locks the fragment during multi-file InsertFile merges
+                settings_bytes = zin.read(filename)
+                settings_bytes = RE_DOC_PROTECTION.sub(b"", settings_bytes)
+                zout.writestr(item, settings_bytes)
             else:
                 # Stream remaining parts (styles, numbering, themes, settings) untouched
                 zout.writestr(item, zin.read(filename))
@@ -323,6 +370,14 @@ def make_fragment(source: Path, target: Path, ranges: List[Tuple[int, int]]) -> 
         os.chmod(target, stat.S_IWRITE | stat.S_IREAD)
     except OSError:
         pass
+
+    # Remove Windows Mark-of-the-Web (Zone.Identifier alternate data stream) copied
+    # by shutil.copy2 from downloaded 3GPP ZIPs, preventing Word Protected View locks
+    try:
+        os.remove(f"{target}:Zone.Identifier")
+    except OSError:
+        pass
+
     target.write_bytes(out_buffer.getvalue())
     t_write = time.perf_counter() - t0
 
