@@ -2,7 +2,7 @@
 
 An advanced, component-based desktop IDE designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
 
-Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, track NAS, ASN.1 (RRC / NGAP), GTP-U, and PFCP (TS 29.244) protocol message evolutions, search arbitrary substrings across specification releases using FTS5 trigram indexing with "First Added" and cutoff date detection, conduct multi-meeting company contribution audits with interactive KPI analytics and co-signer tracking, manage local SQLite databases with built-in compaction tools, track emails across working groups linked to specific TDocs and their revision families, connect seamlessly to local LLMs via Ollama for zero-cost offline intelligence, automated call-flow diagram synthesis, real-time technical triage of meeting TDocs, and streaming synthesis of email discussion threads, and navigate, filter, and synchronize the vast 3GPP meeting, specification, and work item archives locally.
+Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, track NAS, ASN.1 (RRC / NGAP), GTP-U, and PFCP (TS 29.244) protocol message evolutions, search arbitrary substrings across specification releases using FTS5 trigram indexing with "First Added" and cutoff date detection, conduct multi-meeting company contribution audits with interactive KPI analytics and co-signer tracking, manage local SQLite databases with built-in compaction tools, track emails across working groups linked to specific TDocs and their revision families, connect seamlessly to local LLMs via Ollama for zero-cost offline intelligence, automated call-flow diagram synthesis, and real-time technical triage of meeting TDocs, and navigate, filter, and synchronize the vast 3GPP meeting, specification, and work item archives locally.
 
 ---
 
@@ -148,9 +148,17 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ### 📡 3GPP Meeting, Specification & Work Items Database
 * **Asynchronous Three-Phase Syncing Engine:** 
   * **Phase 1 (FTP Directory Mapping):** Scrapes the 3GPP FTP archives in parallel to instantly populate your database with all available meeting numbers, gracefully handling hidden RAN Ad-Hoc (`TSGR_AHs`) subdirectories.
-  * **Phase 2 (Deep Document Scrape):** Crawls each meeting-specific `Docs/` folder, robustly parses linked TDoc filenames, and determines the first and last TDocs of the meeting for fast global document lookup.
+  * **Phase 2 (Deep Document Scrape):** Crawls the `Docs/` folder of every meeting. Uses smart regex stripping to ignore file extensions and revisions, mathematically sorting the files to determine the first and last TDocs of the meeting.
   * **Phase 3 (DynaReport Upserting):** Injects metadata (Location, Start/End Dates, Ad-Hoc/Electronic status) by fetching the legacy 3GPP Portal HTML tables.
 * **Targeted Quick Fetch:** Instantly sync individual specifications (e.g., `23.801-01`) or entire specification series (e.g., `23`) directly from the FTP server without needing to run a lengthy full database sync.
+
+* **✂️ 3GPP Specification Clause & Excerpt Extractor:**
+  * **Instant Excerpt Dialog from Version Menu:** Select any specification release in the Specifications tab and click **`✂️ Extract Clauses (Excerpt)...`** to launch a modeless clause extractor window.
+  * **Automated Background Fetch & Smart Unzipping:** Automatically downloads missing archives from 3GPP FTP, skips YAML, OpenAPI, and PDF files, and extracts clean Word documents while filtering out revision marks (`-rm`).
+  * **Multi-Part & Legacy Support:** Naturally sequences multi-part split specifications (e.g., `_s00_s04`, `_s05_s08`) and automatically converts legacy binary `.doc` files to `.docx` via COM automation or headless LibreOffice.
+  * **Interactive Tree Browser with Search Filter:** Filter clauses by number or keyword (e.g., `5.2`, `registration`, `NWDAF`) in an interactive tree view with auto-cascading checkboxes.
+  * **Formatting & Corporate Label Preservation:** Uses the isolated fragment engine to build clean DOCX excerpts, merge multi-part sections, restore source typography and styles, and apply corporate sensitivity labels.
+  * **One-Click Auto-Open:** Automatically prompts for a save destination (defaulting to the local specification directory) and opens the generated excerpt in Microsoft Word upon completion.
 
 * **3GPP Work Items (WIs) Synchronizer:**
   * **Parallel Multi-WG Scraper:** Concurrently scrapes active Work Items across all 19 Technical Specification Groups and Working Groups (SA, SA1-6, RAN, RAN1-6, CT, CT1-6) from official 3GPP dynamic report pages using multi-threaded execution (5 workers).
@@ -163,7 +171,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Work Items Table & Local Specs Inspector:** The Work Items tab features dedicated **WG** and **Linked Specs** columns, local specification inspectors (`LinkedSpecsDialog`), and one-click citation copy actions.
 
 * **Intelligent TDocs Manager:**
-  * **Smart Global TDoc Search:** Instantly locate and download any document across the entire database. Just type a TDoc number (e.g., `S2-2605740r11`) and the UI will dynamically reveal minimalist quick-actions to download the specific file or open its parent meeting context—all without leaving the main dashboard. If the local meeting ranges are missing or stale, the UI can trigger a targeted `Docs/` metadata refresh and automatically re-evaluate the entered TDoc when the range update completes.
+  * **Smart Global TDoc Search:** Instantly locate and download any document across the entire database. Just type a TDoc number (e.g., `S2-2605740r11`) and the UI will dynamically reveal minimalist quick-actions to download the specific file or open its parent meeting context—all without leaving the main dashboard.
   * **🤖 Instant AI Technical Triage:** Right-click any proposal row or open its details card to launch the AI Triage assistant. Streams a focused summary covering the problem statement, proposed normative changes, and contentious impact points, with 1-click status assignment and note persistence into SQLite.
   * **Persistent Personal Notes & Status (Sidecar Database):** Keep a private, local SQLite database that "overlays" your data onto the 3GPP list. Double-click any TDoc to assign a color-coded status (🟢 Support, 🔴 Object, 🟡 Monitor) and save personal notes. Your data survives perfectly even when downloading fresh 3GPP Excel updates.
   * **Smart Revision Inheritance:** When a TDoc gets a new revision during a meeting, the new child document automatically inherits a "Ghost" version of the personal notes and status you assigned to the base document!
@@ -284,9 +292,9 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 This application strictly adheres to the **Model-View-Controller (MVC)** and **Event-Driven Architecture (EDA)** paradigms using `PyQt5`. 
 
-1. **The UI Layer (`src/modules/*/ui/` & `src/main_window.py`):** Contains Qt Widgets, `QAbstractTableModel` implementations, modeless top-level inspection dialogs (`CallFlowDialog`, `TDocTriageDialog`, `EmailSummaryDialog`), and status bar permanent action widgets. The UI never performs synchronous network I/O or blocks the main event loop.
+1. **The UI Layer (`src/modules/*/ui/` & `src/main_window.py`):** Contains Qt Widgets, `QAbstractTableModel` implementations, modeless top-level inspection dialogs (`CallFlowDialog`, `TDocTriageDialog`), and status bar permanent action widgets. The UI never performs synchronous network I/O or blocks the main event loop.
 2. **The Core Layer (`src/core/` & `src/modules/*/core/`):** Contains domain logic. All database transactions (`sqlite3` with FTS5 trigrams), REST AI communications (`core/ai/ollama_client.py`), prompt management with timestamp hot-reloading (`modules/puml2visio/core/prompt_manager.py`), FTP network scraping (`requests`), COM automation (`win32com` & `pythoncom`), headless LibreOffice conversions, and direct XML manipulation (`lxml` & `python-docx`) are isolated here.
-3. **The Threading Bridge:** Independent worker tasks inherit from `QThread` (e.g., `OllamaMonitorThread`, `CallFlowGeneratorThread`, `TDocTriageWorker`, `EmailSummaryWorker`, `WifiMonitorThread`, `GeneralEmailSyncThread`, `WordAgendaImporterThread`, `ContributionSearchWorker`, `TDocsDownloaderThread`, `LLMExporterThread`). Workers operate completely decoupled with their own error boundaries and communicate with the main thread strictly through thread-safe `pyqtSignals`.
+3. **The Threading Bridge:** Independent worker tasks inherit from `QThread` (e.g., `OllamaMonitorThread`, `CallFlowGeneratorThread`, `TDocTriageWorker`, `WifiMonitorThread`, `GeneralEmailSyncThread`, `WordAgendaImporterThread`, `ContributionSearchWorker`, `TDocsDownloaderThread`, `LLMExporterThread`). Workers operate completely decoupled with their own error boundaries and communicate with the main thread strictly through thread-safe `pyqtSignals`.
 4. **The Singleton Managers & Security Utilities:** Global network state (`NetworkState`), specialized AI HTTP session creation (`session.get_ai_session()`), cryptographic credential protection (`core.utils.dpapi.SecureCredentialStore`), and Comparison Cart states are managed by thread-safe singletons and dynamic JSON config loaders.
 
 ---
@@ -462,9 +470,12 @@ python src/main_tools.py
    * **Drag & Drop:** Drag any `.docx`, `.doc`, or `.htm` session document anywhere onto the TDocs window. A visual frosted drop overlay will highlight the window.
    * **Menu Import:** Alternatively, click the **🔄 Refresh** menu and select **📝 Import Word Document (.docx / .doc)...**.
    * The file is automatically copied to `{meeting_dir}/Agenda/`, converted in the background via LibreOffice (if `.doc`), parsed, and merged into the table without freezing the UI.
-7. **Exporting Meeting TDocs:** Open **Export ▾** and choose **📦 Export TDocs + Excel...**. If table cells are selected, the corresponding unique TDocs are exported; otherwise all currently visible/filtered TDocs are used. The tool reuses locally cached documents where available, downloads missing base TDocs, extracts their contents into per-TDoc folders under the meeting's `Export/` directory, and generates an accompanying Excel manifest using the existing TDoc export format.
-8. Click the Action column to automatically download, unzip, and open documents, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
-9. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
+7. Click the Action column to automatically download, unzip, and open documents, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
+8. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
+9. **Extracting Clauses (Word Excerpt):**
+   * In the **Specifications** tab, click the **Documents** dropdown for any specification release and choose **`✂️ Extract Clauses (Excerpt)...`**.
+   * The modeless **Extract Clauses** dialog opens immediately. Missing specification ZIPs download and unpack in the background, multi-part documents (`_s00_s04`, etc.) are sequenced, legacy `.doc` files are converted to `.docx`, and change-mark files (`-rm`) are filtered out.
+   * Filter clauses by keyword or number, select desired clauses in the hierarchy (parent check states automatically cascade to all subclauses), and click **`✂️ Extract Selected Clauses...`** to generate a clean, formatted Word document with source typography and corporate sensitivity labels.
 
 ---
 
@@ -597,8 +608,7 @@ If you are behind a corporate firewall:
 * **Ollama Connection Refused or Showing Offline:**
   * Verify that the local daemon is active by running `ollama list` in PowerShell or Windows Terminal.
   * If running Ollama on another machine on your local network (e.g., a GPU workstation), ensure `OLLAMA_HOST=0.0.0.0` is set in the daemon environment and configure the target IP in the **🦙 Ollama Configuration** dialog.
-* **Tuning AI Diagram, Triage & Discussion Prompts:**
+* **Tuning AI Diagram & Triage Prompts:**
   * To customize AI triage responses, edit `config/prompts/triage_system.txt` and `config/prompts/triage_user.txt`.
-  * To customize discussion summaries, edit `config/prompts/email_summary_system.txt` and `config/prompts/email_summary_user.txt`.
   * To customize call-flow sequence generation, edit `config/prompts/callflow_system.txt` and `config/prompts/callflow_user.txt`.
   * The prompt engine detects file timestamp changes automatically and reloads them on the next inference click without restarting the application.
