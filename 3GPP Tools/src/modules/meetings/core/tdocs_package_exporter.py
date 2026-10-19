@@ -1,6 +1,6 @@
-# --- File: src/modules/meetings/core/tdocs_package_exporter.py ---
 import datetime
 import logging
+import os
 import re
 import shutil
 from pathlib import Path
@@ -8,6 +8,7 @@ from pathlib import Path
 import requests
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.paths import to_extended_path
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.url_router import URLRouter
 
@@ -41,7 +42,7 @@ class TDocsPackageExporterThread(QThread):
         try:
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
             export_dir = self.meeting_dir / "Export" / f"TDocs_{timestamp}"
-            export_dir.mkdir(parents=True, exist_ok=False)
+            os.makedirs(to_extended_path(export_dir), exist_ok=False)
 
             total = len(self.rows_data)
             failures = []
@@ -94,7 +95,7 @@ class TDocsPackageExporterThread(QThread):
                     continue
 
                 target_dir = export_dir / target_filename
-                target_dir.mkdir(parents=True, exist_ok=True)
+                os.makedirs(to_extended_path(target_dir), exist_ok=True)
 
                 copied = 0
                 for source_path in extracted_files:
@@ -102,8 +103,14 @@ class TDocsPackageExporterThread(QThread):
                     if not source_path.is_file():
                         continue
                     target_path = target_dir / source_path.name
-                    shutil.copy2(str(source_path), str(target_path))
-                    copied += 1
+                    try:
+                        shutil.copy2(to_extended_path(source_path), to_extended_path(target_path))
+                        copied += 1
+                    except Exception as copy_err:
+                        logger.warning(
+                            "[TDocs Package Export] Failed to copy %s to %s: %s",
+                            source_path.name, target_path, copy_err,
+                        )
 
                 if copied == 0:
                     failures.append(target_filename)

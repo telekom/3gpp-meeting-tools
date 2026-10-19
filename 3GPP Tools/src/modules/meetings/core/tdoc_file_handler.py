@@ -5,6 +5,7 @@ import zipfile
 from pathlib import Path
 
 from core.network.session import NetworkSession
+from core.utils.paths import to_extended_path
 
 
 class TDocFileHandler:
@@ -63,9 +64,10 @@ class TDocFileHandler:
                         safe_name = original_name
 
                     out_path = tdoc_dir / safe_name
+                    ext_out_path = to_extended_path(out_path)
 
-                    if not out_path.exists():
-                        with z.open(info.filename) as source, open(out_path, 'wb') as target:
+                    if not Path(ext_out_path).exists():
+                        with z.open(info.filename) as source, open(ext_out_path, 'wb') as target:
                             shutil.copyfileobj(source, target)
                         logging.info(f"📂 [EXTRACTED] Saved: {out_path.name}")
                     else:
