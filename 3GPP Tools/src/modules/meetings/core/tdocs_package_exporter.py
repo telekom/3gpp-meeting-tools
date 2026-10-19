@@ -5,6 +5,7 @@ import re
 import shutil
 from pathlib import Path
 
+import requests
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler

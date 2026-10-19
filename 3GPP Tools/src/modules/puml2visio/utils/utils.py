@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import winreg
+import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
 from typing import Optional
@@ -344,7 +345,6 @@ def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> 
         # "file is corrupt" COM exception.
         # ---------------------------------------------------------
         try:
-            import xml.etree.ElementTree as ET
             ET.fromstring(svg_content)
         except ET.ParseError as e:
             raise RuntimeError(
