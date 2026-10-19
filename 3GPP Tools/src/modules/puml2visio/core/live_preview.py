@@ -121,9 +121,15 @@ class LivePreviewManager(QObject):
         self.svg_path = self.temp_dir / "preview.svg"
 
         if not self.svg_path.exists():
-            self.svg_path.write_text(WAITING_SVG, encoding="utf-8")
+            try:
+                self.svg_path.write_text(WAITING_SVG, encoding="utf-8")
+            except Exception:
+                pass
 
-        self.html_path.write_text(HTML_TEMPLATE, encoding="utf-8")
+        try:
+            self.html_path.write_text(HTML_TEMPLATE, encoding="utf-8")
+        except Exception:
+            pass
 
         self.debounce_timer = QTimer()
         self.debounce_timer.setSingleShot(True)
@@ -138,7 +144,10 @@ class LivePreviewManager(QObject):
             self.text_edit.textChanged.connect(self._on_text_changed)
 
             if not self.text_edit.toPlainText().strip():
-                self.svg_path.write_text(WAITING_SVG, encoding="utf-8")
+                try:
+                    self.svg_path.write_text(WAITING_SVG, encoding="utf-8")
+                except Exception:
+                    pass
 
             url = f"file://{self.html_path.resolve().as_posix()}"
             webbrowser.open(url)
@@ -146,10 +155,16 @@ class LivePreviewManager(QObject):
             logger.info("👁️ Live Preview activated. Rendering to default browser.")
             self._trigger_generation()
         else:
-            self.text_edit.textChanged.disconnect(self._on_text_changed)
+            try:
+                self.text_edit.textChanged.disconnect(self._on_text_changed)
+            except TypeError:
+                pass
             self.debounce_timer.stop()
             self._pending_update = False
-            self.svg_path.write_text(OFFLINE_SVG, encoding="utf-8")
+            try:
+                self.svg_path.write_text(OFFLINE_SVG, encoding="utf-8")
+            except Exception:
+                pass
             logger.info("🙈 Live Preview deactivated.")
 
     def update_now(self):
@@ -164,7 +179,10 @@ class LivePreviewManager(QObject):
     def _trigger_generation(self):
         text = self.text_edit.toPlainText().strip()
         if not text:
-            self.svg_path.write_text(WAITING_SVG, encoding="utf-8")
+            try:
+                self.svg_path.write_text(WAITING_SVG, encoding="utf-8")
+            except Exception:
+                pass
             return
 
         if self.generator_thread and self.generator_thread.isRunning():

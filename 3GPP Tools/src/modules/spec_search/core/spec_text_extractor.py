@@ -140,6 +140,12 @@ class SpecDocxExtractor:
         all_clauses: List[Dict[str, Any]] = []
         total_files = len(self.docx_paths)
 
+        current_clause: Dict[str, Any] = {
+            "clause_number": "0",
+            "clause_title": "Front Matter / Document Header",
+            "text_fragments": [],
+        }
+
         for file_idx, docx_path in enumerate(self.docx_paths):
             if progress_callback:
                 pct = int((file_idx / total_files) * 90)
@@ -153,13 +159,8 @@ class SpecDocxExtractor:
             if body is None:
                 continue
 
-            current_clause: Dict[str, Any] = {
-                "clause_number": "0",
-                "clause_title": "Front Matter / Document Header",
-                "text_fragments": [],
-            }
-
-            past_front_matter = False
+            past_front_matter = (file_idx > 0)
+            part_has_seen_heading = (file_idx == 0)
 
             for elem in list(body):
                 if elem.tag == TAG_P:
@@ -216,6 +217,7 @@ class SpecDocxExtractor:
                             c_title = title_cand
 
                     if is_new_clause:
+                        part_has_seen_heading = True
                         self._finalize_clause(current_clause, all_clauses)
                         current_clause = {
                             "clause_number": c_num,
@@ -223,14 +225,16 @@ class SpecDocxExtractor:
                             "text_fragments": [f"{c_num} {c_title}\n"],
                         }
                     else:
-                        current_clause["text_fragments"].append(p_text)
+                        if part_has_seen_heading or current_clause["clause_number"] != "0":
+                            current_clause["text_fragments"].append(p_text)
 
                 elif elem.tag == TAG_TBL:
-                    tbl_lines = self._extract_table_text(elem)
-                    if tbl_lines:
-                        current_clause["text_fragments"].append("\n" + "\n".join(tbl_lines) + "\n")
+                    if part_has_seen_heading or current_clause["clause_number"] != "0":
+                        tbl_lines = self._extract_table_text(elem)
+                        if tbl_lines:
+                            current_clause["text_fragments"].append("\n" + "\n".join(tbl_lines) + "\n")
 
-            self._finalize_clause(current_clause, all_clauses)
+        self._finalize_clause(current_clause, all_clauses)
 
         return all_clauses
 

@@ -1,3 +1,4 @@
+import gc
 import tempfile
 import logging
 import traceback  # <--- NEW: Crucial for getting exact error lines
@@ -6,6 +7,7 @@ import win32com.client
 import pythoncom
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.network.session import NetworkSession
 from core.utils.utils import get_proxies
 
 logger = logging.getLogger(__name__)
@@ -13,13 +15,13 @@ logger = logging.getLogger(__name__)
 
 class WordComparatorThread(QThread):
     ui_log_msg = pyqtSignal(str, int)
-    finished = pyqtSignal()
 
     def __init__(self, doc_a: str, doc_b: str, keep_open: bool = False):
         super().__init__()
         self.doc_a = doc_a
         self.doc_b = doc_b
         self.keep_open = keep_open
+        self._downloaded_temps = []
 
     def _resolve_path(self, input_str: str, doc_label: str) -> str:
         # ... (Keep your existing _resolve_path code here) ...
@@ -34,23 +36,25 @@ class WordComparatorThread(QThread):
                 clean_url = input_str.split("?")[0] if "?web=" in input_str else input_str
                 return clean_url
 
-            logger.info(f"⏳ Downloading Document {doc_label} via proxy...")
-            import requests
-            proxies = get_proxies()
-            r = requests.get(input_str, allow_redirects=True, proxies=proxies, timeout=30)
+            logger.info(f"⏳ Downloading Document {doc_label} via NetworkSession...")
+            session = NetworkSession.get_instance()
+            r = session.get(input_str, allow_redirects=True, timeout=30)
             r.raise_for_status()
             tmp_path = Path(tempfile.gettempdir()) / f"puml2visio_cmp_{doc_label}.docx"
             with open(tmp_path, 'wb') as f:
                 f.write(r.content)
+            self._downloaded_temps.append(tmp_path)
             return str(tmp_path)
         return input_str
 
     def run(self):
+        cmp_doc = None
         doc_original = None
         doc_revised = None
         word = None
         original_security = None
         temp_dir = None
+        self._downloaded_temps = []
 
         try:
             pythoncom.CoInitialize()
@@ -59,12 +63,22 @@ class WordComparatorThread(QThread):
             path_a = self._resolve_path(self.doc_a, "A")
             path_b = self._resolve_path(self.doc_b, "B")
 
-            file_a_name = Path(path_a).name
-            file_b_name = Path(path_b).name
+            is_url_a = path_a.startswith("http://") or path_a.startswith("https://")
+            is_url_b = path_b.startswith("http://") or path_b.startswith("https://")
+
+            file_a_name = (path_a.split("?")[0].rstrip("/").split("/")[-1] or "Document_A.docx") if is_url_a else Path(path_a).name
+            file_b_name = (path_b.split("?")[0].rstrip("/").split("/")[-1] or "Document_B.docx") if is_url_b else Path(path_b).name
+            if not Path(file_a_name).suffix:
+                file_a_name += ".docx"
+            if not Path(file_b_name).suffix:
+                file_b_name += ".docx"
+
             logger.info(f"   ➔ Doc A (Base): {file_a_name}")
             logger.info(f"   ➔ Doc B (Rev) : {file_b_name}")
 
-            if Path(path_a).resolve() == Path(path_b).resolve():
+            if (is_url_a and is_url_b and path_a == path_b) or (
+                not is_url_a and not is_url_b and Path(path_a).resolve() == Path(path_b).resolve()
+            ):
                 logger.warning("⚠️ WARNING: Document A and Document B are the exact same file!")
 
             logger.info("⏳ Step 2: Creating local sandbox copies...")
@@ -74,20 +88,24 @@ class WordComparatorThread(QThread):
             temp_dir = Path(tempfile.gettempdir()) / "3gpp_compare_tmp"
             temp_dir.mkdir(parents=True, exist_ok=True)
 
-            temp_path_a = temp_dir / f"A_{file_a_name}"
-            temp_path_b = temp_dir / f"B_{file_b_name}"
+            if is_url_a:
+                temp_path_a = path_a
+            else:
+                temp_path_a = temp_dir / f"A_{file_a_name}"
+                # Copy content only, dropping strict Windows metadata
+                shutil.copyfile(path_a, temp_path_a)
+                # Explicitly strip OS-level Read-Only locks
+                os.chmod(temp_path_a, stat.S_IWRITE)
 
-            # Copy content only, dropping strict Windows metadata
-            shutil.copyfile(path_a, temp_path_a)
-            shutil.copyfile(path_b, temp_path_b)
-
-            # Explicitly strip OS-level Read-Only locks
-            os.chmod(temp_path_a, stat.S_IWRITE)
-            os.chmod(temp_path_b, stat.S_IWRITE)
+            if is_url_b:
+                temp_path_b = path_b
+            else:
+                temp_path_b = temp_dir / f"B_{file_b_name}"
+                shutil.copyfile(path_b, temp_path_b)
+                os.chmod(temp_path_b, stat.S_IWRITE)
 
             logger.info("⏳ Step 3: Spawning Native Word Diff Engine...")
             word = win32com.client.Dispatch("Word.Application")
-            word.Visible = True
 
             try:
                 original_security = word.AutomationSecurity
@@ -100,8 +118,26 @@ class WordComparatorThread(QThread):
 
             logger.info("⏳ Step 4: Bypassing corporate locks via Skeleton Key...")
 
-            def process_sandbox_doc(filepath, label, original_filename):
+            def process_sandbox_doc(filepath, label, original_filename, is_remote=False):
                 logger.info(f"   ➔ Extracting Doc {label} into unlocked container...")
+
+                save_dir = temp_dir / f"unlocked_{label}"
+                save_dir.mkdir(parents=True, exist_ok=True)
+                out_path = save_dir / original_filename
+
+                if is_remote:
+                    src_doc = word.Documents.Open(
+                        FileName=str(filepath),
+                        ConfirmConversions=False,
+                        ReadOnly=True,
+                        AddToRecentFiles=False,
+                    )
+                    if src_doc.Revisions.Count > 0:
+                        src_doc.Revisions.AcceptAll()
+                    from modules.word_tools.core.sensitivity_label import set_sensitivity_label
+                    set_sensitivity_label(src_doc)
+                    src_doc.SaveAs(FileName=str(out_path))
+                    return src_doc
 
                 # 1. Create a pristine, completely unlocked blank document
                 doc = word.Documents.Add()
@@ -118,16 +154,12 @@ class WordComparatorThread(QThread):
                 set_sensitivity_label(doc)
 
                 # 4. Save the document using the exact original filename
-                save_dir = temp_dir / f"unlocked_{label}"
-                save_dir.mkdir(parents=True, exist_ok=True)
-                out_path = save_dir / original_filename
-
                 doc.SaveAs(FileName=str(out_path))
                 return doc
 
             # Process both documents safely, passing the original filenames down
-            doc_original = process_sandbox_doc(temp_path_a, "A", file_a_name)
-            doc_revised = process_sandbox_doc(temp_path_b, "B", file_b_name)
+            doc_original = process_sandbox_doc(temp_path_a, "A", file_a_name, is_remote=is_url_a)
+            doc_revised = process_sandbox_doc(temp_path_b, "B", file_b_name, is_remote=is_url_b)
 
             logger.info("⏳ Step 5: Executing CompareDocuments engine...")
 
@@ -146,15 +178,21 @@ class WordComparatorThread(QThread):
                 CompareFields=True
             )
 
-            logger.info("⏳ Step 6: Closing source documents...")
-            try:
-                doc_original.Close(SaveChanges=False)
-                doc_revised.Close(SaveChanges=False)
+            if not self.keep_open:
+                logger.info("⏳ Step 6: Closing source documents...")
+                try:
+                    doc_original.Close(SaveChanges=False)
+                    doc_revised.Close(SaveChanges=False)
+                    doc_original = None
+                    doc_revised = None
+                except Exception:
+                    pass
+            else:
+                logger.info("⏳ Step 6: Keeping source documents open as requested...")
                 doc_original = None
                 doc_revised = None
-            except Exception:
-                pass
 
+            word.Visible = True
             if cmp_doc:
                 cmp_doc.Activate()
             word.Activate()
@@ -182,13 +220,22 @@ class WordComparatorThread(QThread):
             except Exception:
                 pass
 
+            for tmp_file in self._downloaded_temps:
+                try:
+                    if tmp_file and tmp_file.exists():
+                        tmp_file.unlink()
+                except Exception:
+                    pass
+            self._downloaded_temps = []
+
             # -> NEW: Wipe the entire temp directory in one shot, destroying the locked copies and the saved unlocked copies
             try:
-                if temp_dir and temp_dir.exists():
+                if not self.keep_open and temp_dir and temp_dir.exists():
                     import shutil
                     shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception as e:
                 logger.warning(f"Cleanup warning: {e}")
 
+            cmp_doc = doc_original = doc_revised = word = None
+            gc.collect()
             pythoncom.CoUninitialize()
-            self.finished.emit()

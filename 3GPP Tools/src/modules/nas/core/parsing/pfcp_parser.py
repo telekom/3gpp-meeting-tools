@@ -6,13 +6,12 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from modules.nas.core.parsing.protocol_parser_constants import (
-    TAG_BODY, TAG_P, TAG_TBL, TAG_TR, TAG_TC
+    RE_PART_INDEX, TAG_BODY, TAG_P, TAG_TBL, TAG_TR, TAG_TC
 )
 from modules.nas.core.parsing.protocol_parser_utils import (
     extract_document_root, _extract_p_text, _extract_tc_text, _convert_table_to_html
 )
 
-RE_PART_INDEX = re.compile(r"_(\d+)_")
 RE_PFCP_CLAUSE_HEADER = re.compile(r"^((?:7|8)(?:\.[0-9A-Za-z]+)+)\s*(.*)$")
 RE_PFCP_TABLE_CAPTION = re.compile(r"^Table\s+([78]\.\d+(?:[\.\-/][0-9A-Za-z]+)*)\s*[:\.]\s*(.+)$", re.IGNORECASE)
 

@@ -436,7 +436,7 @@ class TDocsTableModel(QAbstractTableModel):
                 title = info.get('Title', '')
 
                 comment_match = re.search(
-                    r'(?:revision of|rev of)\s*(S2-\d{6,8}(?:r\d{1,2}[a-zA-Z]?)?)',
+                    r'(?:revision of|rev of)\s*([A-Z][A-Z0-9]{1,3}-\d{5,8}(?:r\d{1,2}[a-zA-Z]?)?)',
                     remarks,
                     re.IGNORECASE
                 )

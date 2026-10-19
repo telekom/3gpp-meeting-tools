@@ -26,7 +26,7 @@ class ProcessManager:
 
         try:
             result = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd],
-                                    capture_output=True, text=True, creationflags=0x08000000)
+                                    capture_output=True, text=True, creationflags=0x08000000, timeout=5)
 
             output = result.stdout.strip()
             if not output:
@@ -57,8 +57,11 @@ class ProcessManager:
         if app_key != "powerpnt":
             return []
 
+        import gc
         import pythoncom
         import win32com.client
+        app = None
+        presentation = None
         pythoncom.CoInitialize()
         try:
             try:
@@ -75,6 +78,8 @@ class ProcessManager:
                     continue
             return result
         finally:
+            presentation = app = None
+            gc.collect()
             pythoncom.CoUninitialize()
 
     @staticmethod
@@ -91,8 +96,12 @@ class ProcessManager:
         if app_key != "powerpnt" or platform.system() != "Windows":
             return summary
 
+        import gc
         import pythoncom
         import win32com.client
+        app = None
+        presentations = None
+        presentation = None
         pythoncom.CoInitialize()
         try:
             try:
@@ -117,6 +126,8 @@ class ProcessManager:
                     summary["failed"].append(str(exc))
             return summary
         finally:
+            presentation = presentations = app = None
+            gc.collect()
             pythoncom.CoUninitialize()
 
     @staticmethod

@@ -1,4 +1,5 @@
 # --- File: modules/meetings/core/meetings_db.py ---
+import contextlib
 import datetime
 import sqlite3
 import logging
@@ -12,12 +13,18 @@ class MeetingsDatabase:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._create_tables()
 
+    @contextlib.contextmanager
     def _get_connection(self):
         # 30-second timeout allows background writers to finish without crashing readers
         conn = sqlite3.connect(self.db_path, timeout=30.0)
-        # Enable WAL mode for concurrent multi-thread read/write support
-        conn.execute("PRAGMA busy_timeout=30000;")
-        return conn
+        try:
+            # Enable WAL mode for concurrent multi-thread read/write support
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA busy_timeout=30000;")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _create_tables(self):
         with self._get_connection() as conn:

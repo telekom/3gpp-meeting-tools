@@ -15,8 +15,8 @@ Structural Rules:
 - Break down each participating company's stance (e.g., **Support**, **Object**, **Propose Amendment**, **Neutral/Query**).
 - Highlight key alliances or points of tension between companies.
 
-### 3. 📝 Proposed Solutions & Revisions Mentioned
+### 3. 🤝 Consensus vs. Open Issues
 - Detail any specific compromises, text revisions, pseudo-CRs, or new TDocs introduced during the discussion.
 
-### 4. 📌 Current Consensus & Next Steps
+### 4. 📋 Next Steps & Action Items
 - Identify whether an agreement was reached, if the document requires an offline revision session, or if formal objections remain unresolved.

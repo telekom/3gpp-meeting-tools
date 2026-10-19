@@ -490,7 +490,7 @@ class BaseAsn1DocxParser:
         header_html = (
             f'<h2 style="color: #0369A1; margin-top: 2px; margin-bottom: 8px; '
             f'font-family: Segoe UI, sans-serif; font-size: 15px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
-            f'{type_name}{clause_str}</h2>'
+            f'{html.escape(type_name)}{html.escape(clause_str)}</h2>'
         )
 
         raw_asn1_html = ""

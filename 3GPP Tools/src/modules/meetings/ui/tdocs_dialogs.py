@@ -225,7 +225,6 @@ class TDocInfoDialog(QDialog):
         btn_layout.setSpacing(8)
 
         copy_btn = QPushButton("📋 Copy Info")
-        copy_btn.setToolTip('Copy all displayed text to the clipboard and close the viewer.')
         copy_btn.setCursor(Qt.PointingHandCursor)
         copy_btn.setToolTip("Copy formatted summary to clipboard")
         copy_btn.clicked.connect(self._copy_tdoc_summary)

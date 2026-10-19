@@ -48,6 +48,8 @@ class WorkItemsScraperThread(QThread):
             }
 
             for future in concurrent.futures.as_completed(future_to_wg):
+                if self.isInterruptionRequested():
+                    break
                 wg_name = future_to_wg[future]
                 completed += 1
                 try:
@@ -63,10 +65,16 @@ class WorkItemsScraperThread(QThread):
                 except Exception as e:
                     self._report(completed, total_wgs, f"❌ Error syncing {wg_name}: {e}", logging.ERROR)
 
+        if self.isInterruptionRequested():
+            self.finished_sync.emit(False, "Work Items sync cancelled.")
+            return
+
         logger.info("✅ Successfully synced Work Items for all Working Groups.")
         self.finished_sync.emit(True, "Successfully synced Work Items for all Working Groups.")
 
     def _fetch_and_parse(self, wg_name: str, wg_code: str) -> list:
+        if self.isInterruptionRequested():
+            return []
         url = f"https://www.3gpp.org/dynareport?code=TSG-WG--{wg_code}--wis.htm"
 
         # Utilize the global session to inherit proxies and humanness settings
@@ -147,6 +155,8 @@ class TargetedWIScraperThread(QThread):
             }
 
             for future in concurrent.futures.as_completed(future_to_wi):
+                if self.isInterruptionRequested():
+                    break
                 wi_code = future_to_wi[future]
                 completed += 1
                 try:
@@ -167,6 +177,10 @@ class TargetedWIScraperThread(QThread):
                     logger.error(error_msg, exc_info=True)
                     self.progress.emit(completed, total_targets, error_msg)
 
+        if self.isInterruptionRequested():
+            self.finished_sync.emit(False, "Targeted Work Item update cancelled.")
+            return
+
         # Perform a single, high-speed atomic transaction for all updated records
         if batch_metadata:
             logger.info(f"Sending {len(batch_metadata)} parsed WIs to the database for update.")
@@ -184,6 +198,8 @@ class TargetedWIScraperThread(QThread):
         self.finished_sync.emit(True, f"Successfully processed {len(batch_metadata)} Work Items.")
 
     def _fetch_and_parse_details(self, wi_code: str) -> dict:
+        if self.isInterruptionRequested():
+            return {}
         # FIXED: Removed the markdown brackets from the URL string
         url = f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
         logger.info(f"Fetching WI details from: {url}")

@@ -176,6 +176,23 @@ class NASVersionTreeWidget(QTreeWidget):
                         })
         return checked
 
+    def get_all_versions_for_spec(self, spec_number: str) -> List[Dict[str, Any]]:
+        """Returns all versions (regardless of check state) under the given spec_number."""
+        results = []
+        for s_idx in range(1, self.topLevelItemCount()):
+            spec_item = self.topLevelItem(s_idx)
+            s_data = spec_item.data(0, Qt.UserRole) or {}
+            if s_data.get("spec_number") == spec_number:
+                for c_idx in range(spec_item.childCount()):
+                    child = spec_item.child(c_idx)
+                    c_data = child.data(0, Qt.UserRole) or {}
+                    if c_data.get("type") == "version":
+                        results.append({
+                            "spec_number": c_data.get("spec_number"),
+                            "version": c_data.get("version"),
+                        })
+        return results
+
     def get_collapsed_spec_numbers(self) -> List[str]:
         collapsed = []
         for s_idx in range(1, self.topLevelItemCount()):
@@ -493,7 +510,7 @@ class NASInspectorWidget(QGroupBox):
 
                 if target_spec != current_spec:
                     ver_tuple = parse_version_tuple(current_ver_str)
-                    major_ver = ver_tuple[0] if ver_tuple else 15
+                    major_ver = (ver_tuple[0][1] if isinstance(ver_tuple[0], tuple) else ver_tuple[0]) if ver_tuple else 15
 
                     cross_def = self.db.get_cross_referenced_ie_definition(
                         target_spec=target_spec,

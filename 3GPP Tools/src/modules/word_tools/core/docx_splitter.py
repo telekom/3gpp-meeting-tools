@@ -2,6 +2,7 @@ import os
 import shutil
 import logging
 import re
+import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -138,10 +139,6 @@ class DocxSplitter:
             raise ValueError(
                 f"Could not find any clauses matching prefix '{target_clause_prefix}' at depth {split_depth}.")
 
-        # Determine Boundaries
-        for i in range(len(toc) - 1):
-            toc[i]['end_idx'] = toc[i + 1]['start_idx']
-
         generated_files = []
 
         # Calculate a safe thread limit to prevent RAM spikes (Max 3 threads)
@@ -161,7 +158,6 @@ class DocxSplitter:
 
 class DocxSplitterThread(QThread):
     ui_log_msg = pyqtSignal(str, int)
-    finished = pyqtSignal()
 
     def __init__(self, file_path: str, prefix: str, depth: int):
         super().__init__()
@@ -169,11 +165,14 @@ class DocxSplitterThread(QThread):
         self.prefix = prefix
         self.depth = depth
         self.completed_count = 0
+        self._lock = threading.Lock()
 
     def _on_section_complete(self, section_title: str):
         """Thread-safe callback triggered every time a parallel worker finishes a file."""
-        self.completed_count += 1
-        logger.info(f"   ↳ [{self.completed_count}] Extracted: {section_title}")
+        with self._lock:
+            self.completed_count += 1
+            count = self.completed_count
+        logger.info(f"   ↳ [{count}] Extracted: {section_title}")
 
     def run(self):
         try:
@@ -192,5 +191,3 @@ class DocxSplitterThread(QThread):
             )
         except Exception as e:
             logger.error(f"❌ Splitter Error: {str(e)}")
-        finally:
-            self.finished.emit()

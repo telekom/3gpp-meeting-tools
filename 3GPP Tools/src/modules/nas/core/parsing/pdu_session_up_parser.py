@@ -6,13 +6,12 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from modules.nas.core.parsing.protocol_parser_constants import (
-    TAG_BODY, TAG_P, TAG_TBL, TAG_TC, TAG_TR
+    RE_PART_INDEX, TAG_BODY, TAG_P, TAG_TBL, TAG_TC, TAG_TR
 )
 from modules.nas.core.parsing.protocol_parser_utils import (
     extract_document_root, _extract_p_text, _extract_tc_text, _convert_table_to_html
 )
 
-RE_PART_INDEX = re.compile(r"_(\d+)_")
 # Match exact frame format clauses (5.5.2.x and 6.5.2.x) and IE coding clauses (5.5.3.x and 6.5.3.x)
 RE_UP_FRAME_HEADER = re.compile(r"^((?:5|6)\.5\.2\.\d+)\s*(.*)$")
 RE_UP_IE_HEADER = re.compile(r"^((?:5|6)\.5\.3\.\d+)\s*(.*)$")
@@ -326,7 +325,7 @@ class PDUSessionUPDocxParser:
                     "raw_description": (
                         f'<h2 style="color: #0284C7; margin-top: 4px; margin-bottom: 6px; '
                         f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
-                        f'{clean_msg_name} (Clause {clause_num})</h2>'
+                        f'{html.escape(clean_msg_name)} (Clause {html.escape(clause_num)})</h2>'
                         f'<div style="font-size: 11px; font-weight: bold; color: #475569; margin-top: 8px; margin-bottom: 4px;">'
                         f'Frame Format & Bit Grid Layout:</div>{tbl_figure_html}'
                     ),
@@ -345,7 +344,12 @@ class PDUSessionUPDocxParser:
             else:
                 self.logger.warning("Frame [%s] '%s' yielded 0 fields after parsing!", clause_num, clean_msg_name)
 
-        ie_definitions = list(ie_definitions_dict.values())
+        seen_ids = set()
+        ie_definitions = []
+        for v in ie_definitions_dict.values():
+            if id(v) not in seen_ids:
+                seen_ids.add(id(v))
+                ie_definitions.append(v)
         self.logger.info(
             "Completed parsing TS %s: Successfully generated %d message(s) and %d definition(s)",
             self.spec_number, len(messages), len(ie_definitions)

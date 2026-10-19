@@ -6,7 +6,7 @@ term navigation, one-click citation copying, and persistent selection state.
 import html
 import re
 from typing import Any, Dict, List, Optional
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont, QTextCursor, QTextDocument
 from PyQt5.QtWidgets import (
     QAction,
@@ -150,6 +150,22 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
                         "version": str(d.get("version", "")),
                     })
         return checked
+
+    def get_all_versions_for_spec(self, spec_number: str) -> List[Dict[str, Any]]:
+        """Returns all versions (regardless of check state) under the given spec_number."""
+        results = []
+        for s_idx in range(1, self.topLevelItemCount()):
+            spec_item = self.topLevelItem(s_idx)
+            s_data = spec_item.data(0, Qt.UserRole) or {}
+            if s_data.get("spec_number") == spec_number:
+                for c_idx in range(spec_item.childCount()):
+                    child = spec_item.child(c_idx)
+                    d = child.data(0, Qt.UserRole) or {}
+                    results.append({
+                        "spec_number": str(d.get("spec_number", "")),
+                        "version": str(d.get("version", "")),
+                    })
+        return results
 
     def _on_item_changed(self, item: QTreeWidgetItem, column: int):
         if self._updating_checks:
@@ -426,8 +442,7 @@ class SpecClauseInspector(QGroupBox):
         if self._last_citation_text:
             QApplication.clipboard().setText(self._last_citation_text)
             self.btn_copy.setText("✅ Copied!")
-            QApplication.processEvents()
-            self.btn_copy.setText("📋 Copy Citation")
+            QTimer.singleShot(1500, lambda: self.btn_copy.setText("📋 Copy Citation"))
 
     def clear_display(self):
         self.title_lbl.setText("No clause selected")

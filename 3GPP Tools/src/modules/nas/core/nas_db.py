@@ -1,22 +1,23 @@
+import contextlib
 import logging
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 import pandas as pd
 
 
 def parse_version_tuple(version_str: str) -> tuple:
-    """Converts a version string into a tuple of integers for natural sorting."""
+    """Converts a version string into a tuple of comparable elements for natural sorting."""
     if not version_str:
         return ()
     clean = str(version_str).lstrip("vV").strip()
     parts = []
     for part in clean.split("."):
         if part.isdigit():
-            parts.append(int(part))
+            parts.append((0, int(part)))
         else:
-            parts.append(part)
+            parts.append((1, str(part)))
     return tuple(parts)
 
 
@@ -28,16 +29,21 @@ class NASDatabase:
         self.logger = logging.getLogger(__name__)
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextlib.contextmanager
+    def _get_connection(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.create_function(
-            "REGEXP",
-            2,
-            lambda expr, item: bool(re.search(expr, str(item))) if item is not None else False,
-        )
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON;")
+            conn.create_function(
+                "REGEXP",
+                2,
+                lambda expr, item: bool(re.search(expr, str(item))) if item is not None else False,
+            )
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self):
         try:
@@ -159,6 +165,7 @@ class NASDatabase:
             self._init_db()
 
             with self._get_connection() as conn:
+                conn.isolation_level = None
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
                 conn.execute("VACUUM;")
 
@@ -175,9 +182,8 @@ class NASDatabase:
         ie_defs: List[Dict[str, Any]],
         spec_type: str = "NAS",
     ) -> bool:
-        conn = self._get_connection()
         try:
-            with conn:
+            with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     "DELETE FROM spec_versions WHERE spec_number = ? AND version = ?",
@@ -250,12 +256,12 @@ class NASDatabase:
         except Exception as e:
             self.logger.error(f"Failed to insert parsed spec TS {spec_number} v{version}: {e}")
             return False
-        finally:
-            conn.close()
 
     def get_messages_list(self, version_ids: Optional[List[int]] = None) -> List[Dict[str, Any]]:
         query = """
-            SELECT m.message_name, m.clause, GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number
+            SELECT m.message_name, m.clause,
+                   GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number,
+                   GROUP_CONCAT(DISTINCT sv.version) AS version
             FROM nas_messages m
             JOIN spec_versions sv ON m.version_id = sv.id
         """
@@ -381,7 +387,7 @@ class NASDatabase:
         clean_clause = clause.strip() if clause else ""
         clean_name = ie_name.strip() if ie_name else ""
 
-        if clean_clause and re.match(r"^(?:9|6|D\.6)(?:\.[0-9A-Za-z]+)+$", clean_clause):
+        if clean_clause and re.match(r"^(?:9|8|7|6|5|4|D\.6)(?:\.[0-9A-Za-z]+)+$", clean_clause):
             regex_pattern = rf"(?<![0-9A-Za-z.]){re.escape(clean_clause)}(?![0-9A-Za-z.])"
             where_conditions.append("i.type_reference REGEXP ?")
             params.append(regex_pattern)
@@ -534,9 +540,16 @@ class NASDatabase:
             return None
 
         if major_version is not None:
+            def _extract_major(ver_str: str) -> Optional[int]:
+                vt = parse_version_tuple(ver_str)
+                if not vt:
+                    return None
+                first = vt[0]
+                return first[1] if isinstance(first, tuple) and first[0] == 0 else (first if isinstance(first, int) else None)
+
             rows = [
                 r for r in rows
-                if parse_version_tuple(r["version"]) and parse_version_tuple(r["version"])[0] == major_version
+                if _extract_major(r["version"]) == major_version
             ]
 
         if not rows:
@@ -577,6 +590,7 @@ class NASDatabase:
             return None
 
         where_sql = " OR ".join(where_parts)
+        params.extend([clean_c, clean_alt])
 
         query = f"""
             SELECT d.*, sv.version, sv.spec_number
@@ -585,8 +599,8 @@ class NASDatabase:
             WHERE sv.id = ? AND ({where_sql})
             ORDER BY 
                 CASE 
-                    WHEN LOWER(TRIM(d.clause)) = LOWER('{clean_c}') THEN 1
-                    WHEN LOWER(TRIM(d.ie_name)) = LOWER('{clean_alt}') THEN 2
+                    WHEN LOWER(TRIM(d.clause)) = LOWER(?) THEN 1
+                    WHEN LOWER(TRIM(d.ie_name)) = LOWER(?) THEN 2
                     ELSE 3
                 END ASC,
                 LENGTH(COALESCE(d.raw_description, '')) DESC

@@ -26,6 +26,9 @@ class PptxConverterThread(QThread):
     def run(self):
         pythoncom.CoInitialize()
         ppt = None
+        pres = None
+        slide = None
+        shape = None
         emf_path = None
         try:
             self._emit_log(f"⚙️ Generating PowerPoint slide for: {self.puml_path.name}", logging.INFO)
@@ -123,21 +126,22 @@ class PptxConverterThread(QThread):
             self.finished_path.emit("OPENED_IN_PPT")
 
         except Exception as e:
+            if pres:
+                try:
+                    pres.Saved = True
+                    pres.Close()
+                except Exception:
+                    pass
             if ppt:
                 try:
                     ppt.Quit()
-                except:
+                except Exception:
                     pass
             self._emit_log(f"❌ PowerPoint COM Error: {str(e)}", logging.ERROR)
             self.finished_path.emit("")
         finally:
             # Destroy any local COM wrappers while this thread's apartment still exists.
-            try:
-                shape = None
-                slide = None
-                pres = None
-            except Exception:
-                pass
+            shape = slide = pres = ppt = None
             gc.collect()
             pythoncom.CoUninitialize()
 

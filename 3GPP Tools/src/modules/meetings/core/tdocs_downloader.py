@@ -14,12 +14,27 @@ class TDocsDownloaderThread(QThread):
     # Emits (success_boolean, file_path_or_error_message)
     finished = pyqtSignal(bool, str, str)
 
-    def __init__(self, mtg_id: str, local_path: Path, parent=None):
+    def __init__(self, mtg_id: str, local_path: Path, parent=None, cancel_check=None):
         super().__init__(parent)
         self.mtg_id = mtg_id
         self.local_path = local_path
+        self.cancel_check = cancel_check
+
+    def _should_cancel(self) -> bool:
+        if self.isInterruptionRequested():
+            return True
+        if callable(self.cancel_check):
+            try:
+                return bool(self.cancel_check())
+            except Exception:
+                return False
+        return False
 
     def run(self):
+        if self._should_cancel():
+            self.finished.emit(False, "Download cancelled.", self.mtg_id)
+            return
+
         url = f"https://portal.3gpp.org/ngppapp/GenerateDocumentList.Aspx?meetingId={self.mtg_id}"
         agenda_dir = self.local_path / "Agenda"
 
@@ -53,8 +68,19 @@ class TDocsDownloaderThread(QThread):
             with open(filepath, 'wb') as f:
                 # ---> OPTIMIZATION: Increased chunk size from 8KB to 64KB
                 for chunk in response.iter_content(chunk_size=65536):
+                    if self._should_cancel():
+                        break
                     if chunk:
                         f.write(chunk)
+
+            if self._should_cancel():
+                try:
+                    if filepath.exists():
+                        filepath.unlink()
+                except Exception:
+                    pass
+                self.finished.emit(False, "Download cancelled.", self.mtg_id)
+                return
 
             logger.info(f"✅ [TDocs List] Saved: {filepath}")
             self.finished.emit(True, str(filepath), self.mtg_id)

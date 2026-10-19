@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 import re
@@ -84,7 +85,7 @@ class NASDocxParser:
                             "ie_name": ie_name,
                             "html_content": [
                                 f'<h2 style="color: #0D47A1; margin-top: 4px; margin-bottom: 6px; '
-                                f'font-family: Segoe UI, sans-serif;">{ie_name} (Clause {cl})</h2>'
+                                f'font-family: Segoe UI, sans-serif;">{html.escape(ie_name)} (Clause {html.escape(cl)})</h2>'
                             ],
                         }
                     elif RE_MAJOR_BOUNDARY.match(p_text) and not p_text.startswith("9."):
@@ -94,20 +95,20 @@ class NASDocxParser:
                     elif current_ie_def:
                         if p_text.startswith(("Figure 9.", "Figure D.")):
                             current_ie_def["html_content"].append(
-                                f'<p style="font-weight: bold; color: #37474F; margin-top: 10px; margin-bottom: 4px;">{p_text}</p>'
+                                f'<p style="font-weight: bold; color: #37474F; margin-top: 10px; margin-bottom: 4px;">{html.escape(p_text)}</p>'
                             )
                         elif p_text.startswith(("Table 9.", "Table D.")):
                             current_ie_def["html_content"].append(
-                                f'<p style="font-weight: bold; color: #1A237E; margin-top: 12px; margin-bottom: 4px;">{p_text}</p>'
+                                f'<p style="font-weight: bold; color: #1A237E; margin-top: 12px; margin-bottom: 4px;">{html.escape(p_text)}</p>'
                             )
                         elif p_text.startswith("NOTE"):
                             current_ie_def["html_content"].append(
                                 f'<div style="background-color: #F0F4F8; border-left: 3px solid #90A4AE; '
-                                f'padding: 4px 8px; margin: 4px 0; font-size: 11px; color: #455A64;">{p_text}</div>'
+                                f'padding: 4px 8px; margin: 4px 0; font-size: 11px; color: #455A64;">{html.escape(p_text)}</div>'
                             )
                         else:
                             current_ie_def["html_content"].append(
-                                f'<p style="margin: 4px 0; line-height: 1.4; color: #263238;">{p_text}</p>'
+                                f'<p style="margin: 4px 0; line-height: 1.4; color: #263238;">{html.escape(p_text)}</p>'
                             )
 
                 elif elem.tag == TAG_TBL:

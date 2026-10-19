@@ -513,7 +513,6 @@ class WordExcerptThread(QThread):
     finished_path = pyqtSignal(str)
     failed = pyqtSignal(str)
     progress = pyqtSignal(int, str)
-    finished = pyqtSignal()
 
     def __init__(self, source_paths, headings, selected_ids, output_path):
         super().__init__()
@@ -534,8 +533,6 @@ class WordExcerptThread(QThread):
         except Exception as exc:
             logger.exception("Word excerpt extraction failed")
             self.failed.emit(str(exc))
-        finally:
-            self.finished.emit()
 
 class WordHeadingScanThread(QThread):
     scanned = pyqtSignal(object, object)  # ordered paths, headings

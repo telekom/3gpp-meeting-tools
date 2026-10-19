@@ -675,49 +675,91 @@ class WorkItemsTab(QWidget):
 
     def _load_filters(self):
         filters = self.settings.get_filters()
-        if not filters:
-            idx = self.status_combo.findData("active")
-            if idx >= 0:
-                self.status_combo.setCurrentIndex(idx)
-            return
+        self.search_input.blockSignals(True)
+        self.release_combo.blockSignals(True)
+        self.wg_combo.blockSignals(True)
+        self.status_combo.blockSignals(True)
+        try:
+            if not filters:
+                idx = self.status_combo.findData("active")
+                if idx >= 0:
+                    self.status_combo.setCurrentIndex(idx)
+                return
 
-        if "search" in filters:
-            self.search_input.setText(filters["search"])
+            if "search" in filters:
+                self.search_input.setText(filters["search"])
 
-        if "releases" in filters:
-            self._apply_checked_items(self.release_combo, filters["releases"])
+            if "releases" in filters:
+                self._apply_checked_items(self.release_combo, filters["releases"])
 
-        if "wgs" in filters:
-            self._apply_checked_items(self.wg_combo, filters["wgs"])
+            if "wgs" in filters:
+                self._apply_checked_items(self.wg_combo, filters["wgs"])
 
-        if "status" in filters:
-            idx = self.status_combo.findData(filters["status"])
-            if idx >= 0:
-                self.status_combo.setCurrentIndex(idx)
-        else:
-            idx = self.status_combo.findData("active")
-            if idx >= 0:
-                self.status_combo.setCurrentIndex(idx)
+            if "status" in filters:
+                idx = self.status_combo.findData(filters["status"])
+                if idx >= 0:
+                    self.status_combo.setCurrentIndex(idx)
+            else:
+                idx = self.status_combo.findData("active")
+                if idx >= 0:
+                    self.status_combo.setCurrentIndex(idx)
+        finally:
+            self.search_input.blockSignals(False)
+            self.release_combo.blockSignals(False)
+            self.wg_combo.blockSignals(False)
+            self.status_combo.blockSignals(False)
 
     def _apply_checked_items(self, combo, items_to_check):
         model = combo.model()
-        items_to_check_stripped = [str(x).strip() for x in items_to_check]
+        row_count = model.rowCount()
+        if row_count == 0:
+            return
 
-        for row in range(model.rowCount()):
-            if hasattr(model, 'item'):
-                item = model.item(row)
-                if item.text().strip() in items_to_check_stripped:
-                    item.setCheckState(Qt.Checked)
-                else:
-                    item.setCheckState(Qt.Unchecked)
+        model.blockSignals(True)
+        try:
+            if not items_to_check:
+                for row in range(row_count):
+                    if hasattr(model, 'item'):
+                        item = model.item(row)
+                        if item:
+                            item.setCheckState(Qt.Checked)
+                    else:
+                        index = model.index(row, 0)
+                        model.setData(index, Qt.Checked, Qt.CheckStateRole)
             else:
-                index = model.index(row, 0)
-                text = str(model.data(index, Qt.DisplayRole)).strip()
-                state = Qt.Checked if text in items_to_check_stripped else Qt.Unchecked
-                model.setData(index, state, Qt.CheckStateRole)
+                items_to_check_stripped = {str(x).strip() for x in items_to_check}
+                all_checked = True
+                for row in range(1, row_count):
+                    if hasattr(model, 'item'):
+                        item = model.item(row)
+                        if item:
+                            user_val = str(item.data(Qt.UserRole) or item.text()).strip()
+                            checked = (user_val in items_to_check_stripped or item.text().strip() in items_to_check_stripped)
+                            item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+                            if not checked:
+                                all_checked = False
+                    else:
+                        index = model.index(row, 0)
+                        text = str(model.data(index, Qt.DisplayRole)).strip()
+                        checked = text in items_to_check_stripped
+                        model.setData(index, Qt.Checked if checked else Qt.Unchecked, Qt.CheckStateRole)
+                        if not checked:
+                            all_checked = False
+
+                if hasattr(model, 'item'):
+                    root_item = model.item(0)
+                    if root_item:
+                        root_item.setCheckState(Qt.Checked if all_checked else Qt.Unchecked)
+                else:
+                    root_index = model.index(0, 0)
+                    model.setData(root_index, Qt.Checked if all_checked else Qt.Unchecked, Qt.CheckStateRole)
+        finally:
+            model.blockSignals(False)
 
         if hasattr(combo, 'updateText'):
             combo.updateText()
+        elif hasattr(combo, 'update'):
+            combo.update()
         elif hasattr(combo, 'repaint'):
             combo.repaint()
 
@@ -1000,7 +1042,17 @@ class WorkItemsTab(QWidget):
         self.progress_bar.setVisible(False)
         self.status_lbl.setText("")
 
+        prev_releases = self.release_combo.getCheckedItems()
+        prev_wgs = self.wg_combo.getCheckedItems()
         self._populate_filters()
+        if prev_releases:
+            self.release_combo.blockSignals(True)
+            self._apply_checked_items(self.release_combo, prev_releases)
+            self.release_combo.blockSignals(False)
+        if prev_wgs:
+            self.wg_combo.blockSignals(True)
+            self._apply_checked_items(self.wg_combo, prev_wgs)
+            self.wg_combo.blockSignals(False)
         self.refresh_table(reset_pagination=True)
 
         if success:
@@ -1107,3 +1159,18 @@ class WorkItemsTab(QWidget):
         self.targeted_thread.progress.connect(self._update_progress)
         self.targeted_thread.finished_sync.connect(self._on_sync_finished)
         self.targeted_thread.start()
+
+    def shutdown(self):
+        if hasattr(self, "search_timer"):
+            self.search_timer.stop()
+        if hasattr(self, "save_filters_timer"):
+            self.save_filters_timer.stop()
+        for th in (getattr(self, "scraper_thread", None), getattr(self, "targeted_thread", None)):
+            if th and th.isRunning():
+                th.requestInterruption()
+                th.quit()
+                th.wait(150)
+
+    def closeEvent(self, event):
+        self.shutdown()
+        super().closeEvent(event)

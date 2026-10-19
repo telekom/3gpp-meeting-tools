@@ -337,6 +337,8 @@ class WordExtractorTab(QWidget):
         self._excerpt_headings = []
         self._excerpt_scan_thread = None
         self._excerpt_extract_thread = None
+        self._excerpt_scan_gen = 0
+        self._active_scan_threads = []
 
         self.card_compare = QWidget()
         compare_layout = QVBoxLayout(self.card_compare)
@@ -420,12 +422,37 @@ class WordExtractorTab(QWidget):
         self.excerpt_tree.clear()
         self.excerpt_extract_btn.setEnabled(False)
 
+    def _disconnect_running_scan(self):
+        self._excerpt_scan_gen += 1
+        if self._excerpt_scan_thread is not None:
+            old_thread = self._excerpt_scan_thread
+            try:
+                old_thread.scanned.disconnect()
+            except Exception:
+                pass
+            try:
+                old_thread.progress.disconnect()
+            except Exception:
+                pass
+            try:
+                old_thread.failed.disconnect()
+            except Exception:
+                pass
+            if old_thread.isRunning():
+                old_thread.requestInterruption()
+                self._active_scan_threads.append(old_thread)
+                old_thread.finished.connect(
+                    lambda t=old_thread: self._active_scan_threads.remove(t) if t in self._active_scan_threads else None
+                )
+            self._excerpt_scan_thread = None
+
     def _rescan_excerpt_sources(self):
+        self._disconnect_running_scan()
         self._invalidate_excerpt_scan()
         if not self._excerpt_input_paths:
-            self.excerpt_drop.set_state("idle", "📥 Drop one or more .docx files here to scan their headings")
-            return
-        if self._excerpt_scan_thread is not None and self._excerpt_scan_thread.isRunning():
+            self.excerpt_drop.set_state("ready", "📥 Drop one or more .docx files here to scan their headings")
+            self.excerpt_progress.setVisible(False)
+            self.excerpt_progress_label.setVisible(False)
             return
         self.excerpt_drop.set_state("ready", f"Scanning {len(self._excerpt_input_paths)} document(s)...")
         self.excerpt_progress.setValue(0)
@@ -433,11 +460,19 @@ class WordExtractorTab(QWidget):
         self.excerpt_progress_label.setText(f"Preparing to parse {len(self._excerpt_input_paths)} document(s)...")
         self.excerpt_progress_label.setVisible(True)
         mode = self.excerpt_order_combo.currentData()
-        self._excerpt_scan_thread = WordHeadingScanThread(list(self._excerpt_input_paths), mode)
-        self._excerpt_scan_thread.scanned.connect(self._on_excerpt_scanned)
-        self._excerpt_scan_thread.progress.connect(self._on_excerpt_scan_progress)
-        self._excerpt_scan_thread.failed.connect(self._on_excerpt_scan_failed)
-        self._excerpt_scan_thread.start()
+        gen = self._excerpt_scan_gen
+        thread = WordHeadingScanThread(list(self._excerpt_input_paths), mode)
+        self._excerpt_scan_thread = thread
+        thread.scanned.connect(
+            lambda ordered_paths, headings, g=gen: self._on_excerpt_scanned(ordered_paths, headings) if g == self._excerpt_scan_gen else None
+        )
+        thread.progress.connect(
+            lambda percent, message, g=gen: self._on_excerpt_scan_progress(percent, message) if g == self._excerpt_scan_gen else None
+        )
+        thread.failed.connect(
+            lambda message, g=gen: self._on_excerpt_scan_failed(message) if g == self._excerpt_scan_gen else None
+        )
+        thread.start()
 
     def _remove_excerpt_sources(self):
         selected_rows = sorted(
@@ -453,10 +488,13 @@ class WordExtractorTab(QWidget):
         self._rescan_excerpt_sources()
 
     def _clear_excerpt_sources(self):
+        self._disconnect_running_scan()
         self._excerpt_input_paths = []
         self._refresh_excerpt_source_list()
         self._invalidate_excerpt_scan()
-        self.excerpt_drop.set_state("idle", "📥 Drop one or more .docx files here to scan their headings")
+        self.excerpt_drop.set_state("ready", "📥 Drop one or more .docx files here to scan their headings")
+        self.excerpt_progress.setVisible(False)
+        self.excerpt_progress_label.setVisible(False)
 
     def _on_excerpt_scan_progress(self, percent, message):
         self.excerpt_progress.setValue(percent)

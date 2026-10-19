@@ -1,15 +1,21 @@
 """Bounded, evidence-first research controller for the 3GPP Assistant."""
 from __future__ import annotations
-import json, re, time
+import json, logging, os, re, time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
 
+from core.utils.paths import get_project_root
 from modules.assistant.core.agent_models import (
     AgentResult, EvidenceSourceType, ResearchActivity, ResearchCancelledError,
     ResearchOutcome, ResearchRun, ToolResult, ToolStatus,
 )
 from modules.assistant.core.model_types import ModelResponse
 from modules.assistant.core.tool_registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
+PROMPTS_DIR = get_project_root() / "config" / "prompts"
+_PROMPT_CACHE: Dict[str, Tuple[float, str]] = {}
 
 DEFAULT_SYSTEM_PROMPT = """You are the local 3GPP research assistant inside 3GPP Tools.
 Use the provided application tools for substantive 3GPP facts.
@@ -22,6 +28,29 @@ Cite substantive technical claims using only evidence IDs supplied in tool resul
 Never invent evidence IDs, specification clauses, or tool names.
 Stop researching when you have enough evidence to answer.
 """
+
+
+def load_system_prompt(
+    filename: str = "assistant_system.txt",
+    fallback_default: str = DEFAULT_SYSTEM_PROMPT,
+) -> str:
+    """Loads the Assistant system prompt from config/prompts/ with mtime hot-reloading."""
+    prompt_path = PROMPTS_DIR / filename
+    if not prompt_path.exists():
+        return fallback_default.strip()
+    try:
+        current_mtime = os.path.getmtime(prompt_path)
+        cached = _PROMPT_CACHE.get(filename)
+        if cached is not None and cached[0] == current_mtime:
+            return cached[1]
+        content = prompt_path.read_text(encoding="utf-8").strip()
+        if not content:
+            return fallback_default.strip()
+        _PROMPT_CACHE[filename] = (current_mtime, content)
+        return content
+    except Exception as exc:
+        logger.warning("[Assistant] Failed to read %s: %s", filename, exc)
+        return _PROMPT_CACHE.get(filename, (0.0, fallback_default.strip()))[1]
 
 class ModelAdapter(Protocol):
     model: str
@@ -66,7 +95,8 @@ class AgentController:
         self._active_run=run
         run.trace.model=getattr(self.adapter,"model","")
         run.trace.add("run_started",model=run.trace.model)
-        messages=[{"role":"system","content":DEFAULT_SYSTEM_PROMPT},*context,{"role":"user","content":question}]
+        system_prompt=load_system_prompt()
+        messages=[{"role":"system","content":system_prompt},*context,{"role":"user","content":question}]
         cache: Dict[str,Tuple[ToolResult,List[str]]]={}
         model_errors=0
         invalid_tool_calls=0
@@ -89,12 +119,13 @@ class AgentController:
                     messages.append(self.adapter.assistant_message(response))
                     for call in response.tool_calls:
                         run.cancellation_token.raise_if_cancelled()
-                        self._activity(run,"tool_requested",self._activity_text(call.name,call.arguments),
-                                       tool=call.name,arguments=call.arguments)
-                        key=self.tools.canonical_call_key(call.name,call.arguments)
+                        norm_args=self.tools.normalize_arguments(call.name,call.arguments)
+                        self._activity(run,"tool_requested",self._activity_text(call.name,norm_args),
+                                       tool=call.name,arguments=norm_args)
+                        key=self.tools.canonical_call_key(call.name,norm_args)
                         if key in cache:
                             result,eids=cache[key]
-                            run.trace.add("tool_cache_hit",tool=call.name,arguments=call.arguments)
+                            run.trace.add("tool_cache_hit",tool=call.name,arguments=norm_args)
                         else:
                             tt=time.perf_counter()
                             result=self.tools.execute(call.name,call.arguments)
@@ -104,7 +135,7 @@ class AgentController:
                                 invalid_tool_calls = 0
                             eids=self._capture_evidence(run,call.name,result)
                             cache[key]=(result,eids)
-                            run.trace.add("tool_finished",tool=call.name,arguments=call.arguments,
+                            run.trace.add("tool_finished",tool=call.name,arguments=norm_args,
                                           status=result.status.value,duration_seconds=time.perf_counter()-tt,
                                           metadata=result.metadata,evidence_ids=eids)
                         messages.append(self.adapter.tool_result_message(
@@ -163,14 +194,20 @@ class AgentController:
                 answer=final.content.strip()
                 if not answer: return self._failed(run,"Research budget exhausted and no final answer was produced.")
                 invalid=self._invalid_evidence_ids(answer,run)
-                if invalid: return self._failed(run,"Final answer referenced invalid evidence IDs.")
+                extra_warnings=["Research iteration budget was exhausted before finalization."]
+                if invalid:
+                    run.trace.add("invalid_evidence_ids",ids=invalid)
+                    answer=self._strip_invalid_evidence_ids(answer,invalid)
+                    extra_warnings.append("Invalid evidence citations were removed from the finalized answer: "+", ".join(invalid))
                 cited=self._extract_evidence_ids(answer)
+                run.trace.add("run_completed",cited_evidence_ids=cited)
+                self._activity(run,"answer_ready","Grounded answer ready.")
                 return self._result(
                     run,
                     ResearchOutcome.COMPLETED,
                     answer=answer,
                     cited_evidence_ids=cited,
-                    warnings=["Research iteration budget was exhausted before finalization."],
+                    warnings=extra_warnings+self._answer_warnings(run,answer),
                 )
             return self._failed(run,"Research iteration budget was exhausted.")
         except ResearchCancelledError:
@@ -214,9 +251,21 @@ class AgentController:
     @staticmethod
     def _extract_evidence_ids(text):
         out=[]
-        for m in re.finditer(r"\[(E\d+)\]",text or ""):
-            if m.group(1) not in out: out.append(m.group(1))
+        for m in re.finditer(r"\[([^\[\]]*?\bE\d+\b[^\[\]]*?)\]",text or ""):
+            for eid in re.findall(r"\bE\d+\b",m.group(1)):
+                if eid not in out: out.append(eid)
         return out
+    @staticmethod
+    def _strip_invalid_evidence_ids(text: str, invalid_ids: Sequence[str]) -> str:
+        invalid_set = set(invalid_ids)
+        def _clean_bracket(match: re.Match) -> str:
+            inner = match.group(1)
+            eids = re.findall(r"\bE\d+\b", inner)
+            if not eids or not any(e in invalid_set for e in eids):
+                return match.group(0)
+            valid = [e for e in eids if e not in invalid_set]
+            return f"[{', '.join(valid)}]" if valid else ""
+        return re.sub(r"\[([^\[\]]*?\bE\d+\b[^\[\]]*?)\]", _clean_bracket, text or "").strip()
     def _invalid_evidence_ids(self,text,run):
         return [x for x in self._extract_evidence_ids(text) if x not in run.evidence]
     @staticmethod

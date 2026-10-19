@@ -357,8 +357,8 @@ def build_row_context_menu(
 
     # Action 2: Copy Title
     title = str(row_data.get("Title", "")).strip()
+    safe_title = html.escape(title)
     if title:
-        safe_title = html.escape(title)
         act_copy_title = copy_sub.addAction("📋 Copy Title")
         act_copy_title.setToolTip('Copy the TDoc title.')
         act_copy_title.triggered.connect(
@@ -462,18 +462,6 @@ def build_related_menu(
             act_triage = menu.addAction(f"🤖 AI Technical Triage ({clean_tdoc})")
             act_triage.setToolTip('Run the local-LLM technical triage for this TDoc.')
             act_triage.triggered.connect(lambda: triage_callback(clean_tdoc))
-
-        if compose_email_callback:
-            act_email = menu.addAction(f"✉️ Draft Email ({clean_tdoc})")
-            act_email.setToolTip('Draft an email referring to this TDoc.')
-            act_email.triggered.connect(
-                lambda: compose_email_callback(clean_tdoc)
-            )
-
-        if export_llm_callback:
-            act_llm = menu.addAction("🤖 Export for LLM Analysis")
-            act_llm.setToolTip('Export this TDoc in an LLM-ready form for analysis.')
-            act_llm.triggered.connect(lambda: export_llm_callback(clean_tdoc))
 
         if compose_email_callback:
             act_email = menu.addAction(f"✉️ Draft Email ({clean_tdoc})")

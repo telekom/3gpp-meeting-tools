@@ -124,13 +124,22 @@ class QueueManager(QObject):
             self._update_status()
 
     def abort_current_task(self):
-        """Forcefully stops the currently running QThread."""
+        """Cooperatively stops the currently running QThread."""
         if hasattr(self, 'conv_thread') and self.conv_thread and self.conv_thread.isRunning():
-            logger.log(logging.WARNING, "🛑 Forcefully aborting current task...")
+            logger.log(logging.WARNING, "🛑 Aborting current task...")
 
-            # Force terminate the thread
-            self.conv_thread.terminate()
-            self.conv_thread.wait()  # Wait for it to fully die
+            try:
+                self.conv_thread.finished.disconnect(self.process_next)
+            except Exception:
+                pass
+
+            self.conv_thread.requestInterruption()
+            if hasattr(self.conv_thread, "cancel") and callable(self.conv_thread.cancel):
+                self.conv_thread.cancel()
+            if hasattr(self.conv_thread, "is_cancelled"):
+                self.conv_thread.is_cancelled = True
+
+            self.conv_thread.wait(3000)
             self.conv_thread = None
 
             self.is_processing = False

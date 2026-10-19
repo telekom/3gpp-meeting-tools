@@ -37,6 +37,20 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 
+def _normalize_ollama_host(host: str) -> str:
+    """Normalizes localhost URLs (with or without port) to IPv4 loopback 127.0.0.1."""
+    h = str(host or "").strip().rstrip("/")
+    if not h:
+        return "http://127.0.0.1:11434"
+    for prefix in ("http://localhost", "https://localhost"):
+        if h.lower().startswith(prefix):
+            rest = h[len(prefix):]
+            if not rest or rest.startswith(":") or rest.startswith("/"):
+                scheme = h.split("://", 1)[0]
+                return f"{scheme}://127.0.0.1{rest}"
+    return h
+
+
 def load_ollama_config() -> dict:
     """Loads Ollama configuration from disk with safe defaults."""
     cfg = DEFAULT_CONFIG.copy()
@@ -48,11 +62,7 @@ def load_ollama_config() -> dict:
             logging.warning(f"[Ollama] Error reading {CONFIG_PATH.name}: {e}")
 
     # Enforce IPv4 loopback to prevent Windows IPv6 or corporate DNS timeouts
-    host = str(cfg.get("host", "")).strip()
-    if host.startswith("http://localhost:"):
-        cfg["host"] = host.replace("http://localhost:", "http://127.0.0.1:")
-    elif not host:
-        cfg["host"] = "http://127.0.0.1:11434"
+    cfg["host"] = _normalize_ollama_host(cfg.get("host", ""))
 
     return cfg
 
@@ -324,9 +334,7 @@ class OllamaClient:
 
     def __init__(self, host: str = None, proxy_mode: str = None):
         cfg = load_ollama_config()
-        raw_host = (host or cfg.get("host", "http://127.0.0.1:11434")).rstrip("/")
-        if raw_host.startswith("http://localhost:"):
-            raw_host = raw_host.replace("http://localhost:", "http://127.0.0.1:")
+        raw_host = _normalize_ollama_host(host or cfg.get("host", "http://127.0.0.1:11434"))
         self.host = raw_host
         self.proxy_mode = proxy_mode or cfg.get("proxy_mode", "direct")
         self.timeout = cfg.get("timeout", 60)
@@ -337,9 +345,7 @@ class OllamaClient:
 
     def reconfigure(self, host: str, proxy_mode: str):
         """Re-initializes session when user changes host or proxy settings."""
-        self.host = host.rstrip("/")
-        if self.host.startswith("http://localhost:"):
-            self.host = self.host.replace("http://localhost:", "http://127.0.0.1:")
+        self.host = _normalize_ollama_host(host)
         self.proxy_mode = proxy_mode
         cfg = load_ollama_config()
         self.timeout = cfg.get("timeout", 60)

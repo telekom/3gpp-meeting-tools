@@ -11,18 +11,23 @@ from typing import Any, Dict, List, Optional
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
+    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -522,13 +527,6 @@ class SpecSearchVersionSelectDialog(QDialog):
         self.selected_files_info = selected_tasks
         self.accept()
 
-from PyQt5.QtWidgets import (
-    QButtonGroup,
-    QFileDialog,
-    QGroupBox,
-    QRadioButton,
-    QTextEdit,
-)
 
 class SpecClauseDiffDialog(QDialog):
     """

@@ -61,6 +61,8 @@ class EmailSyncThread(QThread):
             batch_data = []
 
             for i in range(1, total_items + 1):
+                if self.isInterruptionRequested():
+                    break
                 mail_item = items.Item(i)
 
                 # ---> NEW: Date Range Enforcement logic
@@ -140,6 +142,8 @@ class EmailMoveThread(QThread):
             batch_updates = []
 
             for i, (entry_id, ai) in enumerate(self.items_to_move, 1):
+                if self.isInterruptionRequested():
+                    break
                 status = OutlookClient.move_email_to_target(entry_id, self.target_base_path, ai)
 
                 if status == "SUCCESS" or status is True:
@@ -147,7 +151,7 @@ class EmailMoveThread(QThread):
                     success_count += 1
                 elif status == "DELETED":
                     # ---> SELF-HEALING: Purge the deleted email from the local database
-                    with sqlite3.connect(self.db.db_path) as conn:
+                    with self.db._get_connection() as conn:
                         conn.execute('DELETE FROM emails WHERE id = ?', (entry_id,))
                         conn.commit()
                     ghost_count += 1
@@ -229,11 +233,15 @@ class EmailTargetRescanThread(QThread):
             batch_data = []
 
             for folder in folders_to_scan:
+                if self.isInterruptionRequested():
+                    break
                 items = folder.Items
                 items.Sort("[ReceivedTime]", True)  # Sort newest first!
                 total_in_folder = len(items)
 
                 for i in range(1, total_in_folder + 1):
+                    if self.isInterruptionRequested():
+                        break
                     processed_count += 1
 
                     if processed_count % 10 == 0:
@@ -272,7 +280,7 @@ class EmailTargetRescanThread(QThread):
                                                                         self.meeting_dir)
                             parsed_data['msg_path'] = msg_path
 
-                        parsed_data['outlook_location'] = 'Source'
+                        parsed_data['outlook_location'] = 'Target'
 
                         # Add to our buffer. The DB's "INSERT OR REPLACE" will seamlessly
                         # update the sender and company fields for existing emails!

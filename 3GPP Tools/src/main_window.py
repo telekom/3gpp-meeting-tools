@@ -54,6 +54,8 @@ class DragDropUI(QMainWindow):
         self.wifi_monitor = None
         self.ollama_monitor = None
         self._services_started = False  # Guard to prevent duplicate background starts
+        self._visio_ready = True
+        self._core_ready = True
 
         logging.info("🏁 [STARTUP:UI] Starting _setup_ui()...")
         self._setup_ui()
@@ -402,9 +404,14 @@ class DragDropUI(QMainWindow):
                 "busy", "⚙️ Processing Queue...\n\nPlease wait until finished or drop more files to queue them."
             )
         else:
-            self.batch_tab.set_state(
-                "ready", "📥 Drag & Drop your .puml, .txt, .pptx, or .vsdx file(s) here\n\n(Batch converts between Visio & PowerPoint)"
-            )
+            if not getattr(self, "_core_ready", True):
+                self.batch_tab.set_state("error", "❌ Core engine error. Java or PlantUML engine is unavailable.")
+            elif not getattr(self, "_visio_ready", True):
+                self.batch_tab.set_state("error", "⚠️ Visio unavailable. Visio batch conversions will be disabled.")
+            else:
+                self.batch_tab.set_state(
+                    "ready", "📥 Drag & Drop your .puml, .txt, .pptx, or .vsdx file(s) here\n\n(Batch converts between Visio & PowerPoint)"
+                )
 
     def _set_editor_text(self, text):
         cursor = self.code_tab.text_input.textCursor()
@@ -435,7 +442,8 @@ class DragDropUI(QMainWindow):
             self.log_message("⚠️ Editor is empty. Nothing to copy.", logging.WARNING)
 
     def open_export_folder(self):
-        export_dir = get_project_root().parent
+        export_dir = get_project_root().parent / "output"
+        export_dir.mkdir(parents=True, exist_ok=True)
         try:
             os.startfile(export_dir)
             self.log_message(f"📂 Opened export directory: {export_dir}", logging.INFO)
@@ -476,7 +484,7 @@ class DragDropUI(QMainWindow):
         urllib.request.install_opener(opener)
 
     def _update_proxy_indicator(self):
-        """Updates both the bottom status bar pill and the ConsolePanel Proxy button."""
+        """Updates both the bottom status pill and the ConsolePanel Proxy button."""
         session = NetworkSession.get_instance()
         active_proxies = {
             proto: NetworkSession._sanitize_proxy_url(url)
@@ -602,14 +610,15 @@ class DragDropUI(QMainWindow):
         raw_text = self.code_tab.get_text()
         if not raw_text: return
 
-        base_dir = get_project_root().parent
+        out_dir = get_project_root().parent / "output"
+        out_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y.%m.%d %H-%M-%S")
         base_name = f"{timestamp} diagram"
-        puml_path = base_dir / f"{base_name}.puml"
+        puml_path = out_dir / f"{base_name}.puml"
 
         counter = 1
         while puml_path.exists() or puml_path.with_suffix(".vsdx").exists() or puml_path.with_suffix(".svg").exists():
-            puml_path = base_dir / f"{base_name}_{counter}.puml"
+            puml_path = out_dir / f"{base_name}_{counter}.puml"
             counter += 1
 
         with open(puml_path, "w", encoding="utf-8") as f:
@@ -843,6 +852,39 @@ class DragDropUI(QMainWindow):
             except Exception as e:
                 logging.warning(f"⚠️ [SHUTDOWN] Could not stop Assistant worker cleanly: {e}")
 
+        # 6. Close CodeEditorTab modeless AI dialog if open.
+        if hasattr(self, "code_tab") and self.code_tab is not None:
+            try:
+                ai_dlg = getattr(self.code_tab, "_ai_dialog", None)
+                if ai_dlg is not None:
+                    ai_dlg.close()
+                self.code_tab.close()
+            except Exception:
+                pass
+
+        # 7. Cooperatively stop any active WordExtractorTab threads.
+        if hasattr(self, "word_tab") and self.word_tab is not None:
+            for attr in ("_excerpt_scan_thread", "_excerpt_extract_thread"):
+                th = getattr(self.word_tab, attr, None)
+                if th is not None and th.isRunning():
+                    try:
+                        th.requestInterruption()
+                        th.wait(500)
+                    except Exception:
+                        pass
+
+        # 8. Shut down remaining feature tabs if they define shutdown or close.
+        for tab_name in ("spec_search_tab", "work_items_tab", "meetings_tab"):
+            tab = getattr(self, tab_name, None)
+            if tab is not None:
+                try:
+                    if hasattr(tab, "shutdown") and callable(tab.shutdown):
+                        tab.shutdown()
+                    elif hasattr(tab, "close") and callable(tab.close):
+                        tab.close()
+                except Exception as e:
+                    logging.warning(f"⚠️ [SHUTDOWN] Could not stop {tab_name} cleanly: {e}")
+
         logging.info("🏁 [SHUTDOWN] Window closing. Releasing Qt window handle...")
         super().closeEvent(event)
         event.accept()
@@ -881,6 +923,8 @@ class DragDropUI(QMainWindow):
 
     def on_init_complete(self, core_ready: bool, visio_ready: bool = True):
         # Always re-enable tabs so non-Visio modules remain fully functional
+        self._core_ready = core_ready
+        self._visio_ready = visio_ready
         self.tabs.setEnabled(True)
 
         if core_ready and visio_ready:

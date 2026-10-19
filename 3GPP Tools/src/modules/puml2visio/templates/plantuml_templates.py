@@ -327,7 +327,7 @@ alphanumeric = letter | digit ;
     },
     "Regex (Regular Expression)": {
         "url": "https://plantuml.com/en/regex",
-        "template": '''@startregex
+        "template": r'''@startregex
 title Email Validator
 [a-zA-Z0-9_]+@[a-zA-Z0-9_]+\.[a-zA-Z]{2,4}
 @endregex'''
@@ -368,7 +368,7 @@ end split
     },
     "Mathematics (AsciiMath)": {
         "url": "https://plantuml.com/en/ascii-math",
-        "template": '''@startmath
+        "template": r'''@startmath
 f(t)=(a_0)/2 + sum_(n=1)^ooa_ncos((npit)/L)+sum_(n=1)^oo b_n\ sin((npit)/L)
 @endmath'''
     },

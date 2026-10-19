@@ -1457,4 +1457,7 @@ class SpecClauseExcerptDialog(QDialog):
         if self._prep_thread and self._prep_thread.isRunning():
             self._prep_thread.requestInterruption()
             self._prep_thread.wait(200)
+        if self._extract_thread and self._extract_thread.isRunning():
+            self._extract_thread.requestInterruption()
+            self._extract_thread.wait(500)
         super().closeEvent(event)

@@ -462,7 +462,6 @@ class TDocsWindow(QWidget):
         filter_layout.addWidget(QLabel("🔍 Search:"))
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText('Search (e.g., "Baseline" -"discussed in call" or -draft)...')
-        self.search_input.setPlaceholderText('Search (e.g., "Baseline" -"discussed in call" or -draft)...')
         self.search_input.setToolTip('Search across TDoc metadata. Use -term or !term to exclude a term; quoted phrases are supported.')
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
         filter_layout.addWidget(self.search_input)
@@ -1183,8 +1182,16 @@ class TDocsWindow(QWidget):
             system_prompt=system_prompt
         )
         self.llm_thread.progress.connect(self._on_llm_progress)
-        self.llm_thread.finished.connect(lambda s, m: QMessageBox.information(self, "LLM Export", m))
+        self.llm_thread.finished.connect(self._on_llm_single_finished)
         self.llm_thread.start()
+
+    def _on_llm_single_finished(self, success: bool, msg: str):
+        self.export_btn.setText("📤 Export ▾")
+        self.export_btn.setEnabled(True)
+        if success:
+            QMessageBox.information(self, "LLM Export", msg)
+        else:
+            QMessageBox.warning(self, "Export Failed", msg)
 
     def _on_llm_progress(self, msg: str):
         self.export_btn.setText(f"⏳ {msg}"[:35])
@@ -1643,7 +1650,12 @@ class TDocsWindow(QWidget):
         self.export_btn.setEnabled(False)
 
         self.excel_exporter_thread = ExcelExporterThread(
-            Path(save_path), rows_to_export, selected_columns, self.mtg_info, auto_open=auto_open
+            Path(save_path),
+            rows_to_export,
+            selected_columns,
+            self.mtg_info,
+            docs_ftp_url=self.docs_ftp_url,
+            auto_open=auto_open
         )
         self.excel_exporter_thread.progress.connect(self._on_excel_export_progress)
         self.excel_exporter_thread.finished.connect(
@@ -1869,6 +1881,30 @@ class TDocsWindow(QWidget):
         if hasattr(self, 'search_timer'):
             self.search_timer.stop()
 
+        if getattr(self, 'email_window', None):
+            try:
+                self.email_window.close()
+            except Exception:
+                pass
+
+        for dlg in list(getattr(self, '_email_dialogs', {}).values()):
+            if dlg:
+                try:
+                    dlg.close()
+                except Exception:
+                    pass
+        if hasattr(self, '_email_dialogs'):
+            self._email_dialogs.clear()
+
+        for dlg in list(getattr(self, '_triage_dialogs', {}).values()):
+            if dlg:
+                try:
+                    dlg.close()
+                except Exception:
+                    pass
+        if hasattr(self, '_triage_dialogs'):
+            self._triage_dialogs.clear()
+
         all_threads = [
             getattr(self, 'rev_thread', None),
             getattr(self, 'agenda_dl_thread', None),
@@ -1876,11 +1912,20 @@ class TDocsWindow(QWidget):
             getattr(self, 'dl_thread', None),
             getattr(self, 'package_export_thread', None),
             getattr(self, 'package_excel_exporter_thread', None),
+            getattr(self, 'export_thread', None),
+            getattr(self, 'excel_exporter_thread', None),
+            getattr(self, 'stats_thread', None),
+            getattr(self, 'agenda_thread', None),
+            getattr(self, 'llm_thread', None),
+            getattr(self, 'word_import_thread', None),
+            getattr(self, 'chair_notes_thread', None),
         ]
         if hasattr(self, 'active_threads'):
             all_threads.extend(self.active_threads.values())
 
         for th in filter(None, all_threads):
+            if hasattr(th, 'is_cancelled'):
+                th.is_cancelled = True
             if th.isRunning():
                 th.requestInterruption()
                 th.quit()

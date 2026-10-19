@@ -31,9 +31,12 @@ def _open_word_document(path: Path) -> None:
     ``open_document`` so that non-Windows platforms and non-Word files retain
     their normal OS-opening behavior.
     """
+    import gc
     import pythoncom
     import win32com.client
 
+    word = None
+    doc = None
     pythoncom.CoInitialize()
     try:
         # Dispatch attaches to an existing Word instance when possible and
@@ -63,6 +66,8 @@ def _open_word_document(path: Path) -> None:
         doc.Activate()
         word.Visible = True
     finally:
+        doc = word = None
+        gc.collect()
         pythoncom.CoUninitialize()
 
 
@@ -101,9 +106,12 @@ def list_open_word_documents():
     if platform.system() != "Windows":
         return []
 
+    import gc
     import pythoncom
     import win32com.client
 
+    word = None
+    doc = None
     pythoncom.CoInitialize()
     try:
         try:
@@ -126,6 +134,8 @@ def list_open_word_documents():
                 continue
         return documents
     finally:
+        doc = word = None
+        gc.collect()
         pythoncom.CoUninitialize()
 
 
@@ -144,12 +154,16 @@ def close_open_word_documents(excluded_paths=None, discard_changes: bool = False
 
     excluded = {str(x).casefold() for x in (excluded_paths or []) if x}
 
+    import gc
     import pythoncom
     import win32com.client
 
     wd_do_not_save_changes = 0
     wd_prompt_to_save_changes = -2
 
+    word = None
+    docs = None
+    doc = None
     pythoncom.CoInitialize()
     try:
         try:
@@ -176,4 +190,6 @@ def close_open_word_documents(excluded_paths=None, discard_changes: bool = False
 
         return summary
     finally:
+        doc = docs = word = None
+        gc.collect()
         pythoncom.CoUninitialize()

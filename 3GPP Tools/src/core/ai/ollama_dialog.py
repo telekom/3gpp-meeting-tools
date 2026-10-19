@@ -359,7 +359,8 @@ class OllamaConfigDialog(QDialog):
 
         # Refresh local service and API state
         self._refresh_service_status()
-        self._test_connection()
+        self.status_label.setText("⏳ Checking connection...")
+        self.status_label.setStyleSheet("color: #D97706; font-weight: bold;")
         self._refresh_diagnostics()
 
     def _on_igpu_toggled(self, checked: bool):
@@ -443,8 +444,9 @@ class OllamaConfigDialog(QDialog):
         self._refresh_service_status()
 
         if success:
-            # Refresh connection, models, and runtime diagnostics
-            self._test_connection()
+            # Refresh connection, models, and runtime diagnostics asynchronously
+            self.status_label.setText("⏳ Checking connection...")
+            self.status_label.setStyleSheet("color: #D97706; font-weight: bold;")
             self._refresh_diagnostics()
             if self._close_after_service_action:
                 self._close_after_service_action = False
@@ -506,9 +508,12 @@ class OllamaConfigDialog(QDialog):
     def _on_diagnostics_finished(self, info: dict):
         self.refresh_diagnostics_btn.setEnabled(True)
         self.diagnostics_worker = None
+        self._refresh_service_status()
 
         if not info.get("online"):
             error = info.get("error") or "Ollama server is not available."
+            self.status_label.setText(f"❌ Offline: {error}")
+            self.status_label.setStyleSheet("color: #DC2626; font-weight: bold;")
             self.version_label.setText("Version: Unavailable")
             self.runtime_label.setText("Runtime: Offline")
             self.acceleration_label.setText(f"Acceleration: Unavailable ({error})")
@@ -519,6 +524,19 @@ class OllamaConfigDialog(QDialog):
         installed = list(info.get("models") or [])
         running = list(info.get("running_models") or [])
         running_by_name = {m.get("name"): m for m in running if m.get("name")}
+
+        model_names = [m.get("name") for m in installed if m.get("name")]
+        self.status_label.setText(f"✅ Connected! Found {len(model_names)} installed model(s).")
+        self.status_label.setStyleSheet("color: #166534; font-weight: bold;")
+
+        curr_selected = self.model_combo.currentText()
+        self.model_combo.clear()
+        for m_name in model_names:
+            self.model_combo.addItem(m_name)
+        if curr_selected in model_names:
+            self.model_combo.setCurrentText(curr_selected)
+        elif model_names:
+            self.model_combo.setCurrentIndex(0)
 
         self.version_label.setText(f"Version: {version}")
         if running:

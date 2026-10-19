@@ -139,15 +139,15 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         if self._ie_filter and not self._pivot_df.empty:
             q = self._ie_filter
             mask = (
-                    self._pivot_df["ie_name"].astype(str).str.lower().str.contains(q, na=False)
-                    | self._pivot_df["field_path"].astype(str).str.lower().str.contains(q, na=False)
-                    | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False)
-                    | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False)
+                    self._pivot_df["ie_name"].astype(str).str.lower().str.contains(q, na=False, regex=False)
+                    | self._pivot_df["field_path"].astype(str).str.lower().str.contains(q, na=False, regex=False)
+                    | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False, regex=False)
+                    | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False, regex=False)
             )
 
             # Vectorized description match
             if self._search_descriptions and "ie_description" in df.columns:
-                desc_match_df = df[df["ie_description"].astype(str).str.lower().str.contains(q, na=False)]
+                desc_match_df = df[df["ie_description"].astype(str).str.lower().str.contains(q, na=False, regex=False)]
                 if not desc_match_df.empty:
                     matching_keys = set(
                         zip(

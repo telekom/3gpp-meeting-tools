@@ -514,10 +514,14 @@ class ContributionSearchWorker(QThread):
             if not mtg_id:
                 self._log(f"⚠️ [{tag}] Missing 3GPP portal ID; skipping download.", logging.WARNING)
                 return []
+            if self._is_cancelled:
+                return []
 
             self._log(f"📥 [{tag}] Downloading TDocs workbook from 3GPP...")
-            dl = TDocsDownloaderThread(mtg_id, local_mtg_dir)
+            dl = TDocsDownloaderThread(mtg_id, local_mtg_dir, cancel_check=lambda: self._is_cancelled)
             dl.run()
+            if self._is_cancelled:
+                return []
 
             if agenda_dir.exists():
                 excel_file = next(
@@ -533,6 +537,9 @@ class ContributionSearchWorker(QThread):
 
         if not excel_file or not excel_file.exists():
             self._log(f"⚠️ [{tag}] No TDocs list available.", logging.WARNING)
+            return []
+
+        if self._is_cancelled:
             return []
 
         json_cache = str(excel_file) + ".json"

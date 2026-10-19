@@ -839,6 +839,8 @@ class MeetingsTab(QWidget):
             tab_threads.extend(self._active_dl_threads.values())
 
         for th in filter(None, tab_threads):
+            if hasattr(th, 'is_cancelled'):
+                th.is_cancelled = True
             if th.isRunning():
                 th.requestInterruption()
                 th.quit()

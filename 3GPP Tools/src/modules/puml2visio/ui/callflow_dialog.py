@@ -146,7 +146,7 @@ class CallFlowDialog(QDialog):
 
         self.close_btn = QPushButton("Close")
         self.close_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.close_btn.clicked.connect(self.reject)
+        self.close_btn.clicked.connect(self.close)
         btn_bar.addWidget(self.close_btn)
 
         layout.addLayout(btn_bar)
@@ -182,7 +182,7 @@ class CallFlowDialog(QDialog):
 
         sys_prompt = self.prompt_mgr.get_prompt("callflow_system.txt")
         usr_template = self.prompt_mgr.get_prompt("callflow_user.txt")
-        formatted_user_prompt = usr_template.format(call_flow_text=call_flow)
+        formatted_user_prompt = usr_template.replace("{call_flow_text}", call_flow)
 
         self.output_text.clear()
         self._raw_stream_buffer = []

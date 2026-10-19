@@ -1,3 +1,4 @@
+import html
 from plotly import express as px
 
 
@@ -25,16 +26,30 @@ def _generate_delegates_plot(THEME_COLOR, svg_config, df, prefix, include_plotly
                        default_height="100%", default_width="100%", config=svg_config)
 
 
+def _first_company(series):
+    for comps in series:
+        if isinstance(comps, (list, tuple)):
+            for c in comps:
+                if str(c).strip():
+                    return str(c).strip()
+        elif isinstance(comps, str) and comps.strip():
+            return comps.strip()
+    return "Unknown"
+
+
 def _generate_delegate_table(df, prefix):
     delegates = df.groupby('sender_email').agg(
         Name=('sender_name', lambda x: x.value_counts().index[0] if not x.empty else "Unknown"),
-        Company=('Clean_Companies', lambda x: x.iloc[0][0] if len(x.iloc[0]) > 0 else "Unknown"),
+        Company=('Clean_Companies', _first_company),
         Emails=('id', 'count')
     ).reset_index().sort_values('Emails', ascending=False)
 
     rows = ""
     for _, row in delegates.iterrows():
-        rows += f"<tr><td>{row['Name']}</td><td>{row['sender_email']}</td><td>{row['Company']}</td><td>{row['Emails']}</td></tr>"
+        safe_name = html.escape(str(row['Name']))
+        safe_email = html.escape(str(row['sender_email']))
+        safe_company = html.escape(str(row['Company']))
+        rows += f"<tr><td>{safe_name}</td><td>{safe_email}</td><td>{safe_company}</td><td>{int(row['Emails'])}</td></tr>"
 
     safe_id = f"table_{prefix}".replace(" ", "_").replace(".", "_")
 
