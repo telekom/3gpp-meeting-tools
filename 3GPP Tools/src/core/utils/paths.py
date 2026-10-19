@@ -39,3 +39,18 @@ def ensure_app_data_dirs() -> None:
     """Create the minimum application-owned directory structure if necessary."""
     for path in (APP_DATA_ROOT, CACHE_ROOT, SPECS_ROOT, TEMP_ROOT):
         path.mkdir(parents=True, exist_ok=True)
+
+
+def to_extended_path(p) -> str:
+    """
+    Convert a path to Windows extended-length format (\\?\\ or \\?\\UNC\\)
+    to bypass the Win32 MAX_PATH (260 character) limit.
+    """
+    import os
+    p_str = os.path.abspath(str(p))
+    if os.name == "nt" and not p_str.startswith("\\\\?\\"):
+        if p_str.startswith("\\\\"):
+            return "\\\\?\\UNC\\" + p_str[2:]
+        return "\\\\?\\" + p_str
+    return p_str
+
