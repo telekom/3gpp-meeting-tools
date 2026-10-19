@@ -285,6 +285,16 @@ QPushButton:hover {
 QPushButton:pressed {
     background-color: #E2E8F0;
 }
+QPushButton:checked {
+    background-color: #EBF3FC;
+    color: #1E5C99;
+    border: 1.5px solid #1E5C99;
+    font-weight: 600;
+}
+QPushButton:checked:hover {
+    background-color: #DFEDFA;
+    border-color: #15426E;
+}
 QPushButton:disabled {
     background-color: #F8FAFC;
     color: #94A3B8;
@@ -311,6 +321,16 @@ QPushButton:pressed {
     background-color: #FECACA;
     border-color: #EF4444;
 }
+QPushButton:checked {
+    background-color: #FEE2E2;
+    color: #991B1B;
+    border: 1.5px solid #EF4444;
+    font-weight: bold;
+}
+QPushButton:checked:hover {
+    background-color: #FECACA;
+    border-color: #DC2626;
+}
 QPushButton:disabled {
     background-color: #F8FAFC;
     color: #94A3B8;
@@ -334,6 +354,16 @@ QPushButton:hover {
 }
 QPushButton:pressed {
     background-color: #FDE68A;
+}
+QPushButton:checked {
+    background-color: #FEF3C7;
+    color: #92400E;
+    border: 1.5px solid #F59E0B;
+    font-weight: 600;
+}
+QPushButton:checked:hover {
+    background-color: #FDE68A;
+    border-color: #D97706;
 }
 QPushButton:disabled {
     background-color: #F8FAFC;
