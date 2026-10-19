@@ -287,12 +287,14 @@ class NetworkConfigDialog(QDialog):
         self.custom_ua.setEnabled(not is_checked)
 
     def save_and_accept(self):
-        HumannessConfig.save({
+        cfg = dict(HumannessConfig.load())
+        cfg.update({
             "min_delay": self.min_delay.value(),
             "max_delay": self.max_delay.value(),
             "randomize_ua": self.randomize_ua.isChecked(),
             "custom_ua": self.custom_ua.text().strip(),
         })
+        HumannessConfig.save(cfg)
         self.accept()
 
 

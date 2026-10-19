@@ -503,7 +503,7 @@ class EmailManagerWindow(QWidget):
             old_email_id = self.email_model.get_row_data(source_idx.row()).get("id")
 
         import sqlite3
-        with sqlite3.connect(self.db.db_path) as conn:
+        with self.db._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             data = [dict(row) for row in conn.execute('SELECT * FROM emails ORDER BY date_received DESC').fetchall()]
 
@@ -648,15 +648,6 @@ class EmailManagerWindow(QWidget):
         if not index.isValid(): return
         tdoc_id = self.tdoc_proxy.data(index, Qt.UserRole)
         if tdoc_id and tdoc_id != "General / Unlinked":
-            self.lbl_status.setText(f"Jumping to TDoc: {tdoc_id}")
-            self.tdoc_jump_requested.emit(tdoc_id)
-
-    def _on_email_double_clicked(self, index):
-        if not index.isValid(): return
-        source_idx = self.email_proxy.mapToSource(index)
-        row_data = self.email_model.get_row_data(source_idx.row())
-        tdoc_id = row_data.get("tdoc_id", "")
-        if tdoc_id:
             self.lbl_status.setText(f"Jumping to TDoc: {tdoc_id}")
             self.tdoc_jump_requested.emit(tdoc_id)
 
@@ -912,3 +903,18 @@ class EmailManagerWindow(QWidget):
         self.btn_rescan.setEnabled(state)
         self.btn_stats.setEnabled(state)
         self.btn_config.setEnabled(state)
+
+    def closeEvent(self, event):
+        if hasattr(self, "search_timer"):
+            self.search_timer.stop()
+        for th in (
+            getattr(self, "sync_thread", None),
+            getattr(self, "move_thread", None),
+            getattr(self, "rescan_thread", None),
+            getattr(self, "stats_thread", None),
+        ):
+            if th and th.isRunning():
+                th.requestInterruption()
+                th.quit()
+                th.wait(150)
+        super().closeEvent(event)

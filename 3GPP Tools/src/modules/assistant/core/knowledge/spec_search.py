@@ -300,9 +300,7 @@ def _bounded_limit(limit: int) -> int:
 
 def _normalize_specification(value: Optional[str]) -> str:
     text = str(value or "").strip().upper()
-    for prefix in ("3GPP", "TS", "TR"):
-        text = text.replace(prefix, "")
-    return text.strip()
+    return re.sub(r"^(?:3GPP\s*)?(?:(?:TS|TR)(?=\s|\d|$)\s*)?", "", text, flags=re.IGNORECASE).strip()
 
 
 def _major_version(version: Any) -> Optional[int]:

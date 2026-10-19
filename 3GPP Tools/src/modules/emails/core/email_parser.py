@@ -7,10 +7,10 @@ from core.utils.company_sanitizer import CompanySanitizer
 
 
 class EmailParser:
-    # Accommodates 6, 7, or 8 digit TDocs correctly
-    TDOC_REGEX = re.compile(r'(S2-\d{6,8})', re.IGNORECASE)
+    # Accommodates 5 to 8 digit TDocs across 3GPP WGs
+    TDOC_REGEX = re.compile(r'\b([A-Z][A-Z0-9]{1,3}-\d{5,8})', re.IGNORECASE)
     START_END_REGEX = re.compile(r'<<START>>(.*?)<<END>>', re.DOTALL | re.IGNORECASE)
-    REVISION_REGEX = re.compile(r'\b(?:r|rev\s*)0?([1-9])\b', re.IGNORECASE)
+    REVISION_REGEX = re.compile(r'\b(?:r|rev\s*)0?([1-9]\d*)\b', re.IGNORECASE)
 
     @classmethod
     def parse_outlook_item(cls, mail_item, ai_lookup_dict: dict) -> Dict:

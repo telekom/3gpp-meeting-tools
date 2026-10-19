@@ -1126,6 +1126,9 @@ class SpecificationsTab(QWidget):
         spec_dl_dir = Path(self.download_dir) / spec_num
         spec_type = "TS"
         details = self.db.get_spec_details(spec_num)
+        if not details and "-" in spec_num:
+            base_num = spec_num.split("-")[0]
+            details = self.db.get_spec_details(base_num)
         if details and details.get("type"):
             spec_type = details["type"]
 
@@ -1410,7 +1413,13 @@ class SpecificationsTab(QWidget):
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
-            if self.db.delete_specification(spec_num):
+            deleted = self.db.delete_specification(spec_num)
+            if not deleted and "-" in spec_num:
+                base_num = spec_num.split("-")[0]
+                deleted = self.db.delete_specification(base_num)
+                if deleted:
+                    self.favorites.discard(base_num)
+            if deleted:
                 self.favorites.discard(spec_num)
                 self._save_settings()
                 self.refresh_table()
@@ -1428,7 +1437,13 @@ class SpecificationsTab(QWidget):
         if reply == QMessageBox.Yes:
             deleted_count = 0
             for num in spec_nums:
-                if self.db.delete_specification(num):
+                deleted = self.db.delete_specification(num)
+                if not deleted and "-" in num:
+                    base_num = num.split("-")[0]
+                    deleted = self.db.delete_specification(base_num)
+                    if deleted:
+                        self.favorites.discard(base_num)
+                if deleted:
                     self.favorites.discard(num)
                     deleted_count += 1
             self._save_settings()

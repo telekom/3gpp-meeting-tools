@@ -212,14 +212,24 @@ class TDocTriageWorker(QThread):
                 "TDoc: {tdoc_id}\nTitle: {title}\nSource: {source}\nAgenda Item: {agenda_item}\nType: {doc_type}\n\nContent:\n{content}",
             )
 
-            formatted_user = usr_template.format(
-                tdoc_id=tdoc_id,
-                title=self.tdoc_data.get("Title", "No Title"),
-                source=self.tdoc_data.get("Source", "Unknown"),
-                agenda_item=self.tdoc_data.get("Agenda Item", "N/A"),
-                doc_type=doc_type,
-                content=focused_content,
-            )
+            try:
+                formatted_user = usr_template.format(
+                    tdoc_id=tdoc_id,
+                    title=self.tdoc_data.get("Title", "No Title"),
+                    source=self.tdoc_data.get("Source", "Unknown"),
+                    agenda_item=self.tdoc_data.get("Agenda Item", "N/A"),
+                    doc_type=doc_type,
+                    content=focused_content,
+                )
+            except (KeyError, ValueError, IndexError):
+                formatted_user = (
+                    usr_template.replace("{tdoc_id}", str(tdoc_id))
+                    .replace("{title}", str(self.tdoc_data.get("Title", "No Title")))
+                    .replace("{source}", str(self.tdoc_data.get("Source", "Unknown")))
+                    .replace("{agenda_item}", str(self.tdoc_data.get("Agenda Item", "N/A")))
+                    .replace("{doc_type}", str(doc_type))
+                    .replace("{content}", str(focused_content))
+                )
 
             messages = [
                 {"role": "system", "content": sys_prompt},
@@ -307,7 +317,9 @@ class TDocTriageWorker(QThread):
             boundary_trigger = re.compile(r"(?i)<[-\s]*(next|end of)\s*change")
 
             for para in doc.Paragraphs:
-                text = para.Range.Text.strip("\r\x07\x0b ")
+                if self._is_cancelled:
+                    break
+                text = para.Range.Text.strip("\r\x07\x0b\xa0 ").strip()
                 if not text:
                     continue
 
@@ -322,7 +334,8 @@ class TDocTriageWorker(QThread):
                     md_lines.append(f"\n*[{text.strip()}]*\n")
                     continue
 
-                if in_new_block and "Heading" in style_name and numeric_clause_trigger.match(text.split()[0]):
+                words = text.split()
+                if in_new_block and "Heading" in style_name and words and numeric_clause_trigger.match(words[0]):
                     in_new_block = False
 
                 if all_new_trigger.search(text):
@@ -330,9 +343,9 @@ class TDocTriageWorker(QThread):
                     md_lines.append(f"\n> **Note to LLM:** Entering 'All Text New' block.\n")
                     continue
 
-                if "Heading" in style_name and placeholder_clause_trigger.match(text.split()[0]):
+                if "Heading" in style_name and words and placeholder_clause_trigger.match(words[0]):
                     in_new_block = True
-                    md_lines.append(f"\n> **Note to LLM:** Entering placeholder clause '{text.split()[0]}'.\n")
+                    md_lines.append(f"\n> **Note to LLM:** Entering placeholder clause '{words[0]}'.\n")
 
                 if in_new_block:
                     md_lines.append(f"[ADDED BLOCK]: {text}")

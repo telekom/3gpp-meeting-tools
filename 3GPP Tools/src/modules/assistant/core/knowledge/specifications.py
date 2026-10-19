@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -128,9 +129,9 @@ class SpecificationKnowledgeService:
     def _db_search(self, query: str) -> Sequence[Any]:
         db = self._database()
         spec_candidate = _normalize_specification(query)
-        if _looks_like_specification(spec_candidate):
-            return db.search_files(spec_number=spec_candidate)
-        return db.search_files(search_term=query)
+        return db.search_files(
+            spec_number=spec_candidate if _looks_like_specification(spec_candidate) else query.strip()
+        )
 
 
 def _normalize_file_row(row: Any) -> Optional[Dict[str, Any]]:
@@ -150,12 +151,12 @@ def _normalize_file_row(row: Any) -> Optional[Dict[str, Any]]:
         }
 
     if isinstance(row, (tuple, list)) and len(row) >= 8:
-        # Existing UI destructures this as:
-        # _, spec_number, type, title, filename, version, url, upload_date
+        # SpecsDatabase.search_files() returns:
+        # (s.name, sp.number, sp.title, sp.type, f.filename, f.version, f.url, f.upload_date)
         return {
             "specification": str(row[1]),
-            "type": row[2] or "TS",
-            "title": row[3] or "",
+            "title": row[2] or "",
+            "type": row[3] or "TS",
             "filename": row[4] or "",
             "version": row[5] or "",
             "url": row[6] or "",
@@ -189,16 +190,11 @@ def _bounded_limit(limit: int) -> int:
 
 def _normalize_specification(value: str) -> str:
     text = str(value or "").strip().upper()
-    for prefix in ("3GPP", "TS", "TR"):
-        text = text.replace(prefix, "")
-    return text.strip()
+    return re.sub(r"^(?:3GPP\s*)?(?:(?:TS|TR)(?=\s|\d|$)\s*)?", "", text, flags=re.IGNORECASE).strip()
 
 
 def _looks_like_specification(value: str) -> bool:
-    if "." not in value:
-        return False
-    left, _, right = value.partition(".")
-    return left.isdigit() and right.isdigit()
+    return bool(re.match(r"^\d{2}\.\d{3}(?:-\d{1,2})?$", str(value or "").strip()))
 
 
 def _version_tuple(version: str) -> Tuple[int, ...]:

@@ -46,8 +46,8 @@ from modules.specifications.core.database import SpecsDatabase
 
 logger = logging.getLogger(__name__)
 
-RE_SPEC_FROM_COL = re.compile(r"(?:24|29|36|38)\.[0-9]{3}")
-RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|5|D\.6)(?:\.[0-9A-Za-z]+)+)")
+RE_SPEC_FROM_COL = re.compile(r"(?:24|25|29|36|37|38)\.[0-9]{3}")
+RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|5|4|D\.6)(?:\.[0-9A-Za-z]+)+)")
 
 
 class NASMessageListWorker(QThread):
@@ -234,6 +234,11 @@ class NASTab(QWidget):
             QPushButton:checked {
                 color: #1E5C99;
                 background-color: #EBF3FC;
+                border: 1.5px solid #1E5C99;
+            }
+            QPushButton:checked:hover {
+                color: #1E5C99;
+                background-color: #DCEBFA;
                 border: 1.5px solid #1E5C99;
             }
         """)
@@ -428,8 +433,8 @@ class NASTab(QWidget):
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
-            for item in self.version_tree.get_checked_versions_info():
-                if item.get("spec_number") == spec_number and item.get("version"):
+            for item in self.version_tree.get_all_versions_for_spec(spec_number):
+                if item.get("version"):
                     self.db.clear_version(spec_number, item["version"])
             self.current_selected_message_name = None
             self.refresh_versions()
@@ -951,7 +956,7 @@ class NASTab(QWidget):
                 if item:
                     data = item.data(Qt.UserRole) or {}
                     ver_tuple = parse_version_tuple(data.get("version", ""))
-                    if ver_tuple and ver_tuple[0] == major_version:
+                    if ver_tuple and (ver_tuple[0][1] if isinstance(ver_tuple[0], tuple) else ver_tuple[0]) == major_version:
                         dialog.table.selectRow(row)
                         dialog.table.scrollToItem(item)
                         break
@@ -966,6 +971,9 @@ class NASTab(QWidget):
         self._ie_search_timer.stop()
 
         workers = list(self._msg_query_workers.values()) + list(self._reverse_lookup_workers.values())
+        if hasattr(self, "thread") and self.thread and self.thread.isRunning():
+            workers.append(self.thread)
+
         for worker in workers:
             if worker.isRunning():
                 worker.requestInterruption()

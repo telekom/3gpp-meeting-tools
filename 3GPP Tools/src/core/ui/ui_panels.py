@@ -1,4 +1,5 @@
 # --- File: src/core/ui/ui_panels.py ---
+import html
 import logging
 import os
 from pathlib import Path
@@ -875,7 +876,8 @@ class ConsolePanel(QWidget):
         elif "✅" in message or "Success" in message or "Ready" in message:
             color = "#6A9955"
 
-        html_msg = f'<span style="color: {color};">{message.replace(chr(10), "<br>")}</span>'
+        escaped_msg = html.escape(message).replace(chr(10), "<br>")
+        html_msg = f'<span style="color: {color};">{escaped_msg}</span>'
         self.console.append(html_msg)
 
         scrollbar = self.console.verticalScrollBar()
@@ -944,5 +946,5 @@ class QueuePanel(QWidget):
         selected_items = self.queue_list.selectedItems()
         if not selected_items:
             return
-        items_to_remove = [item.text() for item in selected_items]
-        self.remove_requested.emit(items_to_remove)
+        rows_to_remove = [self.queue_list.row(item) for item in selected_items]
+        self.remove_requested.emit(rows_to_remove)

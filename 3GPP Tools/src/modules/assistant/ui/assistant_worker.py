@@ -119,6 +119,7 @@ class AgentResearchWorker(QThread):
                 None,
             )
         finally:
+            self.adapter.client.exchange_callback = None
             self._controller = None
 
     def _on_activity(self, activity: ResearchActivity) -> None:
@@ -128,6 +129,8 @@ class AgentResearchWorker(QThread):
         self.evidence_added.emit(evidence)
 
     def _on_exchange(self, event: object) -> None:
+        if self._cancel_requested:
+            return
         self.exchange_observed.emit(event)
 
     def _emit_pre_run_cancelled(self) -> None:

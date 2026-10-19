@@ -26,6 +26,11 @@ def get_spec_title(spec_number: str) -> str:
         "38.331": "TS 38.331 (NR RRC)",
         "36.331": "TS 36.331 (LTE RRC)",
         "38.413": "TS 38.413 (NGAP)",
+        "38.423": "TS 38.423 (XnAP)",
+        "38.473": "TS 38.473 (F1AP)",
+        "38.463": "TS 38.463 (E1AP)",
+        "36.413": "TS 36.413 (S1AP)",
+        "38.412": "TS 38.412 (NG-C)",
         "38.415": "TS 38.415 (PDU Session UP)",
         "29.244": "TS 29.244 (PFCP)",
         "29.281": "TS 29.281 (GTP-U)",
@@ -69,11 +74,17 @@ class NASVersionSelectDialog(QDialog):
         self.spec_combo.addItem("TS 38.331 (NR RRC)", "38.331")
         self.spec_combo.addItem("TS 36.331 (LTE RRC)", "36.331")
         self.spec_combo.addItem("TS 38.413 (NGAP)", "38.413")
+        self.spec_combo.addItem("TS 38.423 (XnAP)", "38.423")
+        self.spec_combo.addItem("TS 38.473 (F1AP)", "38.473")
+        self.spec_combo.addItem("TS 38.463 (E1AP)", "38.463")
+        self.spec_combo.addItem("TS 36.413 (S1AP)", "36.413")
+        self.spec_combo.addItem("TS 38.412 (NG-C)", "38.412")
         self.spec_combo.addItem("TS 38.415 (PDU Session UP)", "38.415")
         self.spec_combo.addItem("TS 29.244 (PFCP)", "29.244")
         self.spec_combo.addItem("TS 29.281 (GTP-U)", "29.281")
         self.spec_combo.addItem("TS 24.501 (5GS NAS)", "24.501")
         self.spec_combo.addItem("TS 24.301 (EPS NAS)", "24.301")
+        self.spec_combo.addItem("TS 24.008 (Core Network)", "24.008")
         self.spec_combo.currentIndexChanged.connect(self._load_available_versions)
         top_bar.addWidget(self.spec_combo)
         top_bar.addStretch()

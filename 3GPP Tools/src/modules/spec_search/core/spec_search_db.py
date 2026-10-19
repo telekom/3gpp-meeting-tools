@@ -3,25 +3,26 @@ Specification Search Database Engine.
 Manages metadata tables, release dates, full-text trigram indices (FTS5), and chronological release diffs.
 """
 
+import contextlib
 import logging
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 import pandas as pd
 
 
 def parse_version_tuple(version_str: str) -> tuple:
-    """Converts version strings (e.g. '18.4.0', 'v15.2.1') into integer tuples for natural sorting."""
+    """Converts version strings (e.g. '18.4.0', 'v15.2.1') into comparable tuples for natural sorting."""
     if not version_str:
         return ()
     clean = str(version_str).lstrip("vV").strip()
     parts = []
     for part in clean.split("."):
         if part.isdigit():
-            parts.append(int(part))
+            parts.append((0, int(part)))
         else:
-            parts.append(part)
+            parts.append((1, str(part)))
     return tuple(parts)
 
 
@@ -33,12 +34,17 @@ class SpecSearchDatabase:
         self.logger = logging.getLogger(__name__)
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextlib.contextmanager
+    def _get_connection(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute("PRAGMA synchronous = NORMAL;")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON;")
+            conn.execute("PRAGMA synchronous = NORMAL;")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self):
         try:
@@ -123,9 +129,8 @@ class SpecSearchDatabase:
         if not clauses:
             return False
 
-        conn = self._get_connection()
         try:
-            with conn:
+            with self._get_connection() as conn:
                 cursor = conn.cursor()
 
                 # 1. Clean existing version if re-importing
@@ -203,8 +208,6 @@ class SpecSearchDatabase:
         except Exception as e:
             self.logger.error(f"Failed to insert TS {spec_number} v{version} into search DB: {e}")
             return False
-        finally:
-            conn.close()
 
     def search_substring(
         self,
@@ -376,6 +379,7 @@ class SpecSearchDatabase:
                     cursor.execute("DROP TABLE IF EXISTS spec_clauses;")
                     cursor.execute("DROP TABLE IF EXISTS indexed_versions;")
                     conn.commit()
+                    conn.isolation_level = None
                     conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
                     conn.execute("VACUUM;")
 

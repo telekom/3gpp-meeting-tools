@@ -6,6 +6,7 @@ structured data for a protocol is currently populated in the protocol DB.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Dict, Iterable, Optional, Tuple
 
@@ -149,6 +150,4 @@ def _normalize(value: str) -> str:
 
 def _normalize_spec(value: str) -> str:
     text = str(value or "").strip().upper()
-    for prefix in ("3GPP", "TS", "TR"):
-        text = text.replace(prefix, "")
-    return text.strip()
+    return re.sub(r"^(?:3GPP\s*)?(?:(?:TS|TR)(?=\s|\d|$)\s*)?", "", text, flags=re.IGNORECASE).strip()

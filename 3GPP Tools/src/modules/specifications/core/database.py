@@ -1,8 +1,9 @@
 # --- File: src/modules/specifications/core/database.py ---
+import contextlib
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 from modules.specifications.utils.utils import build_dynareport_url
 
@@ -14,15 +15,20 @@ class SpecsDatabase:
         self._init_db()
         self._cleanup_orphans()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextlib.contextmanager
+    def _get_connection(self) -> Iterator[sqlite3.Connection]:
         """
         Creates a thread-safe connection with a 30s busy retry handler.
         PRAGMA journal_mode is intentionally omitted here because it requires a write lock
         and is already permanently established in _init_db().
         """
         conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
-        conn.execute("PRAGMA busy_timeout=30000;")
-        return conn
+        try:
+            conn.execute("PRAGMA busy_timeout=30000;")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self):
         with self._get_connection() as conn:
@@ -138,6 +144,7 @@ class SpecsDatabase:
     def vacuum(self) -> bool:
         try:
             with self._get_connection() as conn:
+                conn.isolation_level = None
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
                 conn.execute("VACUUM;")
                 conn.execute("PRAGMA optimize;")

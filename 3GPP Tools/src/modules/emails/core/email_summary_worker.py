@@ -214,12 +214,20 @@ class EmailSummaryWorker(QThread):
 
             emails_payload = "\n\n".join(formatted_messages)
 
-            formatted_user = usr_template.format(
-                tdoc_id=self.tdoc_id,
-                family_tdocs=", ".join(self.family_tdocs),
-                email_count=len(formatted_messages),
-                emails_content=emails_payload
-            )
+            try:
+                formatted_user = usr_template.format(
+                    tdoc_id=self.tdoc_id,
+                    family_tdocs=", ".join(self.family_tdocs),
+                    email_count=len(formatted_messages),
+                    emails_content=emails_payload
+                )
+            except (KeyError, ValueError, IndexError):
+                formatted_user = (
+                    usr_template.replace("{tdoc_id}", str(self.tdoc_id))
+                    .replace("{family_tdocs}", ", ".join(self.family_tdocs))
+                    .replace("{email_count}", str(len(formatted_messages)))
+                    .replace("{emails_content}", str(emails_payload))
+                )
 
             messages = [
                 {"role": "system", "content": sys_prompt},

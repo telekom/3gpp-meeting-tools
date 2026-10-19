@@ -268,7 +268,7 @@ class LLMExporterThread(QThread):
             boundary_trigger = re.compile(r'(?i)<[-\s]*(next|end of)\s*change')
 
             for para in doc.Paragraphs:
-                text = para.Range.Text.strip('\r\x07\x0b ')
+                text = para.Range.Text.strip('\r\x07\x0b\xa0 ').strip()
                 if not text:
                     continue
 
@@ -283,7 +283,8 @@ class LLMExporterThread(QThread):
                     md_lines.append(f"\n*[{text.strip()}]*\n")
                     continue
 
-                if in_new_block and "Heading" in style_name and numeric_clause_trigger.match(text.split()[0]):
+                words = text.split()
+                if in_new_block and "Heading" in style_name and words and numeric_clause_trigger.match(words[0]):
                     in_new_block = False
 
                 if all_new_trigger.search(text):
@@ -291,9 +292,9 @@ class LLMExporterThread(QThread):
                     md_lines.append(f"\n> **Note to LLM:** Entering 'All Text New' block.\n")
                     continue
 
-                if "Heading" in style_name and placeholder_clause_trigger.match(text.split()[0]):
+                if "Heading" in style_name and words and placeholder_clause_trigger.match(words[0]):
                     in_new_block = True
-                    md_lines.append(f"\n> **Note to LLM:** Entering placeholder clause '{text.split()[0]}'.\n")
+                    md_lines.append(f"\n> **Note to LLM:** Entering placeholder clause '{words[0]}'.\n")
 
                 if in_new_block:
                     md_lines.append(f"[ADDED BLOCK]: {text}")

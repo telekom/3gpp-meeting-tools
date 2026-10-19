@@ -40,6 +40,7 @@ class OutlookFolderPickerDialog(QDialog):
         self.btn_ok.clicked.connect(self.accept)
         self.btn_cancel.clicked.connect(self.reject)
 
+        self._com_initialized = False
         self.tree.expanded.connect(self._load_children)
         self._init_root_folders()
 
@@ -52,6 +53,7 @@ class OutlookFolderPickerDialog(QDialog):
             import win32com.client
             import pythoncom
             pythoncom.CoInitialize()
+            self._com_initialized = True
 
             outlook = win32com.client.Dispatch("Outlook.Application")
             namespace = outlook.GetNamespace("MAPI")
@@ -95,11 +97,34 @@ class OutlookFolderPickerDialog(QDialog):
                     logging.warning(f"Could not read subfolders for {item.text()}: {e}")
 
     def get_selected_path(self):
+        return getattr(self, "_selected_path", "")
+
+    def _cleanup_com(self):
+        if getattr(self, "_com_initialized", False):
+            self._com_initialized = False
+            try:
+                self.model.clear()
+            except Exception:
+                pass
+            try:
+                import pythoncom
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+
+    def done(self, result):
         index = self.tree.currentIndex()
         if index.isValid():
             item = self.model.itemFromIndex(index)
-            return item.data(Qt.UserRole)
-        return ""
+            self._selected_path = item.data(Qt.UserRole) if item else ""
+        else:
+            self._selected_path = ""
+        self._cleanup_com()
+        super().done(result)
+
+    def closeEvent(self, event):
+        self._cleanup_com()
+        super().closeEvent(event)
 
 
 class EmailConfigDialog(QDialog):

@@ -72,7 +72,7 @@ class TDocsCacherThread(QThread):
                     future_to_task[future] = task
 
                 for future in as_completed(future_to_task):
-                    if self.is_cancelled:
+                    if self.is_cancelled or self.isInterruptionRequested():
                         break
 
                     filename = future_to_task[future][3]
@@ -104,6 +104,8 @@ class TDocsCacherThread(QThread):
 
     def _download_file(self, session, file_url, target_dir, target_file, filename):
         """Worker function to download a single file."""
+        if self.is_cancelled or self.isInterruptionRequested():
+            return False
         # ONLY download if the file is not present
         if target_file.exists():
             return False

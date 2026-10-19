@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -93,6 +94,14 @@ class ProtocolKnowledgeService:
         except Exception as exc:
             return ToolResult(ToolStatus.ERROR, message=f"Protocol message listing failed: {exc}")
 
+        selected_by_spec = {
+            str(v.get("spec_number", "")): str(v.get("version", ""))
+            for v in selected
+            if v.get("spec_number") and v.get("version")
+        }
+        fallback_versions = _sort_versions([str(v["version"]) for v in selected if v.get("version")], reverse=True)
+        default_version = fallback_versions[0] if len(fallback_versions) == 1 else ", ".join(fallback_versions)
+
         items, seen = [], set()
         for row in rows or []:
             if not isinstance(row, dict):
@@ -100,15 +109,18 @@ class ProtocolKnowledgeService:
             name = str(row.get("message_name", "") or "").strip()
             if not name:
                 continue
-            key = (name.casefold(), str(row.get("spec_number","")), str(row.get("version","")))
+            spec_num = str(row.get("spec_number", "") or "").strip()
+            raw_ver = str(row.get("version", "") or "").strip()
+            item_ver = raw_ver or selected_by_spec.get(spec_num, "") or default_version
+            key = (name.casefold(), spec_num, item_ver)
             if key in seen:
                 continue
             seen.add(key)
             items.append({
                 "message": name,
                 "clause": str(row.get("clause", "") or ""),
-                "specification": str(row.get("spec_number", "") or ""),
-                "version": str(row.get("version", "") or ""),
+                "specification": spec_num,
+                "version": item_ver,
             })
         items.sort(key=lambda x: x["message"].casefold())
         try:
@@ -121,12 +133,22 @@ class ProtocolKnowledgeService:
             return ToolResult(ToolStatus.NOT_FOUND, data=[],
                               message=f"No structured messages are stored for {protocol}.",
                               metadata={"searched_versions": _version_labels(selected)})
+        item_versions = [
+            part.strip()
+            for x in returned
+            for part in str(x.get("version", "") or "").split(",")
+            if part.strip()
+        ]
+        resolved_versions = _sort_versions(item_versions, reverse=True) or fallback_versions
+        resolved_specs = sorted({x["specification"] for x in returned if x.get("specification")}) or sorted(
+            {str(v.get("spec_number")) for v in selected if v.get("spec_number")}
+        )
         return ToolResult(
             ToolStatus.FOUND,
             data={
                 "protocol": descriptors[0].display_name if len(descriptors) == 1 else protocol,
-                "specifications": sorted({x["specification"] for x in returned if x["specification"]}),
-                "versions": _sort_versions([x["version"] for x in returned if x["version"]], reverse=True),
+                "specifications": resolved_specs,
+                "versions": resolved_versions,
                 "messages": returned,
                 "source_kind": "structured_protocol_knowledge",
             },
@@ -276,6 +298,17 @@ class ProtocolKnowledgeService:
         # Resolve definitions opportunistically from the matching message fields.
         definitions: List[Dict[str, Any]] = []
         seen_defs = set()
+        matched_specs = set()
+        matched_versions: List[str] = []
+        for message_row in messages:
+            if isinstance(message_row, dict):
+                if message_row.get("spec_number"):
+                    matched_specs.add(str(message_row["spec_number"]))
+                if message_row.get("version"):
+                    for part in str(message_row["version"]).split(","):
+                        if part.strip():
+                            matched_versions.append(part.strip())
+
         for message_row in messages[:20]:
             message_name = str(message_row.get("message_name", "") or "")
             if not message_name:
@@ -298,6 +331,10 @@ class ProtocolKnowledgeService:
                     continue
                 clause = str(field.get("type_reference", "") or field.get("ie_name", ""))
                 spec_number = str(field.get("spec_number", "") or "")
+                if spec_number:
+                    matched_specs.add(spec_number)
+                if field.get("version"):
+                    matched_versions.append(str(field["version"]))
                 try:
                     defs = db.get_ie_definitions_by_clause(
                         clause=clause,
@@ -308,6 +345,10 @@ class ProtocolKnowledgeService:
                 except Exception:
                     defs = []
                 for definition in defs:
+                    if definition.get("spec_number"):
+                        matched_specs.add(str(definition["spec_number"]))
+                    if definition.get("version"):
+                        matched_versions.append(str(definition["version"]))
                     key = (
                         definition.get("spec_number"),
                         definition.get("version"),
@@ -318,10 +359,28 @@ class ProtocolKnowledgeService:
                         seen_defs.add(key)
                         definitions.append(definition)
 
+        returned = definitions or messages
+        specifications = sorted(
+            {str(x.get("spec_number") or x.get("specification")) for x in returned if isinstance(x, dict) and (x.get("spec_number") or x.get("specification"))}
+            | matched_specs
+        ) or sorted({str(v.get("spec_number")) for v in selected if v.get("spec_number")})
+        versions = _sort_versions(
+            [
+                part.strip()
+                for x in returned
+                if isinstance(x, dict) and x.get("version")
+                for part in str(x["version"]).split(",")
+                if part.strip()
+            ] + matched_versions,
+            reverse=True,
+        ) or _sort_versions([str(v["version"]) for v in selected if v.get("version")], reverse=True)
+
         return ToolResult(
             ToolStatus.FOUND,
             data={
                 "query": ie,
+                "specifications": specifications,
+                "versions": versions,
                 "matching_messages": messages,
                 "definitions": definitions,
                 "source_kind": "structured_protocol_knowledge",
@@ -376,7 +435,17 @@ def _group_imported(rows: Sequence[Dict[str, Any]]) -> Dict[str, List[Dict[str, 
 def _message_matches(query: str, candidate: str) -> bool:
     q = _normalized(query)
     c = _normalized(candidate)
-    return bool(q and c and (q == c or q in c or c in q))
+    if not (q and c):
+        return False
+    if q == c or q in c:
+        return True
+    if c in q:
+        if len(c) >= 6:
+            return True
+        q_tokens = set(re.findall(r"[a-z0-9]+", str(query or "").casefold()))
+        c_tokens = [t for t in re.findall(r"[a-z0-9]+", str(candidate or "").casefold()) if t]
+        return bool(c_tokens and all(t in q_tokens for t in c_tokens))
+    return False
 
 
 def _name_rank(query: str, candidate: str) -> Tuple[int, int, str]:

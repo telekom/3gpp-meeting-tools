@@ -101,7 +101,7 @@ class TDocsParser:
         from bs4 import BeautifulSoup
         import logging
 
-        if ui_logger: logger.log("⏳ Parsing TdocsByAgenda HTML (Word Export)...", logging.INFO)
+        if ui_logger: logger.log(logging.INFO, "⏳ Parsing TdocsByAgenda HTML (Word Export)...")
         data = {}
 
         try:
@@ -110,7 +110,7 @@ class TDocsParser:
 
             tables = soup.find_all('table')
             if not tables:
-                if ui_logger: logger.log("❌ No tables found in HTML.", logging.ERROR)
+                if ui_logger: logger.log(logging.ERROR, "❌ No tables found in HTML.")
                 return data
 
             target_table = None
@@ -121,7 +121,7 @@ class TDocsParser:
                     break
 
             if not target_table:
-                if ui_logger: logger.log("❌ Could not identify the main TDoc table in HTML.", logging.ERROR)
+                if ui_logger: logger.log(logging.ERROR, "❌ Could not identify the main TDoc table in HTML.")
                 return data
 
             rows = target_table.find_all('tr')
@@ -142,7 +142,7 @@ class TDocsParser:
             type_idx = next((i for i, h in enumerate(headers) if 'type' in h), -1)
 
             if td_idx == -1:
-                if ui_logger: logger.log("❌ 'TD#' column missing in HTML table.", logging.ERROR)
+                if ui_logger: logger.log(logging.ERROR, "❌ 'TD#' column missing in HTML table.")
                 return data
 
             for row in rows[1:]:
@@ -181,10 +181,10 @@ class TDocsParser:
                     'Type': doc_type
                 }
 
-            if ui_logger: logger.log(f"✅ Successfully parsed {len(data)} TDocs from Agenda HTML.", logging.INFO)
+            if ui_logger: logger.log(logging.INFO, f"✅ Successfully parsed {len(data)} TDocs from Agenda HTML.")
 
         except Exception as e:
-            if ui_logger: logger.log(f"❌ Error parsing HTML: {str(e)}", logging.ERROR)
+            if ui_logger: logger.log(logging.ERROR, f"❌ Error parsing HTML: {str(e)}")
 
         return data
 

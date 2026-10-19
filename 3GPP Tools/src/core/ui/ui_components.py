@@ -726,8 +726,8 @@ class ProxyDialog(QDialog):
 
     def closeEvent(self, event):
         if self._test_worker and self._test_worker.isRunning():
-            self._test_worker.terminate()
-            self._test_worker.wait(500)
+            self._test_worker.requestInterruption()
+            self._test_worker.wait(1000)
         super().closeEvent(event)
 
     def get_proxies(self) -> Tuple[str, str]:
@@ -771,7 +771,7 @@ class InteractiveDropLabel(QLabel):
     def set_state(self, state, text=None):
         if text:
             self.setText(text)
-        if state == "ready":
+        if state in ("ready", "idle"):
             self.setStyleSheet(self.default_style)
         elif state == "busy":
             self.setStyleSheet(self.busy_style)

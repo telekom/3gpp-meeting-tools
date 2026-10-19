@@ -394,6 +394,8 @@ class SpecsCrawlerThread(QThread):
                 self._log(f"⏳ Starting Targeted Update for: {', '.join(self.target_specs)}...", logging.INFO)
 
                 for target in self.target_specs:
+                    if self.isInterruptionRequested():
+                        return
                     if '.' not in target:
                         series_number = target
                         series_folder = f"{series_number}_series"
@@ -440,6 +442,10 @@ class SpecsCrawlerThread(QThread):
                     }
 
                     for future in as_completed(future_to_series):
+                        if self.isInterruptionRequested():
+                            for f in future_to_series:
+                                f.cancel()
+                            return
                         s_name, s_url = future_to_series[future]
                         specs = future.result()
 
@@ -452,6 +458,9 @@ class SpecsCrawlerThread(QThread):
                                     spec_url += '/'
                                 needs_meta = self.force_metadata_update or self.db.needs_metadata(clean_spec_number)
                                 spec_tasks.append((s_name, s_url, clean_spec_number, spec_url, needs_meta))
+
+            if self.isInterruptionRequested():
+                return
 
             total_specs: int = len(spec_tasks)
 
@@ -466,6 +475,10 @@ class SpecsCrawlerThread(QThread):
                 }
 
                 for future in as_completed(futures):
+                    if self.isInterruptionRequested():
+                        for f in futures:
+                            f.cancel()
+                        return
                     completed += 1
                     if completed % 50 == 0 or completed == total_specs:
                         self._log(f"⏳ Files fetched: {completed}/{total_specs}...", logging.INFO)
@@ -485,6 +498,9 @@ class SpecsCrawlerThread(QThread):
                             )
                     except Exception as e:
                         self._log(f"❌ File fetch error: {e}", logging.ERROR)
+
+            if self.isInterruptionRequested():
+                return
 
             self._log("✅ Pass 1 Complete. Unblocking interface...", logging.INFO)
             self.finished_path.emit("SPECS_DB_PASS_ONE")
@@ -506,6 +522,10 @@ class SpecsCrawlerThread(QThread):
                     }
 
                     for future in as_completed(meta_futures):
+                        if self.isInterruptionRequested():
+                            for f in meta_futures:
+                                f.cancel()
+                            return
                         task = meta_futures[future]
                         spec_num = task[2]
                         completed_meta += 1

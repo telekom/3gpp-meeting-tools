@@ -111,7 +111,7 @@ python -m main_tools
 ### 4.6. Research Assistant (`src/modules/assistant`)
 - **Architecture:** Bounded, evidence-grounded agent architecture connecting a local LLM to application knowledge services.
 - **Authority Boundary:** Strictly **`KNOWLEDGE_READ`**. The model has no SQL access, shell execution, or database write permissions.
-- **Semantic Tool Set:** Model interaction is restricted to predefined semantic tools (`find_specifications`, `get_specification`, `search_spec_text`, `get_spec_clause`, `list_protocols`, `find_protocol_message`, `find_protocol_ie`).
+- **Semantic Tool Set:** Model interaction is restricted to predefined semantic tools (`find_specifications`, `get_specification`, `search_spec_text`, `get_spec_clause`, `list_protocols`, `list_protocol_messages`, `find_protocol_message`, `find_protocol_ie`).
 - **Detailed Design:** See [`src/modules/assistant/README.md`](file:///src/modules/assistant/README.md).
 
 ---

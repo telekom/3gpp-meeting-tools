@@ -48,6 +48,8 @@ class GeneralEmailSyncThread(QThread):
             total_synced = 0
 
             for folder_cfg in self.folder_configs:
+                if self.isInterruptionRequested():
+                    break
                 folder_path = folder_cfg.get("folder_path", "")
                 folder_tag = folder_cfg.get("tag", "General")
                 if not folder_path:
@@ -69,6 +71,8 @@ class GeneralEmailSyncThread(QThread):
                 batch_matches = []
 
                 for i in range(1, total_items + 1):
+                    if self.isInterruptionRequested():
+                        break
                     if i % 15 == 0:
                         self.progress_val.emit(i, total_items)
 

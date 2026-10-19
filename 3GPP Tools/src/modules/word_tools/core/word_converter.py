@@ -16,6 +16,7 @@ import pythoncom
 import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.network.session import NetworkSession
 from core.utils.utils import get_proxies
 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
 from modules.word_tools.core.libreoffice_converter import (
@@ -455,7 +456,6 @@ def convert_doc_to_docx(
 class WordConverterThread(QThread):
     ui_log_msg = pyqtSignal(str, int)
     finished_path = pyqtSignal(str)
-    finished = pyqtSignal()
 
     FORMAT_MAP = {
         "pdf": WD_FORMAT_PDF,
@@ -472,6 +472,7 @@ class WordConverterThread(QThread):
         self.doc_source = doc_source
         self.target_format = target_format.lower().replace(".", "").strip()
         self.engine = engine.lower().strip()
+        self._downloaded_temp: Optional[Path] = None
 
     def _resolve_path(self, input_str: str) -> str:
         if not input_str:
@@ -482,26 +483,38 @@ class WordConverterThread(QThread):
                 self._log("🔗 Corporate link detected. Delegating authentication to MS Word...", logging.INFO)
                 return input_str.split("?")[0] if "?web=" in input_str else input_str
 
-            self._log("⏳ Downloading document via proxy...", logging.INFO)
-            import requests
-            r = requests.get(input_str, allow_redirects=True, proxies=get_proxies(), timeout=30)
+            self._log("⏳ Downloading document via NetworkSession...", logging.INFO)
+            session = NetworkSession.get_instance()
+            r = session.get(input_str, allow_redirects=True, timeout=30)
             r.raise_for_status()
 
-            tmp_path = Path(tempfile.gettempdir()) / "puml2visio_conv_temp.docx"
+            url_path = input_str.split("?")[0]
+            ext = Path(url_path).suffix if Path(url_path).suffix else ".docx"
+            fd, tmp_str = tempfile.mkstemp(prefix="puml2visio_conv_", suffix=ext)
+            os.close(fd)
+            tmp_path = Path(tmp_str)
             with open(tmp_path, "wb") as f:
                 f.write(r.content)
+            self._downloaded_temp = tmp_path
             return str(tmp_path)
 
         return input_str
 
     def run(self):
+        self._downloaded_temp = None
         try:
             source_path = self._resolve_path(self.doc_source)
-            source = Path(source_path).resolve()
-            _sanitize_file_attributes(source)
+            is_remote_url = source_path.startswith("http://") or source_path.startswith("https://")
+            if is_remote_url:
+                source = Path(source_path.split("?")[0].split("/")[-1] or "remote_document.docx")
+            else:
+                source = Path(source_path).resolve()
+                _sanitize_file_attributes(source)
 
             # 1. Explicit LibreOffice Engine Request
-            if self.engine == "libreoffice" or (source.suffix.lower() == ".doc" and self.target_format == "docx_libreoffice"):
+            if not is_remote_url and (
+                self.engine == "libreoffice" or (source.suffix.lower() == ".doc" and self.target_format == "docx_libreoffice")
+            ):
                 if not is_libreoffice_available():
                     self._log(get_libreoffice_missing_msg(), logging.ERROR)
                     return
@@ -513,13 +526,14 @@ class WordConverterThread(QThread):
 
             # 2. Automated Word-first pipeline.
             try:
-                self._run_word_export(source)
+                self._run_word_export(source, raw_source=source_path if is_remote_url else None)
             except Exception as word_err:
                 # PDF-specific recovery: we proved that malformed/problematic
                 # EMF/WMF graphics can make Word's PDF renderer abort.  Repair
                 # only a temporary DOCX and retry Word before using LibreOffice.
                 if (
-                    self.target_format == "pdf"
+                    not is_remote_url
+                    and self.target_format == "pdf"
                     and source.suffix.lower() == ".docx"
                 ):
                     try:
@@ -534,7 +548,8 @@ class WordConverterThread(QThread):
                         )
 
                 if (
-                    self.engine != "word"
+                    not is_remote_url
+                    and self.engine != "word"
                     and is_libreoffice_available()
                     and self.target_format in ("docx", "pdf", "html", "rtf", "txt")
                 ):
@@ -557,7 +572,12 @@ class WordConverterThread(QThread):
         except Exception as e:
             self._log(f"❌ Conversion Error: {str(e)}", logging.ERROR)
         finally:
-            self.finished.emit()
+            if self._downloaded_temp and self._downloaded_temp.exists():
+                try:
+                    self._downloaded_temp.unlink()
+                except Exception:
+                    pass
+            self._downloaded_temp = None
 
     def _try_pdf_media_repair(self, source: Path, original_error: Exception) -> bool:
         """
@@ -635,7 +655,7 @@ class WordConverterThread(QThread):
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
 
-    def _run_word_export(self, source: Path):
+    def _run_word_export(self, source: Path, raw_source: Optional[str] = None):
         word = None
         doc = None
         success = False
@@ -645,7 +665,12 @@ class WordConverterThread(QThread):
 
         try:
             pythoncom.CoInitialize()
-            out_dir = source.parent
+            if raw_source:
+                from core.utils.paths import get_project_root
+                out_dir = get_project_root().parent / "output"
+                out_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                out_dir = source.parent
             out_name = f"{source.stem}.{self.target_format}"
             out_path = str(out_dir / out_name)
 
@@ -667,9 +692,10 @@ class WordConverterThread(QThread):
             except Exception:
                 pass
 
+            open_target = raw_source if raw_source else str(source)
             try:
                 doc = word.Documents.Open(
-                    FileName=str(source),
+                    FileName=open_target,
                     ConfirmConversions=False,
                     ReadOnly=True,
                     AddToRecentFiles=False,

@@ -11,9 +11,10 @@ resource limits, and persistent application state.
 
 > **Implementation status**
 >
-> Stage 1 implements the agent-independent domain models, protocol capability
-> registry, and read-oriented knowledge services.  Ollama tool calling, the
-> bounded agent controller, Qt worker, and Assistant UI are subsequent stages.
+> Phase 1 (Stages 1–6) is implemented: agent-independent domain models, protocol
+> capability registry, read-oriented knowledge services, the validated 8-tool
+> semantic registry, native Ollama tool calling, the bounded agent controller,
+> the Qt research worker, and the `AssistantTab` UI.
 
 ## Goals
 
@@ -476,6 +477,7 @@ get_spec_clause
 
 ```text
 list_protocols
+list_protocol_messages
 find_protocol_message
 find_protocol_ie
 ```
@@ -788,7 +790,7 @@ validates argument types/bounds, converts unexpected handler exceptions to
 structured `ERROR` results, exports native Ollama-compatible function schemas,
 and supplies a canonical exact-call key for later duplicate-call caching.
 
-The public Phase 1 tool set is exactly:
+The public Phase 1 tool set is:
 
 ```text
 find_specifications
@@ -796,6 +798,7 @@ get_specification
 search_spec_text
 get_spec_clause
 list_protocols
+list_protocol_messages
 find_protocol_message
 find_protocol_ie
 ```
@@ -815,7 +818,7 @@ Before Ollama integration, verify unknown tools and malformed/extra arguments
 return `INVALID_REQUEST`; bounds are enforced; protocol data absence is
 distinguished from a search miss; specification searches return opaque handles;
 and `get_spec_clause` only accepts handles created by its own service instance.
-`registry.ollama_tools()` should contain seven native function schemas.
+`registry.ollama_tools()` should contain eight native function schemas.
 
 
 ## Stage 3: native Ollama tool calling
@@ -853,7 +856,7 @@ It does **not** execute tools or decide research strategy.
 
 ### First tool-calling smoke test
 
-Before exposing all seven tools to Qwen, use only:
+Before exposing all eight tools to Qwen, use only:
 
 ```text
 list_protocols
@@ -921,7 +924,8 @@ Detailed tools create citable evidence; discovery tools do not:
 ```text
 get_specification                 → catalogue evidence
 get_spec_clause                   → indexed specification-text evidence
-find_protocol_message / ..._ie    → structured protocol evidence
+list_protocol_messages /
+  find_protocol_message / ..._ie  → structured protocol evidence
 
 find_specifications / search_spec_text / list_protocols
                                    → discovery only
@@ -933,7 +937,7 @@ answer behavior.
 
 Stage 4 acceptance includes duplicate-cache behavior, malformed tool recovery,
 invented evidence-ID correction, cancellation, budget exhaustion, and then a
-real-Qwen run using all seven tools. Qt integration remains the next stage.
+real-Qwen run using all eight tools. Qt integration remains the next stage.
 
 
 ## Stage 5: Qt research worker

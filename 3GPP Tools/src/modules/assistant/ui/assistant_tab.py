@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -16,6 +17,12 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from core.ui.ui_components import (
+    BUTTON_STYLE_TOOLBAR_DANGER,
+    BUTTON_STYLE_TOOLBAR_SECONDARY,
+    SEARCH_INPUT_STYLE,
+    TREE_STYLE_CLEAN,
+)
 from modules.assistant.core.agent_controller import AgentControllerConfig
 from modules.assistant.core.agent_models import (
     AgentResult, Evidence, EvidenceSourceType, ResearchActivity,
@@ -110,6 +117,7 @@ class AssistantTab(QWidget):
         sources_group = QGroupBox("Sources")
         sources_layout = QVBoxLayout(sources_group)
         self.sources_tree = QTreeWidget()
+        self.sources_tree.setStyleSheet(TREE_STYLE_CLEAN)
         self.sources_tree.setHeaderLabels(["ID", "Source", "Version / Clause"])
         self.sources_tree.setAlternatingRowColors(True)
         self.sources_tree.setRootIsDecorated(False)
@@ -131,9 +139,13 @@ class AssistantTab(QWidget):
         exchange_header.addWidget(self.exchange_toggle)
         exchange_header.addStretch()
         self.copy_exchange_btn = QPushButton("Copy Trace")
+        self.copy_exchange_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.copy_exchange_btn.setVisible(False)
         self.copy_exchange_btn.clicked.connect(self._copy_exchange_trace)
         exchange_header.addWidget(self.copy_exchange_btn)
         self.clear_exchange_btn = QPushButton("Clear")
+        self.clear_exchange_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.clear_exchange_btn.setVisible(False)
         self.clear_exchange_btn.clicked.connect(self._clear_exchange_trace)
         exchange_header.addWidget(self.clear_exchange_btn)
         exchange_layout.addLayout(exchange_header)
@@ -152,15 +164,18 @@ class AssistantTab(QWidget):
 
         input_row = QHBoxLayout()
         self.question_input = QLineEdit()
+        self.question_input.setStyleSheet(SEARCH_INPUT_STYLE)
         self.question_input.setPlaceholderText("Ask about 3GPP specifications, procedures, messages or IEs...")
         self.question_input.returnPressed.connect(self._on_send)
         input_row.addWidget(self.question_input, stretch=1)
 
         self.send_btn = QPushButton("Send")
+        self.send_btn.setObjectName("primaryBtn")
         self.send_btn.clicked.connect(self._on_send)
         input_row.addWidget(self.send_btn)
 
         self.stop_btn = QPushButton("■ Stop")
+        self.stop_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self._on_stop)
         input_row.addWidget(self.stop_btn)
@@ -266,6 +281,8 @@ class AssistantTab(QWidget):
 
     def _toggle_exchange(self, checked: bool) -> None:
         self.exchange_browser.setVisible(checked)
+        self.copy_exchange_btn.setVisible(checked)
+        self.clear_exchange_btn.setVisible(checked)
         self.exchange_toggle.setText(
             ("▼" if checked else "▶") + " Ollama exchange details"
         )
@@ -311,6 +328,9 @@ class AssistantTab(QWidget):
         self.status_label.setText("Failed")
 
     def _on_worker_finished(self) -> None:
+        sender = self.sender()
+        if sender is not None and sender is not self._worker:
+            return
         worker = self._worker
         if worker is None:
             return
@@ -357,11 +377,24 @@ class AssistantTab(QWidget):
         escaped = html.escape(answer).replace("\n", "<br>")
         # Only IDs present in the application evidence store are made visually
         # citation-like. Unknown IDs remain ordinary escaped text.
-        for evidence_id in sorted(self._evidence, key=len, reverse=True):
-            escaped = escaped.replace(
-                f"[{evidence_id}]",
-                f"<span style='color:#0369A1; font-weight:bold;'>[{evidence_id}]</span>",
+        valid_ids = set(self._evidence)
+
+        def _highlight_bracket(match: re.Match) -> str:
+            inner = match.group(1)
+            if not any(eid in valid_ids for eid in re.findall(r"\bE\d+\b", inner)):
+                return match.group(0)
+            highlighted = re.sub(
+                r"\b(E\d+)\b",
+                lambda m: (
+                    f"<span style='color:#0369A1; font-weight:bold;'>{m.group(1)}</span>"
+                    if m.group(1) in valid_ids
+                    else m.group(1)
+                ),
+                inner,
             )
+            return f"<span style='color:#0369A1; font-weight:bold;'>[</span>{highlighted}<span style='color:#0369A1; font-weight:bold;'>]</span>"
+
+        escaped = re.sub(r"\[([^\[\]]*?\bE\d+\b[^\[\]]*?)\]", _highlight_bracket, escaped)
         return f"<div style='white-space:pre-wrap;'>{escaped}</div>"
 
     def _add_source_row(self, evidence: Evidence) -> None:

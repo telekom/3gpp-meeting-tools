@@ -95,7 +95,8 @@ class CheckableComboBox(QComboBox):
 
         return super().eventFilter(obj, event)
 
-    def addItems(self, items):
+    def addItems(self, items, display_labels=None):
+        display_labels = display_labels or {}
         item_all = QStandardItem("(Select All)")
         item_all.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
         item_all.setCheckState(Qt.Checked)

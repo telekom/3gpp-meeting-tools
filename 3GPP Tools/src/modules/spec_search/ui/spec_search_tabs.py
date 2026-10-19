@@ -74,6 +74,7 @@ class SpecSearchTab(QWidget):
         self.specs_db = SpecsDatabase(self.specs_db_path) if self.specs_db_path and self.specs_db_path.exists() else None
 
         self._query_worker: Optional[SpecSearchQueryWorker] = None
+        self._active_query_workers: Dict[int, SpecSearchQueryWorker] = {}
         self._current_req_id: int = 0
         self.selected_version_ids: List[int] = []
 
@@ -323,19 +324,27 @@ class SpecSearchTab(QWidget):
         self._current_req_id += 1
         req_id = self._current_req_id
 
-        if self._query_worker and self._query_worker.isRunning():
-            self._query_worker.terminate()
-            self._query_worker.wait()
+        for w in list(self._active_query_workers.values()):
+            if w.isRunning():
+                w.requestInterruption()
 
-        self._query_worker = SpecSearchQueryWorker(
+        worker = SpecSearchQueryWorker(
             db=self.db,
             query_str=query,
             version_ids=self.selected_version_ids,
             clause_filter=clause_filter,
             request_id=req_id,
         )
-        self._query_worker.results_ready.connect(self._on_search_results_ready)
-        self._query_worker.start()
+        self._query_worker = worker
+        self._active_query_workers[req_id] = worker
+        worker.results_ready.connect(self._on_search_results_ready)
+        worker.finished.connect(lambda r=req_id: self._release_query_worker(r))
+        worker.start()
+
+    def _release_query_worker(self, req_id: int):
+        worker = self._active_query_workers.pop(req_id, None)
+        if worker:
+            worker.deleteLater()
 
     def _on_search_results_ready(self, df, req_id: int):
         if req_id != self._current_req_id:
@@ -547,8 +556,8 @@ class SpecSearchTab(QWidget):
 
     def _delete_spec_group(self, spec_number: str, count: int):
         if QMessageBox.question(self, "Confirm Delete", f"Delete all {count} version(s) of TS {spec_number}?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
-            for item in self.version_tree.get_checked_versions_info():
-                if item.get("spec_number") == spec_number:
+            for item in self.version_tree.get_all_versions_for_spec(spec_number):
+                if item.get("version"):
                     self.db.clear_version(spec_number, item["version"])
             self.refresh_versions()
             self._save_config()
@@ -575,9 +584,10 @@ class SpecSearchTab(QWidget):
         ) != QMessageBox.Yes:
             return
 
-        if self._query_worker and self._query_worker.isRunning():
-            self._query_worker.terminate()
-            self._query_worker.wait()
+        for w in list(self._active_query_workers.values()):
+            if w.isRunning():
+                w.requestInterruption()
+                w.wait(1500)
 
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
@@ -628,3 +638,22 @@ class SpecSearchTab(QWidget):
             parent=self,
         )
         dialog.exec_()
+
+    def shutdown(self, wait_ms: int = 1500):
+        """Cooperatively stop timers and wait for active background workers during app shutdown."""
+        self._search_timer.stop()
+        self._save_config_timer.stop()
+
+        workers = list(self._active_query_workers.values())
+        if hasattr(self, "thread") and self.thread and self.thread.isRunning():
+            workers.append(self.thread)
+        if hasattr(self, "_wipe_worker") and self._wipe_worker and self._wipe_worker.isRunning():
+            workers.append(self._wipe_worker)
+
+        for worker in workers:
+            if worker.isRunning():
+                worker.requestInterruption()
+
+        for worker in workers:
+            if worker.isRunning():
+                worker.wait(wait_ms)

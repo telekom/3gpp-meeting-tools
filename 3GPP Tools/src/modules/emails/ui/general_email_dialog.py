@@ -465,7 +465,7 @@ class TDocEmailsDialog(QDialog):
         def replace_tdoc(m):
             full_match = m.group(1)
             match_upper = full_match.upper()
-            base_tdoc = match_upper.split('R')[0] if 'R' in match_upper else match_upper
+            base_tdoc = re.sub(r'(?:R|REV)\d{1,2}[A-Z]?$', '', match_upper, flags=re.IGNORECASE)
 
             is_current_family = (match_upper in family_set) or (base_tdoc in family_set)
 
@@ -801,3 +801,18 @@ class TDocEmailsDialog(QDialog):
             parent=None
         )
         self._summary_dialog.show()
+
+    def closeEvent(self, event):
+        if hasattr(self, "auto_read_timer"):
+            self.auto_read_timer.stop()
+        if getattr(self, "_standalone_reader", None):
+            try:
+                self._standalone_reader.close()
+            except Exception:
+                pass
+        if getattr(self, "_summary_dialog", None):
+            try:
+                self._summary_dialog.close()
+            except Exception:
+                pass
+        super().closeEvent(event)

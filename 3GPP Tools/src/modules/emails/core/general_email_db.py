@@ -1,4 +1,5 @@
 # --- File: src/modules/emails/core/general_email_db.py ---
+import contextlib
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Set
@@ -10,8 +11,19 @@ class GeneralEmailDatabase:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
+    @contextlib.contextmanager
+    def _get_connection(self):
+        conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA busy_timeout=30000;")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS general_emails (
@@ -53,7 +65,7 @@ class GeneralEmailDatabase:
     def save_emails_batch(self, emails_data: List[dict], matches_data: List[dict]):
         if not emails_data:
             return
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             email_tuples = [
                 (
@@ -97,7 +109,7 @@ class GeneralEmailDatabase:
         Returns a dictionary mapping tdoc_id to email statistics excluding ignored emails.
         Stores both scalar counts and sets of unique email IDs for exact family deduplication.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                            SELECT m.tdoc_id, e.id, e.is_read
@@ -133,7 +145,7 @@ class GeneralEmailDatabase:
             return []
         placeholders = ",".join(["?"] * len(tdoc_ids))
         ignored_clause = "" if show_ignored else "AND e.is_ignored = 0"
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute(f"""
@@ -157,7 +169,7 @@ class GeneralEmailDatabase:
     def set_emails_read_status(self, email_ids: List[str], is_read: bool):
         if not email_ids:
             return
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.executemany("UPDATE general_emails SET is_read = ? WHERE id = ?",
                              [(1 if is_read else 0, eid) for eid in email_ids])
             conn.commit()
@@ -165,7 +177,7 @@ class GeneralEmailDatabase:
     def set_emails_ignored_status(self, email_ids: List[str], is_ignored: bool):
         if not email_ids:
             return
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.executemany("UPDATE general_emails SET is_ignored = ? WHERE id = ?",
                              [(1 if is_ignored else 0, eid) for eid in email_ids])
             conn.commit()
@@ -173,7 +185,7 @@ class GeneralEmailDatabase:
     def delete_emails(self, email_ids: List[str]):
         if not email_ids:
             return
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.executemany("DELETE FROM general_email_tdoc_matches WHERE email_id = ?", [(eid,) for eid in email_ids])
             conn.executemany("DELETE FROM general_emails WHERE id = ?", [(eid,) for eid in email_ids])
             conn.commit()
@@ -182,7 +194,7 @@ class GeneralEmailDatabase:
         if not tdoc_ids:
             return
         placeholders = ",".join(["?"] * len(tdoc_ids))
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute(f"""
                 UPDATE general_emails 
                 SET is_read = ?
@@ -193,13 +205,13 @@ class GeneralEmailDatabase:
             conn.commit()
 
     def mark_all_read(self):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("UPDATE general_emails SET is_read = 1 WHERE is_ignored = 0")
             conn.commit()
 
     def wipe_generic_emails(self):
         """High-speed purge of generic tables only; preserves SA2 eMeeting tables."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("DELETE FROM general_email_tdoc_matches")
             conn.execute("DELETE FROM general_emails")
             conn.execute("PRAGMA optimize")

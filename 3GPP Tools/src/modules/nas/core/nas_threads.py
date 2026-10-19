@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 import re
@@ -14,8 +15,23 @@ from modules.word_tools.core.word_converter import convert_doc_to_docx
 
 
 def get_candidate_cache_dirs() -> List[Path]:
-    """Resolves all candidate paths using MeetingsSettings and project directories."""
+    """Resolves all candidate paths using MeetingsSettings, specs_config.json, and project directories."""
     candidate_paths: List[Path] = []
+
+    try:
+        specs_cfg_path = get_project_root() / "config" / "specs_config.json"
+        if specs_cfg_path.exists():
+            with open(specs_cfg_path, "r", encoding="utf-8") as f:
+                specs_cfg = json.load(f)
+            dl_dir = specs_cfg.get("download_dir")
+            if dl_dir:
+                dl_path = Path(dl_dir)
+                candidate_paths.extend([
+                    dl_path,
+                    dl_path / "specs",
+                ])
+    except Exception as e:
+        logging.warning(f"Could not read specs_config.json for cache resolution: {e}")
 
     try:
         settings = MeetingsSettings()
@@ -123,6 +139,8 @@ class NASFetchAndImportThread(QThread):
         successful_specs = 0
 
         for t_idx, task in enumerate(self.tasks):
+            if self.isInterruptionRequested():
+                break
             spec_number = task.get("spec_number", "24.501")
             version = task.get("version", "")
             filename = task.get("filename", "")
@@ -188,14 +206,22 @@ class NASFetchAndImportThread(QThread):
                     self.progress.emit(f"⚠️ Could not locate Word doc(s) for {filename}. Skipping...", base_progress)
                     continue
 
+                if self.isInterruptionRequested():
+                    break
+
                 # Convert legacy .doc to .docx if required
                 converted_docs: List[Path] = []
                 for doc_file in target_docs:
+                    if self.isInterruptionRequested():
+                        break
                     if doc_file.suffix.lower() == ".doc":
                         emit_task_progress(f"Converting legacy .doc: {doc_file.name}...", 48)
                         converted_docs.append(convert_doc_to_docx(doc_file))
                     else:
                         converted_docs.append(doc_file)
+
+                if self.isInterruptionRequested():
+                    break
 
                 # Initialize Parser with all parts
                 parser = ProtocolDocxDispatcher(converted_docs)
@@ -208,6 +234,9 @@ class NASFetchAndImportThread(QThread):
                 messages, ie_defs = parser.parse(
                     progress_callback=lambda msg, p: emit_task_progress(msg, 55 + int(p * 0.35))
                 )
+
+                if self.isInterruptionRequested():
+                    break
 
                 emit_task_progress("Saving records to database...", 92)
                 success = self.nas_db.insert_parsed_spec(spec_number, version, messages, ie_defs)

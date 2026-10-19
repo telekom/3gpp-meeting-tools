@@ -77,6 +77,8 @@ class SpecSearchImportThread(QThread):
         successful_specs = 0
 
         for t_idx, task in enumerate(self.tasks):
+            if self.isInterruptionRequested():
+                break
             spec_number = task.get("spec_number", "")
             version = task.get("version", "")
             filename = task.get("filename", "")
@@ -151,17 +153,25 @@ class SpecSearchImportThread(QThread):
                     self.progress.emit(f"⚠️ Could not locate clean Word file for {filename}. Skipping...", base_progress)
                     continue
 
+                if self.isInterruptionRequested():
+                    break
+
                 # Final guard against revision mark files
                 target_docs = [p for p in target_docs if not is_change_mark_file(p.name)]
 
                 # Convert legacy .doc to .docx if necessary
                 converted_docs: List[Path] = []
                 for doc_file in target_docs:
+                    if self.isInterruptionRequested():
+                        break
                     if doc_file.suffix.lower() == ".doc":
                         emit_task_progress(f"Converting legacy .doc: {doc_file.name}...", 45)
                         converted_docs.append(convert_doc_to_docx(doc_file))
                     else:
                         converted_docs.append(doc_file)
+
+                if self.isInterruptionRequested():
+                    break
 
                 # Extract Clauses directly via XML
                 emit_task_progress(f"Parsing clauses in TS {spec_number} v{version}...", 60)
@@ -169,6 +179,9 @@ class SpecSearchImportThread(QThread):
                 clauses = extractor.extract_clauses(
                     progress_callback=lambda msg, p: emit_task_progress(msg, 60 + int(p * 0.25))
                 )
+
+                if self.isInterruptionRequested():
+                    break
 
                 # Index in SQLite with release date
                 emit_task_progress(f"Indexing {len(clauses)} clauses into Trigram DB...", 90)
@@ -205,8 +218,13 @@ class SpecSearchQueryWorker(QThread):
         self.request_id = request_id
 
     def run(self):
+        if self.isInterruptionRequested():
+            return
         try:
             df = self.db.search_substring(self.query_str, self.version_ids, self.clause_filter)
+            if self.isInterruptionRequested():
+                return
             self.results_ready.emit(df, self.request_id)
         except Exception:
-            self.results_ready.emit(pd.DataFrame(), self.request_id)
+            if not self.isInterruptionRequested():
+                self.results_ready.emit(pd.DataFrame(), self.request_id)

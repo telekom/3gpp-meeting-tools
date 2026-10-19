@@ -58,10 +58,11 @@ def _convert_table_to_html(tbl_elem: ET.Element, is_figure_diagram: bool = False
     if not rows:
         return ""
 
-    # Phase 1: Parse cell metadata grid
+    # Phase 1: Parse cell metadata grid with logical column offsets
     grid: List[List[Dict[str, Any]]] = []
     for row in rows:
         row_cells = []
+        col_offset = 0
         for cell in row.findall(TAG_TC):
             tc_pr = cell.find(TAG_TCPR)
             colspan = 1
@@ -81,23 +82,31 @@ def _convert_table_to_html(tbl_elem: ET.Element, is_figure_diagram: bool = False
 
             row_cells.append({
                 "text": _extract_tc_text(cell),
+                "col_offset": col_offset,
                 "colspan": colspan,
                 "vmerge": vmerge_status,
                 "rowspan": 1,
                 "skip": False,
             })
+            col_offset += colspan
         grid.append(row_cells)
 
-    # Phase 2: Resolve vertical merge rowspans
+    # Phase 2: Resolve vertical merge rowspans by matching logical col_offset
     num_rows = len(grid)
     for r_idx in range(num_rows):
-        for c_idx, cell_data in enumerate(grid[r_idx]):
+        for cell_data in grid[r_idx]:
             if cell_data["vmerge"] == "restart":
+                target_offset = cell_data["col_offset"]
                 span = 1
                 for next_r in range(r_idx + 1, num_rows):
-                    if c_idx < len(grid[next_r]) and grid[next_r][c_idx]["vmerge"] == "continue":
+                    matched_next = None
+                    for next_cell in grid[next_r]:
+                        if next_cell["col_offset"] == target_offset and next_cell["vmerge"] == "continue":
+                            matched_next = next_cell
+                            break
+                    if matched_next is not None:
                         span += 1
-                        grid[next_r][c_idx]["skip"] = True
+                        matched_next["skip"] = True
                     else:
                         break
                 cell_data["rowspan"] = span

@@ -204,6 +204,13 @@ class CodeEditorTab(QWidget):
         else:
             self.text_input.appendPlainText("\n\n" + puml_code)
 
+    def closeEvent(self, event):
+        """Ensure the background dialog is closed when the parent tab closes."""
+        ai_dialog = getattr(self, "_ai_dialog", None)
+        if ai_dialog is not None:
+            ai_dialog.close()
+        super().closeEvent(event)
+
 
 class BatchConvertTab(QWidget):
     files_dropped = pyqtSignal(list, str)
@@ -242,9 +249,3 @@ class BatchConvertTab(QWidget):
 
     def set_state(self, state, text=None):
         self.drop_label.set_state(state, text)
-
-    def closeEvent(self, event):
-        """Ensure the background dialog is closed when the parent tab closes."""
-        if self._ai_dialog is not None:
-            self._ai_dialog.close()
-        super().closeEvent(event)

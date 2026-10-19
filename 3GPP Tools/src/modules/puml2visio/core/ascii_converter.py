@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 class AsciiConverterThread(QThread):
     ui_log_msg = pyqtSignal(str, int)
     finished_path = pyqtSignal(str)
-    finished = pyqtSignal()
 
     def __init__(self, puml_path: Path, jar_path: Path):
         super().__init__()
@@ -48,5 +47,3 @@ class AsciiConverterThread(QThread):
         except Exception as e:
             logger.error(f"❌ Text Conversion Error: {e}")
             self.finished_path.emit("")
-        finally:
-            self.finished.emit()

@@ -88,9 +88,29 @@ class ToolRegistry:
             return ToolResult(ToolStatus.ERROR, message=f"Tool '{name}' returned an invalid result.")
         return result
 
-    @staticmethod
-    def canonical_call_key(name: str, arguments: Optional[Mapping[str, Any]]) -> str:
-        return json.dumps({"tool":str(name or "").strip(),"arguments":dict(arguments or {})},
+    def normalize_arguments(self, name: str, raw_arguments: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+        d = self.get(name)
+        if d is None or not isinstance(raw_arguments, Mapping):
+            return dict(raw_arguments or {}) if isinstance(raw_arguments, Mapping) else {}
+        normalized, error = self._validate(d, raw_arguments)
+        if error is None:
+            return normalized
+        out: Dict[str, Any] = {}
+        known = {a.name: a for a in d.arguments}
+        for k, v in raw_arguments.items():
+            arg = known.get(k)
+            if arg is not None and arg.type == ArgumentType.STRING and isinstance(v, str):
+                out[k] = v.strip()
+            else:
+                out[k] = v
+        for a in d.arguments:
+            if (a.name not in out or out[a.name] is None) and a.default is not None:
+                out[a.name] = a.default
+        return out
+
+    def canonical_call_key(self, name: str, arguments: Optional[Mapping[str, Any]]) -> str:
+        normalized = self.normalize_arguments(name, arguments)
+        return json.dumps({"tool":str(name or "").strip(),"arguments":normalized},
                           sort_keys=True, ensure_ascii=False, separators=(",",":"), default=str)
 
     @staticmethod
