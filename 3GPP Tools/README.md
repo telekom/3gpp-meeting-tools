@@ -2,7 +2,7 @@
 
 An advanced, component-based desktop IDE designed to bridge the gap between text-based diagramming (`PlantUML`) and corporate enterprise environments (`Microsoft Visio` and `PowerPoint`). 
 
-Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, track NAS, ASN.1 (RRC / NGAP), GTP-U, and PFCP (TS 29.244) protocol message evolutions, search arbitrary substrings across specification releases using FTS5 trigram indexing with "First Added" and cutoff date detection, conduct multi-meeting company contribution audits with interactive KPI analytics and co-signer tracking, manage local SQLite databases with built-in compaction tools, track emails across working groups linked to specific TDocs and their revision families, connect seamlessly to local LLMs via Ollama for zero-cost offline intelligence, automated call-flow diagram synthesis, and real-time technical triage of meeting TDocs, and navigate, filter, and synchronize the vast 3GPP meeting, specification, and work item archives locally.
+Built specifically with telecommunications and 3GPP standards workflows in mind, this tool allows you to write highly efficient PlantUML sequence, activity, and network diagrams, instantly export them as fully editable native Office shapes, rapidly slice massive specification documents into manageable chapters, track NAS, ASN.1 (RRC / NGAP / XnAP / F1AP / E1AP / S1AP), GTP-U, PDU Session UP (TS 38.415), and PFCP (TS 29.244) protocol message evolutions, search arbitrary substrings across specification releases using FTS5 trigram indexing with "First Added" and cutoff date detection, conduct multi-meeting company contribution audits with interactive KPI analytics and co-signer tracking, inspect and compact local SQLite databases, safely manage background COM Office processes, track emails across working groups linked to specific TDocs and their revision families, consult an evidence-grounded local 3GPP Research Assistant with semantic tool calling, connect seamlessly to local LLMs via Ollama for zero-cost offline intelligence, automated call-flow diagram synthesis, and real-time technical triage of meeting TDocs, and navigate, filter, and synchronize the vast 3GPP meeting, specification, and work item archives locally.
 
 ---
 
@@ -38,6 +38,18 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Chronological Argument Reconstruction:** Re-orders messages chronologically (oldest to newest) to let the LLM map how arguments evolved across multiple companies.
   * **Structured Stance Breakdown:** Categorizes discussion into **🎯 Discussion Topic & Core Contention**, **🏢 Company Positions & Alliances**, **📝 Proposed Solutions & Revisions Mentioned**, and **📌 Current Consensus & Next Steps**.
   * **1-Click Append to Personal Notes:** Directly appends discussion summaries to your SQLite personal notes (`user_tdocs.db`) with timestamp and model metadata.
+* **🤖 Evidence-Grounded 3GPP Research Assistant (Assistant Tab):**
+  * **Bounded Agent Architecture:** Integrates a local LLM with application-side knowledge services via a bounded controller (`AgentController`). The model autonomously decides which semantic research tools to call, while Python retains strict authority over validation, execution limits, and application state.
+  * **Strict `KNOWLEDGE_READ` Authority Boundary:** Strictly bounded to read-only knowledge inspection. The agent has zero arbitrary SQL access, zero filesystem write access, zero process/shell execution permissions, and zero ability to alter application configurations or download unindexed files.
+  * **8-Tool Validated Semantic Registry:** Equips the assistant with validated, schema-enforced semantic tools:
+    * *Specification Catalogue:* `find_specifications` (search catalogue by number/keyword), `get_specification` (retrieve known versions and metadata).
+    * *Specification Text Index:* `search_spec_text` (FTS5 trigram substring matching across indexed clauses), `get_spec_clause` (retrieve exact extracted clause text).
+    * *Structured Protocol Knowledge:* `list_protocols` (enumerate parsed protocols), `list_protocol_messages` (list messages/SIBs in a release), `find_protocol_message` (retrieve field/IE structures), `find_protocol_ie` (retrieve Clause 9 bit layouts and coding tables).
+  * **Progressive Multi-Pane Research UI (`AssistantTab`):**
+    * **Conversation Pane:** Streams grounded markdown answers with bracketed citations (e.g., `[E1, E2]`).
+    * **Research Activity Pane:** Real-time log of tool calls displaying invoked tool names, input arguments, durations, and output statuses.
+    * **Application-Owned Evidence Cards:** Displays concrete evidence items with clear provenance (source type, specification, version, clause/message, and preview), distinguishing local application coverage from model hallucinations.
+  * **Hot-Reloadable System Prompt:** System instructions are externalized to `config/prompts/assistant_system.txt`, enabling real-time prompt tuning with automatic timestamp detection without application restarts.
 * **3GPP Call Flow Sequence Generation:**
   * Directly transforms textual procedure steps (e.g., from TS 23.502 or TS 38.300) into standard PlantUML sequence diagrams.
   * Integrates real-time token streaming and prompt hot-reloading within Visio Tools.
@@ -114,7 +126,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ### 🔬 3GPP Protocol Evolution Matrix & Inspector (NAS, ASN.1 & PFCP)
 * **Comprehensive Multi-Protocol Ingestion:**
   * **NAS Protocols:** Complete support for **5GS NAS (TS 24.501)** and **EPS NAS (TS 24.301)**.
-  * **ASN.1 Protocols:** Native support for **NR RRC (TS 38.331)**, **LTE RRC (TS 36.331)**, and **NGAP (TS 38.413)**.
+  * **ASN.1 Protocols:** Native support for **NR RRC (TS 38.331)**, **LTE RRC (TS 36.331)**, and RAN3 Application Protocols: **NGAP (TS 38.413)**, **XnAP (TS 38.423)**, **F1AP (TS 38.473)**, **E1AP (TS 38.463)**, and **S1AP (TS 36.413)**.
   * **GTP-U Protocol:** Native support for **GTPv1-U (TS 29.281)** covering user plane tunnels across 5GS (`N3`, `N9`, `N19`, `F1-U`, `Xn-U`, `W1-U`), EPS (`S1-U`, `X2-U`, `S5/S8`), and legacy interfaces. Parses signalling messages (Echo Request/Response, Error Indication, End Marker, Tunnel Status) and synthesizes G-PDUs with Clause 5.2 Extension Headers (PDU Session Container, NR RAN Container, PDU Set Information Container) with per-interface filtering.
   * **PDU Session User Plane Protocol:** Native support for **TS 38.415** (PDU Session & PDU Set Information User Plane Protocols) over `NG-U`, `Xn-U`, `F1-U`, and `N9` interfaces. Parses DL/UL PDU Session Information and DL PDU Set Information frames into fine-grained bit-level fields, tracking delay measurement flags, QoS Monitoring timestamps, and PDU Set sequence numbering across releases.
   * **PFCP Protocol:** Native support for **PFCP (TS 29.244)** spanning both 5GC (`N4`, `N4mb`) and EPC (`Sxa`, `Sxb`, `Sxc`) reference points. Parses top-level Node-Related (Clause 7.4) and Session-Related (Clause 7.5) PDU messages alongside the master Information Element Type registry (Table 8.1.2-1).
@@ -141,10 +153,20 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ---
 
-### 🗄️ Database Maintenance & Compaction
-* **System-Level Database Manager:** Integrated `🗄️ Database` tool accessible directly from the bottom system bar.
+### 🗄️ Database Maintenance, Inspection & Compaction
+* **System-Level Database Manager:** Integrated `🗄️ Database` tool accessible directly from the bottom Console Panel.
+* **Read-Only SQLite Schema & Data Inspector (`DatabaseInspectorDialog`):** Click **Inspect** on any tracked database to launch a dedicated browser displaying all tables and views, live row counts, SQL DDL creation schemas, column data types, PRAGMA diagnostics (page size, freelist page count, journal mode), and interactive paginated table data without needing external database tools.
 * **Automatic Freelist & WAL Compaction:** Inspects on-disk database sizes and active Write-Ahead Logs (`-wal`), executing `PRAGMA wal_checkpoint(TRUNCATE)` and `VACUUM` to defragment pages and reclaim megabytes of disk space after heavy scraping or database wiping.
 * **Batch Maintenance:** One-click **Compact All Databases** to optimize `3gpp_data.db`, `3gpp_protocol_data.db`, `3gpp_spec_search.db`, and auxiliary cache databases concurrently.
+
+---
+
+### 🖥️ COM Process & Task Manager (`ProcessManagerDialog`)
+* **Dedicated Office Process Management:** Integrated `🖥️ Task Manager` tool accessible directly from the bottom Console Panel.
+* **Active Process & Document Inspection:** Tracks live instances of Microsoft Word (`WINWORD.EXE`), PowerPoint (`POWERPNT.EXE`), and Visio (`VISIO.EXE`), displaying process IDs and all currently open document titles.
+* **Safe Document-Level Closing:** Inspect open documents in Word and PowerPoint and cleanly close specific files via COM automation without killing the host application.
+* **Session Preservation & Selective Keep-Open:** Uncheck documents you wish to keep open during automated comparison or slicing workflows; the system respects user exclusions.
+* **Emergency Recovery & Orphan Cleanup:** Single-click **Kill Process** or **Kill All Office Processes** to immediately terminate frozen or orphaned background COM instances, unlocking lingering file locks.
 
 ---
 
@@ -179,13 +201,13 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Persistent Personal Notes & Status (Sidecar Database):** Keep a private, local SQLite database that "overlays" your data onto the 3GPP list. Double-click any TDoc to assign a color-coded status (🟢 Support, 🔴 Object, 🟡 Monitor) and save personal notes. Your data survives perfectly even when downloading fresh 3GPP Excel updates.
   * **Smart Revision Inheritance:** When a TDoc gets a new revision during a meeting, the new child document automatically inherits a "Ghost" version of the personal notes and status you assigned to the base document!
   * **Interactive Secretary Remarks:** TDocs mentioned in the Secretary Remarks are automatically identified and converted into hyperlinks. Left-click a link to instantly jump to that row (intelligently wiping active filters if necessary), or right-click to download it, trigger AI Triage, or add it to your Comparison Cart.
-  * **Natural Sorting & Smart Filtering:** Bulletproof multi-select dropdowns and natural numerical sorting for complex multi-level Agenda Items (e.g., AI 20.6.2 sorts correctly before 20.6.11).
+  * **Natural Sorting, Dynamic AI Labels & Agenda CSV Support:** Bulletproof multi-select dropdowns and natural numerical sorting for complex multi-level Agenda Items (e.g., AI 20.6.2 sorts correctly before 20.6.11). Natively parses both **SA2 and RAN2 agenda CSV formats** (`agenda.csv`), intelligently extracting valid acronyms and subtopics while ignoring non-acronym parenthetical words (e.g., `(un)`, `(re)`), falling back gracefully to clean descriptions, and providing full-title hover tooltips across tables and statistical exports.
   * **Comprehensive Analytics Dashboards:** Generate interactive offline HTML Plotly reports detailing TDoc outcomes, top contributing companies, and complex strategic alliance network graphs (co-signing clusters) using Louvain community detection algorithms.
   * **SA2 Electronic Revisions & Agenda Parsing:** Automatically parses `TdocsByAgenda.htm` to extract comments, inject on-the-fly revisions directly into your table, and provides a "No Comments Only" filter. For eMeetings, it automatically scrapes the `INBOX/Revisions/` FTP folder.
   * **SA2 Chairman's Notes & Session List Ingestion (`.doc` / `.docx`):**
     * **Frosted Drop Overlay:** Drag and drop `.doc`, `.docx`, `.htm`, or `.html` session documents onto the TDocs window; a visual frosted-blue drop overlay appears with dashed borders and instant drop targets.
     * **Non-Blocking Background Worker (`WordAgendaImporterThread`):** Copies imported files to `{meeting_dir}/Agenda/`, unblocks NTFS Zone Identifiers, converts legacy macro-bearing `.doc` files via headless LibreOffice, and parses table data in the background without freezing the UI.
-  * **Multi-Action Resources Menu:** Instantly jump to local cache directories, fetched HTML Agenda files, Main FTP folders, Docs/ folders, or Revisions/ folders directly from the UI.
+  * **Multi-Action Resources & Terminal Menu:** Instantly jump to local cache directories, fetched HTML Agenda files, Main FTP folders, Docs/ folders, or Revisions/ folders directly from the UI. Select **💻 Open Terminal in Meeting Cache** from the meeting context menu or the TDocs folder menu to launch Windows Terminal (`wt.exe`) or PowerShell directly in the meeting's local storage folder.
   * **Quick Launch History:** Remembers your active working group session, allowing you to bypass the database table and jump back into your last opened meeting with a single click.
 
 * **📊 Cross-Meeting Company Contribution Audit & Reporting:**
@@ -333,7 +355,12 @@ pip install -r requirements.txt
 
 ### 3. Launch the Application
 ```bash
-python src/main_tools.py
+# Using the Windows batch launcher (recommended):
+.\src\Launch.cmd
+
+# Or directly via Python with proper PYTHONPATH:
+$env:PYTHONPATH = ".;.\src;$env:PYTHONPATH"
+python -m main_tools
 ```
 *Upon first launch, the app will automatically download the latest `plantuml.jar` from GitHub if it is not present in your assets folder.*
 
@@ -389,6 +416,28 @@ python src/main_tools.py
      4. **📌 Current Consensus & Next Steps**
 4. **Notes Integration:**
    * Click **💾 Save to My Notes** to append the discussion summary directly beneath your TDoc's personal notes in `user_tdocs.db`.
+
+---
+
+### 🤖 3GPP Research Assistant (Evidence-Grounded Question Answering)
+1. Navigate to the **🤖 Assistant** tab.
+2. **Connectivity Check:** Observe the Assistant header status (`Ready`) and ensure your local Ollama instance is active via the bottom status bar pill (🟢 `🦙 <model_name>`).
+3. **Posing 3GPP Engineering Queries:**
+   * Enter your technical question into the prompt input at the bottom (e.g., *"What information elements are contained in the Registration Request message in TS 24.501?"*, *"Explain ATSSS steering functionality and rules in TS 23.501"*, or *"Find all protocol messages related to PDU Session Establishment"*).
+   * Press **Enter** or click **🚀 Ask**.
+4. **Inspecting Live Research Activities:**
+   * The **Research Activity** pane displays the bounded agent's tool-calling progress step-by-step in real time.
+   * Inspect each semantic tool invoked (e.g., `find_specifications`, `search_spec_text`, `get_spec_clause`, `find_protocol_message`), the input arguments passed, the elapsed duration, and the execution status (`SUCCESS` / `ERROR`).
+5. **Evaluating Application-Owned Evidence:**
+   * The **Evidence** pane populates with concrete evidence items retrieved strictly from local SQLite databases.
+   * Each item displays its assigned evidence tag (`[E1]`, `[E2]`, etc.), source domain (*Specification Catalogue*, *Spec Search*, or *Protocol Knowledge*), specification number, version, clause or message name, and a text snippet.
+6. **Reviewing Grounded Answers & Citations:**
+   * The model streams its synthesized technical analysis into the **Conversation** pane, citing exact supporting sources with bracketed identifiers (e.g., `[E1]`, `[E2]`).
+   * The assistant explicitly distinguishes locally covered knowledge from model knowledge and refuses to hallucinate specifications or protocol fields absent from your databases.
+7. **Control & Customization:**
+   * Click **⏹️ Stop** at any time to abort an in-flight tool call or token streaming sequence.
+   * Click **🗑️ Clear** to wipe the conversation history and start a fresh research session.
+   * Custom instructions can be tuned without restarting the application by editing `config/prompts/assistant_system.txt`.
 
 ---
 
@@ -459,10 +508,24 @@ python src/main_tools.py
 
 ---
 
-### 🗄️ Database Maintenance & Compaction
-1. Click the **🗄️ Database** button located in the bottom system bar next to Task Manager and Proxy.
+### 🗄️ Database Maintenance, Inspection & Compaction
+1. Click the **🗄️ Database** button located in the bottom Console Panel next to Task Manager and Proxy.
 2. The dialog displays all SQLite database files (`3gpp_data.db`, `3gpp_protocol_data.db`, `3gpp_spec_search.db`), their current on-disk sizes, and Write-Ahead Log (`-wal`) statuses.
-3. Click **Compact** on an individual database or **🧹 Compact All Databases** to flush WAL logs, execute SQLite `VACUUM`, optimize indices, and instantly reclaim free disk space.
+3. **Database Compaction:** Click **Compact** on an individual database or **🧹 Compact All Databases** to flush WAL logs, execute SQLite `VACUUM`, optimize indices, and instantly reclaim free disk space.
+4. **Read-Only Schema & Data Inspection:** Click **Inspect** on any database entry to open `DatabaseInspectorDialog`. Browse tables, check exact schema definitions and column types, inspect diagnostic PRAGMAs, and review paginated rows with real-time text searching without locking the database.
+
+---
+
+### 🖥️ Managing Active COM Processes & Office Documents (Task Manager)
+1. Click the **🖥️ Task Manager** button in the bottom Console Panel.
+2. **Process Inspection:** The dialog displays all active instances of Microsoft Word (`WINWORD.EXE`), Microsoft PowerPoint (`POWERPNT.EXE`), and Microsoft Visio (`VISIO.EXE`) along with their Windows Process IDs (PIDs).
+3. **Document-Level Visibility & Safe Closing:**
+   * For Word and PowerPoint, the tree view lists each currently open document title.
+   * Check or uncheck documents to control scope: uncheck any files you wish to keep open during batch operations.
+   * Click **Close Selected Documents** to cleanly save and close target documents via COM automation without killing the underlying application.
+4. **Emergency Orphan Process Termination:**
+   * If a background conversion or comparison hangs due to a modal prompt or blocked file lock, select the hanging process and click **Kill Process**.
+   * Click **Kill All Office Processes** to immediately clean up all orphaned background Word, PowerPoint, and Visio processes in one click.
 
 ---
 
@@ -470,8 +533,8 @@ python src/main_tools.py
 1. Navigate to the **Meetings** tab.
 2. Click **Sync All Meetings** to trigger the 3-Phase scraper. You can also use **Open Last Meeting** to instantly resume your previous working group session.
 3. Use the **Global TDoc Search** input to instantly find a specific document. Type a valid TDoc number (e.g., `S2-2605740`), and press **Enter** (or click **📄 Doc**) to fetch and open it immediately, or click **🗓️ Mtg** to launch its parent meeting table.
-4. Right-click any meeting to access its FTP folders, view its info, or open its cached **TDocs List**.
-5. In the TDocs Window, use the **Search** bar or dropdown filters to find specific documents. Double-click any cell to open the Notes editor and assign a color-coded status to a document.
+4. Right-click any meeting to access its FTP folders, view its info, open its cached **TDocs List**, or select **💻 Open Terminal in Meeting Cache** to launch a command terminal directly in that meeting's local files directory.
+5. In the TDocs Window, use the **Search** bar or dropdown filters to find specific documents. The Agenda Item filter automatically presents structured labels (e.g., `AI 20.6: Acronym - Subtopic`) derived from SA2 and RAN2 `agenda.csv` files, and hovering over any row in the Agenda Item column displays full title tooltips. Double-click any cell to open the Notes editor and assign a color-coded status to a document. (You can also select **📁 Resources ▾ $\rightarrow$ 💻 Open Terminal in Meeting Cache** to open a terminal in the active meeting folder).
 6. **Importing SA2 Session Documents & Chairman's Notes:**
    * **Drag & Drop:** Drag any `.docx`, `.doc`, or `.htm` session document anywhere onto the TDocs window. A visual frosted drop overlay will highlight the window.
    * **Menu Import:** Alternatively, click the **🔄 Refresh** menu and select **📝 Import Word Document (.docx / .doc)...**.
@@ -614,7 +677,11 @@ If you are behind a corporate firewall:
 * **Ollama Connection Refused or Showing Offline:**
   * Verify that the local daemon is active by running `ollama list` in PowerShell or Windows Terminal.
   * If running Ollama on another machine on your local network (e.g., a GPU workstation), ensure `OLLAMA_HOST=0.0.0.0` is set in the daemon environment and configure the target IP in the **🦙 Ollama Configuration** dialog.
-* **Tuning AI Diagram & Triage Prompts:**
-  * To customize AI triage responses, edit `config/prompts/triage_system.txt` and `config/prompts/triage_user.txt`.
-  * To customize call-flow sequence generation, edit `config/prompts/callflow_system.txt` and `config/prompts/callflow_user.txt`.
-  * The prompt engine detects file timestamp changes automatically and reloads them on the next inference click without restarting the application.
+* **Tuning AI Diagram, Assistant & Triage Prompts:**
+  * All local AI prompts are decoupled into external text files in `config/prompts/` and hot-reloaded automatically via file modification timestamps (`mtime`) on the next click without restarting the app:
+    * **3GPP Research Assistant:** `config/prompts/assistant_system.txt`
+    * **TDoc Technical Triage:** `config/prompts/triage_system.txt` and `config/prompts/triage_user.txt`
+    * **Email Discussion Summarizer:** `config/prompts/email_summary_system.txt` and `config/prompts/email_summary_user.txt`
+    * **Call-Flow Sequence Diagram Generator:** `config/prompts/callflow_system.txt` and `config/prompts/callflow_user.txt`
+* **Windows MAX_PATH (260 Character Limit) & Deep Folder Paths:**
+  * When downloading extensive TDoc packages or extracting deep specification hierarchies, path lengths can exceed the standard Windows 260-character limit. The application core automatically canonicalizes paths using Windows Extended-Length Path prefixes (`\\?\` via `to_extended_path`), preventing `[WinError 3]` or file-not-found exceptions without requiring system-wide registry modifications.
