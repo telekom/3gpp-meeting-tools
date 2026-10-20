@@ -23,6 +23,7 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox
 
 # Dialogs extracted to email_dialogs.py (re-exported for backward compatibility)
 from modules.emails.ui.email_dialogs import EditEmailDialog
+from modules.emails.ui.email_toolbar import EmailControlToolbar
 
 
 
@@ -136,142 +137,41 @@ class EmailManagerWindow(QWidget):
         main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(10)
 
-        def get_btn_style(primary=False):
-            if primary:
-                return "QPushButton { font-weight: bold; background-color: #0078D7; color: white; padding: 5px 12px; border-radius: 4px; border: 1px solid #005A9E; } QPushButton:hover { background-color: #005A9E; }"
-            return "QPushButton { font-weight: bold; background-color: #FFFFFF; color: #333333; padding: 5px 12px; border-radius: 4px; border: 1px solid #CCCCCC; } QPushButton:hover { background-color: #F0F4F8; border-color: #005A9E; color: #005A9E; }"
-
         # =====================================================================
-        # UNIFIED TOP CONTROL PANEL
+        # UNIFIED TOP CONTROL PANEL (Decoupled Component)
         # =====================================================================
-        top_frame = QFrame()
-        top_frame.setStyleSheet(
-            "QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 8px; } "
-            "QLabel { font-weight: bold; color: #555; border: none; } "
-            "QLineEdit, QComboBox, QDateEdit { padding: 4px 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333; height: 22px; }"
+        self.toolbar = EmailControlToolbar(
+            start_date=getattr(self, "start_date", ""),
+            end_date=getattr(self, "end_date", ""),
+            parent=self
         )
-        top_layout = QVBoxLayout(top_frame)
-        top_layout.setContentsMargins(10, 8, 10, 8)
-        top_layout.setSpacing(6)
+        self.toolbar.sync_requested.connect(self._run_sync)
+        self.toolbar.move_requested.connect(self._run_move)
+        self.toolbar.move_all_requested.connect(self._run_move_all)
+        self.toolbar.rescan_requested.connect(self._run_target_rescan)
+        self.toolbar.stats_requested.connect(self._generate_statistics)
+        self.toolbar.config_requested.connect(self._configure_folders)
+        self.toolbar.filters_changed.connect(self._apply_filters)
+        self.toolbar.date_range_changed.connect(self._on_date_range_changed)
 
-        # --- ROW 1: Buttons ---
-        row1_layout = QHBoxLayout()
-        row1_layout.setSpacing(6)
+        # Aliases for table and status bindings
+        self.btn_sync = self.toolbar.btn_sync
+        self.btn_move = self.toolbar.btn_move
+        self.btn_move_all = self.toolbar.btn_move_all
+        self.btn_rescan = self.toolbar.btn_rescan
+        self.btn_stats = self.toolbar.btn_stats
+        self.btn_config = self.toolbar.btn_config
+        self.lbl_status = self.toolbar.lbl_status
+        self.lbl_count = self.toolbar.lbl_count
+        self.dt_start = self.toolbar.dt_start
+        self.dt_end = self.toolbar.dt_end
+        self.btn_filter_star = self.toolbar.btn_filter_star
+        self.btn_filter_follow = self.toolbar.btn_filter_follow
+        self.cb_ai = self.toolbar.cb_ai
+        self.cb_company = self.toolbar.cb_company
+        self.cb_sender = self.toolbar.cb_sender
 
-        self.btn_sync = QPushButton("🔄 Sync Source")
-        self.btn_sync.setStyleSheet(get_btn_style(primary=True))
-        self.btn_sync.setToolTip("Scan your configured Outlook Source folder to download and index new emails.")
-        self.btn_sync.clicked.connect(self._run_sync)
-
-        self.btn_move = QPushButton("➡️ Move Selected")
-        self.btn_move.setStyleSheet(get_btn_style())
-        self.btn_move.setToolTip("Move the currently selected emails from the Source folder to the Target folder.")
-        self.btn_move.clicked.connect(self._run_move)
-
-        self.btn_move_all = QPushButton("⏭️ Move All")
-        self.btn_move_all.setStyleSheet(get_btn_style())
-        self.btn_move_all.setToolTip("Move ALL visible source emails to the Target folder, auto-organizing them by Agenda Item.")
-        self.btn_move_all.clicked.connect(self._run_move_all)
-
-        self.btn_rescan = QPushButton("🔁 Scan Target")
-        self.btn_rescan.setStyleSheet(get_btn_style())
-        self.btn_rescan.setToolTip("Re-scan your configured Target archive folder to index previously moved emails.")
-        self.btn_rescan.clicked.connect(self._run_target_rescan)
-
-        self.btn_stats = QPushButton("📊 Statistics")
-        self.btn_stats.setStyleSheet(get_btn_style())
-        self.btn_stats.setToolTip("Generate an interactive HTML analytics dashboard for email traffic.")
-        self.btn_stats.clicked.connect(self._generate_statistics)
-
-        self.btn_config = QPushButton("⚙️ Folders")
-        self.btn_config.setStyleSheet(get_btn_style())
-        self.btn_config.setToolTip("Configure your Outlook Source/Target folders and Statistics preferences.")
-        self.btn_config.clicked.connect(self._configure_folders)
-
-        self.lbl_status = QLabel("Ready.")
-        self.lbl_status.setStyleSheet("color: #666; font-style: italic; margin-left: 10px;")
-
-        self.lbl_count = QLabel("Showing 0 Threads | 0 Emails")
-        self.lbl_count.setStyleSheet(
-            "font-size: 13px; color: #0078D7; font-weight: bold; padding-left: 10px; border: none;")
-
-        for btn in [self.btn_sync, self.btn_move, self.btn_move_all, self.btn_rescan, self.btn_stats, self.btn_config]:
-            row1_layout.addWidget(btn)
-        row1_layout.addWidget(self.lbl_status)
-        row1_layout.addStretch()
-        row1_layout.addWidget(self.lbl_count)
-
-        top_layout.addLayout(row1_layout)
-
-        # --- ROW 2: Filters ---
-        row2_layout = QHBoxLayout()
-        row2_layout.setSpacing(8)
-
-        self.dt_start = QDateEdit()
-        self.dt_start.setCalendarPopup(True)
-        self.dt_start.setToolTip("Limit loaded emails to those received ON or AFTER this date.")
-        if getattr(self, 'start_date', None):
-            self.dt_start.setDate(QDate.fromString(self.start_date, Qt.ISODate))
-        else:
-            self.dt_start.setDate(QDate.currentDate().addDays(-7))
-
-        self.dt_end = QDateEdit()
-        self.dt_end.setCalendarPopup(True)
-        self.dt_end.setToolTip("Limit loaded emails to those received ON or BEFORE this date.")
-        if getattr(self, 'end_date', None):
-            self.dt_end.setDate(QDate.fromString(self.end_date, Qt.ISODate))
-        else:
-            self.dt_end.setDate(QDate.currentDate().addDays(7))
-
-        self.dt_start.dateChanged.connect(lambda d: setattr(self, 'start_date', d.toString(Qt.ISODate)))
-        self.dt_end.dateChanged.connect(lambda d: setattr(self, 'end_date', d.toString(Qt.ISODate)))
-        self.dt_start.dateChanged.connect(
-            lambda: self._save_config(self.source_folder, self.target_folder, self.start_date, self.end_date))
-        self.dt_end.dateChanged.connect(
-            lambda: self._save_config(self.source_folder, self.target_folder, self.start_date, self.end_date))
-
-        self.btn_filter_star = QPushButton("⭐ Starred")
-        self.btn_filter_star.setCheckable(True)
-        self.btn_filter_star.setToolTip("Filter left panel to only show threads containing a Starred TDoc.")
-        self.btn_filter_star.setStyleSheet(
-            "QPushButton { padding: 4px 8px; background: white; border-radius: 3px; border: 1px solid #CCC; color: #333; } QPushButton:checked { background-color: #FFF4CE; font-weight: bold; border-color: #E2C08D; }")
-        self.btn_filter_star.toggled.connect(self._apply_filters)
-
-        self.btn_filter_follow = QPushButton("👀 Followed AIs")
-        self.btn_filter_follow.setCheckable(True)
-        self.btn_filter_follow.setToolTip("Filter left panel to only show threads belonging to a Followed Agenda Item.")
-        self.btn_filter_follow.setStyleSheet(
-            "QPushButton { padding: 4px 8px; background: white; border-radius: 3px; border: 1px solid #CCC; color: #333; } QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }")
-        self.btn_filter_follow.toggled.connect(self._apply_filters)
-
-        self.cb_ai = CheckableComboBox("Filter by AI")
-        self.cb_ai.setToolTip("Filter threads by specific Agenda Items.")
-        self.cb_ai.selectionChanged.connect(self._apply_filters)
-
-        self.cb_company = CheckableComboBox("Company")
-        self.cb_company.setMinimumWidth(110)
-        self.cb_company.setToolTip("Filter the right panel emails by contributing Company.")
-        self.cb_company.selectionChanged.connect(self._apply_filters)
-
-        self.cb_sender = CheckableComboBox("Sender")
-        self.cb_sender.setMinimumWidth(110)
-        self.cb_sender.setToolTip("Filter the right panel emails by specific Senders.")
-        self.cb_sender.selectionChanged.connect(self._apply_filters)
-
-        row2_layout.addWidget(QLabel("📅 Limit Data:"))
-        row2_layout.addWidget(self.dt_start)
-        row2_layout.addWidget(QLabel("-"))
-        row2_layout.addWidget(self.dt_end)
-        row2_layout.addSpacing(10)
-        row2_layout.addWidget(self.btn_filter_star)
-        row2_layout.addWidget(self.btn_filter_follow)
-        row2_layout.addWidget(self.cb_ai)
-        row2_layout.addWidget(self.cb_company)
-        row2_layout.addWidget(self.cb_sender)
-        row2_layout.addStretch()
-
-        top_layout.addLayout(row2_layout)
-        main_layout.addWidget(top_frame, stretch=0)
+        main_layout.addWidget(self.toolbar, stretch=0)
 
         # =====================================================================
         # MASTER-DETAIL SPLITTER
@@ -494,6 +394,11 @@ class EmailManagerWindow(QWidget):
 
         logging.info(f"[EmailWindow] Dropdowns Ready: {len(unique_ais)} AIs, {len(unique_companies)} Companies.")
         self._apply_filters()
+
+    def _on_date_range_changed(self, start_date: str, end_date: str):
+        self.start_date = start_date
+        self.end_date = end_date
+        self._save_config(self.source_folder, self.target_folder, self.start_date, self.end_date)
 
     def _apply_filters(self, *args):
         self.tdoc_proxy.set_filters(
@@ -842,13 +747,8 @@ class EmailManagerWindow(QWidget):
             self.lbl_status.setText("❌ Analytics Generation Failed.")
             QMessageBox.warning(self, "Error", f"Could not generate statistics:\n{msg}")
 
-    def _set_buttons_enabled(self, state: bool):
-        self.btn_sync.setEnabled(state)
-        self.btn_move.setEnabled(state)
-        self.btn_move_all.setEnabled(state)
-        self.btn_rescan.setEnabled(state)
-        self.btn_stats.setEnabled(state)
-        self.btn_config.setEnabled(state)
+    def _set_buttons_enabled(self, enabled: bool):
+        self.toolbar.set_buttons_enabled(enabled)
 
     def closeEvent(self, event):
         if hasattr(self, "search_timer"):
