@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.ui.email_summary_dialog import EmailSummaryDialog
-from modules.emails.ui.general_email_dialog import load_wg_email_config
+from modules.emails.core.email_config import load_wg_email_config
 
 logger = logging.getLogger(__name__)
 
