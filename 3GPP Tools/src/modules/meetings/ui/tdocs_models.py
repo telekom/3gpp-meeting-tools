@@ -17,11 +17,12 @@ def natural_sort_key(s):
 
 
 class TDocsTableModel(QAbstractTableModel):
-    def __init__(self, meeting_dir: Path, data=None, user_data=None):
+    def __init__(self, meeting_dir: Path, data=None, user_data=None, agenda_map=None):
         super().__init__()
         self.meeting_dir = meeting_dir
         self.user_data = user_data or {}
         self._data = data or []
+        self.agenda_map = agenda_map or {}
 
         # Appending "Emails" at the end prevents breaking delegates for columns 0, 7, 12!
         self._headers = [
@@ -220,6 +221,13 @@ class TDocsTableModel(QAbstractTableModel):
             col_idx = self._headers.index("Emails")
             self.dataChanged.emit(self.index(0, col_idx), self.index(self.rowCount() - 1, col_idx))
 
+    def set_agenda_map(self, agenda_map: dict):
+        """Updates the cached agenda mapping and repaints the Agenda Item column."""
+        self.agenda_map = agenda_map or {}
+        if "Agenda Item" in self._headers:
+            col_idx = self._headers.index("Agenda Item")
+            self.dataChanged.emit(self.index(0, col_idx), self.index(self.rowCount() - 1, col_idx))
+
     def get_family_tdocs(self, base_tdoc: str) -> list:
         """Instant O(1) lineage retrieval for a TDoc and its revisions."""
         if not base_tdoc:
@@ -347,6 +355,16 @@ class TDocsTableModel(QAbstractTableModel):
         elif role == Qt.ToolTipRole:
             val = row.get(col_name, "")
             val_str = str(val).strip() if val is not None else ""
+
+            if col_name == "Agenda Item":
+                ai_num = val_str
+                agenda_item = self.agenda_map.get(ai_num)
+                if agenda_item and getattr(agenda_item, "description", None):
+                    return f"AI {ai_num}: {agenda_item.description}"
+                excel_desc = str(row.get("Agenda item description", "")).strip()
+                if excel_desc:
+                    return f"AI {ai_num}: {excel_desc}"
+                return f"Agenda Item {ai_num}" if ai_num else None
 
             if col_name in ["Abstract", "Secretary Remarks", "My Notes"] and val_str:
                 return f"<div style='width: 400px; white-space: pre-wrap;'>{val_str}</div>"

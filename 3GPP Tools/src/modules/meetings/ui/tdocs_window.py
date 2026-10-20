@@ -506,7 +506,7 @@ class TDocsWindow(QWidget):
 
     def _setup_table(self, layout, data, user_data):
         self.table = QTableView()
-        self.model = TDocsTableModel(self.meeting_dir, data, user_data)
+        self.model = TDocsTableModel(self.meeting_dir, data, user_data, agenda_map=self.agenda_map)
         self.proxy = TDocsFilterProxyModel()
         self.proxy.setSourceModel(self.model)
         self.proxy.layoutChanged.connect(self._update_count_label)
@@ -707,8 +707,19 @@ class TDocsWindow(QWidget):
         ai_display_labels = {}
         for ai_num in unique_ais:
             agenda_item = self.agenda_map.get(ai_num)
-            acronym = getattr(agenda_item, "acronym", None) if agenda_item else None
-            ai_display_labels[ai_num] = f"{ai_num} ({acronym})" if acronym else ai_num
+            if agenda_item:
+                ai_display_labels[ai_num] = agenda_item.display_label
+            else:
+                excel_desc = next((str(r.get("Agenda item description", "")).strip()
+                                   for r in self.model._data
+                                   if str(r.get("Agenda Item", "")).strip() == ai_num and r.get("Agenda item description")), "")
+                if excel_desc:
+                    clean = re.sub(r'\s+', ' ', excel_desc)
+                    max_desc_len = max(15, 38 - len(ai_num))
+                    label_desc = clean if len(clean) <= max_desc_len else clean[:max_desc_len - 3].rstrip() + "..."
+                    ai_display_labels[ai_num] = f"{ai_num} - {label_desc}"
+                else:
+                    ai_display_labels[ai_num] = ai_num
 
         self.type_combo.updateItems(unique_types)
         self.ai_combo.updateItems(unique_ais, display_labels=ai_display_labels)
@@ -747,7 +758,13 @@ class TDocsWindow(QWidget):
                     full_desc = f"AI {ai_num}: {agenda_item}"
                 item.setData(full_desc, Qt.ToolTipRole)
             else:
-                item.setData(f"Agenda Item {ai_num}", Qt.ToolTipRole)
+                excel_desc = next((str(r.get("Agenda item description", "")).strip()
+                                   for r in self.model._data
+                                   if str(r.get("Agenda Item", "")).strip() == ai_num and r.get("Agenda item description")), "")
+                if excel_desc:
+                    item.setData(f"AI {ai_num}: {excel_desc}", Qt.ToolTipRole)
+                else:
+                    item.setData(f"Agenda Item {ai_num}", Qt.ToolTipRole)
 
     def _clear_all_filters(self):
         self.search_input.blockSignals(True)
@@ -1442,6 +1459,8 @@ class TDocsWindow(QWidget):
             self.refresh_btn.setText("✅ Agenda Cached")
             QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
             self.agenda_map = AgendaManager.load_local_agenda(self.agenda_dir)
+            if hasattr(self, 'model') and self.model:
+                self.model.set_agenda_map(self.agenda_map)
             self._refresh_comboboxes()
             QMessageBox.information(self, "Agenda CSV Cached", msg)
         else:

@@ -89,7 +89,12 @@ class StatisticsExporterThread(QThread):
                 elif acronym:
                     display = f"{ai} ({acronym})"
                 else:
-                    display = ai
+                    clean_desc = re.sub(r'\s+', ' ', item.description).strip() if item else ''
+                    if clean_desc:
+                        short_desc = clean_desc if len(clean_desc) <= 30 else clean_desc[:27].rstrip() + '...'
+                        display = f"{ai} - {short_desc}"
+                    else:
+                        display = ai
                 # Keep plot axes compact. Rich semantic metadata remains in hover/data tables.
                 if acronym and ai_acronym_counts.get(acronym, 0) > 1 and topic:
                     short_topic = topic if len(topic) <= 24 else topic[:21].rstrip() + '...'
@@ -97,7 +102,12 @@ class StatisticsExporterThread(QThread):
                 elif acronym:
                     axis = f"{ai}<br>{acronym}"
                 else:
-                    axis = ai
+                    clean_desc = re.sub(r'\s+', ' ', item.description).strip() if item else ''
+                    if clean_desc:
+                        short_desc = clean_desc if len(clean_desc) <= 30 else clean_desc[:27].rstrip() + '...'
+                        axis = f"{ai}<br>{short_desc[:20].rstrip()}..." if len(short_desc) > 20 else f"{ai}<br>{short_desc}"
+                    else:
+                        axis = ai
                 return pd.Series({'AI_Acronym': acronym, 'AI_Topic': topic,
                                   'AI_Full_Description': item.description, 'AI_Display': display, 'AI_Axis': axis})
 

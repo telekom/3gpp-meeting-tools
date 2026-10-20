@@ -18,13 +18,35 @@ class AgendaItem:
 
     @staticmethod
     def _extract_acronym(desc: str) -> Optional[str]:
-        """Extracts WI/SI acronyms enclosed in parentheses at the end of the title."""
-        matches = re.findall(r'\(([^)]+)\)', desc)
-        if matches:
-            candidate = matches[-1].strip()
-            # Avoid picking up generic notes like "(excluding all 5G topics)"
-            if len(candidate) <= 25 and not candidate.lower().startswith("excluding"):
-                return candidate
+        """Extracts WI/SI acronyms enclosed in parentheses at or near the end of the title."""
+        matches = list(re.finditer(r'\(([A-Za-z0-9_\-\/]+)\)', desc))
+        if not matches:
+            return None
+
+        for m in reversed(matches):
+            candidate = m.group(1).strip()
+            # 3GPP acronyms are 2-25 characters long and contain at least one uppercase letter or digit
+            if not (2 <= len(candidate) <= 25 and any(c.isupper() or c.isdigit() for c in candidate)):
+                continue
+
+            # Skip generic notes or common phrases
+            if candidate.lower().startswith(("excluding", "only", "rel-", "stage", "phase")):
+                continue
+
+            start_pos, end_pos = m.start(), m.end()
+            # Ensure this parenthetical is not embedded inside a word, e.g. "(un)availability" or "(re)configuration"
+            if start_pos > 0 and desc[start_pos - 1].isalpha():
+                continue
+            after = desc[end_pos:].strip()
+            if after and after[0].isalpha():
+                continue
+
+            # In 3GPP, WI tags appear at end of title OR followed by a delimiter like ' - suffix'
+            if after and not re.match(r'^[\-–—:;]', after):
+                continue
+
+            return candidate
+
         return None
 
     @staticmethod
@@ -44,10 +66,19 @@ class AgendaItem:
     def display_label(self) -> str:
         """Compact label for dropdown menus."""
         if self.acronym:
-            return f"{self.ai_num} [{self.acronym}]"
+            if self.topic_suffix:
+                clean_sfx = re.sub(r'\s+', ' ', self.topic_suffix)
+                combined = f"{self.ai_num} ({self.acronym} – {clean_sfx})"
+                if len(combined) > 42:
+                    avail = max(10, 35 - len(self.ai_num) - len(self.acronym))
+                    return f"{self.ai_num} ({self.acronym} – {clean_sfx[:avail].rstrip()}...)"
+                return combined
+            return f"{self.ai_num} ({self.acronym})"
+
         clean = re.sub(r'\s+', ' ', self.description)
-        if len(clean) > 32:
-            return f"{self.ai_num} - {clean[:29]}..."
+        max_desc_len = max(15, 38 - len(self.ai_num))
+        if len(clean) > max_desc_len:
+            return f"{self.ai_num} - {clean[:max_desc_len - 3].rstrip()}..."
         return f"{self.ai_num} - {clean}"
 
     @property
