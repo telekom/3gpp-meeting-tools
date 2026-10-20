@@ -58,8 +58,8 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         df = self._raw_df
 
         # Vectorized string formatting for details column
-        has_depth = "depth" in df.columns and (df["depth"] > 0).any()
-        if has_depth:
+        has_length = "length" in df.columns and (df["length"].fillna("").astype(str).str.strip() != "").any()
+        if not has_length:
             details_series = df["presence"].fillna("") + " | " + df["format"].fillna("")
         else:
             details_series = (
@@ -135,38 +135,58 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             else:
                 self._pivot_df[v] = self._pivot_df[v].fillna("-")
 
-        # 5. Filter search query
+        # 5. Filter search query (tokenized multi-word match)
         if self._ie_filter and not self._pivot_df.empty:
-            q = self._ie_filter
-            mask = (
-                    self._pivot_df["ie_name"].astype(str).str.lower().str.contains(q, na=False, regex=False)
-                    | self._pivot_df["field_path"].astype(str).str.lower().str.contains(q, na=False, regex=False)
-                    | self._pivot_df["type_reference"].astype(str).str.lower().str.contains(q, na=False, regex=False)
-                    | self._pivot_df["iei"].astype(str).str.lower().str.contains(q, na=False, regex=False)
-            )
+            tokens = [t.strip() for t in self._ie_filter.split() if t.strip()]
+            if tokens:
+                combined_row_text = (
+                    self._pivot_df["ie_name"].astype(str)
+                    + " "
+                    + self._pivot_df["field_path"].astype(str)
+                    + " "
+                    + self._pivot_df["type_reference"].astype(str)
+                    + " "
+                    + self._pivot_df["iei"].astype(str)
+                ).str.lower()
 
-            # Vectorized description match
-            if self._search_descriptions and "ie_description" in df.columns:
-                desc_match_df = df[df["ie_description"].astype(str).str.lower().str.contains(q, na=False, regex=False)]
-                if not desc_match_df.empty:
-                    matching_keys = set(
-                        zip(
-                            desc_match_df["iei"].astype(str),
-                            desc_match_df["field_path"].astype(str),
-                            desc_match_df["type_reference"].astype(str),
-                        )
-                    )
-                    row_keys = list(
-                        zip(
-                            self._pivot_df["iei"].astype(str),
-                            self._pivot_df["field_path"].astype(str),
-                            self._pivot_df["type_reference"].astype(str),
-                        )
-                    )
-                    desc_mask = pd.Series([k in matching_keys for k in row_keys], index=self._pivot_df.index)
-                    mask = mask | desc_mask
+                mask = pd.Series(True, index=self._pivot_df.index)
+                for tok in tokens:
+                    mask = mask & combined_row_text.str.contains(tok, na=False, regex=False)
 
-            self._pivot_df = self._pivot_df[mask].reset_index(drop=True)
+                # Vectorized description match
+                if self._search_descriptions and "ie_description" in df.columns:
+                    combined_desc_text = (
+                        df["ie_name"].astype(str)
+                        + " "
+                        + df["field_path"].astype(str)
+                        + " "
+                        + df["type_reference"].astype(str)
+                        + " "
+                        + df["ie_description"].astype(str)
+                    ).str.lower()
+                    raw_desc_mask = pd.Series(True, index=df.index)
+                    for tok in tokens:
+                        raw_desc_mask = raw_desc_mask & combined_desc_text.str.contains(tok, na=False, regex=False)
+                    desc_match_df = df[raw_desc_mask]
+                    if not desc_match_df.empty:
+                        matching_keys = set(
+                            zip(
+                                desc_match_df["iei"].astype(str),
+                                desc_match_df["field_path"].astype(str),
+                                desc_match_df["type_reference"].astype(str),
+                            )
+                        )
+                        row_keys = list(
+                            zip(
+                                self._pivot_df["iei"].astype(str),
+                                self._pivot_df["field_path"].astype(str),
+                                self._pivot_df["type_reference"].astype(str),
+                            )
+                        )
+                        desc_mask = pd.Series([k in matching_keys for k in row_keys], index=self._pivot_df.index)
+                        mask = mask | desc_mask
+
+                self._pivot_df = self._pivot_df[mask].reset_index(drop=True)
 
         # 6. Pre-build fast access caches
         self._build_fast_caches()

@@ -12,7 +12,11 @@ except ImportError:
 
 from modules.nas.core.parsing.protocol_parser_utils import extract_document_root, _extract_p_text, _extract_tc_text, \
     _convert_table_to_html
-from modules.nas.core.parsing.protocol_parser_constants import TAG_BODY, TAG_P, TAG_TBL, TAG_TR, TAG_TC
+from modules.nas.core.parsing.protocol_parser_constants import TAG_BODY, TAG_P, TAG_PPR, TAG_TBL, TAG_TR, TAG_TC, W_NS
+
+TAG_PSTYLE = f"{W_NS}pStyle"
+TAG_INSTR = f"{W_NS}instrText"
+ATTR_VAL = f"{W_NS}val"
 
 RE_CAPTION = re.compile(
     r"^Table\s+([8D]\.\d+(?:[\.\-/][0-9A-Za-z]+)*)\s*[:\.]\s*(.+?)(?:\s+message\s+content)?$",
@@ -20,6 +24,39 @@ RE_CAPTION = re.compile(
 )
 RE_IE_HEADING = re.compile(r"^((?:9\.[2-9]|9\.1[0-9]|D\.6)(?:\.[0-9A-Za-z]+)*)\s+(.+)$")
 RE_MAJOR_BOUNDARY = re.compile(r"^(?:[1-8]|10|11|12|Annex\s+[A-Z])\b")
+RE_TRAILING_PAGE_NUM = re.compile(r"\s+\d{3,4}$")
+
+# Structural umbrella headings in TS 24.501 / TS 24.301 that group subclauses rather than defining a single IE
+STRUCTURAL_SECTION_CLAUSES = {
+    "9.9", "9.9.1", "9.9.2", "9.9.3", "9.9.4",
+    "9.11", "9.11.1", "9.11.2", "9.11.3", "9.11.4",
+    "9.12", "D.6",
+}
+
+# Encapsulated payload types carried inside TS 24.501 Payload container (9.11.3.39 / Table 9.11.3.40.1)
+PAYLOAD_CONTAINER_SUB_IES = [
+    ("0100", "SOR transparent container", "9.11.3.51", "C", "TLV-E", "20-n"),
+    ("0101", "UE policy section management list", "D.6.2", "C", "TLV-E", "5-65538"),
+    ("0110", "UE parameters update transparent container", "9.11.3.53A", "C", "TLV-E", "20-n"),
+    ("1000", "CIoT small data container", "9.11.3.18B", "C", "TLV-E", "5-n"),
+    ("1001", "Service-level-AA container", "9.11.2.10", "C", "TLV-E", "4-65538"),
+]
+
+# Sub-parameters carried inside TS 24.501 Service-level-AA container (9.11.2.10 / Table 9.11.2.10.1)
+SERVICE_LEVEL_AA_SUB_IES = [
+    ("10", "Service-level device ID", "9.11.2.11", "O", "TLV", "3-n"),
+    ("20", "Service-level-AA server address", "9.11.2.12", "O", "TLV", "3-n"),
+    ("30", "Service-level-AA response", "9.11.2.14", "O", "TLV", "3"),
+    ("40", "Service-level-AA payload type", "9.11.2.15", "O", "TLV", "3"),
+    ("70", "Service-level-AA payload", "9.11.2.13", "O", "TLV-E", "4-65538"),
+    ("A-", "Service-level-AA pending indication", "9.11.2.17", "O", "TV", "1"),
+    ("50", "Service-level-AA service status indication", "9.11.2.18", "O", "TLV", "3"),
+]
+
+# Sub-parameters carried inside Extended protocol configuration options (9.11.4.6) defined in Clause 9
+EPCO_SUB_IES = [
+    ("0031", "ECS address", "9.11.4.34", "O", "TLV", "4-n"),
+]
 
 
 class NASDocxParser:
@@ -28,6 +65,21 @@ class NASDocxParser:
     def __init__(self, docx_paths: List[Path]):
         self.docx_paths = docx_paths
         self.logger = logging.getLogger(__name__)
+
+    @staticmethod
+    def _is_toc_paragraph(p_elem: ET.Element) -> bool:
+        """Detects Word Table of Contents (TOC) paragraphs to avoid indexing TOC lines as IE definitions."""
+        ppr = p_elem.find(TAG_PPR)
+        if ppr is not None:
+            ps = ppr.find(TAG_PSTYLE)
+            if ps is not None:
+                val = (ps.get(ATTR_VAL) or "").lower()
+                if val.startswith("toc"):
+                    return True
+        for instr in p_elem.iter(TAG_INSTR):
+            if instr.text and ("PAGEREF" in instr.text or "TOC" in instr.text):
+                return True
+        return False
 
     def parse(
             self, progress_callback: Optional[Callable[[str, int], None]] = None
@@ -59,6 +111,9 @@ class NASDocxParser:
 
             for elem in list(body):
                 if elem.tag == TAG_P:
+                    if self._is_toc_paragraph(elem):
+                        continue
+
                     p_text = _extract_p_text(elem)
                     if not p_text:
                         continue
@@ -79,7 +134,7 @@ class NASDocxParser:
                             self._finalize_ie_def(current_ie_def, ie_definitions)
 
                         cl = match_ie.group(1).strip()
-                        ie_name = match_ie.group(2).strip()
+                        ie_name = RE_TRAILING_PAGE_NUM.sub("", match_ie.group(2).strip()).strip()
                         current_ie_def = {
                             "clause": cl,
                             "ie_name": ie_name,
@@ -135,16 +190,137 @@ class NASDocxParser:
             if current_ie_def:
                 self._finalize_ie_def(current_ie_def, ie_definitions)
 
+        self._unroll_container_sub_ies(messages, ie_definitions)
         return messages, ie_definitions
 
     def _finalize_ie_def(self, current_ie_def: Dict[str, Any], ie_definitions: List[Dict[str, Any]]):
-        html_str = "".join(current_ie_def["html_content"])
+        clause = current_ie_def.get("clause", "").strip()
+        ie_name = current_ie_def.get("ie_name", "").strip()
+        html_blocks = current_ie_def.get("html_content", [])
+
+        # Skip umbrella section headers, Void clauses, or empty heading stubs
+        if not clause or not ie_name or len(html_blocks) <= 1:
+            return
+        if clause in STRUCTURAL_SECTION_CLAUSES:
+            return
+        lower_name = ie_name.lower()
+        if lower_name.startswith("void") or lower_name in ("general", "overview", "information elements coding"):
+            return
+
+        html_str = "".join(html_blocks)
         ie_definitions.append({
-            "clause": current_ie_def["clause"],
-            "ie_name": current_ie_def["ie_name"],
+            "clause": clause,
+            "ie_name": ie_name,
             "raw_description": html_str,
             "structure_table": json.dumps([]),
         })
+
+    def _unroll_container_sub_ies(
+        self,
+        messages: List[Dict[str, Any]],
+        ie_definitions: List[Dict[str, Any]],
+    ):
+        """
+        Unrolls encapsulated NAS container payloads (Payload container, Service-level-AA container,
+        Type 6 IE container, ePCO) into depth > 0 child rows when the target Clause 9 / Annex D
+        IE definitions exist in the parsed specification version.
+        """
+        defs_by_clause: Dict[str, Dict[str, Any]] = {
+            d["clause"]: d for d in ie_definitions if d.get("clause")
+        }
+        if not defs_by_clause:
+            return
+
+        # Find helper table 8.2.7.54.1.1 (Registration accept type 6 IE container contents) if present
+        type6_sub_ies: List[Dict[str, Any]] = []
+        for m in messages:
+            if m.get("clause", "").startswith("8.2.7.54"):
+                type6_sub_ies = m.get("ies", [])
+                break
+
+        def _build_slaa_children(parent_path: str, base_depth: int) -> List[Dict[str, Any]]:
+            children = []
+            for sub_iei, fallback_name, sub_clause, pres, fmt, length in SERVICE_LEVEL_AA_SUB_IES:
+                if sub_clause in defs_by_clause:
+                    resolved_name = defs_by_clause[sub_clause]["ie_name"] or fallback_name
+                    children.append({
+                        "iei": sub_iei,
+                        "information_element": resolved_name,
+                        "field_path": f"{parent_path} > {resolved_name}",
+                        "depth": base_depth,
+                        "type_reference": f"{resolved_name} {sub_clause}",
+                        "presence": pres,
+                        "format": fmt,
+                        "length": length,
+                    })
+            return children
+
+        for msg in messages:
+            # Skip unrolling inside the helper table itself
+            if msg.get("clause", "").startswith("8.2.7.54"):
+                continue
+
+            expanded_ies: List[Dict[str, Any]] = []
+            for ie in msg.get("ies", []):
+                expanded_ies.append(ie)
+                type_ref = ie.get("type_reference", "")
+                parent_name = ie.get("information_element", "")
+
+                # 1. Payload container (Clause 9.11.3.39)
+                if "9.11.3.39" in type_ref:
+                    for sub_iei, fallback_name, sub_clause, pres, fmt, length in PAYLOAD_CONTAINER_SUB_IES:
+                        if sub_clause in defs_by_clause:
+                            resolved_name = defs_by_clause[sub_clause]["ie_name"] or fallback_name
+                            sub_path = f"{parent_name} > {resolved_name}"
+                            expanded_ies.append({
+                                "iei": sub_iei,
+                                "information_element": resolved_name,
+                                "field_path": sub_path,
+                                "depth": 1,
+                                "type_reference": f"{resolved_name} {sub_clause}",
+                                "presence": pres,
+                                "format": fmt,
+                                "length": length,
+                            })
+                            if sub_clause == "9.11.2.10":
+                                expanded_ies.extend(_build_slaa_children(sub_path, base_depth=2))
+
+                # 2. Top-level Service-level-AA container (Clause 9.11.2.10)
+                elif "9.11.2.10" in type_ref:
+                    expanded_ies.extend(_build_slaa_children(parent_name, base_depth=1))
+
+                # 3. Registration accept type 6 IE container (Clause 9.11.3.98)
+                elif "9.11.3.98" in type_ref and type6_sub_ies:
+                    for sub in type6_sub_ies:
+                        sub_name = sub.get("information_element", "")
+                        expanded_ies.append({
+                            "iei": sub.get("iei", ""),
+                            "information_element": sub_name,
+                            "field_path": f"{parent_name} > {sub_name}",
+                            "depth": 1,
+                            "type_reference": sub.get("type_reference", ""),
+                            "presence": sub.get("presence", ""),
+                            "format": sub.get("format", ""),
+                            "length": sub.get("length", ""),
+                        })
+
+                # 4. Extended protocol configuration options (Clause 9.11.4.6)
+                elif "9.11.4.6" in type_ref:
+                    for sub_iei, fallback_name, sub_clause, pres, fmt, length in EPCO_SUB_IES:
+                        if sub_clause in defs_by_clause:
+                            resolved_name = defs_by_clause[sub_clause]["ie_name"] or fallback_name
+                            expanded_ies.append({
+                                "iei": sub_iei,
+                                "information_element": resolved_name,
+                                "field_path": f"{parent_name} > {resolved_name}",
+                                "depth": 1,
+                                "type_reference": f"{resolved_name} {sub_clause}",
+                                "presence": pres,
+                                "format": fmt,
+                                "length": length,
+                            })
+
+            msg["ies"] = expanded_ies
 
     def _parse_clause_8_table(self, tbl_elem: ET.Element) -> List[Dict[str, str]]:
         rows = tbl_elem.findall(TAG_TR)

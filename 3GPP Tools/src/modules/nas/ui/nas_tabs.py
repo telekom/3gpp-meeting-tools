@@ -49,11 +49,38 @@ logger = logging.getLogger(__name__)
 RE_SPEC_FROM_COL = re.compile(r"(?:24|25|29|36|37|38)\.[0-9]{3}")
 RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|5|4|D\.6)(?:\.[0-9A-Za-z]+)+)")
 
+TOGGLE_BUTTON_STYLE = """
+    QPushButton {
+        font-size: 11px;
+        font-weight: bold;
+        color: #64748B;
+        background-color: #F8FAFC;
+        border: 1px solid #CBD5E1;
+        border-radius: 4px;
+        padding: 3px 8px;
+    }
+    QPushButton:hover {
+        color: #1E5C99;
+        background-color: #EBF3FC;
+        border-color: #1E5C99;
+    }
+    QPushButton:checked {
+        color: #1E5C99;
+        background-color: #EBF3FC;
+        border: 1.5px solid #1E5C99;
+    }
+    QPushButton:checked:hover {
+        color: #1E5C99;
+        background-color: #DCEBFA;
+        border: 1.5px solid #1E5C99;
+    }
+"""
+
 
 class NASMessageListWorker(QThread):
-    """Background worker to query message lists without freezing the UI."""
+    """Background worker to query message or IE lists without freezing the UI."""
 
-    results_ready = pyqtSignal(list, int)  # (messages, request_id)
+    results_ready = pyqtSignal(list, int)  # (items, request_id)
 
     def __init__(
             self,
@@ -62,6 +89,7 @@ class NASMessageListWorker(QThread):
             version_ids: List[int],
             search_desc: bool,
             request_id: int,
+            browse_mode: str = "messages",
     ):
         super().__init__()
         self.db = db
@@ -69,20 +97,28 @@ class NASMessageListWorker(QThread):
         self.version_ids = version_ids
         self.search_desc = search_desc
         self.request_id = request_id
+        self.browse_mode = browse_mode
 
     def run(self):
         try:
-            if self.ie_query:
-                messages = self.db.get_messages_by_ie_search(
-                    ie_query=self.ie_query,
+            if self.browse_mode == "ies":
+                items = self.db.get_ie_definitions_list(
                     version_ids=self.version_ids,
+                    ie_query=self.ie_query,
                     search_descriptions=self.search_desc,
                 )
             else:
-                messages = self.db.get_messages_list(self.version_ids)
-            self.results_ready.emit(messages, self.request_id)
+                if self.ie_query:
+                    items = self.db.get_messages_by_ie_search(
+                        ie_query=self.ie_query,
+                        version_ids=self.version_ids,
+                        search_descriptions=self.search_desc,
+                    )
+                else:
+                    items = self.db.get_messages_list(self.version_ids)
+            self.results_ready.emit(items, self.request_id)
         except Exception as e:
-            logging.error(f"Error querying messages in background: {e}")
+            logging.error(f"Error querying protocol items in background: {e}")
             self.results_ready.emit([], self.request_id)
 
 
@@ -117,7 +153,9 @@ class NASTab(QWidget):
         )
 
         self.selected_version_ids: List[int] = []
+        self._browse_mode: str = "messages"  # "messages" or "ies"
         self.current_selected_message_name: Optional[str] = None
+        self.current_selected_ie_key: Optional[str] = None
         self._current_message_spec: Optional[str] = None
         self._loading_config: bool = False
         self._initialized_filters: bool = False
@@ -176,7 +214,7 @@ class NASTab(QWidget):
 
         main_splitter = QSplitter(Qt.Horizontal)
 
-        # Left Panel (Tree + Message List)
+        # Left Panel (Tree + Message / IE List)
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -191,8 +229,37 @@ class NASTab(QWidget):
         ver_layout.addWidget(self.version_tree)
         left_layout.addWidget(ver_group)
 
-        msg_group = QGroupBox("Protocol Messages && SIBs")
-        msg_layout = QVBoxLayout(msg_group)
+        self.msg_group = QGroupBox("Protocol Messages && Information Elements")
+        msg_layout = QVBoxLayout(self.msg_group)
+
+        # Mode Toggle Bar: [📨 Messages | 🧩 All IEs / Types]
+        mode_bar_layout = QHBoxLayout()
+        mode_bar_layout.setContentsMargins(0, 0, 0, 2)
+        mode_bar_layout.setSpacing(4)
+
+        self.mode_messages_btn = QPushButton("📨 Messages")
+        self.mode_messages_btn.setCheckable(True)
+        self.mode_messages_btn.setChecked(True)
+        self.mode_messages_btn.setCursor(Qt.PointingHandCursor)
+        self.mode_messages_btn.setFixedHeight(26)
+        self.mode_messages_btn.setToolTip("Browse Protocol Messages & SIBs (Clause 8 / ASN.1 PDUs)")
+        self.mode_messages_btn.setStyleSheet(TOGGLE_BUTTON_STYLE)
+        self.mode_messages_btn.clicked.connect(lambda: self._set_browse_mode("messages"))
+        mode_bar_layout.addWidget(self.mode_messages_btn)
+
+        self.mode_ies_btn = QPushButton("🧩 All IEs / Types")
+        self.mode_ies_btn.setCheckable(True)
+        self.mode_ies_btn.setChecked(False)
+        self.mode_ies_btn.setCursor(Qt.PointingHandCursor)
+        self.mode_ies_btn.setFixedHeight(26)
+        self.mode_ies_btn.setToolTip(
+            "Browse all parsed Information Elements & Types directly (including standalone & nested Clause 9 containers)"
+        )
+        self.mode_ies_btn.setStyleSheet(TOGGLE_BUTTON_STYLE)
+        self.mode_ies_btn.clicked.connect(lambda: self._set_browse_mode("ies"))
+        mode_bar_layout.addWidget(self.mode_ies_btn)
+
+        msg_layout.addLayout(mode_bar_layout)
 
         self.msg_search = QLineEdit()
         self.msg_search.setPlaceholderText("Filter message/SIB name (e.g. SIB1, Reconfig)...")
@@ -216,32 +283,7 @@ class NASTab(QWidget):
         self.deep_search_btn.setCheckable(True)
         self.deep_search_btn.setToolTip("Extended Search: Also search inside Clause 9 / ASN.1 field descriptions")
         self.deep_search_btn.setFixedHeight(26)
-        self.deep_search_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 11px;
-                font-weight: bold;
-                color: #64748B;
-                background-color: #F8FAFC;
-                border: 1px solid #CBD5E1;
-                border-radius: 4px;
-                padding: 2px 6px;
-            }
-            QPushButton:hover {
-                color: #1E5C99;
-                background-color: #EBF3FC;
-                border-color: #1E5C99;
-            }
-            QPushButton:checked {
-                color: #1E5C99;
-                background-color: #EBF3FC;
-                border: 1.5px solid #1E5C99;
-            }
-            QPushButton:checked:hover {
-                color: #1E5C99;
-                background-color: #DCEBFA;
-                border: 1.5px solid #1E5C99;
-            }
-        """)
+        self.deep_search_btn.setStyleSheet(TOGGLE_BUTTON_STYLE)
         self.deep_search_btn.toggled.connect(self._on_deep_search_toggled)
         ie_search_bar_layout.addWidget(self.deep_search_btn)
         msg_layout.addLayout(ie_search_bar_layout)
@@ -249,7 +291,7 @@ class NASTab(QWidget):
         self.msg_list = QListWidget()
         self.msg_list.itemClicked.connect(self._on_message_clicked)
         msg_layout.addWidget(self.msg_list)
-        left_layout.addWidget(msg_group)
+        left_layout.addWidget(self.msg_group)
         main_splitter.addWidget(left_widget)
 
         # Right Panel (Matrix Table + Inspector)
@@ -299,7 +341,7 @@ class NASTab(QWidget):
 
         self.inspector = NASInspectorWidget(db=self.db)
         self.inspector.jump_to_message_requested.connect(self._jump_to_message)
-        self.inspector.filter_by_ie_requested.connect(lambda term: self.ie_search.setText(term))
+        self.inspector.filter_by_ie_requested.connect(self._on_filter_by_ie_requested)
         self.inspector.import_spec_requested.connect(self._on_import_cross_ref_spec_requested)
         right_splitter.addWidget(self.inspector)
 
@@ -309,8 +351,47 @@ class NASTab(QWidget):
         layout.addWidget(main_splitter)
 
     # -------------------------------------------------------------------------
-    # Configuration Persistence
+    # Browse Mode & Configuration Persistence
     # -------------------------------------------------------------------------
+
+    def _set_browse_mode(self, mode: str, trigger_populate: bool = True):
+        mode = "ies" if mode == "ies" else "messages"
+        self._browse_mode = mode
+
+        self.mode_messages_btn.blockSignals(True)
+        self.mode_ies_btn.blockSignals(True)
+        self.mode_messages_btn.setChecked(mode == "messages")
+        self.mode_ies_btn.setChecked(mode == "ies")
+        self.mode_messages_btn.blockSignals(False)
+        self.mode_ies_btn.blockSignals(False)
+
+        self._update_search_placeholders()
+
+        if trigger_populate:
+            self._save_config()
+            self._populate_messages()
+
+    def _update_search_placeholders(self):
+        checked = self.deep_search_btn.isChecked()
+        if self._browse_mode == "ies":
+            self.msg_search.setPlaceholderText("Filter IE / Type name or Clause (e.g. UE parameters, 9.11.3)...")
+            self.ie_search.setPlaceholderText(
+                "Filter IE by keyword or Description..."
+                if checked
+                else "Additional IE / Clause keyword filter..."
+            )
+        else:
+            self.msg_search.setPlaceholderText("Filter message/SIB name (e.g. SIB1, Reconfig)...")
+            self.ie_search.setPlaceholderText(
+                "Filter by Field or Description (e.g. emergency)..."
+                if checked
+                else "Filter by IE / Field (e.g. RadioBearer, CellGroup)..."
+            )
+
+    def _on_filter_by_ie_requested(self, term: str):
+        if self._browse_mode != "messages":
+            self._set_browse_mode("messages", trigger_populate=False)
+        self.ie_search.setText(term)
 
     def _load_config(self) -> Dict[str, Any]:
         if self.config_path.exists():
@@ -328,10 +409,12 @@ class NASTab(QWidget):
         try:
             config_data = {
                 "checked_versions": self.version_tree.get_checked_versions_info(),
+                "browse_mode": self._browse_mode,
                 "msg_filter": self.msg_search.text(),
                 "ie_filter": self.ie_search.text(),
                 "search_descriptions": self.deep_search_btn.isChecked(),
                 "selected_message": self.current_selected_message_name or "",
+                "selected_ie": self.current_selected_ie_key or "",
                 "collapsed_specs": self.version_tree.get_collapsed_spec_numbers(),
             }
             with open(self.config_path, "w", encoding="utf-8") as f:
@@ -344,12 +427,7 @@ class NASTab(QWidget):
     # -------------------------------------------------------------------------
 
     def _on_deep_search_toggled(self, checked: bool):
-        placeholder = (
-            "Filter by Field or Description (e.g. emergency)..."
-            if checked
-            else "Filter by IE / Field (e.g. RadioBearer, CellGroup)..."
-        )
-        self.ie_search.setPlaceholderText(placeholder)
+        self._update_search_placeholders()
         self.deep_search_btn.setText("📖 Desc: ON" if checked else "📖 Desc")
         self._save_config()
         self._populate_messages()
@@ -381,6 +459,8 @@ class NASTab(QWidget):
 
         if not self._initialized_filters:
             self._loading_config = True
+            if "browse_mode" in saved_config:
+                self._set_browse_mode(str(saved_config["browse_mode"]), trigger_populate=False)
             if "msg_filter" in saved_config:
                 self.msg_search.setText(saved_config["msg_filter"])
             if "ie_filter" in saved_config:
@@ -389,6 +469,8 @@ class NASTab(QWidget):
                 self.deep_search_btn.setChecked(bool(saved_config["search_descriptions"]))
             if "selected_message" in saved_config and saved_config["selected_message"]:
                 self.current_selected_message_name = saved_config["selected_message"]
+            if "selected_ie" in saved_config and saved_config["selected_ie"]:
+                self.current_selected_ie_key = saved_config["selected_ie"]
             self._loading_config = False
             self._initialized_filters = True
 
@@ -442,7 +524,7 @@ class NASTab(QWidget):
             logger.log(logging.INFO, f"🗑️ Deleted all versions of TS {spec_number} from database.")
 
     # -------------------------------------------------------------------------
-    # Message & Matrix Handlers
+    # Message / IE List & Matrix Handlers
     # -------------------------------------------------------------------------
 
     def _on_search_timer_timeout(self):
@@ -453,12 +535,23 @@ class NASTab(QWidget):
         if not self.selected_version_ids:
             self.msg_list.clear()
             self.matrix_table.setModel(None)
-            self.matrix_title.setText("Select a Message to View Evolution Matrix")
+            default_prompt = (
+                "Select an Information Element to View Evolution & Definition"
+                if self._browse_mode == "ies"
+                else "Select a Message to View Evolution Matrix"
+            )
+            self.matrix_title.setText(default_prompt)
             self.inspector.clear_display()
-            self.current_selected_message_name = None
             return
 
         ie_query = self.ie_search.text().strip()
+        if self._browse_mode == "ies":
+            # In All IEs mode, combine both search boxes so either input filters IE definitions
+            top_query = self.msg_search.text().strip()
+            combined_query = f"{top_query} {ie_query}".strip()
+        else:
+            combined_query = ie_query
+
         search_desc = self.deep_search_btn.isChecked()
 
         self._msg_query_req_id += 1
@@ -470,10 +563,11 @@ class NASTab(QWidget):
         # harmless, so let older workers finish naturally.
         worker = NASMessageListWorker(
             db=self.db,
-            ie_query=ie_query,
+            ie_query=combined_query,
             version_ids=list(self.selected_version_ids),
             search_desc=search_desc,
             request_id=req_id,
+            browse_mode=self._browse_mode,
         )
         self._msg_query_workers[req_id] = worker
         worker.results_ready.connect(self._on_message_list_ready)
@@ -486,48 +580,135 @@ class NASTab(QWidget):
         if worker is not None:
             worker.deleteLater()
 
-    def _on_message_list_ready(self, messages: List[Dict[str, Any]], req_id: int):
+    def _on_message_list_ready(self, items: List[Dict[str, Any]], req_id: int):
         if req_id != self._msg_query_req_id:
             return
 
         msg_query = self.msg_search.text().strip().lower()
-        target_msg_name = self.current_selected_message_name
+        msg_tokens = [t for t in msg_query.split() if t]
 
         self.msg_list.blockSignals(True)
         self.msg_list.clear()
 
         target_item = None
-        for m in messages:
-            msg_name = m["message_name"]
-            spec_num = m.get("spec_number", "")
-            item_text = f"{msg_name} ({m['clause']})"
-            item = QListWidgetItem(item_text)
-            item.setData(Qt.UserRole, msg_name)
-            if spec_num:
-                item.setToolTip(f"Specification: TS {spec_num}\nClause: {m['clause']}")
 
-            self.msg_list.addItem(item)
+        if self._browse_mode == "ies":
+            target_key = self.current_selected_ie_key
+            for d in items:
+                ie_name = d.get("ie_name", "")
+                clause = d.get("clause", "")
+                spec_num = d.get("spec_number", "")
+                item_text = f"{ie_name} ({clause})" if clause and clause != ie_name else ie_name
+                ie_key = f"{ie_name}::{clause}"
 
-            if msg_query and msg_query not in item_text.lower():
-                item.setHidden(True)
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.UserRole, ie_key)
+                item.setData(Qt.UserRole + 1, d)
+                if spec_num:
+                    item.setToolTip(f"Specification: TS {spec_num}\nClause / Type: {clause}")
 
-            if target_msg_name and msg_name == target_msg_name:
-                target_item = item
+                self.msg_list.addItem(item)
+
+                if target_key and ie_key == target_key:
+                    target_item = item
+        else:
+            target_msg_name = self.current_selected_message_name
+            for m in items:
+                msg_name = m["message_name"]
+                spec_num = m.get("spec_number", "")
+                item_text = f"{msg_name} ({m['clause']})"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.UserRole, msg_name)
+                item.setData(Qt.UserRole + 1, m)
+                if spec_num:
+                    item.setToolTip(f"Specification: TS {spec_num}\nClause: {m['clause']}")
+
+                self.msg_list.addItem(item)
+
+                if msg_tokens and not all(tok in item_text.lower() for tok in msg_tokens):
+                    item.setHidden(True)
+
+                if target_msg_name and msg_name == target_msg_name and not item.isHidden():
+                    target_item = item
 
         self.msg_list.blockSignals(False)
+
+        default_prompt = (
+            "Select an Information Element to View Evolution & Definition"
+            if self._browse_mode == "ies"
+            else "Select a Message to View Evolution Matrix"
+        )
 
         if target_item:
             self.msg_list.setCurrentItem(target_item)
             self._on_message_clicked(target_item)
-        elif self.msg_list.count() > 0 and not target_msg_name:
+        elif self.msg_list.count() == 1 and (msg_tokens or self.ie_search.text().strip()):
+            # Auto-select when search narrows down to a single exact item
+            only_item = self.msg_list.item(0)
+            if not only_item.isHidden():
+                self.msg_list.setCurrentItem(only_item)
+                self._on_message_clicked(only_item)
+        elif self.msg_list.count() > 0:
             self.matrix_table.setModel(None)
-            self.matrix_title.setText("Select a Message to View Evolution Matrix")
+            self.matrix_title.setText(default_prompt)
         else:
             self.matrix_table.setModel(None)
-            self.matrix_title.setText("Select a Message to View Evolution Matrix")
+            self.matrix_title.setText(default_prompt)
             self.inspector.clear_display()
 
     def _on_message_clicked(self, item: QListWidgetItem):
+        if self._browse_mode == "ies":
+            ie_data = item.data(Qt.UserRole + 1) or {}
+            ie_name = ie_data.get("ie_name", "")
+            clause = ie_data.get("clause", "")
+            self.current_selected_ie_key = item.data(Qt.UserRole)
+            self._save_config()
+
+            df = self.db.get_ie_definition_evolution_df(
+                clause=clause,
+                ie_name=ie_name,
+                version_ids=self.selected_version_ids,
+            )
+
+            specs = []
+            if not df.empty and "spec_number" in df.columns:
+                unique_specs = sorted(df["spec_number"].dropna().unique())
+                specs = [f"TS {s}" if not str(s).startswith("TS") else str(s) for s in unique_specs]
+                self._current_message_spec = str(unique_specs[0]) if len(unique_specs) == 1 else None
+            else:
+                self._current_message_spec = None
+
+            spec_prefix = f" ({', '.join(specs)})" if specs else ""
+            clause_suffix = f" [Clause {clause}]" if clause and clause != ie_name else ""
+            self.matrix_title.setText(f"Information Element{spec_prefix}: {ie_name}{clause_suffix}")
+            self.interface_combo.setVisible(False)
+
+            self._current_matrix_df = df
+            self._rebuild_matrix_model(ignore_ie_filter=True)
+
+            # Immediately display the full Clause 9 / ASN.1 definition in the Inspector below
+            defs = self.db.get_ie_definitions_by_clause(
+                clause=clause,
+                alt_name=ie_name,
+                spec_number=self._current_message_spec,
+                version_ids=self.selected_version_ids,
+            )
+            self.inspector.display_definitions(
+                clause=clause,
+                ie_name=ie_name,
+                spec_number=self._current_message_spec,
+                defs=defs,
+                containing_msgs=[],
+                fallback_type_ref=f"{ie_name} {clause}".strip(),
+            )
+            if defs:
+                self._start_reverse_lookup(
+                    clause=clause,
+                    ie_name=ie_name,
+                    spec_num=self._current_message_spec,
+                )
+            return
+
         msg_name = item.data(Qt.UserRole)
         self.current_selected_message_name = msg_name
         self._save_config()
@@ -592,12 +773,12 @@ class NASTab(QWidget):
         self._current_matrix_df = df
         self._rebuild_matrix_model()
 
-    def _rebuild_matrix_model(self):
+    def _rebuild_matrix_model(self, ignore_ie_filter: bool = False):
         if not hasattr(self, "_current_matrix_df") or self._current_matrix_df.empty:
             return
 
         df = self._current_matrix_df
-        ie_query = self.ie_search.text().strip()
+        ie_query = "" if (ignore_ie_filter or self._browse_mode == "ies") else self.ie_search.text().strip()
         search_desc = self.deep_search_btn.isChecked()
         active_if = self.interface_combo.currentText() if self.interface_combo.isVisible() else None
 
@@ -621,6 +802,25 @@ class NASTab(QWidget):
             for col in range(3, model.columnCount()):
                 h_header.setSectionResizeMode(col, QHeaderView.Interactive)
                 self.matrix_table.setColumnWidth(col, 130)
+
+    def _start_reverse_lookup(self, clause: str, ie_name: str, spec_num: Optional[str]):
+        self._reverse_lookup_request_id += 1
+        current_req_id = self._reverse_lookup_request_id
+
+        worker = ReverseLookupWorker(
+            db=self.db,
+            clause=clause,
+            ie_name=ie_name,
+            spec_number=spec_num,
+            version_ids=list(self.selected_version_ids),
+            request_id=current_req_id,
+        )
+        self._reverse_lookup_workers[current_req_id] = worker
+        worker.results_ready.connect(self._on_reverse_lookup_finished)
+        worker.finished.connect(
+            lambda rid=current_req_id: self._release_reverse_lookup_worker(rid)
+        )
+        worker.start()
 
     def _on_table_cell_clicked(self, index):
         model = self.matrix_table.model()
@@ -690,26 +890,11 @@ class NASTab(QWidget):
         if defs:
             resolved_name = defs[0]["ie_name"]
             search_target_name = clean_type or resolved_name
-
-            self._reverse_lookup_request_id += 1
-            current_req_id = self._reverse_lookup_request_id
-
-            # As with message queries, never force-terminate a running worker.
-            # Stale results are rejected by request_id in the completion slot.
-            worker = ReverseLookupWorker(
-                db=self.db,
+            self._start_reverse_lookup(
                 clause=clause,
                 ie_name=search_target_name,
-                spec_number=spec_num,
-                version_ids=list(self.selected_version_ids),
-                request_id=current_req_id,
+                spec_num=spec_num,
             )
-            self._reverse_lookup_workers[current_req_id] = worker
-            worker.results_ready.connect(self._on_reverse_lookup_finished)
-            worker.finished.connect(
-                lambda rid=current_req_id: self._release_reverse_lookup_worker(rid)
-            )
-            worker.start()
 
     def _release_reverse_lookup_worker(self, req_id: int):
         """Release a completed reverse-lookup worker safely."""
@@ -757,7 +942,7 @@ class NASTab(QWidget):
 
         filter_term = ie_name if ie_name else clause
         act_filter = QAction(f"🔍 Filter message list for '{filter_term}'", self)
-        act_filter.triggered.connect(lambda: self.ie_search.setText(filter_term))
+        act_filter.triggered.connect(lambda: self._on_filter_by_ie_requested(filter_term))
         menu.addAction(act_filter)
 
         act_inspect = QAction(f"📖 Inspect Definition ({filter_term})", self)
@@ -784,6 +969,12 @@ class NASTab(QWidget):
 
     def _jump_to_message(self, message_name: str):
         self.current_selected_message_name = message_name
+        if self._browse_mode != "messages":
+            self.msg_search.clear()
+            self.ie_search.clear()
+            self._set_browse_mode("messages", trigger_populate=True)
+            return
+
         self._save_config()
 
         if self.msg_search.text().strip() or self.ie_search.text().strip():
@@ -795,6 +986,8 @@ class NASTab(QWidget):
             if message_name not in visible_names:
                 self.msg_search.clear()
                 self.ie_search.clear()
+                self._populate_messages()
+                return
 
         for i in range(self.msg_list.count()):
             item = self.msg_list.item(i)
@@ -964,15 +1157,15 @@ class NASTab(QWidget):
         if dialog.exec_() == QDialog.Accepted and dialog.selected_files_info:
             self._start_batch_ingestion(dialog.selected_files_info)
 
-
     def shutdown(self, wait_ms: int = 1500):
         """Cooperatively wait for short-lived NAS query workers during app shutdown."""
         self._msg_search_timer.stop()
         self._ie_search_timer.stop()
 
         workers = list(self._msg_query_workers.values()) + list(self._reverse_lookup_workers.values())
-        if hasattr(self, "thread") and self.thread and self.thread.isRunning():
-            workers.append(self.thread)
+        ingest_thread = getattr(self, "thread", None)
+        if isinstance(ingest_thread, QThread) and ingest_thread.isRunning():
+            workers.append(ingest_thread)
 
         for worker in workers:
             if worker.isRunning():
