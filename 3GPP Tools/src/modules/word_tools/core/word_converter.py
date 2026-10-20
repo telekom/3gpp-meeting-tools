@@ -16,6 +16,7 @@ import pythoncom
 import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.paths import to_extended_path
 from core.network.session import NetworkSession
 from core.utils.utils import get_proxies
 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
@@ -313,7 +314,7 @@ def convert_doc_to_docx_word(
         return target
 
     _sanitize_file_attributes(source)
-    target.parent.mkdir(parents=True, exist_ok=True)
+    os.makedirs(to_extended_path(target.parent), exist_ok=True)
     if target.exists():
         try:
             _sanitize_file_attributes(target)
@@ -416,7 +417,7 @@ def convert_doc_to_docx_word(
         if not temp_target.exists() or temp_target.stat().st_size == 0:
             raise RuntimeError(f"MS Word failed to write target .docx for {source.name}")
 
-        shutil.copy2(temp_target, target)
+        shutil.copy2(to_extended_path(temp_target), to_extended_path(target))
         _sanitize_file_attributes(target)
         try:
             temp_target.unlink()
@@ -640,7 +641,7 @@ class WordConverterThread(QThread):
                 except OSError:
                     pass
 
-            shutil.copy2(repaired_pdf, final_target)
+            shutil.copy2(to_extended_path(repaired_pdf), to_extended_path(final_target))
             _sanitize_file_attributes(final_target)
 
             self._log(

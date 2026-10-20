@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -6,6 +7,7 @@ import pythoncom
 import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.paths import to_extended_path
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 
 LLM_EXTRACTOR_VERSION = "1.0.0"
@@ -51,25 +53,25 @@ class LLMExporterThread(QThread):
 
     def _save_chunk(self, mega_file: Path, text: str, items: list):
         """Saves the aggregated mega-file and creates a companion subfolder with individual markdown files."""
-        mega_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(mega_file, "w", encoding="utf-8") as f:
+        os.makedirs(to_extended_path(mega_file.parent), exist_ok=True)
+        with open(to_extended_path(mega_file), "w", encoding="utf-8") as f:
             f.write(text)
 
         # Companion subfolder with identical base name
         subfolder = mega_file.parent / mega_file.stem
-        subfolder.mkdir(parents=True, exist_ok=True)
+        os.makedirs(to_extended_path(subfolder), exist_ok=True)
 
         for tdoc_text, tdoc_id in items:
             clean_text = tdoc_text.rstrip().removesuffix("---").rstrip() + "\n"
             indiv_file = subfolder / f"{sanitize_filename(tdoc_id)}.md"
-            with open(indiv_file, "w", encoding="utf-8") as f:
+            with open(to_extended_path(indiv_file), "w", encoding="utf-8") as f:
                 f.write(clean_text)
 
     def run(self):
         word_app = None
         try:
             pythoncom.CoInitialize()
-            self.export_dir.mkdir(parents=True, exist_ok=True)
+            os.makedirs(to_extended_path(self.export_dir), exist_ok=True)
 
             corpus = {}
             saved_files = []
@@ -102,11 +104,12 @@ class LLMExporterThread(QThread):
 
                 tdoc_folder = self.meeting_dir / base_tdoc
                 cache_file = tdoc_folder / f"{tdoc_id}_LLM_v{LLM_EXTRACTOR_VERSION}.md"
+                ext_cache_file = to_extended_path(cache_file)
 
                 md_content = ""
-                if cache_file.exists():
+                if os.path.exists(ext_cache_file):
                     logging.info(f"[LLM Exporter] Found local cache for {tdoc_id}")
-                    with open(cache_file, "r", encoding="utf-8") as f:
+                    with open(ext_cache_file, "r", encoding="utf-8") as f:
                         md_content = f.read()
                 else:
                     doc_path = self._find_word_doc(tdoc_folder, tdoc_id)
@@ -128,8 +131,8 @@ class LLMExporterThread(QThread):
                         md_content = self._extract_from_word(word_app, doc_path, doc_type)
 
                         if md_content:
-                            cache_file.parent.mkdir(parents=True, exist_ok=True)
-                            with open(cache_file, "w", encoding="utf-8") as f:
+                            os.makedirs(to_extended_path(cache_file.parent), exist_ok=True)
+                            with open(ext_cache_file, "w", encoding="utf-8") as f:
                                 f.write(md_content)
                     else:
                         warn_msg = f"> ⚠️ Could not locate or download an unzipped Word document for {tdoc_id}.\n"
@@ -205,7 +208,7 @@ class LLMExporterThread(QThread):
                         for tdoc_text, tdoc_id in contents:
                             clean_text = tdoc_text.rstrip().removesuffix("---").rstrip() + "\n"
                             single_file = self.export_dir / f"{sanitize_filename(tdoc_id)}.md"
-                            with open(single_file, "w", encoding="utf-8") as f:
+                            with open(to_extended_path(single_file), "w", encoding="utf-8") as f:
                                 f.write(clean_text)
                             saved_single.append(single_file.name)
                 self.finished.emit(True, f"Exported individual file(s) ({', '.join(saved_single)}) to:\n{self.export_dir}")

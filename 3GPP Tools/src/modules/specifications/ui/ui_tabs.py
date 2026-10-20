@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_DANGER
-from core.utils.paths import get_project_root
+from core.utils.paths import get_project_root, to_extended_path
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.ui.components import HoverMenuButton
 from modules.specifications.ui.dialogs import (
@@ -1168,17 +1168,20 @@ class SpecificationsTab(QWidget):
         def _process_and_open():
             extracted_docs = []
 
-            if zip_path.exists():
+            ext_zip_path = to_extended_path(zip_path)
+            if os.path.exists(ext_zip_path):
                 try:
-                    with zipfile.ZipFile(zip_path, "r") as z:
+                    with zipfile.ZipFile(ext_zip_path, "r") as z:
                         for member in z.namelist():
                             if "__MACOSX" in member or member.startswith("._"):
                                 continue
 
                             if member.lower().endswith((".doc", ".docx")):
                                 target_file = spec_dl_dir / Path(member).name
-                                if not target_file.exists():
-                                    target_file.write_bytes(z.read(member))
+                                ext_target_file = to_extended_path(target_file)
+                                if not os.path.exists(ext_target_file):
+                                    with open(ext_target_file, "wb") as f:
+                                        f.write(z.read(member))
 
                                 if target_file not in extracted_docs:
                                     extracted_docs.append(target_file)
@@ -1277,7 +1280,7 @@ class SpecificationsTab(QWidget):
         if target_exists or word_exists or zip_path.exists():
             _process_and_open()
         else:
-            spec_dl_dir.mkdir(parents=True, exist_ok=True)
+            os.makedirs(to_extended_path(spec_dl_dir), exist_ok=True)
 
             idx = combo.currentIndex()
             combo.setItemText(idx, "⏳ Downloading...")
@@ -1349,7 +1352,7 @@ class SpecificationsTab(QWidget):
                 QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
             return
 
-        spec_dl_dir.mkdir(parents=True, exist_ok=True)
+        os.makedirs(to_extended_path(spec_dl_dir), exist_ok=True)
 
         idx = combo.currentIndex()
         combo.setItemText(idx, "⏳ Downloading...")

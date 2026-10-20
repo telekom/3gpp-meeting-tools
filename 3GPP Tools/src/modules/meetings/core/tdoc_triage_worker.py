@@ -1,5 +1,6 @@
 # --- File: src/modules/meetings/core/tdoc_triage_worker.py ---
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Optional
@@ -9,7 +10,7 @@ import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.ai.ollama_client import OllamaClient
-from core.utils.paths import get_project_root
+from core.utils.paths import get_project_root, to_extended_path
 from modules.meetings.core.llm_exporter import LLM_EXTRACTOR_VERSION
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 
@@ -151,9 +152,10 @@ class TDocTriageWorker(QThread):
             raw_markdown = ""
 
             # 1. Check existing LLM markdown cache
-            if cache_file.exists():
+            ext_cache_file = to_extended_path(cache_file)
+            if os.path.exists(ext_cache_file):
                 self.progress_status.emit("📖 Reading cached document...")
-                with open(cache_file, "r", encoding="utf-8") as f:
+                with open(ext_cache_file, "r", encoding="utf-8") as f:
                     raw_markdown = f.read()
             else:
                 # 2. Find local Word file or download and extract
@@ -189,8 +191,8 @@ class TDocTriageWorker(QThread):
                 raw_markdown = self._extract_from_word(word_app, doc_path, doc_type)
 
                 if raw_markdown:
-                    tdoc_folder.mkdir(parents=True, exist_ok=True)
-                    with open(cache_file, "w", encoding="utf-8") as f:
+                    os.makedirs(to_extended_path(tdoc_folder), exist_ok=True)
+                    with open(ext_cache_file, "w", encoding="utf-8") as f:
                         f.write(raw_markdown)
 
             if self._is_cancelled:

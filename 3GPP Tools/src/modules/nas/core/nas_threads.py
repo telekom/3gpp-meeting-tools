@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
@@ -7,7 +8,7 @@ import zipfile
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.network.session import NetworkSession
-from core.utils.paths import get_app_data_root, get_project_root, get_specs_root
+from core.utils.paths import get_app_data_root, get_project_root, get_specs_root, to_extended_path
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
@@ -170,7 +171,7 @@ class NASFetchAndImportThread(QThread):
                 # 2. Automated Cache Lookup / FTP Download
                 if not target_docs:
                     spec_cache_dir = self.cache_dir / spec_number
-                    spec_cache_dir.mkdir(parents=True, exist_ok=True)
+                    os.makedirs(to_extended_path(spec_cache_dir), exist_ok=True)
 
                     cached_hit = find_cached_spec_file(filename, spec_number)
                     zip_to_extract: Optional[Path] = None
@@ -190,16 +191,16 @@ class NASFetchAndImportThread(QThread):
                         NetworkSession.download_file(file_url, zip_path)
                         zip_to_extract = zip_path
 
-                    if zip_to_extract and zip_to_extract.exists():
+                    if zip_to_extract and os.path.exists(to_extended_path(zip_to_extract)):
                         emit_task_progress(f"Extracting all parts from {zip_to_extract.name}...", 40)
-                        with zipfile.ZipFile(zip_to_extract, "r") as zf:
+                        with zipfile.ZipFile(to_extended_path(zip_to_extract), "r") as zf:
                             for member in zf.namelist():
                                 if (
                                     member.lower().endswith((".docx", ".doc"))
                                     and not member.startswith("._")
                                     and "__MACOSX" not in member
                                 ):
-                                    zf.extract(member, spec_cache_dir)
+                                    zf.extract(member, to_extended_path(spec_cache_dir))
                                     target_docs.append(spec_cache_dir / member)
 
                 if not target_docs:

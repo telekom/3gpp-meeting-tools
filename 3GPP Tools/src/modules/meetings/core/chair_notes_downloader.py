@@ -7,6 +7,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.paths import to_extended_path
 from core.network.session import NetworkSession
 
 
@@ -26,7 +27,7 @@ class ChairNotesDownloaderThread(QThread):
 
     def run(self):
         try:
-            self.target_dir.mkdir(parents=True, exist_ok=True)
+            os.makedirs(to_extended_path(self.target_dir), exist_ok=True)
             session = NetworkSession.get_instance()
             NetworkSession.apply_humanness(session)
 
@@ -93,7 +94,7 @@ class ChairNotesDownloaderThread(QThread):
                     dl_resp = session.get(file_url, stream=True, timeout=60)
                     dl_resp.raise_for_status()
 
-                    with open(dest_path, "wb") as f:
+                    with open(to_extended_path(dest_path), "wb") as f:
                         for chunk in dl_resp.iter_content(chunk_size=65536):
                             if self.isInterruptionRequested():
                                 return

@@ -20,7 +20,7 @@ from docx.oxml.text.paragraph import CT_P
 from docx.text.paragraph import Paragraph
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from core.utils.paths import get_temp_root
+from core.utils.paths import get_temp_root, to_extended_path
 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
 
 logger = logging.getLogger(__name__)
@@ -221,7 +221,7 @@ class WordExcerptEngine:
             grouped[h.source_path].append((h.block_index, h.end_index))
 
         output = Path(output_path).resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
+        os.makedirs(to_extended_path(output.parent), exist_ok=True)
         work = Path(tempfile.mkdtemp(prefix="word_excerpt_", dir=str(get_temp_root())))
         fragments = []
         try:
@@ -238,10 +238,14 @@ class WordExcerptEngine:
                 # with managed Office installations.
                 self._progress(55, "Finalizing single-document excerpt...")
                 logger.info("   -> Single source fragment: skipping Microsoft Word merge.")
-                if output.exists():
-                    output.unlink()
-                shutil.copy2(fragments[0], output)
-                if not output.exists() or output.stat().st_size == 0:
+                ext_output = to_extended_path(output)
+                if os.path.exists(ext_output):
+                    try:
+                        os.remove(ext_output)
+                    except OSError:
+                        pass
+                shutil.copy2(to_extended_path(fragments[0]), ext_output)
+                if not os.path.exists(ext_output) or os.path.getsize(ext_output) == 0:
                     raise RuntimeError("Failed to create the single-document excerpt output.")
 
                 # The fragment was saved directly from a copy of the source package,
@@ -475,11 +479,15 @@ class WordExcerptEngine:
             WordExcerptEngine._apply_label_in_fresh_word(working)
 
             # Only a completely finalized, closed file is copied to the user target.
-            output.parent.mkdir(parents=True, exist_ok=True)
-            if output.exists():
-                output.unlink()
-            shutil.copy2(working, output)
-            if not output.exists() or output.stat().st_size == 0:
+            ext_output = to_extended_path(output)
+            os.makedirs(to_extended_path(output.parent), exist_ok=True)
+            if os.path.exists(ext_output):
+                try:
+                    os.remove(ext_output)
+                except OSError:
+                    pass
+            shutil.copy2(to_extended_path(working), ext_output)
+            if not os.path.exists(ext_output) or os.path.getsize(ext_output) == 0:
                 raise RuntimeError("Failed to copy the finalized merged excerpt to its destination.")
             logger.info("   -> Finalized merged excerpt copied to: %s", output)
 

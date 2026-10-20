@@ -1,5 +1,6 @@
 # --- File: src/core/network/session.py ---
 import json
+import os
 import logging
 import random
 import threading
@@ -25,7 +26,7 @@ from core.utils.dpapi import (
     SecureCredentialStore,
     redact_sensitive_urls,
 )
-from core.utils.paths import get_project_root
+from core.utils.paths import get_project_root, to_extended_path
 from core.utils.utils import get_proxies
 
 
@@ -544,8 +545,11 @@ class NetworkSession:
         atomic: bool = True,
     ) -> int:
         dest = Path(dest_path)
-        dest.parent.mkdir(parents=True, exist_ok=True)
         part_path = dest.with_suffix(dest.suffix + ".part") if atomic else dest
+        ext_dest_parent = to_extended_path(dest.parent)
+        ext_dest_path = to_extended_path(dest)
+        ext_part_path = to_extended_path(part_path)
+        os.makedirs(ext_dest_parent, exist_ok=True)
 
         if cancel_cb and cancel_cb():
             raise DownloadCancelledError(f"Download cancelled for {dest.name}")
@@ -569,12 +573,15 @@ class NetworkSession:
                     else 0
                 )
 
-                with open(part_path, "wb") as f:
+                with open(ext_part_path, "wb") as f:
                     for chunk in response.iter_content(chunk_size=chunk_size):
                         if cancel_cb and cancel_cb():
                             f.close()
-                            if atomic and part_path.exists():
-                                part_path.unlink()
+                            if atomic and os.path.exists(ext_part_path):
+                                try:
+                                    os.remove(ext_part_path)
+                                except OSError:
+                                    pass
                             raise DownloadCancelledError(
                                 f"Download cancelled: {dest.name}"
                             )
@@ -588,26 +595,26 @@ class NetworkSession:
                                 )
                                 progress_cb(percent)
 
-            if atomic and part_path.exists():
-                part_path.replace(dest)
+            if atomic and os.path.exists(ext_part_path):
+                os.replace(ext_part_path, ext_dest_path)
 
             return downloaded_bytes
 
         except DownloadCancelledError:
             raise
         except requests.exceptions.Timeout as e:
-            if atomic and part_path.exists():
+            if atomic and os.path.exists(ext_part_path):
                 try:
-                    part_path.unlink()
+                    os.remove(ext_part_path)
                 except Exception:
                     pass
             raise NetworkTimeoutError(
                 f"Download timed out after {timeout}s: {url}"
             ) from e
         except requests.exceptions.HTTPError as e:
-            if atomic and part_path.exists():
+            if atomic and os.path.exists(ext_part_path):
                 try:
-                    part_path.unlink()
+                    os.remove(ext_part_path)
                 except Exception:
                     pass
             status = e.response.status_code if e.response is not None else None
@@ -617,18 +624,18 @@ class NetworkSession:
                 url=url,
             ) from e
         except requests.exceptions.RequestException as e:
-            if atomic and part_path.exists():
+            if atomic and os.path.exists(ext_part_path):
                 try:
-                    part_path.unlink()
+                    os.remove(ext_part_path)
                 except Exception:
                     pass
             raise NetworkError(
                 f"Network error downloading {dest.name}: {e}"
             ) from e
         except Exception as e:
-            if atomic and part_path.exists():
+            if atomic and os.path.exists(ext_part_path):
                 try:
-                    part_path.unlink()
+                    os.remove(ext_part_path)
                 except Exception:
                     pass
             raise NetworkError(

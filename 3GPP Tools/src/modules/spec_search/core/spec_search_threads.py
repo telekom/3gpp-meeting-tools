@@ -4,7 +4,9 @@ database wiping, and fast query execution.
 """
 
 import logging
+import os
 from pathlib import Path
+from core.utils.paths import to_extended_path
 import re
 from typing import Any, Dict, List, Optional
 import zipfile
@@ -109,7 +111,7 @@ class SpecSearchImportThread(QThread):
                 # 2. Cache Lookup / FTP Download
                 if not target_docs:
                     spec_cache_dir = self.cache_dir / spec_number
-                    spec_cache_dir.mkdir(parents=True, exist_ok=True)
+                    os.makedirs(to_extended_path(spec_cache_dir), exist_ok=True)
 
                     cached_hit = find_cached_spec_file(filename, spec_number)
                     zip_to_extract: Optional[Path] = None
@@ -135,9 +137,9 @@ class SpecSearchImportThread(QThread):
                         NetworkSession.download_file(file_url, zip_path)
                         zip_to_extract = zip_path
 
-                    if zip_to_extract and zip_to_extract.exists():
+                    if zip_to_extract and os.path.exists(to_extended_path(zip_to_extract)):
                         emit_task_progress(f"Extracting {zip_to_extract.name}...", 35)
-                        with zipfile.ZipFile(zip_to_extract, "r") as zf:
+                        with zipfile.ZipFile(to_extended_path(zip_to_extract), "r") as zf:
                             for member in zf.namelist():
                                 # Ignore macOS metadata and any revision mark (-rm) documents
                                 if (
@@ -146,7 +148,7 @@ class SpecSearchImportThread(QThread):
                                     and "__MACOSX" not in member
                                     and not is_change_mark_file(member)
                                 ):
-                                    zf.extract(member, spec_cache_dir)
+                                    zf.extract(member, to_extended_path(spec_cache_dir))
                                     target_docs.append(spec_cache_dir / member)
 
                 if not target_docs:

@@ -8,6 +8,7 @@ from typing import List, Sequence, Union
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.paths import to_extended_path
 from core.network.session import (
     DownloadCancelledError,
     HttpError,
@@ -115,7 +116,7 @@ class SpecExcerptPrepThread(QThread):
 
     def run(self):
         try:
-            self.spec_dl_dir.mkdir(parents=True, exist_ok=True)
+            os.makedirs(to_extended_path(self.spec_dl_dir), exist_ok=True)
             stem = Path(self.fname).stem.lower() if self.fname else ""
             zip_path = self.spec_dl_dir / self.fname if self.fname else None
 
@@ -152,10 +153,10 @@ class SpecExcerptPrepThread(QThread):
 
             # --- STAGE 2: Extract & Filter from ZIP Archive ---
             extracted_docs: List[Path] = []
-            if zip_path and zip_path.exists():
+            if zip_path and os.path.exists(to_extended_path(zip_path)):
                 self.progress.emit(45, f"Inspecting archive: {zip_path.name}...")
                 try:
-                    with zipfile.ZipFile(zip_path, "r") as zf:
+                    with zipfile.ZipFile(to_extended_path(zip_path), "r") as zf:
                         all_members = [
                             m for m in zf.namelist()
                             if not m.startswith("._") and "__MACOSX" not in m
@@ -173,8 +174,10 @@ class SpecExcerptPrepThread(QThread):
 
                         for member in candidates:
                             target_file = self.spec_dl_dir / Path(member).name
-                            if not target_file.exists():
-                                target_file.write_bytes(zf.read(member))
+                            ext_target_file = to_extended_path(target_file)
+                            if not os.path.exists(ext_target_file):
+                                with open(ext_target_file, "wb") as f:
+                                    f.write(zf.read(member))
                             if target_file not in extracted_docs:
                                 extracted_docs.append(target_file)
                 except Exception as zip_err:

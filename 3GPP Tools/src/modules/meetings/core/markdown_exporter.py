@@ -57,7 +57,7 @@ class MarkdownExporterThread(QThread):
 
     def run(self):
         try:
-            self.export_dir.mkdir(parents=True, exist_ok=True)
+            os.makedirs(to_extended_path(self.export_dir), exist_ok=True)
 
             # Load column configurations with fallbacks to the defaults
             cols_ls_in = self.config.get("columns_for_3gu_tdoc_export_ls",
@@ -125,7 +125,7 @@ class MarkdownExporterThread(QThread):
                 safe_ai = re.sub(r'[\\/*?:"<>|]', "_", ai)
                 filepath = self.export_dir / f"{safe_ai}.md"
 
-                with open(filepath, "w", encoding="utf-8") as f:
+                with open(to_extended_path(filepath), "w", encoding="utf-8") as f:
                     f.write(header_comment)
 
                     self._write_table(f, "Following LS were received:", groups['ls_in'], cols_ls_in)
@@ -136,7 +136,7 @@ class MarkdownExporterThread(QThread):
             # 3. Write the Company Markdown File
             if company_docs:
                 company_path = self.export_dir / "Company.md"
-                with open(company_path, "w", encoding="utf-8") as f:
+                with open(to_extended_path(company_path), "w", encoding="utf-8") as f:
                     f.write(header_comment)
                     self._write_table(f, "Following Company Contributions:", company_docs, cols_company)
 

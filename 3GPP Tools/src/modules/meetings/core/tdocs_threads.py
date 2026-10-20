@@ -9,6 +9,7 @@ from pathlib import Path
 import requests
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.paths import to_extended_path
 from core.network.session import NetworkSession
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdocs_parser import TDocsParser
@@ -63,9 +64,9 @@ class TDocsRevisionsFetcherThread(QThread):
             if self.meeting_dir:
                 try:
                     agenda_dir = self.meeting_dir / "Agenda"
-                    agenda_dir.mkdir(parents=True, exist_ok=True)
+                    os.makedirs(to_extended_path(agenda_dir), exist_ok=True)
                     rev_file = agenda_dir / "revisions.json"
-                    with open(rev_file, "w", encoding="utf-8") as f:
+                    with open(to_extended_path(rev_file), "w", encoding="utf-8") as f:
                         json.dump(revisions, f, indent=4)
                 except Exception as e:
                     logging.warning(f"Failed to cache revisions locally: {e}")
@@ -316,12 +317,12 @@ class WordAgendaImporterThread(QThread):
 
             self.progress.emit("Staging file...")
             agenda_dir = self.meeting_dir / "Agenda" / "ChairNotes"
-            agenda_dir.mkdir(parents=True, exist_ok=True)
+            os.makedirs(to_extended_path(agenda_dir), exist_ok=True)
 
             target_path = agenda_dir / self.source_path.name
             if self.source_path.resolve() != target_path.resolve():
                 try:
-                    shutil.copy2(str(self.source_path), str(target_path))
+                    shutil.copy2(to_extended_path(self.source_path), to_extended_path(target_path))
                 except Exception as e:
                     self.finished.emit(False, {}, self.source_path.name, f"Failed to copy file to {agenda_dir}:\n{e}")
                     return

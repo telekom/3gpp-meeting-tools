@@ -8,7 +8,9 @@ to PNG copies.  This is intentionally dependency-free: PyQt/Pillow/ImageMagick
 are not required.
 """
 import ctypes
+import os
 import shutil
+from core.utils.paths import to_extended_path
 import tempfile
 import zipfile
 from ctypes import wintypes
@@ -125,7 +127,7 @@ def rasterize_metafile_to_png(source: Path, target: Path) -> None:
 
         clsid_bytes = _png_encoder_clsid(gdiplus)
         clsid = (ctypes.c_byte * 16).from_buffer_copy(clsid_bytes)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        os.makedirs(to_extended_path(target.parent), exist_ok=True)
         _status_ok(
             gdiplus.GdipSaveImageToFile(bitmap, str(target), ctypes.byref(clsid), None),
             "save PNG",
@@ -142,7 +144,7 @@ def rasterize_metafile_to_png(source: Path, target: Path) -> None:
 
 def list_legacy_metafiles(docx_path: Path) -> List[str]:
     """Return DOCX package media paths ending in .emf/.wmf."""
-    with zipfile.ZipFile(docx_path, "r") as zf:
+    with zipfile.ZipFile(to_extended_path(docx_path), "r") as zf:
         return sorted(
             name for name in zf.namelist()
             if name.lower().startswith("word/media/")
@@ -195,14 +197,14 @@ def create_docx_with_rasterized_media(
     """
     selected = set(media_paths)
     if not selected:
-        shutil.copy2(source_docx, output_docx)
+        shutil.copy2(to_extended_path(source_docx), to_extended_path(output_docx))
         return []
 
     work = Path(tempfile.mkdtemp(prefix="3gpp_emf_render_"))
     replacements = {}
 
     try:
-        with zipfile.ZipFile(source_docx, "r") as zin:
+        with zipfile.ZipFile(to_extended_path(source_docx), "r") as zin:
             names = set(zin.namelist())
             for package_path in selected:
                 if package_path not in names:
@@ -222,8 +224,8 @@ def create_docx_with_rasterized_media(
 
                 replacements[package_path] = (new_package_path, target_png)
 
-            output_docx.parent.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(output_docx, "w", zipfile.ZIP_DEFLATED) as zout:
+            os.makedirs(to_extended_path(output_docx.parent), exist_ok=True)
+            with zipfile.ZipFile(to_extended_path(output_docx), "w", zipfile.ZIP_DEFLATED) as zout:
                 for item in zin.infolist():
                     if item.filename in selected:
                         continue
