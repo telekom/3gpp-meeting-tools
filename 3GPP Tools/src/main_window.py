@@ -21,6 +21,7 @@ from core.ui.ui_components import ProxyDialog, create_app_icon
 from core.ui.ui_panels import (
     ConsolePanel, QueuePanel, ProcessManagerDialog, DatabaseMaintenanceDialog, GuiLogHandler
 )
+from core.ui.system_status_bar import SystemStatusBar
 from core.utils.paths import get_project_root
 from modules.meetings.ui.ui_tabs import MeetingsTab
 from modules.puml2visio.config.paths import PLANTUML_JAR_NAME
@@ -51,8 +52,7 @@ class DragDropUI(QMainWindow):
         self.jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
         self.last_out_path = ""
         self.init_thread = None
-        self.wifi_monitor = None
-        self.ollama_monitor = None
+        # Background monitors are managed by self.status_bar
         self._services_started = False  # Guard to prevent duplicate background starts
         self._visio_ready = True
         self._core_ready = True
@@ -288,52 +288,11 @@ class DragDropUI(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
-        # Bottom Status Bar (single clean instance)
-        self.status_bar = QStatusBar()
+        # Bottom System Status Bar (decoupled component)
+        self.status_bar = SystemStatusBar(self)
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("⏳ Initializing...")
-
-        # Immediate initialization of Ollama indicator from saved config
-        from core.ai.ollama_client import load_ollama_config
-        saved_cfg = load_ollama_config()
-        saved_model = saved_cfg.get("selected_model", "").strip()
-        initial_ollama_text = f"🦙 {saved_model}" if saved_model else "🦙 Ollama"
-
-        self.ollama_indicator = QPushButton(initial_ollama_text)
-        self.ollama_indicator.setCursor(Qt.PointingHandCursor)
-        self.ollama_indicator.setToolTip("Click to configure Ollama LLM connection")
-        self.ollama_indicator.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: 1px solid #CBD5E1;
-                border-radius: 4px;
-                padding: 1px 8px;
-                font-size: 11px;
-                font-weight: bold;
-                color: #64748B;
-            }
-            QPushButton:hover {
-                background-color: #F1F5F9;
-                border-color: #94A3B8;
-            }
-        """)
-        self.ollama_indicator.clicked.connect(self.open_ollama_settings)
-        self.status_bar.addPermanentWidget(self.ollama_indicator)
-
-        # Proxy Indicator Pill (clickable, sits between Ollama and Network indicators)
-        self.proxy_indicator = QPushButton("🌐 Direct")
-        self.proxy_indicator.setCursor(Qt.PointingHandCursor)
-        self.proxy_indicator.clicked.connect(self.open_proxy_settings)
-        self.status_bar.addPermanentWidget(self.proxy_indicator)
-
-        # Network Indicator (starts as neutral Network label instead of "Checking...")
-        self.network_indicator = QLabel("📶 Network")
-        self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
-        self.status_bar.addPermanentWidget(self.network_indicator)
-
-        # Sync initial proxy state from encrypted profile / environment
-        self._sync_proxy_environment_from_session()
-        self._update_proxy_indicator()
+        self.status_bar.reinit_requested.connect(self._on_status_reinit_requested)
+        self.status_bar.update_proxy_indicator(self.console_panel)
 
         logging.info("🏁 [STARTUP:UI] _setup_ui() layout complete.")
 
@@ -461,104 +420,16 @@ class DragDropUI(QMainWindow):
     def toggle_live_view(self, checked):
         self.live_preview.toggle(checked)
 
-    def _sync_proxy_environment_from_session(self):
-        """
-        Ensures urllib and os.environ match NetworkSession's active proxies on startup
-        and after proxy dialog changes.
-        """
-        session = NetworkSession.get_instance()
-        proxies = {k: v for k, v in (session.proxies or {}).items() if v}
-
-        if proxies.get("http"):
-            os.environ["HTTP_PROXY"] = proxies["http"]
-        else:
-            os.environ.pop("HTTP_PROXY", None)
-
-        if proxies.get("https"):
-            os.environ["HTTPS_PROXY"] = proxies["https"]
-        else:
-            os.environ.pop("HTTPS_PROXY", None)
-
-        proxy_handler = urllib.request.ProxyHandler(proxies)
-        opener = urllib.request.build_opener(proxy_handler)
-        urllib.request.install_opener(opener)
-
-    def _update_proxy_indicator(self):
-        """Updates both the bottom status pill and the ConsolePanel Proxy button."""
-        session = NetworkSession.get_instance()
-        active_proxies = {
-            proto: NetworkSession._sanitize_proxy_url(url)
-            for proto, url in (session.proxies or {}).items()
-            if url
-        }
-
-        if active_proxies:
-            details = "\n".join(f"• {k.upper()}: {v}" for k, v in active_proxies.items())
-            tooltip = f"Proxy Active:\n{details}\n\nClick to configure proxy settings"
-
-            self.proxy_indicator.setText("🛡️ Proxy: ON")
-            self.proxy_indicator.setToolTip(tooltip)
-            self.proxy_indicator.setStyleSheet("""
-                QPushButton {
-                    background-color: #EBF8FF;
-                    border: 1px solid #90CDF4;
-                    border-radius: 4px;
-                    padding: 1px 8px;
-                    font-size: 11px;
-                    font-weight: bold;
-                    color: #1E5C99;
-                }
-                QPushButton:hover {
-                    background-color: #BEE3F8;
-                    border-color: #63B3ED;
-                }
-            """)
-            self.console_panel.set_proxy_status(True, tooltip)
-        else:
-            profile = ProxyProfileManager.load_profile()
-            has_saved = bool(profile.get("http_host") or profile.get("https_host"))
-            state_note = " (Saved profile inactive)" if has_saved else ""
-            tooltip = f"Direct Connection — No proxy active{state_note}\nClick to configure proxy settings"
-
-            self.proxy_indicator.setText("🌐 Direct")
-            self.proxy_indicator.setToolTip(tooltip)
-            self.proxy_indicator.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    border: 1px solid #CBD5E1;
-                    border-radius: 4px;
-                    padding: 1px 8px;
-                    font-size: 11px;
-                    font-weight: bold;
-                    color: #64748B;
-                }
-                QPushButton:hover {
-                    background-color: #F1F5F9;
-                    border-color: #94A3B8;
-                }
-            """)
-            self.console_panel.set_proxy_status(False, tooltip)
+    def _on_status_reinit_requested(self):
+        self.log_message("✅ Proxy configuration updated. Retrying system checks...", logging.INFO)
+        self.batch_tab.set_state("ready", "⏳ Re-initializing system checks...")
+        self.status_bar.showMessage("⏳ Re-initializing...")
+        self.tabs.setEnabled(False)
+        self._launch_init_thread(check_updates=False)
 
     def open_proxy_settings(self):
-        proxy_dialog = ProxyDialog(self)
-        if proxy_dialog.exec_() == QDialog.Accepted:
-            # ProxyDialog.accept() / deactivate_profile() already updated NetworkSession.
-            # Sync urllib/os.environ and refresh the GUI proxy indicators:
-            self._sync_proxy_environment_from_session()
-            self._update_proxy_indicator()
+        self.status_bar.open_proxy_settings()
 
-            active_proxies = {
-                k: v for k, v in (NetworkSession.get_instance().proxies or {}).items() if v
-            }
-            status = "activated" if active_proxies else "deactivated (direct connection)"
-            self.log_message(f"✅ Proxy settings {status}. Retrying system checks...", logging.INFO)
-
-            self.batch_tab.set_state("ready", "⏳ Re-initializing system checks...")
-            self.status_bar.showMessage("⏳ Re-initializing...")
-            self.tabs.setEnabled(False)
-
-            # Re-launch system initialization checks cleanly
-            self._launch_init_thread(check_updates=False)
 
     def check_for_jar_updates(self):
         self.log_message("\n🔄 Initiating manual update check...", logging.INFO)
@@ -723,91 +594,14 @@ class DragDropUI(QMainWindow):
             logging.error(f"❌ Failed to start InitializationThread: {e}")
 
     def _start_wifi_monitor(self):
-        """Starts Wi-Fi monitor independently."""
-        try:
-            if self.wifi_monitor is None or not self.wifi_monitor.isRunning():
-                logging.info("🏁 [STARTUP:SERVICES] Starting WifiMonitorThread...")
-                self.wifi_monitor = WifiMonitorThread(parent=None)
-                self.wifi_monitor.status_updated.connect(self._update_network_indicator)
-                self.wifi_monitor.start()
-        except Exception as e:
-            logging.error(f"❌ Failed to start WifiMonitorThread: {e}")
-            self.network_indicator.setText("🌐 Offline")
+        self.status_bar.start_wifi_monitor()
 
     def _start_ollama_monitor(self):
-        """Starts Ollama monitor independently (pure socket check, <1ms)."""
-        try:
-            if self.ollama_monitor is None or not self.ollama_monitor.isRunning():
-                logging.info("🏁 [STARTUP:SERVICES] Starting OllamaMonitorThread...")
-                self.ollama_monitor = OllamaMonitorThread(parent=None)
-                self.ollama_monitor.status_updated.connect(self._update_ollama_indicator)
-                self.ollama_monitor.start()
-        except Exception as e:
-            logging.error(f"❌ Failed to start OllamaMonitorThread: {e}")
-            self.ollama_indicator.setText("🦙 Offline")
-
-    def _update_network_indicator(self, ssid: str, is_3gpp: bool, server_reachable: bool):
-        if is_3gpp and server_reachable:
-            self.network_indicator.setText(f"🟢 {ssid} (Local Server Active)")
-            self.network_indicator.setStyleSheet("color: #2e7d32; font-weight: bold; padding: 0 10px;")
-        elif is_3gpp and not server_reachable:
-            self.network_indicator.setText(f"🟡 {ssid} (No Local Server)")
-            self.network_indicator.setStyleSheet("color: #b8860b; font-weight: bold; padding: 0 10px;")
-        else:
-            display_name = ssid if ssid else "Offline"
-            self.network_indicator.setText(f"🌐 {display_name}")
-            self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
-
-    def _update_ollama_indicator(self, is_online: bool, selected_model: str, models: list, error: str):
-        if is_online:
-            model_display = selected_model if selected_model else (models[0] if models else "Connected")
-            self.ollama_indicator.setText(f"🦙 {model_display}")
-            self.ollama_indicator.setToolTip(f"Ollama Online ({len(models)} models available)\nClick to configure")
-            self.ollama_indicator.setStyleSheet("""
-                QPushButton {
-                    background-color: #F0FDF4;
-                    border: 1px solid #BBF7D0;
-                    border-radius: 4px;
-                    padding: 1px 8px;
-                    font-size: 11px;
-                    font-weight: bold;
-                    color: #15803D;
-                }
-                QPushButton:hover {
-                    background-color: #DCFCE7;
-                    border-color: #86EFAC;
-                }
-            """)
-        else:
-            self.ollama_indicator.setText("🦙 Offline")
-            self.ollama_indicator.setToolTip(f"Ollama Unreachable: {error}\nClick to configure")
-            self.ollama_indicator.setStyleSheet("""
-                QPushButton {
-                    background-color: #FEF2F2;
-                    border: 1px solid #FECACA;
-                    border-radius: 4px;
-                    padding: 1px 8px;
-                    font-size: 11px;
-                    font-weight: bold;
-                    color: #DC2626;
-                }
-                QPushButton:hover {
-                    background-color: #FEE2E2;
-                    border-color: #FCA5A5;
-                }
-            """)
+        self.status_bar.start_ollama_monitor()
 
     def open_ollama_settings(self):
-        """Opens the Ollama connection, model preferences, and service management dialog."""
-        dialog = OllamaConfigDialog(self)
-        dialog.exec_()
+        self.status_bar.open_ollama_settings()
 
-        # Immediate sync: user may have started or stopped the daemon in the dialog
-        if self.ollama_monitor and self.ollama_monitor.isRunning():
-            from core.ai.ollama_client import load_ollama_config
-            cfg = load_ollama_config()
-            self.ollama_monitor.client.reconfigure(cfg.get("host"), cfg.get("proxy_mode"))
-            self.ollama_monitor.trigger_check()
 
     def closeEvent(self, event):
         logging.info("🏁 [SHUTDOWN] Window closeEvent triggered. Saving cache...")
@@ -816,19 +610,7 @@ class DragDropUI(QMainWindow):
         except Exception as e:
             logging.warning(f"⚠️ [SHUTDOWN] Could not save cache: {e}")
 
-        # 1. Stop WiFi Monitor independently
-        if self.wifi_monitor is not None and self.wifi_monitor.isRunning():
-            try:
-                self.wifi_monitor.stop()
-            except Exception:
-                pass
-
-        # 2. Stop Ollama Monitor independently
-        if self.ollama_monitor is not None and self.ollama_monitor.isRunning():
-            try:
-                self.ollama_monitor.stop()
-            except Exception:
-                pass
+        self.status_bar.stop_monitors()
 
         # 3. Stop initialization thread independently
         if hasattr(self, 'init_thread') and self.init_thread is not None and self.init_thread.isRunning():
