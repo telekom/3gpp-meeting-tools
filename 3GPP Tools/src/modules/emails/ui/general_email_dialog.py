@@ -21,36 +21,8 @@ from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.ui.config_dialog import OutlookFolderPickerDialog
 from modules.emails.ui.email_summary_dialog import EmailSummaryDialog
 
-CONFIG_PATH = get_project_root() / "config" / "emails_config.json"
-
-
-def load_wg_email_config(wg: str) -> list:
-    if CONFIG_PATH.exists():
-        try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get(wg.upper(), [])
-        except Exception as e:
-            logging.error(f"Failed to load emails_config.json: {e}")
-    return []
-
-
-def save_wg_email_config(wg: str, folder_list: list):
-    data = {}
-    if CONFIG_PATH.exists():
-        try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception:
-            pass
-    data[wg.upper()] = folder_list
-    try:
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        logging.error(f"Failed to save emails_config.json: {e}")
-
-
+# Configuration helpers re-exported from core for backward compatibility
+from modules.emails.core.email_config import load_wg_email_config, save_wg_email_config
 
 # Backward compatibility re-exports for dialogs extracted to dedicated module
 from modules.emails.ui.tdoc_emails_dialog import StandaloneEmailReaderWindow, TDocEmailsDialog

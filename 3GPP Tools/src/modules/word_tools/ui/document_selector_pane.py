@@ -5,20 +5,24 @@ from typing import List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
+import pythoncom
+import win32com.client
 
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     CARD_FRAME_STYLE,
-    SEARCH_INPUT_STYLE,
+    SEARCH_INPUT_STYLE, InteractiveDropLabel,
 )
 
 logger = logging.getLogger(__name__)
