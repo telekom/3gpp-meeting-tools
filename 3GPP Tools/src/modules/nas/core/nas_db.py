@@ -1,10 +1,18 @@
 import contextlib
+import hashlib
 import logging
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 import pandas as pd
+
+RE_NAS_IE_TYPE = re.compile(r"\btype\s+([1-6])\s+information\s+element\b", re.IGNORECASE)
+RE_NAS_IE_MIN_MAX_LEN = re.compile(
+    r"minimum\s+length\s+of\s+(\d+)\s+octets?(?:\s+and\s+a\s+maximum\s+length\s+of\s+(\d+|n)\s+octets?)?",
+    re.IGNORECASE,
+)
+RE_NAS_IE_EXACT_LEN = re.compile(r"\blength\s+of\s+(\d+)\s+octets?\b", re.IGNORECASE)
 
 
 def parse_version_tuple(version_str: str) -> tuple:
@@ -257,6 +265,19 @@ class NASDatabase:
             self.logger.error(f"Failed to insert parsed spec TS {spec_number} v{version}: {e}")
             return False
 
+    @staticmethod
+    def _build_tokenized_like_clause(column_expr: str, query_str: str) -> Tuple[str, List[str]]:
+        """
+        Builds an AND-chained LIKE clause across whitespace-separated tokens so queries like
+        'UE parameters transparent container' match 'UE parameters update transparent container'.
+        """
+        tokens = [t.strip() for t in re.split(r"\s+", query_str.strip()) if t.strip()]
+        if not tokens:
+            return "1=1", []
+        clauses = [f"{column_expr} LIKE ?" for _ in tokens]
+        params = [f"%{t}%" for t in tokens]
+        return "(" + " AND ".join(clauses) + ")", params
+
     def get_messages_list(self, version_ids: Optional[List[int]] = None) -> List[Dict[str, Any]]:
         query = """
             SELECT m.message_name, m.clause,
@@ -277,6 +298,118 @@ class NASDatabase:
             cursor.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_ie_definitions_list(
+        self,
+        version_ids: Optional[List[int]] = None,
+        ie_query: str = "",
+        search_descriptions: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """
+        Returns all distinct Information Element / Type definitions across selected versions,
+        excluding legacy TOC page-number artifacts and Void/structural stubs.
+        """
+        if not version_ids:
+            return []
+
+        placeholders = ",".join("?" for _ in version_ids)
+        where_parts = [
+            f"d.version_id IN ({placeholders})",
+            "NOT (d.ie_name GLOB '* [0-9][0-9][0-9]*' AND LENGTH(COALESCE(d.raw_description, '')) < 250)",
+            "LOWER(TRIM(d.ie_name)) NOT IN ('void', 'general', 'overview', 'other information elements', 'information elements coding')",
+        ]
+        params: List[Any] = list(version_ids)
+
+        clean_query = ie_query.strip()
+        if clean_query:
+            if search_descriptions and len(clean_query) >= 2:
+                col_expr = "(COALESCE(d.ie_name, '') || ' ' || COALESCE(d.clause, '') || ' ' || COALESCE(d.raw_description, ''))"
+            else:
+                col_expr = "(COALESCE(d.ie_name, '') || ' ' || COALESCE(d.clause, ''))"
+            tok_sql, tok_params = self._build_tokenized_like_clause(col_expr, clean_query)
+            where_parts.append(tok_sql)
+            params.extend(tok_params)
+
+        where_sql = " AND ".join(where_parts)
+        query = f"""
+            SELECT d.ie_name, d.clause,
+                   GROUP_CONCAT(DISTINCT sv.spec_number) AS spec_number,
+                   GROUP_CONCAT(DISTINCT sv.version) AS version
+            FROM ie_definitions d
+            JOIN spec_versions sv ON d.version_id = sv.id
+            WHERE {where_sql}
+            GROUP BY d.ie_name, d.clause
+            ORDER BY d.ie_name ASC, d.clause ASC
+        """
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_ie_definition_evolution_df(
+        self,
+        clause: str,
+        ie_name: str,
+        version_ids: List[int],
+    ) -> pd.DataFrame:
+        """
+        Builds a release-evolution DataFrame compatible with NASEvolutionMatrixModel
+        for a standalone Clause 9 / ASN.1 / PFCP Information Element definition.
+        """
+        if not version_ids:
+            return pd.DataFrame()
+
+        defs = self.get_ie_definitions_by_clause(
+            clause=clause,
+            alt_name=ie_name,
+            version_ids=version_ids,
+        )
+        if not defs:
+            return pd.DataFrame()
+
+        rows: List[Dict[str, Any]] = []
+        for d in defs:
+            raw_html = d.get("raw_description", "") or ""
+            plain_text = re.sub(r"<[^>]+>", " ", raw_html)
+            plain_text = " ".join(plain_text.split())
+
+            # Extract concise NAS IE Type & Length summary if present, otherwise hash content for change tracking
+            ie_type_match = RE_NAS_IE_TYPE.search(plain_text)
+            fmt_str = f"Type {ie_type_match.group(1)}" if ie_type_match else f"Clause {d.get('clause', clause)}"
+
+            min_max_match = RE_NAS_IE_MIN_MAX_LEN.search(plain_text)
+            exact_len_match = RE_NAS_IE_EXACT_LEN.search(plain_text)
+            if min_max_match:
+                min_l = min_max_match.group(1)
+                max_l = min_max_match.group(2)
+                len_str = f"{min_l}-{max_l} octets" if max_l else f"Min {min_l} octets"
+            elif exact_len_match:
+                len_str = f"{exact_len_match.group(1)} octets"
+            else:
+                # Include short digest of normalized text so NASEvolutionMatrixModel highlights release changes
+                digest = hashlib.md5(plain_text.encode("utf-8", errors="ignore")).hexdigest()[:6]
+                len_str = f"Rev #{digest}"
+
+            resolved_clause = d.get("clause", "") or clause
+            resolved_name = d.get("ie_name", "") or ie_name
+            rows.append({
+                "spec_number": d.get("spec_number", ""),
+                "version": d.get("version", ""),
+                "iei": resolved_clause if resolved_clause != resolved_name else "-",
+                "ie_name": resolved_name,
+                "field_path": resolved_name,
+                "depth": 0,
+                "type_reference": f"{resolved_name} {resolved_clause}".strip() if resolved_clause != resolved_name else resolved_clause,
+                "presence": "Defined",
+                "format": fmt_str,
+                "length": len_str,
+                "order_index": 0,
+                "applicability": "",
+                "ie_description": raw_html,
+            })
+
+        return pd.DataFrame(rows)
+
     def get_messages_by_ie_search(
         self,
         ie_query: str,
@@ -285,23 +418,28 @@ class NASDatabase:
     ) -> List[Dict[str, Any]]:
         """
         Searches messages matching an IE name, field path, or clause 9 / ASN.1 description.
-        Optimized with Common Table Expressions (CTE) to avoid full cross-join table scans in ASN.1.
+        Supports multi-word tokenized queries and Common Table Expressions (CTE).
         """
         if not version_ids or not ie_query.strip():
             return self.get_messages_list(version_ids)
 
         clean_query = ie_query.strip()
         placeholders = ",".join("?" for _ in version_ids)
-        pattern = f"%{clean_query}%"
+
+        ie_col_expr = "(COALESCE(i.ie_name, '') || ' ' || COALESCE(i.field_path, '') || ' ' || COALESCE(i.type_reference, '') || ' ' || COALESCE(i.iei, ''))"
+        ie_tok_sql, ie_tok_params = self._build_tokenized_like_clause(ie_col_expr, clean_query)
 
         # If search query is only 1 character, perform direct indexed IE/Type search to prevent full table cross-joins
         if search_descriptions and len(clean_query) >= 2:
+            def_col_expr = "(COALESCE(d.ie_name, '') || ' ' || COALESCE(d.clause, '') || ' ' || COALESCE(d.raw_description, ''))"
+            def_tok_sql, def_tok_params = self._build_tokenized_like_clause(def_col_expr, clean_query)
+
             query = f"""
                 WITH matched_defs AS (
                     SELECT version_id, ie_name, clause
-                    FROM ie_definitions
-                    WHERE version_id IN ({placeholders})
-                      AND (raw_description LIKE ? OR ie_name LIKE ?)
+                    FROM ie_definitions d
+                    WHERE d.version_id IN ({placeholders})
+                      AND {def_tok_sql}
                 ),
                 matching_messages AS (
                     -- 1. Direct Information Element / ASN.1 Field Name Matches
@@ -309,12 +447,7 @@ class NASDatabase:
                     FROM nas_messages m
                     JOIN message_ies i ON i.message_id = m.id
                     WHERE m.version_id IN ({placeholders})
-                      AND (
-                          i.ie_name LIKE ? 
-                          OR i.field_path LIKE ?
-                          OR i.type_reference LIKE ? 
-                          OR i.iei LIKE ?
-                      )
+                      AND {ie_tok_sql}
 
                     UNION
 
@@ -327,7 +460,7 @@ class NASDatabase:
                             i.ie_name = d.ie_name
                             OR i.type_reference = d.ie_name
                             OR i.type_reference = d.clause
-                            OR (d.clause != '' AND i.type_reference = d.clause)
+                            OR (d.clause != '' AND (i.type_reference = d.clause OR i.type_reference = (d.ie_name || ' ' || d.clause)))
                             OR (length(d.ie_name) >= 4 AND instr(i.type_reference, d.ie_name) > 0)
                         )
                     WHERE m.version_id IN ({placeholders})
@@ -339,8 +472,8 @@ class NASDatabase:
                 ORDER BY mm.message_name ASC
             """
             params = (
-                list(version_ids) + [pattern, pattern]
-                + list(version_ids) + [pattern, pattern, pattern, pattern]
+                list(version_ids) + def_tok_params
+                + list(version_ids) + ie_tok_params
                 + list(version_ids)
             )
         else:
@@ -350,16 +483,11 @@ class NASDatabase:
                 JOIN message_ies i ON i.message_id = m.id
                 JOIN spec_versions sv ON m.version_id = sv.id
                 WHERE m.version_id IN ({placeholders})
-                  AND (
-                      i.ie_name LIKE ? 
-                      OR i.field_path LIKE ?
-                      OR i.type_reference LIKE ? 
-                      OR i.iei LIKE ?
-                  )
+                  AND {ie_tok_sql}
                 GROUP BY m.message_name, m.clause
                 ORDER BY m.message_name ASC
             """
-            params = list(version_ids) + [pattern, pattern, pattern, pattern]
+            params = list(version_ids) + ie_tok_params
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -446,7 +574,7 @@ class NASDatabase:
                 JOIN spec_versions sv ON m.version_id = sv.id
                 LEFT JOIN ie_definitions d1 ON d1.version_id = sv.id AND d1.ie_name = i.ie_name AND d1.ie_name != ''
                 LEFT JOIN ie_definitions d2 ON d2.version_id = sv.id AND d2.ie_name = i.type_reference AND d2.ie_name != ''
-                LEFT JOIN ie_definitions d3 ON d3.version_id = sv.id AND d3.clause = i.type_reference AND d3.clause != ''
+                LEFT JOIN ie_definitions d3 ON d3.version_id = sv.id AND d3.clause != '' AND (d3.clause = i.type_reference OR (d3.ie_name || ' ' || d3.clause) = i.type_reference)
                 WHERE m.message_name = ? AND sv.id IN ({placeholders})
                 ORDER BY i.order_index ASC
             """
@@ -507,6 +635,7 @@ class NASDatabase:
             FROM ie_definitions d
             JOIN spec_versions sv ON d.version_id = sv.id
             WHERE ({where_sql})
+              AND NOT (d.ie_name GLOB '* [0-9][0-9][0-9]*' AND LENGTH(COALESCE(d.raw_description, '')) < 250)
         """
 
         if spec_number:
@@ -597,6 +726,7 @@ class NASDatabase:
             FROM ie_definitions d
             JOIN spec_versions sv ON d.version_id = sv.id
             WHERE sv.id = ? AND ({where_sql})
+              AND NOT (d.ie_name GLOB '* [0-9][0-9][0-9]*' AND LENGTH(COALESCE(d.raw_description, '')) < 250)
             ORDER BY 
                 CASE 
                     WHEN LOWER(TRIM(d.clause)) = LOWER(?) THEN 1

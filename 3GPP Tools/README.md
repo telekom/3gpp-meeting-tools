@@ -124,12 +124,15 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Automated Legacy `.doc` Conversion:** Automatically converts older binary Word 97–2003 `.doc` specifications to `.docx` via headless COM automation or LibreOffice with Protected View bypass and NTFS Zone Identifier unblocking before parsing.
   * **High-Performance XML Parsing:** Direct `lxml` extraction parses message definition tables, ASN.1 syntax blocks, PFCP Grouped IE tables, and field description tables directly from `.docx` archives without requiring Word runtime overhead.
 * **Evolution Matrix & Visual Diffing:**
-  * **Hierarchical Sequence & Group Unrolling:** Recursively unrolls nested ASN.1 sequence/choice fields and PFCP grouped structures, allowing you to track high-level and deep parameter changes across releases simultaneously.
+  * **Dual Browse Modes (`[📨 Messages | 🧩 All IEs / Types]`):** Seamlessly toggle between browsing standard Protocol Messages/SIBs and browsing all parsed Clause 9 / Annex D / ASN.1 / PFCP Information Elements directly. In **`🧩 All IEs / Types`** mode, you can inspect standalone handover containers (e.g., `Intra N1 mode NAS transparent container 9.11.2.6`), security identifiers (e.g., `Serving network name 9.12.1`), and nested containers without needing an associated Clause 8 message, viewing their release-evolution matrix and full Clause 9 octet/bit diagrams.
+  * **Hierarchical Sequence, Group & Container Unrolling:** Recursively unrolls nested ASN.1 sequence/choice fields, PFCP grouped structures, and encapsulated NAS container payloads (e.g., unrolling `Payload container 9.11.3.39` to reveal `└─ UE parameters update transparent container 9.11.3.53A`, `└─ SOR transparent container 9.11.3.51`, `└─ CIoT small data container 9.11.3.18B`, and `└─ Service-level-AA container 9.11.2.10` with its sub-parameters `9.11.2.11`–`9.11.2.18`), allowing you to track high-level and deep parameter changes across releases simultaneously.
   * **Visual Release Diffing:** Color-coded matrix cells immediately highlight field additions (🟢 Green), removals (🔴 Red), and format/type modifications (🟡 Yellow) between chronological 3GPP releases.
   * **Hierarchical Specification Tree:** Interactive tree view (`QTreeWidget`) grouping releases under collapsible specification parents (`TS 38.331`, `TS 29.244`, `TS 24.501`, `TS 24.301`, etc.) with master toggles, specification-wide selection, and right-click deletion context menus.
-  * **Persistent Filter Configuration:** Tree expansion states, active releases, message selections, and search terms are automatically persisted in `nas_config.json` across sessions.
-* **Dual-Layer & Extended Description Search:**
-  * **Debounced Filtering:** Dedicated 250ms debounced search bars for Message Names and Information Elements / Fields.
+  * **Persistent Filter Configuration:** Tree expansion states, active releases, browse modes, message/IE selections, and search terms are automatically persisted in `nas_config.json` across sessions.
+* **Dual-Layer, Tokenized & Extended Description Search:**
+  * **Multi-Word Tokenized Matching:** Search queries automatically split into whitespace-delimited tokens across names, field paths, and definitions, allowing flexible searches (e.g., searching `"UE parameters transparent container"` seamlessly matches `"UE parameters update transparent container"`).
+  * **Debounced Filtering:** Dedicated 200ms debounced search bars for Message/IE Names and Information Elements / Fields.
+  * **Clean TOC & Stub Sanitization:** Automatically detects and strips Word Table of Contents (TOC) page numbers and empty structural/Void section headers to keep the catalog clean and accurate.
   * **Extended Description Search (`📖 Desc`):** Toggle deep text search across underlying Clause 8/9 IE descriptions and ASN.1 field description tables (e.g., searching `"emergency"` or `"slicing"` highlights matching messages even if the keyword is not in the field name).
 * **Structure & Field Descriptions Inspector:**
   * **Bit-Level Structure Rendering:** Renders bit-level octet diagrams (Figure 8.x/9.x) and value coding tables (Table 8.x/9.x) with full OpenXML `gridSpan` (colspan) and `vMerge` (rowspan) support.
@@ -439,11 +442,14 @@ python src/main_tools.py
 2. **Importing Specifications:**
    * Click **📥 Import from Specs DB** to select specification releases across **TS 38.331 (NR RRC)**, **TS 36.331 (LTE RRC)**, **TS 38.413 (NGAP)**, **TS 29.244 (PFCP)**, **TS 24.501 (5GS NAS)**, or **TS 24.301 (EPS NAS)**. Missing versions download and convert automatically from the 3GPP FTP archive.
    * Click **📁 Import Local .docx** to ingest local single-file or multi-part split specification documents directly.
-3. **Selecting Releases & Messages:**
+3. **Selecting Browse Mode, Releases & Messages/IEs:**
    * Use the **Specification Versions & Releases** tree to activate, deactivate, or right-click to delete specific releases or entire specification series.
-   * Select a Message, SIB, or PDU from the list (e.g., `PFCP Session Establishment Request`, `RRCReconfiguration`, `SIB1`, `REGISTRATION REQUEST`). The **Evolution Matrix** pivots all Information Elements and unrolls nested ASN.1 sequence fields or PFCP Grouped IEs (e.g., `Create PDR └─ PDI └─ SDF Filter`), color-coding additions (🟢), removals (🔴), and modifications (🟡).
+   * **Browse Mode Toggle (`[📨 Messages | 🧩 All IEs / Types]`):**
+     * **`📨 Messages` Mode (Default):** Select a Message, SIB, or PDU from the list (e.g., `DL NAS TRANSPORT`, `REGISTRATION REQUEST`, `RRCReconfiguration`, `PFCP Session Establishment Request`). The **Evolution Matrix** pivots all Information Elements and automatically unrolls nested ASN.1 sequences, PFCP Grouped IEs, and encapsulated NAS container payloads (e.g., `Payload container └─ UE parameters update transparent container`), color-coding additions (🟢), removals (🔴), and modifications (🟡).
+     * **`🧩 All IEs / Types` Mode:** Browse all parsed Clause 9 / Annex D / ASN.1 / PFCP Information Elements directly (including standalone handover containers like `Intra N1 mode NAS transparent container 9.11.2.6` and `Serving network name 9.12.1`). Selecting an IE renders its release-evolution matrix in the top table and its full Clause 9 bit-level diagrams, coding tables, and `"Used in: N messages ▾"` lookup in the Inspector below.
 4. **Filtering Fields, Descriptions & Interfaces:**
-   * Use **Filter message/SIB name** to search message titles.
+   * **Multi-Word Tokenized Search:** Type multi-word queries into either search bar (e.g., `"UE parameters transparent container"`); the engine splits queries into tokens to match relevant fields even if words like `"update"` are inserted.
+   * Use **Filter message/SIB name** (or **Filter IE / Type name**) to search names and clause numbers.
    * Use **Filter by IE / Field** to isolate specific parameters across the matrix.
    * Click the **`📖 Desc`** button to toggle extended description search, matching keywords located deep inside Clause 8/9 IE definitions and ASN.1 field description tables.
    * For PFCP messages, use the **Interface Selector Dropdown** (`All Interfaces`, `N4`, `N4mb`, `Sxa`, `Sxb`, `Sxc`) positioned above the matrix table to instantly filter parameters by target reference point.
