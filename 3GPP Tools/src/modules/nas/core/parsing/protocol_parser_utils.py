@@ -1,5 +1,7 @@
 import html
+import os
 import zipfile
+from core.utils.paths import to_extended_path
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from xml.etree import ElementTree as ET
@@ -12,10 +14,11 @@ from modules.nas.core.parsing.protocol_parser_constants import TAG_T, TAG_TAB, T
 
 def extract_document_root(docx_path: Path) -> Optional[ET.Element]:
     """Safely extracts and parses word/document.xml from a .docx zip archive."""
-    if not docx_path.exists():
+    ext_path = to_extended_path(docx_path)
+    if not os.path.exists(ext_path):
         return None
     try:
-        with zipfile.ZipFile(docx_path, "r") as zf:
+        with zipfile.ZipFile(ext_path, "r") as zf:
             if "word/document.xml" not in zf.namelist():
                 return None
             xml_bytes = zf.read("word/document.xml")

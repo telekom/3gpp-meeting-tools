@@ -4,6 +4,7 @@ import logging
 import re
 import threading
 from pathlib import Path
+from core.utils.paths import to_extended_path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from docx import Document
@@ -73,9 +74,11 @@ class DocxSplitter:
         # to prevent Word from stripping macros/styles on load!
         original_ext = self.file_path.suffix
         out_file = Path(output_dir) / f"{section['title']}{original_ext}"
-        shutil.copy(self.file_path, out_file)
+        ext_source = to_extended_path(self.file_path)
+        ext_out = to_extended_path(out_file)
+        shutil.copy(ext_source, ext_out)
 
-        sub_doc = Document(out_file)
+        sub_doc = Document(ext_out)
         sub_blocks = list(self.iter_block_items(sub_doc))
         body_element = sub_doc.element.body
 
@@ -90,7 +93,7 @@ class DocxSplitter:
         # Run the Garbage Collector to remove orphaned Visio/Image bloat!
         self._prune_unused_media(sub_doc)
 
-        sub_doc.save(out_file)
+        sub_doc.save(ext_out)
 
         if progress_callback:
             progress_callback(section['title'])
@@ -98,9 +101,9 @@ class DocxSplitter:
         return out_file
 
     def split(self, target_clause_prefix: str, split_depth: int, output_dir: str, progress_callback=None):
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        os.makedirs(to_extended_path(output_dir), exist_ok=True)
 
-        doc = Document(self.file_path)
+        doc = Document(to_extended_path(self.file_path))
         blocks = list(self.iter_block_items(doc))
 
         # 1. Map ALL structural boundaries first (same depth or higher)

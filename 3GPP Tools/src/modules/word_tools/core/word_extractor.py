@@ -1,7 +1,9 @@
 import zipfile
 import logging
 import io
+import os
 from pathlib import Path
+from core.utils.paths import to_extended_path
 from PyQt5.QtCore import QThread, pyqtSignal
 
 logger = logging.getLogger(__name__)
@@ -20,12 +22,12 @@ class WordExtractorThread(QThread):
         extracted_files = []
 
         try:
-            with zipfile.ZipFile(self.docx_path, 'r') as z:
+            with zipfile.ZipFile(to_extended_path(self.docx_path), 'r') as z:
                 direct_vsdx = [f for f in z.namelist() if f.endswith('.vsdx')]
                 for f in direct_vsdx:
                     data = z.read(f)
                     out_name = output_dir / f"{self.docx_path.stem}_{Path(f).name}"
-                    with open(out_name, 'wb') as out:
+                    with open(to_extended_path(out_name), 'wb') as out:
                         out.write(data)
                     extracted_files.append(out_name)
                     logger.info(f"✅ Extracted native Visio object: {out_name.name}")
@@ -41,10 +43,10 @@ class WordExtractorThread(QThread):
                                 if 'visio/document.xml' in test_z.namelist() or '[Content_Types].xml' in test_z.namelist():
                                     out_name = output_dir / f"{self.docx_path.stem}_embedded_{i + 1}.vsdx"
                                     counter = 1
-                                    while out_name.exists():
+                                    while os.path.exists(to_extended_path(out_name)):
                                         out_name = output_dir / f"{self.docx_path.stem}_embedded_{i + 1}_{counter}.vsdx"
                                         counter += 1
-                                    with open(out_name, 'wb') as out:
+                                    with open(to_extended_path(out_name), 'wb') as out:
                                         out.write(vsdx_data)
                                     extracted_files.append(out_name)
                                     logger.info(f"✅ Extracted OLE Visio object: {out_name.name}")

@@ -43,6 +43,10 @@ import sys
 import time
 import zipfile
 from pathlib import Path
+_worker_src = Path(__file__).resolve().parent.parent.parent.parent
+if str(_worker_src) not in sys.path:
+    sys.path.insert(0, str(_worker_src))
+from core.utils.paths import to_extended_path
 from typing import List, Set, Tuple
 
 from lxml import etree
@@ -163,7 +167,8 @@ def make_fragment(source: Path, target: Path, ranges: List[Tuple[int, int]]) -> 
     # seek operations and avoids triggering synchronous endpoint security (EDR/AV)
     # file-system scanning on individual ZIP part reads.
     t0 = time.perf_counter()
-    source_bytes = source.read_bytes()
+    with open(to_extended_path(source), 'rb') as _sf:
+        source_bytes = _sf.read()
     with zipfile.ZipFile(io.BytesIO(source_bytes), "r") as zin:
         doc_xml_bytes = zin.read("word/document.xml")
         try:
@@ -365,20 +370,22 @@ def make_fragment(source: Path, target: Path, ranges: List[Tuple[int, int]]) -> 
                 # Stream remaining parts (styles, numbering, themes, settings) untouched
                 zout.writestr(item, zin.read(filename))
 
-    shutil.copy2(source, target)
+    ext_target = to_extended_path(target)
+    shutil.copy2(to_extended_path(source), ext_target)
     try:
-        os.chmod(target, stat.S_IWRITE | stat.S_IREAD)
+        os.chmod(ext_target, stat.S_IWRITE | stat.S_IREAD)
     except OSError:
         pass
 
     # Remove Windows Mark-of-the-Web (Zone.Identifier alternate data stream) copied
     # by shutil.copy2 from downloaded 3GPP ZIPs, preventing Word Protected View locks
     try:
-        os.remove(f"{target}:Zone.Identifier")
+        os.remove(f"{ext_target}:Zone.Identifier")
     except OSError:
         pass
 
-    target.write_bytes(out_buffer.getvalue())
+    with open(ext_target, 'wb') as _tf:
+        _tf.write(out_buffer.getvalue())
     t_write = time.perf_counter() - t0
 
     elapsed = time.perf_counter() - t_start

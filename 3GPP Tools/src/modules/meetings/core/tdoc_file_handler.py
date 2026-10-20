@@ -1,5 +1,6 @@
 # --- File: src/modules/meetings/core/tdoc_file_handler.py ---
 import logging
+import os
 import shutil
 import zipfile
 from pathlib import Path
@@ -22,10 +23,12 @@ class TDocFileHandler:
         :return: A list of Path objects pointing to the extracted documents.
         """
         zip_path = tdoc_dir / f"{target_filename}.zip"
+        ext_zip_path = to_extended_path(zip_path)
+        ext_tdoc_dir = to_extended_path(tdoc_dir)
 
         # 1. Download if missing
-        if not zip_path.exists():
-            tdoc_dir.mkdir(parents=True, exist_ok=True)
+        if not os.path.exists(ext_zip_path):
+            os.makedirs(ext_tdoc_dir, exist_ok=True)
             dl_url = base_url.rstrip('/') + f"/{target_filename}.zip"
 
             logging.info(f"🌐 [HTTP GET] Requesting: {dl_url}")
@@ -37,7 +40,7 @@ class TDocFileHandler:
             response.raise_for_status()
 
             total_bytes = 0
-            with open(zip_path, 'wb') as f:
+            with open(ext_zip_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=16384):
                     if chunk:
                         f.write(chunk)
@@ -50,7 +53,7 @@ class TDocFileHandler:
 
         # 2. Extract and Rename
         extracted_files = []
-        with zipfile.ZipFile(zip_path, 'r') as z:
+        with zipfile.ZipFile(ext_zip_path, 'r') as z:
             for info in z.infolist():
                 if '__MACOSX' in info.filename or info.filename.startswith('._'):
                     continue
@@ -66,7 +69,7 @@ class TDocFileHandler:
                     out_path = tdoc_dir / safe_name
                     ext_out_path = to_extended_path(out_path)
 
-                    if not Path(ext_out_path).exists():
+                    if not os.path.exists(ext_out_path):
                         with z.open(info.filename) as source, open(ext_out_path, 'wb') as target:
                             shutil.copyfileobj(source, target)
                         logging.info(f"📂 [EXTRACTED] Saved: {out_path.name}")

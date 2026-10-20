@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
 
+from core.utils.paths import to_extended_path
 from modules.word_tools.core.word_config import WordConfig
 
 LIBREOFFICE_DOWNLOAD_URL = "https://portableapps.com/apps/office/libreoffice_portable"
@@ -214,7 +215,7 @@ def convert_document_libreoffice(
     if not runtime:
         raise RuntimeError(get_libreoffice_missing_msg())
 
-    target.parent.mkdir(parents=True, exist_ok=True)
+    os.makedirs(to_extended_path(target.parent), exist_ok=True)
     if target.exists():
         _sanitize(target)
         target.unlink()
@@ -265,7 +266,7 @@ def convert_document_libreoffice(
                 f"(exit code {proc.returncode}). {details}"
             )
 
-        shutil.copy2(expected, target)
+        shutil.copy2(to_extended_path(expected), to_extended_path(target))
         _sanitize(target)
         return target
     finally:

@@ -1,6 +1,8 @@
 # --- File: modules/meetings/core/tdocs_cacher.py ---
 import logging
+import os
 import re
+from core.utils.paths import to_extended_path
 from pathlib import Path
 from urllib.parse import urljoin, unquote
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -106,19 +108,22 @@ class TDocsCacherThread(QThread):
         """Worker function to download a single file."""
         if self.is_cancelled or self.isInterruptionRequested():
             return False
+        ext_target_file = to_extended_path(target_file)
+        ext_target_dir = to_extended_path(target_dir)
+
         # ONLY download if the file is not present
-        if target_file.exists():
+        if os.path.exists(ext_target_file):
             return False
 
-            # Create subfolders if necessary
-        target_dir.mkdir(parents=True, exist_ok=True)
+        # Create subfolders if necessary
+        os.makedirs(ext_target_dir, exist_ok=True)
 
         # Inherit humanness and proxy rules
         NetworkSession.apply_humanness(session)
         response = session.get(file_url, stream=True, timeout=60)
         response.raise_for_status()
 
-        with open(target_file, 'wb') as f:
+        with open(ext_target_file, 'wb') as f:
             # ---> OPTIMIZATION: Increased chunk size from 16KB to 64KB
             for chunk in response.iter_content(chunk_size=65536):
                 if chunk:
