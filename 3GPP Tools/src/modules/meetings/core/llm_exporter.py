@@ -1,7 +1,9 @@
 import logging
 import os
 import re
+import shutil
 from pathlib import Path
+from typing import List, Optional
 
 import pythoncom
 import win32com.client
@@ -12,225 +14,223 @@ from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdoc_markdown_converter import (
     convert_document_to_markdown,
     sanitize_filename,
+    write_index,
+    ExportedDoc,
 )
 
-LLM_EXTRACTOR_VERSION = "2.0.0"
+TDOC_MD_EXTRACTOR_VERSION = "2.0.0"
+LLM_EXTRACTOR_VERSION = TDOC_MD_EXTRACTOR_VERSION  # Backwards-compatible alias
 
 
-class LLMExporterThread(QThread):
+class TDocMarkdownExporterThread(QThread):
+    """
+    Asynchronous worker to convert and export 3GPP Technical Documents (.docx/.doc)
+    into high-fidelity, standalone Markdown (.md) documents and an index.md manifest.
+    """
     finished = pyqtSignal(bool, str)
     progress = pyqtSignal(str)
 
-    def __init__(self, meeting_dir: Path, tdocs_list: list, docs_ftp_url: str, revisions_url: str,
-                 is_bulk: bool = True, max_chars: int = 200000, system_prompt: str = ""):
+    def __init__(
+        self,
+        meeting_dir: Path,
+        tdocs_list: list,
+        docs_ftp_url: str,
+        revisions_url: str,
+        is_bulk: bool = True,
+        output_dir: Optional[Path] = None,
+        *args,
+        **kwargs,
+    ):
         super().__init__()
-        self.meeting_dir = meeting_dir
+        self.meeting_dir = Path(meeting_dir)
         self.tdocs_list = tdocs_list
         self.docs_ftp_url = docs_ftp_url
         self.revisions_url = revisions_url
         self.is_bulk = is_bulk
-        self.max_chars = max_chars
-
-        self.system_prompt = system_prompt or self._get_default_prompt()
-        self.export_dir = self.meeting_dir / "Export" / "LLM_Corpus"
-
-    def _get_default_prompt(self):
-        """Fallback prompt just in case the configuration fails to load."""
-        return (
-            "This file contains a programmatic compilation of 3GPP Technical Documents (TDocs). "
-            "These documents represent telecommunications standards proposals, revisions, and working group agreements.\n\n"
-            "**Structural Rules for parsing this text:**\n"
-            "- `[ADDED BLOCK]:` Denotes entirely new text inserted into the specification where tracking wasn't explicitly isolated.\n"
-            "- `[INSERTED: <text>]`: Denotes specific inline text additions explicitly marked via Word Track Changes.\n"
-            "- `[DELETED: <text>]`: Denotes specific inline text removals explicitly marked via Word Track Changes.\n\n"
-            "**Your Task:** Please use this corpus to analyze technical agreements, architectural changes, or contradictions within this specific Agenda Item."
-        )
-
-    def _save_chunk(self, mega_file: Path, text: str, items: list):
-        """Saves the aggregated mega-file and creates a companion subfolder with individual markdown files."""
-        os.makedirs(to_extended_path(mega_file.parent), exist_ok=True)
-        with open(to_extended_path(mega_file), "w", encoding="utf-8") as f:
-            f.write(text)
-
-        # Companion subfolder with identical base name
-        subfolder = mega_file.parent / mega_file.stem
-        os.makedirs(to_extended_path(subfolder), exist_ok=True)
-
-        for tdoc_text, tdoc_id in items:
-            clean_text = tdoc_text.rstrip().removesuffix("---").rstrip() + "\n"
-            indiv_file = subfolder / f"{sanitize_filename(tdoc_id)}.md"
-            with open(to_extended_path(indiv_file), "w", encoding="utf-8") as f:
-                f.write(clean_text)
+        self.export_dir = Path(output_dir) if output_dir else (self.meeting_dir / "Export" / "Markdown")
+        self.media_dir = self.export_dir / "media"
 
     def run(self):
         word_app = None
         try:
             pythoncom.CoInitialize()
             os.makedirs(to_extended_path(self.export_dir), exist_ok=True)
+            os.makedirs(to_extended_path(self.media_dir), exist_ok=True)
 
-            corpus = {}
-            saved_files = []
+            exported_docs: List[ExportedDoc] = []
+            failed_tdocs: List[str] = []
+            total = len(self.tdocs_list)
 
-            for tdoc_data in self.tdocs_list:
+            for idx, tdoc_data in enumerate(self.tdocs_list, 1):
                 if self.isInterruptionRequested():
+                    logging.info("[Markdown Exporter] Interruption requested by user. Halting.")
                     break
+
                 tdoc_id = str(tdoc_data.get("TDoc", "")).strip()
                 if not tdoc_id:
                     continue
 
                 base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
                 base_tdoc = base_match.group(1).upper() if base_match else tdoc_id.upper()
-
-                raw_ai = str(tdoc_data.get("Agenda Item", "Unknown")).strip()
-                ai = sanitize_filename(raw_ai.replace(" ", "_"))
-
                 doc_type = str(tdoc_data.get("Type", "Other"))
+                raw_ai = str(tdoc_data.get("Agenda Item", "Unknown")).strip()
+                title = str(tdoc_data.get("Title", "")).strip()
+                status = str(tdoc_data.get("TDoc Status", "")).strip()
 
-                if "CR" in doc_type or "pCR" in doc_type:
-                    category = "CRs"
-                elif "LS" in doc_type:
-                    category = "LSs"
-                else:
-                    category = "Discussion_Papers"
-
-                msg = f"Processing {tdoc_id}..."
+                msg = f"Processing {tdoc_id} ({idx}/{total})..."
                 self.progress.emit(msg)
-                logging.info(f"[LLM Exporter] {msg}")
+                logging.info(f"[Markdown Exporter] {msg}")
 
                 tdoc_folder = self.meeting_dir / base_tdoc
-                cache_file = tdoc_folder / f"{tdoc_id}_LLM_v{LLM_EXTRACTOR_VERSION}.md"
+                cache_file = tdoc_folder / f"{tdoc_id}_LLM_v{TDOC_MD_EXTRACTOR_VERSION}.md"
                 ext_cache_file = to_extended_path(cache_file)
+                target_md_file = self.export_dir / f"{sanitize_filename(tdoc_id)}.md"
 
-                md_content = ""
+                doc_obj: Optional[ExportedDoc] = None
+
+                # 1. Use local cached conversion if available
                 if os.path.exists(ext_cache_file):
-                    logging.info(f"[LLM Exporter] Found local cache for {tdoc_id}")
-                    with open(ext_cache_file, "r", encoding="utf-8") as f:
-                        md_content = f.read()
-                else:
+                    logging.info(f"[Markdown Exporter] Using local conversion cache for {tdoc_id}")
+                    try:
+                        with open(ext_cache_file, "r", encoding="utf-8") as f:
+                            md_content = f.read()
+
+                        # Write to export folder
+                        with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
+                            f.write(md_content)
+
+                        images_count = 0
+                        cached_media = tdoc_folder / "media"
+                        if cached_media.is_dir():
+                            for img in cached_media.glob(f"{tdoc_id}_*"):
+                                images_count += 1
+                                dst = self.media_dir / img.name
+                                if not dst.exists():
+                                    try:
+                                        shutil.copy2(to_extended_path(img), to_extended_path(dst))
+                                    except Exception:
+                                        pass
+
+                        doc_obj = ExportedDoc(
+                            tdoc_id=tdoc_id,
+                            name=tdoc_id,
+                            md_path=target_md_file,
+                            text=md_content,
+                            meta=tdoc_data,
+                            doc_type=doc_type,
+                            agenda_item=raw_ai,
+                            title=title,
+                            status=status,
+                            images=images_count,
+                            warnings=[],
+                        )
+                    except Exception as cache_err:
+                        logging.warning(f"[Markdown Exporter] Failed reading cache for {tdoc_id}: {cache_err}")
+
+                # 2. Convert from source document if not cached
+                if not doc_obj:
                     doc_path = self._find_word_doc(tdoc_folder, tdoc_id)
                     if not doc_path:
                         dl_msg = f"Downloading missing TDoc: {tdoc_id}..."
                         self.progress.emit(dl_msg)
-                        logging.info(f"[LLM Exporter] {dl_msg}")
+                        logging.info(f"[Markdown Exporter] {dl_msg}")
                         doc_path = self._download_and_extract_tdoc(tdoc_id, tdoc_folder)
 
                     if doc_path:
-                        ext_msg = f"Extracting {tdoc_id} to Markdown..."
+                        ext_msg = f"Converting {tdoc_id} to Markdown..."
                         self.progress.emit(ext_msg)
-                        logging.info(f"[LLM Exporter] {ext_msg}")
+                        logging.info(f"[Markdown Exporter] {ext_msg}")
                         try:
                             # Primary engine: Direct OpenXML extraction with tables, diagrams & track changes
-                            media_out = self.export_dir / "media" if self.is_bulk else tdoc_folder / "media"
-                            exported_doc = convert_document_to_markdown(
+                            doc_obj = convert_document_to_markdown(
                                 doc_path,
-                                out_dir=tdoc_folder,
+                                out_dir=self.export_dir,
                                 tdoc_id=tdoc_id,
                                 meta=tdoc_data,
                                 revisions="markup",
-                                media_dir=media_out,
+                                media_dir=self.media_dir,
                                 media_rel="media",
                                 cancellation_check=self.isInterruptionRequested,
                             )
-                            md_content = exported_doc.text
+                            # Update local cache in tdoc folder for future AI triage / re-exports
+                            if doc_obj and doc_obj.text:
+                                try:
+                                    os.makedirs(to_extended_path(cache_file.parent), exist_ok=True)
+                                    with open(ext_cache_file, "w", encoding="utf-8") as f:
+                                        f.write(doc_obj.text)
+                                except Exception:
+                                    pass
+
                         except Exception as conv_err:
                             logging.warning(
-                                f"[LLM Exporter] Direct OpenXML conversion failed for {tdoc_id} ({conv_err}). "
+                                f"[Markdown Exporter] Direct OpenXML conversion failed for {tdoc_id} ({conv_err}). "
                                 f"Attempting Word COM fallback..."
                             )
                             if not word_app:
                                 word_app = win32com.client.DispatchEx("Word.Application")
                                 word_app.Visible = False
                                 word_app.DisplayAlerts = 0
-                            md_content = self._extract_from_word(word_app, doc_path, doc_type)
 
-                        if md_content:
-                            os.makedirs(to_extended_path(cache_file.parent), exist_ok=True)
-                            with open(ext_cache_file, "w", encoding="utf-8") as f:
-                                f.write(md_content)
-                    else:
-                        warn_msg = f"> ⚠️ Could not locate or download an unzipped Word document for {tdoc_id}.\n"
-                        self.progress.emit(f"Failed to find Word doc for {tdoc_id}")
-                        logging.warning(f"[LLM Exporter] {warn_msg}")
-                        md_content = warn_msg
+                            md_text = self._extract_from_word(word_app, doc_path, doc_type)
+                            if md_text and not md_text.startswith("Error"):
+                                if not md_text.strip().startswith(f"# {tdoc_id}"):
+                                    header = f"# {tdoc_id}: {title}\n**Source:** {tdoc_data.get('Source', '')}\n**Agenda Item:** {raw_ai}\n\n---\n\n"
+                                    md_text = header + md_text
 
-                if ai not in corpus:
-                    corpus[ai] = {}
-                if category not in corpus[ai]:
-                    corpus[ai][category] = []
+                                with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
+                                    f.write(md_text)
 
-                if md_content.strip().startswith(f"# {tdoc_id}"):
-                    full_tdoc_text = md_content.rstrip() + "\n\n---\n"
-                else:
-                    header = f"# TDoc: {tdoc_id}\n**Title:** {tdoc_data.get('Title', '')}\n**Source:** {tdoc_data.get('Source', '')}\n\n"
-                    full_tdoc_text = header + md_content + "\n\n---\n"
-                corpus[ai][category].append((full_tdoc_text, tdoc_id))
+                                try:
+                                    os.makedirs(to_extended_path(cache_file.parent), exist_ok=True)
+                                    with open(ext_cache_file, "w", encoding="utf-8") as f:
+                                        f.write(md_text)
+                                except Exception:
+                                    pass
+
+                                doc_obj = ExportedDoc(
+                                    tdoc_id=tdoc_id,
+                                    name=tdoc_id,
+                                    md_path=target_md_file,
+                                    text=md_text,
+                                    meta=tdoc_data,
+                                    doc_type=doc_type,
+                                    agenda_item=raw_ai,
+                                    title=title,
+                                    status=status,
+                                    images=0,
+                                    warnings=[],
+                                )
+
+                    if not doc_obj:
+                        warn_msg = f"Could not convert {tdoc_id} (missing or invalid Word document)."
+                        logging.warning(f"[Markdown Exporter] {warn_msg}")
+                        failed_tdocs.append(tdoc_id)
+
+                if doc_obj:
+                    exported_docs.append(doc_obj)
+
+            # 3. Create index.md manifest for multi-file exports
+            if exported_docs:
+                try:
+                    write_index(self.export_dir, exported_docs)
+                    logging.info(f"[Markdown Exporter] Wrote index manifest in {self.export_dir}")
+                except Exception as idx_err:
+                    logging.warning(f"[Markdown Exporter] Could not write index.md: {idx_err}")
 
             if self.is_bulk:
-                for ai, categories in corpus.items():
-                    for category, contents in categories.items():
-                        context_header = (
-                            f"# 3GPP LLM Corpus\n"
-                            f"**Agenda Item:** {ai}\n"
-                            f"**Document Category:** {category}\n\n"
-                            f"## Context Guide for LLM\n"
-                            f"{self.system_prompt}\n\n"
-                            f"---\n\n"
-                        )
-
-                        chunk_idx = 1
-                        current_text = context_header
-                        current_items = []
-                        has_content = False
-
-                        for tdoc_text, tdoc_id in contents:
-                            if len(tdoc_text) > self.max_chars:
-                                warn_msg = f"⚠️ Skipped {tdoc_id}: Size ({len(tdoc_text)} chars) exceeds configured limit of {self.max_chars}."
-                                logging.warning(f"[LLM Exporter] {warn_msg}")
-                                self.progress.emit(warn_msg)
-                                continue
-
-                            if len(current_text) + len(tdoc_text) > self.max_chars and has_content:
-                                suffix = f"_Part{chunk_idx}"
-                                safe_ai = sanitize_filename(ai)
-                                safe_cat = sanitize_filename(category)
-                                mega_file = self.export_dir / f"AI_{safe_ai}_Agreed_{safe_cat}{suffix}.md"
-
-                                self._save_chunk(mega_file, current_text, current_items)
-                                saved_files.append(mega_file.name)
-
-                                chunk_idx += 1
-                                current_text = context_header + tdoc_text
-                                current_items = [(tdoc_text, tdoc_id)]
-                                has_content = True
-                            else:
-                                current_text += tdoc_text
-                                current_items.append((tdoc_text, tdoc_id))
-                                has_content = True
-
-                        if has_content:
-                            suffix = f"_Part{chunk_idx}" if chunk_idx > 1 else ""
-                            safe_ai = sanitize_filename(ai)
-                            safe_cat = sanitize_filename(category)
-                            mega_file = self.export_dir / f"AI_{safe_ai}_Agreed_{safe_cat}{suffix}.md"
-
-                            self._save_chunk(mega_file, current_text, current_items)
-                            saved_files.append(mega_file.name)
-
-                self.finished.emit(True, f"Generated {len(saved_files)} Mega-Files and document subfolders in:\n{self.export_dir}")
+                msg = f"Successfully exported {len(exported_docs)} Markdown document(s) and index manifest to:\n{self.export_dir}"
             else:
-                saved_single = []
-                for ai, categories in corpus.items():
-                    for category, contents in categories.items():
-                        for tdoc_text, tdoc_id in contents:
-                            clean_text = tdoc_text.rstrip().removesuffix("---").rstrip() + "\n"
-                            single_file = self.export_dir / f"{sanitize_filename(tdoc_id)}.md"
-                            with open(to_extended_path(single_file), "w", encoding="utf-8") as f:
-                                f.write(clean_text)
-                            saved_single.append(single_file.name)
-                self.finished.emit(True, f"Exported individual file(s) ({', '.join(saved_single)}) to:\n{self.export_dir}")
+                names = ", ".join(d.name for d in exported_docs)
+                msg = f"Successfully exported {names} to:\n{self.export_dir}"
+
+            if failed_tdocs:
+                sample_failed = ", ".join(failed_tdocs[:5])
+                msg += f"\n\n⚠️ Failed to convert ({len(failed_tdocs)} document(s)): {sample_failed}{'...' if len(failed_tdocs) > 5 else ''}"
+
+            self.finished.emit(True, msg)
 
         except Exception as e:
-            logging.error(f"[LLM Exporter] Critical thread failure: {e}", exc_info=True)
+            logging.error(f"[Markdown Exporter] Critical thread failure: {e}", exc_info=True)
             self.finished.emit(False, str(e))
         finally:
             if word_app:
@@ -242,7 +242,7 @@ class LLMExporterThread(QThread):
                 del word_app
             pythoncom.CoUninitialize()
 
-    def _find_word_doc(self, folder: Path, tdoc_id: str):
+    def _find_word_doc(self, folder: Path, tdoc_id: str) -> Optional[Path]:
         if not folder.exists():
             return None
         for ext in [".docx", ".doc"]:
@@ -254,23 +254,23 @@ class LLMExporterThread(QThread):
                 return files[0]
         return None
 
-    def _download_and_extract_tdoc(self, tdoc_id: str, tdoc_folder: Path):
+    def _download_and_extract_tdoc(self, tdoc_id: str, tdoc_folder: Path) -> Optional[Path]:
         base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
         is_revision = bool(base_match)
 
         base_url = self.revisions_url if (is_revision and self.revisions_url) else self.docs_ftp_url
         if not base_url:
-            logging.error(f"[LLM Exporter] No base URL configured for downloading {tdoc_id}")
+            logging.error(f"[Markdown Exporter] No base URL configured for downloading {tdoc_id}")
             return None
 
         try:
-            logging.info(f"[LLM Exporter] Triggering TDocFileHandler for {tdoc_id} against {base_url}")
+            logging.info(f"[Markdown Exporter] Triggering TDocFileHandler for {tdoc_id} against {base_url}")
             TDocFileHandler.download_and_extract_tdoc(tdoc_id, base_url, tdoc_folder)
             return self._find_word_doc(tdoc_folder, tdoc_id)
         except Exception as e:
             err_msg = f"Failed to download {tdoc_id}: {str(e)}"
             self.progress.emit(err_msg)
-            logging.error(f"[LLM Exporter] {err_msg}", exc_info=True)
+            logging.error(f"[Markdown Exporter] {err_msg}", exc_info=True)
             return None
 
     def _extract_from_word(self, word_app, doc_path: Path, doc_type: str) -> str:
@@ -278,7 +278,6 @@ class LLMExporterThread(QThread):
         try:
             doc = word_app.Documents.Open(str(doc_path), False, True, False)
             md_lines = []
-
             in_new_block = False
 
             all_new_trigger = re.compile(r'(?i)all (?:new )?text (?:is )?(?:new|added)')
@@ -308,12 +307,12 @@ class LLMExporterThread(QThread):
 
                 if all_new_trigger.search(text):
                     in_new_block = True
-                    md_lines.append(f"\n> **Note to LLM:** Entering 'All Text New' block.\n")
+                    md_lines.append("\n> **Note:** Entering 'All Text New' block.\n")
                     continue
 
                 if "Heading" in style_name and words and placeholder_clause_trigger.match(words[0]):
                     in_new_block = True
-                    md_lines.append(f"\n> **Note to LLM:** Entering placeholder clause '{words[0]}'.\n")
+                    md_lines.append(f"\n> **Note:** Entering placeholder clause '{words[0]}'.\n")
 
                 if in_new_block:
                     md_lines.append(f"[ADDED BLOCK]: {text}")
@@ -354,3 +353,7 @@ class LLMExporterThread(QThread):
                     doc.Close(SaveChanges=False)
                 except Exception:
                     pass
+
+
+# Backwards compatibility alias
+LLMExporterThread = TDocMarkdownExporterThread

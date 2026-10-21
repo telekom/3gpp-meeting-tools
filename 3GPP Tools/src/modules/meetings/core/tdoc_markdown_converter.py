@@ -163,7 +163,7 @@ def export_corpus(
     if output_dir is None:
         source = Path(input_path)
         base = source if source.is_dir() else source.parent
-        output_dir = base / "Export" / "LLM_Corpus"
+        output_dir = base / "Export" / "Markdown"
     return _core.run(
         input_path, output_dir=output_dir, excel=excel, bulk=bulk,
         max_chars=max_chars, revisions=revisions, image_dpi=image_dpi,
@@ -179,7 +179,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         description="Convert 3GPP TDocs (.docx/.doc/.zip) to Markdown with track changes, tables, and images."
     )
     ap.add_argument("input", help="A .docx/.doc/.zip file, a TDoc folder, or a meeting folder")
-    ap.add_argument("-o", "--output-dir", help="Output directory (default: <input>/Export/LLM_Corpus)")
+    ap.add_argument("-o", "--output-dir", help="Output directory (default: <input>/Export/Markdown)")
     ap.add_argument("--excel", help="3GPP TDoc list (.xlsx) for metadata")
     ap.add_argument("--bulk", action="store_true", help="Generate per-Agenda Item corpus mega-files")
     ap.add_argument("--max-chars", type=int, default=200000, help="Max characters per bulk corpus file")

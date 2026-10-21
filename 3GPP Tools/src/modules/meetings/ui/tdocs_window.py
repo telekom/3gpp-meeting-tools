@@ -29,7 +29,10 @@ from modules.meetings.core.agenda_manager import AgendaManager, AgendaDownloader
 from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
 from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.excel_exporter import ExcelExporterThread
-from modules.meetings.core.llm_exporter import LLMExporterThread
+from modules.meetings.core.llm_exporter import (
+    TDocMarkdownExporterThread,
+    LLMExporterThread,
+)
 from modules.meetings.core.markdown_exporter import MarkdownExporterThread
 from modules.meetings.core.stats.exporter_thread import StatisticsExporterThread
 from modules.meetings.core.tdocs_db import TDocsDatabase
@@ -283,14 +286,13 @@ class TDocsWindow(QWidget):
         )
         act_export_package.setStatusTip(act_export_package.toolTip())
 
-        act_export_llm = export_menu.addAction(
-            "🤖 Export Visible to LLM (Corpus)", self._export_llm_visible
+        act_export_md = export_menu.addAction(
+            "📄 Export TDocs to Markdown (.md)", self._export_markdown_visible
         )
-        act_export_llm.setToolTip(
-            "Compile all currently visible/filtered TDocs into an LLM-ready Markdown corpus, "
-            "using the configured corpus size and system-prompt settings."
+        act_export_md.setToolTip(
+            "Convert and export all currently visible/filtered TDocs to individual Markdown (.md) documents with an index manifest."
         )
-        act_export_llm.setStatusTip(act_export_llm.toolTip())
+        act_export_md.setStatusTip(act_export_md.toolTip())
 
         act_export_reports = export_menu.addAction(
             "📝 Export Markdown Summary Reports", self._export_reports
@@ -1149,7 +1151,7 @@ class TDocsWindow(QWidget):
         QApplication.clipboard().setText("\n".join(lines))
         QToolTip.showText(QCursor.pos(), "📋 Copied to clipboard!", self.table)
 
-    def _export_llm_visible(self):
+    def _export_markdown_visible(self):
         visible_tdocs = []
         for r in range(self.proxy.rowCount()):
             index = self.proxy.index(r, 0)
@@ -1160,67 +1162,73 @@ class TDocsWindow(QWidget):
         if not visible_tdocs:
             return QMessageBox.warning(self, "Empty View", "No TDocs currently visible in the table to export.")
 
-        self.export_btn.setText("⏳ Compiling Corpus...")
+        self.export_btn.setText("⏳ Exporting Markdown...")
         self.export_btn.setEnabled(False)
 
-        config = StatisticsSettingsDialog().load_config()
-        max_chars = config.get("llm_max_chars", 200000)
-        system_prompt = config.get("llm_system_prompt", "")
-
-        self.llm_thread = LLMExporterThread(
+        self.md_export_thread = TDocMarkdownExporterThread(
             self.meeting_dir,
             visible_tdocs,
             self.docs_ftp_url,
             self.revisions_url,
             is_bulk=True,
-            max_chars=max_chars,
-            system_prompt=system_prompt
         )
-        self.llm_thread.progress.connect(self._on_llm_progress)
-        self.llm_thread.finished.connect(self._on_llm_export_finished)
-        self.llm_thread.start()
+        self.llm_thread = self.md_export_thread  # Kept for window cleanup safety
+        self.md_export_thread.progress.connect(self._on_md_progress)
+        self.md_export_thread.finished.connect(self._on_md_export_finished)
+        self.md_export_thread.start()
 
-    def _export_llm_single(self, tdoc_id: str):
+    # Backwards compatibility alias
+    _export_llm_visible = _export_markdown_visible
+
+    def _export_markdown_single(self, tdoc_id: str):
         row_data = next((r for r in self.model._data if r.get("TDoc") == tdoc_id), None)
         if not row_data:
             return
 
-        config = StatisticsSettingsDialog().load_config()
-        max_chars = config.get("llm_max_chars", 200000)
-        system_prompt = config.get("llm_system_prompt", "")
+        self.export_btn.setText("⏳ Exporting Markdown...")
+        self.export_btn.setEnabled(False)
 
-        self.llm_thread = LLMExporterThread(
+        self.md_export_thread = TDocMarkdownExporterThread(
             self.meeting_dir,
             [row_data],
             self.docs_ftp_url,
             self.revisions_url,
             is_bulk=False,
-            max_chars=max_chars,
-            system_prompt=system_prompt
         )
-        self.llm_thread.progress.connect(self._on_llm_progress)
-        self.llm_thread.finished.connect(self._on_llm_single_finished)
-        self.llm_thread.start()
+        self.llm_thread = self.md_export_thread  # Kept for window cleanup safety
+        self.md_export_thread.progress.connect(self._on_md_progress)
+        self.md_export_thread.finished.connect(self._on_md_single_finished)
+        self.md_export_thread.start()
 
-    def _on_llm_single_finished(self, success: bool, msg: str):
+    # Backwards compatibility alias
+    _export_llm_single = _export_markdown_single
+
+    def _on_md_single_finished(self, success: bool, msg: str):
         self.export_btn.setText("📤 Export ▾")
         self.export_btn.setEnabled(True)
         if success:
-            QMessageBox.information(self, "LLM Export", msg)
+            QMessageBox.information(self, "Markdown Export", msg)
+            _open_folder(self.meeting_dir / "Export" / "Markdown")
         else:
             QMessageBox.warning(self, "Export Failed", msg)
 
-    def _on_llm_progress(self, msg: str):
+    _on_llm_single_finished = _on_md_single_finished
+
+    def _on_md_progress(self, msg: str):
         self.export_btn.setText(f"⏳ {msg}"[:35])
 
-    def _on_llm_export_finished(self, success: bool, msg: str):
+    _on_llm_progress = _on_md_progress
+
+    def _on_md_export_finished(self, success: bool, msg: str):
         self.export_btn.setText("📤 Export ▾")
         self.export_btn.setEnabled(True)
         if success:
-            QMessageBox.information(self, "LLM Export Complete", msg)
-            _open_folder(self.meeting_dir / "Export" / "LLM_Corpus")
+            QMessageBox.information(self, "Markdown Export Complete", msg)
+            _open_folder(self.meeting_dir / "Export" / "Markdown")
         else:
             QMessageBox.warning(self, "Export Failed", msg)
+
+    _on_llm_export_finished = _on_md_export_finished
 
     def _get_tdoc_prefix(self):
         first_tdoc = self.mtg_info.get("first_tdoc", "")
