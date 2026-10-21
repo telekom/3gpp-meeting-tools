@@ -93,10 +93,11 @@ python -m main_tools
 - **Document Slicing:** Splits massive specification `.docx` files by heading level (`Heading 1`, `Heading 2`, etc.) using `python-docx`.
 - **Document Comparison:** Automates Microsoft Word COM (`win32com.client`) to generate legal redline comparisons between two `.docx` or `.doc` revisions.
 
-### 4.3. Specification Search (`src/modules/spec_search`)
+### 4.3. Specifications & Search (`src/modules/specifications`, `src/modules/spec_search`)
 - **FTS5 Trigram Substring Search:** Utilizes SQLite FTS5 configured with `tokenize="trigram"` in `3gpp_spec_search.db` for arbitrary substring, field, and acronym lookups.
 - **Release Matrix & "First Added":** Visual matrix displaying text evolution (`🟢 Added`, `✓ Present`, `🔴 Removed`) across chronological releases.
 - **Multi-Part Document Parser:** Automatically chains and sequences multi-part split documents (e.g., `_s00_s04.docx`, `_s05_s08.docx`) into a unified release model using direct `lxml` OpenXML parsing without Word COM overhead.
+- **Specification Markdown Export (`spec_markdown_converter.py`):** Converts 3GPP specifications into high-fidelity Markdown with version-isolated media directories (`<stem>_media/` or `<stem>_clauses/media/`). Supports both Mode 1 (unified document `<stem>.md`) and Mode 2 (clause-split dossier `<stem>_clauses/` with `index.md` table of contents). Automatically sequences multi-part specifications (`_s00_s04`, etc.) and seamlessly handles legacy `.doc` archives.
 
 ### 4.4. Protocol Matrix & Inspector (`src/modules/nas`)
 - **Multi-Protocol Support:** Covers 5GS NAS (TS 24.501), EPS NAS (TS 24.301), NR RRC (TS 38.331), LTE RRC (TS 36.331), NGAP (TS 38.413), GTPv1-U (TS 29.281), PDU Session UP (TS 38.415), and PFCP (TS 29.244).
