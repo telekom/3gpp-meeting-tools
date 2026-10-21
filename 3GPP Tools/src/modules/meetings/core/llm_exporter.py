@@ -9,17 +9,12 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.paths import to_extended_path
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
+from modules.meetings.core.tdoc_markdown_converter import (
+    convert_document_to_markdown,
+    sanitize_filename,
+)
 
-LLM_EXTRACTOR_VERSION = "1.0.0"
-
-
-def sanitize_filename(name: str) -> str:
-    """Sanitize strings for safe filesystem paths by replacing invalid characters."""
-    if not name:
-        return "Unknown"
-    sanitized = re.sub(r'[\\/*?:"<>|]', '_', str(name).strip())
-    sanitized = re.sub(r'_+', '_', sanitized)
-    return sanitized.strip(' ._') or "Unknown"
+LLM_EXTRACTOR_VERSION = "2.0.0"
 
 
 class LLMExporterThread(QThread):
@@ -120,15 +115,33 @@ class LLMExporterThread(QThread):
                         doc_path = self._download_and_extract_tdoc(tdoc_id, tdoc_folder)
 
                     if doc_path:
-                        if not word_app:
-                            word_app = win32com.client.DispatchEx("Word.Application")
-                            word_app.Visible = False
-                            word_app.DisplayAlerts = 0
-
-                        ext_msg = f"Extracting {tdoc_id}..."
+                        ext_msg = f"Extracting {tdoc_id} to Markdown..."
                         self.progress.emit(ext_msg)
                         logging.info(f"[LLM Exporter] {ext_msg}")
-                        md_content = self._extract_from_word(word_app, doc_path, doc_type)
+                        try:
+                            # Primary engine: Direct OpenXML extraction with tables, diagrams & track changes
+                            media_out = self.export_dir / "media" if self.is_bulk else tdoc_folder / "media"
+                            exported_doc = convert_document_to_markdown(
+                                doc_path,
+                                out_dir=tdoc_folder,
+                                tdoc_id=tdoc_id,
+                                meta=tdoc_data,
+                                revisions="markup",
+                                media_dir=media_out,
+                                media_rel="media",
+                                cancellation_check=self.isInterruptionRequested,
+                            )
+                            md_content = exported_doc.text
+                        except Exception as conv_err:
+                            logging.warning(
+                                f"[LLM Exporter] Direct OpenXML conversion failed for {tdoc_id} ({conv_err}). "
+                                f"Attempting Word COM fallback..."
+                            )
+                            if not word_app:
+                                word_app = win32com.client.DispatchEx("Word.Application")
+                                word_app.Visible = False
+                                word_app.DisplayAlerts = 0
+                            md_content = self._extract_from_word(word_app, doc_path, doc_type)
 
                         if md_content:
                             os.makedirs(to_extended_path(cache_file.parent), exist_ok=True)
@@ -145,8 +158,11 @@ class LLMExporterThread(QThread):
                 if category not in corpus[ai]:
                     corpus[ai][category] = []
 
-                header = f"# TDoc: {tdoc_id}\n**Title:** {tdoc_data.get('Title', '')}\n**Source:** {tdoc_data.get('Source', '')}\n\n"
-                full_tdoc_text = header + md_content + "\n\n---\n"
+                if md_content.strip().startswith(f"# {tdoc_id}"):
+                    full_tdoc_text = md_content.rstrip() + "\n\n---\n"
+                else:
+                    header = f"# TDoc: {tdoc_id}\n**Title:** {tdoc_data.get('Title', '')}\n**Source:** {tdoc_data.get('Source', '')}\n\n"
+                    full_tdoc_text = header + md_content + "\n\n---\n"
                 corpus[ai][category].append((full_tdoc_text, tdoc_id))
 
             if self.is_bulk:

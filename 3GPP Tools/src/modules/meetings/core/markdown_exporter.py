@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.paths import to_extended_path
+
 logger = logging.getLogger(__name__)
 
 
