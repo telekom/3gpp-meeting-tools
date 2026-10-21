@@ -66,4 +66,5 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
         unread_emails_count=unread_count,
         pos=window.table.viewport().mapToGlobal(pos),
         triage_callback=window._open_tdoc_triage,
+        draft_cr_callback=window._open_draft_cr_dialog,
     )

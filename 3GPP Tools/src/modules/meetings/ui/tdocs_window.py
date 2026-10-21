@@ -269,6 +269,11 @@ class TDocsWindow(QWidget):
         self.export_menu.aboutToShow.connect(self._on_export_menu_about_to_show)
         self.export_btn.setMenu(export_menu)
 
+        self.draft_cr_btn = QPushButton("📝 Draft CR / pCR")
+        self.draft_cr_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.draft_cr_btn.setToolTip("Compose a Change Request (CR) or Pseudo-CR (pCR) contribution for this meeting.")
+        self.draft_cr_btn.clicked.connect(lambda: self._open_draft_cr_dialog())
+
         self.stats_btn = QPushButton("📊 Statistics")
         self.stats_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.stats_btn.setToolTip("Generate an interactive HTML statistics dashboard for this meeting.")
@@ -326,6 +331,7 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.folder_btn)
         header_layout.addWidget(self.excel_btn)
         header_layout.addWidget(self.export_btn)
+        header_layout.addWidget(self.draft_cr_btn)
         header_layout.addWidget(self.stats_btn)
         header_layout.addWidget(self.stats_cfg_btn)
         header_layout.addWidget(self.email_btn)
@@ -1085,6 +1091,32 @@ class TDocsWindow(QWidget):
 
     def _open_excel(self):
         _open_folder(Path(self.filepath))
+
+    def _open_draft_cr_dialog(self, tdoc_row_data: dict = None):
+        from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
+
+        mtg_info = {
+            "wg_name": self.mtg_info.get("wg_name", ""),
+            "meeting_number": self.mtg_info.get("meeting_number", ""),
+            "location": self.mtg_info.get("location", ""),
+            "dates": self.mtg_info.get("dates", ""),
+            "start_date": self.mtg_info.get("start_date", ""),
+            "end_date": self.mtg_info.get("end_date", ""),
+            "title": self.mtg_info.get("title", ""),
+        }
+
+        tdoc_info = tdoc_row_data or {}
+        spec_num = tdoc_info.get("Spec", "") or tdoc_info.get("Spec#", "")
+        version = tdoc_info.get("Version", "")
+
+        dialog = CrPcrDialog(
+            spec_num=spec_num,
+            version=version,
+            meeting_info=mtg_info,
+            tdoc_info=tdoc_info,
+            parent=self,
+        )
+        dialog.show()
 
     def _open_email_manager(self):
         self.email_window = EmailManagerWindow(self.meeting_dir, {
