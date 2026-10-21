@@ -40,6 +40,15 @@ from modules.meetings.ui.contribution_dialog import ContributionReportDialog
 # Delegates extracted to meetings_delegates.py (re-exported for backward compatibility)
 from modules.meetings.ui.meetings_delegates import TDocsButtonDelegate, DynamicHoverMenuDelegate
 from modules.meetings.ui.meetings_menu import populate_meeting_context_menu
+from modules.meetings.ui.meetings_actions import (
+    open_last_meeting,
+    start_tdocs_caching,
+    on_tdocs_caching_finished,
+    export_merged_tdocs,
+    on_merger_finished,
+    open_contribution_report,
+    open_meeting_from_report,
+)
 
 
 
@@ -847,54 +856,13 @@ class MeetingsTab(QWidget):
         thread.start()
 
     def _open_last_meeting(self):
-        try:
-            last_id, last_num, last_wg = self.settings.get_last_meeting()
-
-            if not last_id or not last_num:
-                QMessageBox.information(self, "No History",
-                                        "No recent meeting history found. Please open a meeting first.")
-                return
-
-            wg_filter = [last_wg] if last_wg else None
-            results = self.db.search_meetings(wg_name=wg_filter, search_term=last_num)
-            target_meeting = next((m for m in results if m.get("mtg_id") == last_id), None)
-
-            if not target_meeting:
-                results = self.db.search_meetings(search_term=last_num)
-                target_meeting = next((m for m in results if m.get("mtg_id") == last_id), None)
-
-            display_tag = f"{last_wg}#{last_num}" if last_wg else f"'{last_num}'"
-
-            if not target_meeting:
-                QMessageBox.warning(self, "Not Found",
-                                    f"Meeting {display_tag} could not be found in the database.\nIt may have been cleared or the database was updated.")
-                return
-
-            filepath = self._get_tdoc_list_path(target_meeting)
-
-            if filepath and filepath.exists():
-                self._open_tdocs_window(target_meeting, str(filepath))
-            else:
-                self._download_and_open_tdocs(target_meeting)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Launch Error", f"Could not open last meeting:\n{e}")
+        open_last_meeting(self)
 
     def _start_tdocs_caching(self, docs_url: str, local_path: Path):
-        from modules.meetings.core.tdocs_cacher import TDocsCacherThread
-        self.update_btn.setText("⏳ Caching TDocs...")
-        self.update_btn.setEnabled(False)
-        self.cacher_thread = TDocsCacherThread(docs_url, local_path, self)
-        self.cacher_thread.finished.connect(self._on_tdocs_caching_finished)
-        self.cacher_thread.start()
+        start_tdocs_caching(self, docs_url, local_path)
 
     def _on_tdocs_caching_finished(self, success: bool, msg: str):
-        self.update_btn.setText("🔄 Sync All Meetings")
-        self.update_btn.setEnabled(True)
-        if success:
-            QMessageBox.information(self, "Caching Complete", msg)
-        else:
-            QMessageBox.warning(self, "Caching Failed", msg)
+        on_tdocs_caching_finished(self, success, msg)
 
     def _handle_global_action_from_window(self, tdoc_str: str, action: str):
         self.global_tdoc_input.setText(tdoc_str)
@@ -914,90 +882,13 @@ class MeetingsTab(QWidget):
             self.search_controller.action_add_to_cart()
 
     def _export_merged_tdocs(self):
-        meetings_data = getattr(self.table_model, '_data', [])
-        if not meetings_data:
-            QMessageBox.warning(self, "No Data", "There are no meetings currently visible in the table to export.")
-            return
-
-        default_name = f"Merged_TDocs_{QDate.currentDate().toString('yyyy-MM-dd')}.xlsx"
-        save_path, _ = QFileDialog.getSaveFileName(self, "Save Merged TDocs",
-                                                   str(Path.home() / "Desktop" / default_name), "Excel Files (*.xlsx)")
-        if not save_path:
-            return
-
-        reply = QMessageBox.question(self, 'Force Download?',
-                                     "Do you want to force a fresh download of all Excel files from 3GPP?\n\n"
-                                     "• Select 'Yes' to fetch the absolute latest updates.\n"
-                                     "• Select 'No' to use your local cache for files you've already downloaded.",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        force_download = (reply == QMessageBox.Yes)
-
-        self.btn_export_merged.setText("⏳ Merging...")
-        self.btn_export_merged.setEnabled(False)
-
-        current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.settings.cache_dir
-        self.merger_thread = TDocsMergerThread(meetings_data, force_download, save_path, current_cache, self)
-        self.merger_thread.progress.connect(lambda msg: self.btn_export_merged.setText(f"⏳ {msg[:20]}..."))
-        self.merger_thread.finished.connect(self._on_merger_finished)
-        self.merger_thread.start()
+        export_merged_tdocs(self)
 
     def _on_merger_finished(self, success: bool, msg: str):
-        self.btn_export_merged.setText("📥 Export Merged TDocs (Excel)")
-        self.btn_export_merged.setEnabled(True)
-
-        if success:
-            QMessageBox.information(self, "Export Complete", msg)
-            if QMessageBox.question(self, "Open File", "Would you like to open the generated Excel file now?",
-                                    QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
-                path_match = re.search(r'Saved to:\n(.*)', msg)
-                if path_match:
-                    filepath = path_match.group(1).strip()
-                    try:
-                        os.startfile(filepath) if hasattr(os, 'startfile') else webbrowser.open(f"file:///{filepath}")
-                    except Exception as e:
-                        logging.error(f"Could not open merged Excel: {e}")
-        else:
-            QMessageBox.warning(self, "Export Failed", msg)
+        on_merger_finished(self, success, msg)
 
     def _open_contribution_report(self):
-        # If the window is already open, bring it to the front
-        if hasattr(self, 'contribution_dialog') and self.contribution_dialog is not None:
-            if self.contribution_dialog.isVisible():
-                self.contribution_dialog.raise_()
-                self.contribution_dialog.activateWindow()
-                return
-            else:
-                self.contribution_dialog.deleteLater()
-                self.contribution_dialog = None
-
-        # Instantiate as an independent top-level window without owner pinning
-        self.contribution_dialog = ContributionReportDialog(self.db, parent=None)
-        self.contribution_dialog.open_meeting_requested.connect(self._open_meeting_from_report)
-
-        if self.enable_dates_cb.isChecked():
-            self.contribution_dialog.date_from.setDate(self.date_from.date())
-            self.contribution_dialog.date_to.setDate(self.date_to.date())
-        active_wgs = self.wg_filter.getCheckedItems()
-        if active_wgs:
-            self.contribution_dialog.set_active_wgs(active_wgs)
-
-        self.contribution_dialog.show()
+        open_contribution_report(self)
 
     def _open_meeting_from_report(self, wg_name: str, meeting_number: str):
-        """Opens a meeting window triggered from a row in the contributions report."""
-        results = self.db.search_meetings(wg_name=[wg_name] if wg_name else None, search_term=meeting_number)
-        target_meeting = next(
-            (m for m in results if m.get("meeting_number") == meeting_number and (not wg_name or m.get("wg_name") == wg_name)),
-            None
-        )
-        if not target_meeting and results:
-            target_meeting = results[0]
-
-        if target_meeting:
-            filepath = self._get_tdoc_list_path(target_meeting)
-            if filepath and filepath.exists():
-                self._open_tdocs_window(target_meeting, str(filepath))
-            else:
-                self._download_and_open_tdocs(target_meeting)
-        else:
-            QMessageBox.warning(self, "Meeting Not Found", f"Could not find meeting {wg_name} #{meeting_number} in the database.")
+        open_meeting_from_report(self, wg_name, meeting_number)
