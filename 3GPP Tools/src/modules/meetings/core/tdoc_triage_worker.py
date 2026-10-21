@@ -13,6 +13,7 @@ from core.ai.ollama_client import OllamaClient
 from core.utils.paths import get_project_root, to_extended_path
 from modules.meetings.core.llm_exporter import LLM_EXTRACTOR_VERSION
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
+from modules.meetings.core.tdoc_markdown_converter import convert_document_to_markdown
 
 PROMPTS_DIR = get_project_root() / "config" / "prompts"
 logger = logging.getLogger(__name__)
@@ -181,14 +182,30 @@ class TDocTriageWorker(QThread):
                     )
                     return
 
-                # 3. Extract text from Word document using COM
-                self.progress_status.emit("📄 Extracting document text...")
-                pythoncom.CoInitialize()
-                word_app = win32com.client.DispatchEx("Word.Application")
-                word_app.Visible = False
-                word_app.DisplayAlerts = 0
-
-                raw_markdown = self._extract_from_word(word_app, doc_path, doc_type)
+                # 3. Extract text from Word document (Direct OpenXML with COM fallback)
+                self.progress_status.emit("📄 Converting document to Markdown...")
+                try:
+                    exported_doc = convert_document_to_markdown(
+                        doc_path,
+                        out_dir=tdoc_folder,
+                        tdoc_id=tdoc_id,
+                        meta=self.tdoc_data,
+                        revisions="markup",
+                        media_dir=tdoc_folder / "media",
+                        media_rel="media",
+                        cancellation_check=lambda: self._is_cancelled,
+                    )
+                    raw_markdown = exported_doc.text
+                except Exception as conv_err:
+                    logging.warning(
+                        f"[AI Triage] Direct OpenXML conversion failed for {tdoc_id} ({conv_err}). "
+                        f"Falling back to Word COM extraction..."
+                    )
+                    pythoncom.CoInitialize()
+                    word_app = win32com.client.DispatchEx("Word.Application")
+                    word_app.Visible = False
+                    word_app.DisplayAlerts = 0
+                    raw_markdown = self._extract_from_word(word_app, doc_path, doc_type)
 
                 if raw_markdown:
                     os.makedirs(to_extended_path(tdoc_folder), exist_ok=True)
