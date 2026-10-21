@@ -13,7 +13,11 @@ from core.ai.ollama_client import OllamaClient
 from core.utils.paths import get_project_root, to_extended_path
 from modules.meetings.core.llm_exporter import LLM_EXTRACTOR_VERSION
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
-from modules.meetings.core.tdoc_markdown_converter import convert_document_to_markdown
+from modules.meetings.core.tdoc_markdown_converter import (
+    convert_document_to_markdown,
+    is_conversion_stale,
+    sanitize_filename,
+)
 
 PROMPTS_DIR = get_project_root() / "config" / "prompts"
 logger = logging.getLogger(__name__)
@@ -148,26 +152,35 @@ class TDocTriageWorker(QThread):
             doc_type = str(self.tdoc_data.get("Type", "CR"))
 
             tdoc_folder = self.meeting_dir / base_tdoc
+            local_md_file = tdoc_folder / f"{sanitize_filename(tdoc_id)}.md"
             cache_file = tdoc_folder / f"{tdoc_id}_LLM_v{LLM_EXTRACTOR_VERSION}.md"
+            ext_cache_file = to_extended_path(cache_file)
+            ext_local_md = to_extended_path(local_md_file)
 
             raw_markdown = ""
 
-            # 1. Check existing LLM markdown cache
-            ext_cache_file = to_extended_path(cache_file)
-            if os.path.exists(ext_cache_file):
+            # Check local Word file or download
+            doc_path = self._find_word_doc(tdoc_folder, tdoc_id)
+            if not doc_path:
+                alt_folder = self.meeting_dir / "TDocs" / base_tdoc
+                doc_path = self._find_word_doc(alt_folder, tdoc_id)
+
+            # 1. Check existing Markdown dossier with multi-tier stale check
+            is_stale = is_conversion_stale(
+                doc_path, local_md_file, expected_version=LLM_EXTRACTOR_VERSION, expected_mode="markup"
+            )
+            target_read_file = ext_local_md
+
+            if is_stale and os.path.exists(ext_cache_file):
+                if not is_conversion_stale(doc_path, cache_file, expected_version=LLM_EXTRACTOR_VERSION, expected_mode="markup"):
+                    is_stale = False
+                    target_read_file = ext_cache_file
+
+            if not is_stale:
                 self.progress_status.emit("📖 Reading cached document...")
-                with open(ext_cache_file, "r", encoding="utf-8") as f:
+                with open(target_read_file, "r", encoding="utf-8") as f:
                     raw_markdown = f.read()
             else:
-                # 2. Find local Word file or download and extract
-                self.progress_status.emit(f"🔍 Locating Word document for {tdoc_id}...")
-                doc_path = self._find_word_doc(tdoc_folder, tdoc_id)
-
-                if not doc_path:
-                    # Also check meeting TDocs directory
-                    alt_folder = self.meeting_dir / "TDocs" / base_tdoc
-                    doc_path = self._find_word_doc(alt_folder, tdoc_id)
-
                 if not doc_path:
                     self.progress_status.emit(f"⬇️ Downloading {tdoc_id}...")
                     doc_path = self._download_and_extract_tdoc(tdoc_id, tdoc_folder)
@@ -185,6 +198,7 @@ class TDocTriageWorker(QThread):
                 # 3. Extract text from Word document (Direct OpenXML with COM fallback)
                 self.progress_status.emit("📄 Converting document to Markdown...")
                 try:
+                    os.makedirs(to_extended_path(tdoc_folder), exist_ok=True)
                     exported_doc = convert_document_to_markdown(
                         doc_path,
                         out_dir=tdoc_folder,
@@ -209,6 +223,8 @@ class TDocTriageWorker(QThread):
 
                 if raw_markdown:
                     os.makedirs(to_extended_path(tdoc_folder), exist_ok=True)
+                    with open(ext_local_md, "w", encoding="utf-8") as f:
+                        f.write(raw_markdown)
                     with open(ext_cache_file, "w", encoding="utf-8") as f:
                         f.write(raw_markdown)
 

@@ -1,6 +1,7 @@
 import os
 import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -12,8 +13,10 @@ from modules.meetings.core.llm_exporter import (
 )
 from modules.meetings.core.tdoc_markdown_converter import (
     convert_document_to_markdown,
+    is_conversion_stale,
     write_index,
     ExportedDoc,
+    CONVERTER_VERSION,
 )
 
 
@@ -29,6 +32,44 @@ class TestTDocMarkdownExporter(unittest.TestCase):
     def test_exporter_backward_compatibility_alias(self):
         self.assertIs(LLMExporterThread, TDocMarkdownExporterThread)
 
+    def test_stale_detection_logic(self):
+        tdoc_id = "S2-2400100"
+        folder = self.meeting_dir / tdoc_id
+        folder.mkdir(parents=True, exist_ok=True)
+        docx_file = folder / f"{tdoc_id}.docx"
+        docx_file.write_bytes(b"dummy_docx_content")
+        md_file = folder / f"{tdoc_id}.md"
+
+        # 1. Stale when MD does not exist
+        self.assertTrue(is_conversion_stale(docx_file, md_file))
+
+        # 2. Write fresh MD file with header tag
+        time.sleep(0.05)
+        md_file.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n# {tdoc_id}\nContent",
+            encoding="utf-8"
+        )
+        self.assertFalse(is_conversion_stale(docx_file, md_file))
+
+        # 3. Stale when source docx is updated (newer mtime)
+        time.sleep(0.05)
+        docx_file.write_bytes(b"updated_docx_content")
+        self.assertTrue(is_conversion_stale(docx_file, md_file))
+
+        # Refresh MD
+        time.sleep(0.05)
+        md_file.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n# {tdoc_id}\nContent",
+            encoding="utf-8"
+        )
+        self.assertFalse(is_conversion_stale(docx_file, md_file))
+
+        # 4. Stale when converter version is bumped
+        self.assertTrue(is_conversion_stale(docx_file, md_file, expected_version="9.9.9"))
+
+        # 5. Stale when revision mode is mismatched
+        self.assertTrue(is_conversion_stale(docx_file, md_file, expected_mode="accept"))
+
     def test_bulk_markdown_export_from_cache(self):
         tdoc1 = "S2-2400001"
         tdoc2 = "S2-2400002"
@@ -40,13 +81,20 @@ class TestTDocMarkdownExporter(unittest.TestCase):
         tdoc1_media.mkdir(parents=True, exist_ok=True)
         (tdoc1_media / f"{tdoc1}_img1.png").write_bytes(b"dummy_png_bytes")
 
-        cache1 = tdoc1_folder / f"{tdoc1}_LLM_v{TDOC_MD_EXTRACTOR_VERSION}.md"
-        cache1.write_text(f"# {tdoc1}: Test Title 1\n\nContent for tdoc 1\n![img](media/{tdoc1}_img1.png)", encoding="utf-8")
+        # Canonical markdown dossier
+        md1 = tdoc1_folder / f"{tdoc1}.md"
+        md1.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n# {tdoc1}: Test Title 1\n\nContent for tdoc 1\n![img](media/{tdoc1}_img1.png)",
+            encoding="utf-8"
+        )
 
         tdoc2_folder = self.meeting_dir / tdoc2
         tdoc2_folder.mkdir(parents=True, exist_ok=True)
-        cache2 = tdoc2_folder / f"{tdoc2}_LLM_v{TDOC_MD_EXTRACTOR_VERSION}.md"
-        cache2.write_text(f"# {tdoc2}: Test Title 2\n\nContent for tdoc 2", encoding="utf-8")
+        md2 = tdoc2_folder / f"{tdoc2}.md"
+        md2.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n# {tdoc2}: Test Title 2\n\nContent for tdoc 2",
+            encoding="utf-8"
+        )
 
         tdocs_list = [
             {"TDoc": tdoc1, "Title": "Test Title 1", "Type": "CR", "Agenda Item": "5.1", "TDoc Status": "Agreed", "Source": "Operator A"},
@@ -69,23 +117,31 @@ class TestTDocMarkdownExporter(unittest.TestCase):
         success, msg = results[0]
         self.assertTrue(success, f"Exporter failed: {msg}")
 
-        export_dir = self.meeting_dir / "Export" / "Markdown"
-        self.assertTrue(export_dir.exists(), "Export/Markdown directory must exist")
+        # Check export directory: Export/Markdown_YYYY-MM-DD_HHMMSS/
+        export_dir = exporter.export_dir
+        self.assertTrue(export_dir.exists(), f"Export directory {export_dir} must exist")
+        self.assertTrue(export_dir.name.startswith("Markdown_"), "Export folder should follow Markdown_YYYY-MM-DD_HHMMSS naming")
 
-        md1_path = export_dir / f"{tdoc1}.md"
-        md2_path = export_dir / f"{tdoc2}.md"
+        # Each TDoc must be exported into its own subfolder
+        dossier1 = export_dir / tdoc1
+        dossier2 = export_dir / tdoc2
+        self.assertTrue(dossier1.is_dir(), f"Dossier subfolder for {tdoc1} must exist")
+        self.assertTrue(dossier2.is_dir(), f"Dossier subfolder for {tdoc2} must exist")
+
+        md1_path = dossier1 / f"{tdoc1}.md"
+        md2_path = dossier2 / f"{tdoc2}.md"
         index_path = export_dir / "index.md"
-        media_img_path = export_dir / "media" / f"{tdoc1}_img1.png"
+        media_img_path = dossier1 / "media" / f"{tdoc1}_img1.png"
 
-        self.assertTrue(md1_path.exists(), f"{tdoc1}.md was not exported")
-        self.assertTrue(md2_path.exists(), f"{tdoc2}.md was not exported")
+        self.assertTrue(md1_path.exists(), f"{tdoc1}.md was not exported to its dossier")
+        self.assertTrue(md2_path.exists(), f"{tdoc2}.md was not exported to its dossier")
         self.assertTrue(index_path.exists(), "index.md manifest was not created")
-        self.assertTrue(media_img_path.exists(), "Media image was not copied to export/media")
+        self.assertTrue(media_img_path.exists(), "Media image was not copied to tdoc1/media")
 
-        # Check index.md contents
+        # Check index.md contents link to subfolder dossiers
         index_content = index_path.read_text(encoding="utf-8")
-        self.assertIn(f"[{tdoc1}]({tdoc1}.md)", index_content)
-        self.assertIn(f"[{tdoc2}]({tdoc2}.md)", index_content)
+        self.assertIn(f"[{tdoc1}]({tdoc1}/{tdoc1}.md)", index_content)
+        self.assertIn(f"[{tdoc2}]({tdoc2}/{tdoc2}.md)", index_content)
         self.assertIn("Test Title 1", index_content)
         self.assertIn("Test Title 2", index_content)
 
@@ -93,8 +149,11 @@ class TestTDocMarkdownExporter(unittest.TestCase):
         tdoc_id = "S2-2400999"
         tdoc_folder = self.meeting_dir / tdoc_id
         tdoc_folder.mkdir(parents=True, exist_ok=True)
-        cache_file = tdoc_folder / f"{tdoc_id}_LLM_v{TDOC_MD_EXTRACTOR_VERSION}.md"
-        cache_file.write_text(f"# {tdoc_id}: Single Doc Title\n\nSingle doc body", encoding="utf-8")
+        local_md = tdoc_folder / f"{tdoc_id}.md"
+        local_md.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n# {tdoc_id}: Single Doc Title\n\nSingle doc body",
+            encoding="utf-8"
+        )
 
         tdocs_list = [
             {"TDoc": tdoc_id, "Title": "Single Doc Title", "Type": "CR", "Agenda Item": "9.1", "TDoc Status": "Agreed"}
@@ -116,13 +175,12 @@ class TestTDocMarkdownExporter(unittest.TestCase):
         success, msg = results[0]
         self.assertTrue(success)
 
-        export_dir = self.meeting_dir / "Export" / "Markdown"
-        single_md = export_dir / f"{tdoc_id}.md"
-        self.assertTrue(single_md.exists(), f"{single_md} was not created")
+        export_dir = exporter.export_dir
+        single_md = export_dir / tdoc_id / f"{tdoc_id}.md"
+        self.assertTrue(single_md.exists(), f"{single_md} was not created in dossier subfolder")
         self.assertIn("Single doc body", single_md.read_text(encoding="utf-8"))
 
-
-    def test_docx_conversion_to_markdown(self):
+    def test_docx_conversion_to_markdown_dossier(self):
         import docx
 
         tdoc_id = "S2-2405555"
@@ -161,18 +219,23 @@ class TestTDocMarkdownExporter(unittest.TestCase):
         success, msg = results[0]
         self.assertTrue(success, f"Exporter failed: {msg}")
 
-        export_dir = self.meeting_dir / "Export" / "Markdown"
-        md_file = export_dir / f"{tdoc_id}.md"
-        self.assertTrue(md_file.exists(), f"{md_file} was not generated")
+        # 1. Local canonical dossier in meeting_dir / tdoc_id must exist
+        local_md = tdoc_folder / f"{tdoc_id}.md"
+        self.assertTrue(local_md.exists(), "Local canonical Markdown file must be created")
 
-        content = md_file.read_text(encoding="utf-8")
+        # 2. Export dossier in Export/Markdown_.../tdoc_id/ must exist
+        export_dir = exporter.export_dir
+        exported_md = export_dir / tdoc_id / f"{tdoc_id}.md"
+        self.assertTrue(exported_md.exists(), f"{exported_md} was not generated")
+
+        content = exported_md.read_text(encoding="utf-8")
         self.assertIn("5G core network procedures", content)
         self.assertIn("SMF", content)
 
-        # Check index.md
+        # 3. Check index.md links to subfolder
         index_file = export_dir / "index.md"
         self.assertTrue(index_file.exists())
-        self.assertIn(f"[{tdoc_id}]({tdoc_id}.md)", index_file.read_text(encoding="utf-8"))
+        self.assertIn(f"[{tdoc_id}]({tdoc_id}/{tdoc_id}.md)", index_file.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

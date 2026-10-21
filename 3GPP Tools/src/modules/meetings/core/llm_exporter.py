@@ -1,3 +1,4 @@
+import datetime
 import logging
 import os
 import re
@@ -15,17 +16,20 @@ from modules.meetings.core.tdoc_markdown_converter import (
     convert_document_to_markdown,
     sanitize_filename,
     write_index,
+    is_conversion_stale,
+    CONVERTER_VERSION,
     ExportedDoc,
 )
 
-TDOC_MD_EXTRACTOR_VERSION = "2.0.0"
+TDOC_MD_EXTRACTOR_VERSION = CONVERTER_VERSION
 LLM_EXTRACTOR_VERSION = TDOC_MD_EXTRACTOR_VERSION  # Backwards-compatible alias
 
 
 class TDocMarkdownExporterThread(QThread):
     """
     Asynchronous worker to convert and export 3GPP Technical Documents (.docx/.doc)
-    into high-fidelity, standalone Markdown (.md) documents and an index.md manifest.
+    into high-fidelity, standalone Markdown (.md) dossiers and an index.md manifest.
+    Each export round is isolated in Export/Markdown_YYYY-MM-DD_HHMMSS/.
     """
     finished = pyqtSignal(bool, str)
     progress = pyqtSignal(str)
@@ -38,6 +42,7 @@ class TDocMarkdownExporterThread(QThread):
         revisions_url: str,
         is_bulk: bool = True,
         output_dir: Optional[Path] = None,
+        force_reconvert: bool = False,
         *args,
         **kwargs,
     ):
@@ -47,15 +52,19 @@ class TDocMarkdownExporterThread(QThread):
         self.docs_ftp_url = docs_ftp_url
         self.revisions_url = revisions_url
         self.is_bulk = is_bulk
-        self.export_dir = Path(output_dir) if output_dir else (self.meeting_dir / "Export" / "Markdown")
-        self.media_dir = self.export_dir / "media"
+        self.force_reconvert = force_reconvert
+
+        if output_dir:
+            self.export_dir = Path(output_dir)
+        else:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+            self.export_dir = self.meeting_dir / "Export" / f"Markdown_{timestamp}"
 
     def run(self):
         word_app = None
         try:
             pythoncom.CoInitialize()
             os.makedirs(to_extended_path(self.export_dir), exist_ok=True)
-            os.makedirs(to_extended_path(self.media_dir), exist_ok=True)
 
             exported_docs: List[ExportedDoc] = []
             failed_tdocs: List[str] = []
@@ -82,54 +91,28 @@ class TDocMarkdownExporterThread(QThread):
                 logging.info(f"[Markdown Exporter] {msg}")
 
                 tdoc_folder = self.meeting_dir / base_tdoc
-                cache_file = tdoc_folder / f"{tdoc_id}_LLM_v{TDOC_MD_EXTRACTOR_VERSION}.md"
-                ext_cache_file = to_extended_path(cache_file)
-                target_md_file = self.export_dir / f"{sanitize_filename(tdoc_id)}.md"
+                local_md_file = tdoc_folder / f"{sanitize_filename(tdoc_id)}.md"
+                local_media_dir = tdoc_folder / "media"
+                legacy_cache_file = tdoc_folder / f"{tdoc_id}_LLM_v{TDOC_MD_EXTRACTOR_VERSION}.md"
 
-                doc_obj: Optional[ExportedDoc] = None
+                doc_path = self._find_word_doc(tdoc_folder, tdoc_id)
 
-                # 1. Use local cached conversion if available
-                if os.path.exists(ext_cache_file):
-                    logging.info(f"[Markdown Exporter] Using local conversion cache for {tdoc_id}")
-                    try:
-                        with open(ext_cache_file, "r", encoding="utf-8") as f:
-                            md_content = f.read()
+                # 1. Multi-tier stale check on local canonical dossier
+                needs_conversion = self.force_reconvert or is_conversion_stale(
+                    doc_path, local_md_file, expected_version=TDOC_MD_EXTRACTOR_VERSION, expected_mode="markup"
+                )
 
-                        # Write to export folder
-                        with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
-                            f.write(md_content)
+                # Check legacy cache as fallback if local_md_file is missing
+                if needs_conversion and not self.force_reconvert:
+                    if not is_conversion_stale(doc_path, legacy_cache_file, expected_version=TDOC_MD_EXTRACTOR_VERSION, expected_mode="markup"):
+                        try:
+                            shutil.copy2(to_extended_path(legacy_cache_file), to_extended_path(local_md_file))
+                            needs_conversion = False
+                        except Exception:
+                            pass
 
-                        images_count = 0
-                        cached_media = tdoc_folder / "media"
-                        if cached_media.is_dir():
-                            for img in cached_media.glob(f"{tdoc_id}_*"):
-                                images_count += 1
-                                dst = self.media_dir / img.name
-                                if not dst.exists():
-                                    try:
-                                        shutil.copy2(to_extended_path(img), to_extended_path(dst))
-                                    except Exception:
-                                        pass
-
-                        doc_obj = ExportedDoc(
-                            tdoc_id=tdoc_id,
-                            name=tdoc_id,
-                            md_path=target_md_file,
-                            text=md_content,
-                            meta=tdoc_data,
-                            doc_type=doc_type,
-                            agenda_item=raw_ai,
-                            title=title,
-                            status=status,
-                            images=images_count,
-                            warnings=[],
-                        )
-                    except Exception as cache_err:
-                        logging.warning(f"[Markdown Exporter] Failed reading cache for {tdoc_id}: {cache_err}")
-
-                # 2. Convert from source document if not cached
-                if not doc_obj:
-                    doc_path = self._find_word_doc(tdoc_folder, tdoc_id)
+                # 2. If stale or missing, convert into the local canonical TDoc folder
+                if needs_conversion:
                     if not doc_path:
                         dl_msg = f"Downloading missing TDoc: {tdoc_id}..."
                         self.progress.emit(dl_msg)
@@ -142,21 +125,22 @@ class TDocMarkdownExporterThread(QThread):
                         logging.info(f"[Markdown Exporter] {ext_msg}")
                         try:
                             # Primary engine: Direct OpenXML extraction with tables, diagrams & track changes
+                            os.makedirs(to_extended_path(tdoc_folder), exist_ok=True)
+                            os.makedirs(to_extended_path(local_media_dir), exist_ok=True)
                             doc_obj = convert_document_to_markdown(
                                 doc_path,
-                                out_dir=self.export_dir,
+                                out_dir=tdoc_folder,
                                 tdoc_id=tdoc_id,
                                 meta=tdoc_data,
                                 revisions="markup",
-                                media_dir=self.media_dir,
+                                media_dir=local_media_dir,
                                 media_rel="media",
                                 cancellation_check=self.isInterruptionRequested,
                             )
-                            # Update local cache in tdoc folder for future AI triage / re-exports
+                            # Also update legacy cache for backwards compatibility
                             if doc_obj and doc_obj.text:
                                 try:
-                                    os.makedirs(to_extended_path(cache_file.parent), exist_ok=True)
-                                    with open(ext_cache_file, "w", encoding="utf-8") as f:
+                                    with open(to_extended_path(legacy_cache_file), "w", encoding="utf-8") as f:
                                         f.write(doc_obj.text)
                                 except Exception:
                                     pass
@@ -177,39 +161,65 @@ class TDocMarkdownExporterThread(QThread):
                                     header = f"# {tdoc_id}: {title}\n**Source:** {tdoc_data.get('Source', '')}\n**Agenda Item:** {raw_ai}\n\n---\n\n"
                                     md_text = header + md_text
 
-                                with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
-                                    f.write(md_text)
-
                                 try:
-                                    os.makedirs(to_extended_path(cache_file.parent), exist_ok=True)
-                                    with open(ext_cache_file, "w", encoding="utf-8") as f:
+                                    with open(to_extended_path(local_md_file), "w", encoding="utf-8") as f:
+                                        f.write(md_text)
+                                    with open(to_extended_path(legacy_cache_file), "w", encoding="utf-8") as f:
                                         f.write(md_text)
                                 except Exception:
                                     pass
 
-                                doc_obj = ExportedDoc(
-                                    tdoc_id=tdoc_id,
-                                    name=tdoc_id,
-                                    md_path=target_md_file,
-                                    text=md_text,
-                                    meta=tdoc_data,
-                                    doc_type=doc_type,
-                                    agenda_item=raw_ai,
-                                    title=title,
-                                    status=status,
-                                    images=0,
-                                    warnings=[],
-                                )
+                # 3. Copy the ready, self-contained dossier into the export round folder
+                if os.path.exists(to_extended_path(local_md_file)):
+                    target_dossier_dir = self.export_dir / sanitize_filename(tdoc_id)
+                    os.makedirs(to_extended_path(target_dossier_dir), exist_ok=True)
+                    target_md_file = target_dossier_dir / f"{sanitize_filename(tdoc_id)}.md"
 
-                    if not doc_obj:
-                        warn_msg = f"Could not convert {tdoc_id} (missing or invalid Word document)."
-                        logging.warning(f"[Markdown Exporter] {warn_msg}")
+                    try:
+                        shutil.copy2(to_extended_path(local_md_file), to_extended_path(target_md_file))
+
+                        images_count = 0
+                        if local_media_dir.is_dir():
+                            target_media_dir = target_dossier_dir / "media"
+                            # Identify images belonging to this TDoc
+                            media_files = list(local_media_dir.glob(f"{tdoc_id}_*"))
+                            if not media_files:
+                                media_files = [p for p in local_media_dir.iterdir() if p.is_file()]
+
+                            for img in media_files:
+                                if img.is_file():
+                                    images_count += 1
+                                    os.makedirs(to_extended_path(target_media_dir), exist_ok=True)
+                                    dst = target_media_dir / img.name
+                                    shutil.copy2(to_extended_path(img), to_extended_path(dst))
+
+                        with open(to_extended_path(target_md_file), "r", encoding="utf-8") as f:
+                            md_content = f.read()
+
+                        exported_docs.append(
+                            ExportedDoc(
+                                tdoc_id=tdoc_id,
+                                name=tdoc_id,
+                                md_path=target_md_file,
+                                text=md_content,
+                                meta=tdoc_data,
+                                doc_type=doc_type,
+                                agenda_item=raw_ai,
+                                title=title,
+                                status=status,
+                                images=images_count,
+                                warnings=[],
+                            )
+                        )
+                    except Exception as copy_err:
+                        logging.error(f"[Markdown Exporter] Failed copying dossier for {tdoc_id}: {copy_err}")
                         failed_tdocs.append(tdoc_id)
+                else:
+                    warn_msg = f"Could not convert {tdoc_id} (missing or invalid Word document)."
+                    logging.warning(f"[Markdown Exporter] {warn_msg}")
+                    failed_tdocs.append(tdoc_id)
 
-                if doc_obj:
-                    exported_docs.append(doc_obj)
-
-            # 3. Create index.md manifest for multi-file exports
+            # 4. Create index.md manifest linking to each subfolder dossier
             if exported_docs:
                 try:
                     write_index(self.export_dir, exported_docs)
@@ -218,7 +228,7 @@ class TDocMarkdownExporterThread(QThread):
                     logging.warning(f"[Markdown Exporter] Could not write index.md: {idx_err}")
 
             if self.is_bulk:
-                msg = f"Successfully exported {len(exported_docs)} Markdown document(s) and index manifest to:\n{self.export_dir}"
+                msg = f"Successfully exported {len(exported_docs)} Markdown dossier(s) and index manifest to:\n{self.export_dir}"
             else:
                 names = ", ".join(d.name for d in exported_docs)
                 msg = f"Successfully exported {names} to:\n{self.export_dir}"
@@ -274,18 +284,21 @@ class TDocMarkdownExporterThread(QThread):
             return None
 
     def _extract_from_word(self, word_app, doc_path: Path, doc_type: str) -> str:
+        """Legacy COM fallback in case OpenXML direct parsing is not available."""
         doc = None
         try:
             doc = word_app.Documents.Open(str(doc_path), False, True, False)
             md_lines = []
-            in_new_block = False
 
+            in_new_block = False
             all_new_trigger = re.compile(r'(?i)all (?:new )?text (?:is )?(?:new|added)')
             placeholder_clause_trigger = re.compile(r'^(\d+\.)+[a-zA-Z]$')
             numeric_clause_trigger = re.compile(r'^(\d+\.)+\d+$')
             boundary_trigger = re.compile(r'(?i)<[-\s]*(next|end of)\s*change')
 
             for para in doc.Paragraphs:
+                if self.isInterruptionRequested():
+                    break
                 text = para.Range.Text.strip('\r\x07\x0b\xa0 ').strip()
                 if not text:
                     continue
@@ -307,12 +320,12 @@ class TDocMarkdownExporterThread(QThread):
 
                 if all_new_trigger.search(text):
                     in_new_block = True
-                    md_lines.append("\n> **Note:** Entering 'All Text New' block.\n")
+                    md_lines.append(f"\n> **Note to LLM:** Entering 'All Text New' block.\n")
                     continue
 
                 if "Heading" in style_name and words and placeholder_clause_trigger.match(words[0]):
                     in_new_block = True
-                    md_lines.append(f"\n> **Note:** Entering placeholder clause '{words[0]}'.\n")
+                    md_lines.append(f"\n> **Note to LLM:** Entering placeholder clause '{words[0]}'.\n")
 
                 if in_new_block:
                     md_lines.append(f"[ADDED BLOCK]: {text}")
