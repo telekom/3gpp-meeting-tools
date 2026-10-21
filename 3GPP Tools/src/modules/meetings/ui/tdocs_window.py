@@ -55,6 +55,14 @@ from modules.meetings.ui.tdocs_dialogs import (
     TDocInfoDialog, ALL_AVAILABLE_COLUMNS
 )
 from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu, build_row_context_menu
+from modules.meetings.ui.tdocs_menu import handle_table_context_menu
+from modules.meetings.ui.tdocs_export_controller import (
+    get_package_export_rows,
+    export_tdocs_package,
+    open_excel_export_dialog,
+    export_markdown_visible,
+    export_markdown_single,
+)
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.general_email_sync import GeneralEmailSyncThread
@@ -103,11 +111,7 @@ class DropOverlayWidget(QWidget):
         layout.addWidget(card)
 
 
-def _open_folder(p: Path):
-    if p.exists():
-        os.startfile(str(p)) if hasattr(os, 'startfile') else webbrowser.open(f"file:///{p}")
-    else:
-        QMessageBox.warning(None, "Not Found", "Target file/folder does not exist yet.")
+from core.utils.folder_opener import open_folder as _open_folder
 
 
 def _open_terminal(path: Path, parent=None):
@@ -1187,53 +1191,17 @@ class TDocsWindow(QWidget):
         QToolTip.showText(QCursor.pos(), "📋 Copied to clipboard!", self.table)
 
     def _export_markdown_visible(self):
-        visible_tdocs = []
-        for r in range(self.proxy.rowCount()):
-            index = self.proxy.index(r, 0)
-            source_index = self.proxy.mapToSource(index)
-            row_data = self.model._data[source_index.row()]
-            visible_tdocs.append(row_data)
-
-        if not visible_tdocs:
-            return QMessageBox.warning(self, "Empty View", "No TDocs currently visible in the table to export.")
-
-        self.export_btn.setText("⏳ Exporting Markdown...")
-        self.export_btn.setEnabled(False)
-
-        self.md_export_thread = TDocMarkdownExporterThread(
-            self.meeting_dir,
-            visible_tdocs,
-            self.docs_ftp_url,
-            self.revisions_url,
-            is_bulk=True,
-        )
-        self.llm_thread = self.md_export_thread  # Kept for window cleanup safety
-        self.md_export_thread.progress.connect(self._on_md_progress)
-        self.md_export_thread.finished.connect(self._on_md_export_finished)
-        self.md_export_thread.start()
+        export_markdown_visible(self)
 
     # Backwards compatibility alias
     _export_llm_visible = _export_markdown_visible
 
     def _export_markdown_single(self, tdoc_id: str):
-        row_data = next((r for r in self.model._data if r.get("TDoc") == tdoc_id), None)
-        if not row_data:
-            return
+        export_markdown_single(self, tdoc_id)
 
-        self.export_btn.setText("⏳ Exporting Markdown...")
-        self.export_btn.setEnabled(False)
+    # Backwards compatibility alias
+    _export_llm_single = _export_markdown_single
 
-        self.md_export_thread = TDocMarkdownExporterThread(
-            self.meeting_dir,
-            [row_data],
-            self.docs_ftp_url,
-            self.revisions_url,
-            is_bulk=False,
-        )
-        self.llm_thread = self.md_export_thread  # Kept for window cleanup safety
-        self.md_export_thread.progress.connect(self._on_md_progress)
-        self.md_export_thread.finished.connect(self._on_md_single_finished)
-        self.md_export_thread.start()
 
     # Backwards compatibility alias
     _export_llm_single = _export_markdown_single
@@ -1559,187 +1527,20 @@ class TDocsWindow(QWidget):
         _open_folder(self.meeting_dir / "Agenda" / "ChairNotes")
 
     def _get_package_export_rows(self) -> list:
-        """Return selected TDoc rows, or all currently visible rows when nothing is selected."""
-        selection_model = self.table.selectionModel()
-        selected_indexes = selection_model.selectedIndexes() if selection_model else []
-
-        if selected_indexes:
-            proxy_rows = sorted({idx.row() for idx in selected_indexes if idx.isValid()})
-        else:
-            proxy_rows = list(range(self.proxy.rowCount()))
-
-        rows = []
-        seen_tdocs = set()
-        for proxy_row in proxy_rows:
-            source_idx = self.proxy.mapToSource(self.proxy.index(proxy_row, 0))
-            if not source_idx.isValid():
-                continue
-            row_data = self.model._data[source_idx.row()]
-            tdoc_id = str(row_data.get("TDoc", "")).strip().upper()
-            if not tdoc_id or tdoc_id in seen_tdocs:
-                continue
-            seen_tdocs.add(tdoc_id)
-            rows.append(row_data)
-        return rows
+        return get_package_export_rows(self)
 
     def _export_tdocs_package(self):
-        rows_to_export = self._get_package_export_rows()
-        if not rows_to_export:
-            QMessageBox.warning(self, "No TDocs", "There are no selected or visible TDocs to export.")
-            return
-
-        selected_count = len(self.table.selectionModel().selectedIndexes()) if self.table.selectionModel() else 0
-        scope_text = "selected" if selected_count else "visible"
-
-        self.export_btn.setText(f"⏳ Exporting {len(rows_to_export)} TDocs...")
-        self.export_btn.setEnabled(False)
-
-        self.package_export_thread = TDocsPackageExporterThread(
-            meeting_dir=self.meeting_dir,
-            rows_data=rows_to_export,
-            mtg_info=self.mtg_info,
-            main_ftp_url=self.main_ftp_url,
-            scope_label=scope_text,
-            parent=self,
-        )
-        self.package_export_thread.progress.connect(self._on_package_export_progress)
-        self.package_export_thread.finished.connect(
-            lambda success, export_dir, failures, rows=rows_to_export: self._on_package_files_finished(
-                success, export_dir, failures, rows
-            )
-        )
-        self.package_export_thread.start()
+        export_tdocs_package(self)
 
     def _on_package_export_progress(self, msg: str):
         self.export_btn.setText(f"⏳ {msg}"[:34])
 
-    def _on_package_files_finished(self, success: bool, export_dir: str, failures: object, rows_to_export: list):
-        if not success:
-            self.export_btn.setText("📤 Export ▾")
-            self.export_btn.setEnabled(True)
-            QMessageBox.warning(self, "Package Export Failed", str(export_dir))
-            return
-
-        export_path = Path(export_dir)
-        wg = str(self.mtg_info.get("wg_name", "3GPP")).strip().replace(" ", "_")
-        mtg = str(self.mtg_info.get("meeting_number", "")).strip()
-        excel_path = export_path / f"TDocs_{wg}_{mtg}.xlsx"
-
-        # Reuse the application's existing Excel exporter; do not maintain a second XLSX implementation.
-        self.package_excel_exporter_thread = ExcelExporterThread(
-            output_path=excel_path,
-            rows_data=rows_to_export,
-            selected_columns=list(ALL_AVAILABLE_COLUMNS),
-            mtg_info=self.mtg_info,
-            docs_ftp_url=self.docs_ftp_url,
-            auto_open=False,
-        )
-        self.package_excel_exporter_thread.progress.connect(self._on_package_export_progress)
-        self.package_excel_exporter_thread.finished.connect(
-            lambda excel_success, msg, d=export_path, f=list(failures or []), n=len(rows_to_export):
-                self._on_package_export_finished(excel_success, msg, d, f, n)
-        )
-        self.package_excel_exporter_thread.start()
-
-    def _on_package_export_finished(self, success: bool, msg: str, export_dir: Path, failures: list, requested_count: int):
-        self.export_btn.setText("📤 Export ▾")
-        self.export_btn.setEnabled(True)
-
-        if not success:
-            QMessageBox.warning(
-                self,
-                "Package Export Incomplete",
-                f"The TDoc files were packaged, but the Excel manifest could not be created:\n{msg}\n\nPackage folder:\n{export_dir}",
-            )
-            _open_folder(export_dir)
-            return
-
-        exported_count = requested_count - len(failures)
-        if failures:
-            failed_ids = "\n".join(f"• {item}" for item in failures)
-            QMessageBox.warning(
-                self,
-                "Package Export Completed with Warnings",
-                f"Exported {exported_count}/{requested_count} TDocs.\n"
-                f"The Excel manifest contains all {requested_count} requested rows.\n\n"
-                f"Could not retrieve {len(failures)} TDoc(s):\n{failed_ids}\n\n"
-                f"Saved to:\n{export_dir}",
-            )
-        else:
-            QMessageBox.information(
-                self,
-                "Package Export Complete",
-                f"Successfully exported {exported_count} TDocs and the Excel manifest to:\n{export_dir}",
-            )
-
-        _open_folder(export_dir)
-
     def _open_excel_export_dialog(self):
-        visible_count = self.proxy.rowCount()
-        total_count = self.model.rowCount()
-
-        dialog = ExcelExportDialog(self, visible_count, total_count)
-        if dialog.exec_() != QDialog.Accepted:
-            return
-
-        selected_columns = dialog.get_selected_columns()
-        is_visible_only = dialog.is_visible_only()
-        auto_open = dialog.should_auto_open()
-
-        if is_visible_only:
-            rows_to_export = []
-            for r in range(self.proxy.rowCount()):
-                source_idx = self.proxy.mapToSource(self.proxy.index(r, 0))
-                rows_to_export.append(self.model._data[source_idx.row()])
-        else:
-            rows_to_export = list(self.model._data)
-
-        if not rows_to_export:
-            QMessageBox.warning(self, "No Data", "There are no rows available to export.")
-            return
-
-        wg = str(self.mtg_info.get("wg_name", "3GPP")).strip().replace(" ", "_")
-        mtg = str(self.mtg_info.get("meeting_number", "")).strip()
-        scope_str = "Filtered" if is_visible_only else "All"
-        default_filename = f"TDocs_{wg}_{mtg}_{scope_str}.xlsx"
-        default_target = self.meeting_dir / "Export" / default_filename
-
-        save_path, _ = QFileDialog.getSaveFileName(
-            self, "Save TDocs Excel Export", str(default_target), "Excel Workbook (*.xlsx)"
-        )
-        if not save_path:
-            return
-
-        self.export_btn.setText("⏳ Exporting Excel...")
-        self.export_btn.setEnabled(False)
-
-        self.excel_exporter_thread = ExcelExporterThread(
-            Path(save_path),
-            rows_to_export,
-            selected_columns,
-            self.mtg_info,
-            docs_ftp_url=self.docs_ftp_url,
-            auto_open=auto_open
-        )
-        self.excel_exporter_thread.progress.connect(self._on_excel_export_progress)
-        self.excel_exporter_thread.finished.connect(
-            lambda success, msg, auto=auto_open: self._on_excel_export_finished(success, msg, auto)
-        )
-        self.excel_exporter_thread.start()
+        open_excel_export_dialog(self)
 
     def _on_excel_export_progress(self, msg: str):
         self.export_btn.setText(f"⏳ {msg}"[:25])
 
-    def _on_excel_export_finished(self, success: bool, msg: str, auto_open: bool):
-        self.export_btn.setText("📤 Export ▾")
-        self.export_btn.setEnabled(True)
-
-        if success:
-            QMessageBox.information(self, "Export Complete", f"Successfully exported TDocs to:\n{msg}")
-            if auto_open:
-                _open_folder(Path(msg))
-        else:
-            QMessageBox.warning(self, "Export Failed", f"Failed to export Excel:\n{msg}")
 
     def _refresh_email_counts(self):
         try:
@@ -1849,57 +1650,8 @@ class TDocsWindow(QWidget):
             QMessageBox.information(self, "Database Wiped", "Generic email records have been wiped.")
 
     def _on_table_context_menu(self, pos: QPoint):
-        index = self.table.indexAt(pos)
-        if not index.isValid():
-            return
-        source_idx = self.proxy.mapToSource(index)
-        row_data = self.model._data[source_idx.row()]
-        tdoc_id = row_data.get("TDoc", "")
-        if not tdoc_id:
-            return
+        handle_table_context_menu(self, pos)
 
-        revisions = self.model.revisions.get(tdoc_id, [])
-        family = self.model.get_family_tdocs(tdoc_id)
-
-        unread_count = 0
-        if hasattr(self.model, "_email_counts") and isinstance(self.model._email_counts, dict):
-            counts = self.model._email_counts.get(tdoc_id)
-            if isinstance(counts, (tuple, list)) and len(counts) > 1:
-                unread_count = counts[1]
-            elif isinstance(counts, dict):
-                unread_count = counts.get("unread", 0)
-
-        build_row_context_menu(
-            parent=self.table,
-            row_data=row_data,
-            revisions=revisions,
-            family=family,
-            docs_ftp_url=self.docs_ftp_url,
-            revisions_url=self.revisions_url,
-            meeting_dir=self.meeting_dir,
-            download_callback=self._trigger_download_thread,
-            export_llm_callback=self._export_llm_single,
-            compose_email_callback=self._compose_email_draft,
-            open_emails_callback=self._open_tdoc_emails,
-            mark_read_callback=lambda: [
-                self.general_email_db.set_tdocs_read_status(set(family), True),
-                self._refresh_email_counts(),
-            ],
-            mark_unread_callback=lambda: [
-                self.general_email_db.set_tdocs_read_status(set(family), False),
-                self._refresh_email_counts(),
-            ],
-            open_details_callback=lambda: TDocInfoDialog(
-                row_data,
-                docs_ftp_url=self.docs_ftp_url,
-                revisions=revisions,
-                parent=self,
-                triage_callback=self._open_tdoc_triage,  # <--- Added
-            ).exec_(),
-            unread_emails_count=unread_count,
-            pos=self.table.viewport().mapToGlobal(pos),
-            triage_callback=self._open_tdoc_triage,  # <--- Added
-        )
 
     def _open_tdoc_triage(self, tdoc_id: str):
         """Opens a modeless AI Triage dialog for the selected TDoc."""
