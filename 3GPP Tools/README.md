@@ -545,6 +545,12 @@ python -m main_tools
    * In the **Specifications** tab, click the **Documents** dropdown for any specification release and choose **`✂️ Extract Clauses (Excerpt)...`**.
    * The modeless **Extract Clauses** dialog opens immediately. Missing specification ZIPs download and unpack in the background, multi-part documents (`_s00_s04`, etc.) are sequenced, legacy `.doc` files are converted to `.docx`, and change-mark files (`-rm`) are filtered out.
    * Filter clauses by keyword or number, select desired clauses in the hierarchy (parent check states automatically cascade to all subclauses), and click **`✂️ Extract Selected Clauses...`** to generate a clean, formatted Word document with source typography and corporate sensitivity labels.
+10. **Exporting Specifications to Markdown:**
+    * In the **Specifications** tab, click the **Documents** dropdown for any release to export directly into Markdown:
+      * **`📘 Open / Convert to Markdown (.md)`**: Generates a unified, continuous document (`<stem>.md`) with a specification metadata table and an isolated `<stem>_media/` image folder.
+      * **`📑 Open / Convert to Markdown Clauses`**: Generates a chapter-split dossier (`<stem>_clauses/`) with individual clause files (`01_Scope.md`, `04_Architecture.md`, etc.), a master `index.md` table of contents with links, and a private `media/` folder.
+    * Multi-part specifications (`_s00_s04`, `_s05_s08`, etc.) are automatically detected, chronologically ordered, and stitched.
+    * Version isolation guarantees images and diagrams across different releases (e.g. Rel-17 vs. Rel-18) never overwrite each other.
 
 ---
 

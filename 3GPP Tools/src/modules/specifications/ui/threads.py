@@ -281,3 +281,47 @@ class SpecExcerptPrepThread(QThread):
         except Exception:
             pass
         return found
+
+
+class SpecMarkdownConverterThread(QThread):
+    """
+    Background worker thread to convert single or multi-part specifications
+    into single unified Markdown (.md) or clause-split dossiers with version-isolated media.
+    """
+    finished_success = pyqtSignal(Path, str)
+    error = pyqtSignal(str)
+    progress_status = pyqtSignal(str)
+
+    def __init__(
+        self,
+        spec_dir: Path,
+        stem: str,
+        mode: str = "single",
+        meta: dict = None,
+    ):
+        super().__init__()
+        self.spec_dir = Path(spec_dir)
+        self.stem = stem
+        self.mode = mode
+        self.meta = meta or {}
+
+    def run(self):
+        try:
+            from modules.specifications.core.spec_markdown_converter import convert_spec_to_markdown
+
+            def on_progress(msg: str):
+                self.progress_status.emit(msg)
+
+            result_path = convert_spec_to_markdown(
+                spec_dir=self.spec_dir,
+                stem=self.stem,
+                mode=self.mode,
+                meta=self.meta,
+                progress_callback=on_progress,
+                cancellation_check=self.isInterruptionRequested,
+            )
+            mode_desc = "Clause Dossier" if self.mode == "split" else "Unified Markdown Document"
+            self.finished_success.emit(result_path, f"Successfully generated {mode_desc} at:\n{result_path}")
+        except Exception as e:
+            logger.exception("Error during specification markdown conversion")
+            self.error.emit(str(e))

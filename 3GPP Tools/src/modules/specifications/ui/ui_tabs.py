@@ -682,11 +682,15 @@ class SpecificationsTab(QWidget):
         word_exists = any(f.startswith(stem) and (f.endswith(".docx") or f.endswith(".doc")) for f in local_files)
         pdf_exists = any(f.startswith(stem) and f.endswith(".pdf") for f in local_files)
         html_exists = any(f.startswith(stem) and f.endswith(".html") for f in local_files)
+        md_exists = any(f.startswith(stem) and f.endswith(".md") for f in local_files)
+        md_split_exists = (spec_target_dir / f"{stem}_clauses" / "index.md").exists()
 
         c_data["is_downloaded"] = zip_exists
         c_data["has_word"] = word_exists
         c_data["has_pdf"] = pdf_exists
         c_data["has_html"] = html_exists
+        c_data["has_md"] = md_exists
+        c_data["has_md_split"] = md_split_exists
 
         badges = []
         tooltips = []
@@ -699,6 +703,12 @@ class SpecificationsTab(QWidget):
         if html_exists:
             badges.append("🌐")
             tooltips.append("HTML (.html) ready")
+        if md_exists:
+            badges.append("📘")
+            tooltips.append("Markdown (.md) ready")
+        if md_split_exists:
+            badges.append("📑")
+            tooltips.append("Markdown Clauses ready")
 
         if not badges and zip_exists:
             badges.append("📦")
@@ -1009,6 +1019,8 @@ class SpecificationsTab(QWidget):
                     pdf_exists = any(f.startswith(stem) and f.endswith(".pdf") for f in current_files)
                     html_exists = any(f.startswith(stem) and f.endswith(".html") for f in current_files)
                     txt_exists = any(f.startswith(stem) and f.endswith(".txt") for f in current_files)
+                    md_exists = any(f.startswith(stem) and f.endswith(".md") for f in current_files)
+                    md_split_exists = (spec_target_dir / f"{stem}_clauses" / "index.md").exists()
                     dir_ready = bool(current_files)
 
                     base_style = """
@@ -1074,6 +1086,18 @@ class SpecificationsTab(QWidget):
                         "⚙️ Convert to TXT" if (word_exists or zip_exists) else "⬇️ Get && Convert to TXT")
                     act_txt = menu.addAction(f"{txt_label} {'✅' if txt_exists else ''}".strip())
                     act_txt.triggered.connect(lambda: self._handle_document_action(c, "txt", btn))
+
+                    menu.addSeparator()
+
+                    md_label = "📘 Open Markdown (.md)" if md_exists else (
+                        "⚙️ Convert to Markdown (.md)" if (word_exists or zip_exists) else "⬇️ Get && Convert to Markdown (.md)")
+                    act_md = menu.addAction(f"{md_label} {'✅' if md_exists else ''}".strip())
+                    act_md.triggered.connect(lambda: self._handle_document_action(c, "md", btn))
+
+                    md_split_label = "📑 Open Markdown Clauses" if md_split_exists else (
+                        "⚙️ Convert to Markdown Clauses" if (word_exists or zip_exists) else "⬇️ Get && Convert to Markdown Clauses")
+                    act_md_split = menu.addAction(f"{md_split_label} {'✅' if md_split_exists else ''}".strip())
+                    act_md_split.triggered.connect(lambda: self._handle_document_action(c, "md_split", btn))
 
                     menu.addSeparator()
 
@@ -1262,6 +1286,86 @@ class SpecificationsTab(QWidget):
                         else:
                             os.startfile(str(target_path))
 
+                    elif doc_type in ("md", "md_split"):
+                        is_split = (doc_type == "md_split")
+                        target_path = spec_dl_dir / f"{stem}_clauses" / "index.md" if is_split else spec_dl_dir / f"{stem}.md"
+
+                        if not target_path.exists():
+                            orig_text = btn.text() if not sip.isdeleted(btn) else "Converting..."
+                            if not sip.isdeleted(btn):
+                                btn.setText("⏳ Converting MD...")
+                                btn.setEnabled(False)
+
+                            from modules.specifications.ui.threads import SpecMarkdownConverterThread
+                            spec_meta = {
+                                "spec": c_data.get("spec_num", ""),
+                                "version": c_data.get("version", ""),
+                                "release": c_data.get("release", ""),
+                                "upload_date": c_data.get("upload_date", ""),
+                            }
+                            spec_details = self.db.get_spec_details(c_data.get("spec_num", ""))
+                            if spec_details:
+                                spec_meta["title"] = spec_details.get("title", "")
+                                spec_meta["wg"] = spec_details.get("wg", "")
+
+                            mode = "split" if is_split else "single"
+                            md_thread = SpecMarkdownConverterThread(spec_dl_dir, stem, mode=mode, meta=spec_meta)
+
+                            def on_md_progress(status_msg, b=btn):
+                                try:
+                                    if not sip.isdeleted(b):
+                                        b.setText(f"⏳ {status_msg}"[:25])
+                                except RuntimeError:
+                                    pass
+
+                            def on_md_success(p, msg, c=combo, b=btn, txt=orig_text):
+                                try:
+                                    os.startfile(str(p))
+                                except Exception as e:
+                                    logger.error(f"Error opening converted Markdown file: {e}", exc_info=True)
+
+                                try:
+                                    if not sip.isdeleted(c):
+                                        self._update_combo_item_badges(c, c.currentIndex())
+                                        c.currentIndexChanged.emit(c.currentIndex())
+                                    if not sip.isdeleted(b):
+                                        b.setText(txt)
+                                        b.setEnabled(True)
+                                except RuntimeError:
+                                    pass
+
+                            def on_md_error(err, b=btn, txt=orig_text):
+                                logger.error(f"Spec Markdown conversion failed: {err}")
+                                QMessageBox.warning(self, "Markdown Error", f"Failed to convert specification:\n{err}")
+                                try:
+                                    if not sip.isdeleted(b):
+                                        b.setText(txt)
+                                        b.setEnabled(True)
+                                except RuntimeError:
+                                    pass
+
+                            def md_cleanup(t=md_thread, b=btn, txt=orig_text):
+                                if t in self._download_threads:
+                                    self._download_threads.remove(t)
+                                try:
+                                    if not sip.isdeleted(b) and not b.isEnabled():
+                                        b.setText(txt)
+                                        b.setEnabled(True)
+                                except RuntimeError:
+                                    pass
+
+                            md_thread.progress_status.connect(on_md_progress)
+                            md_thread.finished_success.connect(on_md_success)
+                            md_thread.error.connect(on_md_error)
+                            md_thread.finished.connect(md_cleanup)
+
+                            self._download_threads.append(md_thread)
+                            md_thread.start()
+                        else:
+                            os.startfile(str(target_path))
+
+                        break
+
                 except Exception as e:
                     QMessageBox.warning(self, "Open Error", f"Could not open/convert {doc_type.upper()}:\n{e}")
 
@@ -1276,6 +1380,10 @@ class SpecificationsTab(QWidget):
             target_exists = any(spec_dl_dir.glob(f"{stem}*.html"))
         elif doc_type == "txt":
             target_exists = any(spec_dl_dir.glob(f"{stem}*.txt"))
+        elif doc_type == "md":
+            target_exists = any(f for f in spec_dl_dir.glob(f"{stem}*.md") if "_clauses" not in str(f))
+        elif doc_type == "md_split":
+            target_exists = (spec_dl_dir / f"{stem}_clauses" / "index.md").exists()
 
         if target_exists or word_exists or zip_path.exists():
             _process_and_open()
