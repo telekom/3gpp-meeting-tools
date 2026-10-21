@@ -50,126 +50,14 @@ from modules.meetings.core.contribution_worker import ContributionSearchWorker
 
 
 
-class ContributionResultsTableModel(QAbstractTableModel):
-    """Contribution results with restrained semantic highlighting for status cells."""
-    COLUMNS = [
-        "WG", "Meeting", "TDoc", "Title", "Source", "Matched Company",
-        "Type", "For", "Agenda Item", "TDoc Status", "Related WIs", "Abstract"
-    ]
-
-    def __init__(self, data=None):
-        super().__init__()
-        self._data = data or []
-
-    def rowCount(self, parent=QModelIndex()):
-        return len(self._data)
-
-    def columnCount(self, parent=QModelIndex()):
-        return len(self.COLUMNS)
-
-    def headerData(self, section, orientation, role):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return self.COLUMNS[section]
-        return None
-
-    def data(self, index, role):
-        if not index.isValid() or not (0 <= index.row() < len(self._data)):
-            return None
-
-        row_dict = self._data[index.row()]
-        col_name = self.COLUMNS[index.column()]
-
-        if role == Qt.DisplayRole:
-            return str(row_dict.get(col_name, ""))
-
-        # Compact metadata badges: restrained fills make short Type/For values
-        # scannable without coloring the complete row.
-        if col_name in ("Type", "For"):
-            value = str(row_dict.get(col_name, "") or "").strip()
-            if value:
-                if role == Qt.BackgroundRole:
-                    return QBrush(QColor("#EBF3FC" if col_name == "Type" else "#F1F5F9"))
-                if role == Qt.ForegroundRole:
-                    return QBrush(QColor("#1E5C99" if col_name == "Type" else "#475569"))
-                if role == Qt.FontRole:
-                    font = QFont()
-                    font.setBold(True)
-                    return font
-
-        # Explain WI/AI OR searches visually. Only the matching facet cells are
-        # tinted, based on the worker's explicit match annotation.
-        match_origin = str(row_dict.get("_Filter Match", ""))
-        if col_name == "Related WIs" and "WI" in match_origin:
-            if role == Qt.BackgroundRole:
-                return QBrush(QColor("#EFF6FF"))
-            if role == Qt.ForegroundRole:
-                return QBrush(QColor("#1D4ED8"))
-            if role == Qt.FontRole:
-                font = QFont()
-                font.setBold(True)
-                return font
-        if col_name == "Agenda Item" and "AI" in match_origin:
-            if role == Qt.BackgroundRole:
-                return QBrush(QColor("#F5F3FF"))
-            if role == Qt.ForegroundRole:
-                return QBrush(QColor("#6D28D9"))
-            if role == Qt.FontRole:
-                font = QFont()
-                font.setBold(True)
-                return font
-
-        if col_name == "TDoc Status":
-            status = str(row_dict.get(col_name, "") or "").strip().lower()
-            if role == Qt.BackgroundRole:
-                if "agreed" in status or "approved" in status:
-                    return QBrush(QColor("#E6F4EA"))
-                if "noted" in status or "postponed" in status:
-                    return QBrush(QColor("#FEF7E0"))
-                if any(term in status for term in ("withdrawn", "rejected", "not agreed", "not-agreed")):
-                    return QBrush(QColor("#FCE8E6"))
-                if status:
-                    return QBrush(QColor("#F1F3F4"))
-            if role == Qt.ForegroundRole:
-                if "agreed" in status or "approved" in status:
-                    return QBrush(QColor("#137333"))
-                if "noted" in status or "postponed" in status:
-                    return QBrush(QColor("#B06000"))
-                if any(term in status for term in ("withdrawn", "rejected", "not agreed", "not-agreed")):
-                    return QBrush(QColor("#C5221F"))
-                if status:
-                    return QBrush(QColor("#3C4043"))
-            if role == Qt.FontRole and status:
-                font = QFont()
-                font.setBold(True)
-                return font
-
-        if role == Qt.TextAlignmentRole:
-            if col_name in ["WG", "Meeting", "TDoc", "Type", "For", "Agenda Item", "TDoc Status", "Related WIs"]:
-                return Qt.AlignCenter
-            return Qt.AlignLeft | Qt.AlignVCenter
-
-        if role == Qt.ToolTipRole:
-            val = str(row_dict.get(col_name, "")).strip()
-            match_origin = str(row_dict.get("_Filter Match", ""))
-            if col_name == "Related WIs" and "WI" in match_origin:
-                return f"Matched the active WI filter.\n{val}" if val else "Matched the active WI filter."
-            if col_name == "Agenda Item" and "AI" in match_origin:
-                return f"Matched the active Agenda Item filter.\n{val}" if val else "Matched the active Agenda Item filter."
-            if col_name == "Abstract" and val:
-                return f"<div style='width: 450px; white-space: pre-wrap;'>{val}</div>"
-            elif col_name in ["Title", "Source"] and len(val) > 40:
-                return f"<div style='width: 400px; white-space: pre-wrap;'>{val}</div>"
-            return None
-
-        if role == Qt.UserRole:
-            return row_dict
-
-        return None
-
-    def update_data(self, new_data: list):
-        self.beginResetModel()
-        self._data = new_data
-        self.endResetModel()
+# Re-exported for backward compatibility
+from modules.meetings.ui.contribution_models import ContributionResultsTableModel
+from modules.meetings.ui.contribution_export_controller import (
+    export_to_excel,
+    on_export_finished,
+    generate_statistics,
+    on_stats_finished,
+)
 
 
 class ContributionReportDialog(QDialog):
@@ -764,87 +652,13 @@ class ContributionReportDialog(QDialog):
     # --- EXPORTS ---
 
     def _export_to_excel(self):
-        data = self.table_model._data
-        if not data:
-            return
-
-        default_name = f"Contributions_Report_{QDate.currentDate().toString('yyyy-MM-dd')}.xlsx"
-        save_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Contributions Report",
-            str(Path.home() / "Desktop" / default_name),
-            "Excel Files (*.xlsx)"
-        )
-        if not save_path:
-            return
-
-        self.btn_export.setEnabled(False)
-        self.btn_export.setText("⏳ Exporting...")
-
-        mtg_info = {"wg_name": "Contributions", "meeting_number": "Audit"}
-        selected_cols = ContributionResultsTableModel.COLUMNS
-
-        self.exporter_thread = ExcelExporterThread(
-            output_path=Path(save_path),
-            rows_data=data,
-            selected_columns=selected_cols,
-            mtg_info=mtg_info,
-            docs_ftp_url="",
-            auto_open=True
-        )
-
-        self.exporter_thread.finished.connect(self._on_export_finished)
-        self.exporter_thread.start()
+        export_to_excel(self)
 
     def _on_export_finished(self, success: bool, msg: str):
-        self.btn_export.setEnabled(True)
-        self.btn_export.setText("📥 Export to Excel...")
-
-        if success:
-            reply = QMessageBox.question(
-                self, "Export Complete",
-                f"Report saved successfully:\n{msg}\n\nOpen spreadsheet now?",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if reply == QMessageBox.Yes:
-                try:
-                    os.startfile(msg) if hasattr(os, 'startfile') else webbrowser.open(f"file:///{msg}")
-                except Exception as e:
-                    logging.error(f"Failed to open Excel report: {e}")
-        else:
-            QMessageBox.critical(self, "Export Failed", f"Could not generate Excel report:\n{msg}")
+        on_export_finished(self, success, msg)
 
     def _generate_statistics(self):
-        data = self.table_model._data
-        if not data:
-            return
-
-        self.btn_stats.setEnabled(False)
-        self.btn_stats.setText("⏳ Generating...")
-
-        config = StatisticsSettingsDialog().load_config()
-        current_cache = self.settings.cache_dir
-        export_dir = Path(current_cache) / "Contributions_Audit" / "Export"
-
-        self.stats_thread = ContributionStatsExporterThread(
-            export_dir=export_dir,
-            tdocs_data=data,
-            target_companies=self.company_widget.get_selected_companies(),
-            target_wis=self.wi_token_widget.get_tokens(),
-            config=config,
-            parent=self
-        )
-        self.stats_thread.finished.connect(self._on_stats_finished)
-        self.stats_thread.start()
+        generate_statistics(self)
 
     def _on_stats_finished(self, success: bool, msg: str):
-        self.btn_stats.setEnabled(True)
-        self.btn_stats.setText("📊 Statistics Dashboard...")
-
-        if success:
-            QMessageBox.information(self, "Dashboard Ready", f"Analytics dashboard generated successfully!\n\nSaved to:\n{msg}")
-            try:
-                os.startfile(msg) if hasattr(os, 'startfile') else webbrowser.open(f"file:///{msg}")
-            except Exception as e:
-                logging.error(f"Could not open dashboard: {e}")
-        else:
-            QMessageBox.warning(self, "Generation Failed", f"Could not generate statistics dashboard:\n{msg}")
+        on_stats_finished(self, success, msg)
