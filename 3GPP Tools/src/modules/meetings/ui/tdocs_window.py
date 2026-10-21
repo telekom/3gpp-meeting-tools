@@ -10,7 +10,7 @@ import webbrowser
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint
-from PyQt5.QtGui import QCursor
+from PyQt5.QtGui import QCursor, QKeySequence
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView,
     QHeaderView, QLabel, QLineEdit, QFrame,
@@ -302,6 +302,19 @@ class TDocsWindow(QWidget):
         )
         act_export_reports.setStatusTip(act_export_reports.toolTip())
 
+        self.export_menu = export_menu
+        self.export_menu_sep = export_menu.addSeparator()
+        self.act_open_export_dir = export_menu.addAction(
+            "📂 Open Export Folder", self._open_export_folder
+        )
+        self.act_open_export_dir.setToolTip(
+            "Open this meeting's local Export directory in Windows Explorer (Ctrl+Shift+E)."
+        )
+        self.act_open_export_dir.setStatusTip(self.act_open_export_dir.toolTip())
+        self.act_open_export_dir.setShortcut(QKeySequence("Ctrl+Shift+E"))
+        self.addAction(self.act_open_export_dir)
+
+        self.export_menu.aboutToShow.connect(self._on_export_menu_about_to_show)
         self.export_btn.setMenu(export_menu)
 
         self.stats_btn = QPushButton("📊 Statistics")
@@ -377,6 +390,10 @@ class TDocsWindow(QWidget):
                 lambda: _open_terminal(self.meeting_dir, self),
             )
             act.setToolTip("Open Windows Terminal with this meeting's local cache folder as its working directory.")
+        export_dir = self.meeting_dir / "Export"
+        if export_dir.is_dir():
+            act_exp = self.folder_menu.addAction("📂 Local: Export Folder", self._open_export_folder)
+            act_exp.setToolTip("Open this meeting's local Export directory containing packages and Markdown dossiers.")
         local_agenda_csv = self.agenda_dir / "agenda.csv"
         if local_agenda_csv.exists():
             self.folder_menu.addAction("📋 Local: agenda.csv", lambda: _open_folder(local_agenda_csv))
@@ -1066,6 +1083,24 @@ class TDocsWindow(QWidget):
 
     def _open_meeting_folder(self):
         _open_folder(self.meeting_dir)
+
+    def _on_export_menu_about_to_show(self):
+        export_dir = self.meeting_dir / "Export"
+        has_export = export_dir.is_dir()
+        self.export_menu_sep.setVisible(has_export)
+        self.act_open_export_dir.setVisible(has_export)
+
+    def _open_export_folder(self):
+        export_dir = self.meeting_dir / "Export"
+        if export_dir.is_dir():
+            _open_folder(export_dir)
+        else:
+            QMessageBox.information(
+                self,
+                "Export Folder Not Found",
+                f"No export folder exists yet for this meeting:\n{export_dir}\n\n"
+                "Run an export first to create it.",
+            )
 
     def _show_unmatched_companies(self):
         unmatched = self.model.get_unmatched_sources()
