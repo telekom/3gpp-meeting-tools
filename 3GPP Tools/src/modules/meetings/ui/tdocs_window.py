@@ -72,74 +72,22 @@ from modules.emails.ui.general_email_dialog import (
 from modules.meetings.ui.tdoc_triage_dialog import TDocTriageDialog
 
 
-class DropOverlayWidget(QWidget):
-    """Semi-transparent visual overlay aligned with InteractiveDropLabel design tokens."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self.hide()
-
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignCenter)
-
-        card = QFrame()
-        card.setStyleSheet("""
-            QFrame {
-                background-color: rgba(235, 243, 252, 0.95);
-                border: 3px dashed #395396;
-                border-radius: 12px;
-                padding: 30px;
-            }
-        """)
-        card_layout = QVBoxLayout(card)
-        card_layout.setAlignment(Qt.AlignCenter)
-        card_layout.setSpacing(10)
-
-        icon_lbl = QLabel("📥")
-        icon_lbl.setStyleSheet("font-size: 48px; border: none; background: transparent;")
-        icon_lbl.setAlignment(Qt.AlignCenter)
-
-        text_lbl = QLabel("<b>Drop Chairman's Notes / Agenda file(s) to import</b><br>"
-                          "<span style='font-size: 12px; color: #475569;'>"
-                          "Supports single or multiple <code>.docx</code>, <code>.doc</code>, and <code>.htm</code> files</span>")
-        text_lbl.setStyleSheet("font-size: 16px; color: #1E5C99; border: none; background: transparent;")
-        text_lbl.setAlignment(Qt.AlignCenter)
-
-        card_layout.addWidget(icon_lbl)
-        card_layout.addWidget(text_lbl)
-        layout.addWidget(card)
-
-
 from core.utils.folder_opener import open_folder as _open_folder
-
-
-def _open_terminal(path: Path, parent=None):
-    """Open a terminal with its working directory set to the meeting cache."""
-    path = Path(path)
-    if not path.is_dir():
-        QMessageBox.warning(parent, "Not Found", "The local meeting cache folder does not exist.")
-        return
-
-    try:
-        subprocess.Popen(["wt.exe", "-d", str(path)], cwd=str(path))
-        return
-    except FileNotFoundError:
-        # Windows Terminal is not installed or its app execution alias is unavailable.
-        pass
-    except OSError as exc:
-        QMessageBox.critical(parent, "Terminal Error", f"Could not open Windows Terminal:\n{exc}")
-        return
-
-    # Keep the fallback useful on Windows installations without Windows Terminal.
-    escaped_path = str(path).replace("'", "''")
-    try:
-        subprocess.Popen(
-            ["powershell.exe", "-NoExit", "-Command", f"Set-Location -LiteralPath '{escaped_path}'"],
-            cwd=str(path),
-        )
-    except OSError as exc:
-        QMessageBox.critical(parent, "Terminal Error", f"Could not open a terminal:\n{exc}")
+from core.utils.terminal_opener import open_terminal as _open_terminal
+from modules.meetings.ui.tdocs_drop_overlay import DropOverlayWidget
+from modules.meetings.ui.tdocs_agenda_controller import (
+    import_word_agenda_dialog,
+    process_imported_agenda_files,
+    process_next_in_import_queue,
+    on_word_import_progress,
+    on_word_import_finished,
+    finalize_import_batch,
+    download_agenda_csv,
+    on_agenda_download_finished,
+    download_chair_notes,
+    on_chair_notes_finished,
+    open_chair_notes_folder,
+)
 
 
 class TDocsWindow(QWidget):
@@ -1330,201 +1278,37 @@ class TDocsWindow(QWidget):
             event.ignore()
 
     def _import_word_agenda_dialog(self):
-        agenda_dir = self.meeting_dir / "Agenda"
-        start_dir = str(agenda_dir) if agenda_dir.exists() else str(self.meeting_dir)
-
-        file_paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Select TDocsByAgenda / Chairman's Notes File(s)",
-            start_dir,
-            "Supported Files (*.docx *.doc *.htm *.html);;Word Documents (*.docx *.doc);;DOCX Files (*.docx);;DOC Files (*.doc);;HTML Files (*.htm *.html);;All Files (*.*)"
-        )
-        if file_paths:
-            self._process_imported_agenda_files([Path(p) for p in file_paths])
+        import_word_agenda_dialog(self)
 
     def _process_imported_agenda_files(self, source_paths: list):
-        valid_paths = [p for p in source_paths if p.exists()]
-        if not valid_paths:
-            QMessageBox.warning(self, "Files Not Found", "None of the specified files exist on disk.")
-            return
-
-        self._import_queue.extend(valid_paths)
-        if not self._is_importing_agenda:
-            self._total_import_batch_count = len(self._import_queue)
-            self._import_accumulated_merged = 0
-            self._import_success_files = []
-            self._import_failed_files = []
-            self._is_importing_agenda = True
-            self._process_next_in_import_queue()
+        process_imported_agenda_files(self, source_paths)
 
     def _process_next_in_import_queue(self):
-        if not self._import_queue:
-            self._finalize_import_batch()
-            return
-
-        current_file = self._import_queue.pop(0)
-        current_idx = self._total_import_batch_count - len(self._import_queue)
-
-        self.refresh_btn.setEnabled(False)
-        self.refresh_btn.setText(f"⏳ ({current_idx}/{self._total_import_batch_count}) Importing...")
-
-        self.word_import_thread = WordAgendaImporterThread(current_file, self.meeting_dir)
-        self.word_import_thread.progress.connect(
-            lambda msg, idx=current_idx, tot=self._total_import_batch_count: self._on_word_import_progress(
-                f"({idx}/{tot}) {msg}")
-        )
-        self.word_import_thread.finished.connect(self._on_word_import_finished)
-        self.word_import_thread.start()
+        process_next_in_import_queue(self)
 
     def _on_word_import_progress(self, msg: str):
-        self.refresh_btn.setText(f"⏳ {msg}"[:32])
+        on_word_import_progress(self, msg)
 
     def _on_word_import_finished(self, success: bool, agenda_data: dict, filename: str, error_msg: str):
-        if success and agenda_data:
-            self.model.merge_agenda_data(agenda_data)
-            self._import_accumulated_merged += len(agenda_data)
-            self._import_success_files.append((filename, len(agenda_data)))
-        else:
-            self._import_failed_files.append((filename, error_msg or "No valid TDocs table found"))
-
-        self._process_next_in_import_queue()
+        on_word_import_finished(self, success, agenda_data, filename, error_msg)
 
     def _finalize_import_batch(self):
-        self._is_importing_agenda = False
-        self.refresh_btn.setEnabled(True)
-        self.refresh_btn.setText("🔄 Refresh")
-
-        if self._import_accumulated_merged > 0:
-            self._refresh_comboboxes()
-            self.refresh_btn.setText(f"✅ {self._import_accumulated_merged} Merged")
-            QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
-
-        if self._total_import_batch_count == 1:
-            if self._import_success_files:
-                fname, count = self._import_success_files[0]
-                QMessageBox.information(
-                    self,
-                    "Import Successful",
-                    f"Saved to Agenda/\nSuccessfully merged {count} TDocs from:\n{fname}",
-                )
-            else:
-                fname, err = self._import_failed_files[0]
-                QMessageBox.warning(self, "Import Failed", f"Failed to import {fname}:\n{err}")
-            return
-
-        summary_lines = [
-            f"Batch import completed for {self._total_import_batch_count} files.",
-            f"• Successfully imported: {len(self._import_success_files)} file(s)",
-            f"• Total TDocs merged: {self._import_accumulated_merged}\n"
-        ]
-
-        if self._import_failed_files:
-            summary_lines.append(f"⚠️ Failures ({len(self._import_failed_files)}):")
-            for fname, err in self._import_failed_files:
-                summary_lines.append(f"  - {fname}: {err}")
-            QMessageBox.warning(self, "Batch Import Completed with Warnings", "\n".join(summary_lines))
-        else:
-            QMessageBox.information(self, "Batch Import Successful", "\n".join(summary_lines))
+        finalize_import_batch(self)
 
     def _download_agenda_csv(self):
-        wg_name = self.mtg_info.get("wg_name", "").upper()
-        main_url = self.mtg_info.get("url_key", "")
-        if main_url and not main_url.startswith("http"):
-            main_url = f"https://www.3gpp.org/ftp/{main_url.lstrip('/')}"
-
-        is_active = self.mtg_info.get("is_active_sync", False)
-        candidate_urls = []
-        if NetworkState.get_instance().is_local_active():
-            local_base = URLRouter._get_local_server_base(wg_name)
-            candidate_urls.append(local_base)
-
-        if is_active:
-            sync_wg = "SA3LI" if wg_name == "SA3LI" else wg_name
-            candidate_urls.append(f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{sync_wg}")
-
-        if main_url:
-            candidate_urls.append(main_url)
-
-        docs_url = self.mtg_info.get("docs_folder_url", "")
-        if docs_url:
-            if not docs_url.startswith("http"):
-                docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip('/')
-            base_from_docs = re.sub(r'/Docs/?$', '', docs_url, flags=re.IGNORECASE)
-            if base_from_docs not in candidate_urls:
-                candidate_urls.append(base_from_docs)
-
-        if not candidate_urls:
-            return QMessageBox.warning(self, "No URL Available", "Cannot download Agenda CSV: No valid meeting URL found.")
-
-        self.refresh_btn.setEnabled(False)
-        self.refresh_btn.setText("⏳ Getting Agenda...")
-
-        self.agenda_dl_thread = AgendaDownloaderThread(candidate_urls, self.agenda_dir, self)
-        self.agenda_dl_thread.progress.connect(lambda msg: self.refresh_btn.setText(f"⏳ {msg}"[:30]))
-        self.agenda_dl_thread.finished.connect(self._on_agenda_download_finished)
-        self.agenda_dl_thread.start()
+        download_agenda_csv(self)
 
     def _on_agenda_download_finished(self, success: bool, msg: str):
-        self.refresh_btn.setEnabled(True)
-        self.refresh_btn.setText("🔄 Refresh")
-
-        if success:
-            self.refresh_btn.setText("✅ Agenda Cached")
-            QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
-            self.agenda_map = AgendaManager.load_local_agenda(self.agenda_dir)
-            if hasattr(self, 'model') and self.model:
-                self.model.set_agenda_map(self.agenda_map)
-            self._refresh_comboboxes()
-            QMessageBox.information(self, "Agenda CSV Cached", msg)
-        else:
-            QMessageBox.warning(self, "Download Failed", msg)
+        on_agenda_download_finished(self, success, msg)
 
     def _download_chair_notes(self):
-        wg_name = self.mtg_info.get("wg_name", "").upper()
-        main_url = self.mtg_info.get("url_key", "")
-        if main_url and not main_url.startswith("http"):
-            main_url = f"https://www.3gpp.org/ftp/{main_url.lstrip('/')}"
-
-        is_active = self.mtg_info.get("is_active_sync", False)
-        candidate_urls = []
-        if NetworkState.get_instance().is_local_active():
-            local_base = URLRouter._get_local_server_base(wg_name)
-            candidate_urls.append(local_base)
-
-        if is_active:
-            sync_wg = "SA3LI" if wg_name == "SA3LI" else wg_name
-            candidate_urls.append(f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{sync_wg}")
-
-        if main_url:
-            candidate_urls.append(main_url)
-
-        if not candidate_urls:
-            return QMessageBox.warning(self, "No URL Available", "Cannot download Chairman's Notes: No valid meeting URL found.")
-
-        self.refresh_btn.setEnabled(False)
-        self.refresh_btn.setText("⏳ Downloading Notes...")
-
-        chair_notes_dir = self.meeting_dir / "Agenda" / "ChairNotes"
-        self.chair_notes_thread = ChairNotesDownloaderThread(candidate_urls, chair_notes_dir)
-        self.chair_notes_thread.progress.connect(lambda msg: self.refresh_btn.setText(f"⏳ {msg}"[:30]))
-        self.chair_notes_thread.finished.connect(self._on_chair_notes_finished)
-        self.chair_notes_thread.start()
+        download_chair_notes(self)
 
     def _on_chair_notes_finished(self, success: bool, count: int, files: list, msg: str):
-        self.refresh_btn.setEnabled(True)
-        self.refresh_btn.setText("🔄 Refresh")
-
-        if success and count > 0:
-            self.refresh_btn.setText(f"✅ {count} Notes")
-            QTimer.singleShot(4000, lambda: self.refresh_btn.setText("🔄 Refresh"))
-            QMessageBox.information(self, "Chairman's Notes Downloaded", msg)
-        elif success and count == 0:
-            QMessageBox.information(self, "Chairman's Notes", msg)
-        else:
-            QMessageBox.warning(self, "Download Failed", msg)
+        on_chair_notes_finished(self, success, count, files, msg)
 
     def _open_chair_notes_folder(self):
-        _open_folder(self.meeting_dir / "Agenda" / "ChairNotes")
+        open_chair_notes_folder(self)
 
     def _get_package_export_rows(self) -> list:
         return get_package_export_rows(self)
