@@ -1050,6 +1050,9 @@ class SpecificationsTab(QWidget):
                     act_excerpt = menu.addAction("✂️ Extract Clauses (Excerpt)...")
                     act_excerpt.triggered.connect(lambda: self._open_clause_excerpt_dialog(c))
 
+                    act_cr_pcr = menu.addAction("📝 Draft Contribution (CR / pCR)...")
+                    act_cr_pcr.triggered.connect(lambda: self._open_cr_pcr_dialog(c))
+
                     menu.addSeparator()
 
                     zip_label = "📦 Show ZIP Archive ✅" if zip_exists else "📥 Download ZIP Archive"
@@ -1122,6 +1125,38 @@ class SpecificationsTab(QWidget):
 
         dialog.extraction_completed.connect(_on_extraction_done)
         dialog.show()
+
+    def _open_cr_pcr_dialog(self, combo: QComboBox):
+        if sip.isdeleted(combo):
+            return
+        c_data = combo.currentData()
+        if not c_data:
+            return
+
+        from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
+
+        spec_num = c_data["spec_num"]
+        spec_dl_dir = Path(self.download_dir) / spec_num
+        spec_type = "TS"
+        release = c_data.get("release", "")
+        details = self.db.get_spec_details(spec_num)
+        if not details and "-" in spec_num:
+            base_num = spec_num.split("-")[0]
+            details = self.db.get_spec_details(base_num)
+        if details and details.get("type"):
+            spec_type = details["type"]
+
+        cr_dlg = CrPcrDialog(
+            spec_num=spec_num,
+            spec_type=spec_type,
+            version=c_data.get("version", ""),
+            release=release,
+            fname=c_data.get("fname", ""),
+            url=c_data.get("url", ""),
+            spec_dl_dir=spec_dl_dir,
+            parent=self,
+        )
+        cr_dlg.show()
 
     def _handle_document_action(self, combo: QComboBox, doc_type: str, btn: QPushButton):
         handle_document_action(self, combo, doc_type, btn)

@@ -371,6 +371,11 @@ class WordExcerptEngine:
                 AddToRecentFiles=False,
             )
             set_sensitivity_label(doc)
+            try:
+                from modules.word_tools.core.styles_3gpp import promote_3gpp_styles_in_word
+                promote_3gpp_styles_in_word(doc)
+            except Exception as e:
+                logger.debug("Failed promoting 3GPP styles during labeling: %s", e)
             doc.Save()
             doc.Close(SaveChanges=False)
             doc = None

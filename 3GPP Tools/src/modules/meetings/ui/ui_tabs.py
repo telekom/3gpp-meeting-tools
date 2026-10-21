@@ -892,3 +892,21 @@ class MeetingsTab(QWidget):
 
     def _open_meeting_from_report(self, wg_name: str, meeting_number: str):
         open_meeting_from_report(self, wg_name, meeting_number)
+
+    def open_cr_pcr_for_meeting(self, row_data: dict):
+        from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
+        mtg_info = {
+            "wg_name": row_data.get("wg_name", ""),
+            "meeting_number": row_data.get("meeting_number", ""),
+            "location": row_data.get("location", ""),
+            "dates": row_data.get("dates", ""),
+            "start_date": row_data.get("start_date", ""),
+            "end_date": row_data.get("end_date", ""),
+            "title": row_data.get("title", ""),
+        }
+        dlg = CrPcrDialog(
+            spec_num="",
+            meeting_info=mtg_info,
+            parent=self,
+        )
+        dlg.show()

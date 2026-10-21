@@ -32,6 +32,11 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     InteractiveDropLabel
 )
+from modules.word_tools.core.styles_3gpp import (
+    install_3gpp_dotx_template,
+    is_3gpp_dotx_installed,
+    uninstall_3gpp_dotx_template,
+)
 from modules.word_tools.core.word_config import WordConfig
 from modules.word_tools.core.word_excerpt_extractor import (
     WordExcerptThread,
@@ -60,6 +65,7 @@ class WordExtractorTab(QWidget):
         super().__init__()
         self._setup_ui()
         self._check_libreoffice_status()
+        self._check_dotx_status()
 
     def _setup_ui(self):
         layout = QVBoxLayout()
@@ -101,6 +107,15 @@ class WordExtractorTab(QWidget):
         ])
         switcher_layout.addWidget(self.op_combo)
         switcher_layout.addStretch()
+
+        switcher_layout.addWidget(QLabel("<b>3GPP Template:</b>"))
+        self.dotx_badge = QLabel()
+        switcher_layout.addWidget(self.dotx_badge)
+        self.dotx_btn = QPushButton()
+        self.dotx_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.dotx_btn.clicked.connect(self._on_toggle_dotx_clicked)
+        switcher_layout.addWidget(self.dotx_btn)
+
         layout.addLayout(switcher_layout)
 
         self.stack = QStackedWidget()
@@ -581,6 +596,66 @@ class WordExtractorTab(QWidget):
             self.banner_text.setStyleSheet("color: #B45309;")
             self.locate_btn.setText("📂 Locate Executable")
             self.download_btn.setVisible(True)
+
+    def _check_dotx_status(self):
+        installed = is_3gpp_dotx_installed()
+        if installed:
+            self.dotx_badge.setText("🟢 Installed (3gpp_70.dotx)")
+            self.dotx_badge.setStyleSheet("""
+                QLabel {
+                    font-size: 11px;
+                    font-weight: bold;
+                    color: #065F46;
+                    background-color: #D1FAE5;
+                    border: 1px solid #A7F3D0;
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                }
+            """)
+            self.dotx_badge.setToolTip("3gpp_70.dotx is installed in %APPDATA%\\Microsoft\\Templates")
+            self.dotx_btn.setText("🗑️ Remove Template")
+            self.dotx_btn.setToolTip("Remove 3gpp_70.dotx from your Microsoft Word templates folder")
+        else:
+            self.dotx_badge.setText("⚪ Not Installed")
+            self.dotx_badge.setStyleSheet("""
+                QLabel {
+                    font-size: 11px;
+                    color: #64748B;
+                    background-color: #F1F5F9;
+                    border: 1px solid #E2E8F0;
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                }
+            """)
+            self.dotx_badge.setToolTip("3gpp_70.dotx is not installed in %APPDATA%\\Microsoft\\Templates")
+            self.dotx_btn.setText("📥 Install 3GPP Template")
+            self.dotx_btn.setToolTip("Download and install 3gpp_70.dotx into %APPDATA%\\Microsoft\\Templates")
+
+    def _on_toggle_dotx_clicked(self):
+        if is_3gpp_dotx_installed():
+            reply = QMessageBox.question(
+                self,
+                "Remove 3GPP Word Template",
+                "Do you want to remove 3gpp_70.dotx from your Microsoft Word templates folder?\n\n"
+                "(%APPDATA%\\Microsoft\\Templates\\3gpp_70.dotx)\n\n"
+                "Word will no longer automatically attach the 3GPP macro ribbon to newly created documents.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                ok, msg = uninstall_3gpp_dotx_template()
+                if ok:
+                    QMessageBox.information(self, "Template Removed", msg)
+                else:
+                    QMessageBox.warning(self, "Removal Failed", msg)
+                self._check_dotx_status()
+        else:
+            ok, msg = install_3gpp_dotx_template(force=True)
+            if ok:
+                QMessageBox.information(self, "Template Installed", msg)
+            else:
+                QMessageBox.warning(self, "Installation Failed", msg)
+            self._check_dotx_status()
 
     def _browse_for_libreoffice(self):
         file_path, _ = QFileDialog.getOpenFileName(

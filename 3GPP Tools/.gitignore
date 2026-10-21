@@ -1,0 +1,14 @@
+# 3GPP Proprietary Templates (downloaded on demand at runtime; not distributed with source)
+src/assets/Template_3GPP_CR*.docx
+src/assets/Pseudo-CR-Form*.docx
+src/assets/3gpp_70.dotx
+src/assets/*.zip
+src/assets/*.doc
+
+# Runtime caches and editor temp
+.editor_cache.puml
+*.tmp
+output/
+src/3gpp_tools.log
+__pycache__/
+*.pyc

@@ -53,6 +53,10 @@ def populate_meeting_context_menu(tab: Any, menu: QMenu, row_data: Dict[str, Any
                 )
             )
 
+    menu.addAction("📝 Draft CR / pCR for this Meeting...").triggered.connect(
+        lambda _, d=row_data: tab.open_cr_pcr_for_meeting(d)
+    )
+
     menu.addAction("🔄 Sync this Meeting").triggered.connect(
         lambda: tab.update_specific_requested.emit(
             [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}],

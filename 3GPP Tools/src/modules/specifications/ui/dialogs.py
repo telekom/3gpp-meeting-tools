@@ -162,6 +162,7 @@ class SpecsConfigDialog(QDialog):
 # Backward compatibility aliases for dialogs moved to dedicated modules
 from modules.specifications.ui.spec_info_dialog import NumericTableWidgetItem, SpecInfoDialog
 from modules.specifications.ui.spec_clause_dialog import SpecClauseExcerptDialog
+from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
 
 
 

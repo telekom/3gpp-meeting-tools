@@ -245,6 +245,13 @@ class SpecClauseExcerptDialog(QDialog):
         self.btn_extract.clicked.connect(self._extract_selected_clauses)
         bottom_layout.addWidget(self.btn_extract)
 
+        self.btn_cr_pcr = QPushButton("📝 Draft CR / pCR...")
+        self.btn_cr_pcr.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_cr_pcr.setCursor(Qt.PointingHandCursor)
+        self.btn_cr_pcr.setEnabled(False)
+        self.btn_cr_pcr.clicked.connect(self._open_cr_pcr_from_selection)
+        bottom_layout.addWidget(self.btn_cr_pcr)
+
         self.btn_close = QPushButton("Close")
         self.btn_close.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_close.setCursor(Qt.PointingHandCursor)
@@ -421,6 +428,8 @@ class SpecClauseExcerptDialog(QDialog):
         selected_ids = self._get_selected_ids()
         count = len(selected_ids)
         self.btn_extract.setEnabled(count > 0)
+        self.btn_cr_pcr.setEnabled(count > 0)
+        self.btn_cr_pcr.setText(f"📝 Draft CR / pCR ({count})..." if count > 0 else "📝 Draft CR / pCR...")
         if count > 0:
             self.btn_extract.setText(f"✂️ Extract Selected Clauses ({count})...")
         else:
@@ -500,6 +509,37 @@ class SpecClauseExcerptDialog(QDialog):
 
     def _on_extract_done(self):
         self._update_extract_button()
+
+    def _open_cr_pcr_from_selection(self):
+        from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
+        selected_ids = self._get_selected_ids()
+        dlg = CrPcrDialog(
+            spec_num=self.spec_num,
+            spec_type=self.spec_type,
+            version=self.version,
+            fname=self.fname,
+            url=self.url,
+            spec_dl_dir=self.spec_dl_dir,
+            ordered_paths=self._ordered_paths,
+            headings=self._headings,
+            parent=self.parent(),
+        )
+        dlg._populate_tree()
+        dlg._is_updating_checks = True
+        try:
+            for i in range(dlg.clause_tree.topLevelItemCount()):
+                item = dlg.clause_tree.topLevelItem(i)
+                def restore_checks(it):
+                    h_id = it.data(0, Qt.UserRole)
+                    if h_id and h_id in selected_ids:
+                        it.setCheckState(0, Qt.Checked)
+                    for ci in range(it.childCount()):
+                        restore_checks(it.child(ci))
+                restore_checks(item)
+        finally:
+            dlg._is_updating_checks = False
+        dlg._update_change_block_summary()
+        dlg.show()
 
     def closeEvent(self, event):
         """Cleanly abort active worker threads if dialog is closed."""

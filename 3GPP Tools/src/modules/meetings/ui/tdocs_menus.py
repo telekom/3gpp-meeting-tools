@@ -177,6 +177,7 @@ def build_row_context_menu(
     unread_emails_count: int = 0,
     pos: QPoint = None,
     triage_callback=None,  # <--- Added parameter
+    draft_cr_callback=None,
 ):
     """Complete command center menu for row-level operations."""
     menu = QMenu(parent)
@@ -193,6 +194,11 @@ def build_row_context_menu(
         act_triage = menu.addAction(f"🤖 AI Technical Triage for {tdoc_id}...")
         act_triage.setToolTip('Run the local-LLM technical triage for this TDoc.')
         act_triage.triggered.connect(lambda: triage_callback(tdoc_id))
+
+    if draft_cr_callback:
+        act_draft_cr = menu.addAction(f"📝 Draft CR / pCR from Spec...")
+        act_draft_cr.setToolTip("Compose a Change Request (CR) or Pseudo-CR (pCR) pre-populated from this TDoc.")
+        act_draft_cr.triggered.connect(lambda: draft_cr_callback(row_data))
 
     menu.addSeparator()
 
