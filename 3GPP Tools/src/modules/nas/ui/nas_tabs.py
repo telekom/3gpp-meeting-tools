@@ -42,6 +42,19 @@ from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatch
 from modules.nas.ui.nas_components import NASInspectorWidget, NASVersionTreeWidget
 from modules.nas.ui.nas_dialogs import NASVersionSelectDialog
 from modules.nas.ui.nas_models import NASEvolutionMatrixModel
+from modules.nas.ui.nas_ingest_controller import (
+    clear_version_clicked,
+    delete_single_version,
+    delete_spec_group,
+    fetch_from_specs_db_clicked,
+    import_cross_ref_spec_requested,
+    import_local_file_clicked,
+    on_import_error,
+    on_import_progress,
+    on_import_success,
+    start_batch_ingestion,
+    wipe_db_clicked,
+)
 from modules.specifications.core.database import SpecsDatabase
 
 logger = logging.getLogger(__name__)
@@ -453,40 +466,10 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
 
     def _delete_single_version(self, spec_number: str, version: str):
-        reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            f"Are you sure you want to delete all stored data for TS {spec_number} v{version}?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            if self.db.clear_version(spec_number, version):
-                self.current_selected_message_name = None
-                self.refresh_versions()
-                self._save_config()
-                logger.log(logging.INFO, f"🗑️ Deleted TS {spec_number} v{version} from database.")
-            else:
-                QMessageBox.warning(self, "Error", f"Failed to delete TS {spec_number} v{version}.")
+        delete_single_version(self, spec_number, version)
 
     def _delete_spec_group(self, spec_number: str, child_count: int):
-        reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            f"Are you sure you want to delete all {child_count} version(s) of TS {spec_number} from the database?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            for item in self.version_tree.get_all_versions_for_spec(spec_number):
-                if item.get("version"):
-                    self.db.clear_version(spec_number, item["version"])
-            self.current_selected_message_name = None
-            self.refresh_versions()
-            self._save_config()
-            logger.log(logging.INFO, f"🗑️ Deleted all versions of TS {spec_number} from database.")
-
-    # -------------------------------------------------------------------------
-    # Message / IE List & Matrix Handlers
-    # -------------------------------------------------------------------------
+        delete_spec_group(self, spec_number, child_count)
 
     def _on_search_timer_timeout(self):
         self._save_config()
@@ -837,159 +820,31 @@ class NASTab(QWidget):
     # -------------------------------------------------------------------------
 
     def _on_fetch_from_specs_db_clicked(self):
-        if not self.specs_db:
-            QMessageBox.warning(
-                self,
-                "Specs DB Unavailable",
-                "The 3GPP Specifications database (3gpp_data.db) is not configured or reachable.",
-            )
-            return
-
-        dialog = NASVersionSelectDialog(self.specs_db, self.db, self.cache_dir, self)
-        if dialog.exec_() == QDialog.Accepted and dialog.selected_files_info:
-            self._start_batch_ingestion(dialog.selected_files_info)
+        fetch_from_specs_db_clicked(self)
 
     def _on_import_local_file_clicked(self):
-        file_paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Select 3GPP Specification(s) (.docx)",
-            "",
-            "Word Files (*.docx)",
-        )
-        if not file_paths:
-            return
-
-        grouped_tasks: Dict[str, List[Path]] = {}
-        for fp in file_paths:
-            p = Path(fp)
-            base_key = re.sub(r"_\d+_.*$", "", p.stem)
-            grouped_tasks.setdefault(base_key, []).append(p)
-
-        tasks = []
-        for base_key, paths in grouped_tasks.items():
-            parser_temp = ProtocolDocxDispatcher(paths)
-            spec_num = parser_temp.extract_spec_number()
-            version = parser_temp.extract_version_from_filename()
-            tasks.append({
-                "spec_number": spec_num,
-                "version": version,
-                "filename": f"{base_key}.docx" if len(paths) == 1 else f"{base_key}.zip",
-                "file_url": "",
-                "local_docx_paths": paths,
-            })
-
-        self._start_batch_ingestion(tasks)
+        import_local_file_clicked(self)
 
     def _start_batch_ingestion(self, tasks: List[Dict[str, Any]]):
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-        self.fetch_btn.setEnabled(False)
-        self.import_file_btn.setEnabled(False)
-
-        self.thread = NASFetchAndImportThread(
-            nas_db_path=self.nas_db_path,
-            tasks=tasks,
-            cache_dir=self.cache_dir,
-        )
-        self.thread.progress.connect(self._on_import_progress)
-        self.thread.finished_success.connect(self._on_import_success)
-        self.thread.error.connect(self._on_import_error)
-        self.thread.start()
+        start_batch_ingestion(self, tasks)
 
     def _on_import_error(self, err_msg: str):
-        self.progress_bar.setVisible(False)
-        self.fetch_btn.setEnabled(True)
-        self.import_file_btn.setEnabled(True)
-        logger.log(logging.ERROR, f"❌ Import failed: {err_msg}")
-        QMessageBox.critical(
-            self,
-            "Import Error",
-            f"An error occurred during specification ingestion:\n{err_msg}",
-        )
+        on_import_error(self, err_msg)
 
     def _on_import_progress(self, msg: str, val: int):
-        self.progress_bar.setValue(val)
-        logger.log(logging.INFO, msg)
+        on_import_progress(self, msg, val)
 
     def _on_import_success(self, spec_count: int, msg_count: int):
-        self.progress_bar.setVisible(False)
-        self.fetch_btn.setEnabled(True)
-        self.import_file_btn.setEnabled(True)
-        logger.info(
-            f"✅ Successfully ingested {spec_count} specification(s) ({msg_count} total messages/PDUs)."
-        )
-        self.refresh_versions()
+        on_import_success(self, spec_count, msg_count)
 
     def _on_clear_version_clicked(self):
-        checked_versions = self.version_tree.get_checked_versions_info()
-        if not checked_versions:
-            QMessageBox.warning(self, "Select Version", "Please check at least one specific version to clear.")
-            return
-
-        reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            f"Delete {len(checked_versions)} checked specification version(s)?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            for item in checked_versions:
-                self.db.clear_version(item["spec_number"], item["version"])
-            self.current_selected_message_name = None
-            self.refresh_versions()
-            self._save_config()
+        clear_version_clicked(self)
 
     def _on_wipe_db_clicked(self):
-        reply = QMessageBox.critical(
-            self,
-            "Confirm Wipe",
-            "This will delete ALL imported specifications and tables. Continue?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            self.db.wipe_database()
-            self.current_selected_message_name = None
-            if self.config_path.exists():
-                try:
-                    self.config_path.unlink()
-                except Exception:
-                    pass
-            self.refresh_versions()
-            self.msg_list.clear()
-            self.matrix_table.setModel(None)
-            self.inspector.clear_display()
-            logger.log(logging.INFO, "🧹 Protocol Database wiped.")
+        wipe_db_clicked(self)
 
     def _on_import_cross_ref_spec_requested(self, spec_number: str, major_version: int):
-        if not self.specs_db:
-            QMessageBox.warning(
-                self,
-                "Specs DB Unavailable",
-                "The 3GPP Specifications database (3gpp_data.db) is not configured or reachable.",
-            )
-            return
-
-        dialog = NASVersionSelectDialog(self.specs_db, self.db, self.cache_dir, self)
-
-        for idx in range(dialog.spec_combo.count()):
-            if dialog.spec_combo.itemData(idx) == spec_number:
-                dialog.spec_combo.setCurrentIndex(idx)
-                break
-
-        if major_version > 0:
-            dialog.table.clearSelection()
-            for row in range(dialog.table.rowCount()):
-                item = dialog.table.item(row, 0)
-                if item:
-                    data = item.data(Qt.UserRole) or {}
-                    ver_tuple = parse_version_tuple(data.get("version", ""))
-                    if ver_tuple and (ver_tuple[0][1] if isinstance(ver_tuple[0], tuple) else ver_tuple[0]) == major_version:
-                        dialog.table.selectRow(row)
-                        dialog.table.scrollToItem(item)
-                        break
-
-        if dialog.exec_() == QDialog.Accepted and dialog.selected_files_info:
-            self._start_batch_ingestion(dialog.selected_files_info)
+        import_cross_ref_spec_requested(self, spec_number, major_version)
 
     def shutdown(self, wait_ms: int = 1500):
         """Cooperatively wait for short-lived NAS query workers during app shutdown."""
