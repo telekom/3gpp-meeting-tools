@@ -275,11 +275,12 @@ def build_row_context_menu(
                 )
             )
 
-    # --- 4. LLM CORPUS EXPORT ---
-    act_llm = menu.addAction("🤖 Export for LLM Analysis")
-    act_llm.setToolTip('Export this TDoc in an LLM-ready form for analysis.')
-    act_llm.triggered.connect(lambda: export_llm_callback(tdoc_id))
-    menu.addSeparator()
+    # --- 4. MARKDOWN EXPORT ---
+    if export_llm_callback:
+        act_md = menu.addAction("📄 Export to Markdown (.md)")
+        act_md.setToolTip("Export this TDoc as an individual Markdown document with metadata and extracted figures.")
+        act_md.triggered.connect(lambda: export_llm_callback(tdoc_id))
+        menu.addSeparator()
 
     # --- 5. EMAILS SUBMENU ---
     email_sub = menu.addMenu("📧 Emails")
@@ -471,9 +472,9 @@ def build_related_menu(
             )
 
         if export_llm_callback:
-            act_llm = menu.addAction("🤖 Export for LLM Analysis")
-            act_llm.setToolTip('Export this TDoc in an LLM-ready form for analysis.')
-            act_llm.triggered.connect(lambda: export_llm_callback(clean_tdoc))
+            act_md = menu.addAction("📄 Export to Markdown (.md)")
+            act_md.setToolTip("Export this TDoc as an individual Markdown document with metadata and extracted figures.")
+            act_md.triggered.connect(lambda: export_llm_callback(clean_tdoc))
     else:
         act_global = menu.addAction(
             f"🌐 Search {clean_tdoc} Across All Meetings"

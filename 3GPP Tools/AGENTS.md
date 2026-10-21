@@ -107,6 +107,9 @@ python -m main_tools
 - **Three-Phase Sync:** Asynchronously synchronizes meeting lists, TDoc metadata, and dynamic agenda reservations from 3GPP FTP servers.
 - **AI TDoc Triage:** Modeless dialog extracting CR cover sheets and redlines to synthesize structured executive summaries (*Objective*, *Key Changes*, *Potential Impacts*).
 - **Personal Notes & Stance:** Integrates local SQLite user notes (`user_tdocs.db`) with stance tagging (`⚪ Neutral`, `🔵 My TDoc`, `🟢 Support`, `🔴 Object`, `🟡 Monitor`).
+- **TDoc Markdown Conversion:** High-fidelity conversion of 3GPP Word documents (`.docx`, `.doc`) into Markdown with track changes, tables, and diagrams.
+  > [!CAUTION]
+  > **DO NOT MODIFY `src/modules/meetings/core/tdoc2md.py`**. This file is a drop-in core imported directly from an external standalone repository (`3gpp-tdoc-markdown-exporter`). All application-specific integrations, office adapters, or custom pipelines MUST reside exclusively in `tdoc_markdown_converter.py` or calling modules.
 
 ### 4.6. Research Assistant (`src/modules/assistant`)
 - **Architecture:** Bounded, evidence-grounded agent architecture connecting a local LLM to application knowledge services.
@@ -156,6 +159,9 @@ The project intentionally separates domain data into distinct SQLite databases l
 - **Support Interactive States:** Checkable buttons or toggleable controls must properly define interactive pseudo-states (such as `QPushButton:checked` and `QPushButton:checked:hover`) using the application's unified palette (`#EBF3FC` background, `#1E5C99` / `#395396` border and text).
 - **Functionality & Component Reuse:** Always reuse existing core infrastructure, dialogs, network managers, and utility functions across feature modules rather than duplicating logic.
 
+### 5.7. Protected Drop-In Files & External Components
+- **Strictly Protected File (`src/modules/meetings/core/tdoc2md.py`):** Under **NO** circumstances should `src/modules/meetings/core/tdoc2md.py` be modified. It is maintained externally in a separate repository (`3gpp-tdoc-markdown-exporter`) and dropped into this project verbatim. If application-specific adaptations, office tools, wrappers, or custom pipelines are required, they must reside exclusively in `tdoc_markdown_converter.py` or surrounding application code.
+
 ---
 
 ## 6. Development & Verification Workflow
@@ -163,5 +169,5 @@ The project intentionally separates domain data into distinct SQLite databases l
 When adding new features or fixing bugs:
 1. **Verify Python Syntax & Imports:** Ensure imports resolve cleanly with `PYTHONPATH=".;src"`.
 2. **Preserve Comments & Docstrings:** Do not strip existing architectural comments or docstrings from untouched code.
-3. **Check Submodule Guides:** When touching protocol parsing, consult [`src/modules/nas/core/parsing/AGENTS.md`](file:///src/modules/nas/core/parsing/AGENTS.md). When touching the Assistant, consult [`src/modules/assistant/README.md`](file:///src/modules/assistant/README.md).
+3. **Check Submodule Guides & Protected Files:** When touching protocol parsing, consult [`src/modules/nas/core/parsing/AGENTS.md`](file:///src/modules/nas/core/parsing/AGENTS.md). When touching the Assistant, consult [`src/modules/assistant/README.md`](file:///src/modules/assistant/README.md). When working with meetings or Markdown conversion, **NEVER edit `src/modules/meetings/core/tdoc2md.py`**.
 4. **Manual Verification:** Because the application is a graphical Qt desktop environment, test modified tabs or workers by running `python -m main_tools` and verifying that the Qt event loop starts and stops cleanly without console tracebacks or thread leaks.

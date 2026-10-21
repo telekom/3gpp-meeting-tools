@@ -216,38 +216,6 @@ class StatisticsSettingsDialog(QDialog):
         self.export_html_chk.setStyleSheet("font-weight: bold; color: #D83B01; margin-top: 5px;")
         layout.addWidget(self.export_html_chk)
 
-        layout.addSpacing(20)
-
-        # --- LLM Configuration ---
-        layout.addWidget(QLabel("<b>🤖 LLM Export Configuration</b>"))
-
-        llm_desc = QLabel(
-            "<i>Large meeting corpora will be split into multiple chunked files to prevent overflowing the AI's context limits. Customize the System Prompt to guide the LLM's analysis.</i>")
-        llm_desc.setWordWrap(True)
-        llm_desc.setStyleSheet("color: #666; font-size: 11px;")
-        layout.addWidget(llm_desc)
-
-        llm_layout = QHBoxLayout()
-        llm_layout.addWidget(QLabel("Max Characters per File (Chunk Limit):"))
-        llm_layout.addStretch()
-        self.llm_spin = QSpinBox()
-        self.llm_spin.setToolTip('Maximum character count per generated LLM corpus chunk.')
-        self.llm_spin.setRange(10000, 5000000)
-        self.llm_spin.setSingleStep(10000)
-        self.llm_spin.setValue(self.config.get("llm_max_chars", 200000))
-        self.llm_spin.setStyleSheet("padding: 4px; border: 1px solid #CCC; background: white; width: 80px;")
-        llm_layout.addWidget(self.llm_spin)
-        layout.addLayout(llm_layout)
-
-        layout.addSpacing(10)
-        layout.addWidget(QLabel("<b>System Prompt / Context Guide:</b>"))
-        self.prompt_edit = QTextEdit()
-        self.prompt_edit.setToolTip('System/context prompt embedded with LLM corpus exports to guide downstream analysis.')
-        self.prompt_edit.setPlainText(self.config.get("llm_system_prompt", self._get_default_prompt()))
-        self.prompt_edit.setStyleSheet(
-            "padding: 8px; border: 1px solid #CCC; background: white; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px;")
-        layout.addWidget(self.prompt_edit)
-
         layout.addStretch()
 
         # --- Buttons ---
@@ -306,8 +274,8 @@ class StatisticsSettingsDialog(QDialog):
         self.config["heatmap_top_companies"] = self.hm_comp_spin.value()  # <--- SAVES VALUE
         self.config["heatmap_top_ais"] = self.hm_ai_spin.value()  # <--- SAVES VALUE
         self.config["export_html_plots"] = self.export_html_chk.isChecked()
-        self.config["llm_max_chars"] = self.llm_spin.value()
-        self.config["llm_system_prompt"] = self.prompt_edit.toPlainText().strip()
+        # self.config["llm_max_chars"] = ... (removed legacy LLM config from statistics)
+        # self.config["llm_system_prompt"] = ... (removed legacy LLM config from statistics)
 
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
