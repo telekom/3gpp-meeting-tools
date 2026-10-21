@@ -6,8 +6,10 @@ from the 3gpp-tdoc-markdown-exporter skill; office tools belong to this applicat
 from __future__ import annotations
 
 import argparse
+import datetime
 import logging
 import os
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -24,12 +26,14 @@ from modules.meetings.core.tdoc2md import (
     DocResult, ExportedDoc, ParaRender, Styles, Numbering,
     sanitize_filename, safe_media_name, guess_tdoc_id, base_tdoc_id,
     to_extended_path, strip_extended_path, to_tool_path,
-    build_header, category_for, write_index, write_bulk_corpus,
+    build_header, category_for, write_bulk_corpus,
     read_xlsx_records, load_tdoc_metadata, discover_documents, extract_docs_from_zip,
     _convert_with_powershell, _convert_with_pillow,
 )
 
 logger = logging.getLogger(__name__)
+
+CONVERTER_VERSION = "2.0.0"
 
 
 def _convert_with_libreoffice(jobs: List[Tuple[Path, Path]]) -> None:
@@ -41,6 +45,7 @@ def _convert_with_libreoffice(jobs: List[Tuple[Path, Path]]) -> None:
             convert_document_libreoffice(src, target_format="png", output_path=dst, logger=logger)
         except Exception as e:
             logger.debug(f"LibreOffice conversion failed for {src.name}: {e}")
+
 
 def convert_metafiles(jobs: List[Tuple[Path, Path]], dpi: int = 150) -> None:
     """Convert EMF/WMF files to PNG using PowerShell, Pillow, or headless LibreOffice."""
@@ -61,6 +66,7 @@ def convert_metafiles(jobs: List[Tuple[Path, Path]], dpi: int = 150) -> None:
         _convert_with_pillow(pending(), dpi)
     if pending():
         _convert_with_libreoffice(pending())
+
 
 class DocxConverter(_core.DocxConverter):
     """Use application office rendering for direct converter callers, too."""
@@ -86,13 +92,23 @@ def convert_docx_file(
     cancellation_check: Optional[Callable[[], bool]] = None,
 ) -> ExportedDoc:
     """Convert DOCX using the shared parser and application image rendering."""
-    return _core.convert_docx_file(
+    res = _core.convert_docx_file(
         docx_path, out_dir, tdoc_id=tdoc_id, name=name, meta=meta,
         original_name=original_name, revisions=revisions, image_dpi=image_dpi,
         convert_images=convert_images, keep_metafiles=keep_metafiles,
         media_dir=media_dir, media_rel=media_rel,
         cancellation_check=cancellation_check, metafile_converter=convert_metafiles,
     )
+    # Stamp machine-readable metadata header for multi-tier stale detection
+    stamp = f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode={revisions} --->\n"
+    if not res.text.startswith("<!--- tdoc_converter:"):
+        res.text = stamp + res.text
+        try:
+            with open(to_extended_path(res.md_path), "w", encoding="utf-8") as f:
+                f.write(res.text)
+        except Exception as e:
+            logger.debug(f"Could not prepend version stamp to {res.md_path}: {e}")
+    return res
 
 
 def convert_document_to_markdown(
@@ -140,6 +156,94 @@ def convert_document_to_markdown(
             cancellation_check=cancellation_check,
         )
 
+
+def is_conversion_stale(
+    source_path: Optional[Union[str, Path]],
+    md_path: Union[str, Path],
+    expected_version: str = CONVERTER_VERSION,
+    expected_mode: str = "markup",
+) -> bool:
+    """
+    Determine whether a cached Markdown dossier needs re-conversion.
+    Checks:
+      1. File existence (is it present and non-empty?)
+      2. Source Word document mtime (was the .docx/.doc updated on disk?)
+      3. Converter engine version (has CONVERTER_VERSION been bumped?)
+      4. Revision mode match (markup vs accept/reject)
+    """
+    p_md = Path(to_extended_path(md_path))
+    if not p_md.is_file() or p_md.stat().st_size == 0:
+        return True
+
+    # 1. Source Word file updated?
+    if source_path:
+        p_src = Path(to_extended_path(source_path))
+        if p_src.is_file():
+            try:
+                if p_src.stat().st_mtime > p_md.stat().st_mtime:
+                    return True
+            except OSError:
+                pass
+
+    # 2. Check header metadata for version and mode match
+    try:
+        with open(p_md, "r", encoding="utf-8") as f:
+            header_sample = f.read(512)
+
+        # Check explicit machine-readable comment
+        m_ver = re.search(r"tdoc_converter:\s*version=([0-9.]+)", header_sample)
+        if m_ver:
+            if m_ver.group(1) != expected_version:
+                return True
+        else:
+            # Fallback to standard Exporter line: "- **Exporter:** ... vX.Y.Z"
+            m_exp = re.search(r"\*\*Exporter:\*\*.*?v([0-9.]+)", header_sample)
+            if not m_exp or m_exp.group(1) != expected_version:
+                return True
+
+        m_mode = re.search(r"mode=([a-z]+)", header_sample)
+        if m_mode:
+            if m_mode.group(1) != expected_mode:
+                return True
+        else:
+            m_rev = re.search(r"revisions:\s*([a-z]+)", header_sample)
+            if m_rev and m_rev.group(1) != expected_mode:
+                return True
+    except Exception:
+        return True
+
+    return False
+
+
+def write_index(out_dir: Path, docs: List[ExportedDoc]) -> Path:
+    """Generate index.md manifest supporting relative paths to subfolder dossiers."""
+    out_dir = Path(to_extended_path(out_dir))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    clean_out = Path(strip_extended_path(os.path.abspath(str(out_dir))))
+    lines = [
+        "# TDoc Markdown Export",
+        "",
+        f"Generated by tdoc_markdown_converter v{CONVERTER_VERSION}. {len(docs)} document(s).",
+        "",
+        "| TDoc | Title | Type | Agenda Item | Status | Images |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for d in sorted(docs, key=lambda x: x.name):
+        title = (d.title or "").replace("|", "\\|")
+        try:
+            clean_md = Path(strip_extended_path(os.path.abspath(str(d.md_path))))
+            rel_link = clean_md.relative_to(clean_out).as_posix()
+        except Exception:
+            rel_link = d.md_path.name
+        lines.append(
+            f"| [{d.name}]({rel_link}) | {title} | {d.doc_type} | {d.agenda_item} | {d.status} | {d.images} |"
+        )
+    path = out_dir / "index.md"
+    with open(to_extended_path(path), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return path
+
+
 def _convert_legacy_document(src: Path, tmpdir: Path, config: dict) -> Optional[Path]:
     """Adapt the application's Word converter to the shared batch interface."""
     return convert_doc_to_docx(src, output_path=tmpdir / (src.stem + ".docx"), logger=logger)
@@ -163,7 +267,8 @@ def export_corpus(
     if output_dir is None:
         source = Path(input_path)
         base = source if source.is_dir() else source.parent
-        output_dir = base / "Export" / "Markdown"
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        output_dir = base / "Export" / f"Markdown_{timestamp}"
     return _core.run(
         input_path, output_dir=output_dir, excel=excel, bulk=bulk,
         max_chars=max_chars, revisions=revisions, image_dpi=image_dpi,
@@ -179,7 +284,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         description="Convert 3GPP TDocs (.docx/.doc/.zip) to Markdown with track changes, tables, and images."
     )
     ap.add_argument("input", help="A .docx/.doc/.zip file, a TDoc folder, or a meeting folder")
-    ap.add_argument("-o", "--output-dir", help="Output directory (default: <input>/Export/Markdown)")
+    ap.add_argument("-o", "--output-dir", help="Output directory (default: <input>/Export/Markdown_YYYY-MM-DD_HHMMSS)")
     ap.add_argument("--excel", help="3GPP TDoc list (.xlsx) for metadata")
     ap.add_argument("--bulk", action="store_true", help="Generate per-Agenda Item corpus mega-files")
     ap.add_argument("--max-chars", type=int, default=200000, help="Max characters per bulk corpus file")
@@ -215,6 +320,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     for f in failures:
         print(f"  FAILED: {f}")
     return 1 if failures else 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

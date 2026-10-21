@@ -1208,7 +1208,8 @@ class TDocsWindow(QWidget):
         self.export_btn.setEnabled(True)
         if success:
             QMessageBox.information(self, "Markdown Export", msg)
-            _open_folder(self.meeting_dir / "Export" / "Markdown")
+            target = getattr(self.md_export_thread, "export_dir", self.meeting_dir / "Export")
+            _open_folder(target if target.exists() else self.meeting_dir / "Export")
         else:
             QMessageBox.warning(self, "Export Failed", msg)
 
@@ -1224,7 +1225,8 @@ class TDocsWindow(QWidget):
         self.export_btn.setEnabled(True)
         if success:
             QMessageBox.information(self, "Markdown Export Complete", msg)
-            _open_folder(self.meeting_dir / "Export" / "Markdown")
+            target = getattr(self.md_export_thread, "export_dir", self.meeting_dir / "Export")
+            _open_folder(target if target.exists() else self.meeting_dir / "Export")
         else:
             QMessageBox.warning(self, "Export Failed", msg)
 
