@@ -96,6 +96,9 @@ python -m main_tools
 - **Document Comparison:** Automates Microsoft Word COM (`win32com.client`) to generate legal redline comparisons between two `.docx` or `.doc` revisions.
 
 ### 4.3. Specifications & Search (`src/modules/specifications`, `src/modules/spec_search`)
+- **Unified Inline Filter Engine:** Instant, zero-modal filtering directly above the specifications table. Features a structured 4-row hierarchy (Administration, Primary Search & Scope, Faceted Dimensions, Active Dismissible Badges).
+- **Multi-Series & Faceted Filtering:** Integrates `CheckableComboBox` for multi-series selection (e.g. Series 23 and 24 simultaneously) supported by comma-separated query handling in `SpecsDatabase.search_files()`. Features dynamic TSG-to-WG scoping (selecting `SA`, `RAN`, or `CT` automatically filters relevant working groups), radio tech dropdown (`5G`, `LTE`, `6G`, etc.), and document type toggles (`All`, `TS`, `TR`).
+- **Active Filter Pills & 1-Click Removal:** Dynamically renders dismissible tag chips for each active constraint (`[Group: SA5 ✕]`, `[Tech: 5G ✕]`, `[Series: 23, 24 ✕]`) with hover visual feedback, allowing delegates to drop individual criteria without resetting the entire view, alongside a 1-click `❌ Reset All` button.
 - **FTS5 Trigram Substring Search:** Utilizes SQLite FTS5 configured with `tokenize="trigram"` in `3gpp_spec_search.db` for arbitrary substring, field, and acronym lookups.
 - **Release Matrix & "First Added":** Visual matrix displaying text evolution (`🟢 Added`, `✓ Present`, `🔴 Removed`) across chronological releases.
 - **Multi-Part Document Parser:** Automatically chains and sequences multi-part split documents (e.g., `_s00_s04.docx`, `_s05_s08.docx`) into a unified release model using direct `lxml` OpenXML parsing without Word COM overhead.

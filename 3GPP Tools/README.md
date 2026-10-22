@@ -191,6 +191,12 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Phase 2 (Deep Document Scrape):** Crawls the `Docs/` folder of every meeting. Uses smart regex stripping to ignore file extensions and revisions, mathematically sorting the files to determine the first and last TDocs of the meeting.
   * **Phase 3 (DynaReport Upserting):** Injects metadata (Location, Start/End Dates, Ad-Hoc/Electronic status) by fetching the legacy 3GPP Portal HTML tables.
 * **Targeted Quick Fetch:** Instantly sync individual specifications (e.g., `23.801-01`) or entire specification series (e.g., `23`) directly from the FTP server without needing to run a lengthy full database sync.
+* **Unified Specifications Filter Bar & Multi-Series Selection:**
+  * **Zero-Modal Live Filtering:** Replaces legacy modal filter dialogs with instant, inline filtering directly above the specifications table with debounced auto-refresh.
+  * **Multi-Series Checkable ComboBox:** Filter across multiple specification series simultaneously (e.g., `23` and `24` or `38` and `36`) using `CheckableComboBox`.
+  * **Dynamic TSG & WG Synergy:** Selecting a TSG chip (`SA`, `RAN`, `CT`) dynamically scopes the working group dropdown choices to relevant groups (e.g., `SA1`..`SA6`) without state collisions.
+  * **Faceted Attributes:** Real-time dropdown and segmented controls for Radio Technology (`5G`, `LTE`, `6G`, `3G`, `2G`), Document Type (`All`, `TS`, `TR`), Release Version (`Ver:`), and Scope Toggles (`💾 Downloaded Only`, `⭐ Favorites`).
+  * **Dismissible Active Filter Badges:** Visible pill badges for every active constraint (`[Group: SA5 ✕]`, `[Tech: 5G ✕]`, `[Series: 23, 24 ✕]`) featuring 1-click single-constraint removal with hover feedback, alongside a unified `❌ Reset All` button.
 
 * **✂️ 3GPP Specification Clause & Excerpt Extractor:**
   * **Instant Excerpt Dialog from Version Menu:** Select any specification release in the Specifications tab and click **`✂️ Extract Clauses (Excerpt)...`** to launch a modeless clause extractor window.

@@ -184,6 +184,49 @@ class CheckableComboBox(QComboBox):
                     checked.append(item.data(Qt.UserRole))
         return checked
 
+    def isAllChecked(self) -> bool:
+        """Return True if all data items are currently checked."""
+        total = max(0, self.model().rowCount() - 1)
+        if total == 0:
+            return True
+        return len(self.getCheckedItems()) == total
+
+    def setCheckedItems(self, items: list):
+        """Set the check state of items matching the given list of raw values/strings."""
+        items_set = {str(x).strip() for x in (items or []) if str(x).strip()}
+        model = self.model()
+        row_count = model.rowCount()
+        if row_count <= 1:
+            return
+
+        self._updating = True
+        model.blockSignals(True)
+        try:
+            if not items_set:
+                for row in range(row_count):
+                    item = model.item(row)
+                    if item:
+                        item.setCheckState(Qt.Checked)
+            else:
+                all_checked = True
+                for row in range(1, row_count):
+                    item = model.item(row)
+                    if item:
+                        val = str(item.data(Qt.UserRole) or item.text()).strip()
+                        is_checked = val in items_set
+                        item.setCheckState(Qt.Checked if is_checked else Qt.Unchecked)
+                        if not is_checked:
+                            all_checked = False
+
+                root = model.item(0)
+                if root:
+                    root.setCheckState(Qt.Checked if all_checked else Qt.Unchecked)
+        finally:
+            model.blockSignals(False)
+            self._updating = False
+
+        self.update()
+
     def updateText(self):
         # Deprecated: Legacy support for external calls. Rendering is now automatic.
         self.update()
