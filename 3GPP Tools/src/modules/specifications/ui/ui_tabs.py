@@ -203,6 +203,95 @@ QPushButton:hover {
 }
 """
 
+WG_DESCRIPTIONS = {
+    # SA
+    "SA": "Service and System Aspects (Plenary)",
+    "SA1": "Services",
+    "SA2": "Architecture",
+    "SA3": "Security",
+    "SA4": "Codec",
+    "SA5": "Telecom Management",
+    "SA6": "Mission Critical & Vertical Applications",
+    # RAN
+    "RAN": "Radio Access Network (Plenary)",
+    "RAN1": "Radio Layer 1 (Physical layer)",
+    "RAN2": "Radio Layer 2 & 3",
+    "RAN3": "Architecture & Network Interfaces",
+    "RAN4": "Radio Performance & Protocol Aspects",
+    "RAN5": "Mobile Terminal Conformance Testing",
+    "RAN6": "GSM/EDGE Radio Access Network",
+    # CT
+    "CT": "Core Network and Terminals (Plenary)",
+    "CT1": "User Equipment - Core Network Protocols",
+    "CT3": "Interworking with External Networks",
+    "CT4": "Core Network Protocols",
+    "CT6": "Smart Card Application Aspects",
+    # Legacy / Other
+    "GERAN": "GSM EDGE Radio Access Network",
+    "GERAN1": "GERAN Radio Aspects",
+    "GERAN2": "GERAN Protocol Aspects",
+    "GERAN3": "GERAN Base Station Testing",
+    "CN1": "Core Network 1 (Legacy)",
+    "CN3": "Core Network 3 (Legacy)",
+    "CN4": "Core Network 4 (Legacy)",
+    "CN5": "Open Service Access (Legacy)",
+    "T2": "Mobile Terminal Services (Legacy)",
+    "T3": "USIM / Smart Cards (Legacy)",
+    "SMG01": "Special Mobile Group 1 (Legacy)",
+    "SMG03": "Special Mobile Group 3 (Legacy)",
+}
+
+
+def get_wg_badge_style_and_desc(wg: str) -> tuple:
+    wg_upper = str(wg or "").strip().upper()
+    desc = WG_DESCRIPTIONS.get(wg_upper, "Working Group")
+
+    # SA (Soft Indigo / Blue)
+    if wg_upper.startswith("SA"):
+        style = """
+            background-color: #EEF2FF;
+            color: #3730A3;
+            border: 1px solid #C7D2FE;
+            border-radius: 3px;
+            padding: 1px 4px;
+            font-size: 10px;
+            font-weight: bold;
+        """
+    # RAN (Soft Emerald / Green)
+    elif wg_upper.startswith("RAN") or wg_upper.startswith("GERAN"):
+        style = """
+            background-color: #ECFDF5;
+            color: #065F46;
+            border: 1px solid #A7F3D0;
+            border-radius: 3px;
+            padding: 1px 4px;
+            font-size: 10px;
+            font-weight: bold;
+        """
+    # CT (Soft Amber / Warm Orange)
+    elif wg_upper.startswith("CT") or wg_upper.startswith("CN"):
+        style = """
+            background-color: #FFF7ED;
+            color: #9A3412;
+            border: 1px solid #FED7AA;
+            border-radius: 3px;
+            padding: 1px 4px;
+            font-size: 10px;
+            font-weight: bold;
+        """
+    # Default Slate
+    else:
+        style = """
+            background-color: #F1F5F9;
+            color: #475569;
+            border: 1px solid #CBD5E1;
+            border-radius: 3px;
+            padding: 1px 4px;
+            font-size: 10px;
+            font-weight: bold;
+        """
+    return style, desc
+
 
 class SpecificationsTab(QWidget):
     update_db_requested = pyqtSignal(bool)
@@ -645,7 +734,7 @@ class SpecificationsTab(QWidget):
         self.table.setHorizontalHeaderLabels(["Specification", "Title", "Version / Documents"])
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Interactive)
-        self.table.setColumnWidth(0, 150)
+        self.table.setColumnWidth(0, 195)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.Interactive)
         self.table.setColumnWidth(2, 420)
@@ -854,6 +943,35 @@ class SpecificationsTab(QWidget):
         self._update_active_tags()
         self.save_settings_timer.start()
         self.filter_timer.start()
+
+    def _on_wg_badge_clicked(self, wg: str):
+        """Filters the specification list by the clicked Working Group badge."""
+        if not wg or wg == "-":
+            return
+        tsg = ""
+        wg_upper = wg.upper()
+        if wg_upper.startswith("SA"):
+            tsg = "SA"
+        elif wg_upper.startswith("RAN") or wg_upper.startswith("GERAN"):
+            tsg = "RAN"
+        elif wg_upper.startswith("CT") or wg_upper.startswith("CN"):
+            tsg = "CT"
+
+        if self._current_tsg != tsg and tsg != "":
+            self._current_tsg = tsg
+            self._populate_wg_combo()
+            self._update_chip_styles()
+
+        idx = self.wg_combo.findData(wg)
+        if idx >= 0:
+            self.wg_combo.setCurrentIndex(idx)
+        else:
+            self._current_tsg = ""
+            self._populate_wg_combo()
+            self._update_chip_styles()
+            fallback_idx = self.wg_combo.findData(wg)
+            if fallback_idx >= 0:
+                self.wg_combo.setCurrentIndex(fallback_idx)
 
     def _on_series_filter_changed(self, checked_items: list):
         if self.series_combo.isAllChecked() or not checked_items:
@@ -1319,6 +1437,7 @@ class SpecificationsTab(QWidget):
                 series, spec_num, title, spec_type, filename, version, url, upload_date, *rest = row
                 row_tags = rest[0] if len(rest) > 0 else ""
                 row_comments = rest[1] if len(rest) > 1 else ""
+                row_wg = rest[2] if len(rest) > 2 else ""
                 if filename and "-" not in spec_num:
                     part_match = PART_NUM_REGEX.search(filename)
                     if part_match:
@@ -1328,10 +1447,13 @@ class SpecificationsTab(QWidget):
                     grouped_specs[spec_num] = {
                         "title": title,
                         "type": spec_type if spec_type else "TS",
+                        "wg": row_wg or "",
                         "versions": [],
                         "tags": [t.strip() for t in row_tags.split(",") if t.strip()] if row_tags else [],
                         "comments": row_comments or "",
                     }
+                elif not grouped_specs[spec_num].get("wg") and row_wg:
+                    grouped_specs[spec_num]["wg"] = row_wg
                 grouped_specs[spec_num]["versions"].append((version, url, filename, upload_date))
 
             if downloaded_only and base_dl_dir.exists():
@@ -1477,6 +1599,16 @@ class SpecificationsTab(QWidget):
                         border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold;
                     """)
 
+                wg_name = (data.get("wg") or "").strip()
+                wg_badge = None
+                if wg_name and wg_name != "-":
+                    wg_badge = QLabel(wg_name)
+                    wg_badge.setCursor(Qt.PointingHandCursor)
+                    wg_style, wg_desc = get_wg_badge_style_and_desc(wg_name)
+                    wg_badge.setStyleSheet(wg_style)
+                    wg_badge.setToolTip(f"Working Group: {wg_name} ({wg_desc})\nClick to filter by this Working Group")
+                    wg_badge.mousePressEvent = lambda event, wg=wg_name: self._on_wg_badge_clicked(wg)
+
                 display_title = f"{spec_num} ⭐" if is_fav else spec_num
                 spec_label = QLabel(display_title)
                 spec_label.setObjectName("specNumberLabel")
@@ -1488,6 +1620,8 @@ class SpecificationsTab(QWidget):
 
                 spec_layout.addWidget(action_btn)
                 spec_layout.addWidget(type_badge)
+                if wg_badge:
+                    spec_layout.addWidget(wg_badge)
                 spec_layout.addWidget(spec_label)
                 spec_layout.addStretch()
                 self.table.setCellWidget(row_idx, 0, spec_widget)
