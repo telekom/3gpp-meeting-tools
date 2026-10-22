@@ -211,6 +211,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Dynamic TSG & WG Synergy:** Selecting a TSG chip (`SA`, `RAN`, `CT`) dynamically scopes the working group dropdown choices to relevant groups (e.g., `SA1`..`SA6`) without state collisions.
   * **Faceted Attributes:** Real-time dropdown and segmented controls for Radio Technology (`5G`, `LTE`, `6G`, `3G`, `2G`), Document Type (`All`, `TS`, `TR`), Release Version (`Ver:`), and Scope Toggles (`💾 Downloaded Only`, `⭐ Favorites`).
   * **Dismissible Active Filter Badges:** Visible pill badges for every active constraint (`[Group: SA5 ✕]`, `[Tech: 5G ✕]`, `[Series: 23, 24 ✕]`, `[Tag: data framework ✕]`) featuring 1-click single-constraint removal with hover feedback, alongside a unified `❌ Reset All` button.
+  * **Dual-Tier Debouncing & High-Performance Rendering:** Employs twin single-shot debounce timers (300ms for text search and version inputs, 150ms for faceted dropdowns, chips, and toggles) alongside Qt batch update suppression (`setUpdatesEnabled`), deferred on-demand menu population via `aboutToShow`, active tag diffing, and conditional SQLite query joins to deliver instantaneous, stutter-free filtering across 84,000+ specifications.
 
 * **🏷️ Specification Tags, Personal Notes & Universal Search Integration:**
   * **Custom Domain Tags & Multi-Line Notes:** Assign custom domain tags (e.g. `data framework`, `analytics`, `charging`, `NWDAF`) and personal remarks/comments to any specification.

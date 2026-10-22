@@ -116,6 +116,17 @@ class SpecsDatabase:
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_spec_wi_code ON spec_wi_map(wi_code);')
 
+            # Performance indexes for fast spec lookup, joins, and file resolution
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_specs_number ON specifications(number);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_specs_series_id ON specifications(series_id);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_specs_primary_group_id ON specifications(primary_group_id);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_files_spec_id ON files(spec_id);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_files_version ON files(version);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_spec_radio_tech_spec ON spec_radio_tech_map(spec_id);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_spec_radio_tech_tech ON spec_radio_tech_map(tech_id);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_spec_sec_group_spec ON spec_secondary_group_map(spec_id);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_spec_sec_group_group ON spec_secondary_group_map(group_id);')
+
             # User annotations (tags and comments) per specification
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS spec_user_annotations (
@@ -383,18 +394,31 @@ class SpecsDatabase:
     def search_files(self, spec_number: str = None, release_version: str = None,
                      series: str = None, tech: str = None, group: str = None, spec_type: str = None,
                      tag: str = None) -> list:
-        query = """
-            SELECT DISTINCT s.name, sp.number, sp.title, sp.type, f.filename, f.version, f.url, f.upload_date,
+        join_tech = bool(tech and tech != "Any")
+        join_group = bool(group and group != "Any")
+        use_distinct = join_tech or join_group
+
+        select_clause = "SELECT DISTINCT" if use_distinct else "SELECT"
+        query = f"""
+            {select_clause} s.name, sp.number, sp.title, sp.type, f.filename, f.version, f.url, f.upload_date,
                             COALESCE(ua.tags, ''), COALESCE(ua.comments, '')
             FROM files f
             JOIN specifications sp ON f.spec_id = sp.id
             JOIN series s ON sp.series_id = s.id
             LEFT JOIN spec_user_annotations ua ON sp.number = ua.spec_number
+        """
+        if join_tech:
+            query += """
             LEFT JOIN spec_radio_tech_map r_map ON sp.id = r_map.spec_id
             LEFT JOIN radio_technologies r ON r_map.tech_id = r.id
+            """
+        if join_group:
+            query += """
             LEFT JOIN working_groups p_grp ON sp.primary_group_id = p_grp.id
             LEFT JOIN spec_secondary_group_map sg_map ON sp.id = sg_map.spec_id
             LEFT JOIN working_groups s_grp ON sg_map.group_id = s_grp.id
+            """
+        query += """
             WHERE 1=1
               AND f.version IS NOT NULL
               AND TRIM(f.version) != ''
@@ -447,17 +471,25 @@ class SpecsDatabase:
             return cursor.fetchall()
 
     def get_filtered_specs(self, series: str, tech: str, group: str, spec_type: str, tag: str = None) -> list:
+        join_tech = bool(tech and tech != "Any")
+        join_group = bool(group and group != "Any")
         query = """
             SELECT DISTINCT sp.number 
             FROM specifications sp
             LEFT JOIN spec_user_annotations ua ON sp.number = ua.spec_number
+        """
+        if join_tech:
+            query += """
             LEFT JOIN spec_radio_tech_map r_map ON sp.id = r_map.spec_id
             LEFT JOIN radio_technologies r ON r_map.tech_id = r.id
+            """
+        if join_group:
+            query += """
             LEFT JOIN working_groups p_grp ON sp.primary_group_id = p_grp.id
             LEFT JOIN spec_secondary_group_map sg_map ON sp.id = sg_map.spec_id
             LEFT JOIN working_groups s_grp ON sg_map.group_id = s_grp.id
-            WHERE 1=1
-        """
+            """
+        query += " WHERE 1=1"
         params = []
 
         if series and series != "Any":
