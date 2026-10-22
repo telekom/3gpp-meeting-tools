@@ -110,6 +110,7 @@ python -m main_tools
 - **Three-Phase Sync:** Asynchronously synchronizes meeting lists, TDoc metadata, and dynamic agenda reservations from 3GPP FTP servers.
 - **AI TDoc Triage:** Modeless dialog extracting CR cover sheets and redlines to synthesize structured executive summaries (*Objective*, *Key Changes*, *Potential Impacts*).
 - **Personal Notes & Stance:** Integrates local SQLite user notes (`user_tdocs.db`) with stance tagging (`⚪ Neutral`, `🔵 My TDoc`, `🟢 Support`, `🔴 Object`, `🟡 Monitor`).
+- **Tracked Work Items Quick Filters:** Integrates with the Work Items module via `TDocsFilterProxyModel` and `TDocsWindow` quick-toggle chips (`🎯 Followed WIs`, `⭐ Starred WIs`). Filters meeting contributions by followed/starred WIs with dynamic badge counts and full multi-facet `AND` combination (e.g. Followed WIs + Approved/Agreed TDocs). Resolves acronym variations, WG suffixes (`-ARC`, `-CT`, etc.), and `FS_` prefixes, with fallback to Agenda Item description for discussion papers.
 - **TDoc Markdown Conversion:** High-fidelity conversion of 3GPP Word documents (`.docx`, `.doc`) into Markdown with track changes, tables, and diagrams.
   > [!CAUTION]
   > **DO NOT MODIFY `src/modules/meetings/core/tdoc2md.py`**. This file is a drop-in core imported directly from an external standalone repository (`3gpp-tdoc-markdown-exporter`). All application-specific integrations, office adapters, or custom pipelines MUST reside exclusively in `tdoc_markdown_converter.py` or calling modules.
@@ -119,6 +120,14 @@ python -m main_tools
 - **Authority Boundary:** Strictly **`KNOWLEDGE_READ`**. The model has no SQL access, shell execution, or database write permissions.
 - **Semantic Tool Set:** Model interaction is restricted to predefined semantic tools (`find_specifications`, `get_specification`, `search_spec_text`, `get_spec_clause`, `list_protocols`, `list_protocol_messages`, `find_protocol_message`, `find_protocol_ie`).
 - **Detailed Design:** See [`src/modules/assistant/README.md`](file:///src/modules/assistant/README.md).
+
+### 4.7. Work Items (`src/modules/work_items`)
+- **Parallel Scraper & Storage:** Concurrently synchronizes 3GPP Work Items across all TSGs/WGs from dynamic reports into `3gpp_data.db` (`work_items`, `wi_group_map`, `wi_remarks`).
+- **Targeted Updating:** `TargetedWIScraperThread` performs fast, targeted updates for a specific list of WI codes without triggering a full multi-WG scrape.
+- **Personal Tracking (Starred & Following):** Decoupled from `3gpp_data.db` and persisted in `src/config/work_items_config.json` via `WorkItemsSettings`. Supports dual independent flags:
+  - `starred`: Personal interest / watchlist.
+  - `following`: Assigned delegation responsibility (team work-split).
+- **Interactive UI & Filtering:** `WorkItemsTab` incorporates a dedicated 1-click `TrackingDelegate`, filter chips (`⭐ Starred`, `🎯 Following`), batch context menu actions, and in-dialog toggling inside `WorkItemInfoDialog`. `WorkItemsDatabase` optimizes tracking filters using SQLite primary-key `IN` clauses with safe empty-set evaluations (`1=0`).
 
 ---
 

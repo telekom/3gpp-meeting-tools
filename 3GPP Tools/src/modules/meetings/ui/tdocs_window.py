@@ -70,6 +70,9 @@ from modules.emails.ui.general_email_dialog import (
     GeneralEmailFoldersDialog, GeneralEmailSyncDialog, TDocEmailsDialog, load_wg_email_config
 )
 from modules.meetings.ui.tdoc_triage_dialog import TDocTriageDialog
+from core.utils.paths import get_project_root
+from modules.work_items.core.wi_settings import WorkItemsSettings
+from modules.work_items.core.wi_database import WorkItemsDatabase
 
 
 from core.utils.folder_opener import open_folder as _open_folder
@@ -153,6 +156,11 @@ class TDocsWindow(QWidget):
         self._setup_cache()
 
         self.drop_overlay = DropOverlayWidget(self)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._load_tracked_wi_tokens()
+        self._update_filter_facets()
 
     def _setup_header(self, layout, title, is_electronic, count):
         header_layout = QHBoxLayout()
@@ -443,6 +451,21 @@ class TDocsWindow(QWidget):
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
         filter_layout.addWidget(self.search_input)
 
+        self.btn_followed_wis = QPushButton("🎯 Followed WIs (0)")
+        self.btn_followed_wis.setCheckable(True)
+        self.btn_followed_wis.setCursor(Qt.PointingHandCursor)
+        self.btn_followed_wis.setToolTip("Filter to TDocs associated with Work Items you are following (assigned responsibility).")
+        self.btn_followed_wis.clicked.connect(self._toggle_followed_wis_filter)
+        filter_layout.addWidget(self.btn_followed_wis)
+
+        self.btn_starred_wis = QPushButton("⭐ Starred WIs (0)")
+        self.btn_starred_wis.setCheckable(True)
+        self.btn_starred_wis.setCursor(Qt.PointingHandCursor)
+        self.btn_starred_wis.setToolTip("Filter to TDocs associated with Work Items you have starred (personal watchlist).")
+        self.btn_starred_wis.clicked.connect(self._toggle_starred_wis_filter)
+        filter_layout.addWidget(self.btn_starred_wis)
+        self._update_tracked_wi_button_styles()
+
         self.company_combo = CheckableComboBox("Company")
         self.company_combo.setToolTip('Filter by contributing company. Grey entries currently have no intersection with the other active filters but remain selectable.')
         self.company_combo.selectionChanged.connect(self._on_company_changed)
@@ -543,6 +566,7 @@ class TDocsWindow(QWidget):
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
 
         layout.addWidget(self.table)
+        self._load_tracked_wi_tokens()
         self._refresh_comboboxes()
         self._refresh_email_counts()
 
@@ -617,6 +641,113 @@ class TDocsWindow(QWidget):
         self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
+    def _toggle_followed_wis_filter(self):
+        self._load_tracked_wi_tokens()
+        self.proxy.setTrackedWIFilters(
+            self.btn_followed_wis.isChecked(),
+            self.btn_starred_wis.isChecked()
+        )
+        self._update_tracked_wi_button_styles()
+        self._update_filter_facets()
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _toggle_starred_wis_filter(self):
+        self._load_tracked_wi_tokens()
+        self.proxy.setTrackedWIFilters(
+            self.btn_followed_wis.isChecked(),
+            self.btn_starred_wis.isChecked()
+        )
+        self._update_tracked_wi_button_styles()
+        self._update_filter_facets()
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _update_tracked_wi_button_styles(self):
+        """Update active/inactive visual styles of Followed and Starred WI quick-filter chips."""
+        if not hasattr(self, "btn_followed_wis") or not hasattr(self, "btn_starred_wis"):
+            return
+
+        if self.btn_followed_wis.isChecked():
+            self.btn_followed_wis.setStyleSheet("""
+                QPushButton {
+                    background-color: #DBEAFE;
+                    color: #1E40AF;
+                    border: 1px solid #3B82F6;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    padding: 4px 10px;
+                    font-size: 11px;
+                }
+                QPushButton:hover {
+                    background-color: #BFDBFE;
+                }
+            """)
+        else:
+            self.btn_followed_wis.setStyleSheet("""
+                QPushButton {
+                    background-color: #F8FAFC;
+                    color: #475569;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 4px;
+                    padding: 4px 10px;
+                    font-size: 11px;
+                }
+                QPushButton:hover {
+                    background-color: #F1F5F9;
+                    border-color: #94A3B8;
+                }
+            """)
+
+        if self.btn_starred_wis.isChecked():
+            self.btn_starred_wis.setStyleSheet("""
+                QPushButton {
+                    background-color: #FEF3C7;
+                    color: #92400E;
+                    border: 1px solid #F59E0B;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    padding: 4px 10px;
+                    font-size: 11px;
+                }
+                QPushButton:hover {
+                    background-color: #FDE68A;
+                }
+            """)
+        else:
+            self.btn_starred_wis.setStyleSheet("""
+                QPushButton {
+                    background-color: #F8FAFC;
+                    color: #475569;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 4px;
+                    padding: 4px 10px;
+                    font-size: 11px;
+                }
+                QPushButton:hover {
+                    background-color: #F1F5F9;
+                    border-color: #94A3B8;
+                }
+            """)
+
+    def _load_tracked_wi_tokens(self):
+        """Loads followed/starred WI codes from settings, resolves tokens from 3gpp_data.db, and updates proxy."""
+        if not hasattr(self, "proxy"):
+            return
+        try:
+            settings = WorkItemsSettings()
+            starred_codes, following_codes = settings.get_tracking_sets()
+            db_path = get_project_root() / "db" / "3gpp_data.db"
+            if db_path.exists():
+                wi_db = WorkItemsDatabase(db_path)
+                followed_tokens = wi_db.get_tracked_wi_tokens(following_codes)
+                starred_tokens = wi_db.get_tracked_wi_tokens(starred_codes)
+            else:
+                followed_tokens = set(following_codes)
+                starred_tokens = set(starred_codes)
+            self.proxy.setTrackedWITokens(followed_tokens, starred_tokens)
+        except Exception as e:
+            logging.error(f"Failed to load tracked WI tokens: {e}", exc_info=True)
+            self.proxy.setTrackedWITokens(set(), set())
+
     def _on_no_comments_toggled(self, checked):
         self.proxy.setNoCommentsFilter(checked)
         self._update_filter_facets()
@@ -639,6 +770,11 @@ class TDocsWindow(QWidget):
             "my_status": set(),
         }
 
+        followed_count = 0
+        starred_count = 0
+        has_followed_tokens = bool(self.proxy.followed_wi_tokens)
+        has_starred_tokens = bool(self.proxy.starred_wi_tokens)
+
         # Each facet is evaluated with all active constraints except itself.
         # This answers: "Would selecting this option yield rows given my other filters?"
         for row_idx, row in enumerate(self.model._data):
@@ -655,12 +791,34 @@ class TDocsWindow(QWidget):
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="my_status"):
                 facets["my_status"].add(str(row.get("My Status", "") or "").strip())
 
+            if has_followed_tokens or has_starred_tokens:
+                if self.proxy.rowMatchesFilters(row_idx, exclude_filter="tracked_wi"):
+                    row_tokens = row.get("_wi_tokens")
+                    if row_tokens is None:
+                        row_tokens = self.model._extract_row_wi_tokens(row)
+                        row["_wi_tokens"] = row_tokens
+                    if has_followed_tokens and (row_tokens & self.proxy.followed_wi_tokens):
+                        followed_count += 1
+                    if has_starred_tokens and (row_tokens & self.proxy.starred_wi_tokens):
+                        starred_count += 1
+
         self.company_combo.setAvailability(facets["company"])
         self.type_combo.setAvailability(facets["type"])
         self.ai_combo.setAvailability(facets["ai"])
         self.wi_combo.setAvailability(facets["wi"])
         self.status_combo.setAvailability(facets["status"])
         self.my_status_combo.setAvailability(facets["my_status"])
+
+        if hasattr(self, "btn_followed_wis"):
+            self.btn_followed_wis.setText(f"🎯 Followed WIs ({followed_count})")
+            self.btn_followed_wis.setToolTip(
+                f"Filter to TDocs associated with Work Items you are following ({followed_count} matching)."
+            )
+        if hasattr(self, "btn_starred_wis"):
+            self.btn_starred_wis.setText(f"⭐ Starred WIs ({starred_count})")
+            self.btn_starred_wis.setToolTip(
+                f"Filter to TDocs associated with Work Items you have starred ({starred_count} matching)."
+            )
 
     def _refresh_comboboxes(self):
         def sanitize(val): return str(val).strip() if val is not None else ""
@@ -705,6 +863,8 @@ class TDocsWindow(QWidget):
         self.status_combo.updateItems(unique_statuses)
         self.company_combo.updateItems(sorted_companies)
         self.my_status_combo.updateItems(unique_my_statuses)
+        self._load_tracked_wi_tokens()
+        self._update_tracked_wi_button_styles()
 
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
@@ -753,6 +913,19 @@ class TDocsWindow(QWidget):
             self.chk_no_comments.setChecked(False)
             self.chk_no_comments.blockSignals(False)
             self.proxy.setNoCommentsFilter(False)
+
+        if hasattr(self, "btn_followed_wis"):
+            self.btn_followed_wis.blockSignals(True)
+            self.btn_followed_wis.setChecked(False)
+            self.btn_followed_wis.blockSignals(False)
+
+        if hasattr(self, "btn_starred_wis"):
+            self.btn_starred_wis.blockSignals(True)
+            self.btn_starred_wis.setChecked(False)
+            self.btn_starred_wis.blockSignals(False)
+
+        self.proxy.setTrackedWIFilters(False, False)
+        self._update_tracked_wi_button_styles()
 
         for combo in [self.company_combo, self.type_combo, self.ai_combo, self.wi_combo, self.status_combo, self.my_status_combo]:
             combo.blockSignals(True)

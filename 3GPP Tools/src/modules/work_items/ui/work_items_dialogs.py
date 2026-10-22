@@ -21,12 +21,26 @@ from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 
 logger = logging.getLogger(__name__)
 
+
 class WorkItemInfoDialog(QDialog):
     """Inspector Dialog displaying full Work Item details, linked specs, and remarks history."""
 
-    def __init__(self, details: dict, parent=None):
+    def __init__(
+        self,
+        details: dict,
+        parent=None,
+        is_starred: bool = False,
+        is_following: bool = False,
+        on_toggle_star=None,
+        on_toggle_follow=None,
+    ):
         super().__init__(parent)
         self.details = details
+        self.is_starred = is_starred
+        self.is_following = is_following
+        self.on_toggle_star = on_toggle_star
+        self.on_toggle_follow = on_toggle_follow
+
         wi_code = details.get('code', 'Unknown')
         acronym = details.get('acronym', 'Unknown')
         name = details.get('name', 'No Title Available')
@@ -103,6 +117,23 @@ class WorkItemInfoDialog(QDialog):
         title_row.addWidget(acronym_lbl)
         title_row.addWidget(status_badge)
         title_row.addStretch()
+
+        # Starred Toggle Button
+        self.star_btn = QPushButton()
+        self.star_btn.setCursor(Qt.PointingHandCursor)
+        self.star_btn.setToolTip("Toggle Starred status (Personal Interest / Watchlist)")
+        self._update_star_btn_style()
+        self.star_btn.clicked.connect(self._handle_toggle_star)
+        title_row.addWidget(self.star_btn)
+
+        # Following Toggle Button
+        self.follow_btn = QPushButton()
+        self.follow_btn.setCursor(Qt.PointingHandCursor)
+        self.follow_btn.setToolTip("Toggle Following status (Assigned Delegation Responsibility)")
+        self._update_follow_btn_style()
+        self.follow_btn.clicked.connect(self._handle_toggle_follow)
+        title_row.addWidget(self.follow_btn)
+
         header_layout.addLayout(title_row)
 
         desc_label = QLabel(name)
@@ -220,6 +251,58 @@ class WorkItemInfoDialog(QDialog):
         btn_layout.addWidget(close_btn)
 
         layout.addLayout(btn_layout)
+
+    def _update_star_btn_style(self):
+        if self.is_starred:
+            self.star_btn.setText("⭐ Starred")
+            self.star_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #FEF3C7; color: #92400E; border: 1px solid #F59E0B;
+                    border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: bold;
+                }
+                QPushButton:hover { background-color: #FDE68A; }
+            """)
+        else:
+            self.star_btn.setText("☆ Star")
+            self.star_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #F8FAFC; color: #64748B; border: 1px solid #CBD5E1;
+                    border-radius: 4px; padding: 3px 8px; font-size: 11px;
+                }
+                QPushButton:hover { background-color: #F1F5F9; color: #1E293B; }
+            """)
+
+    def _update_follow_btn_style(self):
+        if self.is_following:
+            self.follow_btn.setText("🎯 Following")
+            self.follow_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #DBEAFE; color: #1E40AF; border: 1px solid #3B82F6;
+                    border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: bold;
+                }
+                QPushButton:hover { background-color: #BFDBFE; }
+            """)
+        else:
+            self.follow_btn.setText("🎯 Follow")
+            self.follow_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #F8FAFC; color: #64748B; border: 1px solid #CBD5E1;
+                    border-radius: 4px; padding: 3px 8px; font-size: 11px;
+                }
+                QPushButton:hover { background-color: #F1F5F9; color: #1E293B; }
+            """)
+
+    def _handle_toggle_star(self):
+        self.is_starred = not self.is_starred
+        self._update_star_btn_style()
+        if self.on_toggle_star:
+            self.on_toggle_star(str(self.details.get('code', '')).strip())
+
+    def _handle_toggle_follow(self):
+        self.is_following = not self.is_following
+        self._update_follow_btn_style()
+        if self.on_toggle_follow:
+            self.on_toggle_follow(str(self.details.get('code', '')).strip())
 
     def _copy_citation(self):
         c = f"WI {self.details.get('code')}: {self.details.get('acronym')} — {self.details.get('name')} ({self.details.get('release')}, {self.details.get('wg_names')})"

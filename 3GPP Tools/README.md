@@ -199,6 +199,13 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Parallel Multi-WG Scraper:** Concurrently scrapes active Work Items across all 19 Technical Specification Groups and Working Groups (SA, SA1-6, RAN, RAN1-6, CT, CT1-6) from official 3GPP dynamic report pages using multi-threaded execution (5 workers).
   * **High-Performance Bulk Upsert:** Utilizes atomic SQLite bulk transactions (`executemany` with `ON CONFLICT DO UPDATE`) to instantly sync thousands of work items and map them to their respective working groups via relational sidecar tables (`work_items`, `wi_group_map`, `wi_remarks`).
   * **Interactive UI Tab:** Features a dedicated tab with a real-time progress bar, status feedback, and helpful button tooltips. Includes debounced multi-select CheckableComboBox filters (Release, WG) with persistent state-saving, chronologically sorted historical remarks via a custom interactive UI bubble, and clickable WID hyperlinks that automatically route through the global TDoc fetcher or 3GPP Portal.
+  * **Personal & Team Work Item Tracking ("Starred" & "Following"):**
+    * **Independent Dual-Flag Tracking:** Supports distinct tracking workflows for personal interest (⭐ Starred) and assigned delegation responsibility (🎯 Following) without altering the shared SQLite database schema.
+    * **1-Click In-Row Toggling (`Track` Column):** Features dedicated left/right hit targets for one-click star and follow toggling directly within the table view.
+    * **Multi-Chip Quick Filters:** Dedicated `🎯 Following (N)` and `⭐ Starred (M)` filter chips support single and union multi-filtering across thousands of records.
+    * **Targeted Pre-Meeting Sync (`🎯 Update Tracked`):** Asynchronously fetches latest WIDs and Secretary Remarks for only tracked Work Items in seconds.
+    * **Inspector Dialog & Batch Actions:** Toggle tracking status directly inside `WorkItemInfoDialog` or via right-click multi-selection context menus.
+    * **Cross-Module Meeting Integration:** Followed and Starred Work Items seamlessly project into the Meeting TDocs Viewer as instant filter chips (`🎯 Followed WIs`, `⭐ Starred WIs`), enabling delegates to isolate contributions related to their assigned topics in one click.
 
 * **3GPP Work Items (WIs) & Specification Linkage:**
   * **Relational Mapping (`spec_wi_map`):** Bi-directionally maps 3GPP Specifications to Work Items during Pass 2 DynaReport scraping without requiring rigid locks on un-synced WIs.
@@ -209,6 +216,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Smart Global TDoc Search:** Instantly locate and download any document across the entire database. Just type a TDoc number (e.g., `S2-2605740r11`) and the UI will dynamically reveal minimalist quick-actions to download the specific file or open its parent meeting context—all without leaving the main dashboard.
   * **🤖 Instant AI Technical Triage:** Right-click any proposal row or open its details card to launch the AI Triage assistant. Streams a focused summary covering the problem statement, proposed normative changes, and contentious impact points, with 1-click status assignment and note persistence into SQLite.
   * **Persistent Personal Notes & Status (Sidecar Database):** Keep a private, local SQLite database that "overlays" your data onto the 3GPP list. Double-click any TDoc to assign a color-coded status (🟢 Support, 🔴 Object, 🟡 Monitor) and save personal notes. Your data survives perfectly even when downloading fresh 3GPP Excel updates.
+  * **Tracked Work Items Quick Filters (🎯 Followed & ⭐ Starred):** Instant 1-click filter bar toggle chips (`🎯 Followed WIs`, `⭐ Starred WIs`) that isolate meeting contributions associated with your assigned delegation responsibilities and personal watchlist. Dynamically displays badge counts of matching TDocs, automatically reflects newly tracked items from the Work Items tab on focus, and seamlessly combines via `AND` logic with other filters (e.g., TDoc Status like "Approved/Agreed", Contributing Company, Type). Features robust token normalization stripping WG suffixes (`-ARC`, `-CT`, etc.) and `FS_` prefixes, with fallback to parenthesized acronyms in Agenda Item descriptions for discussion papers lacking explicit metadata.
   * **Smart Revision Inheritance:** When a TDoc gets a new revision during a meeting, the new child document automatically inherits a "Ghost" version of the personal notes and status you assigned to the base document!
   * **Interactive Secretary Remarks:** TDocs mentioned in the Secretary Remarks are automatically identified and converted into hyperlinks. Left-click a link to instantly jump to that row (intelligently wiping active filters if necessary), or right-click to download it, trigger AI Triage, or add it to your Comparison Cart.
   * **Natural Sorting, Dynamic AI Labels & Agenda CSV Support:** Bulletproof multi-select dropdowns and natural numerical sorting for complex multi-level Agenda Items (e.g., AI 20.6.2 sorts correctly before 20.6.11). Natively parses both **SA2 and RAN2 agenda CSV formats** (`agenda.csv`), intelligently extracting valid acronyms and subtopics while ignoring non-acronym parenthetical words (e.g., `(un)`, `(re)`), falling back gracefully to clean descriptions, and providing full-title hover tooltips across tables and statistical exports.
@@ -593,6 +601,14 @@ python -m main_tools
 7. **Exporting Data & Analytics:**
    * Click **📥 Export to Excel...** to generate a styled Deutsche Telekom magenta `.xlsx` spreadsheet with active download hyperlinks pointing directly to each TDoc's specific meeting Docs folder.
    * Click **📊 Statistics Dashboard...** to compile and open an interactive offline HTML Plotly report displaying monthly contribution trends, overall decision outcomes, top co-signers segmented by Working Group, Working Group activity breakdowns, and Work Item allocations.
+8. **Filtering Meeting TDocs by Tracked Work Items:**
+   * In any open `TDocsWindow`, use the quick-toggle chips on the filter bar:
+     * Click **`🎯 Followed WIs (N)`** to isolate contributions related to Work Items assigned to your delegation responsibility.
+     * Click **`⭐ Starred WIs (M)`** to isolate contributions related to your personal watchlist.
+   * **Multi-Facet Combinations:** Combine tracked WI chips with status, company, or type dropdowns (e.g. click `🎯 Followed WIs` and set `TDoc Status` to `agreed` to see only approved papers under your followed topics).
+   * **Dual Toggles:** When both chips are active, the viewer displays contributions belonging to either category (Followed $\cup$ Starred).
+   * **Real-World Acronym Matching:** Automatically handles `FS_` study prefixes, strips Working Group suffixes (`-ARC`, `-CT`, etc.), and resolves discussion papers lacking explicit metadata via Agenda Item descriptions.
+   * **Instant Cross-Tab Sync:** Tracking selections made in the Work Items tab are dynamically updated as soon as the meeting window is focused.
 
 ---
 
@@ -629,7 +645,13 @@ python -m main_tools
 2. Click the **🔄 Sync 3GPP WIs** button (hover over it for tooltip details) to trigger the parallel multi-threaded scraper across all 19 Technical Specification Groups and Working Groups.
 3. Monitor the real-time progress bar and status messages as records are fetched and bulk upserted into the shared database.
 4. Use the **Local Search** bar and multi-select **Checkable Dropdowns** to debounce-filter the table by Acronym, Name, Code, Release, or Working Group. Your selected filters are automatically saved and restored between application sessions.
-5. **Interactive Columns:** Click any blue **Latest WID** hyperlink to download the document via the global search engine (or fall back to the 3GPP Web Portal). Click the interactive **💬 Remarks** button to view a chronologically sorted history of secretary remarks for that specific work item.
+5. **Track Work Items (⭐ Star & 🎯 Follow):**
+   * Single-click the **Left Star (`☆`/`⭐`)** in the **Track** column to bookmark topics of personal technical interest.
+   * Single-click the **Right Target (`🎯`)** to mark Work Items you are actively assigned to follow for your delegation.
+   * Toggle the **`🎯 Following`** and **`⭐ Starred`** chips above the table to isolate your assigned responsibilities and watchlists.
+   * Select multiple rows and right-click to batch star/unstar or follow/unfollow Work Items.
+   * Click **`🎯 Update Tracked`** in the header to run a fast, targeted refresh of only your followed and starred items prior to meeting sessions.
+6. **Interactive Columns:** Click any blue **Latest WID** hyperlink to download the document via the global search engine (or fall back to the 3GPP Web Portal). Click the interactive **💬 Remarks** button to view a chronologically sorted history of secretary remarks for that specific work item. Double-click any row to inspect complete details, impacted specs, and toggle tracking status inside `WorkItemInfoDialog`.
 
 ---
 

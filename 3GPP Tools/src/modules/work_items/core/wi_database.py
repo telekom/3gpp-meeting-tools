@@ -65,11 +65,21 @@ class WorkItemsDatabase:
             ''')
 
     def _build_filter_clause(self, search_term: str = None, releases: list = None,
-                             wg_names: list = None, status: str = "all"):
+                             wg_names: list = None, status: str = "all",
+                             wi_codes: list = None):
         """Shared query builder for search and count operations."""
         query_joins = ""
         where_clauses = ["1=1"]
         params = []
+
+        if wi_codes is not None:
+            clean_codes = [str(c).strip() for c in wi_codes if str(c).strip()]
+            if not clean_codes:
+                where_clauses.append("1=0")
+            else:
+                placeholders = ','.join(['?'] * len(clean_codes))
+                where_clauses.append(f"wi.code IN ({placeholders})")
+                params.extend(clean_codes)
 
         filter_by_wg = wg_names and 'ALL' not in wg_names and len(wg_names) > 0
         if filter_by_wg:
@@ -100,9 +110,13 @@ class WorkItemsDatabase:
         return query_joins, where_sql, params
 
     def count_work_items(self, search_term: str = None, releases: list = None,
-                         wg_names: list = None, status: str = "all") -> int:
+                         wg_names: list = None, status: str = "all",
+                         wi_codes: list = None) -> int:
         """Returns the total number of matching work items without retrieving row payloads."""
-        joins, where_sql, params = self._build_filter_clause(search_term, releases, wg_names, status)
+        joins, where_sql, params = self._build_filter_clause(
+            search_term=search_term, releases=releases, wg_names=wg_names,
+            status=status, wi_codes=wi_codes
+        )
         query = f"SELECT COUNT(DISTINCT wi.code) FROM work_items wi {joins} {where_sql}"
         try:
             with self._get_connection() as conn:
@@ -116,9 +130,13 @@ class WorkItemsDatabase:
 
     def search_work_items(self, search_term: str = None, releases: list = None,
                           wg_names: list = None, status: str = "all",
-                          limit: int = None, offset: int = 0) -> list:
+                          limit: int = None, offset: int = 0,
+                          wi_codes: list = None) -> list:
         """Searches Work Items with optional pagination (LIMIT and OFFSET)."""
-        joins, where_sql, params = self._build_filter_clause(search_term, releases, wg_names, status)
+        joins, where_sql, params = self._build_filter_clause(
+            search_term=search_term, releases=releases, wg_names=wg_names,
+            status=status, wi_codes=wi_codes
+        )
 
         query = f"""
             SELECT wi.code, wi.acronym, wi.name, wi.latest_wid, wi.release, wi.start_date, wi.end_date,
@@ -201,6 +219,52 @@ class WorkItemsDatabase:
             seen.add(key)
             suggestions.append({"acronym": acronym, "code": code, "name": str(row.get("name") or "").strip()})
         return suggestions
+
+    def get_tracked_wi_tokens(self, wi_codes: set) -> set:
+        """
+        Given a set of WI code strings, returns a set of normalized lowercase tokens
+        (codes, acronyms, and aliases) for fast matching against meeting TDocs.
+        """
+        if not wi_codes:
+            return set()
+
+        clean_codes = [str(c).strip() for c in wi_codes if str(c).strip()]
+        if not clean_codes:
+            return set()
+
+        tokens = set(clean_codes)  # Add numeric codes themselves
+        placeholders = ','.join(['?'] * len(clean_codes))
+        query = f"SELECT acronym FROM work_items WHERE code IN ({placeholders})"
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, clean_codes)
+                for row in cursor.fetchall():
+                    acronym = str(row[0] or "").strip()
+                    if not acronym:
+                        continue
+                    tokens.add(acronym.lower())
+                    # Strip common 3GPP WG suffixes (e.g. -ARC, -Core, -Perf, -UEConTest, -ServConTest, -CT)
+                    base_acr = re.sub(
+                        r'[-_](?:ARC|CT|Core|Perf|SEC|RAN|SA\d?|CT\d?|UEConTest|ServConTest)$',
+                        '', acronym, flags=re.IGNORECASE
+                    ).strip()
+                    if base_acr:
+                        tokens.add(base_acr.lower())
+
+                    # Handle FS_ prefix
+                    if acronym.upper().startswith("FS_"):
+                        tokens.add(acronym[3:].lower())
+                        if base_acr and base_acr.upper().startswith("FS_"):
+                            tokens.add(base_acr[3:].lower())
+                    else:
+                        tokens.add(f"fs_{acronym.lower()}")
+                        if base_acr:
+                            tokens.add(f"fs_{base_acr.lower()}")
+        except Exception as e:
+            logger.error(f"Failed to resolve tracked WI tokens: {e}", exc_info=True)
+
+        return {t.lower() for t in tokens if t}
 
     def get_work_item_details(self, wi_code: str) -> dict:
         """Retrieves comprehensive details for a single Work Item."""
