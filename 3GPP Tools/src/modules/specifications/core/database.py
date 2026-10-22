@@ -401,10 +401,11 @@ class SpecsDatabase:
         select_clause = "SELECT DISTINCT" if use_distinct else "SELECT"
         query = f"""
             {select_clause} s.name, sp.number, sp.title, sp.type, f.filename, f.version, f.url, f.upload_date,
-                            COALESCE(ua.tags, ''), COALESCE(ua.comments, '')
+                            COALESCE(ua.tags, ''), COALESCE(ua.comments, ''), COALESCE(p_grp.name, '')
             FROM files f
             JOIN specifications sp ON f.spec_id = sp.id
             JOIN series s ON sp.series_id = s.id
+            LEFT JOIN working_groups p_grp ON sp.primary_group_id = p_grp.id
             LEFT JOIN spec_user_annotations ua ON sp.number = ua.spec_number
         """
         if join_tech:
@@ -414,7 +415,6 @@ class SpecsDatabase:
             """
         if join_group:
             query += """
-            LEFT JOIN working_groups p_grp ON sp.primary_group_id = p_grp.id
             LEFT JOIN spec_secondary_group_map sg_map ON sp.id = sg_map.spec_id
             LEFT JOIN working_groups s_grp ON sg_map.group_id = s_grp.id
             """

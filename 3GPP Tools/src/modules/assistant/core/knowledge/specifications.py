@@ -168,6 +168,8 @@ def _normalize_file_row(row: Any) -> Optional[Dict[str, Any]]:
             item["tags"] = [t.strip() for t in tags_raw.split(",") if t.strip()]
         if comments_raw:
             item["user_comments"] = comments_raw
+        if len(row) > 10 and row[10]:
+            item["primary_group"] = row[10]
         return item
     return None
 
