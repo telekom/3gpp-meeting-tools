@@ -35,7 +35,7 @@ src/modules/meetings/
     ├── tdoc_triage_dialog.py          # AI TDoc Triage execution & preview dialog
     ├── tdocs_dialogs.py               # Statistics parameters, export configuration dialogs
     ├── tdocs_menus.py                 # Right-click context menus for TDoc tables
-    ├── tdocs_table_model.py           # High-performance QAbstractTableModel
+    ├── tdocs_models.py                # High-performance TDocsTableModel & TDocsFilterProxyModel
     └── tdocs_window.py                # Primary TDoc list viewer window
 ```
 
@@ -58,3 +58,16 @@ src/modules/meetings/
 - Primary entry point for application code: `tdoc_markdown_converter.convert_document_to_markdown()`.
 - Supports `.docx`, `.docm`, and legacy `.doc` (via sensitivity-aware Word COM / LibreOffice pre-conversion).
 - Extracts track changes (`[INSERTED: ...]`, `[DELETED: ...]`), tables, figures, Visio diagrams, and metadata headers.
+
+### 3.4. Tracked Work Items Quick Filters (Integration with Work Items Module)
+- **Token Resolution & Precomputation:** When loading meeting TDocs, `TDocsTableModel._precompute_row_wi_tokens` parses and caches normalized WI tokens on each row dictionary (`row["_wi_tokens"]`). This covers explicit `Related WIs`, `agenda_map` acronyms, and parenthesized acronyms in `Agenda item description`.
+- **Acronym Normalization:** `_extract_base_tokens` strips Working Group suffixes (e.g. `AmbientIoT_Ph2-CT` $\rightarrow$ `ambientiot_ph2`) and generates base tokens with and without `FS_` prefixes.
+- **Proxy Model (`TDocsFilterProxyModel`):**
+  - Manages `filter_followed_wis` and `filter_starred_wis` boolean flags.
+  - `setTrackedWITokens(followed_tokens, starred_tokens)` updates target token sets.
+  - `rowMatchesFilters(source_row, exclude_filter=...)` evaluates token intersection under `exclude_filter="tracked_wi"`. When both filters are active, it evaluates the union (`followed_tokens | starred_tokens`).
+- **UI Quick-Chips (`TDocsWindow`):**
+  - Filter bar contains `btn_followed_wis` (`🎯 Followed WIs`) and `btn_starred_wis` (`⭐ Starred WIs`) checkable chips.
+  - Dynamically calculates facet badge counts (`(N)`) in `_update_filter_facets` matching active criteria.
+  - Seamlessly resets in `_clear_all_filters`.
+  - Re-evaluates on window focus (`showEvent`) to instantly pick up tracking changes from the Work Items tab without window reload.

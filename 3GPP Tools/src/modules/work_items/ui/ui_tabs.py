@@ -18,8 +18,73 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import WorkItemsScraperThread, TargetedWIScraperThread
 from modules.work_items.core.wi_settings import WorkItemsSettings
+from modules.work_items.ui.work_items_dialogs import WorkItemInfoDialog, LinkedSpecsDialog
 
 logger = logging.getLogger(__name__)
+
+
+class TrackingDelegate(QStyledItemDelegate):
+    """Renders 1-click Star (Personal Interest) and Follow (Assigned Duty) toggles."""
+    star_toggled = pyqtSignal(str)
+    follow_toggled = pyqtSignal(str)
+
+    def paint(self, painter, option, index):
+        QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
+        state = index.data(Qt.UserRole + 2) or {}
+        is_starred = state.get("starred", False)
+        is_following = state.get("following", False)
+
+        rect = option.rect
+        mid_x = rect.left() + rect.width() // 2
+        star_rect = QRect(rect.left() + 3, rect.top() + 3, (rect.width() // 2) - 4, rect.height() - 6)
+        follow_rect = QRect(mid_x + 1, rect.top() + 3, (rect.width() // 2) - 4, rect.height() - 6)
+
+        painter.save()
+        painter.setRenderHint(painter.Antialiasing)
+
+        # Draw Starred pill/icon
+        if is_starred:
+            painter.setBrush(QColor("#FEF3C7"))
+            painter.setPen(QColor("#F59E0B"))
+            painter.drawRoundedRect(star_rect, 4, 4)
+            painter.setPen(QColor("#B45309"))
+            font = option.font
+            font.setPointSize(font.pointSize() if font.pointSize() > 8 else 9)
+            painter.setFont(font)
+            painter.drawText(star_rect, Qt.AlignCenter, "⭐")
+        else:
+            painter.setPen(QColor("#CBD5E1"))
+            painter.drawText(star_rect, Qt.AlignCenter, "☆")
+
+        # Draw Following pill/icon
+        if is_following:
+            painter.setBrush(QColor("#DBEAFE"))
+            painter.setPen(QColor("#3B82F6"))
+            painter.drawRoundedRect(follow_rect, 4, 4)
+            painter.setPen(QColor("#1E40AF"))
+            font = option.font
+            font.setPointSize(font.pointSize() if font.pointSize() > 8 else 9)
+            painter.setFont(font)
+            painter.drawText(follow_rect, Qt.AlignCenter, "🎯")
+        else:
+            painter.setPen(QColor("#CBD5E1"))
+            painter.drawText(follow_rect, Qt.AlignCenter, "🎯")
+
+        painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            state = index.data(Qt.UserRole + 2) or {}
+            wi_code = state.get("code", "")
+            if not wi_code:
+                return False
+            mid_x = option.rect.left() + option.rect.width() // 2
+            if event.pos().x() < mid_x:
+                self.star_toggled.emit(wi_code)
+            else:
+                self.follow_toggled.emit(wi_code)
+            return True
+        return super().editorEvent(event, model, option, index)
 
 
 class WidDelegate(QStyledItemDelegate):
@@ -153,28 +218,52 @@ class RemarksDelegate(QStyledItemDelegate):
         return super().editorEvent(event, model, option, index)
 
 
-
-# Imported dialogs from dedicated submodule
-from modules.work_items.ui.work_items_dialogs import WorkItemInfoDialog, LinkedSpecsDialog
-
-
-
 class WorkItemsTableModel(QAbstractTableModel):
-    """Fast tabular data model supporting chunked row insertions."""
+    """Fast tabular data model supporting chunked row insertions and tracking."""
 
     def __init__(self, data=None):
         super().__init__()
         self._data = data or []
         self.search_term = ""
-        self._headers = ["Code", "Acronym", "Name", "WG", "Latest WID", "Release", "Status", "Specs", "Start Date", "End Date", "Remarks"]
+        self.starred_codes = set()
+        self.following_codes = set()
+        self._headers = [
+            "Track", "Code", "Acronym", "Name", "WG",
+            "Latest WID", "Release", "Status", "Specs",
+            "Start Date", "End Date", "Remarks"
+        ]
+
+    def set_tracking_sets(self, starred: set, following: set):
+        self.starred_codes = {str(x).strip() for x in starred}
+        self.following_codes = {str(x).strip() for x in following}
+
+    def refresh_row_by_code(self, wi_code: str):
+        target_code = str(wi_code).strip()
+        for row_idx, r in enumerate(self._data):
+            if str(r.get("code") or "").strip() == target_code:
+                top_left = self.index(row_idx, 0)
+                bottom_right = self.index(row_idx, len(self._headers) - 1)
+                self.dataChanged.emit(top_left, bottom_right, [Qt.UserRole + 2, Qt.BackgroundRole, Qt.ToolTipRole])
+                break
 
     def data(self, index, role):
         if not index.isValid():
             return None
         row = self._data[index.row()]
         col_name = self._headers[index.column()]
+        wi_code = str(row.get("code") or "").strip()
+
+        if role == Qt.UserRole + 2 and col_name == "Track":
+            return {
+                "code": wi_code,
+                "starred": wi_code in self.starred_codes,
+                "following": wi_code in self.following_codes,
+            }
 
         if role in (Qt.DisplayRole, Qt.UserRole):
+            if col_name == "Track":
+                return ""
+
             key_map = {
                 "Code": "code", "Acronym": "acronym", "Name": "name",
                 "WG": "wg_names", "Latest WID": "latest_wid", "Release": "release",
@@ -213,6 +302,14 @@ class WorkItemsTableModel(QAbstractTableModel):
                 acronym = str(row.get("acronym") or "").strip().casefold()
                 if acronym == self.search_term.casefold():
                     return QBrush(QColor("#DBEAFE"))
+
+            # Highlight followed and starred rows subtly in Acronym and Track columns
+            if col_name in ("Acronym", "Track"):
+                if wi_code in self.following_codes:
+                    return QBrush(QColor("#EFF6FF"))
+                elif wi_code in self.starred_codes:
+                    return QBrush(QColor("#FFFBEB"))
+
             if col_name == "Release" and str(row.get("release") or "").strip():
                 return QBrush(QColor("#F1F5F9"))
             if col_name == "Status":
@@ -235,7 +332,16 @@ class WorkItemsTableModel(QAbstractTableModel):
                 return font
 
         elif role == Qt.ToolTipRole:
-            if col_name == "Name":
+            if col_name == "Track":
+                s_state = "⭐ Starred" if wi_code in self.starred_codes else "☆ Not Starred"
+                f_state = "🎯 Following" if wi_code in self.following_codes else "🎯 Not Following"
+                return (
+                    f"<b>Tracking Status (WI #{wi_code})</b><br>"
+                    f"Left (⭐): {s_state} (Personal Interest)<br>"
+                    f"Right (🎯): {f_state} (Assigned Duty)<br><br>"
+                    f"<i>Click left to toggle Star · Click right to toggle Follow</i>"
+                )
+            elif col_name == "Name":
                 return f"<b>{row.get('acronym', '')}</b><br>{row.get('name', '')}"
             elif col_name == "Acronym":
                 return row.get('name', '')
@@ -307,6 +413,11 @@ class WorkItemsTab(QWidget):
         self._loaded_data = []
         self._is_loading_chunk = False
 
+        # Tracking state (Personal Interest & Delegation Assignment)
+        self.starred, self.following = self.settings.get_tracking_sets()
+        self.starred_only = False
+        self.following_only = False
+
         self.search_timer = QTimer()
         self.search_timer.setSingleShot(True)
         self.search_timer.setInterval(350)
@@ -320,6 +431,7 @@ class WorkItemsTab(QWidget):
         self._setup_ui()
         self._populate_filters()
         self._load_filters()
+        self._update_chip_styles()
         self.refresh_table(reset_pagination=True)
 
     def _save_filters(self):
@@ -327,7 +439,9 @@ class WorkItemsTab(QWidget):
             "search": self.search_input.text().strip(),
             "releases": self.release_combo.getCheckedItems(),
             "wgs": self.wg_combo.getCheckedItems(),
-            "status": self.status_combo.currentData() or "active"
+            "status": self.status_combo.currentData() or "active",
+            "starred_only": self.starred_only,
+            "following_only": self.following_only,
         }
         self.settings.save_filters(filters)
 
@@ -361,6 +475,11 @@ class WorkItemsTab(QWidget):
                 idx = self.status_combo.findData("active")
                 if idx >= 0:
                     self.status_combo.setCurrentIndex(idx)
+
+            if "starred_only" in filters:
+                self.starred_only = bool(filters["starred_only"])
+            if "following_only" in filters:
+                self.following_only = bool(filters["following_only"])
         finally:
             self.search_input.blockSignals(False)
             self.release_combo.blockSignals(False)
@@ -431,6 +550,12 @@ class WorkItemsTab(QWidget):
         header_lbl = QLabel("<b>📋 3GPP Work Items (WIs)</b>")
         header_lbl.setStyleSheet("font-size: 16px; color: #1E293B;")
 
+        self.sync_tracked_btn = QPushButton("🎯 Update Tracked (0)")
+        self.sync_tracked_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.sync_tracked_btn.setToolTip("Quickly update details and remarks for only your Starred and Following Work Items.")
+        self.sync_tracked_btn.setCursor(Qt.PointingHandCursor)
+        self.sync_tracked_btn.clicked.connect(self._sync_tracked_wis)
+
         self.sync_btn = QPushButton("🔄 Sync 3GPP WIs")
         self.sync_btn.setObjectName("primaryBtn")
         self.sync_btn.setToolTip("Click to download and synchronize 3GPP Work Items in parallel from the server.")
@@ -448,6 +573,7 @@ class WorkItemsTab(QWidget):
         header_layout.addStretch()
         header_layout.addWidget(self.status_lbl)
         header_layout.addWidget(self.progress_bar)
+        header_layout.addWidget(self.sync_tracked_btn)
         header_layout.addWidget(self.sync_btn)
         main_layout.addLayout(header_layout)
 
@@ -491,17 +617,40 @@ class WorkItemsTab(QWidget):
 
         main_layout.addLayout(search_layout)
 
-        # --- RESULTS COUNTER ---
+        # --- ROW 3: TRACKING FILTER CHIPS & RESULTS COUNTER ---
+        chips_layout = QHBoxLayout()
+        chips_layout.setSpacing(6)
+
+        chips_lbl = QLabel("Filter:")
+        chips_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold;")
+        chips_layout.addWidget(chips_lbl)
+
+        # Following Filter Chip (Assigned Duty)
+        self.following_chip = QPushButton("🎯 Following (0)")
+        self.following_chip.setCursor(Qt.PointingHandCursor)
+        self.following_chip.setToolTip("Toggle view to show only Work Items you are assigned to follow.")
+        self.following_chip.clicked.connect(self._toggle_following_filter)
+        chips_layout.addWidget(self.following_chip)
+
+        # Starred Filter Chip (Personal Interest)
+        self.starred_chip = QPushButton("⭐ Starred (0)")
+        self.starred_chip.setCursor(Qt.PointingHandCursor)
+        self.starred_chip.setToolTip("Toggle view to show only your starred/favorite Work Items.")
+        self.starred_chip.clicked.connect(self._toggle_starred_filter)
+        chips_layout.addWidget(self.starred_chip)
+
+        chips_layout.addStretch()
+
         self.count_label = QLabel("Showing 0 Work Items")
-        self.count_label.setStyleSheet("font-weight: bold; color: #64748B; margin-top: 4px;")
-        count_layout = QHBoxLayout()
-        count_layout.addStretch()
-        count_layout.addWidget(self.count_label)
-        main_layout.addLayout(count_layout)
+        self.count_label.setStyleSheet("font-weight: bold; color: #64748B; margin-top: 2px;")
+        chips_layout.addWidget(self.count_label)
+
+        main_layout.addLayout(chips_layout)
 
         # --- TABLE VIEW ---
         self.table = QTableView()
         self.table_model = WorkItemsTableModel()
+        self.table_model.set_tracking_sets(self.starred, self.following)
         self.table.setModel(self.table_model)
 
         self.table.setAlternatingRowColors(True)
@@ -532,29 +681,182 @@ class WorkItemsTab(QWidget):
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.setSectionResizeMode(1, QHeaderView.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
 
-        # Column Delegates
+        # Column 0: Track
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, 62)
+        self.tracking_delegate = TrackingDelegate(self.table)
+        self.tracking_delegate.star_toggled.connect(self._toggle_star)
+        self.tracking_delegate.follow_toggled.connect(self._toggle_follow)
+        self.table.setItemDelegateForColumn(0, self.tracking_delegate)
+
+        # Column 3: Name
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
+
+        # Column 5: Latest WID
         self.wid_delegate = WidDelegate(self.table)
         self.wid_delegate.link_clicked.connect(self._log_and_forward_action)
-        self.table.setItemDelegateForColumn(4, self.wid_delegate)
+        self.table.setItemDelegateForColumn(5, self.wid_delegate)
 
+        # Column 8: Specs
         self.specs_delegate = SpecsDelegate(self.table)
         self.specs_delegate.specs_clicked.connect(self._on_specs_clicked)
-        self.table.setItemDelegateForColumn(7, self.specs_delegate)
+        self.table.setItemDelegateForColumn(8, self.specs_delegate)
 
-        header.setSectionResizeMode(10, QHeaderView.Stretch)
-        self.table.setItemDelegateForColumn(10, RemarksDelegate(self.table))
+        # Column 11: Remarks
+        header.setSectionResizeMode(11, QHeaderView.Stretch)
+        self.table.setItemDelegateForColumn(11, RemarksDelegate(self.table))
 
         self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
         main_layout.addWidget(self.table)
+
+    def _toggle_starred_filter(self):
+        self.starred_only = not self.starred_only
+        self._update_chip_styles()
+        self.refresh_table(reset_pagination=True)
+
+    def _toggle_following_filter(self):
+        self.following_only = not self.following_only
+        self._update_chip_styles()
+        self.refresh_table(reset_pagination=True)
+
+    def _update_chip_styles(self):
+        starred_count = len(self.starred)
+        following_count = len(self.following)
+        tracked_count = len(self.starred | self.following)
+
+        self.starred_chip.setText(f"⭐ Starred ({starred_count})")
+        self.following_chip.setText(f"🎯 Following ({following_count})")
+        if hasattr(self, "sync_tracked_btn"):
+            self.sync_tracked_btn.setText(f"🎯 Update Tracked ({tracked_count})")
+            self.sync_tracked_btn.setEnabled(tracked_count > 0)
+
+        if self.starred_only:
+            self.starred_chip.setStyleSheet("""
+                QPushButton {
+                    background-color: #FEF3C7; color: #92400E; border: 1px solid #F59E0B;
+                    border-radius: 10px; font-weight: bold; padding: 3px 10px; font-size: 11px;
+                }
+                QPushButton:hover { background-color: #FDE68A; }
+            """)
+        else:
+            self.starred_chip.setStyleSheet("""
+                QPushButton {
+                    background-color: #F0F4F8; color: #4B5563; border: 1px solid #D1D5DB;
+                    border-radius: 10px; padding: 3px 10px; font-size: 11px;
+                }
+                QPushButton:hover { background-color: #E2E8F0; }
+            """)
+
+        if self.following_only:
+            self.following_chip.setStyleSheet("""
+                QPushButton {
+                    background-color: #DBEAFE; color: #1E40AF; border: 1px solid #3B82F6;
+                    border-radius: 10px; font-weight: bold; padding: 3px 10px; font-size: 11px;
+                }
+                QPushButton:hover { background-color: #BFDBFE; }
+            """)
+        else:
+            self.following_chip.setStyleSheet("""
+                QPushButton {
+                    background-color: #F0F4F8; color: #4B5563; border: 1px solid #D1D5DB;
+                    border-radius: 10px; padding: 3px 10px; font-size: 11px;
+                }
+                QPushButton:hover { background-color: #E2E8F0; }
+            """)
+
+    def _get_active_filter_codes(self):
+        """Returns list of WI codes if filter chips are active, or None if no tracking filter is active."""
+        if not self.starred_only and not self.following_only:
+            return None
+        codes = set()
+        if self.starred_only:
+            codes |= self.starred
+        if self.following_only:
+            codes |= self.following
+        return sorted(list(codes))
+
+    def _toggle_star(self, wi_code: str):
+        code = str(wi_code).strip()
+        if not code:
+            return
+        if code in self.starred:
+            self.starred.remove(code)
+        else:
+            self.starred.add(code)
+        self.settings.save_tracking_sets(self.starred, self.following)
+        self.table_model.set_tracking_sets(self.starred, self.following)
+        self._update_chip_styles()
+
+        if self.starred_only:
+            self.refresh_table(reset_pagination=True)
+        else:
+            self.table_model.refresh_row_by_code(code)
+
+    def _toggle_follow(self, wi_code: str):
+        code = str(wi_code).strip()
+        if not code:
+            return
+        if code in self.following:
+            self.following.remove(code)
+        else:
+            self.following.add(code)
+        self.settings.save_tracking_sets(self.starred, self.following)
+        self.table_model.set_tracking_sets(self.starred, self.following)
+        self._update_chip_styles()
+
+        if self.following_only:
+            self.refresh_table(reset_pagination=True)
+        else:
+            self.table_model.refresh_row_by_code(code)
+
+    def _batch_set_starred(self, wi_codes: list, add: bool):
+        for c in wi_codes:
+            code = str(c).strip()
+            if not code:
+                continue
+            if add:
+                self.starred.add(code)
+            else:
+                self.starred.discard(code)
+        self.settings.save_tracking_sets(self.starred, self.following)
+        self.table_model.set_tracking_sets(self.starred, self.following)
+        self._update_chip_styles()
+        self.refresh_table(reset_pagination=True)
+
+    def _batch_set_following(self, wi_codes: list, add: bool):
+        for c in wi_codes:
+            code = str(c).strip()
+            if not code:
+                continue
+            if add:
+                self.following.add(code)
+            else:
+                self.following.discard(code)
+        self.settings.save_tracking_sets(self.starred, self.following)
+        self.table_model.set_tracking_sets(self.starred, self.following)
+        self._update_chip_styles()
+        self.refresh_table(reset_pagination=True)
+
+    def _sync_tracked_wis(self):
+        tracked = sorted(list(self.starred | self.following))
+        if not tracked:
+            QMessageBox.information(
+                self, "No Tracked Work Items",
+                "You have no Starred or Following Work Items to update.\n\n"
+                "Star or Follow Work Items first using the Track column or right-click menu."
+            )
+            return
+        self._start_targeted_sync(tracked)
 
     def _clear_all_filters(self):
         self.search_input.clear()
         self._apply_checked_items(self.release_combo, [])
         self._apply_checked_items(self.wg_combo, [])
         self.status_combo.setCurrentIndex(0)
+        self.starred_only = False
+        self.following_only = False
+        self._update_chip_styles()
         self.refresh_table(reset_pagination=True)
 
     def _on_scroll(self, value):
@@ -588,12 +890,14 @@ class WorkItemsTab(QWidget):
         selected_releases = self.release_combo.getCheckedItems()
         selected_wgs = self.wg_combo.getCheckedItems()
         selected_status = self.status_combo.currentData() or "active"
+        filter_codes = self._get_active_filter_codes()
 
         self._total_count = self.db.count_work_items(
             search_term=search_term if search_term else None,
             releases=selected_releases,
             wg_names=selected_wgs,
-            status=selected_status
+            status=selected_status,
+            wi_codes=filter_codes
         )
 
         chunk = self.db.search_work_items(
@@ -602,7 +906,8 @@ class WorkItemsTab(QWidget):
             wg_names=selected_wgs,
             status=selected_status,
             limit=self._chunk_size,
-            offset=self._current_offset
+            offset=self._current_offset,
+            wi_codes=filter_codes
         )
 
         self._loaded_data = chunk
@@ -618,6 +923,7 @@ class WorkItemsTab(QWidget):
         selected_releases = self.release_combo.getCheckedItems()
         selected_wgs = self.wg_combo.getCheckedItems()
         selected_status = self.status_combo.currentData() or "active"
+        filter_codes = self._get_active_filter_codes()
 
         chunk = self.db.search_work_items(
             search_term=search_term if search_term else None,
@@ -625,7 +931,8 @@ class WorkItemsTab(QWidget):
             wg_names=selected_wgs,
             status=selected_status,
             limit=self._chunk_size,
-            offset=self._current_offset
+            offset=self._current_offset,
+            wi_codes=filter_codes
         )
 
         if chunk:
@@ -641,7 +948,15 @@ class WorkItemsTab(QWidget):
         exact_count = 0
         if query:
             exact_count = sum(1 for r in self._loaded_data if str(r.get("acronym") or "").strip().casefold() == query.casefold())
-        prefix = f'{self._total_count} matches for "{query}"' if query else f"{self._total_count} Work Items"
+
+        filter_desc = []
+        if self.following_only:
+            filter_desc.append("🎯 Following")
+        if self.starred_only:
+            filter_desc.append("⭐ Starred")
+
+        mode_str = f" [{' + '.join(filter_desc)}]" if filter_desc else ""
+        prefix = f'{self._total_count} matches for "{query}"{mode_str}' if query else f"{self._total_count} Work Items{mode_str}"
         if query and exact_count:
             prefix += f" · Exact acronym: {exact_count}"
         if self._total_count > loaded:
@@ -669,13 +984,23 @@ class WorkItemsTab(QWidget):
     def _show_wi_info(self, wi_code: str):
         details = self.db.get_work_item_details(wi_code)
         if details:
-            dialog = WorkItemInfoDialog(details, self)
+            code_str = str(wi_code).strip()
+            dialog = WorkItemInfoDialog(
+                details,
+                parent=self,
+                is_starred=code_str in self.starred,
+                is_following=code_str in self.following,
+                on_toggle_star=self._toggle_star,
+                on_toggle_follow=self._toggle_follow,
+            )
             dialog.exec_()
 
     def _start_sync(self):
         logger.info("🔄 [Work Items] Starting full Work Items synchronization.")
         self.sync_btn.setEnabled(False)
         self.sync_btn.setText("⏳ Syncing...")
+        if hasattr(self, "sync_tracked_btn"):
+            self.sync_tracked_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
@@ -697,6 +1022,8 @@ class WorkItemsTab(QWidget):
 
         self.sync_btn.setEnabled(True)
         self.sync_btn.setText("🔄 Sync 3GPP WIs")
+        if hasattr(self, "sync_tracked_btn"):
+            self.sync_tracked_btn.setEnabled(len(self.starred | self.following) > 0)
         self.progress_bar.setVisible(False)
         self.status_lbl.setText("")
 
@@ -726,7 +1053,7 @@ class WorkItemsTab(QWidget):
         menu = QMenu(self)
         len_indexes = len(selected_indexes)
         wi_code_list = [
-            self.table_model.data(self.table_model.index(e.row(), 0), Qt.DisplayRole)
+            str(self.table_model.get_row_data(e.row()).get("code") or "").strip()
             for e in selected_indexes
         ]
         wi_code_list = [code for code in wi_code_list if code]
@@ -734,7 +1061,7 @@ class WorkItemsTab(QWidget):
         if len_indexes == 1:
             row_idx = selected_indexes[0].row()
             row_data = self.table_model.get_row_data(row_idx)
-            wi_code = row_data.get('code')
+            wi_code = str(row_data.get('code') or "").strip()
             acronym = row_data.get('acronym', '')
             name = row_data.get('name', '')
             wg = row_data.get('wg_names', '')
@@ -742,6 +1069,17 @@ class WorkItemsTab(QWidget):
 
             if not wi_code:
                 return
+
+            # Tracking Actions
+            is_starred = wi_code in self.starred
+            is_following = wi_code in self.following
+
+            star_label = "⭐ Remove from Starred" if is_starred else "⭐ Add to Starred (Personal Interest)"
+            follow_label = "🎯 Unfollow Work Item" if is_following else "🎯 Follow Work Item (Assigned Duty)"
+
+            star_action = menu.addAction(star_label)
+            follow_action = menu.addAction(follow_label)
+            menu.addSeparator()
 
             info_action = menu.addAction("ℹ️ View WI Details")
             wi_page_action = menu.addAction("🌐 Open WI Page (Portal)")
@@ -753,7 +1091,13 @@ class WorkItemsTab(QWidget):
             menu.addSeparator()
             update_action = menu.addAction("🔄 Update WI")
             delete_action = menu.addAction("🗑️ Delete this Work Item")
+            batch_star_action = None
+            batch_unstar_action = None
+            batch_follow_action = None
+            batch_unfollow_action = None
         else:
+            star_action = None
+            follow_action = None
             info_action = None
             wi_page_action = None
             local_specs_action = None
@@ -761,13 +1105,24 @@ class WorkItemsTab(QWidget):
             crs_action = None
             citation_action = None
             wi_code = None
+
+            batch_star_action = menu.addAction(f"⭐ Star selected ({len_indexes} WIs)")
+            batch_unstar_action = menu.addAction(f"☆ Unstar selected ({len_indexes} WIs)")
+            batch_follow_action = menu.addAction(f"🎯 Follow selected ({len_indexes} WIs)")
+            batch_unfollow_action = menu.addAction(f"🚫 Unfollow selected ({len_indexes} WIs)")
+            menu.addSeparator()
+
             update_action = menu.addAction(f"🔄 Update WIs ({len_indexes} WIs)")
             delete_action = menu.addAction(f"🗑️ Delete selected Work Items ({len_indexes} WIs)")
 
         action = menu.exec_(self.table.viewport().mapToGlobal(position))
 
         if len_indexes == 1:
-            if action == info_action:
+            if action == star_action:
+                self._toggle_star(wi_code)
+            elif action == follow_action:
+                self._toggle_follow(wi_code)
+            elif action == info_action:
                 self._show_wi_info(wi_code)
             elif action == wi_page_action:
                 webbrowser.open(f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}")
@@ -790,11 +1145,24 @@ class WorkItemsTab(QWidget):
                 )
                 if confirm == QMessageBox.Yes:
                     self.db.delete_work_item(wi_code)
+                    self.starred.discard(wi_code)
+                    self.following.discard(wi_code)
+                    self.settings.save_tracking_sets(self.starred, self.following)
+                    self.table_model.set_tracking_sets(self.starred, self.following)
+                    self._update_chip_styles()
                     self.refresh_table(reset_pagination=True)
             elif action == update_action:
                 self._start_targeted_sync([wi_code])
         else:
-            if action == delete_action:
+            if action == batch_star_action:
+                self._batch_set_starred(wi_code_list, True)
+            elif action == batch_unstar_action:
+                self._batch_set_starred(wi_code_list, False)
+            elif action == batch_follow_action:
+                self._batch_set_following(wi_code_list, True)
+            elif action == batch_unfollow_action:
+                self._batch_set_following(wi_code_list, False)
+            elif action == delete_action:
                 confirm = QMessageBox.question(
                     self, "Confirm Batch Deletion",
                     f"Are you sure you want to delete {len(wi_code_list)} selected Work Items from the database?",
@@ -802,6 +1170,12 @@ class WorkItemsTab(QWidget):
                 )
                 if confirm == QMessageBox.Yes:
                     self.db.delete_work_items(wi_code_list)
+                    for c in wi_code_list:
+                        self.starred.discard(c)
+                        self.following.discard(c)
+                    self.settings.save_tracking_sets(self.starred, self.following)
+                    self.table_model.set_tracking_sets(self.starred, self.following)
+                    self._update_chip_styles()
                     self.refresh_table(reset_pagination=True)
             elif action == update_action:
                 self._start_targeted_sync(wi_code_list)
@@ -810,6 +1184,8 @@ class WorkItemsTab(QWidget):
         logger.info(f"🔄 [Work Items] Starting targeted update for {len(wi_codes)} WI(s): {wi_codes}")
         self.sync_btn.setEnabled(False)
         self.sync_btn.setText("⏳ Updating...")
+        if hasattr(self, "sync_tracked_btn"):
+            self.sync_tracked_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 

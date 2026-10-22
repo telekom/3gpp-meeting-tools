@@ -38,9 +38,59 @@ class TDocsTableModel(QAbstractTableModel):
         self._family_cache = {}
 
         self._apply_company_sanitization(self._data)
+        self._precompute_row_wi_tokens(self._data)
         self._apply_user_data_logic()
         self._rebuild_family_cache()
         self._recompute_cached_email_stats()
+
+    @staticmethod
+    def _extract_base_tokens(text: str) -> set:
+        """Generates lowercase base tokens (with/without FS_ prefix and with stripped WG suffixes)."""
+        clean = str(text or "").strip()
+        if not clean or clean.lower() in {"(no wi)", "none", "nan", "-"}:
+            return set()
+        tokens = {clean.lower()}
+        base = re.sub(
+            r'[-_](?:ARC|CT|Core|Perf|SEC|RAN|SA\d?|CT\d?|UEConTest|ServConTest)$',
+            '', clean, flags=re.IGNORECASE
+        ).strip()
+        if base:
+            tokens.add(base.lower())
+        if clean.upper().startswith("FS_"):
+            tokens.add(clean[3:].lower())
+            if base and base.upper().startswith("FS_"):
+                tokens.add(base[3:].lower())
+        else:
+            tokens.add(f"fs_{clean.lower()}")
+            if base:
+                tokens.add(f"fs_{base.lower()}")
+        return tokens
+
+    def _extract_row_wi_tokens(self, row: dict) -> set:
+        """Precomputes all WI tokens associated with a TDoc row."""
+        tokens = set()
+        raw_wis = self._split_related_wis(row.get("Related WIs", ""))
+        for wi in raw_wis:
+            tokens.update(self._extract_base_tokens(wi))
+
+        ai_num = str(row.get("Agenda Item", "")).strip()
+        if ai_num and self.agenda_map:
+            agenda_item = self.agenda_map.get(ai_num)
+            if agenda_item and getattr(agenda_item, "acronym", None):
+                tokens.update(self._extract_base_tokens(agenda_item.acronym))
+
+        desc = str(row.get("Agenda item description", "")).strip()
+        if desc:
+            match = re.search(r'\(([A-Za-z0-9_\-\/]+)\)', desc)
+            if match:
+                tokens.update(self._extract_base_tokens(match.group(1)))
+
+        return tokens
+
+    def _precompute_row_wi_tokens(self, rows: list):
+        """Precomputes and caches _wi_tokens on each row dictionary for fast O(1) filtering."""
+        for row in rows:
+            row["_wi_tokens"] = self._extract_row_wi_tokens(row)
 
     def _apply_company_sanitization(self, rows_to_process: list):
         """Passes the raw Source string through the Sanitizer and caches the result."""
@@ -155,6 +205,7 @@ class TDocsTableModel(QAbstractTableModel):
 
         # Pre-compute for a completely fresh dataset update
         self._apply_company_sanitization(self._data)
+        self._precompute_row_wi_tokens(self._data)
         self._apply_user_data_logic()
         self._rebuild_family_cache()
         self._recompute_cached_email_stats()
@@ -224,6 +275,7 @@ class TDocsTableModel(QAbstractTableModel):
     def set_agenda_map(self, agenda_map: dict):
         """Updates the cached agenda mapping and repaints the Agenda Item column."""
         self.agenda_map = agenda_map or {}
+        self._precompute_row_wi_tokens(self._data)
         if "Agenda Item" in self._headers:
             col_idx = self._headers.index("Agenda Item")
             self.dataChanged.emit(self.index(0, col_idx), self.index(self.rowCount() - 1, col_idx))
@@ -506,12 +558,14 @@ class TDocsTableModel(QAbstractTableModel):
                     'Is revision of': predecessor if predecessor else '',
                     'Revised to': '',
                     'Original LS': '',
-                    'Reply in': ''
+                    'Reply in': '',
+                    'Related WIs': fuzzy_get('Related WIs'),
                 }
                 new_rows.append(new_row)
 
         if new_rows:
             self._apply_company_sanitization(new_rows)
+            self._precompute_row_wi_tokens(new_rows)
             self._data.extend(new_rows)
             self._data.sort(key=lambda x: str(x.get('TDoc', '')))
             tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
@@ -555,6 +609,10 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.company_filters = set()
         self.my_status_filters = set()
         self.filter_no_comments = False
+        self.filter_followed_wis = False
+        self.filter_starred_wis = False
+        self.followed_wi_tokens = set()
+        self.starred_wi_tokens = set()
 
     def _parse_query(self, query: str):
         includes = []
@@ -604,6 +662,17 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.my_status_filters = set(statuses)
         self.invalidateFilter()
 
+    def setTrackedWITokens(self, followed_tokens: set, starred_tokens: set):
+        self.followed_wi_tokens = {str(t).lower().strip() for t in followed_tokens if str(t).strip()}
+        self.starred_wi_tokens = {str(t).lower().strip() for t in starred_tokens if str(t).strip()}
+        if self.filter_followed_wis or self.filter_starred_wis:
+            self.invalidateFilter()
+
+    def setTrackedWIFilters(self, filter_followed: bool, filter_starred: bool):
+        self.filter_followed_wis = bool(filter_followed)
+        self.filter_starred_wis = bool(filter_starred)
+        self.invalidateFilter()
+
     def rowMatchesFilters(self, source_row, exclude_filter=None):
         """Return whether a source row matches active filters, optionally ignoring one facet."""
         model = self.sourceModel()
@@ -614,6 +683,19 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 
         if exclude_filter != "no_comments" and self.filter_no_comments:
             if str(row.get("Secretary Remarks", "") or "").strip():
+                return False
+
+        if exclude_filter != "tracked_wi" and (self.filter_followed_wis or self.filter_starred_wis):
+            target_tokens = set()
+            if self.filter_followed_wis:
+                target_tokens |= self.followed_wi_tokens
+            if self.filter_starred_wis:
+                target_tokens |= self.starred_wi_tokens
+            row_tokens = row.get("_wi_tokens")
+            if row_tokens is None:
+                row_tokens = model._extract_row_wi_tokens(row)
+                row["_wi_tokens"] = row_tokens
+            if not (row_tokens & target_tokens):
                 return False
 
         if exclude_filter != "type" and str(row.get("Type", "") or "").strip() not in self.type_filters:
