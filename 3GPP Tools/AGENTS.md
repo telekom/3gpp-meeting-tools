@@ -127,11 +127,12 @@ python -m main_tools
 
 ### 4.7. Work Items (`src/modules/work_items`)
 - **Parallel Scraper & Storage:** Concurrently synchronizes 3GPP Work Items across all TSGs/WGs from dynamic reports into `3gpp_data.db` (`work_items`, `wi_group_map`, `wi_remarks`).
+- **Direct WI Addition & Portal Scraper:** `AddWorkItemDialog` and background worker `ManualWIFetcherThread` enable delegates to add and scrape any individual Work Item by ID or 3GPP Portal URL without a full database sync. Utilizes `extract_wi_code` for robust format normalization, `fetch_wi_details_from_portal` for comprehensive metadata and remarks extraction (including shorthand WG mapping via `PORTAL_TO_WG_MAP`), and atomic persistence via `WorkItemsDatabase.upsert_single_work_item()`.
 - **Targeted Updating:** `TargetedWIScraperThread` performs fast, targeted updates for a specific list of WI codes without triggering a full multi-WG scrape.
 - **Personal Tracking (Starred & Following):** Decoupled from `3gpp_data.db` and persisted in `src/config/work_items_config.json` via `WorkItemsSettings`. Supports dual independent flags:
   - `starred`: Personal interest / watchlist.
   - `following`: Assigned delegation responsibility (team work-split).
-- **Interactive UI & Filtering:** `WorkItemsTab` incorporates a dedicated 1-click `TrackingDelegate`, filter chips (`⭐ Starred`, `🎯 Following`), batch context menu actions, and in-dialog toggling inside `WorkItemInfoDialog`. `WorkItemsDatabase` optimizes tracking filters using SQLite primary-key `IN` clauses with safe empty-set evaluations (`1=0`).
+- **Interactive UI & Filtering:** `WorkItemsTab` incorporates a dedicated 1-click `TrackingDelegate`, filter chips (`⭐ Starred`, `🎯 Following`), `➕ Add WI` toolbar and context menu actions, batch context menu actions, and in-dialog toggling inside `WorkItemInfoDialog`. `WorkItemsDatabase` optimizes tracking filters using SQLite primary-key `IN` clauses with safe empty-set evaluations (`1=0`).
 
 ---
 

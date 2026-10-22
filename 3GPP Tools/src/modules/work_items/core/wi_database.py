@@ -466,3 +466,70 @@ class WorkItemsDatabase:
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to batch update Work Items metadata: {e}", exc_info=True)
+
+    def upsert_single_work_item(self, wi_data: dict) -> bool:
+        """
+        Inserts or updates an individual Work Item record, associates it with
+        its working group(s), and persists any parsed remarks.
+        """
+        code = str(wi_data.get('code') or '').strip()
+        if not code:
+            return False
+
+        acronym = str(wi_data.get('acronym') or '').strip()
+        name = str(wi_data.get('name') or '').strip()
+        release = str(wi_data.get('release') or '').strip()
+        latest_wid = str(wi_data.get('latest_wid') or '').strip()
+        start_date = str(wi_data.get('start_date') or '').strip()
+        end_date = str(wi_data.get('end_date') or '').strip()
+
+        groups = wi_data.get('responsible_groups') or []
+        if isinstance(groups, str):
+            groups = [g.strip() for g in re.split(r'[,;/|\s]+', groups) if g.strip()]
+
+        remarks = wi_data.get('remarks') or []
+
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO work_items (code, acronym, name, latest_wid, release, start_date, end_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(code) DO UPDATE SET
+                        acronym = CASE WHEN (excluded.acronym IS NOT NULL AND excluded.acronym != '') THEN excluded.acronym ELSE work_items.acronym END,
+                        name = CASE WHEN (excluded.name IS NOT NULL AND excluded.name != '') THEN excluded.name ELSE work_items.name END,
+                        release = CASE WHEN (excluded.release IS NOT NULL AND excluded.release != '') THEN excluded.release ELSE work_items.release END,
+                        latest_wid = CASE WHEN (excluded.latest_wid IS NOT NULL AND excluded.latest_wid != '') THEN excluded.latest_wid ELSE work_items.latest_wid END,
+                        start_date = CASE WHEN (excluded.start_date IS NOT NULL AND excluded.start_date != '') THEN excluded.start_date ELSE work_items.start_date END,
+                        end_date = CASE WHEN (excluded.end_date IS NOT NULL AND excluded.end_date != '') THEN excluded.end_date ELSE work_items.end_date END
+                ''', (code, acronym, name, latest_wid, release, start_date, end_date))
+
+                for wg_name in groups:
+                    wg_clean = wg_name.strip()
+                    if not wg_clean:
+                        continue
+                    cursor.execute('INSERT OR IGNORE INTO working_groups (name) VALUES (?)', (wg_clean,))
+                    cursor.execute('SELECT id FROM working_groups WHERE name = ?', (wg_clean,))
+                    wg_row = cursor.fetchone()
+                    if wg_row:
+                        wg_id = wg_row[0]
+                        cursor.execute('INSERT OR IGNORE INTO wi_group_map (wi_code, group_id) VALUES (?, ?)', (code, wg_id))
+
+                if remarks:
+                    cursor.execute('DELETE FROM wi_remarks WHERE wi_code = ?', (code,))
+                    remark_tuples = [
+                        (code, r.get('date', ''), r.get('text', ''))
+                        for r in remarks if r.get('text')
+                    ]
+                    if remark_tuples:
+                        cursor.executemany('''
+                            INSERT INTO wi_remarks (wi_code, creation_date, remark)
+                            VALUES (?, ?, ?)
+                        ''', remark_tuples)
+
+                conn.commit()
+                logger.info(f"Successfully upserted single Work Item #{code} ({acronym})")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to upsert single Work Item #{code}: {e}", exc_info=True)
+            return False
