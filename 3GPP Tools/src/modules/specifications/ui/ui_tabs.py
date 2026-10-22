@@ -9,6 +9,7 @@ from pathlib import Path
 
 from PyQt5 import sip
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QAction,
@@ -21,6 +22,7 @@ from PyQt5.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QShortcut,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -49,7 +51,11 @@ from modules.specifications.ui.spec_action_controller import (
     handle_document_action,
     handle_zip_action,
 )
-from modules.specifications.ui.spec_menu import show_spec_context_menu
+from modules.specifications.ui.spec_menu import (
+    copy_specs_default,
+    populate_spec_copy_menu,
+    show_spec_context_menu,
+)
 from modules.specifications.ui.threads import SpecDownloadThread
 from modules.specifications.utils.utils import build_dynareport_url
 from modules.word_tools.core.document_opener import open_document
@@ -643,6 +649,10 @@ class SpecificationsTab(QWidget):
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         self.table.cellDoubleClicked.connect(self._on_table_cell_double_clicked)
 
+        # Quick Copy keyboard shortcut (Ctrl+C)
+        self.copy_shortcut = QShortcut(QKeySequence.Copy, self.table)
+        self.copy_shortcut.activated.connect(self._copy_table_selection)
+
         main_layout.addWidget(self.table)
         self.setLayout(main_layout)
 
@@ -1091,6 +1101,30 @@ class SpecificationsTab(QWidget):
     def _show_context_menu(self, position):
         show_spec_context_menu(self, position)
 
+    def _copy_table_selection(self):
+        """Copies formatted citation and rich link for selected specifications on Ctrl+C."""
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            return
+
+        target_specs = []
+        for index in selected_rows:
+            widget = self.table.cellWidget(index.row(), 0)
+            if widget:
+                num_label = widget.findChild(QLabel, "specNumberLabel")
+                if num_label:
+                    canonical = num_label.property("specNumber")
+                    if canonical:
+                        target_specs.append(str(canonical).strip())
+                    else:
+                        display_text = num_label.text().strip()
+                        match = re.match(r"^(\d{2}\.\d{2,3}(?:-[A-Za-z0-9]+)?)", display_text)
+                        if match:
+                            target_specs.append(match.group(1))
+
+        if target_specs:
+            copy_specs_default(self, target_specs, self.db)
+
     def _on_table_cell_double_clicked(self, row: int, column: int):
         if column in (0, 1):
             widget = self.table.cellWidget(row, 0)
@@ -1358,6 +1392,19 @@ class SpecificationsTab(QWidget):
 
                 search_action = menu.addAction("🔎  Track Evolution in Spec Search")
                 search_action.triggered.connect(lambda _, s=spec_num: self.search_in_spec_search_requested.emit(s, ""))
+
+                menu.addSeparator()
+
+                # --- Quick Copy Submenu ---
+                copy_sub = menu.addMenu("📋  Quick Copy")
+                copy_sub.setToolTipsVisible(True)
+                copy_sub.setToolTip("Copy specification metadata in plain text and rich HTML form.")
+
+                def _on_action_copy_about_to_show(sub=copy_sub, s=spec_num):
+                    sub.clear()
+                    populate_spec_copy_menu(sub, self, s, db=self.db)
+
+                copy_sub.aboutToShow.connect(_on_action_copy_about_to_show)
 
                 menu.addSeparator()
 

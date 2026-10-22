@@ -42,7 +42,7 @@ def normalize_dynareport_spec_number(spec_number: str) -> str:
 
     clean_spec = str(spec_number or "").strip()
     clean_spec = re.sub(r'^(?:3GPP\s+)?(?:TS|TR)\s*', '', clean_spec, flags=re.IGNORECASE).strip()
-    match = re.fullmatch(r'(\d{2})\.?(\d{3})(?:[-_.](\d{1,2}))?', clean_spec)
+    match = re.fullmatch(r'(\d{2})\.?(\d{2,3})(?:[-_.](\d{1,2}))?', clean_spec)
     if not match:
         return ""
 
