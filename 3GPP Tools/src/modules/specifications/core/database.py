@@ -405,8 +405,13 @@ class SpecsDatabase:
 
         # Non-intrusive prefix matching for TSG groups (e.g., 'RAN' matches 'RAN', 'RAN3', etc.)
         if group and group != "Any":
-            query += " AND (p_grp.name = ? OR p_grp.name LIKE ? OR s_grp.name = ? OR s_grp.name LIKE ?)"
-            params.extend([group, f"{group}%", group, f"{group}%"])
+            group_list = [g.strip() for g in group.split(',') if g.strip()]
+            if group_list:
+                group_clauses = []
+                for g in group_list:
+                    group_clauses.append("(p_grp.name = ? OR p_grp.name LIKE ? OR s_grp.name = ? OR s_grp.name LIKE ?)")
+                    params.extend([g, f"{g}%", g, f"{g}%"])
+                query += f" AND ({' OR '.join(group_clauses)})"
 
         if spec_type and spec_type != "Any":
             query += " AND sp.type = ?"
@@ -445,8 +450,13 @@ class SpecsDatabase:
 
         # Non-intrusive prefix matching for TSG groups
         if group and group != "Any":
-            query += " AND (p_grp.name = ? OR p_grp.name LIKE ? OR s_grp.name = ? OR s_grp.name LIKE ?)"
-            params.extend([group, f"{group}%", group, f"{group}%"])
+            group_list = [g.strip() for g in group.split(',') if g.strip()]
+            if group_list:
+                group_clauses = []
+                for g in group_list:
+                    group_clauses.append("(p_grp.name = ? OR p_grp.name LIKE ? OR s_grp.name = ? OR s_grp.name LIKE ?)")
+                    params.extend([g, f"{g}%", g, f"{g}%"])
+                query += f" AND ({' OR '.join(group_clauses)})"
 
         if spec_type and spec_type != "Any":
             query += " AND sp.type = ?"

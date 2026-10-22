@@ -29,6 +29,7 @@ from PyQt5.QtWidgets import (
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_DANGER
 from core.utils.paths import get_project_root, to_extended_path
+from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.ui.components import HoverMenuButton
 from modules.specifications.ui.dialogs import (
@@ -51,6 +52,143 @@ from modules.word_tools.core.document_opener import open_document
 
 logger = logging.getLogger(__name__)
 
+# --- STYLES FOR SPECIFICATIONS FILTER CONTROLS ---
+SPEC_FILTER_COMBO_STYLE = """
+QComboBox {
+    padding: 3px 8px;
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+    font-size: 12px;
+    background-color: #FFFFFF;
+    color: #1E293B;
+}
+QComboBox:hover {
+    border-color: #94A3B8;
+}
+QComboBox:focus {
+    border-color: #1E5C99;
+}
+"""
+
+SPEC_FILTER_INPUT_STYLE = """
+QLineEdit {
+    padding: 4px 8px;
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+    font-size: 12px;
+    background-color: #FFFFFF;
+    color: #1E293B;
+}
+QLineEdit:focus {
+    border: 1px solid #1E5C99;
+}
+"""
+
+SEGMENT_BTN_STYLE = """
+QPushButton {
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 500;
+    background-color: #F8FAFC;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+}
+QPushButton:hover {
+    background-color: #F1F5F9;
+    border-color: #94A3B8;
+}
+QPushButton:checked {
+    background-color: #0066CC;
+    color: #FFFFFF;
+    font-weight: bold;
+    border: 1px solid #0055AA;
+}
+"""
+
+TOGGLE_PILL_STYLE = """
+QPushButton {
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    background-color: #F8FAFC;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    border-radius: 12px;
+}
+QPushButton:hover {
+    background-color: #F1F5F9;
+    border-color: #94A3B8;
+}
+QPushButton:checked {
+    background-color: #EBF3FC;
+    color: #1E5C99;
+    font-weight: bold;
+    border: 1.5px solid #1E5C99;
+}
+QPushButton:checked:hover {
+    background-color: #DFEDFA;
+}
+"""
+
+FAV_PILL_STYLE = """
+QPushButton {
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    background-color: #F8FAFC;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    border-radius: 12px;
+}
+QPushButton:hover {
+    background-color: #F1F5F9;
+    border-color: #94A3B8;
+}
+QPushButton:checked {
+    background-color: #FEF3C7;
+    color: #92400E;
+    font-weight: bold;
+    border: 1.5px solid #F59E0B;
+}
+QPushButton:checked:hover {
+    background-color: #FDE68A;
+}
+"""
+
+DISMISSIBLE_TAG_STYLE = """
+QPushButton {
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    background-color: #EFF6FF;
+    color: #1E40AF;
+    border: 1px solid #BFDBFE;
+    border-radius: 10px;
+}
+QPushButton:hover {
+    background-color: #FEE2E2;
+    color: #991B1B;
+    border-color: #FCA5A5;
+}
+"""
+
+CLEAR_ALL_BTN_STYLE = """
+QPushButton {
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: bold;
+    background-color: #FEF2F2;
+    color: #B91C1C;
+    border: 1px solid #FECACA;
+    border-radius: 4px;
+}
+QPushButton:hover {
+    background-color: #FEE2E2;
+    border-color: #F87171;
+}
+"""
+
 
 class SpecificationsTab(QWidget):
     update_db_requested = pyqtSignal(bool)
@@ -68,11 +206,14 @@ class SpecificationsTab(QWidget):
         self.default_dl_dir = str(Path.home() / "3GPP_SA2_Meeting_Helper" / "specs")
         self.download_dir = self.default_dl_dir
         self.table_filters = {"series": "", "tech": "", "group": "", "spec_type": "Any"}
+        self._current_tsg = ""
         self.saved_search = ""
         self.saved_version = ""
         self.saved_downloaded_only = False
         self.favorites = set()
         self.favorites_only = False
+
+        self.filter_options = self.db.get_filter_options()
 
         # Load persisted settings
         self._load_settings()
@@ -244,90 +385,169 @@ class SpecificationsTab(QWidget):
         toolbar_layout.addStretch()
         main_layout.addLayout(toolbar_layout)
 
-        # --- ROW 2: Local Search & Main Filters ---
+        # --- ROW 2: Primary Search & Quick Scope ---
         search_layout = QHBoxLayout()
-        search_layout.setSpacing(6)
+        search_layout.setSpacing(8)
 
         search_layout.addWidget(QLabel("<b>🔍 Search:</b>"))
 
         self.spec_search_input = QLineEdit()
-        self.spec_search_input.setPlaceholderText("Spec Number or Title...")
+        self.spec_search_input.setStyleSheet(SPEC_FILTER_INPUT_STYLE)
+        self.spec_search_input.setPlaceholderText("Search Spec # (e.g. 23.501) or title keywords...")
         self.spec_search_input.setText(self.saved_search)
         self.spec_search_input.setClearButtonEnabled(True)
-        self.spec_search_input.setToolTip(
-            "Filter instantly by specification number (e.g., '23.501') or title keywords.")
+        self.spec_search_input.setToolTip("Filter instantly by specification number or title keywords.")
         self.spec_search_input.textChanged.connect(self._on_search_changed)
-        search_layout.addWidget(self.spec_search_input, stretch=2)
+        search_layout.addWidget(self.spec_search_input, stretch=3)
 
-        search_layout.addWidget(QLabel("Ver:"))
+        ver_lbl = QLabel("Ver:")
+        ver_lbl.setStyleSheet("color: #475569; font-weight: bold; font-size: 11px;")
+        search_layout.addWidget(ver_lbl)
+
         self.version_search_input = QLineEdit()
-        self.version_search_input.setPlaceholderText("e.g. 15.")
+        self.version_search_input.setStyleSheet(SPEC_FILTER_INPUT_STYLE)
+        self.version_search_input.setPlaceholderText("e.g. 17 or 16.2")
         self.version_search_input.setText(self.saved_version)
         self.version_search_input.setClearButtonEnabled(True)
-        self.version_search_input.setToolTip("Filter the table by release version (e.g., '15' or '16.2').")
-        self.version_search_input.setFixedWidth(75)
+        self.version_search_input.setToolTip("Filter table by 3GPP release version (e.g. '15', '16.2', '17').")
+        self.version_search_input.setFixedWidth(115)
         self.version_search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self.version_search_input)
 
-        self.downloaded_only_cb = QCheckBox("💾 Downloaded Only")
-        self.downloaded_only_cb.setToolTip("Show only specifications that currently have local cached files.")
-        self.downloaded_only_cb.setChecked(self.saved_downloaded_only)
-        self.downloaded_only_cb.toggled.connect(self._on_search_changed)
-        search_layout.addWidget(self.downloaded_only_cb)
+        # Downloaded Only Toggle Pill
+        self.downloaded_only_btn = QPushButton("💾 Downloaded Only")
+        self.downloaded_only_btn.setCheckable(True)
+        self.downloaded_only_btn.setChecked(self.saved_downloaded_only)
+        self.downloaded_only_btn.setCursor(Qt.PointingHandCursor)
+        self.downloaded_only_btn.setStyleSheet(TOGGLE_PILL_STYLE)
+        self.downloaded_only_btn.setToolTip("Show only specifications that currently have local cached files.")
+        self.downloaded_only_btn.toggled.connect(self._toggle_downloaded_filter)
+        self.downloaded_only_cb = self.downloaded_only_btn  # Backward compatibility alias
+        search_layout.addWidget(self.downloaded_only_btn)
 
-        self.filter_btn = QPushButton("⚙️ Table Filters")
-        self.filter_btn.setToolTip("Apply advanced filters (Series, Technology, Group) to the local table.")
-        self.filter_btn.setCursor(Qt.PointingHandCursor)
-        self.filter_btn.clicked.connect(self._open_table_filters)
-        search_layout.addWidget(self.filter_btn)
-
-        self.clear_filter_btn = QPushButton("❌")
-        self.clear_filter_btn.setCursor(Qt.PointingHandCursor)
-        self.clear_filter_btn.setToolTip("Clear all active table filters.")
-        self.clear_filter_btn.setFixedWidth(26)
-        self.clear_filter_btn.setVisible(False)
-        self.clear_filter_btn.clicked.connect(self._clear_table_filters)
-        search_layout.addWidget(self.clear_filter_btn)
+        # Favorites Toggle Pill
+        self.fav_chip = QPushButton(f"⭐ Favorites ({len(self.favorites)})")
+        self.fav_chip.setCheckable(True)
+        self.fav_chip.setChecked(self.favorites_only)
+        self.fav_chip.setCursor(Qt.PointingHandCursor)
+        self.fav_chip.setStyleSheet(FAV_PILL_STYLE)
+        self.fav_chip.setToolTip("Toggle view to show only your starred/favorite specifications.")
+        self.fav_chip.toggled.connect(self._toggle_favorites_filter)
+        search_layout.addWidget(self.fav_chip)
 
         main_layout.addLayout(search_layout)
 
-        # --- ROW 3: Quick TSG Preset Chips & Status Banner ---
-        chips_layout = QHBoxLayout()
-        chips_layout.setSpacing(4)
+        # --- ROW 3: Inline Faceted Filters (TSG, WG, Series, Tech, Type) ---
+        filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(6)
 
-        chips_label = QLabel("Presets:")
-        chips_label.setStyleSheet("color: #718096; font-size: 11px; font-weight: bold;")
-        chips_layout.addWidget(chips_label)
+        filters_lbl = QLabel("<b>🎯 Filters:</b>")
+        filters_lbl.setStyleSheet("color: #334155; font-size: 11px;")
+        filter_layout.addWidget(filters_lbl)
 
-        # Favorites Toggle Chip
-        self.fav_chip = QPushButton("⭐ Favorites (0)")
-        self.fav_chip.setCursor(Qt.PointingHandCursor)
-        self.fav_chip.setToolTip("Toggle view to show only your starred/favorite specifications.")
-        self.fav_chip.clicked.connect(self._toggle_favorites_filter)
-        chips_layout.addWidget(self.fav_chip)
+        # TSG Segmented Chips (All, RAN, SA, CT)
+        tsg_lbl = QLabel("TSG:")
+        tsg_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold;")
+        filter_layout.addWidget(tsg_lbl)
 
-        # TSG Preset Chips (RAN, SA, CT)
-        self.chip_buttons = {}
-        preset_chips = [
+        self.tsg_buttons = {}
+        preset_tsgs = [
             ("All", ""),
             ("RAN", "RAN"),
             ("SA", "SA"),
             ("CT", "CT"),
         ]
-
-        for label, tsg_val in preset_chips:
-            chip = QPushButton(label)
-            chip.setCursor(Qt.PointingHandCursor)
-            chip.setToolTip(
-                f"Filter all specifications under TSG {label} (Plenary and all Working Groups)"
+        for label, tsg_val in preset_tsgs:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(SEGMENT_BTN_STYLE)
+            btn.setToolTip(
+                f"Filter specifications under TSG {label} (Plenary and Working Groups)"
                 if tsg_val
                 else "Show specifications across all Technical Specification Groups"
             )
-            chip.clicked.connect(lambda _, t=tsg_val: self._on_chip_clicked(t))
-            self.chip_buttons[tsg_val] = chip
-            chips_layout.addWidget(chip)
+            btn.clicked.connect(lambda _, t=tsg_val: self._on_tsg_button_clicked(t))
+            self.tsg_buttons[tsg_val] = btn
+            filter_layout.addWidget(btn)
+        self.chip_buttons = self.tsg_buttons  # Backward compatibility alias
 
-        chips_layout.addStretch()
+        # Working Group Dropdown
+        wg_lbl = QLabel("WG:")
+        wg_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold; margin-left: 4px;")
+        filter_layout.addWidget(wg_lbl)
+
+        self.wg_combo = QComboBox()
+        self.wg_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.wg_combo.setMinimumWidth(135)
+        self.wg_combo.currentIndexChanged.connect(self._on_wg_combo_changed)
+        filter_layout.addWidget(self.wg_combo)
+
+        # Series Multi-Select CheckableComboBox
+        self.series_combo = CheckableComboBox("Series")
+        self.series_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.series_combo.setMinimumWidth(130)
+        self.series_combo.addItems(self.filter_options.get("series", []))
+        self.series_combo.selectionChanged.connect(self._on_series_filter_changed)
+        filter_layout.addWidget(self.series_combo)
+
+        # Radio Technology Dropdown
+        self.tech_combo = QComboBox()
+        self.tech_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.tech_combo.setMinimumWidth(100)
+        self.tech_combo.addItem("All Tech", "")
+        for tech in self.filter_options.get("techs", []):
+            self.tech_combo.addItem(tech, tech)
+        self.tech_combo.currentIndexChanged.connect(self._on_tech_combo_changed)
+        filter_layout.addWidget(self.tech_combo)
+
+        # Spec Type Segmented Buttons (All, TS, TR)
+        type_lbl = QLabel("Type:")
+        type_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold; margin-left: 4px;")
+        filter_layout.addWidget(type_lbl)
+
+        self.type_buttons = {}
+        for t_label, t_val in [("All", "Any"), ("TS", "TS"), ("TR", "TR")]:
+            btn = QPushButton(t_label)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(SEGMENT_BTN_STYLE)
+            btn.setToolTip(f"Filter by specification document type: {t_label}")
+            btn.clicked.connect(lambda _, tv=t_val: self._on_type_button_clicked(tv))
+            self.type_buttons[t_val] = btn
+            filter_layout.addWidget(btn)
+
+        filter_layout.addStretch()
+
+        # Reset All Button
+        self.clear_all_btn = QPushButton("❌ Reset All")
+        self.clear_all_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_all_btn.setStyleSheet(CLEAR_ALL_BTN_STYLE)
+        self.clear_all_btn.setToolTip("Reset all search fields, active filters, and scopes.")
+        self.clear_all_btn.clicked.connect(self._clear_all_filters)
+        self.clear_all_btn.setVisible(False)
+        filter_layout.addWidget(self.clear_all_btn)
+
+        main_layout.addLayout(filter_layout)
+
+        # --- ROW 4: Active Filter Tags & Count Banner ---
+        self.active_tags_widget = QWidget()
+        tags_bar_layout = QHBoxLayout(self.active_tags_widget)
+        tags_bar_layout.setContentsMargins(0, 0, 0, 0)
+        tags_bar_layout.setSpacing(6)
+
+        self.active_tags_label = QLabel("Active:")
+        self.active_tags_label.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold;")
+        self.active_tags_label.setVisible(False)
+        tags_bar_layout.addWidget(self.active_tags_label)
+
+        self.active_tags_container = QWidget()
+        self.active_tags_container_layout = QHBoxLayout(self.active_tags_container)
+        self.active_tags_container_layout.setContentsMargins(0, 0, 0, 0)
+        self.active_tags_container_layout.setSpacing(4)
+        tags_bar_layout.addWidget(self.active_tags_container)
+
+        tags_bar_layout.addStretch()
 
         self.count_badge = QLabel("0 specifications")
         self.count_badge.setStyleSheet("""
@@ -341,11 +561,11 @@ class SpecificationsTab(QWidget):
                 border-radius: 10px;
             }
         """)
-        chips_layout.addWidget(self.count_badge)
+        tags_bar_layout.addWidget(self.count_badge)
 
-        main_layout.addLayout(chips_layout)
+        main_layout.addWidget(self.active_tags_widget)
 
-        # --- ROW 4: Data Table ---
+        # --- ROW 5: Data Table ---
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Specification", "Title", "Version / Documents"])
@@ -369,8 +589,7 @@ class SpecificationsTab(QWidget):
         main_layout.addWidget(self.table)
         self.setLayout(main_layout)
 
-        self._update_filter_ui()
-        self._update_chip_styles()
+        self._sync_ui_to_filters()
 
     # ==========================================
     # --- FAVORITES MANAGEMENT ---
@@ -384,6 +603,7 @@ class SpecificationsTab(QWidget):
 
         self._save_settings()
         self._update_chip_styles()
+        self._update_active_tags()
         self.refresh_table()
 
     def _batch_set_favorites(self, spec_nums: list, add: bool):
@@ -396,13 +616,21 @@ class SpecificationsTab(QWidget):
 
         self._save_settings()
         self._update_chip_styles()
+        self._update_active_tags()
         self.refresh_table()
 
-    def _toggle_favorites_filter(self):
+    def _toggle_favorites_filter(self, checked: bool = False):
         """Toggle the favorites-only filter mode."""
-        self.favorites_only = not self.favorites_only
+        self.favorites_only = self.fav_chip.isChecked()
         self._save_settings()
         self._update_chip_styles()
+        self._update_active_tags()
+        self.refresh_table()
+
+    def _toggle_downloaded_filter(self, checked: bool = False):
+        """Toggle the downloaded-only filter mode."""
+        self._save_settings()
+        self._update_active_tags()
         self.refresh_table()
 
     # ==========================================
@@ -418,84 +646,294 @@ class SpecificationsTab(QWidget):
                 self.refresh_table()
 
     def _on_search_changed(self):
+        self._update_active_tags()
         self.search_timer.start()
         self.save_settings_timer.start()
 
-    def _on_chip_clicked(self, tsg_val: str):
-        """Handle TSG preset chip clicks (RAN, SA, CT, All)."""
-        if self.table_filters.get("group") == tsg_val and tsg_val != "":
-            self.table_filters["group"] = ""
+    def _sync_ui_to_filters(self):
+        """Synchronize UI controls with internal self.table_filters, favorites, and downloaded states."""
+        # 1. Align TSG and WG
+        grp = self.table_filters.get("group", "")
+        if grp.startswith("SA"):
+            self._current_tsg = "SA"
+        elif grp.startswith("RAN"):
+            self._current_tsg = "RAN"
+        elif grp.startswith("CT") or grp.startswith("CN"):
+            self._current_tsg = "CT"
         else:
-            self.table_filters["group"] = tsg_val
+            self._current_tsg = ""
+
+        self._populate_wg_combo()
+        if grp:
+            idx = self.wg_combo.findData(grp)
+            if idx >= 0:
+                self.wg_combo.setCurrentIndex(idx)
+            else:
+                self.wg_combo.setCurrentIndex(0)
+        else:
+            self.wg_combo.setCurrentIndex(0)
+
+        # 2. Align Series
+        ser = self.table_filters.get("series", "")
+        if ser:
+            ser_list = [s.strip() for s in ser.split(",") if s.strip()]
+            self.series_combo.setCheckedItems(ser_list)
+        else:
+            self.series_combo.setCheckedItems([])
+
+        # 3. Align Tech
+        tech = self.table_filters.get("tech", "")
+        if tech:
+            idx = self.tech_combo.findData(tech)
+            if idx >= 0:
+                self.tech_combo.setCurrentIndex(idx)
+            else:
+                self.tech_combo.setCurrentIndex(0)
+        else:
+            self.tech_combo.setCurrentIndex(0)
+
+        # 4. Align Type
+        stype = self.table_filters.get("spec_type", "Any")
+        for t_val, btn in self.type_buttons.items():
+            btn.setChecked(t_val == stype)
+
+        # 5. Align Downloaded & Favorites
+        self.downloaded_only_btn.setChecked(self.saved_downloaded_only)
+        self.fav_chip.setChecked(self.favorites_only)
 
         self._update_chip_styles()
-        self._update_filter_ui()
+        self._update_active_tags()
+
+    def _populate_wg_combo(self):
+        self.wg_combo.blockSignals(True)
+        current_data = self.wg_combo.currentData() or self.table_filters.get("group", "")
+        self.wg_combo.clear()
+
+        all_groups = self.filter_options.get("groups", [])
+        clean_groups = [g for g in all_groups if g and g != "-"]
+
+        if self._current_tsg == "SA":
+            self.wg_combo.addItem("All SA WGs", "SA")
+            sa_groups = [g for g in clean_groups if g.startswith("SA") and g != "SA"]
+            for g in sorted(sa_groups):
+                self.wg_combo.addItem(g, g)
+        elif self._current_tsg == "RAN":
+            self.wg_combo.addItem("All RAN WGs", "RAN")
+            ran_groups = [g for g in clean_groups if g.startswith("RAN") and g != "RAN"]
+            for g in sorted(ran_groups):
+                self.wg_combo.addItem(g, g)
+        elif self._current_tsg == "CT":
+            self.wg_combo.addItem("All CT WGs", "CT")
+            ct_groups = [g for g in clean_groups if (g.startswith("CT") or g.startswith("CN")) and g != "CT"]
+            for g in sorted(ct_groups):
+                self.wg_combo.addItem(g, g)
+        else:
+            self.wg_combo.addItem("All Working Groups", "")
+            for g in sorted(clean_groups):
+                self.wg_combo.addItem(g, g)
+
+        if current_data:
+            idx = self.wg_combo.findData(current_data)
+            if idx >= 0:
+                self.wg_combo.setCurrentIndex(idx)
+            else:
+                self.wg_combo.setCurrentIndex(0)
+        else:
+            self.wg_combo.setCurrentIndex(0)
+
+        self.wg_combo.blockSignals(False)
+
+    def _on_tsg_button_clicked(self, tsg_val: str):
+        if self._current_tsg == tsg_val and tsg_val != "":
+            self._current_tsg = ""
+        else:
+            self._current_tsg = tsg_val
+
+        self._populate_wg_combo()
+        self.table_filters["group"] = self.wg_combo.currentData() or ""
+        self._update_chip_styles()
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
+    def _on_chip_clicked(self, tsg_val: str):
+        """Backward compatibility wrapper for TSG chip clicks."""
+        self._on_tsg_button_clicked(tsg_val)
+
+    def _on_wg_combo_changed(self):
+        data = self.wg_combo.currentData() or ""
+        if self._current_tsg == "":
+            if data.startswith("SA"):
+                self._current_tsg = "SA"
+            elif data.startswith("RAN"):
+                self._current_tsg = "RAN"
+            elif data.startswith("CT") or data.startswith("CN"):
+                self._current_tsg = "CT"
+
+        self.table_filters["group"] = data
+        self._update_chip_styles()
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
+    def _on_series_filter_changed(self, checked_items: list):
+        if self.series_combo.isAllChecked() or not checked_items:
+            self.table_filters["series"] = ""
+        else:
+            self.table_filters["series"] = ",".join(checked_items)
+
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
+    def _on_tech_combo_changed(self):
+        data = self.tech_combo.currentData() or ""
+        self.table_filters["tech"] = data
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
+    def _on_type_button_clicked(self, type_val: str):
+        self.table_filters["spec_type"] = type_val
+        self._update_chip_styles()
+        self._update_active_tags()
         self.save_settings_timer.start()
         self.refresh_table()
 
     def _update_chip_styles(self):
         fav_count = len(self.favorites)
         self.fav_chip.setText(f"⭐ Favorites ({fav_count})")
+        self.fav_chip.setChecked(self.favorites_only)
+
+        for tsg_val, btn in self.tsg_buttons.items():
+            btn.setChecked(tsg_val == self._current_tsg)
+
+        current_type = self.table_filters.get("spec_type", "Any")
+        for t_val, btn in self.type_buttons.items():
+            btn.setChecked(t_val == current_type)
+
+    def _update_active_tags(self):
+        """Re-render active filter tags dynamically with 1-click removal."""
+        while self.active_tags_container_layout.count():
+            item = self.active_tags_container_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        tags = []
+
+        sq = self.spec_search_input.text().strip()
+        if sq:
+            disp_sq = sq if len(sq) <= 18 else f"{sq[:15]}..."
+            tags.append((f'🔍 "{disp_sq}" ✕', lambda: (self.spec_search_input.clear(), self._on_search_changed())))
+
+        vq = self.version_search_input.text().strip()
+        if vq:
+            tags.append((f'Ver: {vq} ✕', lambda: (self.version_search_input.clear(), self._on_search_changed())))
+
+        if self.downloaded_only_btn.isChecked():
+            tags.append(('💾 Cached ✕', lambda: self.downloaded_only_btn.setChecked(False)))
+
         if self.favorites_only:
-            self.fav_chip.setStyleSheet("""
-                QPushButton {
-                    padding: 2px 10px;
-                    font-size: 11px;
-                    font-weight: bold;
-                    background-color: #FEF3C7;
-                    color: #92400E;
-                    border: 1px solid #F59E0B;
-                    border-radius: 10px;
-                }
-            """)
-        else:
-            self.fav_chip.setStyleSheet("""
-                QPushButton {
-                    padding: 2px 10px;
-                    font-size: 11px;
-                    background-color: #F0F4F8;
-                    color: #4B5563;
-                    border: 1px solid #D1D5DB;
-                    border-radius: 10px;
-                }
-                QPushButton:hover {
-                    background-color: #E5E7EB;
-                }
-            """)
+            tags.append(('⭐ Favs ✕', lambda: self.fav_chip.setChecked(False)))
 
-        current_group = self.table_filters.get("group", "")
-        for tsg_val, chip in self.chip_buttons.items():
-            if tsg_val == "":
-                is_active = (current_group == "")
-            else:
-                is_active = (current_group == tsg_val)
+        grp = self.table_filters.get("group", "")
+        if grp:
+            tags.append((f'Group: {grp} ✕', self._reset_group_filter))
 
-            if is_active:
-                chip.setStyleSheet("""
-                    QPushButton {
-                        padding: 2px 10px;
-                        font-size: 11px;
-                        font-weight: bold;
-                        background-color: #0066CC;
-                        color: white;
-                        border: 1px solid #0055AA;
-                        border-radius: 10px;
-                    }
-                """)
-            else:
-                chip.setStyleSheet("""
-                    QPushButton {
-                        padding: 2px 10px;
-                        font-size: 11px;
-                        background-color: #F0F4F8;
-                        color: #2D3748;
-                        border: 1px solid #D2E3FC;
-                        border-radius: 10px;
-                    }
-                    QPushButton:hover {
-                        background-color: #E2E8F0;
-                    }
-                """)
+        ser = self.table_filters.get("series", "")
+        if ser:
+            disp_ser = ser if len(ser) <= 15 else f"{ser[:12]}..."
+            tags.append((f'Series: {disp_ser} ✕', self._reset_series_filter))
+
+        tech = self.table_filters.get("tech", "")
+        if tech and tech != "Any":
+            tags.append((f'Tech: {tech} ✕', self._reset_tech_filter))
+
+        stype = self.table_filters.get("spec_type", "Any")
+        if stype and stype != "Any":
+            tags.append((f'Type: {stype} ✕', self._reset_type_filter))
+
+        has_tags = len(tags) > 0
+        self.active_tags_label.setVisible(has_tags)
+        self.clear_all_btn.setVisible(has_tags)
+
+        for label, callback in tags:
+            tag_btn = QPushButton(label)
+            tag_btn.setCursor(Qt.PointingHandCursor)
+            tag_btn.setToolTip("Click to remove this filter constraint")
+            tag_btn.setStyleSheet(DISMISSIBLE_TAG_STYLE)
+            tag_btn.clicked.connect(callback)
+            self.active_tags_container_layout.addWidget(tag_btn)
+
+    def _reset_group_filter(self):
+        self._current_tsg = ""
+        self._populate_wg_combo()
+        self.wg_combo.setCurrentIndex(0)
+        self.table_filters["group"] = ""
+        self._update_chip_styles()
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
+    def _reset_series_filter(self):
+        self.series_combo.setCheckedItems([])
+        self.table_filters["series"] = ""
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
+    def _reset_tech_filter(self):
+        self.tech_combo.setCurrentIndex(0)
+        self.table_filters["tech"] = ""
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
+    def _reset_type_filter(self):
+        self.table_filters["spec_type"] = "Any"
+        self._update_chip_styles()
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
+    def _clear_all_filters(self):
+        self.spec_search_input.blockSignals(True)
+        self.version_search_input.blockSignals(True)
+        self.downloaded_only_btn.blockSignals(True)
+        self.fav_chip.blockSignals(True)
+        self.wg_combo.blockSignals(True)
+        self.tech_combo.blockSignals(True)
+
+        self.spec_search_input.clear()
+        self.version_search_input.clear()
+        self.downloaded_only_btn.setChecked(False)
+        self.favorites_only = False
+        self.fav_chip.setChecked(False)
+
+        self._current_tsg = ""
+        self._populate_wg_combo()
+        self.wg_combo.setCurrentIndex(0)
+
+        self.series_combo.setCheckedItems([])
+        self.tech_combo.setCurrentIndex(0)
+
+        for t_val, btn in self.type_buttons.items():
+            btn.setChecked(t_val == "Any")
+
+        self.table_filters = {"series": "", "tech": "", "group": "", "spec_type": "Any"}
+
+        self.spec_search_input.blockSignals(False)
+        self.version_search_input.blockSignals(False)
+        self.downloaded_only_btn.blockSignals(False)
+        self.fav_chip.blockSignals(False)
+        self.wg_combo.blockSignals(False)
+        self.tech_combo.blockSignals(False)
+
+        self._update_chip_styles()
+        self._update_active_tags()
+        self._save_settings()
+        self.refresh_table()
 
     def set_bg_sync_active(self, is_active: bool):
         self.bg_sync_label.setVisible(is_active)
@@ -535,39 +973,15 @@ class SpecificationsTab(QWidget):
         dialog = TableFilterDialog(self.db, self.table_filters, self)
         if dialog.exec_():
             self.table_filters = dialog.get_filters()
-            self._update_filter_ui()
-            self._update_chip_styles()
+            self._sync_ui_to_filters()
             self.save_settings_timer.start()
             self.refresh_table()
 
     def _clear_table_filters(self):
-        self.table_filters = {"series": "", "tech": "", "group": "", "spec_type": "Any"}
-        self._update_filter_ui()
-        self._update_chip_styles()
-        self.save_settings_timer.start()
-        self.refresh_table()
+        self._clear_all_filters()
 
     def _update_filter_ui(self):
-        active_count = 0
-        if self.table_filters.get("series"):
-            active_count += 1
-        if self.table_filters.get("tech"):
-            active_count += 1
-        if self.table_filters.get("group"):
-            active_count += 1
-        if self.table_filters.get("spec_type", "Any") != "Any":
-            active_count += 1
-
-        if active_count > 0:
-            self.filter_btn.setText(f"⚙️ Filters ({active_count})")
-            self.filter_btn.setStyleSheet(
-                "background-color: #E1F0FF; color: #0078D7; font-weight: bold; border: 1px solid #0078D7;"
-            )
-            self.clear_filter_btn.setVisible(True)
-        else:
-            self.filter_btn.setText("⚙️ Table Filters")
-            self.filter_btn.setStyleSheet("")
-            self.clear_filter_btn.setVisible(False)
+        self._update_active_tags()
 
     def _show_context_menu(self, position):
         show_spec_context_menu(self, position)
@@ -754,6 +1168,8 @@ class SpecificationsTab(QWidget):
                     padding: 2px 10px; font-size: 11px; font-weight: bold;
                     background-color: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; border-radius: 10px;
                 """)
+
+            self._update_active_tags()
 
             for row_idx, (spec_num, data) in enumerate(rendered_specs):
                 self.table.insertRow(row_idx)
