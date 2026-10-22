@@ -538,6 +538,31 @@ class SpecsDatabase:
 
             return details
 
+    def get_spec_files(self, spec_number: str) -> List[Dict]:
+        """Returns all archive file entries for a specification, sorted by semantic version descending."""
+        query = """
+            SELECT f.version, f.filename, f.url, f.upload_date
+            FROM files f
+            JOIN specifications s ON f.spec_id = s.id
+            WHERE s.number = ?
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (spec_number,))
+            rows = cursor.fetchall()
+            if not rows and "-" in spec_number:
+                cursor.execute(query, (spec_number.split("-")[0],))
+                rows = cursor.fetchall()
+
+            def parse_ver(v_str):
+                return [(0, int(x)) if x.isdigit() else (1, str(x)) for x in str(v_str).split(".")]
+
+            sorted_rows = sorted(rows, key=lambda x: parse_ver(x[0]), reverse=True)
+            return [
+                {"version": r[0], "filename": r[1], "url": r[2], "upload_date": r[3]}
+                for r in sorted_rows
+            ]
+
     def delete_specification(self, spec_number: str) -> bool:
         """Deletes a specification, its file entries, and relational mappings, then removes orphans."""
         try:

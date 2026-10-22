@@ -53,7 +53,9 @@ from modules.specifications.ui.spec_action_controller import (
 )
 from modules.specifications.ui.spec_menu import (
     copy_specs_default,
+    get_saved_copy_mode,
     populate_spec_copy_menu,
+    save_copy_mode,
     show_spec_context_menu,
 )
 from modules.specifications.ui.threads import SpecDownloadThread
@@ -305,6 +307,7 @@ class SpecificationsTab(QWidget):
                     self.saved_downloaded_only = data.get("downloaded_only", False)
                     self.favorites = set(data.get("favorites", []))
                     self.favorites_only = data.get("favorites_only", False)
+                    self.copy_link_mode = data.get("copy_link_mode", "both")
                     saved_filters = data.get("table_filters", {})
                     if isinstance(saved_filters, dict):
                         self.table_filters.update(saved_filters)
@@ -312,6 +315,7 @@ class SpecificationsTab(QWidget):
                 logger.error(f"Error loading specs_config.json: {e}", exc_info=True)
         else:
             self.download_dir = self.default_dl_dir
+            self.copy_link_mode = "both"
 
     def _save_settings(self):
         try:
@@ -322,6 +326,7 @@ class SpecificationsTab(QWidget):
                 "downloaded_only": self.downloaded_only_cb.isChecked(),
                 "favorites": sorted(list(self.favorites)),
                 "favorites_only": self.favorites_only,
+                "copy_link_mode": getattr(self, "copy_link_mode", "both"),
                 "table_filters": self.table_filters,
             }
             with open(self.config_file, "w", encoding="utf-8") as f:
@@ -1107,23 +1112,34 @@ class SpecificationsTab(QWidget):
         if not selected_rows:
             return
 
-        target_specs = []
+        target_items = []
         for index in selected_rows:
-            widget = self.table.cellWidget(index.row(), 0)
+            row = index.row()
+            widget = self.table.cellWidget(row, 0)
             if widget:
                 num_label = widget.findChild(QLabel, "specNumberLabel")
                 if num_label:
                     canonical = num_label.property("specNumber")
+                    spec_num = ""
                     if canonical:
-                        target_specs.append(str(canonical).strip())
+                        spec_num = str(canonical).strip()
                     else:
                         display_text = num_label.text().strip()
                         match = re.match(r"^(\d{2}\.\d{2,3}(?:-[A-Za-z0-9]+)?)", display_text)
                         if match:
-                            target_specs.append(match.group(1))
+                            spec_num = match.group(1)
 
-        if target_specs:
-            copy_specs_default(self, target_specs, self.db)
+                    if spec_num:
+                        cell_widget = self.table.cellWidget(row, 2)
+                        v_info = None
+                        if cell_widget:
+                            combo = cell_widget.findChild(QComboBox)
+                            if combo:
+                                v_info = combo.currentData()
+                        target_items.append((spec_num, v_info))
+
+        if target_items:
+            copy_specs_default(self, target_items, self.db)
 
     def _on_table_cell_double_clicked(self, row: int, column: int):
         if column in (0, 1):
@@ -1400,9 +1416,15 @@ class SpecificationsTab(QWidget):
                 copy_sub.setToolTipsVisible(True)
                 copy_sub.setToolTip("Copy specification metadata in plain text and rich HTML form.")
 
-                def _on_action_copy_about_to_show(sub=copy_sub, s=spec_num):
+                def _on_action_copy_about_to_show(sub=copy_sub, s=spec_num, r=row_idx):
                     sub.clear()
-                    populate_spec_copy_menu(sub, self, s, db=self.db)
+                    cell_widget = self.table.cellWidget(r, 2)
+                    v_info = None
+                    if cell_widget:
+                        combo = cell_widget.findChild(QComboBox)
+                        if combo:
+                            v_info = combo.currentData()
+                    populate_spec_copy_menu(sub, self, s, version_info=v_info, db=self.db)
 
                 copy_sub.aboutToShow.connect(_on_action_copy_about_to_show)
 
@@ -1722,6 +1744,13 @@ class SpecificationsTab(QWidget):
                     zip_label = "📦 Show ZIP Archive ✅" if zip_exists else "📥 Download ZIP Archive"
                     act_zip = menu.addAction(zip_label)
                     act_zip.triggered.connect(lambda: self._handle_zip_action(c, btn))
+
+                    menu.addSeparator()
+                    ver_title = f"v{c_data['version']}" if not str(c_data.get('version', '')).startswith('v') else str(c_data.get('version', ''))
+                    doc_copy_sub = menu.addMenu(f"📋 Quick Copy ({ver_title})")
+                    doc_copy_sub.setToolTipsVisible(True)
+                    doc_copy_sub.setToolTip(f"Copy specification metadata and download links for version {ver_title}.")
+                    populate_spec_copy_menu(doc_copy_sub, self, c_data["spec_num"], version_info=c_data, db=self.db)
 
                     if dir_ready:
                         act_dir = menu.addAction("📂 Open Local Folder")

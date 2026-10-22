@@ -2,21 +2,75 @@
 """
 Context menu builder and clipboard copy utilities for the Specifications table.
 Provides multi-select actions for toggling favorites, editing annotations,
-granular clipboard copying (spec number, title, WG, links, markdown),
+granular clipboard copying (Web link, direct ZIP link, both links, markdown),
 metadata synchronization, and deletion.
 """
 import html
+import json
+import logging
 from pathlib import Path
 import re
+from typing import Dict, List, Optional, Tuple, Union
 
 from PyQt5.QtCore import QMimeData, Qt
 from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QApplication, QLabel, QMenu, QToolTip, QWidget
+from PyQt5.QtWidgets import (
+    QAction,
+    QActionGroup,
+    QApplication,
+    QComboBox,
+    QLabel,
+    QMenu,
+    QToolTip,
+    QWidget,
+)
 
+from core.utils.paths import get_project_root
 from modules.specifications.utils.utils import build_dynareport_url
 
+logger = logging.getLogger(__name__)
 
-def _copy_to_clipboard(plain_text: str, html_text: str = None, label: str = "text", parent: QWidget = None):
+CONFIG_FILE_NAME = "specs_config.json"
+
+
+def get_saved_copy_mode() -> str:
+    """Returns the user's preferred copy link mode ('both', 'web', 'zip'). Defaults to 'both'."""
+    try:
+        cfg_path = get_project_root() / "config" / CONFIG_FILE_NAME
+        if cfg_path.exists():
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                mode = data.get("copy_link_mode", "both")
+                if mode in ("both", "web", "zip"):
+                    return mode
+    except Exception:
+        pass
+    return "both"
+
+
+def save_copy_mode(mode: str):
+    """Persists the preferred copy link mode ('both', 'web', 'zip') to specs_config.json."""
+    if mode not in ("both", "web", "zip"):
+        return
+    try:
+        cfg_path = get_project_root() / "config" / CONFIG_FILE_NAME
+        data = {}
+        if cfg_path.exists():
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        data["copy_link_mode"] = mode
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        logger.error(f"Failed to persist copy_link_mode to specs_config.json: {e}")
+
+
+def _copy_to_clipboard(
+    plain_text: str,
+    html_text: str = None,
+    label: str = "text",
+    parent: QWidget = None,
+):
     """
     Copies both plain text and optional rich HTML text to the system clipboard.
     Rich-text applications (Outlook, Word, Teams, OneNote) paste the formatted HTML version,
@@ -40,8 +94,13 @@ def format_canonical_spec_number(spec_num: str, spec_type: str = "TS") -> str:
     return f"{t} {clean}" if clean else str(spec_num or "").strip()
 
 
-def resolve_spec_metadata(spec_num: str, db, details: dict = None) -> dict:
-    """Resolves specification metadata from DB or existing dictionary."""
+def resolve_spec_metadata(
+    spec_num: str,
+    db,
+    details: dict = None,
+    version_info: dict = None,
+) -> dict:
+    """Resolves specification metadata and archive file links from DB or existing objects."""
     if details:
         spec_data = dict(details)
     elif db:
@@ -63,6 +122,27 @@ def resolve_spec_metadata(spec_num: str, db, details: dict = None) -> dict:
     dynareport_url = build_dynareport_url(spec_num)
     ftp_url = (spec_data.get("url") or "").strip()
 
+    # Resolve target version and direct ZIP URL
+    version = ""
+    zip_url = ""
+    zip_filename = ""
+    if version_info and isinstance(version_info, dict):
+        version = version_info.get("version") or ""
+        zip_url = version_info.get("url") or ""
+        zip_filename = version_info.get("fname") or version_info.get("filename") or ""
+    elif db and hasattr(db, "get_spec_files"):
+        files = db.get_spec_files(spec_num)
+        if files:
+            latest = files[0]
+            version = latest.get("version") or ""
+            zip_url = latest.get("url") or ""
+            zip_filename = latest.get("filename") or ""
+
+    clean_ver = ""
+    if version:
+        v_str = str(version).strip()
+        clean_ver = v_str if v_str.startswith("v") else f"v{v_str}"
+
     return {
         "spec_num": spec_num,
         "type": s_type,
@@ -71,7 +151,153 @@ def resolve_spec_metadata(spec_num: str, db, details: dict = None) -> dict:
         "wg": wg,
         "dynareport_url": dynareport_url,
         "ftp_url": ftp_url,
+        "version": version,
+        "clean_ver": clean_ver,
+        "zip_url": zip_url,
+        "zip_filename": zip_filename,
         "details": spec_data,
+    }
+
+
+def build_citation_data(meta: dict) -> dict:
+    """
+    Computes plain text, rich HTML, and Markdown representations for all three link modes:
+    - both: Spec number links to DynaReport, version badge links to ZIP download.
+    - web:  Spec number links to DynaReport.
+    - zip:  Spec number (+ version) links directly to ZIP download.
+    """
+    canonical = meta["canonical_num"]
+    title = meta["title"]
+    wg = meta["wg"]
+    dynareport_url = meta["dynareport_url"]
+    zip_url = meta["zip_url"]
+    clean_ver = meta["clean_ver"]
+
+    safe_canonical = html.escape(canonical)
+    safe_title = html.escape(title)
+    safe_wg = html.escape(wg)
+    safe_ver = html.escape(clean_ver)
+
+    # 1. HTML Anchors
+    web_anchor = (
+        f'<a href="{dynareport_url}">{safe_canonical}</a>'
+        if dynareport_url
+        else safe_canonical
+    )
+
+    if zip_url and safe_ver:
+        zip_anchor = f'<a href="{zip_url}">{safe_canonical} ({safe_ver})</a>'
+    elif zip_url:
+        zip_anchor = f'<a href="{zip_url}">{safe_canonical}</a>'
+    else:
+        zip_anchor = safe_canonical
+
+    if dynareport_url and zip_url and safe_ver:
+        both_anchor = (
+            f'<a href="{dynareport_url}">{safe_canonical}</a> '
+            f'(<a href="{zip_url}">ZIP {safe_ver}</a>)'
+        )
+    elif dynareport_url and zip_url:
+        both_anchor = (
+            f'<a href="{dynareport_url}">{safe_canonical}</a> '
+            f'(<a href="{zip_url}">ZIP</a>)'
+        )
+    elif zip_url:
+        both_anchor = zip_anchor
+    else:
+        both_anchor = web_anchor
+
+    # 2. Markdown Hyperlinks
+    web_md = f"[{canonical}]({dynareport_url})" if dynareport_url else canonical
+    if zip_url and clean_ver:
+        zip_md = f"[{canonical} ({clean_ver})]({zip_url})"
+    elif zip_url:
+        zip_md = f"[{canonical}]({zip_url})"
+    else:
+        zip_md = canonical
+
+    if dynareport_url and zip_url and clean_ver:
+        both_md = f"[{canonical}]({dynareport_url}) ([ZIP {clean_ver}]({zip_url}))"
+    elif dynareport_url and zip_url:
+        both_md = f"[{canonical}]({dynareport_url}) ([ZIP]({zip_url}))"
+    elif zip_url:
+        both_md = zip_md
+    else:
+        both_md = web_md
+
+    # 3. Plain text numbers
+    num_with_ver = f"{canonical} ({clean_ver})" if clean_ver else canonical
+    num_web = canonical
+
+    # 4. Full Citations
+    if title and wg:
+        cit_with_ver_plain = f"{num_with_ver}: {title} ({wg})"
+        cit_web_plain = f"{num_web}: {title} ({wg})"
+    elif title:
+        cit_with_ver_plain = f"{num_with_ver}: {title}"
+        cit_web_plain = f"{num_web}: {title}"
+    else:
+        cit_with_ver_plain = num_with_ver
+        cit_web_plain = num_web
+
+    # Full Citation HTML
+    if title and wg:
+        cit_both_html = f"{both_anchor}: {safe_title} ({safe_wg})"
+        cit_web_html = f"{web_anchor}: {safe_title} ({safe_wg})"
+        cit_zip_html = f"{zip_anchor}: {safe_title} ({safe_wg})"
+    elif title:
+        cit_both_html = f"{both_anchor}: {safe_title}"
+        cit_web_html = f"{web_anchor}: {safe_title}"
+        cit_zip_html = f"{zip_anchor}: {safe_title}"
+    else:
+        cit_both_html = both_anchor
+        cit_web_html = web_anchor
+        cit_zip_html = zip_anchor
+
+    # Full Citation Markdown
+    if title and wg:
+        cit_both_md = f"{both_md}: {title} ({wg})"
+        cit_web_md = f"{web_md}: {title} ({wg})"
+        cit_zip_md = f"{zip_md}: {title} ({wg})"
+    elif title:
+        cit_both_md = f"{both_md}: {title}"
+        cit_web_md = f"{web_md}: {title}"
+        cit_zip_md = f"{zip_md}: {title}"
+    else:
+        cit_both_md = both_md
+        cit_web_md = web_md
+        cit_zip_md = zip_md
+
+    # Number & Title
+    num_title_plain = f"{num_with_ver}: {title}" if title else num_with_ver
+    num_title_web_plain = f"{num_web}: {title}" if title else num_web
+
+    num_title_both_html = f"{both_anchor}: {safe_title}" if title else both_anchor
+    num_title_web_html = f"{web_anchor}: {safe_title}" if title else web_anchor
+    num_title_zip_html = f"{zip_anchor}: {safe_title}" if title else zip_anchor
+
+    return {
+        "both_anchor": both_anchor,
+        "web_anchor": web_anchor,
+        "zip_anchor": zip_anchor,
+        "both_md": both_md,
+        "web_md": web_md,
+        "zip_md": zip_md,
+        "num_with_ver": num_with_ver,
+        "num_web": num_web,
+        "cit_with_ver_plain": cit_with_ver_plain,
+        "cit_web_plain": cit_web_plain,
+        "cit_both_html": cit_both_html,
+        "cit_web_html": cit_web_html,
+        "cit_zip_html": cit_zip_html,
+        "cit_both_md": cit_both_md,
+        "cit_web_md": cit_web_md,
+        "cit_zip_md": cit_zip_md,
+        "num_title_plain": num_title_plain,
+        "num_title_web_plain": num_title_web_plain,
+        "num_title_both_html": num_title_both_html,
+        "num_title_web_html": num_title_web_html,
+        "num_title_zip_html": num_title_zip_html,
     }
 
 
@@ -80,203 +306,311 @@ def populate_spec_copy_menu(
     parent_widget: QWidget,
     spec_num: str,
     details: dict = None,
+    version_info: dict = None,
     db=None,
 ):
     """
     Populates the Quick Copy submenu with standard copy actions for a single specification.
-    Includes spec number (plain + rich link), number & title, full citation with WG,
-    number & WG, title only, markdown link, and direct web / FTP URLs.
+    Includes Dual Links (Web + ZIP), Web Link (DynaReport), Direct ZIP Link,
+    Markdown links, direct URLs, and Ctrl+C preference setting.
     """
-    meta = resolve_spec_metadata(spec_num, db, details)
+    meta = resolve_spec_metadata(spec_num, db, details, version_info)
+    cdata = build_citation_data(meta)
+
     canonical = meta["canonical_num"]
     title = meta["title"]
     wg = meta["wg"]
     dynareport_url = meta["dynareport_url"]
+    zip_url = meta["zip_url"]
+    clean_ver = meta["clean_ver"]
     ftp_url = meta["ftp_url"]
 
-    safe_canonical = html.escape(canonical)
     safe_title = html.escape(title)
     safe_wg = html.escape(wg)
 
-    # HTML anchor hyperlink
-    if dynareport_url:
-        spec_html_link = f'<a href="{dynareport_url}">{safe_canonical}</a>'
-    else:
-        spec_html_link = safe_canonical
+    ver_label = f" ({clean_ver})" if clean_ver else ""
 
-    # 1. Copy Spec Number (TS XX.XXX)
-    act_num = copy_sub.addAction(f"📋 Copy Spec Number ({canonical})")
-    act_num.setToolTip("Copy the specification number (embeds clickable 3GPP link for rich-text apps).")
-    act_num.triggered.connect(
-        lambda _, p=canonical, h=spec_html_link: _copy_to_clipboard(
-            plain_text=p,
-            html_text=h,
-            label="Spec Number",
-            parent=parent_widget,
+    # =========================================================================
+    # 1. TOP-LEVEL 1-CLICK ACTIONS
+    # =========================================================================
+    if zip_url:
+        act_top_both = copy_sub.addAction("🔗 Copy Citation (Both Links: Web + ZIP)")
+        act_top_both.setToolTip(
+            "Copy citation with both links: specification number links to DynaReport, "
+            "and version badge links directly to the ZIP download."
+        )
+        act_top_both.triggered.connect(
+            lambda _, p=cdata["cit_with_ver_plain"], h=cdata["cit_both_html"]: _copy_to_clipboard(
+                p, h, "Citation (Both Links)", parent_widget
+            )
+        )
+
+    act_top_web = copy_sub.addAction("🌐 Copy Citation (Web Link - DynaReport)")
+    act_top_web.setToolTip("Copy citation with specification number linked to the 3GPP DynaReport status page.")
+    act_top_web.triggered.connect(
+        lambda _, p=cdata["cit_web_plain"], h=cdata["cit_web_html"]: _copy_to_clipboard(
+            p, h, "Citation (Web Link)", parent_widget
         )
     )
 
-    # 2. Copy Number & Title
-    if title:
-        plain_num_title = f"{canonical}: {title}"
-        html_num_title = f"{spec_html_link}: {safe_title}"
-        act_num_title = copy_sub.addAction("📋 Copy Number & Title")
-        act_num_title.setToolTip(
-            "Copy specification number and title (embeds clickable link for rich-text apps)."
-        )
-        act_num_title.triggered.connect(
-            lambda _, p=plain_num_title, h=html_num_title: _copy_to_clipboard(
-                plain_text=p,
-                html_text=h,
-                label="Number & Title",
-                parent=parent_widget,
+    if zip_url:
+        act_top_zip = copy_sub.addAction(f"📦 Copy Citation (Direct ZIP Link{ver_label})")
+        act_top_zip.setToolTip("Copy citation with specification number linked directly to the ZIP archive.")
+        act_top_zip.triggered.connect(
+            lambda _, p=cdata["cit_with_ver_plain"], h=cdata["cit_zip_html"]: _copy_to_clipboard(
+                p, h, "Citation (ZIP Link)", parent_widget
             )
         )
 
-    # 3. Copy Full Citation (with WG)
-    if wg:
-        citation_plain = f"{canonical}: {title} ({wg})" if title else f"{canonical} ({wg})"
-        citation_html = (
-            f"{spec_html_link}: {safe_title} ({safe_wg})"
-            if title
-            else f"{spec_html_link} ({safe_wg})"
-        )
-        act_cit = copy_sub.addAction(f"📋 Copy Full Citation (with {wg})")
-        act_cit.setToolTip(
-            "Copy complete citation including specification number, title, and Working Group."
-        )
-        act_cit.triggered.connect(
-            lambda _, p=citation_plain, h=citation_html, w=wg: _copy_to_clipboard(
-                plain_text=p,
-                html_text=h,
-                label=f"Full Citation ({w})",
-                parent=parent_widget,
-            )
-        )
-
-        # 4. Copy Number & WG
-        num_wg_plain = f"{canonical} ({wg})"
-        num_wg_html = f"{spec_html_link} ({safe_wg})"
-        act_num_wg = copy_sub.addAction(f"📋 Copy Number & WG ({canonical} ({wg}))")
-        act_num_wg.setToolTip("Copy specification number and responsible Working Group.")
-        act_num_wg.triggered.connect(
-            lambda _, p=num_wg_plain, h=num_wg_html: _copy_to_clipboard(
-                plain_text=p,
-                html_text=h,
-                label="Number & WG",
-                parent=parent_widget,
-            )
-        )
-    elif title:
-        citation_plain = f"{canonical}: {title}"
-        citation_html = f"{spec_html_link}: {safe_title}"
-        act_cit = copy_sub.addAction("📋 Copy Full Citation")
-        act_cit.setToolTip("Copy complete specification citation.")
-        act_cit.triggered.connect(
-            lambda _, p=citation_plain, h=citation_html: _copy_to_clipboard(
-                plain_text=p,
-                html_text=h,
-                label="Full Citation",
-                parent=parent_widget,
-            )
-        )
-
-    # 5. Copy Title
-    if title:
-        act_title = copy_sub.addAction("📋 Copy Title")
-        act_title.setToolTip("Copy the specification title.")
-        act_title.triggered.connect(
-            lambda _, p=title, h=safe_title: _copy_to_clipboard(
-                plain_text=p,
-                html_text=h,
-                label="Title",
-                parent=parent_widget,
-            )
-        )
-
-    # Separator before external links
     copy_sub.addSeparator()
 
-    # 6. Copy as Markdown Link
-    if dynareport_url:
-        md_plain = f"[{canonical}]({dynareport_url})"
-        act_md = copy_sub.addAction(f"📋 Copy as Markdown Link ([{canonical}](url))")
-        act_md.setToolTip("Copy as Markdown hyperlink syntax.")
-        act_md.triggered.connect(
-            lambda _, p=md_plain, h=spec_html_link: _copy_to_clipboard(
-                plain_text=p,
-                html_text=h,
-                label="Markdown Link",
-                parent=parent_widget,
+    # =========================================================================
+    # 2. DEDICATED SUBMENUS FOR GRANULAR FLAVORS
+    # =========================================================================
+    if zip_url and dynareport_url:
+        sub_both = copy_sub.addMenu("🔗 Dual Links (Web + ZIP)")
+        sub_both.setToolTipsVisible(True)
+        sub_both.setToolTip("Options including both DynaReport status link and direct ZIP download link.")
+
+        sub_both.addAction("📋 Copy Full Citation (Both Links)").triggered.connect(
+            lambda _, p=cdata["cit_with_ver_plain"], h=cdata["cit_both_html"]: _copy_to_clipboard(
+                p, h, "Full Citation (Both Links)", parent_widget
             )
         )
-
         if title:
-            md_with_title = f"[{canonical}]({dynareport_url}) - {title}"
-            md_with_title_html = f"{spec_html_link} - {safe_title}"
-            act_md_title = copy_sub.addAction("📋 Copy as Markdown with Title")
-            act_md_title.setToolTip("Copy as Markdown link followed by specification title.")
-            act_md_title.triggered.connect(
-                lambda _, p=md_with_title, h=md_with_title_html: _copy_to_clipboard(
-                    plain_text=p,
-                    html_text=h,
-                    label="Markdown with Title",
-                    parent=parent_widget,
+            sub_both.addAction("📋 Copy Number & Title (Both Links)").triggered.connect(
+                lambda _, p=cdata["num_title_plain"], h=cdata["num_title_both_html"]: _copy_to_clipboard(
+                    p, h, "Number & Title (Both Links)", parent_widget
+                )
+            )
+        sub_both.addAction(f"📋 Copy Spec Number (Both Links)").triggered.connect(
+            lambda _, p=cdata["num_with_ver"], h=cdata["both_anchor"]: _copy_to_clipboard(
+                p, h, "Spec Number (Both Links)", parent_widget
+            )
+        )
+        sub_both.addSeparator()
+        sub_both.addAction("📋 Copy as Markdown (Both Links)").triggered.connect(
+            lambda _, p=cdata["both_md"], h=cdata["both_anchor"]: _copy_to_clipboard(
+                p, h, "Markdown (Both Links)", parent_widget
+            )
+        )
+        if title:
+            sub_both.addAction("📋 Copy as Markdown with Title (Both Links)").triggered.connect(
+                lambda _, p=cdata["cit_both_md"], h=cdata["cit_both_html"]: _copy_to_clipboard(
+                    p, h, "Markdown with Title (Both Links)", parent_widget
                 )
             )
 
-    # 7. Copy 3GPP Web Report URL (DynaReport)
-    if dynareport_url:
-        act_dyna = copy_sub.addAction("📋 Copy 3GPP Web Report URL")
-        act_dyna.setToolTip("Copy direct URL to the 3GPP DynaReport specification status page.")
-        act_dyna.triggered.connect(
-            lambda _, p=dynareport_url, h=f'<a href="{dynareport_url}">{dynareport_url}</a>': _copy_to_clipboard(
-                plain_text=p,
-                html_text=h,
-                label="Web Report URL",
-                parent=parent_widget,
+    sub_web = copy_sub.addMenu("🌐 3GPP Web Links (DynaReport)")
+    sub_web.setToolTipsVisible(True)
+    sub_web.setToolTip("Options linking exclusively to the official 3GPP DynaReport specification status page.")
+
+    sub_web.addAction("📋 Copy Full Citation (Web Link)").triggered.connect(
+        lambda _, p=cdata["cit_web_plain"], h=cdata["cit_web_html"]: _copy_to_clipboard(
+            p, h, "Full Citation (Web Link)", parent_widget
+        )
+    )
+    if title:
+        sub_web.addAction("📋 Copy Number & Title (Web Link)").triggered.connect(
+            lambda _, p=cdata["num_title_web_plain"], h=cdata["num_title_web_html"]: _copy_to_clipboard(
+                p, h, "Number & Title (Web Link)", parent_widget
+            )
+        )
+    sub_web.addAction(f"📋 Copy Spec Number ({canonical})").triggered.connect(
+        lambda _, p=canonical, h=cdata["web_anchor"]: _copy_to_clipboard(
+            p, h, "Spec Number", parent_widget
+        )
+    )
+    if wg:
+        sub_web.addAction(f"📋 Copy Number & WG ({canonical} ({wg}))").triggered.connect(
+            lambda _, p=f"{canonical} ({wg})", h=f"{cdata['web_anchor']} ({safe_wg})": _copy_to_clipboard(
+                p, h, "Number & WG", parent_widget
+            )
+        )
+    if title:
+        sub_web.addAction("📋 Copy Title Only").triggered.connect(
+            lambda _, p=title, h=safe_title: _copy_to_clipboard(
+                p, h, "Title", parent_widget
+            )
+        )
+    sub_web.addSeparator()
+    sub_web.addAction(f"📋 Copy as Markdown Link ([{canonical}](url))").triggered.connect(
+        lambda _, p=cdata["web_md"], h=cdata["web_anchor"]: _copy_to_clipboard(
+            p, h, "Markdown Link", parent_widget
+        )
+    )
+    if title:
+        sub_web.addAction("📋 Copy as Markdown with Title").triggered.connect(
+            lambda _, p=cdata["cit_web_md"], h=cdata["cit_web_html"]: _copy_to_clipboard(
+                p, h, "Markdown with Title", parent_widget
             )
         )
 
-    # 8. Copy FTP Archive URL
-    if ftp_url:
-        act_ftp = copy_sub.addAction("📋 Copy FTP Archive URL")
-        act_ftp.setToolTip("Copy direct URL to the 3GPP FTP spec archive directory.")
-        act_ftp.triggered.connect(
-            lambda _, p=ftp_url, h=f'<a href="{ftp_url}">{ftp_url}</a>': _copy_to_clipboard(
-                plain_text=p,
-                html_text=h,
-                label="FTP Archive URL",
-                parent=parent_widget,
+    if zip_url:
+        sub_zip = copy_sub.addMenu(f"📦 Direct ZIP Download Links{ver_label}")
+        sub_zip.setToolTipsVisible(True)
+        sub_zip.setToolTip("Options linking directly to the specification ZIP archive file on 3GPP FTP.")
+
+        sub_zip.addAction(f"📋 Copy Full Citation (ZIP Link{ver_label})").triggered.connect(
+            lambda _, p=cdata["cit_with_ver_plain"], h=cdata["cit_zip_html"]: _copy_to_clipboard(
+                p, h, f"Full Citation (ZIP{ver_label})", parent_widget
             )
         )
+        if title:
+            sub_zip.addAction(f"📋 Copy Number & Title (ZIP Link{ver_label})").triggered.connect(
+                lambda _, p=cdata["num_title_plain"], h=cdata["num_title_zip_html"]: _copy_to_clipboard(
+                    p, h, f"Number & Title (ZIP{ver_label})", parent_widget
+                )
+            )
+        sub_zip.addAction(f"📋 Copy Spec Number (with ZIP Link{ver_label})").triggered.connect(
+            lambda _, p=cdata["num_with_ver"], h=cdata["zip_anchor"]: _copy_to_clipboard(
+                p, h, f"Spec Number (ZIP{ver_label})", parent_widget
+            )
+        )
+        if wg:
+            sub_zip.addAction(f"📋 Copy Number & WG (with ZIP Link)").triggered.connect(
+                lambda _, p=f"{canonical} ({clean_ver}) ({wg})", h=f"{cdata['zip_anchor']} ({safe_wg})": _copy_to_clipboard(
+                    p, h, f"Number & WG (ZIP{ver_label})", parent_widget
+                )
+            )
+        sub_zip.addSeparator()
+        sub_zip.addAction(f"📋 Copy as Markdown (ZIP Link)").triggered.connect(
+            lambda _, p=cdata["zip_md"], h=cdata["zip_anchor"]: _copy_to_clipboard(
+                p, h, f"Markdown (ZIP{ver_label})", parent_widget
+            )
+        )
+        if title:
+            sub_zip.addAction(f"📋 Copy as Markdown with Title (ZIP Link)").triggered.connect(
+                lambda _, p=cdata["cit_zip_md"], h=cdata["cit_zip_html"]: _copy_to_clipboard(
+                    p, h, f"Markdown with Title (ZIP{ver_label})", parent_widget
+                )
+            )
+
+    copy_sub.addSeparator()
+
+    # =========================================================================
+    # 3. DIRECT RAW URLS
+    # =========================================================================
+    if dynareport_url:
+        act_dyna = copy_sub.addAction("🌐 Copy 3GPP Web Report URL (DynaReport)")
+        act_dyna.setToolTip("Copy direct URL to the 3GPP DynaReport specification status page.")
+        act_dyna.triggered.connect(
+            lambda _, p=dynareport_url, h=f'<a href="{dynareport_url}">{dynareport_url}</a>': _copy_to_clipboard(
+                p, h, "Web Report URL", parent_widget
+            )
+        )
+
+    if zip_url:
+        act_zip_url = copy_sub.addAction(f"📦 Copy ZIP Download URL{ver_label}")
+        act_zip_url.setToolTip("Copy direct URL to download the specification ZIP archive file.")
+        act_zip_url.triggered.connect(
+            lambda _, p=zip_url, h=f'<a href="{zip_url}">{zip_url}</a>': _copy_to_clipboard(
+                p, h, f"ZIP Download URL{ver_label}", parent_widget
+            )
+        )
+
+    if ftp_url:
+        act_ftp = copy_sub.addAction("📂 Copy FTP Archive Folder URL")
+        act_ftp.setToolTip("Copy direct URL to the 3GPP FTP specification directory.")
+        act_ftp.triggered.connect(
+            lambda _, p=ftp_url, h=f'<a href="{ftp_url}">{ftp_url}</a>': _copy_to_clipboard(
+                p, h, "FTP Archive Folder URL", parent_widget
+            )
+        )
+
+    # =========================================================================
+    # 4. PREFERENCES (DEFAULT MODE FOR Ctrl+C)
+    # =========================================================================
+    copy_sub.addSeparator()
+    sub_cfg = copy_sub.addMenu("⚙️ Default Link Mode (Ctrl+C)")
+    sub_cfg.setToolTipsVisible(True)
+    sub_cfg.setToolTip("Select the default link style when using the Ctrl+C keyboard shortcut on specifications.")
+
+    saved_mode = get_saved_copy_mode()
+    mode_group = QActionGroup(sub_cfg)
+    mode_group.setExclusive(True)
+
+    mode_options = [
+        ("both", "🔗 Both Links (Web + ZIP)", "Spec number links to DynaReport, version badge links to ZIP download."),
+        ("web", "🌐 3GPP Web Report (DynaReport)", "Specification number links to DynaReport page."),
+        ("zip", "📦 Direct ZIP Download", "Specification number links directly to the ZIP download."),
+    ]
+
+    for mode_key, mode_label, mode_tip in mode_options:
+        act_mode = sub_cfg.addAction(mode_label)
+        act_mode.setCheckable(True)
+        act_mode.setChecked(mode_key == saved_mode)
+        act_mode.setToolTip(mode_tip)
+        mode_group.addAction(act_mode)
+
+        def _make_handler(k=mode_key, l=mode_label):
+            return lambda: (save_copy_mode(k), QToolTip.showText(QCursor.pos(), f"📋 Default link mode set to: {l}!", parent_widget))
+
+        act_mode.triggered.connect(_make_handler())
 
 
 def populate_multi_spec_copy_menu(
     copy_sub: QMenu,
     parent_widget: QWidget,
-    target_specs: list,
+    target_items: list,
     db,
 ):
-    """Populates copy options for multiple selected specifications."""
-    if not target_specs:
+    """
+    Populates copy options for multiple selected specifications.
+    target_items can be a list of spec number strings or (spec_num, version_info) tuples.
+    """
+    if not target_items:
         return
 
-    specs_meta = [resolve_spec_metadata(s, db) for s in target_specs]
-    count = len(specs_meta)
-
-    # 1. Copy Spec Numbers
-    nums_plain = ", ".join(m["canonical_num"] for m in specs_meta)
-    nums_html_parts = []
-    for m in specs_meta:
-        if m["dynareport_url"]:
-            nums_html_parts.append(
-                f'<a href="{m["dynareport_url"]}">{html.escape(m["canonical_num"])}</a>'
-            )
+    items_processed = []
+    for item in target_items:
+        if isinstance(item, tuple):
+            s_num, v_info = item
+            items_processed.append(resolve_spec_metadata(s_num, db, version_info=v_info))
         else:
-            nums_html_parts.append(html.escape(m["canonical_num"]))
-    nums_html = ", ".join(nums_html_parts)
+            items_processed.append(resolve_spec_metadata(str(item), db))
 
+    count = len(items_processed)
+    cdatas = [build_citation_data(m) for m in items_processed]
+
+    # 1. Full Citations - Both Links
+    both_plain = "\n".join(cd["cit_with_ver_plain"] for cd in cdatas)
+    both_html = "<p>" + "<br>".join(cd["cit_both_html"] for cd in cdatas) + "</p>"
+    act_both = copy_sub.addAction(f"🔗 Copy Full Citations (Both Links: Web + ZIP) ({count})")
+    act_both.setToolTip("Copy complete citations for all specifications with DynaReport and ZIP download links.")
+    act_both.triggered.connect(
+        lambda _, p=both_plain, h=both_html, c=count: _copy_to_clipboard(
+            p, h, f"{c} Citations (Both Links)", parent_widget
+        )
+    )
+
+    # 2. Full Citations - Web Links
+    web_plain = "\n".join(cd["cit_web_plain"] for cd in cdatas)
+    web_html = "<p>" + "<br>".join(cd["cit_web_html"] for cd in cdatas) + "</p>"
+    act_web = copy_sub.addAction(f"🌐 Copy Full Citations (Web Links) ({count})")
+    act_web.setToolTip("Copy complete citations for all specifications with DynaReport web links.")
+    act_web.triggered.connect(
+        lambda _, p=web_plain, h=web_html, c=count: _copy_to_clipboard(
+            p, h, f"{c} Citations (Web Links)", parent_widget
+        )
+    )
+
+    # 3. Full Citations - Direct ZIP Links
+    zip_plain = "\n".join(cd["cit_with_ver_plain"] for cd in cdatas)
+    zip_html = "<p>" + "<br>".join(cd["cit_zip_html"] for cd in cdatas) + "</p>"
+    act_zip = copy_sub.addAction(f"📦 Copy Full Citations (Direct ZIP Links) ({count})")
+    act_zip.setToolTip("Copy complete citations for all specifications with direct ZIP download links.")
+    act_zip.triggered.connect(
+        lambda _, p=zip_plain, h=zip_html, c=count: _copy_to_clipboard(
+            p, h, f"{c} Citations (ZIP Links)", parent_widget
+        )
+    )
+
+    copy_sub.addSeparator()
+
+    # 4. Spec Numbers Only
+    nums_plain = ", ".join(m["canonical_num"] for m in items_processed)
+    nums_html = ", ".join(cd["both_anchor"] for cd in cdatas)
     act_nums = copy_sub.addAction(f"📋 Copy Spec Numbers ({count})")
     act_nums.setToolTip("Copy all selected specification numbers as a comma-separated list.")
     act_nums.triggered.connect(
@@ -285,158 +619,122 @@ def populate_multi_spec_copy_menu(
         )
     )
 
-    # 2. Copy Numbers & Titles
-    lines_plain = []
-    lines_html = []
-    for m in specs_meta:
-        c_num = m["canonical_num"]
-        c_title = m["title"]
-        url = m["dynareport_url"]
-        link_h = f'<a href="{url}">{html.escape(c_num)}</a>' if url else html.escape(c_num)
-        if c_title:
-            lines_plain.append(f"{c_num}: {c_title}")
-            lines_html.append(f"{link_h}: {html.escape(c_title)}")
-        else:
-            lines_plain.append(c_num)
-            lines_html.append(link_h)
-
-    act_titles = copy_sub.addAction(f"📋 Copy Numbers & Titles ({count})")
-    act_titles.setToolTip("Copy specification numbers and titles (one per line).")
-    act_titles.triggered.connect(
-        lambda _, p="\n".join(lines_plain), h="<p>" + "<br>".join(lines_html) + "</p>", c=count: _copy_to_clipboard(
+    # 5. Numbers & Titles
+    nt_plain = "\n".join(cd["num_title_plain"] for cd in cdatas)
+    nt_html = "<p>" + "<br>".join(cd["num_title_both_html"] for cd in cdatas) + "</p>"
+    act_nt = copy_sub.addAction(f"📋 Copy Numbers & Titles ({count})")
+    act_nt.setToolTip("Copy specification numbers and titles (one per line).")
+    act_nt.triggered.connect(
+        lambda _, p=nt_plain, h=nt_html, c=count: _copy_to_clipboard(
             p, h, f"{c} Numbers & Titles", parent_widget
         )
     )
 
-    # 3. Copy Full Citations (with WG)
-    cit_plain = []
-    cit_html = []
-    for m in specs_meta:
-        c_num = m["canonical_num"]
-        c_title = m["title"]
-        wg = m["wg"]
-        url = m["dynareport_url"]
-        link_h = f'<a href="{url}">{html.escape(c_num)}</a>' if url else html.escape(c_num)
-        safe_t = html.escape(c_title)
-        safe_wg = html.escape(wg)
-
-        if c_title and wg:
-            cit_plain.append(f"{c_num}: {c_title} ({wg})")
-            cit_html.append(f"{link_h}: {safe_t} ({safe_wg})")
-        elif c_title:
-            cit_plain.append(f"{c_num}: {c_title}")
-            cit_html.append(f"{link_h}: {safe_t}")
-        elif wg:
-            cit_plain.append(f"{c_num} ({wg})")
-            cit_html.append(f"{link_h} ({safe_wg})")
-        else:
-            cit_plain.append(c_num)
-            cit_html.append(link_h)
-
-    act_cit = copy_sub.addAction(f"📋 Copy Full Citations (with WG) ({count})")
-    act_cit.setToolTip(
-        "Copy complete citations including specification numbers, titles, and Working Groups."
-    )
-    act_cit.triggered.connect(
-        lambda _, p="\n".join(cit_plain), h="<p>" + "<br>".join(cit_html) + "</p>", c=count: _copy_to_clipboard(
-            p, h, f"{c} Citations", parent_widget
-        )
-    )
-
-    # Separator
     copy_sub.addSeparator()
 
-    # 4. Copy as Markdown List
-    md_lines = []
-    for m in specs_meta:
-        c_num = m["canonical_num"]
-        c_title = m["title"]
-        wg = m["wg"]
-        url = m["dynareport_url"]
-        wg_str = f" ({wg})" if wg else ""
-        if url and c_title:
-            md_lines.append(f"- [{c_num}]({url}): {c_title}{wg_str}")
-        elif url:
-            md_lines.append(f"- [{c_num}]({url}){wg_str}")
-        elif c_title:
-            md_lines.append(f"- {c_num}: {c_title}{wg_str}")
-        else:
-            md_lines.append(f"- {c_num}")
-
-    act_md = copy_sub.addAction(f"📋 Copy as Markdown List ({count})")
-    act_md.setToolTip("Copy as Markdown bullet list with hyperlinks.")
-    act_md.triggered.connect(
-        lambda _, p="\n".join(md_lines), h="<p>" + "<br>".join(cit_html) + "</p>", c=count: _copy_to_clipboard(
-            p, h, f"{c} Markdown Items", parent_widget
+    # 6. Markdown Lists
+    md_both = "\n".join(f"- {cd['cit_both_md']}" for cd in cdatas)
+    act_md_both = copy_sub.addAction(f"🔗 Copy as Markdown List (Both Links) ({count})")
+    act_md_both.setToolTip("Copy as Markdown bullet list with both DynaReport and ZIP links.")
+    act_md_both.triggered.connect(
+        lambda _, p=md_both, h=both_html, c=count: _copy_to_clipboard(
+            p, h, f"{c} Markdown Items (Both Links)", parent_widget
         )
     )
 
-    # 5. Copy Web Report URLs
-    urls = [m["dynareport_url"] for m in specs_meta if m["dynareport_url"]]
-    if urls:
-        act_urls = copy_sub.addAction(f"📋 Copy 3GPP Web Report URLs ({len(urls)})")
-        act_urls.setToolTip("Copy direct URLs to 3GPP DynaReport specification pages.")
-        act_urls.triggered.connect(
-            lambda _, p="\n".join(urls), h="<br>".join(f'<a href="{u}">{u}</a>' for u in urls), c=len(urls): _copy_to_clipboard(
-                p, h, f"{c} URLs", parent_widget
+    md_web = "\n".join(f"- {cd['cit_web_md']}" for cd in cdatas)
+    act_md_web = copy_sub.addAction(f"🌐 Copy as Markdown List (Web Links) ({count})")
+    act_md_web.setToolTip("Copy as Markdown bullet list with DynaReport hyperlinks.")
+    act_md_web.triggered.connect(
+        lambda _, p=md_web, h=web_html, c=count: _copy_to_clipboard(
+            p, h, f"{c} Markdown Items (Web Links)", parent_widget
+        )
+    )
+
+    md_zip = "\n".join(f"- {cd['cit_zip_md']}" for cd in cdatas)
+    act_md_zip = copy_sub.addAction(f"📦 Copy as Markdown List (ZIP Links) ({count})")
+    act_md_zip.setToolTip("Copy as Markdown bullet list with direct ZIP download hyperlinks.")
+    act_md_zip.triggered.connect(
+        lambda _, p=md_zip, h=zip_html, c=count: _copy_to_clipboard(
+            p, h, f"{c} Markdown Items (ZIP Links)", parent_widget
+        )
+    )
+
+    copy_sub.addSeparator()
+
+    # 7. URLs Lists
+    web_urls = [m["dynareport_url"] for m in items_processed if m["dynareport_url"]]
+    if web_urls:
+        act_w_urls = copy_sub.addAction(f"🌐 Copy 3GPP Web Report URLs ({len(web_urls)})")
+        act_w_urls.setToolTip("Copy direct URLs to 3GPP DynaReport specification pages.")
+        act_w_urls.triggered.connect(
+            lambda _, p="\n".join(web_urls), h="<br>".join(f'<a href="{u}">{u}</a>' for u in web_urls), c=len(web_urls): _copy_to_clipboard(
+                p, h, f"{c} Web URLs", parent_widget
+            )
+        )
+
+    zip_urls = [m["zip_url"] for m in items_processed if m["zip_url"]]
+    if zip_urls:
+        act_z_urls = copy_sub.addAction(f"📦 Copy ZIP Download URLs ({len(zip_urls)})")
+        act_z_urls.setToolTip("Copy direct URLs to download specification ZIP archives.")
+        act_z_urls.triggered.connect(
+            lambda _, p="\n".join(zip_urls), h="<br>".join(f'<a href="{u}">{u}</a>' for u in zip_urls), c=len(zip_urls): _copy_to_clipboard(
+                p, h, f"{c} ZIP URLs", parent_widget
             )
         )
 
 
-def copy_specs_default(parent_widget: QWidget, target_specs: list, db):
-    """Default copy behavior triggered by Ctrl+C on the specifications table."""
-    if not target_specs:
+def copy_specs_default(parent_widget: QWidget, target_items: list, db):
+    """
+    Default copy behavior triggered by Ctrl+C on the specifications table.
+    Uses the user's saved preference ('both', 'web', 'zip').
+    """
+    if not target_items:
         return
-    specs_meta = [resolve_spec_metadata(s, db) for s in target_specs]
-    count = len(specs_meta)
+
+    mode = get_saved_copy_mode()
+
+    items_processed = []
+    for item in target_items:
+        if isinstance(item, tuple):
+            s_num, v_info = item
+            items_processed.append(resolve_spec_metadata(s_num, db, version_info=v_info))
+        else:
+            items_processed.append(resolve_spec_metadata(str(item), db))
+
+    count = len(items_processed)
+    cdatas = [build_citation_data(m) for m in items_processed]
+
+    mode_label = "Both Links" if mode == "both" else ("ZIP Link" if mode == "zip" else "Web Link")
 
     if count == 1:
-        m = specs_meta[0]
+        cd = cdatas[0]
+        m = items_processed[0]
         canonical = m["canonical_num"]
-        title = m["title"]
-        wg = m["wg"]
-        url = m["dynareport_url"]
-        link_h = f'<a href="{url}">{html.escape(canonical)}</a>' if url else html.escape(canonical)
 
-        if title and wg:
-            plain = f"{canonical}: {title} ({wg})"
-            html_t = f"{link_h}: {html.escape(title)} ({html.escape(wg)})"
-        elif title:
-            plain = f"{canonical}: {title}"
-            html_t = f"{link_h}: {html.escape(title)}"
+        if mode == "both":
+            plain = cd["cit_with_ver_plain"]
+            html_t = cd["cit_both_html"]
+        elif mode == "zip":
+            plain = cd["cit_with_ver_plain"]
+            html_t = cd["cit_zip_html"]
         else:
-            plain = canonical
-            html_t = link_h
+            plain = cd["cit_web_plain"]
+            html_t = cd["cit_web_html"]
 
-        _copy_to_clipboard(plain, html_t, f"Specification {canonical}", parent_widget)
+        _copy_to_clipboard(plain, html_t, f"Specification {canonical} ({mode_label})", parent_widget)
     else:
-        cit_plain = []
-        cit_html = []
-        for m in specs_meta:
-            c_num = m["canonical_num"]
-            c_title = m["title"]
-            wg = m["wg"]
-            url = m["dynareport_url"]
-            link_h = f'<a href="{url}">{html.escape(c_num)}</a>' if url else html.escape(c_num)
-            safe_t = html.escape(c_title)
-            safe_wg = html.escape(wg)
+        if mode == "both":
+            plain = "\n".join(cd["cit_with_ver_plain"] for cd in cdatas)
+            html_t = "<p>" + "<br>".join(cd["cit_both_html"] for cd in cdatas) + "</p>"
+        elif mode == "zip":
+            plain = "\n".join(cd["cit_with_ver_plain"] for cd in cdatas)
+            html_t = "<p>" + "<br>".join(cd["cit_zip_html"] for cd in cdatas) + "</p>"
+        else:
+            plain = "\n".join(cd["cit_web_plain"] for cd in cdatas)
+            html_t = "<p>" + "<br>".join(cd["cit_web_html"] for cd in cdatas) + "</p>"
 
-            if c_title and wg:
-                cit_plain.append(f"{c_num}: {c_title} ({wg})")
-                cit_html.append(f"{link_h}: {safe_t} ({safe_wg})")
-            elif c_title:
-                cit_plain.append(f"{c_num}: {c_title}")
-                cit_html.append(f"{link_h}: {safe_t}")
-            else:
-                cit_plain.append(c_num)
-                cit_html.append(link_h)
-
-        _copy_to_clipboard(
-            "\n".join(cit_plain),
-            "<p>" + "<br>".join(cit_html) + "</p>",
-            f"{count} Specifications",
-            parent_widget,
-        )
+        _copy_to_clipboard(plain, html_t, f"{count} Specifications ({mode_label})", parent_widget)
 
 
 def show_spec_context_menu(tab, position):
@@ -450,24 +748,34 @@ def show_spec_context_menu(tab, position):
     if not selected_rows:
         return
 
-    target_specs = []
+    target_items = []
     for index in selected_rows:
-        widget = tab.table.cellWidget(index.row(), 0)
+        row = index.row()
+        widget = tab.table.cellWidget(row, 0)
         if widget:
             num_label = widget.findChild(QLabel, "specNumberLabel")
             if num_label:
-                # Never use decorated UI text (e.g. "33.801-01 ⭐") as an identifier.
                 canonical = num_label.property("specNumber")
+                spec_num = ""
                 if canonical:
-                    target_specs.append(str(canonical).strip())
+                    spec_num = str(canonical).strip()
                 else:
-                    # Compatibility fallback for widgets created by older code.
                     display_text = num_label.text().strip()
                     match = re.match(r"^(\d{2}\.\d{2,3}(?:-[A-Za-z0-9]+)?)", display_text)
                     if match:
-                        target_specs.append(match.group(1))
+                        spec_num = match.group(1)
 
-    if not target_specs:
+                if spec_num:
+                    # Resolve currently selected version from Column 2 combo
+                    cell_widget = tab.table.cellWidget(row, 2)
+                    v_info = None
+                    if cell_widget:
+                        combo = cell_widget.findChild(QComboBox)
+                        if combo:
+                            v_info = combo.currentData()
+                    target_items.append((spec_num, v_info))
+
+    if not target_items:
         return
 
     menu = QMenu(tab)
@@ -478,8 +786,8 @@ def show_spec_context_menu(tab, position):
         QMenu::item:disabled { color: #AAAAAA; }
     """)
 
-    if len(target_specs) == 1:
-        spec_num = target_specs[0]
+    if len(target_items) == 1:
+        spec_num, v_info = target_items[0]
         is_fav = spec_num in tab.favorites
         fav_label = "⭐ Remove from Favorites" if is_fav else "⭐ Add to Favorites"
         menu.addAction(fav_label).triggered.connect(lambda _, s=spec_num: tab._toggle_favorite(s))
@@ -490,10 +798,11 @@ def show_spec_context_menu(tab, position):
         menu.addSeparator()
 
         # Quick Copy Submenu
-        copy_sub = menu.addMenu("📋 Quick Copy")
+        ver_badge = f" (v{v_info['version']})" if v_info and v_info.get("version") else ""
+        copy_sub = menu.addMenu(f"📋 Quick Copy{ver_badge}")
         copy_sub.setToolTipsVisible(True)
         copy_sub.setToolTip("Copy specification metadata in plain text and rich HTML form.")
-        populate_spec_copy_menu(copy_sub, tab, spec_num, db=tab.db)
+        populate_spec_copy_menu(copy_sub, tab, spec_num, version_info=v_info, db=tab.db)
 
         menu.addSeparator()
 
@@ -529,6 +838,7 @@ def show_spec_context_menu(tab, position):
         del_action = menu.addAction(f"🗑️ Delete TS {spec_num}")
         del_action.triggered.connect(lambda _, s=spec_num: tab._delete_single_spec(s))
     else:
+        target_specs = [item[0] for item in target_items]
         menu.addAction(f"⭐ Add selected ({len(target_specs)}) to Favorites").triggered.connect(
             lambda: tab._batch_set_favorites(target_specs, True)
         )
@@ -542,10 +852,10 @@ def show_spec_context_menu(tab, position):
 
         menu.addSeparator()
 
-        copy_sub = menu.addMenu(f"📋 Quick Copy ({len(target_specs)} selected)")
+        copy_sub = menu.addMenu(f"📋 Quick Copy ({len(target_items)} selected)")
         copy_sub.setToolTipsVisible(True)
-        copy_sub.setToolTip("Copy metadata for all selected specifications.")
-        populate_multi_spec_copy_menu(copy_sub, tab, target_specs, db=tab.db)
+        copy_sub.setToolTip("Copy metadata and download links for all selected specifications.")
+        populate_multi_spec_copy_menu(copy_sub, tab, target_items, db=tab.db)
 
         menu.addSeparator()
 
