@@ -18,7 +18,7 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import WorkItemsScraperThread, TargetedWIScraperThread
 from modules.work_items.core.wi_settings import WorkItemsSettings
-from modules.work_items.ui.work_items_dialogs import WorkItemInfoDialog, LinkedSpecsDialog
+from modules.work_items.ui.work_items_dialogs import WorkItemInfoDialog, LinkedSpecsDialog, AddWorkItemDialog
 
 logger = logging.getLogger(__name__)
 
@@ -550,6 +550,12 @@ class WorkItemsTab(QWidget):
         header_lbl = QLabel("<b>📋 3GPP Work Items (WIs)</b>")
         header_lbl.setStyleSheet("font-size: 16px; color: #1E293B;")
 
+        self.add_wi_btn = QPushButton("➕ Add WI")
+        self.add_wi_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.add_wi_btn.setToolTip("Add and scrape an individual Work Item by ID or Portal URL without running a full sync.")
+        self.add_wi_btn.setCursor(Qt.PointingHandCursor)
+        self.add_wi_btn.clicked.connect(lambda: self._open_add_wi_dialog())
+
         self.sync_tracked_btn = QPushButton("🎯 Update Tracked (0)")
         self.sync_tracked_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.sync_tracked_btn.setToolTip("Quickly update details and remarks for only your Starred and Following Work Items.")
@@ -573,6 +579,7 @@ class WorkItemsTab(QWidget):
         header_layout.addStretch()
         header_layout.addWidget(self.status_lbl)
         header_layout.addWidget(self.progress_bar)
+        header_layout.addWidget(self.add_wi_btn)
         header_layout.addWidget(self.sync_tracked_btn)
         header_layout.addWidget(self.sync_btn)
         main_layout.addLayout(header_layout)
@@ -995,10 +1002,41 @@ class WorkItemsTab(QWidget):
             )
             dialog.exec_()
 
+    def _open_add_wi_dialog(self, initial_query: str = ""):
+        dialog = AddWorkItemDialog(self.db, initial_query=initial_query, parent=self)
+        if dialog.exec_() == QDialog.Accepted and dialog.saved_wi_code:
+            code = dialog.saved_wi_code
+
+            # Update tracking if requested
+            tracking_changed = False
+            if dialog.is_starred_requested and code not in self.starred:
+                self.starred.add(code)
+                tracking_changed = True
+            if dialog.is_following_requested and code not in self.following:
+                self.following.add(code)
+                tracking_changed = True
+
+            if tracking_changed:
+                self.settings.save_tracking_sets(self.starred, self.following)
+                self.table_model.set_tracking_sets(self.starred, self.following)
+                self._update_chip_styles()
+
+            # Refresh dropdown filter options (new releases / WGs)
+            self._populate_filters()
+
+            # Clear search and active filter constraints so the new WI is clearly displayed
+            self._clear_all_filters()
+            self.search_input.setText(code)
+            self.refresh_table(reset_pagination=True)
+            self.status_lbl.setText(f"✅ Added Work Item #{code}")
+            logger.info(f"✅ Added Work Item #{code} to database.")
+
     def _start_sync(self):
         logger.info("🔄 [Work Items] Starting full Work Items synchronization.")
         self.sync_btn.setEnabled(False)
         self.sync_btn.setText("⏳ Syncing...")
+        if hasattr(self, "add_wi_btn"):
+            self.add_wi_btn.setEnabled(False)
         if hasattr(self, "sync_tracked_btn"):
             self.sync_tracked_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
@@ -1022,6 +1060,8 @@ class WorkItemsTab(QWidget):
 
         self.sync_btn.setEnabled(True)
         self.sync_btn.setText("🔄 Sync 3GPP WIs")
+        if hasattr(self, "add_wi_btn"):
+            self.add_wi_btn.setEnabled(True)
         if hasattr(self, "sync_tracked_btn"):
             self.sync_tracked_btn.setEnabled(len(self.starred | self.following) > 0)
         self.progress_bar.setVisible(False)
@@ -1048,6 +1088,11 @@ class WorkItemsTab(QWidget):
     def _show_context_menu(self, position):
         selected_indexes = self.table.selectionModel().selectedRows()
         if not selected_indexes:
+            menu = QMenu(self)
+            add_wi_action = menu.addAction("➕ Add Work Item...")
+            action = menu.exec_(self.table.viewport().mapToGlobal(position))
+            if action == add_wi_action:
+                self._open_add_wi_dialog()
             return
 
         menu = QMenu(self)
@@ -1089,6 +1134,7 @@ class WorkItemsTab(QWidget):
             menu.addSeparator()
             citation_action = menu.addAction("📋 Copy WI Citation")
             menu.addSeparator()
+            add_wi_action = menu.addAction("➕ Add Work Item...")
             update_action = menu.addAction("🔄 Update WI")
             delete_action = menu.addAction("🗑️ Delete this Work Item")
             batch_star_action = None
@@ -1112,6 +1158,7 @@ class WorkItemsTab(QWidget):
             batch_unfollow_action = menu.addAction(f"🚫 Unfollow selected ({len_indexes} WIs)")
             menu.addSeparator()
 
+            add_wi_action = menu.addAction("➕ Add Work Item...")
             update_action = menu.addAction(f"🔄 Update WIs ({len_indexes} WIs)")
             delete_action = menu.addAction(f"🗑️ Delete selected Work Items ({len_indexes} WIs)")
 
@@ -1137,6 +1184,8 @@ class WorkItemsTab(QWidget):
             elif action == citation_action:
                 citation = f"WI {wi_code}: {acronym} — {name} ({rel}, {wg})"
                 QApplication.clipboard().setText(citation)
+            elif action == add_wi_action:
+                self._open_add_wi_dialog()
             elif action == delete_action:
                 confirm = QMessageBox.question(
                     self, "Confirm Deletion",
@@ -1162,6 +1211,8 @@ class WorkItemsTab(QWidget):
                 self._batch_set_following(wi_code_list, True)
             elif action == batch_unfollow_action:
                 self._batch_set_following(wi_code_list, False)
+            elif action == add_wi_action:
+                self._open_add_wi_dialog()
             elif action == delete_action:
                 confirm = QMessageBox.question(
                     self, "Confirm Batch Deletion",
@@ -1184,6 +1235,8 @@ class WorkItemsTab(QWidget):
         logger.info(f"🔄 [Work Items] Starting targeted update for {len(wi_codes)} WI(s): {wi_codes}")
         self.sync_btn.setEnabled(False)
         self.sync_btn.setText("⏳ Updating...")
+        if hasattr(self, "add_wi_btn"):
+            self.add_wi_btn.setEnabled(False)
         if hasattr(self, "sync_tracked_btn"):
             self.sync_tracked_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
