@@ -245,6 +245,7 @@ class SpecSearchVersionSelectDialog(QDialog):
             SELECT sp.number, sp.title, sp.type, s.name AS series_name, p_grp.name AS wg_name, COUNT(f.id) AS file_count
             FROM specifications sp
             JOIN series s ON sp.series_id = s.id
+            LEFT JOIN spec_user_annotations ua ON sp.number = ua.spec_number
             LEFT JOIN working_groups p_grp ON sp.primary_group_id = p_grp.id
             LEFT JOIN files f ON f.spec_id = sp.id
             WHERE 1=1
@@ -261,8 +262,8 @@ class SpecSearchVersionSelectDialog(QDialog):
 
         if search_kw:
             search_pat = f"%{search_kw}%"
-            query += " AND (sp.number LIKE ? OR sp.title LIKE ? OR (sp.type || ' ' || sp.number) LIKE ?)"
-            params.extend([search_pat, search_pat, search_pat])
+            query += " AND (sp.number LIKE ? OR sp.title LIKE ? OR (sp.type || ' ' || sp.number) LIKE ? OR ua.tags LIKE ? OR ua.comments LIKE ?)"
+            params.extend([search_pat, search_pat, search_pat, search_pat, search_pat])
 
         query += " GROUP BY sp.id HAVING file_count > 0 ORDER BY CAST(s.name AS INTEGER) ASC, sp.number ASC"
 

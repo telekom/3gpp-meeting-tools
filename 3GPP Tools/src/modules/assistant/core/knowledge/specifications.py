@@ -152,8 +152,10 @@ def _normalize_file_row(row: Any) -> Optional[Dict[str, Any]]:
 
     if isinstance(row, (tuple, list)) and len(row) >= 8:
         # SpecsDatabase.search_files() returns:
-        # (s.name, sp.number, sp.title, sp.type, f.filename, f.version, f.url, f.upload_date)
-        return {
+        # (s.name, sp.number, sp.title, sp.type, f.filename, f.version, f.url, f.upload_date, tags, comments)
+        tags_raw = row[8] if len(row) > 8 and row[8] else ""
+        comments_raw = row[9] if len(row) > 9 and row[9] else ""
+        item = {
             "specification": str(row[1]),
             "title": row[2] or "",
             "type": row[3] or "TS",
@@ -162,6 +164,11 @@ def _normalize_file_row(row: Any) -> Optional[Dict[str, Any]]:
             "url": row[6] or "",
             "upload_date": row[7] or "",
         }
+        if tags_raw:
+            item["tags"] = [t.strip() for t in tags_raw.split(",") if t.strip()]
+        if comments_raw:
+            item["user_comments"] = comments_raw
+        return item
     return None
 
 
@@ -169,14 +176,19 @@ def _catalogue_rank(query: str, item: Dict[str, Any]) -> Tuple[int, str]:
     q = query.lower()
     spec = str(item.get("specification", "")).lower()
     title = str(item.get("title", "")).lower()
+    tags = [t.lower() for t in item.get("tags", [])]
+    comments = str(item.get("user_comments", "")).lower()
+
     if q == spec or q in (f"ts {spec}", f"tr {spec}"):
         score = 0
-    elif q in title:
+    elif any(q in t for t in tags):
         score = 1
-    elif q in spec:
+    elif q in title:
         score = 2
-    else:
+    elif q in spec or q in comments:
         score = 3
+    else:
+        score = 4
     return score, spec
 
 

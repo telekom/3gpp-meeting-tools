@@ -30,6 +30,7 @@ from core.ui.ui_components import (
     SEARCH_INPUT_STYLE,
     TABLE_STYLE_CLEAN,
 )
+from modules.specifications.ui.spec_annotations_dialog import EditSpecAnnotationsDialog
 from modules.specifications.utils.utils import normalize_dynareport_spec_number, build_dynareport_url
 
 logger = logging.getLogger(__name__)
@@ -47,9 +48,10 @@ class NumericTableWidgetItem(QTableWidgetItem):
 class SpecInfoDialog(QDialog):
     """Modernized Specification Details Dialog with dedicated Work Items table and search filter."""
 
-    def __init__(self, details: dict, parent=None):
+    def __init__(self, details: dict, parent=None, db=None):
         super().__init__(parent)
         self.details = details
+        self.db = db or getattr(parent, "db", None)
         spec_num = details.get("number", "Unknown")
         spec_type = details.get("type", "TS")
         title = details.get("title", "No Title Available")
@@ -158,6 +160,7 @@ class SpecInfoDialog(QDialog):
             "radio_tech",
             "initial_release",
             "related_wis",
+            "user_annotations",
         }
         for key, value in details.items():
             if key not in excluded_keys and value:
@@ -166,12 +169,16 @@ class SpecInfoDialog(QDialog):
 
         layout.addWidget(details_card)
 
-        # 3. Dedicated Work Items Card (Rendered only when WIs exist)
+        # 3. Dedicated User Tags & Notes Card
+        self.annotations_card = self._build_annotations_card()
+        layout.addWidget(self.annotations_card)
+
+        # 4. Dedicated Work Items Card (Rendered only when WIs exist)
         if self.related_wis:
             wi_card = self._build_work_items_card()
             layout.addWidget(wi_card, stretch=1)
 
-        # 4. Action Buttons Footer
+        # 5. Action Buttons Footer
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
 
@@ -198,6 +205,76 @@ class SpecInfoDialog(QDialog):
         btn_layout.addWidget(close_btn)
 
         layout.addLayout(btn_layout)
+
+    def _build_annotations_card(self) -> QFrame:
+        """Constructs the personal tags and comments card with live edit trigger."""
+        card = QFrame()
+        card.setObjectName("cardFrame")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(6)
+
+        header_row = QHBoxLayout()
+        title_lbl = QLabel("<b>🏷️ Personal Tags & Notes</b>")
+        title_lbl.setStyleSheet("font-size: 13px; color: #2D3748;")
+        header_row.addWidget(title_lbl)
+        header_row.addStretch()
+
+        edit_btn = QPushButton("✏️ Edit Tags & Notes")
+        edit_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.clicked.connect(self._edit_annotations)
+        header_row.addWidget(edit_btn)
+        layout.addLayout(header_row)
+
+        self.tags_display_lbl = QLabel()
+        self.tags_display_lbl.setWordWrap(True)
+        layout.addWidget(self.tags_display_lbl)
+
+        self.notes_display_lbl = QLabel()
+        self.notes_display_lbl.setWordWrap(True)
+        self.notes_display_lbl.setStyleSheet(
+            "color: #4A5568; font-size: 12px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 4px; padding: 6px;"
+        )
+        layout.addWidget(self.notes_display_lbl)
+
+        self._refresh_annotations_card()
+        return card
+
+    def _refresh_annotations_card(self):
+        spec_num = self.details.get("number", "")
+        ann = self.details.get("user_annotations") or {}
+        if self.db and spec_num:
+            ann = self.db.get_spec_annotations(spec_num)
+            self.details["user_annotations"] = ann
+
+        tags = ann.get("tags", [])
+        if tags:
+            tag_badges = " ".join([
+                f"<span style='background-color: #EBF3FC; color: #1E5C99; border: 1px solid #BDD7EE; border-radius: 8px; padding: 2px 6px; font-size: 11px; font-weight: bold;'>🏷️ {t}</span>"
+                for t in tags
+            ])
+            self.tags_display_lbl.setText(f"<b>Tags:</b> {tag_badges}")
+        else:
+            self.tags_display_lbl.setText("<span style='color: #A0AEC0;'><i>No tags assigned.</i></span>")
+
+        comments = ann.get("comments", "").strip()
+        if comments:
+            self.notes_display_lbl.setText(comments.replace("\n", "<br>"))
+            self.notes_display_lbl.setVisible(True)
+        else:
+            self.notes_display_lbl.setText("<span style='color: #A0AEC0;'><i>No personal notes recorded yet.</i></span>")
+
+    def _edit_annotations(self):
+        spec_num = self.details.get("number", "")
+        title = self.details.get("title", "")
+        if not spec_num or not self.db:
+            return
+        dlg = EditSpecAnnotationsDialog(spec_num, title, self.db, self)
+        if dlg.exec_() == QDialog.Accepted:
+            self._refresh_annotations_card()
+            if self.parent() and hasattr(self.parent(), "refresh_table"):
+                self.parent().refresh_table()
 
     def _build_work_items_card(self) -> QFrame:
         """Constructs the dedicated Work Items section with instant search and sortable table."""
