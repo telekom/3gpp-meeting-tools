@@ -2,7 +2,7 @@
 Clause Word Document Comparator.
 Coordinates clause extraction from Base and Target specification Word documents
 via WordExcerptEngine, applies corporate sensitivity labels and 3GPP styles,
-and automates Microsoft Word COM CompareDocuments to generate visual tracked redlines.
+and automates Microsoft Word COM CompareDocuments to generate visual tracked changes.
 """
 
 import logging
@@ -178,7 +178,7 @@ class SpecClauseWordCompareThread(QThread):
                 )
 
             # 4. Compare via Microsoft Word COM (Legal Compare with Track Changes)
-            self.progress.emit(90, "Launching Microsoft Word Legal Compare (track changes)...")
+            self.progress.emit(90, "Launching Microsoft Word Legal Compare (Track Changes)...")
             comparator = WordComparatorThread(
                 str(base_excerpt_path),
                 str(target_excerpt_path),
@@ -188,7 +188,7 @@ class SpecClauseWordCompareThread(QThread):
 
             self.progress.emit(100, "Comparison complete!")
             self.finished_success.emit(
-                f"Generated Word redline for Clause {self.clause_number}: v{self.base_version} vs v{self.target_version}"
+                f"Generated Word comparison with Track Changes for Clause {self.clause_number}: v{self.base_version} vs v{self.target_version}"
             )
         except Exception as e:
             logger.error(f"Failed to generate clause comparison in Word: {e}", exc_info=True)
