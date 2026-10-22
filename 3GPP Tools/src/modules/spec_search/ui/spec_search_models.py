@@ -128,6 +128,24 @@ class SpecEvolutionMatrixModel(QAbstractTableModel):
         """Retrieves the first valid primary key for this row."""
         return self._row_first_pk.get(row)
 
+    def get_first_added_version(self, row: int) -> Optional[str]:
+        """Returns the version label where text was first introduced for this row."""
+        if 0 <= row < len(self._pivot_df):
+            row_data = self._pivot_df.iloc[row]
+            for v_idx, v_col in enumerate(self._version_cols):
+                if str(row_data[v_col]) != "-":
+                    if v_idx == 0 or str(row_data[self._version_cols[v_idx - 1]]) == "-":
+                        return v_col
+        return None
+
+    def get_preceding_version(self, ver_col: str) -> Optional[str]:
+        """Returns the immediately preceding version header chronologically, or None."""
+        if ver_col in self._version_cols:
+            idx = self._version_cols.index(ver_col)
+            if idx > 0:
+                return self._version_cols[idx - 1]
+        return None
+
     def rowCount(self, parent=QModelIndex()) -> int:
         return len(self._pivot_df)
 

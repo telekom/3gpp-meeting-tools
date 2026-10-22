@@ -10,7 +10,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QKeySequence, QTextCursor
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication,
-    QDialog, QTabWidget, QPushButton, QShortcut, QLabel
+    QDialog, QTabWidget, QPushButton, QShortcut, QLabel, QMessageBox
 )
 
 from core.config.config import HELP_URL
@@ -231,6 +231,11 @@ class DragDropUI(QMainWindow):
         logging.info("🏁 [STARTUP:UI:TAB] 8/9 Initializing SpecSearchTab...")
         self.spec_search_tab = SpecSearchTab(spec_search_db_path, db_path)
 
+        # Wire bidirectional deep-linking between Specifications and Spec Search tabs
+        self.spec_search_tab.navigate_to_specs_tab_requested.connect(self._navigate_from_search_to_specs)
+        self.specs_tab.search_in_spec_search_requested.connect(self._navigate_from_specs_to_search)
+        self.specs_tab.index_in_spec_search_requested.connect(self._index_spec_from_specs_tab)
+
         logging.info("🏁 [STARTUP:UI:TAB] 9/9 Initializing AssistantTab...")
         self.assistant_tab = AssistantTab(
             specs_db_path=db_path,
@@ -305,6 +310,37 @@ class DragDropUI(QMainWindow):
         active_widget = self.tabs.widget(index)
         if hasattr(active_widget, 'ensure_loaded'):
             active_widget.ensure_loaded()
+
+    def _navigate_from_search_to_specs(self, spec_number: str, version: str):
+        """Switches to Specifications tab and selects the requested spec and version."""
+        self.tabs.setCurrentWidget(self.specs_tab)
+        self.specs_tab.select_and_show_spec(spec_number, version)
+
+    def _navigate_from_specs_to_search(self, spec_number: str, version: str):
+        """Switches to Spec Search tab and focuses on the requested spec and version."""
+        self.tabs.setCurrentWidget(self.spec_search_tab)
+        self.spec_search_tab.focus_spec(spec_number, version)
+
+    def _index_spec_from_specs_tab(self, spec_number: str, version: str):
+        """Directly indexes a specification version from Specifications tab into Spec Search."""
+        clean_spec = spec_number.strip()
+        clean_ver = version.lstrip("v").strip()
+        rows = self.specs_tab.db.search_files(spec_number=clean_spec, release_version=clean_ver)
+        if not rows:
+            QMessageBox.warning(self, "Spec Not Found", f"No database records found for TS {clean_spec} v{clean_ver}.")
+            return
+
+        row = rows[0]
+        task = {
+            "spec_number": clean_spec,
+            "version": clean_ver,
+            "filename": row[4],
+            "file_url": row[6],
+            "release_date": row[7],
+        }
+
+        self.tabs.setCurrentWidget(self.spec_search_tab)
+        self.spec_search_tab._start_batch_ingestion([task])
 
     def _launch_init_thread(self, check_updates=False):
         """Thread-safe launcher that prevents duplicate initialization checks."""

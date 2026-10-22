@@ -1,0 +1,340 @@
+"""
+Core resolver and dispatcher for opening 3GPP specification documents directly
+from Spec Search, including automatic local cache discovery, ZIP extraction,
+multi-part clause range targeting, and clipboard search assistance.
+"""
+
+import logging
+import os
+import re
+import zipfile
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog, QWidget
+
+from core.network.session import NetworkSession
+from core.utils.paths import get_specs_root, to_extended_path
+from modules.spec_search.core.spec_search_threads import is_change_mark_file
+from modules.word_tools.core.document_opener import open_document
+
+logger = logging.getLogger(__name__)
+
+
+def version_to_letter_code(version: str) -> str:
+    """
+    Converts a standard 3GPP version (e.g. '16.20.0') to its 3-character filename code ('gk0').
+    """
+    parts = str(version).lstrip("v").strip().split(".")
+    if len(parts) != 3:
+        return ""
+
+    def num_to_char(n: int) -> str:
+        if n < 10:
+            return str(n)
+        return chr(ord("a") + n - 10)
+
+    try:
+        return f"{num_to_char(int(parts[0]))}{num_to_char(int(parts[1]))}{num_to_char(int(parts[2]))}"
+    except Exception:
+        return ""
+
+
+def match_multipart_document_for_clause(docs: List[Path], clause_number: Optional[str]) -> Optional[Path]:
+    """
+    If multiple split documents exist (e.g., '_s00_s04.docx', '_s05_s08.docx'),
+    picks the document corresponding to the specified top-level clause number.
+    """
+    if not docs:
+        return None
+    if len(docs) == 1 or not clause_number:
+        return docs[0]
+
+    match = re.match(r"^(\d+)", clause_number.strip())
+    if not match:
+        return docs[0]
+
+    top_clause = int(match.group(1))
+
+    for doc in docs:
+        part_match = re.search(r"_s(\d+)_s(\d+)", doc.stem, re.IGNORECASE)
+        if part_match:
+            start_clause = int(part_match.group(1))
+            end_clause = int(part_match.group(2))
+            if start_clause <= top_clause <= end_clause:
+                return doc
+
+    return docs[0]
+
+
+class SpecDownloadWorker(QThread):
+    """Background worker for on-demand specification ZIP download."""
+    progress = pyqtSignal(int)
+    finished_success = pyqtSignal(Path)
+    error = pyqtSignal(str)
+
+    def __init__(self, url: str, target_zip_path: Path):
+        super().__init__()
+        self.url = url
+        self.target_zip_path = target_zip_path
+
+    def run(self):
+        try:
+            self.target_zip_path.parent.mkdir(parents=True, exist_ok=True)
+            NetworkSession.download_file(self.url, self.target_zip_path)
+            self.finished_success.emit(self.target_zip_path)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class SpecDocResolver:
+    """Dispatches specification document requests to local Word, PDF, or Explorer."""
+
+    @staticmethod
+    def resolve_spec_files(
+        spec_number: str,
+        version: str,
+        cache_dir: Optional[Path] = None,
+        specs_db: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Locates the specification directory and files for the given spec and version.
+        """
+        clean_spec = str(spec_number or "").strip()
+        clean_ver = str(version or "").lstrip("v").strip()
+
+        base_cache = Path(cache_dir) if cache_dir else get_specs_root()
+        spec_dir = base_cache / clean_spec
+
+        db_filename = None
+        db_url = None
+        if specs_db:
+            try:
+                rows = specs_db.search_files(spec_number=clean_spec, release_version=clean_ver)
+                if rows:
+                    db_filename = rows[0][4]
+                    db_url = rows[0][6]
+            except Exception as e:
+                logger.warning(f"Could not query specs_db for {clean_spec} v{clean_ver}: {e}")
+
+        # Compute fallback stem
+        if db_filename:
+            stem = Path(db_filename).stem.lower()
+        else:
+            code = version_to_letter_code(clean_ver)
+            num_clean = clean_spec.replace(".", "").replace("-", "")
+            stem = f"{num_clean}-{code}".lower() if code else clean_spec.lower()
+
+        local_files: List[Path] = []
+        if spec_dir.exists():
+            try:
+                local_files = [p for p in spec_dir.iterdir() if p.is_file()]
+            except OSError:
+                local_files = []
+
+        word_docs: List[Path] = []
+        pdf_docs: List[Path] = []
+        zip_file: Optional[Path] = None
+
+        for f in local_files:
+            fname_lower = f.name.lower()
+            if fname_lower.endswith((".docx", ".doc")):
+                if stem and (fname_lower.startswith(stem) or stem in fname_lower):
+                    if not is_change_mark_file(f.name):
+                        word_docs.append(f)
+            elif fname_lower.endswith(".pdf"):
+                if stem and (fname_lower.startswith(stem) or stem in fname_lower):
+                    pdf_docs.append(f)
+            elif fname_lower.endswith(".zip"):
+                if db_filename and fname_lower == db_filename.lower():
+                    zip_file = f
+                elif stem and (fname_lower.startswith(stem) or stem in fname_lower):
+                    zip_file = f
+
+        word_docs.sort(key=lambda p: p.name)
+
+        return {
+            "spec_number": clean_spec,
+            "version": clean_ver,
+            "spec_dir": spec_dir,
+            "filename": db_filename,
+            "url": db_url,
+            "stem": stem,
+            "word_docs": word_docs,
+            "pdf_docs": pdf_docs,
+            "zip_file": zip_file,
+            "is_downloaded": bool(word_docs or zip_file),
+        }
+
+    @staticmethod
+    def extract_word_from_zip(zip_path: Path, target_dir: Path) -> List[Path]:
+        """
+        Extracts clean Word documents from an archive, filtering revision-mark documents.
+        """
+        extracted: List[Path] = []
+        ext_zip_path = to_extended_path(zip_path)
+        if not os.path.exists(ext_zip_path):
+            return extracted
+
+        try:
+            with zipfile.ZipFile(ext_zip_path, "r") as zf:
+                for member in zf.namelist():
+                    if member.startswith("._") or "__MACOSX" in member:
+                        continue
+                    if member.lower().endswith((".docx", ".doc")) and not is_change_mark_file(member):
+                        target_file = target_dir / Path(member).name
+                        ext_target_file = to_extended_path(target_file)
+                        if not os.path.exists(ext_target_file):
+                            with open(ext_target_file, "wb") as f:
+                                f.write(zf.read(member))
+                        if target_file not in extracted:
+                            extracted.append(target_file)
+        except Exception as e:
+            logger.error(f"Failed to extract {zip_path}: {e}")
+
+        extracted.sort(key=lambda p: p.name)
+        return extracted
+
+    @staticmethod
+    def open_spec(
+        spec_number: str,
+        version: str,
+        clause_number: Optional[str] = None,
+        doc_format: str = "word",
+        cache_dir: Optional[Path] = None,
+        specs_db: Optional[Any] = None,
+        parent_widget: Optional[QWidget] = None,
+        on_opened_callback: Optional[Any] = None,
+    ) -> bool:
+        """
+        Main entry point to resolve and launch a specification document.
+        Assists search by copying 'Clause X.Y.Z' to clipboard when opening Word.
+        """
+        info = SpecDocResolver.resolve_spec_files(spec_number, version, cache_dir, specs_db)
+        spec_dir = info["spec_dir"]
+
+        # --- 1. OPEN FOLDER ---
+        if doc_format == "folder":
+            if spec_dir.exists():
+                try:
+                    os.startfile(str(spec_dir))
+                    return True
+                except Exception as e:
+                    logger.error(f"Failed to open folder {spec_dir}: {e}")
+            else:
+                QMessageBox.information(
+                    parent_widget,
+                    "Folder Not Found",
+                    f"The local folder for TS {spec_number} has not been created yet:\n{spec_dir}",
+                )
+            return False
+
+        # --- 2. OPEN PDF ---
+        if doc_format == "pdf":
+            if info["pdf_docs"]:
+                try:
+                    open_document(info["pdf_docs"][0])
+                    return True
+                except Exception as e:
+                    logger.error(f"Failed to open PDF {info['pdf_docs'][0]}: {e}")
+                    QMessageBox.warning(parent_widget, "Open Error", f"Could not open PDF:\n{e}")
+                    return False
+            else:
+                QMessageBox.information(
+                    parent_widget,
+                    "PDF Not Available",
+                    f"No converted PDF document found for TS {spec_number} v{version}.\n\n"
+                    f"You can open the Word (.docx) version instead, or convert it via the Specifications tab.",
+                )
+                return False
+
+        # --- 3. OPEN WORD (.docx / .doc) ---
+        target_doc = None
+        if info["word_docs"]:
+            target_doc = match_multipart_document_for_clause(info["word_docs"], clause_number)
+        elif info["zip_file"] and info["zip_file"].exists():
+            # Extract from ZIP on the fly
+            extracted = SpecDocResolver.extract_word_from_zip(info["zip_file"], spec_dir)
+            if extracted:
+                target_doc = match_multipart_document_for_clause(extracted, clause_number)
+
+        if target_doc and target_doc.exists():
+            # Clipboard search assistance for delegates
+            clip_text = f"Clause {clause_number}" if clause_number else f"TS {spec_number}"
+            clipboard = QApplication.clipboard()
+            if clipboard and clause_number:
+                clipboard.setText(clause_number.strip())
+
+            try:
+                open_document(target_doc)
+                msg = f"Opening '{target_doc.name}'"
+                if clause_number:
+                    msg += f" — '{clause_number}' copied to clipboard (press Ctrl+F in Word to jump directly)."
+                logger.info(f"✅ {msg}")
+
+                if parent_widget and hasattr(parent_widget, "matrix_title"):
+                    parent_widget.matrix_title.setText(f"📖 {msg}")
+
+                if on_opened_callback:
+                    on_opened_callback(target_doc)
+                return True
+            except Exception as e:
+                logger.error(f"Failed to open document {target_doc}: {e}")
+                QMessageBox.critical(parent_widget, "Word Open Error", f"Could not launch Microsoft Word:\n{e}")
+                return False
+
+        # --- 4. FILE NOT PRESENT: OFFER DOWNLOAD ---
+        if not info["url"]:
+            QMessageBox.warning(
+                parent_widget,
+                "Document Not Found",
+                f"No local Word document or ZIP archive found for TS {spec_number} v{version}.\n\n"
+                f"Please open the '📚 Specifications' tab to locate or download this release.",
+            )
+            return False
+
+        reply = QMessageBox.question(
+            parent_widget,
+            "Download Specification",
+            f"TS {spec_number} v{version} is not yet downloaded locally.\n\n"
+            f"Would you like to download it now from 3GPP FTP?\n"
+            f"File: {info['filename'] or 'Archive'}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if reply != QMessageBox.Yes:
+            return False
+
+        # Background download with progress dialog
+        zip_target = spec_dir / (info["filename"] or f"{info['stem']}.zip")
+        prog = QProgressDialog(f"Downloading TS {spec_number} v{version} from 3GPP FTP...", "Cancel", 0, 0, parent_widget)
+        prog.setWindowTitle("Downloading 3GPP Specification")
+        prog.setWindowModality(1)  # Qt.WindowModal
+
+        worker = SpecDownloadWorker(info["url"], zip_target)
+
+        def on_download_success(downloaded_zip: Path):
+            prog.close()
+            extracted = SpecDocResolver.extract_word_from_zip(downloaded_zip, spec_dir)
+            if extracted:
+                final_doc = match_multipart_document_for_clause(extracted, clause_number)
+                if final_doc:
+                    if clause_number:
+                        QApplication.clipboard().setText(clause_number.strip())
+                    open_document(final_doc)
+                    logger.info(f"✅ Downloaded and opened '{final_doc.name}'")
+            else:
+                QMessageBox.warning(parent_widget, "Extraction Issue", "Downloaded ZIP did not contain clean Word documents.")
+
+        def on_download_error(err_str: str):
+            prog.close()
+            QMessageBox.critical(parent_widget, "Download Failed", f"Could not download specification:\n{err_str}")
+
+        worker.finished_success.connect(on_download_success)
+        worker.error.connect(on_download_error)
+        prog.canceled.connect(worker.requestInterruption)
+
+        worker.start()
+        prog.exec_()
+        return True

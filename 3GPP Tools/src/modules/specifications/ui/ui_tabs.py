@@ -194,6 +194,8 @@ class SpecificationsTab(QWidget):
     update_db_requested = pyqtSignal(bool)
     update_specific_requested = pyqtSignal(list, bool)
     log_msg = pyqtSignal(str, int)
+    search_in_spec_search_requested = pyqtSignal(str, str)  # spec_number, version
+    index_in_spec_search_requested = pyqtSignal(str, str)   # spec_number, version
 
     def __init__(self, db_path: Path):
         super().__init__()
@@ -239,6 +241,44 @@ class SpecificationsTab(QWidget):
         if not self._is_loaded:
             self._is_loaded = True
             self.refresh_table()
+
+    def select_and_show_spec(self, spec_number: str, version: str = None):
+        """
+        Focuses on a specific specification and version in the specifications table,
+        clearing conflicting filters and scrolling directly to the row.
+        """
+        clean_spec = spec_number.strip()
+        clean_ver = version.lstrip("v").strip() if version else None
+
+        self._is_loaded = True
+        self.spec_search_input.blockSignals(True)
+        self.spec_search_input.setText(clean_spec)
+        self.spec_search_input.blockSignals(False)
+
+        self.refresh_table()
+
+        # Find matching row in self.table
+        for r in range(self.table.rowCount()):
+            spec_widget = self.table.cellWidget(r, 0)
+            if spec_widget:
+                spec_label = spec_widget.findChild(QLabel, "specNumberLabel")
+                if spec_label and spec_label.property("specNumber") == clean_spec:
+                    self.table.selectRow(r)
+                    item_for_scroll = self.table.item(r, 1)
+                    if item_for_scroll:
+                        self.table.scrollToItem(item_for_scroll, QAbstractItemView.PositionAtCenter)
+
+                    if clean_ver:
+                        cell_widget = self.table.cellWidget(r, 2)
+                        if cell_widget:
+                            combo = cell_widget.findChild(QComboBox)
+                            if combo:
+                                for i in range(combo.count()):
+                                    c_data = combo.itemData(i) or {}
+                                    if c_data.get("version") == clean_ver or f"v{clean_ver}" in combo.itemText(i):
+                                        combo.setCurrentIndex(i)
+                                        break
+                    break
 
     # ==========================================
     # --- CONFIG / PERSISTENCE ---
@@ -1210,6 +1250,9 @@ class SpecificationsTab(QWidget):
                 web_action = menu.addAction("🌐  Open 3GPP Web Report")
                 web_action.triggered.connect(lambda _, s=spec_num: self._open_web_report(s))
 
+                search_action = menu.addAction("🔎  Track Evolution in Spec Search")
+                search_action.triggered.connect(lambda _, s=spec_num: self.search_in_spec_search_requested.emit(s, ""))
+
                 menu.addSeparator()
 
                 folder_action = menu.addAction("📂  Open Local Folder")
@@ -1468,6 +1511,14 @@ class SpecificationsTab(QWidget):
 
                     act_cr_pcr = menu.addAction("📝 Draft Contribution (CR / pCR)...")
                     act_cr_pcr.triggered.connect(lambda: self._open_cr_pcr_dialog(c))
+
+                    menu.addSeparator()
+
+                    act_search_tab = menu.addAction("🔎 Track Evolution / Clauses in Spec Search")
+                    act_search_tab.triggered.connect(lambda: self.search_in_spec_search_requested.emit(c_data["spec_num"], c_data.get("version", "")))
+
+                    act_index_search = menu.addAction("📥 Index into Spec Search DB")
+                    act_index_search.triggered.connect(lambda: self.index_in_spec_search_requested.emit(c_data["spec_num"], c_data.get("version", "")))
 
                     menu.addSeparator()
 
