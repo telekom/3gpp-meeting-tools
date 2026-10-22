@@ -253,7 +253,7 @@ def get_wg_badge_style_and_desc(wg: str) -> tuple:
             color: #3730A3;
             border: 1px solid #C7D2FE;
             border-radius: 3px;
-            padding: 1px 4px;
+            padding: 1px 0px;
             font-size: 10px;
             font-weight: bold;
         """
@@ -264,7 +264,7 @@ def get_wg_badge_style_and_desc(wg: str) -> tuple:
             color: #065F46;
             border: 1px solid #A7F3D0;
             border-radius: 3px;
-            padding: 1px 4px;
+            padding: 1px 0px;
             font-size: 10px;
             font-weight: bold;
         """
@@ -275,7 +275,7 @@ def get_wg_badge_style_and_desc(wg: str) -> tuple:
             color: #9A3412;
             border: 1px solid #FED7AA;
             border-radius: 3px;
-            padding: 1px 4px;
+            padding: 1px 0px;
             font-size: 10px;
             font-weight: bold;
         """
@@ -286,7 +286,7 @@ def get_wg_badge_style_and_desc(wg: str) -> tuple:
             color: #475569;
             border: 1px solid #CBD5E1;
             border-radius: 3px;
-            padding: 1px 4px;
+            padding: 1px 0px;
             font-size: 10px;
             font-weight: bold;
         """
@@ -1588,26 +1588,35 @@ class SpecificationsTab(QWidget):
 
                 spec_type = (data["type"] or "TS").upper()
                 type_badge = QLabel(spec_type)
+                type_badge.setFixedWidth(24)
+                type_badge.setAlignment(Qt.AlignCenter)
                 if spec_type == "TR":
                     type_badge.setStyleSheet("""
                         background-color: #F3E8FF; color: #6B21A8; border: 1px solid #E9D5FF;
-                        border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold;
+                        border-radius: 3px; padding: 1px 0px; font-size: 10px; font-weight: bold;
                     """)
                 else:
                     type_badge.setStyleSheet("""
                         background-color: #EBF8FF; color: #2B6CB0; border: 1px solid #BEE3F8;
-                        border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold;
+                        border-radius: 3px; padding: 1px 0px; font-size: 10px; font-weight: bold;
                     """)
 
                 wg_name = (data.get("wg") or "").strip()
-                wg_badge = None
+                wg_badge = QLabel(wg_name if wg_name and wg_name != "-" else "—")
+                wg_badge.setFixedWidth(42)
+                wg_badge.setAlignment(Qt.AlignCenter)
                 if wg_name and wg_name != "-":
-                    wg_badge = QLabel(wg_name)
                     wg_badge.setCursor(Qt.PointingHandCursor)
                     wg_style, wg_desc = get_wg_badge_style_and_desc(wg_name)
                     wg_badge.setStyleSheet(wg_style)
                     wg_badge.setToolTip(f"Working Group: {wg_name} ({wg_desc})\nClick to filter by this Working Group")
                     wg_badge.mousePressEvent = lambda event, wg=wg_name: self._on_wg_badge_clicked(wg)
+                else:
+                    wg_badge.setStyleSheet("""
+                        background-color: #F8FAFC; color: #94A3B8; border: 1px solid #E2E8F0;
+                        border-radius: 3px; padding: 1px 0px; font-size: 10px; font-weight: bold;
+                    """)
+                    wg_badge.setToolTip("Working Group: Unassigned / Plenary")
 
                 display_title = f"{spec_num} ⭐" if is_fav else spec_num
                 spec_label = QLabel(display_title)
@@ -1620,8 +1629,7 @@ class SpecificationsTab(QWidget):
 
                 spec_layout.addWidget(action_btn)
                 spec_layout.addWidget(type_badge)
-                if wg_badge:
-                    spec_layout.addWidget(wg_badge)
+                spec_layout.addWidget(wg_badge)
                 spec_layout.addWidget(spec_label)
                 spec_layout.addStretch()
                 self.table.setCellWidget(row_idx, 0, spec_widget)

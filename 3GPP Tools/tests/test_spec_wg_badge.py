@@ -68,6 +68,19 @@ class TestSpecWGBadge(unittest.TestCase):
         # Column 0 width should be 195 to fit action button, type badge, WG badge, and spec number
         self.assertEqual(tab.table.columnWidth(0), 195)
 
+        # Populate a single spec and verify badges have exact uniform widths
+        tab.spec_search_input.setText("23.501")
+        tab.refresh_table()
+        self.assertGreater(tab.table.rowCount(), 0)
+        cell = tab.table.cellWidget(0, 0)
+        layout = cell.layout()
+        type_badge = layout.itemAt(1).widget()
+        wg_badge = layout.itemAt(2).widget()
+        self.assertEqual(type_badge.text(), "TS")
+        self.assertEqual(type_badge.width(), 24)
+        self.assertEqual(wg_badge.text(), "SA2")
+        self.assertEqual(wg_badge.width(), 42)
+
         # Test 1-click filter by WG
         tab._on_wg_badge_clicked("SA2")
         self.assertEqual(tab.table_filters.get("group"), "SA2")
