@@ -653,8 +653,15 @@ class SpecSearchTab(QWidget):
         QMessageBox.critical(self, "Wipe Error", f"Failed to wipe search database: {err}")
         logger.log(logging.ERROR, f"❌ Wipe error: {err}")
 
-    def _open_clause_diff_dialog(self, spec_num: str, version: str, clause_num: str, clause_title: str):
-        """Opens the interactive clause comparison dialog for LLM export."""
+    def _open_clause_diff_dialog(
+        self,
+        spec_num: str,
+        version: str,
+        clause_num: str,
+        clause_title: str,
+        base_version: Optional[str] = None,
+    ):
+        """Opens the unified clause comparison & analysis dialog (Visual Diff, LLM prompt, Word Track Changes)."""
         dialog = SpecClauseDiffDialog(
             db=self.db,
             spec_number=spec_num,
@@ -663,6 +670,7 @@ class SpecSearchTab(QWidget):
             clause_title=clause_title,
             cache_dir=self.cache_dir,
             specs_db=self.specs_db,
+            base_version=base_version,
             parent=self,
         )
         dialog.exec_()
@@ -680,12 +688,12 @@ class SpecSearchTab(QWidget):
         )
 
     def _start_clause_word_compare(self, spec_num: str, base_ver: str, target_ver: str, clause_num: str, clause_title: str):
-        """Extracts clause from both releases and executes Word comparison with track changes."""
+        """Extracts clause from both releases and executes Word comparison with Track Changes."""
         from modules.spec_search.core.spec_clause_word_comparator import SpecClauseWordCompareThread
         from PyQt5.QtWidgets import QProgressDialog
 
-        prog = QProgressDialog(f"Comparing Clause {clause_num} in Microsoft Word...", "Cancel", 0, 100, self)
-        prog.setWindowTitle("Word Redline Generation")
+        prog = QProgressDialog(f"Comparing Clause {clause_num} in Microsoft Word (Track Changes)...", "Cancel", 0, 100, self)
+        prog.setWindowTitle("Word Comparison (Track Changes)")
         prog.setWindowModality(1)
         prog.setValue(5)
 
@@ -709,7 +717,11 @@ class SpecSearchTab(QWidget):
 
         def on_error(err):
             prog.close()
-            QMessageBox.critical(self, "Word Comparison Failed", f"Could not generate Word redline:\n{err}")
+            QMessageBox.critical(
+                self,
+                "Word Comparison Failed",
+                f"Could not generate Microsoft Word comparison with Track Changes:\n{err}\n\nTip: You can inspect the clause differences directly in the Diff & AI Analysis dialog."
+            )
 
         worker.progress.connect(on_progress)
         worker.finished_success.connect(on_success)
@@ -729,22 +741,13 @@ class SpecSearchTab(QWidget):
 
     def _handle_quick_diff(self, spec_num: str, base_ver: str, target_ver: str, clause_num: str, clause_title: str):
         """Opens the clause comparison dialog pre-configured with base and target releases."""
-        dialog = SpecClauseDiffDialog(
-            db=self.db,
-            spec_number=spec_num,
-            current_version=target_ver,
-            clause_number=clause_num,
+        self._open_clause_diff_dialog(
+            spec_num=spec_num,
+            version=target_ver,
+            clause_num=clause_num,
             clause_title=clause_title,
-            cache_dir=self.cache_dir,
-            specs_db=self.specs_db,
-            parent=self,
+            base_version=base_ver,
         )
-        clean_base = base_ver.lstrip("v").strip()
-        for i in range(dialog.base_ver_combo.count()):
-            if clean_base in dialog.base_ver_combo.itemText(i):
-                dialog.base_ver_combo.setCurrentIndex(i)
-                break
-        dialog.exec_()
 
     def _handle_jump_to_version(self, spec_number: str, target_version: str, clause_number: str):
         """Jumps the inspector and matrix selection directly to the target version for this clause."""
@@ -831,14 +834,11 @@ class SpecSearchTab(QWidget):
         menu.addSeparator()
 
         if prev_ver:
-            act_word_redline = menu.addAction(f"📝 Compare Clause {clause_num} in Word (Redline vs v{prev_ver})...")
-            act_word_redline.triggered.connect(lambda: self._start_clause_word_compare(spec_num, prev_ver, version, clause_num, clause_title))
-
-            act_diff = menu.addAction(f"🔍 Compare Clause {clause_num} with Preceding v{prev_ver} (Diff Dialog)...")
-            act_diff.triggered.connect(lambda: self._handle_quick_diff(spec_num, prev_ver, version, clause_num, clause_title))
-
-        act_llm = menu.addAction("🤖 Compare Clause for LLM Prompt...")
-        act_llm.triggered.connect(lambda: self._open_clause_diff_dialog(spec_num, version, clause_num, clause_title))
+            act_compare = menu.addAction(f"🔍 Compare Clause {clause_num} (Diff & AI Analysis vs v{prev_ver})...")
+            act_compare.triggered.connect(lambda: self._open_clause_diff_dialog(spec_num, version, clause_num, clause_title, base_version=prev_ver))
+        else:
+            act_compare = menu.addAction(f"🔍 Compare Clause {clause_num} (Diff & AI Analysis)...")
+            act_compare.triggered.connect(lambda: self._open_clause_diff_dialog(spec_num, version, clause_num, clause_title))
 
         menu.addSeparator()
         act_copy = menu.addAction("📋 Copy Clause Citation")

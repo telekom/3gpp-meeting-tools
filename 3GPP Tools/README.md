@@ -137,10 +137,11 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Multi-Part Document Targeting:** For split specifications (e.g. `TS 23.501` Rel-17/18/19), `SpecDocResolver` automatically selects and opens the exact sub-part file covering the selected clause (e.g., Clause 4.4.1 opens `_s00_s04.docx`).
   * **Clipboard Clause Assist:** When launching Word, the system automatically copies the clause reference (`Clause X.Y.Z`) to the Windows clipboard with a status alert, allowing delegates to jump directly to the target clause using <kbd>Ctrl+F</kbd> + <kbd>Ctrl+V</kbd>.
   * **On-Demand Retrieval & Extraction:** Automatically detects cached `.zip` files and extracts the clean specification (`-cl`, skipping revision-mark `-rm` files) on the fly, or offers 1-click background downloading with progress tracking if the document is not yet cached.
-* **Clause-Level Microsoft Word Redline Comparison:**
-  * **Programmatic Redline Generation:** Generate a native Microsoft Word comparison (`CompareDocuments` legal redline with tracked revisions) between any two clause versions directly from the UI.
-  * **Targeted Excerpting & Security Labeling:** Scans document headings with `WordHeadingScanner`, extracts only the targeted clause excerpts via `WordExcerptEngine`, applies corporate sensitivity labels, and executes Word COM comparison to produce a clean, focused redline document.
-  * **Universal Access:** Launch Word comparisons directly from the matrix cell right-click menu (**`Compare Clause in Word (Redline vs v...)`**) or from within the **Clause Diff Dialog** via the **`📝 Compare in Word (Redline)`** button.
+* **Clause-Level Comparison & Word Track Changes:**
+  * **Unified In-App Diff & AI Analysis Dialog:** Interactive modal providing instant color-coded visual text diffs (`+` additions, `-` deletions, chunk headers), change statistics, and multi-tier prompt generation for LLM standards analysis.
+  * **Programmatic Word Comparison (Track Changes):** Generate a native Microsoft Word comparison (`CompareDocuments` legal compare with tracked revisions) between any two clause versions directly from within the unified dialog or UI.
+  * **Targeted Excerpting & Security Labeling:** Scans document headings with `WordHeadingScanner`, extracts only the targeted clause excerpts via `WordExcerptEngine`, applies corporate sensitivity labels, and executes Word COM comparison to produce a clean, focused Word document with native Track Changes.
+  * **Universal Access:** Launch the unified comparison directly from the matrix cell right-click menu (**`🔍 Compare Clause (Diff & AI Analysis)...`**), or click **`📝 Open in Word (Track Changes)`** from inside the comparison dialog.
 * **Two-Way Cross-Tab Synergy with Specifications Tab:**
   * **Deep Link to Specifications Tab:** Click the **`🔍 Specs Tab`** button in the Inspector or select **`Show in Specifications Tab`** from the matrix context menu to switch to the **📚 Specifications** tab with the exact document and release selected.
   * **Deep Link to Spec Search:** From the **📚 Specifications** tab, right-click any specification or version to select **`🔎 Track Evolution in Spec Search`** (instantly filtering the search matrix to that spec) or **`📥 Index into Spec Search DB`** to ingest missing releases on demand.
@@ -559,9 +560,9 @@ python -m main_tools
    * Click **`📝 Open Word ▾`** in the Inspector (or double-click any matrix cell) to launch the exact specification release in Microsoft Word or PDF.
    * For multi-part documents (`_s00_s04.docx`, etc.), the resolver automatically opens the specific sub-part containing that clause.
    * The clause identifier (`Clause X.Y.Z`) is automatically copied to your clipboard so you can jump to it in Word immediately via <kbd>Ctrl+F</kbd> + <kbd>Ctrl+V</kbd>.
-7. **Clause-Level Word Redline Comparison:**
-   * Right-click any matrix cell and select **`Compare Clause in Word (Redline vs v...)`**, or click **`📝 Compare in Word (Redline)`** from inside the **Clause Diff Dialog**.
-   * The background engine extracts only the selected clause from both releases, applies corporate sensitivity labels, and drives Microsoft Word COM to generate an executive tracked-changes comparison document.
+7. **Clause-Level Comparison & Word Track Changes:**
+   * Right-click any matrix cell and select **`🔍 Compare Clause (Diff & AI Analysis)...`**, or click **`📝 Open in Word (Track Changes)`** from inside the comparison dialog.
+   * The background engine extracts only the selected clause from both releases, applies corporate sensitivity labels, and drives Microsoft Word COM to generate an executive tracked-changes comparison document. In addition, you can inspect the color-coded textual diff directly in the app without launching Word.
 8. **Cross-Tab Deep Linking:**
    * Click **`🔍 Specs Tab`** in the Inspector to jump directly to that specification and release in the **📚 Specifications** tab.
    * In the **📚 Specifications** tab, right-click any specification or release to select **`🔎 Track Evolution in Spec Search`** or **`📥 Index into Spec Search DB`**.
