@@ -296,9 +296,9 @@ class CodeEditorTab(QWidget):
         # 1. Top Section: Relevant to current diagram type
         relevant = [s for s in PLANTUML_SNIPPETS if current_type in s.diagram_scope]
         if relevant:
-            fav_menu = menu.addMenu(f"⚡ Common for {current_type}")
+            fav_menu = menu.addMenu(f"⚡ Common for {current_type}".replace("&", "&&"))
             for s in relevant[:12]:
-                act = QAction(s.label, self)
+                act = QAction(s.label.replace("&", "&&"), self)
                 act.setToolTip(s.description)
                 act.triggered.connect(lambda checked, snip=s: self.text_input.insert_snippet(snip))
                 fav_menu.addAction(act)
@@ -310,9 +310,10 @@ class CodeEditorTab(QWidget):
             categories.setdefault(snip.category, []).append(snip)
 
         for cat_name, snips in categories.items():
-            cat_menu = menu.addMenu(cat_name)
+            # Escape '&' as '&&' so Qt does not treat it as a keyboard mnemonic
+            cat_menu = menu.addMenu(cat_name.replace("&", "&&"))
             for snip in snips:
-                act = QAction(snip.label, self)
+                act = QAction(snip.label.replace("&", "&&"), self)
                 act.setToolTip(snip.description)
                 act.triggered.connect(lambda checked, s=snip: self.text_input.insert_snippet(s))
                 cat_menu.addAction(act)
