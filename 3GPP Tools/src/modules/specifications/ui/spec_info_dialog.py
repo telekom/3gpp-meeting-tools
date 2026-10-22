@@ -31,6 +31,7 @@ from core.ui.ui_components import (
     TABLE_STYLE_CLEAN,
 )
 from modules.specifications.ui.spec_annotations_dialog import EditSpecAnnotationsDialog
+from modules.specifications.ui.spec_menu import populate_spec_copy_menu
 from modules.specifications.utils.utils import normalize_dynareport_spec_number, build_dynareport_url
 
 logger = logging.getLogger(__name__)
@@ -195,6 +196,16 @@ class SpecInfoDialog(QDialog):
             ftp_btn.setCursor(Qt.PointingHandCursor)
             ftp_btn.clicked.connect(lambda: webbrowser.open(ftp_url))
             btn_layout.addWidget(ftp_btn)
+
+        copy_btn = QPushButton("📋 Quick Copy ▾")
+        copy_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        copy_btn.setCursor(Qt.PointingHandCursor)
+        copy_btn.setToolTip("Copy specification metadata in plain text and rich HTML form.")
+        copy_menu = QMenu(self)
+        copy_menu.setToolTipsVisible(True)
+        populate_spec_copy_menu(copy_menu, self, spec_num, details=self.details, db=self.db)
+        copy_btn.setMenu(copy_menu)
+        btn_layout.addWidget(copy_btn)
 
         btn_layout.addStretch()
 

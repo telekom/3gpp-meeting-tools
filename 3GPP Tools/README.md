@@ -221,6 +221,20 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Batch Tagging:** Select multiple specifications (e.g., an entire set of SA5 specs) and right-click $\rightarrow$ **`🏷️ Add Tag to selected (N)...`** to tag all of them at once.
   * **Tag Filter Dropdown & Pills:** Filter the table by any user tag using the dedicated `🏷️ Tag:` filter dropdown or dismissible filter badges.
 
+* **📋 Specification Quick Copy & Rich Clipboard Engine:**
+  * **Dual-Format Clipboard (`QMimeData`):** Seamless multi-target clipboard export setting both plain text and rich HTML. Rich-text applications (Outlook, Word, Teams, OneNote) paste formatted text with active hyperlinks to the official 3GPP DynaReport status page, while plain-text editors (Notepad, git commit, terminal, IDE) paste clean, unadorned text.
+  * **Granular Single-Specification Actions:** Accessible via right-click table context menu, Column 0 `⋮` action button, and the `SpecInfoDialog` footer (`📋 Quick Copy ▾` dropdown):
+    * *Copy Spec Number:* Canonical identifier (e.g. `TS 23.501`) with embedded 3GPP hyperlink.
+    * *Copy Number & Title:* `TS 23.501: System architecture for the 5G System (5GS)`.
+    * *Copy Full Citation (with WG):* Complete reference including responsible Working Group (e.g. `TS 23.501: System architecture for the 5G System (5GS) (SA2)`).
+    * *Copy Number & WG:* Compact working group reference `TS 23.501 (SA2)`.
+    * *Copy Title:* Clean specification title.
+    * *Copy as Markdown Link:* Standards-ready markdown syntax `[TS 23.501](https://www.3gpp.org/DynaReport/23501.htm)` or with title `[TS 23.501](url) - Title`.
+    * *Direct URLs:* One-click copy for the 3GPP DynaReport web URL or FTP spec archive directory.
+  * **Batch Multi-Select Copying:** Select multiple rows in the specifications table and right-click to copy comma-separated numbers, multi-line title lists, complete citations with working groups, bulleted Markdown lists, or URL lists.
+  * **Keyboard Shortcut (`Ctrl+C`):** Select one or more rows and press `Ctrl+C` to instantly copy complete specification citations with hyperlinks to the clipboard.
+  * **Non-Blocking Tooltip Feedback:** Every copy action displays an instant floating cursor tooltip (`📋 Copied {label} to clipboard!`) without interrupting delegate workflow.
+
 * **✂️ 3GPP Specification Clause & Excerpt Extractor:**
   * **Instant Excerpt Dialog from Version Menu:** Select any specification release in the Specifications tab and click **`✂️ Extract Clauses (Excerpt)...`** to launch a modeless clause extractor window.
   * **Automated Background Fetch & Smart Unzipping:** Automatically downloads missing archives from 3GPP FTP, skips YAML, OpenAPI, and PDF files, and extracts clean Word documents while filtering out revision marks (`-rm`).
