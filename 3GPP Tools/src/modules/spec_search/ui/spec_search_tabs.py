@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import QDate, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
+    QApplication,
+    QMenu,
     QCheckBox,
     QDateEdit,
     QFileDialog,
@@ -35,6 +37,7 @@ from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_T
 from core.utils.paths import get_project_root, get_specs_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
+from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase
 from modules.spec_search.core.spec_search_threads import (
     SpecSearchImportThread,
@@ -57,6 +60,7 @@ class SpecSearchTab(QWidget):
     """Main Search Tab: Tree, Query Inputs, Cutoff Date Filter, Tabbed Evolution Matrix, and Inspector."""
 
     log_msg = pyqtSignal(str, int)
+    navigate_to_specs_tab_requested = pyqtSignal(str, str)  # spec_number, version
 
     def __init__(self, search_db_path: Path, specs_db_path: Optional[Path] = None):
         super().__init__()
@@ -212,6 +216,10 @@ class SpecSearchTab(QWidget):
 
         self.inspector = SpecClauseInspector()
         self.inspector.compare_clause_requested.connect(self._open_clause_diff_dialog)
+        self.inspector.open_document_requested.connect(self._handle_open_spec_document)
+        self.inspector.show_in_specs_tab_requested.connect(self._handle_show_in_specs_tab)
+        self.inspector.quick_diff_requested.connect(self._handle_quick_diff)
+        self.inspector.jump_to_version_requested.connect(self._handle_jump_to_version)
         right_splitter.addWidget(self.inspector)
 
         right_splitter.setSizes([420, 240])
@@ -397,6 +405,9 @@ class SpecSearchTab(QWidget):
                 table.setColumnWidth(c, 110)
 
             table.clicked.connect(lambda idx, s=spec_num, t=table: self._on_tab_table_clicked(idx, s, t))
+            table.doubleClicked.connect(lambda idx, s=spec_num, t=table: self._on_table_double_clicked(idx, s, t))
+            table.setContextMenuPolicy(Qt.CustomContextMenu)
+            table.customContextMenuRequested.connect(lambda pos, t=table, s=spec_num: self._show_matrix_context_menu(pos, t, s))
 
             tab_title = f"TS {spec_num} ({model.rowCount()})"
             self.spec_results_tabs.addTab(table, tab_title)
@@ -430,6 +441,19 @@ class SpecSearchTab(QWidget):
         ver_match = re.search(r"v([0-9\.]+)", ver_header)
         version = ver_match.group(1) if ver_match else ver_header.lstrip("v")
 
+        # Resolve introductory version & preceding version
+        first_added_ver_header = model.get_first_added_version(row)
+        first_added_ver = None
+        if first_added_ver_header:
+            m = re.search(r"v([0-9\.]+)", first_added_ver_header)
+            first_added_ver = m.group(1) if m else first_added_ver_header.lstrip("v")
+
+        prev_ver_header = model.get_preceding_version(ver_header)
+        prev_ver = None
+        if prev_ver_header:
+            m = re.search(r"v([0-9\.]+)", prev_ver_header)
+            prev_ver = m.group(1) if m else prev_ver_header.lstrip("v")
+
         # 1. Fetch by direct SQLite primary key (clause_pk)
         clause_data = None
         target_pk = model.get_clause_pk(row, ver_header)
@@ -452,6 +476,8 @@ class SpecSearchTab(QWidget):
                 release_date=clause_data.get("release_date"),
                 content=clause_data.get("content", ""),
                 search_query=query,
+                first_added_ver=first_added_ver,
+                prev_ver=prev_ver,
             )
 
     # -------------------------------------------------------------------------
@@ -635,9 +661,234 @@ class SpecSearchTab(QWidget):
             current_version=version,
             clause_number=clause_num,
             clause_title=clause_title,
+            cache_dir=self.cache_dir,
+            specs_db=self.specs_db,
             parent=self,
         )
         dialog.exec_()
+
+    def _handle_open_spec_document(self, spec_number: str, version: str, clause_number: str, doc_format: str = "word"):
+        """Dispatches specification document opening via SpecDocResolver."""
+        SpecDocResolver.open_spec(
+            spec_number=spec_number,
+            version=version,
+            clause_number=clause_number,
+            doc_format=doc_format,
+            cache_dir=self.cache_dir,
+            specs_db=self.specs_db,
+            parent_widget=self,
+        )
+
+    def _start_clause_word_compare(self, spec_num: str, base_ver: str, target_ver: str, clause_num: str, clause_title: str):
+        """Extracts clause from both releases and executes Word comparison with track changes."""
+        from modules.spec_search.core.spec_clause_word_comparator import SpecClauseWordCompareThread
+        from PyQt5.QtWidgets import QProgressDialog
+
+        prog = QProgressDialog(f"Comparing Clause {clause_num} in Microsoft Word...", "Cancel", 0, 100, self)
+        prog.setWindowTitle("Word Redline Generation")
+        prog.setWindowModality(1)
+        prog.setValue(5)
+
+        worker = SpecClauseWordCompareThread(
+            spec_number=spec_num,
+            base_version=base_ver,
+            target_version=target_ver,
+            clause_number=clause_num,
+            clause_title=clause_title,
+            cache_dir=self.cache_dir,
+            specs_db=self.specs_db,
+        )
+
+        def on_progress(val, msg):
+            prog.setValue(val)
+            prog.setLabelText(msg)
+
+        def on_success(msg):
+            prog.close()
+            logger.info(f"✅ {msg}")
+
+        def on_error(err):
+            prog.close()
+            QMessageBox.critical(self, "Word Comparison Failed", f"Could not generate Word redline:\n{err}")
+
+        worker.progress.connect(on_progress)
+        worker.finished_success.connect(on_success)
+        worker.error.connect(on_error)
+        prog.canceled.connect(worker.requestInterruption)
+
+        self._active_word_workers = getattr(self, "_active_word_workers", [])
+        self._active_word_workers.append(worker)
+        worker.finished.connect(lambda: self._active_word_workers.remove(worker) if worker in self._active_word_workers else None)
+
+        worker.start()
+        prog.exec_()
+
+    def _handle_show_in_specs_tab(self, spec_number: str, version: str):
+        """Emits signal to switch to Specifications tab with spec and version pre-selected."""
+        self.navigate_to_specs_tab_requested.emit(spec_number, version)
+
+    def _handle_quick_diff(self, spec_num: str, base_ver: str, target_ver: str, clause_num: str, clause_title: str):
+        """Opens the clause comparison dialog pre-configured with base and target releases."""
+        dialog = SpecClauseDiffDialog(
+            db=self.db,
+            spec_number=spec_num,
+            current_version=target_ver,
+            clause_number=clause_num,
+            clause_title=clause_title,
+            cache_dir=self.cache_dir,
+            specs_db=self.specs_db,
+            parent=self,
+        )
+        clean_base = base_ver.lstrip("v").strip()
+        for i in range(dialog.base_ver_combo.count()):
+            if clean_base in dialog.base_ver_combo.itemText(i):
+                dialog.base_ver_combo.setCurrentIndex(i)
+                break
+        dialog.exec_()
+
+    def _handle_jump_to_version(self, spec_number: str, target_version: str, clause_number: str):
+        """Jumps the inspector and matrix selection directly to the target version for this clause."""
+        clean_target = target_version.lstrip("v").strip()
+        for i in range(self.spec_results_tabs.count()):
+            tab_title = self.spec_results_tabs.tabText(i)
+            if f"TS {spec_number}" in tab_title:
+                self.spec_results_tabs.setCurrentIndex(i)
+                table = self.spec_results_tabs.widget(i)
+                if isinstance(table, QTableView):
+                    model = table.model()
+                    if isinstance(model, SpecEvolutionMatrixModel):
+                        for r in range(model.rowCount()):
+                            if str(model.data(model.index(r, 0), Qt.DisplayRole)).strip() == clause_number:
+                                target_col = 0
+                                for c_idx, v_col in enumerate(model._version_cols):
+                                    if clean_target in v_col:
+                                        target_col = c_idx + 2
+                                        break
+                                target_idx = model.index(r, target_col)
+                                table.setCurrentIndex(target_idx)
+                                self._on_tab_table_clicked(target_idx, spec_number, table)
+                                break
+                break
+
+    def _on_table_double_clicked(self, index, spec_num: str, table: QTableView):
+        """Double-clicking a matrix cell directly opens the specification in Word."""
+        model = table.model()
+        if not model:
+            return
+        row, col = index.row(), index.column()
+        clause_num = str(model.data(model.index(row, 0), Qt.DisplayRole) or "").strip()
+        if col >= 2:
+            ver_header = str(model._version_cols[col - 2])
+        else:
+            ver_header = str(model._version_cols[0])
+        ver_match = re.search(r"v([0-9\.]+)", ver_header)
+        version = ver_match.group(1) if ver_match else ver_header.lstrip("v")
+        self._handle_open_spec_document(spec_num, version, clause_num, "word")
+
+    def _show_matrix_context_menu(self, pos, table: QTableView, spec_num: str):
+        """Right-click context menu on Evolution Matrix cells."""
+        idx = table.indexAt(pos)
+        if not idx.isValid():
+            return
+        model = table.model()
+        if not model:
+            return
+
+        row, col = idx.row(), idx.column()
+        clause_num = str(model.data(model.index(row, 0), Qt.DisplayRole) or "").strip()
+        clause_title = str(model.data(model.index(row, 1), Qt.DisplayRole) or "").strip()
+
+        if col >= 2:
+            ver_header = str(model._version_cols[col - 2])
+        else:
+            ver_header = str(model._version_cols[0])
+
+        ver_match = re.search(r"v([0-9\.]+)", ver_header)
+        version = ver_match.group(1) if ver_match else ver_header.lstrip("v")
+
+        prev_ver_header = model.get_preceding_version(ver_header)
+        prev_ver = None
+        if prev_ver_header:
+            m = re.search(r"v([0-9\.]+)", prev_ver_header)
+            prev_ver = m.group(1) if m else prev_ver_header.lstrip("v")
+
+        menu = QMenu(self)
+
+        act_word = menu.addAction(f"📝 Open TS {spec_num} v{version} (Word)")
+        act_word.triggered.connect(lambda: self._handle_open_spec_document(spec_num, version, clause_num, "word"))
+
+        act_pdf = menu.addAction(f"📕 Open TS {spec_num} v{version} (PDF)")
+        act_pdf.triggered.connect(lambda: self._handle_open_spec_document(spec_num, version, clause_num, "pdf"))
+
+        act_folder = menu.addAction("📂 Open Local Folder in Explorer")
+        act_folder.triggered.connect(lambda: self._handle_open_spec_document(spec_num, version, clause_num, "folder"))
+
+        menu.addSeparator()
+
+        act_specs = menu.addAction(f"🔍 Show TS {spec_num} v{version} in Specifications Tab")
+        act_specs.triggered.connect(lambda: self._handle_show_in_specs_tab(spec_num, version))
+
+        menu.addSeparator()
+
+        if prev_ver:
+            act_word_redline = menu.addAction(f"📝 Compare Clause {clause_num} in Word (Redline vs v{prev_ver})...")
+            act_word_redline.triggered.connect(lambda: self._start_clause_word_compare(spec_num, prev_ver, version, clause_num, clause_title))
+
+            act_diff = menu.addAction(f"🔍 Compare Clause {clause_num} with Preceding v{prev_ver} (Diff Dialog)...")
+            act_diff.triggered.connect(lambda: self._handle_quick_diff(spec_num, prev_ver, version, clause_num, clause_title))
+
+        act_llm = menu.addAction("🤖 Compare Clause for LLM Prompt...")
+        act_llm.triggered.connect(lambda: self._open_clause_diff_dialog(spec_num, version, clause_num, clause_title))
+
+        menu.addSeparator()
+        act_copy = menu.addAction("📋 Copy Clause Citation")
+        act_copy.triggered.connect(lambda: QApplication.clipboard().setText(f"3GPP TS {spec_num} v{version}, Clause {clause_num} ({clause_title})"))
+
+        menu.exec_(table.viewport().mapToGlobal(pos))
+
+    def focus_spec(self, spec_number: str, version: Optional[str] = None):
+        """
+        External API to focus on a specific specification and version from other tabs.
+        Ensures the spec is selected in the version tree and search bar is focused.
+        """
+        clean_spec = spec_number.strip()
+        clean_ver = version.lstrip("v").strip() if version else None
+
+        # Check if spec is in version tree
+        all_specs = [
+            self.version_tree.topLevelItem(i).data(0, Qt.UserRole).get("spec_number")
+            for i in range(1, self.version_tree.topLevelItemCount())
+            if self.version_tree.topLevelItem(i).data(0, Qt.UserRole)
+        ]
+
+        if clean_spec in all_specs:
+            for i in range(1, self.version_tree.topLevelItemCount()):
+                item = self.version_tree.topLevelItem(i)
+                data = item.data(0, Qt.UserRole) or {}
+                if data.get("spec_number") == clean_spec:
+                    item.setExpanded(True)
+                    item.setCheckState(0, Qt.Checked)
+                    self.version_tree.setCurrentItem(item)
+                    self.version_tree.scrollToItem(item)
+                    break
+            self.selected_version_ids = self.version_tree.get_selected_version_ids()
+        else:
+            reply = QMessageBox.question(
+                self,
+                "Spec Not Indexed",
+                f"TS {clean_spec} is not yet indexed in the Spec Search database.\n\n"
+                f"Would you like to import it from the Specifications database now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Yes:
+                self._on_fetch_clicked()
+                return
+
+        self.search_input.setFocus()
+        self.search_input.selectAll()
+        if self.search_input.text().strip():
+            self._execute_search()
 
     def shutdown(self, wait_ms: int = 1500):
         """Cooperatively stop timers and wait for active background workers during app shutdown."""

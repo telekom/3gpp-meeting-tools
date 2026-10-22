@@ -1,6 +1,6 @@
 """
 UI Components: Version Tree Widget and Rich Clause Content Inspector with match excerpts,
-term navigation, one-click citation copying, and persistent selection state.
+term navigation, one-click citation copying, direct document opening, and persistent selection state.
 """
 
 import html
@@ -242,9 +242,16 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
 
 
 class SpecClauseInspector(QGroupBox):
-    """Renders rich clause content with context excerpts, match navigation, citation copying, and LLM comparison."""
+    """
+    Renders rich clause content with context excerpts, match navigation, citation copying,
+    1-click Word document launching, and deep-linking to the Specifications catalogue.
+    """
 
     compare_clause_requested = pyqtSignal(str, str, str, str)  # spec_number, version, clause_number, clause_title
+    open_document_requested = pyqtSignal(str, str, str, str)    # spec_number, version, clause_number, format ("word", "pdf", "folder")
+    show_in_specs_tab_requested = pyqtSignal(str, str)          # spec_number, version
+    quick_diff_requested = pyqtSignal(str, str, str, str, str)  # spec_number, base_ver, target_ver, clause_number, clause_title
+    jump_to_version_requested = pyqtSignal(str, str, str)       # spec_number, target_version, clause_number
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__("Clause Content Inspector", parent)
@@ -254,6 +261,8 @@ class SpecClauseInspector(QGroupBox):
         self._current_version = ""
         self._current_clause_num = ""
         self._current_clause_title = ""
+        self._first_added_ver = ""
+        self._prev_ver = ""
         self._setup_ui()
 
     def _setup_ui(self):
@@ -263,9 +272,34 @@ class SpecClauseInspector(QGroupBox):
 
         # Top Control Bar
         header_bar = QHBoxLayout()
+        header_bar.setSpacing(6)
+
         self.title_lbl = QLabel("No clause selected")
         self.title_lbl.setStyleSheet("font-weight: bold; color: #0284C7; font-size: 12px;")
         header_bar.addWidget(self.title_lbl, stretch=1)
+
+        # Clickable First Introduced Chip
+        self.first_added_badge = QPushButton("")
+        self.first_added_badge.setCursor(Qt.PointingHandCursor)
+        self.first_added_badge.setToolTip("Click to jump directly to the version where this clause was first introduced")
+        self.first_added_badge.setStyleSheet("""
+            QPushButton {
+                font-weight: bold;
+                font-size: 11px;
+                background-color: #DCFCE7;
+                color: #15803D;
+                border: 1px solid #86EFAC;
+                padding: 1px 8px;
+                border-radius: 10px;
+            }
+            QPushButton:hover {
+                background-color: #BBF7D0;
+                border-color: #4ADE80;
+            }
+        """)
+        self.first_added_badge.setVisible(False)
+        self.first_added_badge.clicked.connect(self._on_first_added_clicked)
+        header_bar.addWidget(self.first_added_badge)
 
         self.match_badge = QLabel("")
         self.match_badge.setStyleSheet("font-weight: bold; color: #B45309; background-color: #FEF3C7; padding: 2px 6px; border-radius: 4px;")
@@ -290,8 +324,97 @@ class SpecClauseInspector(QGroupBox):
         self.btn_copy.setEnabled(False)
         header_bar.addWidget(self.btn_copy)
 
+        # 1-Click Open Spec Document Button with Format Menu
+        self.btn_open_doc = QPushButton("📝 Open Word ▾")
+        self.btn_open_doc.setToolTip("Open specification Word document (Clause number copied to clipboard for instant search with Ctrl+F in Word)")
+        self.btn_open_doc.setCursor(Qt.PointingHandCursor)
+        self.btn_open_doc.setStyleSheet("""
+            QPushButton {
+                font-weight: bold;
+                background-color: #E8F5E9;
+                color: #2E7D32;
+                border: 1px solid #A5D6A7;
+                padding: 2px 8px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #C8E6C9;
+                color: #1B5E20;
+            }
+            QPushButton:disabled {
+                background-color: #F3F4F6;
+                color: #9CA3AF;
+                border: 1px solid #E5E7EB;
+            }
+        """)
+        doc_menu = QMenu(self)
+        act_word = doc_menu.addAction("📝 Open Word Document (.docx / .doc)")
+        act_word.triggered.connect(lambda: self._on_open_doc_clicked("word"))
+        act_pdf = doc_menu.addAction("📕 Open Converted PDF (.pdf)")
+        act_pdf.triggered.connect(lambda: self._on_open_doc_clicked("pdf"))
+        doc_menu.addSeparator()
+        act_folder = doc_menu.addAction("📂 Open Containing Folder in Explorer")
+        act_folder.triggered.connect(lambda: self._on_open_doc_clicked("folder"))
+        self.btn_open_doc.setMenu(doc_menu)
+        self.btn_open_doc.setEnabled(False)
+        header_bar.addWidget(self.btn_open_doc)
+
+        # Deep Link: Show in Specifications Tab
+        self.btn_show_in_specs = QPushButton("🔍 Specs Tab")
+        self.btn_show_in_specs.setToolTip("Switch to Specifications Tab with this spec and version selected")
+        self.btn_show_in_specs.setCursor(Qt.PointingHandCursor)
+        self.btn_show_in_specs.setStyleSheet("""
+            QPushButton {
+                font-weight: 500;
+                background-color: #EBF3FC;
+                color: #1E5C99;
+                border: 1px solid #B0D0F0;
+                padding: 2px 8px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #DFEDFA;
+                color: #004488;
+            }
+            QPushButton:disabled {
+                background-color: #F3F4F6;
+                color: #9CA3AF;
+                border: 1px solid #E5E7EB;
+            }
+        """)
+        self.btn_show_in_specs.clicked.connect(self._on_show_in_specs_clicked)
+        self.btn_show_in_specs.setEnabled(False)
+        header_bar.addWidget(self.btn_show_in_specs)
+
+        # Quick Diff with Preceding Release
+        self.btn_quick_diff = QPushButton("🔍 Diff Prev")
+        self.btn_quick_diff.setToolTip("Compare this clause with the immediately preceding release")
+        self.btn_quick_diff.setCursor(Qt.PointingHandCursor)
+        self.btn_quick_diff.setStyleSheet("""
+            QPushButton {
+                font-weight: 500;
+                background-color: #FEF3C7;
+                color: #92400E;
+                border: 1px solid #FCD34D;
+                padding: 2px 8px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #FDE68A;
+                color: #78350F;
+            }
+            QPushButton:disabled {
+                background-color: #F3F4F6;
+                color: #9CA3AF;
+                border: 1px solid #E5E7EB;
+            }
+        """)
+        self.btn_quick_diff.clicked.connect(self._on_quick_diff_clicked)
+        self.btn_quick_diff.setEnabled(False)
+        header_bar.addWidget(self.btn_quick_diff)
+
         # Dedicated LLM Diff Button
-        self.btn_llm_diff = QPushButton("🤖 Compare Clause for LLM")
+        self.btn_llm_diff = QPushButton("🤖 LLM Diff")
         self.btn_llm_diff.setToolTip("Compare this clause with another version and generate an LLM analysis prompt with hierarchical context.")
         self.btn_llm_diff.setStyleSheet("""
             QPushButton {
@@ -334,12 +457,16 @@ class SpecClauseInspector(QGroupBox):
         content: str,
         release_date: Optional[str] = None,
         search_query: str = "",
+        first_added_ver: Optional[str] = None,
+        prev_ver: Optional[str] = None,
     ):
         self._current_spec = spec_number
         self._current_version = version
         self._current_clause_num = clause_number
         self._current_clause_title = clause_title
         self._current_search_query = search_query.strip()
+        self._first_added_ver = first_added_ver or ""
+        self._prev_ver = prev_ver or ""
 
         date_str = f" ({release_date})" if release_date else ""
         header_title = f"TS {spec_number} v{version}{date_str} - Clause {clause_number}: {clause_title}"
@@ -348,6 +475,28 @@ class SpecClauseInspector(QGroupBox):
         self._last_citation_text = f"3GPP TS {spec_number} v{version}{date_str}, Clause {clause_number} ({clause_title}):\n\n{content}"
         self.btn_copy.setEnabled(True)
         self.btn_llm_diff.setEnabled(True)
+        self.btn_open_doc.setEnabled(True)
+        self.btn_show_in_specs.setEnabled(True)
+
+        # Update Quick Diff button
+        if self._prev_ver:
+            self.btn_quick_diff.setEnabled(True)
+            self.btn_quick_diff.setToolTip(f"Compare clause {clause_number} between preceding v{self._prev_ver} and current v{version}")
+        else:
+            self.btn_quick_diff.setEnabled(False)
+            self.btn_quick_diff.setToolTip("No preceding release indexed to compare against")
+
+        # Update First Introduced chip
+        if self._first_added_ver:
+            clean_first = self._first_added_ver.lstrip("v")
+            clean_curr = version.lstrip("v")
+            if clean_first == clean_curr:
+                self.first_added_badge.setText(f"🟢 First Added in v{clean_first}")
+            else:
+                self.first_added_badge.setText(f"🟢 Introduced in v{clean_first} (Click to View)")
+            self.first_added_badge.setVisible(True)
+        else:
+            self.first_added_badge.setVisible(False)
 
         match_count = 0
         if self._current_search_query:
@@ -390,6 +539,40 @@ class SpecClauseInspector(QGroupBox):
 
         if self._current_search_query and match_count > 0:
             self._find_next()
+
+    def _on_first_added_clicked(self):
+        if self._current_spec and self._first_added_ver:
+            self.jump_to_version_requested.emit(
+                self._current_spec,
+                self._first_added_ver,
+                self._current_clause_num,
+            )
+
+    def _on_open_doc_clicked(self, fmt="word"):
+        if self._current_spec and self._current_version:
+            self.open_document_requested.emit(
+                self._current_spec,
+                self._current_version,
+                self._current_clause_num,
+                fmt,
+            )
+
+    def _on_show_in_specs_clicked(self):
+        if self._current_spec:
+            self.show_in_specs_tab_requested.emit(
+                self._current_spec,
+                self._current_version,
+            )
+
+    def _on_quick_diff_clicked(self):
+        if self._current_spec and self._prev_ver and self._current_version:
+            self.quick_diff_requested.emit(
+                self._current_spec,
+                self._prev_ver,
+                self._current_version,
+                self._current_clause_num,
+                self._current_clause_title,
+            )
 
     def _on_llm_diff_clicked(self):
         if self._current_spec and self._current_clause_num:
@@ -447,9 +630,13 @@ class SpecClauseInspector(QGroupBox):
     def clear_display(self):
         self.title_lbl.setText("No clause selected")
         self.match_badge.setVisible(False)
+        self.first_added_badge.setVisible(False)
         self.btn_prev.setEnabled(False)
         self.btn_next.setEnabled(False)
         self.btn_copy.setEnabled(False)
+        self.btn_open_doc.setEnabled(False)
+        self.btn_show_in_specs.setEnabled(False)
+        self.btn_quick_diff.setEnabled(False)
         self.btn_llm_diff.setEnabled(False)
         self.browser.clear()
         self._current_search_query = ""
@@ -458,3 +645,5 @@ class SpecClauseInspector(QGroupBox):
         self._current_version = ""
         self._current_clause_num = ""
         self._current_clause_title = ""
+        self._first_added_ver = ""
+        self._prev_ver = ""

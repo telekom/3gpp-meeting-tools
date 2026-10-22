@@ -1,6 +1,7 @@
 # --- File: src/modules/spec_search/ui/spec_clause_diff_dialog.py ---
 import logging
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Any
 
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (
@@ -38,6 +39,8 @@ class SpecClauseDiffDialog(QDialog):
         current_version: str,
         clause_number: str,
         clause_title: str,
+        cache_dir: Optional[Path] = None,
+        specs_db: Optional[Any] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -46,7 +49,10 @@ class SpecClauseDiffDialog(QDialog):
         self.current_version = current_version
         self.clause_number = clause_number
         self.clause_title = clause_title
+        self.cache_dir = cache_dir
+        self.specs_db = specs_db
         self._generated_prompt = ""
+        self._word_cmp_worker = None
 
         self.setWindowTitle(f"🤖 Compare Clause {self.clause_number} for LLM Analysis (TS {self.spec_number})")
         self.resize(960, 680)
@@ -150,6 +156,30 @@ class SpecClauseDiffDialog(QDialog):
         self.btn_save.setStyleSheet("font-weight: bold; background-color: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; padding: 6px 14px; border-radius: 4px;")
         self.btn_save.clicked.connect(self._save_markdown)
         btn_bar.addWidget(self.btn_save)
+
+        self.btn_word_compare = QPushButton("📝 Compare in Word (Redline)")
+        self.btn_word_compare.setToolTip("Extract this clause from both specification releases and generate a native Word document with tracked redlines (strikethrough deletions & underlined insertions).")
+        self.btn_word_compare.setStyleSheet("""
+            QPushButton {
+                font-weight: bold;
+                background-color: #E8F5E9;
+                color: #2E7D32;
+                border: 1px solid #A5D6A7;
+                padding: 6px 14px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #C8E6C9;
+                color: #1B5E20;
+            }
+            QPushButton:disabled {
+                background-color: #F3F4F6;
+                color: #9CA3AF;
+                border: 1px solid #E5E7EB;
+            }
+        """)
+        self.btn_word_compare.clicked.connect(self._start_word_comparison)
+        btn_bar.addWidget(self.btn_word_compare)
 
         btn_bar.addStretch()
         self.btn_close = QPushButton("Close")
@@ -267,3 +297,51 @@ class SpecClauseDiffDialog(QDialog):
                 QMessageBox.information(self, "Saved", f"Prompt saved successfully to:\n{path}")
             except Exception as e:
                 QMessageBox.critical(self, "Save Error", f"Failed to write file:\n{e}")
+    def _start_word_comparison(self):
+        """Extracts this clause from Base and Target releases and runs native Word comparison."""
+        base_data = self.base_ver_combo.currentData()
+        target_data = self.target_ver_combo.currentData()
+        if not base_data or not target_data:
+            QMessageBox.warning(self, "Selection Required", "Please select both Base and Target specification releases.")
+            return
+
+        base_ver = base_data.get("version", "")
+        target_ver = target_data.get("version", "")
+
+        from modules.spec_search.core.spec_clause_word_comparator import SpecClauseWordCompareThread
+        from PyQt5.QtWidgets import QProgressDialog
+
+        prog = QProgressDialog(f"Comparing Clause {self.clause_number} in Microsoft Word...", "Cancel", 0, 100, self)
+        prog.setWindowTitle("Word Redline Generation")
+        prog.setWindowModality(1)  # Qt.WindowModal
+        prog.setValue(5)
+
+        self._word_cmp_worker = SpecClauseWordCompareThread(
+            spec_number=self.spec_number,
+            base_version=base_ver,
+            target_version=target_ver,
+            clause_number=self.clause_number,
+            clause_title=self.clause_title,
+            cache_dir=self.cache_dir,
+            specs_db=self.specs_db,
+        )
+
+        def on_progress(val, msg):
+            prog.setValue(val)
+            prog.setLabelText(msg)
+
+        def on_success(msg):
+            prog.close()
+            logger.info(f"✅ {msg}")
+
+        def on_error(err):
+            prog.close()
+            QMessageBox.critical(self, "Word Comparison Failed", f"Could not generate Word redline:\n{err}")
+
+        self._word_cmp_worker.progress.connect(on_progress)
+        self._word_cmp_worker.finished_success.connect(on_success)
+        self._word_cmp_worker.error.connect(on_error)
+        prog.canceled.connect(self._word_cmp_worker.requestInterruption)
+
+        self._word_cmp_worker.start()
+        prog.exec_()
