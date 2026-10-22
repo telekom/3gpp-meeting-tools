@@ -65,7 +65,7 @@ WAITING_SVG = """<svg width="500" height="150" xmlns="http://www.w3.org/2000/svg
     <text x="50%" y="55%" font-family="Segoe UI, Arial, sans-serif" font-size="18" fill="#888" text-anchor="middle">⏳ Waiting for PlantUML code...</text>
 </svg>"""
 
-# --- NEW: DYNAMIC ERROR SVG ---
+# --- DYNAMIC ERROR SVG ---
 ERROR_SVG_TEMPLATE = """<svg width="800" height="400" xmlns="http://www.w3.org/2000/svg">
     <rect width="100%" height="100%" fill="#FDEDED" rx="8" stroke="#D32F2F" stroke-width="2"/>
     <text x="20" y="40" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="bold" fill="#D32F2F">❌ PlantUML Syntax Error</text>
@@ -105,6 +105,8 @@ class PreviewGeneratorThread(QThread):
 
 class LivePreviewManager(QObject):
     log_msg = pyqtSignal(str, int)
+    svg_updated = pyqtSignal(str)
+    error_detected = pyqtSignal(int, str)
 
     def __init__(self, text_edit, jar_path):
         super().__init__()
@@ -112,6 +114,7 @@ class LivePreviewManager(QObject):
         self.jar_path = jar_path
         self.active = False
         self._pending_update = False
+        self._has_error = False
 
         # Isolate all generation to the OS Temp directory
         self.temp_dir = Path(tempfile.gettempdir()) / "puml2visio_live"
@@ -138,7 +141,7 @@ class LivePreviewManager(QObject):
 
         self.generator_thread = None
 
-    def toggle(self, state: bool):
+    def toggle(self, state: bool, open_browser: bool = False):
         self.active = state
         if self.active:
             self.text_edit.textChanged.connect(self._on_text_changed)
@@ -149,10 +152,11 @@ class LivePreviewManager(QObject):
                 except Exception:
                     pass
 
-            url = f"file://{self.html_path.resolve().as_posix()}"
-            webbrowser.open(url)
-
-            logger.info("👁️ Live Preview activated. Rendering to default browser.")
+            if open_browser:
+                self.open_in_browser()
+                logger.info("👁️ Live Preview activated. Rendering to default browser.")
+            else:
+                logger.info("👁️ Live Preview activated.")
             self._trigger_generation()
         else:
             try:
@@ -161,11 +165,19 @@ class LivePreviewManager(QObject):
                 pass
             self.debounce_timer.stop()
             self._pending_update = False
+            self._has_error = False
+            self.error_detected.emit(0, "")
             try:
                 self.svg_path.write_text(OFFLINE_SVG, encoding="utf-8")
+                self.svg_updated.emit(str(self.svg_path))
             except Exception:
                 pass
             logger.info("🙈 Live Preview deactivated.")
+
+    def open_in_browser(self):
+        """Opens the live preview web wrapper in the system default browser."""
+        url = f"file://{self.html_path.resolve().as_posix()}"
+        webbrowser.open(url)
 
     def update_now(self):
         if self.active:
@@ -181,6 +193,7 @@ class LivePreviewManager(QObject):
         if not text:
             try:
                 self.svg_path.write_text(WAITING_SVG, encoding="utf-8")
+                self.svg_updated.emit(str(self.svg_path))
             except Exception:
                 pass
             return
@@ -190,44 +203,63 @@ class LivePreviewManager(QObject):
             return
 
         self._pending_update = False
+        self._has_error = False
         self.generator_thread = PreviewGeneratorThread(text, self.jar_path, self.temp_dir)
 
-        # --- NEW: Hook into the error broadcast ---
+        # Hook into the error broadcast and thread completion
         self.generator_thread.error_occurred.connect(self._on_error)
         self.generator_thread.finished.connect(self._on_thread_finished)
 
         self.generator_thread.start()
 
     def _on_error(self, error_msg: str):
-        """Intercepts syntax errors and paints them directly into the Live Preview browser."""
-        # 1. Escape any stray HTML brackets so they don't break the SVG
-        error_msg = error_msg.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        """Intercepts syntax errors, paints them into SVG, and emits error line."""
+        self._has_error = True
 
-        # 2. Clean up the messy temporary path injected by PlantUML
-        # Converts "Error line 28 in file: C:\...\temp_render.puml" to "Error line 28"
-        error_msg = re.sub(r'(Error line \d+) in file:? .*temp_render\.puml', r'\1', error_msg, flags=re.IGNORECASE)
+        # Extract offending line number if present
+        line_no = 0
+        match = re.search(r'Error line (\d+)', error_msg, flags=re.IGNORECASE)
+        if match:
+            try:
+                line_no = int(match.group(1))
+            except ValueError:
+                line_no = 0
 
-        # 3. Build individual <text> rows (SVG doesn't support text wrapping natively)
-        lines = error_msg.splitlines()
+        self.error_detected.emit(line_no, error_msg)
+
+        # 1. Escape HTML brackets
+        clean_msg = error_msg.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+        # 2. Clean up temporary path injected by PlantUML
+        clean_msg = re.sub(r'(Error line \d+) in file:? .*temp_render\.puml', r'\1', clean_msg, flags=re.IGNORECASE)
+
+        # 3. Build individual <text> rows
+        lines = clean_msg.splitlines()
         svg_lines = []
         y_pos = 80
 
         for line in lines:
-            clean_line = line.strip()
-            # Ignore the repetitive wrapper label
-            if clean_line and clean_line != "PlantUML Syntax Error:":
+            line_str = line.strip()
+            if line_str and line_str != "PlantUML Syntax Error:":
                 svg_lines.append(
-                    f'<text x="20" y="{y_pos}" font-family="Consolas, Courier New, monospace" font-size="14" fill="#B71C1C">{clean_line}</text>')
+                    f'<text x="20" y="{y_pos}" font-family="Consolas, Courier New, monospace" font-size="14" fill="#B71C1C">{line_str}</text>')
                 y_pos += 22
 
-        # 4. Inject into the master template and safely overwrite the live file
+        # 4. Safely overwrite live file
         error_svg = ERROR_SVG_TEMPLATE.replace("{error_lines}", "\n".join(svg_lines))
-
         try:
             self.svg_path.write_text(error_svg, encoding="utf-8")
+            self.svg_updated.emit(str(self.svg_path))
         except Exception:
-            pass  # Ignore file lock issues during rapid typing
+            pass
 
     def _on_thread_finished(self):
+        # Notify preview panel of new SVG render
+        if self.svg_path.exists():
+            self.svg_updated.emit(str(self.svg_path))
+
+        if not self._has_error:
+            self.error_detected.emit(0, "")
+
         if getattr(self, '_pending_update', False):
             self._trigger_generation()

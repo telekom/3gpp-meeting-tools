@@ -117,6 +117,8 @@ class DragDropUI(QMainWindow):
         logging.info("🏁 [STARTUP:PREVIEW] Initializing LivePreviewManager...")
         self.live_preview = LivePreviewManager(self.code_tab.text_input, self.jar_path)
         self.live_preview.log_msg.connect(self.log_message)
+        self.live_preview.svg_updated.connect(self.code_tab.svg_preview.load_svg)
+        self.live_preview.error_detected.connect(self.code_tab.text_input.set_error_line)
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -134,8 +136,10 @@ class DragDropUI(QMainWindow):
         self.code_tab.docs_requested.connect(self.open_template_docs)
         self.code_tab.clear_requested.connect(self.clear_editor)
         self.code_tab.undo_requested.connect(self.code_tab.text_input.undo)
+        self.code_tab.redo_requested.connect(self.code_tab.text_input.redo)
         self.code_tab.copy_code_requested.connect(self.copy_editor_code)
         self.code_tab.live_view_toggled.connect(self.toggle_live_view)
+        self.code_tab.browser_preview_requested.connect(lambda: self.live_preview.open_in_browser())
         self.code_tab.planttext_requested.connect(self.show_in_planttext)
         self.code_tab.copy_path_requested.connect(self.copy_out_path)
         self.code_tab.open_folder_requested.connect(self.open_export_folder)
@@ -385,6 +389,19 @@ class DragDropUI(QMainWindow):
 
     def insert_template(self, selected_template):
         tpl = PLANTUML_TYPES[selected_template]["template"]
+        curr_text = self.code_tab.get_text()
+        if curr_text and curr_text.strip() != tpl.strip():
+            reply = QMessageBox.question(
+                self,
+                "Replace Diagram?",
+                f"The editor already contains PlantUML code.\n\n"
+                f"Do you want to replace it completely with the '{selected_template}' boilerplate?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
         self._set_editor_text(tpl)
         self.log_message(f"📝 Inserted boilerplate for '{selected_template}' diagram.", logging.INFO)
 
@@ -418,7 +435,8 @@ class DragDropUI(QMainWindow):
             self.log_message(f"❌ Failed to open URL: {e}", logging.ERROR)
 
     def toggle_live_view(self, checked):
-        self.live_preview.toggle(checked)
+        open_browser = self.code_tab.live_view_btn.isChecked()
+        self.live_preview.toggle(checked, open_browser=open_browser)
 
     def _on_status_reinit_requested(self):
         self.log_message("✅ Proxy configuration updated. Retrying system checks...", logging.INFO)
