@@ -427,7 +427,7 @@ cd 3gpp-meeting-tools/3GPP\ Tools
 ```bash
 pip install -r requirements.txt
 ```
-*Note: This installs `PyQt5`, `requests`, `python-docx`, `beautifulsoup4`, `openpyxl`, `pandas`, `plotly`, `networkx`, `lxml`, and `pywin32`.*
+*Note: This installs `PyQt5`, `requests`, `python-docx`, `beautifulsoup4`, `openpyxl`, `pandas`, `plotly`, `networkx`, `lxml`, `Pillow`, and `pywin32`.*
 
 ### 3. Launch the Application
 ```bash

@@ -25,7 +25,7 @@ This document is the authoritative technical reference for human developers and 
 - **Local Ollama Daemon (Optional for AI features):** Running locally at `http://127.0.0.1:11434`.
 
 ### Installation & Launching
-Dependencies are managed via `pyproject.toml` and `requirements.txt`:
+Dependencies are managed via `requirements.txt`:
 ```powershell
 pip install -r requirements.txt
 ```
@@ -47,7 +47,6 @@ python -m main_tools
 ```text
 3GPP Tools/
 ├── README.md                      # Comprehensive user & architectural documentation
-├── pyproject.toml                 # Package definition & CLI entry points
 ├── requirements.txt               # Direct runtime dependencies
 ├── AGENTS.md                      # Root developer and AI agent guide (this file)
 ├── output/                        # Default export directory for converted diagrams/docs
