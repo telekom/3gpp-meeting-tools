@@ -23,6 +23,40 @@ class CheckableComboBox(QComboBox):
         # Install filter ONLY to catch clicks on the dropdown list (viewport)
         self.view().viewport().installEventFilter(self)
 
+    def _refresh_text_and_tooltip(self):
+        """Calculates custom text and tooltip based on checked items and updates activeFilter state."""
+        checked = self.getCheckedItems()
+        total = max(0, self.model().rowCount() - 1)
+        is_filtered = (0 < len(checked) < total) or (total > 0 and len(checked) == 0)
+
+        if total == 0:
+            text = f"{self.title}: None"
+        elif len(checked) == total:
+            text = f"{self.title}: All"
+        elif len(checked) == 1:
+            raw_val = str(checked[0]) if checked[0] else "(Empty)"
+            if len(raw_val) > 14:
+                display_val = raw_val[:12] + "…"
+            else:
+                display_val = raw_val
+            text = f"{self.title}: {display_val}"
+            self.setToolTip(f"{self.title}: {raw_val}")
+        else:
+            text = f"{self.title}: {len(checked)} sel"
+            if len(checked) <= 6:
+                self.setToolTip(f"{self.title} ({len(checked)} selected):\n" + "\n".join(f"• {c}" for c in checked))
+            else:
+                self.setToolTip(f"{self.title}: {len(checked)} selected")
+
+        if getattr(self, "_active_filter_state", None) != is_filtered:
+            self._active_filter_state = is_filtered
+            self.setProperty("activeFilter", "true" if is_filtered else "false")
+            self.style().unpolish(self)
+            self.style().polish(self)
+
+        self._current_summary_text = text
+        return text
+
     def paintEvent(self, event):
         """Overrides the default rendering to display custom summary text natively."""
         painter = QStylePainter(self)
@@ -31,20 +65,7 @@ class CheckableComboBox(QComboBox):
         opt = QStyleOptionComboBox()
         self.initStyleOption(opt)
 
-        # Calculate custom text based on checked items
-        checked = self.getCheckedItems()
-        total = max(0, self.model().rowCount() - 1)
-
-        if total == 0:
-            text = f"{self.title}: None"
-        elif len(checked) == total:
-            text = f"{self.title}: All"
-        elif len(checked) == 1:
-            text = f"{self.title}: {checked[0] if checked[0] else '(Empty)'}"
-        else:
-            text = f"{self.title}: {len(checked)} selected"
-
-        opt.currentText = text
+        opt.currentText = self._refresh_text_and_tooltip()
 
         # Draw the combobox natively with the custom text
         self.style().drawComplexControl(QStyle.CC_ComboBox, opt, painter, self)
@@ -86,6 +107,7 @@ class CheckableComboBox(QComboBox):
                                 if root_item: root_item.setCheckState(Qt.Checked if all_checked else Qt.Unchecked)
 
                             self._updating = False
+                            self._refresh_text_and_tooltip()
                             self.update()  # Trigger paintEvent to update the button text
                             self.selectionChanged.emit(self.getCheckedItems())
                     return True
@@ -111,6 +133,7 @@ class CheckableComboBox(QComboBox):
             item.setCheckState(Qt.Checked)
             item.setData(str(text), Qt.UserRole)
             self.model().appendRow(item)
+        self._refresh_text_and_tooltip()
         self.update()
 
     def updateItems(self, items, display_labels=None):
@@ -155,6 +178,7 @@ class CheckableComboBox(QComboBox):
             root_item.setCheckState(Qt.Checked if all_checked_now else Qt.Unchecked)
 
         self.model().blockSignals(False)
+        self._refresh_text_and_tooltip()
         self.update()  # Trigger paintEvent to update the button text
 
     def setAvailability(self, available_values):
@@ -172,6 +196,7 @@ class CheckableComboBox(QComboBox):
             item.setForeground(normal_brush if is_available else muted_brush)
             item.setData(is_available, Qt.UserRole + 1)
 
+        self._refresh_text_and_tooltip()
         self.update()
 
     def getCheckedItems(self):
@@ -190,6 +215,13 @@ class CheckableComboBox(QComboBox):
         if total == 0:
             return True
         return len(self.getCheckedItems()) == total
+
+    def isFiltered(self) -> bool:
+        """Return True if the combobox is actively filtering (i.e. not all items are checked)."""
+        total = max(0, self.model().rowCount() - 1)
+        if total == 0:
+            return False
+        return len(self.getCheckedItems()) < total
 
     def setCheckedItems(self, items: list):
         """Set the check state of items matching the given list of raw values/strings."""
@@ -225,8 +257,10 @@ class CheckableComboBox(QComboBox):
             model.blockSignals(False)
             self._updating = False
 
+        self._refresh_text_and_tooltip()
         self.update()
 
     def updateText(self):
         # Deprecated: Legacy support for external calls. Rendering is now automatic.
+        self._refresh_text_and_tooltip()
         self.update()

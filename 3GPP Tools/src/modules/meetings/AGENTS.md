@@ -67,10 +67,11 @@ src/modules/meetings/
   - Manages `filter_followed_wis` and `filter_starred_wis` boolean flags.
   - `setTrackedWITokens(followed_tokens, starred_tokens)` updates target token sets.
   - `rowMatchesFilters(source_row, exclude_filter=...)` evaluates token intersection under `exclude_filter="tracked_wi"`. When both filters are active, it evaluates the union (`followed_tokens | starred_tokens`).
-- **UI Quick-Chips (`TDocsWindow`):**
-  - Filter bar contains `btn_followed_wis` (`🎯 Followed WIs`) and `btn_starred_wis` (`⭐ Starred WIs`) checkable chips.
-  - Dynamically calculates facet badge counts (`(N)`) in `_update_filter_facets` matching active criteria.
-  - Seamlessly resets in `_clear_all_filters`.
+- **UI Quick-Chips & Filter Bar Ergonomics (`TDocsWindow`):**
+  - Filter bar contains compact icon-only `btn_followed_wis` (`🎯`) and `btn_starred_wis` (`⭐`) checkable chips with dynamic match counts in hover tooltips, freeing substantial horizontal space.
+  - Search input enforces minimum width, stretch factor, and native clear button (`setClearButtonEnabled(True)`).
+  - Checkable comboboxes elide long individual selections with full name in tooltip and dynamically reflect active filter status (`activeFilter="true"` blue highlight).
+  - Dedicated `✕ Clear` reset button (`btn_reset_filters`) instantly restores all search criteria.
   - Re-evaluates on window focus (`showEvent`) to instantly pick up tracking changes from the Work Items tab without window reload.
 
 ### 3.5. Post-Meeting Report & Dossier Markdown Generator
