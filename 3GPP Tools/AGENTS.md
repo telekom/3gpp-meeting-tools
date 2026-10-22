@@ -84,7 +84,9 @@ python -m main_tools
 ## 4. Subsystems & Module Guide
 
 ### 4.1. Visio Tools (`src/modules/puml2visio`)
-- **PlantUML IDE:** Debounced live SVG/PNG preview via `LivePreviewManager` utilizing `plantuml.jar`.
+- **PlantUML IDE & Editor Ergonomics:** Debounced live SVG rendering via `LivePreviewManager` utilizing `plantuml.jar`. `CodeDropTextEdit` features `PlantUMLHighlighter`, inline `FindReplaceBar`, line numbering, soft tab indentation, comment toggles (`Ctrl+/`), and live error line pinpointing.
+- **Snippet & Element Inserter Engine:** Declarative catalog in `plantuml_snippets.py` with dynamic participant resolution (`extract_participants`), selection-aware wrapping, and dual-surface UI (toolbar quick menu & collapsible `ElementsPaletteWidget`).
+- **Dual Live Preview Architecture:** Side-by-side in-app embedded SVG viewer (`EmbeddedSvgPreview` with `QSvgRenderer`/`QGraphicsView`, wheel zoom, and pan) and external browser live preview via `LivePreviewManager`.
 - **Java Maintenance:** `JavaMaintenanceDialog` inspects Java runtime versions (Legacy vs Modern) and auto-updates PlantUML JARs.
 - **AI Call Flow Generator:** Modeless dialog streaming sequence diagram synthesis from textual 3GPP procedure descriptions into the editor via chunked Ollama HTTP streaming.
 - **Conversion Pipeline:** PPTX to Visio conversion uses an Enhanced Metafile (EMF) bridge to preserve native editable vector shapes with text shrink-wrapping.

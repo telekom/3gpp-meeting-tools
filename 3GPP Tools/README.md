@@ -66,7 +66,17 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ---
 
 ### 🎨 Visio Tools (PlantUML & PowerPoint Converter)
-* **Live Preview IDE:** A PlantUML code editor featuring syntax highlighting, line numbering, and a 500ms debounced live-rendering engine.
+* **PlantUML Mini-IDE & Ergonomics:**
+  * **Syntax Highlighting & Line Numbers:** Real-time high-contrast syntax highlighting (`PlantUMLHighlighter`) distinguishing directives (`@startuml`, `skinparam`), control blocks (`alt`, `opt`, `loop`), declarations (`participant`, `actor`, `database`), arrows (`->`, `-->`, `<->`, `->x`), hex colors, stereotypes, strings, and single/multi-line comments.
+  * **Dynamic Element & Snippet Inserter (`🧩 Insert Element ▼`):** Over 55 categorized snippets with dynamic participant detection (`{p1}`, `{p2}`) and selection-aware block wrapping. Automatically detects declared entities (e.g. `UE`, `gNB`, `AMF`) and injects them into arrows and notes instead of generic placeholders.
+  * **Searchable Syntax & Elements Palette (`📚 Syntax Palette`):** Collapsible sidebar featuring instant substring filtering, diagram-type scope filtering (Sequence, State, Activity, Timing, Packetdiag), monospace syntax preview cards, and one-click insertion.
+  * **3GPP Architecture Presets:** Pre-styled, enterprise-ready entity skeletons for 5GS Core & RAN, 5GS Basic, EPS / 4G, 5G Roaming (VPLMN/HPLMN with SEPP), O-RAN split nodes, and IMS VoNR.
+  * **Editor Ergonomics:** Inline non-intrusive Find & Replace bar (`Ctrl+F`), multi-line comment toggling (`Ctrl+/` or `Ctrl+'`), soft tabs (2 spaces), block indent/unindent with `Tab` / `Shift+Tab`, and smart auto-indentation on Enter.
+  * **Template Overwrite Guard:** Confirms before replacing non-empty editor buffers when clicking `Insert` next to boilerplate templates.
+* **Dual Live Preview & Error Pinpointing:**
+  * **Embedded In-App Split Preview (`👁️ Split Preview`):** Side-by-side SVG viewer dock using `PyQt5.QtSvg` with smooth mouse-wheel zoom, drag-to-pan, 1:1 reset, and fit-to-window.
+  * **External Browser Preview (`🌐 Browser Preview`):** Standalone browser live view auto-updating on debounced changes.
+  * **Live Syntax Error Pinpointing:** When PlantUML reports a syntax error (`Error line N`), line $N$ is immediately highlighted in soft red with a wavy underline in the code gutter and editor.
 * **Decoupled Architecture & Visio-Independent PlantUML:**
   * Operates fully independently of Microsoft Visio. PlantUML editing, live SVG/PNG previews, and automated JAR updates function properly even when Microsoft Visio is not installed on the system.
 * **☕ Centralized Java Runtime & PlantUML Maintenance Center:**
@@ -442,7 +452,13 @@ python -m main_tools
 ---
 
 ### 🎨 Visio Tools & Java / PlantUML Maintenance
-1. **PlantUML Editor:** Type standard PlantUML code into the left pane. The Live Preview will automatically update the image on the right.
+1. **PlantUML Mini-IDE Workspace:**
+   * **Writing Code:** Type or paste PlantUML code into the central editor. Syntax highlighting and line numbers update dynamically.
+   * **Inserting Elements & Snippets:** Click **`🧩 Insert Element ▼`** on the top toolbar to insert messages, arrows, logic fragments, or 3GPP presets at the cursor. If you highlight multiple message lines first, block fragments (`alt`, `opt`, `loop`, `box`, `note`, `activate`) automatically indent and enclose your selection.
+   * **Syntax Cheat-Sheet & Palette:** Click **`📚 Syntax Palette`** to open the searchable sidebar. Filter by keyword (e.g., `"timer"`, `"hnote"`, `"oran"`) or current diagram type to inspect syntax previews and insert elements.
+   * **Live Previewing:** Click **`👁️ Split Preview`** to view your diagram side-by-side inside the app with mouse-wheel zoom and drag-pan, or toggle **`🌐 Browser Preview`** to open the live view in an external browser.
+   * **Finding & Replacing:** Press **`Ctrl+F`** or click **`🔍 Find`** to toggle the inline search and replace bar.
+   * **Commenting & Indenting:** Press **`Ctrl+/`** to toggle single-quote comments (`' `) across selected lines. Use **`Tab`** and **`Shift+Tab`** to indent or unindent multi-line blocks.
 2. **Java Runtime & PlantUML Maintenance Center:**
    * Click the **☕ Java** button on the bottom Console Panel at any time.
    * The dialog displays the active Java version, architecture, vendor, and PlantUML JAR version.
