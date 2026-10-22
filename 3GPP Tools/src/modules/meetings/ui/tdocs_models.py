@@ -496,14 +496,22 @@ class TDocsTableModel(QAbstractTableModel):
             else:
                 logger.info(f"✨ Injecting new on-the-fly TDoc: {tdoc_id}")
 
-                agenda_item = 'N/A'
+                agenda_item = info.get('Agenda Item') or 'N/A'
                 doc_type = 'Revision'
                 predecessor = None
                 base_tdoc = None
 
-                abstract = ''
+                abstract = info.get('Abstract', '')
                 source = info.get('Source', '')
                 title = info.get('Title', '')
+                related_wis = (
+                    info.get('Related WIs') or
+                    info.get('Related WI') or
+                    info.get('Related WI(s)') or
+                    info.get('Work Item') or
+                    info.get('WI') or
+                    ''
+                )
 
                 comment_match = re.search(
                     r'(?:revision of|rev of)\s*([A-Z][A-Z0-9]{1,3}-\d{5,8}(?:r\d{1,2}[a-zA-Z]?)?)',
@@ -528,22 +536,27 @@ class TDocsTableModel(QAbstractTableModel):
                     except Exception:
                         pass
 
-                if base_tdoc and base_tdoc in tdoc_dict:
-                    base_row = tdoc_dict[base_tdoc]
+                if not predecessor:
+                    doc_type = 'TDoc'
 
-                    def fuzzy_get(key):
-                        for k, v in base_row.items():
-                            if str(k).strip().lower() == key.lower():
-                                return str(v).strip() if v is not None else ''
-                        return ''
+                base_row = tdoc_dict.get(base_tdoc, {}) if base_tdoc else {}
 
-                    agenda_item = fuzzy_get('Agenda Item') or 'N/A'
+                def fuzzy_get(key):
+                    for k, v in base_row.items():
+                        if str(k).strip().lower() == key.lower():
+                            return str(v).strip() if v is not None else ''
+                    return ''
+
+                if base_row:
+                    agenda_item = fuzzy_get('Agenda Item') or agenda_item
                     doc_type = fuzzy_get('Type') or 'TDoc'
                     abstract = fuzzy_get('Abstract')
                     if not source:
                         source = fuzzy_get('Source')
                     if not title:
                         title = fuzzy_get('Title')
+                    if not related_wis:
+                        related_wis = fuzzy_get('Related WIs')
 
                 new_row = {
                     'TDoc': tdoc_id,
@@ -559,7 +572,7 @@ class TDocsTableModel(QAbstractTableModel):
                     'Revised to': '',
                     'Original LS': '',
                     'Reply in': '',
-                    'Related WIs': fuzzy_get('Related WIs'),
+                    'Related WIs': related_wis,
                 }
                 new_rows.append(new_row)
 
