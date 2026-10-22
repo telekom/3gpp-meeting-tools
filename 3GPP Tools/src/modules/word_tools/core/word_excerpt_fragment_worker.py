@@ -362,10 +362,21 @@ def make_fragment(source: Path, target: Path, ranges: List[Tuple[int, int]]) -> 
                 zout.writestr(item, _clean_content_types(ct_bytes, pruned_zip_paths, parser))
             elif filename == "word/settings.xml":
                 # Strip <w:documentProtection> and <w:writeProtection> so Word COM
-                # never locks the fragment during multi-file InsertFile merges
+                # never locks the fragment during multi-file InsertFile merges, and
+                # strip <w:linkStyles/> so Word never reverts 3GPP QuickStyles on open
                 settings_bytes = zin.read(filename)
                 settings_bytes = RE_DOC_PROTECTION.sub(b"", settings_bytes)
+                settings_bytes = re.sub(rb"<(?:\w+:)?linkStyles\b[^>]*/?>", b"", settings_bytes)
                 zout.writestr(item, settings_bytes)
+            elif filename == "word/styles.xml":
+                # Promote 3GPP styles in the fragment so every extracted section has QuickStyles
+                styles_bytes = zin.read(filename)
+                try:
+                    from modules.word_tools.core.styles_3gpp import promote_3gpp_styles_in_xml
+                    styles_bytes = promote_3gpp_styles_in_xml(styles_bytes)
+                except Exception:
+                    pass
+                zout.writestr(item, styles_bytes)
             else:
                 # Stream remaining parts (styles, numbering, themes, settings) untouched
                 zout.writestr(item, zin.read(filename))
