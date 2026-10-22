@@ -52,7 +52,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Hot-Reloadable System Prompt:** System instructions are externalized to `config/prompts/assistant_system.txt`, enabling real-time prompt tuning with automatic timestamp detection without application restarts.
 * **3GPP Call Flow Sequence Generation:**
   * Directly transforms textual procedure steps (e.g., from TS 23.502 or TS 38.300) into standard PlantUML sequence diagrams.
-  * Integrates real-time token streaming and prompt hot-reloading within Visio Tools.
+  * Integrates real-time token streaming, multi-turn conversational refinement, in-dialog SVG diagram preview, automated syntax validation, and prompt hot-reloading within Visio Tools.
 * **Persistent Status Bar Pill & Health Monitor:**
   * **Interactive Status Widget:** Permanent status button integrated directly into the bottom status bar displaying active connectivity and model selection (🟢 `🦙 <model_name>` when connected, 🔴 `🦙 Offline` when disconnected).
   * **Instant Socket Pre-Flight:** Worker thread performs sub-millisecond TCP socket pre-checks to `127.0.0.1:11434` prior to issuing HTTP requests, preventing UI stalls and timeout freezes when the Ollama server is stopped.
@@ -87,9 +87,14 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **🤖 AI Call Flow to PlantUML Sequence Generator:**
   * **Modeless, Multi-Window Experience:** Runs as an independent, non-blocking window (`Qt.Window`) with its own taskbar presence. Delegates can browse specifications, search meetings, and edit diagrams simultaneously while generation takes place.
   * **Real-Time Token Streaming & Cancellation:** Leverages chunked HTTP streaming (`stream_chat`) from local Ollama instances to stream code into the preview editor as it is synthesized, with an instant cancel button to abort runaway outputs.
+  * **3GPP Architectural Style Toggles:** Configure generation preferences via dedicated checkboxes: box groupings by domain/network slice, message Information Elements (IEs) and parameter payloads, participant state notes (`hnote`), alternative and failure branches (`alt` / `else`), and sequence step autonumbering (`autonumber`).
+  * **Built-In 3GPP Procedure Presets:** One-click menu (`📚 Sample Procedures ▼`) to load normative procedure texts from TS 23.502 and TS 38.300 (Initial Registration, PDU Session Establishment, Xn Handover, Service Request) or paste directly from the system clipboard.
+  * **Dual Code & Diagram Preview Tabs:** Toggle between the full `PlantUMLHighlighter` code editor and an embedded interactive SVG diagram preview (`👁️ Diagram Preview`) rendered automatically upon generation completion.
+  * **Automated Syntax Validation & 1-Click Auto-Fix:** Runs background PlantUML validation on completed code; flags syntax errors with exact line numbers on a warning banner, and provides a `🪄 Auto-Fix Error` button that instructs the LLM to repair the exact syntax fault.
+  * **Conversational Multi-Turn Refinement:** Interactive prompt bar (`💬 Refine:`) allowing iterative adjustments ("add UPF data path", "wrap in box Core Network", "add timeout branch") while maintaining full generation history across turns.
   * **3GPP Template & Skin Harmony:** Automatically strips markdown wrapper fences and enforces project-standard 3GPP lifeline styling, monochrome skin parameters, and box padding from `plantuml_templates.py`.
   * **Dynamic Hot-Reload Prompts:** Prompt instructions are decoupled into external configuration files (`config/prompts/callflow_system.txt` and `config/prompts/callflow_user.txt`). Modifications made in external text editors are detected via file timestamps (`mtime`) and reloaded instantly on the next inference click without restarting the application.
-  * **One-Click Editor Integration:** Provides dedicated buttons to **📥 Replace Editor** or **➕ Append to Editor** to insert generated sequence code directly into your active workspace.
+  * **One-Click Editor & Clipboard Integration:** Provides dedicated buttons to **📥 Replace Editor**, **➕ Append to Editor**, or **📋 Copy Code** with visual confirmation.
 * **Batch Conversion Engine:** Drag and drop hundreds of `.puml`, `.txt`, or `.pptx` files to queue them for multi-threaded background conversion.
 * **PowerPoint to Visio Pipeline:** Seamlessly convert entire PowerPoint presentations into multi-page Visio documents (`.vsdx`). Uses Enhanced Metafile (EMF) bridging to perfectly preserve editable native Office shapes, automatically aggressively ungroup them, and shrink wrap their text boundaries.
 * **Custom Visio Stencil Engine:** Converts standard PlantUML shapes into grouped Visio shapes (`.vsdx`) mapped directly to custom 3GPP node stencils.
@@ -488,10 +493,14 @@ python -m main_tools
 3. **Generating Sequence Diagrams from Call Flow Text (AI):**
    * On the editor toolbar, click **🤖 Generate from Call Flow...**.
    * The generator dialog opens as an independent, modeless window. You can continue working in other tabs or searching specifications while it remains open.
-   * Paste 3GPP procedural steps (e.g., from TS 23.502 or TS 38.300) into the left text box.
+   * Paste 3GPP procedural steps (e.g., from TS 23.502 or TS 38.300) into the left text box, or pick a normative reference from **📚 Sample Procedures ▼**.
+   * Toggle 3GPP generation style preferences as desired: **Box Groupings**, **Message IEs**, **State Transitions**, **Alt / Failure Branches**, and **Autonumber**.
    * Select your installed Ollama model and target diagram type (default: *Sequence*).
-   * Click **🚀 Generate Diagram**. The model will stream PlantUML syntax token-by-token directly into the preview area.
-   * Once finished, click **📥 Replace Editor** to overwrite the editor contents or **➕ Append to Editor** to insert the code into your existing diagram.
+   * Click **🚀 Generate Diagram**. The model will stream PlantUML syntax token-by-token directly into the preview area with syntax highlighting.
+   * Once finished, the tool automatically validates the diagram. If errors occur, an alert banner pinpoints the problem line and offers **🪄 Auto-Fix Error**.
+   * Switch to the **👁️ Diagram Preview** tab to review the rendered SVG diagram directly in the dialog without touching your editor.
+   * Use the **💬 Refine:** prompt bar at the bottom to have a multi-turn conversation with the model to adjust, re-group, or expand the diagram.
+   * Click **📥 Replace Editor** to overwrite the editor contents, **➕ Append to Editor** to insert the code into your existing diagram, or **📋 Copy Code** to copy to clipboard.
    * *(Prompt Engineering)* You can customize generation prompts without restarting the app by editing `config/prompts/callflow_system.txt` or `config/prompts/callflow_user.txt` in any text editor. The tool reloads updated prompt files automatically upon clicking generate.
 4. **Exporting Diagrams:** Click **Export Diagram ▼** and select **To Visio (.vsdx)** to generate a native Visio file, or use other options like PowerPoint, SVG, or ASCII.
 5. **Batch Process & PowerPoint Conversion:** Navigate to the **📂 Visio Tools** tab and drag-and-drop `.puml`, `.txt`, or `.pptx` (PowerPoint) files into the drop zone. The system will detect the file type and process it into an editable Visio file in the background.
