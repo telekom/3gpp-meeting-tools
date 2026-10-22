@@ -1255,7 +1255,7 @@ class SpecificationsTab(QWidget):
                         spec_num = str(canonical).strip()
                     else:
                         display_text = num_label.text().strip()
-                        match = re.match(r"^(\d{2}\.\d{2,3}(?:-[A-Za-z0-9]+)?)", display_text)
+                        match = re.search(r"(\d{2}\.\d{2,3}(?:-[A-Za-z0-9]+)?)", display_text)
                         if match:
                             spec_num = match.group(1)
 
@@ -1277,7 +1277,10 @@ class SpecificationsTab(QWidget):
             if widget:
                 num_label = widget.findChild(QLabel, "specNumberLabel")
                 if num_label:
-                    canonical = num_label.property("specNumber") or num_label.text().strip().replace("⭐", "").strip()
+                    canonical = num_label.property("specNumber")
+                    if not canonical:
+                        match = re.search(r"(\d{2}\.\d{2,3}(?:-[A-Za-z0-9]+)?)", num_label.text())
+                        canonical = match.group(1) if match else num_label.text().strip().replace("⭐", "").strip()
                     self._open_edit_annotations(canonical)
 
     def _open_edit_annotations(self, spec_num: str):
@@ -1587,20 +1590,6 @@ class SpecificationsTab(QWidget):
                 action_btn.setMenu(menu)
 
                 spec_type = (data["type"] or "TS").upper()
-                type_badge = QLabel(spec_type)
-                type_badge.setFixedWidth(24)
-                type_badge.setAlignment(Qt.AlignCenter)
-                if spec_type == "TR":
-                    type_badge.setStyleSheet("""
-                        background-color: #F3E8FF; color: #6B21A8; border: 1px solid #E9D5FF;
-                        border-radius: 3px; padding: 1px 0px; font-size: 10px; font-weight: bold;
-                    """)
-                else:
-                    type_badge.setStyleSheet("""
-                        background-color: #EBF8FF; color: #2B6CB0; border: 1px solid #BEE3F8;
-                        border-radius: 3px; padding: 1px 0px; font-size: 10px; font-weight: bold;
-                    """)
-
                 wg_name = (data.get("wg") or "").strip()
                 wg_badge = QLabel(wg_name if wg_name and wg_name != "-" else "—")
                 wg_badge.setFixedWidth(42)
@@ -1618,7 +1607,8 @@ class SpecificationsTab(QWidget):
                     """)
                     wg_badge.setToolTip("Working Group: Unassigned / Plenary")
 
-                display_title = f"{spec_num} ⭐" if is_fav else spec_num
+                canonical_label = f"{spec_type} {spec_num}"
+                display_title = f"{canonical_label} ⭐" if is_fav else canonical_label
                 spec_label = QLabel(display_title)
                 spec_label.setObjectName("specNumberLabel")
                 # Keep the canonical identifier separate from decorated display text.
@@ -1628,7 +1618,6 @@ class SpecificationsTab(QWidget):
                     spec_label.setToolTip("Marked as Favorite")
 
                 spec_layout.addWidget(action_btn)
-                spec_layout.addWidget(type_badge)
                 spec_layout.addWidget(wg_badge)
                 spec_layout.addWidget(spec_label)
                 spec_layout.addStretch()

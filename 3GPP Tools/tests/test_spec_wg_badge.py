@@ -74,12 +74,11 @@ class TestSpecWGBadge(unittest.TestCase):
         self.assertGreater(tab.table.rowCount(), 0)
         cell = tab.table.cellWidget(0, 0)
         layout = cell.layout()
-        type_badge = layout.itemAt(1).widget()
-        wg_badge = layout.itemAt(2).widget()
-        self.assertEqual(type_badge.text(), "TS")
-        self.assertEqual(type_badge.width(), 24)
+        wg_badge = layout.itemAt(1).widget()
+        spec_label = layout.itemAt(2).widget()
         self.assertEqual(wg_badge.text(), "SA2")
         self.assertEqual(wg_badge.width(), 42)
+        self.assertIn("TS 23.501", spec_label.text())
 
         # Test 1-click filter by WG
         tab._on_wg_badge_clicked("SA2")
