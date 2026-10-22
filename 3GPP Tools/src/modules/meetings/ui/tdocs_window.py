@@ -449,67 +449,125 @@ class TDocsWindow(QWidget):
                 border-radius: 4px;
                 background: #FFFFFF;
             }
+            QComboBox[activeFilter="true"] {
+                background-color: #EFF6FF;
+                border: 1.5px solid #3B82F6;
+                color: #1D4ED8;
+                font-weight: bold;
+            }
         """)
         filter_layout = QHBoxLayout(filter_frame)
-        filter_layout.setContentsMargins(10, 6, 10, 6)
+        filter_layout.setContentsMargins(8, 5, 8, 5)
+        filter_layout.setSpacing(6)
 
-        filter_layout.addWidget(QLabel("🔍 Search:"))
+        search_lbl = QLabel("🔍")
+        search_lbl.setToolTip("Full-text search across TDoc number, title, source, remarks, and related metadata.")
+        filter_layout.addWidget(search_lbl)
+
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText('Search (e.g., "Baseline" -"discussed in call" or -draft)...')
-        self.search_input.setToolTip('Search across TDoc metadata. Use -term or !term to exclude a term; quoted phrases are supported.')
+        self.search_input.setPlaceholderText('Search TDocs (e.g. "CR", -draft)...')
+        self.search_input.setToolTip(
+            'Search across TDoc metadata.\n'
+            '• Exact phrases: "draft baseline"\n'
+            '• Exclude words: -draft or !draft\n'
+            '• Substrings & numbers: S2-260855, TS 23.501'
+        )
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.setMinimumWidth(160)
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
-        filter_layout.addWidget(self.search_input)
+        filter_layout.addWidget(self.search_input, stretch=2)
 
-        self.btn_followed_wis = QPushButton("🎯 Followed WIs (0)")
+        self.btn_followed_wis = QPushButton("🎯")
         self.btn_followed_wis.setCheckable(True)
         self.btn_followed_wis.setCursor(Qt.PointingHandCursor)
+        self.btn_followed_wis.setFixedSize(30, 28)
         self.btn_followed_wis.setToolTip("Filter to TDocs associated with Work Items you are following (assigned responsibility).")
         self.btn_followed_wis.clicked.connect(self._toggle_followed_wis_filter)
         filter_layout.addWidget(self.btn_followed_wis)
 
-        self.btn_starred_wis = QPushButton("⭐ Starred WIs (0)")
+        self.btn_starred_wis = QPushButton("⭐")
         self.btn_starred_wis.setCheckable(True)
         self.btn_starred_wis.setCursor(Qt.PointingHandCursor)
+        self.btn_starred_wis.setFixedSize(30, 28)
         self.btn_starred_wis.setToolTip("Filter to TDocs associated with Work Items you have starred (personal watchlist).")
         self.btn_starred_wis.clicked.connect(self._toggle_starred_wis_filter)
         filter_layout.addWidget(self.btn_starred_wis)
         self._update_tracked_wi_button_styles()
 
+        def _make_vsep():
+            sep = QFrame()
+            sep.setFrameShape(QFrame.VLine)
+            sep.setFrameShadow(QFrame.Plain)
+            sep.setStyleSheet("color: #CBD5E1; background-color: #E2E8F0; width: 1px; margin: 2px 1px;")
+            return sep
+
+        filter_layout.addWidget(_make_vsep())
+
         self.company_combo = CheckableComboBox("Company")
+        self.company_combo.setMaximumWidth(160)
         self.company_combo.setToolTip('Filter by contributing company. Grey entries currently have no intersection with the other active filters but remain selectable.')
         self.company_combo.selectionChanged.connect(self._on_company_changed)
         filter_layout.addWidget(self.company_combo)
 
         self.type_combo = CheckableComboBox("Type")
+        self.type_combo.setMaximumWidth(110)
         self.type_combo.setToolTip('Filter by TDoc type. Grey entries currently have no intersection with the other active filters but remain selectable.')
         self.type_combo.selectionChanged.connect(self._on_type_changed)
         filter_layout.addWidget(self.type_combo)
 
         self.ai_combo = CheckableComboBox("AI")
+        self.ai_combo.setMaximumWidth(110)
         self.ai_combo.setToolTip('Filter by Agenda Item. When agenda.csv is available, associated acronyms are shown in parentheses.')
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
         self.wi_combo = CheckableComboBox("WI")
+        self.wi_combo.setMaximumWidth(120)
         self.wi_combo.setToolTip('Filter by the Related WIs metadata from the official TDoc list. Grey entries currently have no intersection with the other active filters.')
         self.wi_combo.selectionChanged.connect(self._on_wi_changed)
         filter_layout.addWidget(self.wi_combo)
 
         self.status_combo = CheckableComboBox("TDoc Status")
+        self.status_combo.setMaximumWidth(125)
         self.status_combo.setToolTip('Filter by the meeting/secretary TDoc status.')
         self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
 
         self.my_status_combo = CheckableComboBox("My Status")
+        self.my_status_combo.setMaximumWidth(120)
         self.my_status_combo.setToolTip('Filter by your personal TDoc status.')
         self.my_status_combo.selectionChanged.connect(self._on_my_status_changed)
         filter_layout.addWidget(self.my_status_combo)
 
+        filter_layout.addWidget(_make_vsep())
+
         if self.is_sa2:
-            self.chk_no_comments = QCheckBox("No Comments Only")
+            self.chk_no_comments = QCheckBox("No Comments")
             self.chk_no_comments.setToolTip('Show only TDocs without secretary/chair comments.')
             self.chk_no_comments.toggled.connect(self._on_no_comments_toggled)
             filter_layout.addWidget(self.chk_no_comments)
+
+        self.btn_reset_filters = QPushButton("✕ Clear")
+        self.btn_reset_filters.setToolTip("Reset all search text and active filters to show all TDocs.")
+        self.btn_reset_filters.setCursor(Qt.PointingHandCursor)
+        self.btn_reset_filters.setStyleSheet("""
+            QPushButton {
+                background-color: #F8FAFC;
+                color: #64748B;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FEE2E2;
+                border-color: #FCA5A5;
+                color: #DC2626;
+            }
+        """)
+        self.btn_reset_filters.clicked.connect(self._clear_all_filters)
+        filter_layout.addWidget(self.btn_reset_filters)
 
         layout.addWidget(filter_frame)
 
@@ -680,14 +738,14 @@ class TDocsWindow(QWidget):
                 QPushButton {
                     background-color: #DBEAFE;
                     color: #1E40AF;
-                    border: 1px solid #3B82F6;
+                    border: 1.5px solid #3B82F6;
                     border-radius: 4px;
-                    font-weight: bold;
-                    padding: 4px 10px;
-                    font-size: 11px;
+                    padding: 2px;
+                    font-size: 13px;
                 }
                 QPushButton:hover {
                     background-color: #BFDBFE;
+                    border-color: #2563EB;
                 }
             """)
         else:
@@ -697,8 +755,8 @@ class TDocsWindow(QWidget):
                     color: #475569;
                     border: 1px solid #CBD5E1;
                     border-radius: 4px;
-                    padding: 4px 10px;
-                    font-size: 11px;
+                    padding: 2px;
+                    font-size: 13px;
                 }
                 QPushButton:hover {
                     background-color: #F1F5F9;
@@ -711,14 +769,14 @@ class TDocsWindow(QWidget):
                 QPushButton {
                     background-color: #FEF3C7;
                     color: #92400E;
-                    border: 1px solid #F59E0B;
+                    border: 1.5px solid #F59E0B;
                     border-radius: 4px;
-                    font-weight: bold;
-                    padding: 4px 10px;
-                    font-size: 11px;
+                    padding: 2px;
+                    font-size: 13px;
                 }
                 QPushButton:hover {
                     background-color: #FDE68A;
+                    border-color: #D97706;
                 }
             """)
         else:
@@ -728,8 +786,8 @@ class TDocsWindow(QWidget):
                     color: #475569;
                     border: 1px solid #CBD5E1;
                     border-radius: 4px;
-                    padding: 4px 10px;
-                    font-size: 11px;
+                    padding: 2px;
+                    font-size: 13px;
                 }
                 QPushButton:hover {
                     background-color: #F1F5F9;
@@ -819,14 +877,16 @@ class TDocsWindow(QWidget):
         self.my_status_combo.setAvailability(facets["my_status"])
 
         if hasattr(self, "btn_followed_wis"):
-            self.btn_followed_wis.setText(f"🎯 Followed WIs ({followed_count})")
+            self.btn_followed_wis.setText("🎯")
             self.btn_followed_wis.setToolTip(
-                f"Filter to TDocs associated with Work Items you are following ({followed_count} matching)."
+                f"🎯 Followed Work Items ({followed_count} matching)\n"
+                "Filter to TDocs associated with Work Items you are following (assigned responsibility)."
             )
         if hasattr(self, "btn_starred_wis"):
-            self.btn_starred_wis.setText(f"⭐ Starred WIs ({starred_count})")
+            self.btn_starred_wis.setText("⭐")
             self.btn_starred_wis.setToolTip(
-                f"Filter to TDocs associated with Work Items you have starred ({starred_count} matching)."
+                f"⭐ Starred Work Items ({starred_count} matching)\n"
+                "Filter to TDocs associated with Work Items you have starred (personal watchlist)."
             )
 
     def _refresh_comboboxes(self):
