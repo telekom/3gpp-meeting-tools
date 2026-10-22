@@ -95,6 +95,13 @@ class DocxSplitter:
 
         sub_doc.save(ext_out)
 
+        # Enforce authentic 3GPP QuickStyles and strip <w:linkStyles/>
+        try:
+            from modules.word_tools.core.styles_3gpp import ensure_3gpp_package_styles
+            ensure_3gpp_package_styles(Path(ext_out))
+        except Exception as exc:
+            logger.debug("Could not ensure 3GPP styles in split file %s: %s", out_file.name, exc)
+
         if progress_callback:
             progress_callback(section['title'])
 
@@ -156,7 +163,66 @@ class DocxSplitter:
             for future in as_completed(futures):
                 generated_files.append(future.result())
 
+        # Apply enterprise sensitivity labeling sequentially via Word COM
+        for out_path in generated_files:
+            try:
+                self._apply_label_if_supported(out_path)
+            except Exception as exc:
+                logger.debug("Sensitivity labeling skipped for %s: %s", out_path.name, exc)
+
         return generated_files
+
+    @staticmethod
+    def _apply_label_if_supported(file_path: Path):
+        """Attempts to apply enterprise sensitivity labeling via Word COM if available."""
+        word = None
+        doc = None
+        com_initialized = False
+        try:
+            import pythoncom
+            import win32com.client
+            from modules.word_tools.core.sensitivity_label import set_sensitivity_label
+            from modules.word_tools.core.styles_3gpp import ensure_3gpp_package_styles, promote_3gpp_styles_in_word
+
+            pythoncom.CoInitialize()
+            com_initialized = True
+            word = win32com.client.DispatchEx("Word.Application")
+            word.Visible = False
+            word.DisplayAlerts = 0
+
+            doc = word.Documents.Open(
+                os.path.normpath(str(file_path)),
+                ReadOnly=False,
+                AddToRecentFiles=False,
+            )
+            set_sensitivity_label(doc)
+            promote_3gpp_styles_in_word(doc)
+            doc.Save()
+            doc.Close(SaveChanges=False)
+            doc = None
+            word.Quit(SaveChanges=0)
+            word = None
+
+            # Re-ensure package styles after Word COM save to guarantee no loss of qFormat or re-addition of linkStyles
+            ensure_3gpp_package_styles(file_path)
+        except Exception as exc:
+            logger.debug("Sensitivity label application not completed for %s: %s", file_path.name, exc)
+        finally:
+            if doc is not None:
+                try:
+                    doc.Close(SaveChanges=False)
+                except Exception:
+                    pass
+            if word is not None:
+                try:
+                    word.Quit(SaveChanges=0)
+                except Exception:
+                    pass
+            if com_initialized:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
 
 
 class DocxSplitterThread(QThread):

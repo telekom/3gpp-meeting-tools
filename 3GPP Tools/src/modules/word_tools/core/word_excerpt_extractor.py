@@ -22,6 +22,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.paths import get_temp_root, to_extended_path
 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
+from modules.word_tools.core.styles_3gpp import ensure_3gpp_package_styles
 
 logger = logging.getLogger(__name__)
 
@@ -250,13 +251,14 @@ class WordExcerptEngine:
 
                 # The fragment was saved directly from a copy of the source package,
                 # so its formatting parts already originate from that source.  Apply
-                # only the required corporate label in a fresh Word session.
-                self._progress(80, "Applying corporate sensitivity label...")
+                # the required corporate label in a fresh Word session and lock in 3GPP styles.
+                self._progress(80, "Applying corporate sensitivity label and 3GPP styles...")
                 pythoncom.CoInitialize()
                 try:
                     self._apply_label_in_fresh_word(output)
                 finally:
                     pythoncom.CoUninitialize()
+                ensure_3gpp_package_styles(output)
             else:
                 self._progress(55, "Combining excerpts with Microsoft Word...")
                 self._merge_with_word(fragments, output)
@@ -482,6 +484,7 @@ class WordExcerptEngine:
 
             # Apply the required corporate label to the local working file.
             WordExcerptEngine._apply_label_in_fresh_word(working)
+            ensure_3gpp_package_styles(working)
 
             # Only a completely finalized, closed file is copied to the user target.
             ext_output = to_extended_path(output)
