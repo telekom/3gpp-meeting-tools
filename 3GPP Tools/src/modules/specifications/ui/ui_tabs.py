@@ -41,6 +41,10 @@ from modules.specifications.ui.dialogs import (
     TableFilterDialog,
     TargetedSyncDialog,
 )
+from modules.specifications.ui.spec_annotations_dialog import (
+    BatchTagDialog,
+    EditSpecAnnotationsDialog,
+)
 from modules.specifications.ui.spec_action_controller import (
     handle_document_action,
     handle_zip_action,
@@ -214,6 +218,7 @@ class SpecificationsTab(QWidget):
         self.saved_downloaded_only = False
         self.favorites = set()
         self.favorites_only = False
+        self.tag_filter = None
 
         self.filter_options = self.db.get_filter_options()
 
@@ -557,6 +562,17 @@ class SpecificationsTab(QWidget):
             self.type_buttons[t_val] = btn
             filter_layout.addWidget(btn)
 
+        # Tag Filter Dropdown
+        tag_lbl = QLabel("Tag:")
+        tag_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold; margin-left: 4px;")
+        filter_layout.addWidget(tag_lbl)
+
+        self.tag_filter_combo = QComboBox()
+        self.tag_filter_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.tag_filter_combo.setMinimumWidth(115)
+        self.tag_filter_combo.currentIndexChanged.connect(self._on_tag_filter_changed)
+        filter_layout.addWidget(self.tag_filter_combo)
+
         filter_layout.addStretch()
 
         # Reset All Button
@@ -625,6 +641,7 @@ class SpecificationsTab(QWidget):
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
+        self.table.cellDoubleClicked.connect(self._on_table_cell_double_clicked)
 
         main_layout.addWidget(self.table)
         self.setLayout(main_layout)
@@ -741,6 +758,7 @@ class SpecificationsTab(QWidget):
         self.downloaded_only_btn.setChecked(self.saved_downloaded_only)
         self.fav_chip.setChecked(self.favorites_only)
 
+        self._populate_tag_filter_combo()
         self._update_chip_styles()
         self._update_active_tags()
 
@@ -840,6 +858,42 @@ class SpecificationsTab(QWidget):
         self.save_settings_timer.start()
         self.refresh_table()
 
+    def _populate_tag_filter_combo(self):
+        if not hasattr(self, "tag_filter_combo"):
+            return
+        current = self.tag_filter_combo.currentData() or ""
+        self.tag_filter_combo.blockSignals(True)
+        self.tag_filter_combo.clear()
+        self.tag_filter_combo.addItem("All Tags", "")
+        if self.db:
+            unique_tags = self.db.get_all_unique_tags()
+            for t in unique_tags:
+                self.tag_filter_combo.addItem(f"🏷️ {t}", t)
+        if current:
+            idx = self.tag_filter_combo.findData(current)
+            if idx >= 0:
+                self.tag_filter_combo.setCurrentIndex(idx)
+            else:
+                self.tag_filter_combo.setCurrentIndex(0)
+                self.tag_filter = None
+        else:
+            self.tag_filter_combo.setCurrentIndex(0)
+        self.tag_filter_combo.blockSignals(False)
+
+    def _on_tag_filter_changed(self):
+        data = self.tag_filter_combo.currentData() or ""
+        self.tag_filter = data if data else None
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
+    def _reset_tag_filter(self):
+        self.tag_filter_combo.setCurrentIndex(0)
+        self.tag_filter = None
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.refresh_table()
+
     def _update_chip_styles(self):
         fav_count = len(self.favorites)
         self.fav_chip.setText(f"⭐ Favorites ({fav_count})")
@@ -876,6 +930,10 @@ class SpecificationsTab(QWidget):
 
         if self.favorites_only:
             tags.append(('⭐ Favs ✕', lambda: self.fav_chip.setChecked(False)))
+
+        if self.tag_filter:
+            disp_tag = self.tag_filter if len(self.tag_filter) <= 15 else f"{self.tag_filter[:12]}..."
+            tags.append((f'🏷️ {disp_tag} ✕', self._reset_tag_filter))
 
         grp = self.table_filters.get("group", "")
         if grp:
@@ -944,12 +1002,17 @@ class SpecificationsTab(QWidget):
         self.fav_chip.blockSignals(True)
         self.wg_combo.blockSignals(True)
         self.tech_combo.blockSignals(True)
+        if hasattr(self, "tag_filter_combo"):
+            self.tag_filter_combo.blockSignals(True)
 
         self.spec_search_input.clear()
         self.version_search_input.clear()
         self.downloaded_only_btn.setChecked(False)
         self.favorites_only = False
         self.fav_chip.setChecked(False)
+        self.tag_filter = None
+        if hasattr(self, "tag_filter_combo"):
+            self.tag_filter_combo.setCurrentIndex(0)
 
         self._current_tsg = ""
         self._populate_wg_combo()
@@ -969,6 +1032,8 @@ class SpecificationsTab(QWidget):
         self.fav_chip.blockSignals(False)
         self.wg_combo.blockSignals(False)
         self.tech_combo.blockSignals(False)
+        if hasattr(self, "tag_filter_combo"):
+            self.tag_filter_combo.blockSignals(False)
 
         self._update_chip_styles()
         self._update_active_tags()
@@ -1026,6 +1091,36 @@ class SpecificationsTab(QWidget):
     def _show_context_menu(self, position):
         show_spec_context_menu(self, position)
 
+    def _on_table_cell_double_clicked(self, row: int, column: int):
+        if column in (0, 1):
+            widget = self.table.cellWidget(row, 0)
+            if widget:
+                num_label = widget.findChild(QLabel, "specNumberLabel")
+                if num_label:
+                    canonical = num_label.property("specNumber") or num_label.text().strip().replace("⭐", "").strip()
+                    self._open_edit_annotations(canonical)
+
+    def _open_edit_annotations(self, spec_num: str):
+        """Opens modal editor for specification tags and comments."""
+        clean_num = str(spec_num).strip()
+        if not clean_num or not self.db:
+            return
+        details = self.db.get_spec_details(clean_num)
+        title = details.get("title", "")
+        dlg = EditSpecAnnotationsDialog(clean_num, title, self.db, self)
+        if dlg.exec_() == QDialog.Accepted:
+            self._populate_tag_filter_combo()
+            self.refresh_table()
+
+    def _batch_add_tag(self, spec_nums: list):
+        """Opens batch tag dialog for multiple selected specifications."""
+        if not spec_nums or not self.db:
+            return
+        dlg = BatchTagDialog(spec_nums, self.db, self)
+        if dlg.exec_() == QDialog.Accepted:
+            self._populate_tag_filter_combo()
+            self.refresh_table()
+
     def _show_spec_info(self, spec_num: str):
         details = self.db.get_spec_details(spec_num)
         if not details and "-" in spec_num:
@@ -1034,8 +1129,10 @@ class SpecificationsTab(QWidget):
             if details:
                 details["number"] = spec_num
 
-        dialog = SpecInfoDialog(details or {}, self)
+        dialog = SpecInfoDialog(details or {}, self, db=self.db)
         dialog.exec_()
+        self._populate_tag_filter_combo()
+        self.refresh_table()
 
     def _open_spec_folder(self, spec_num: str):
         target_dir = Path(self.download_dir) / spec_num
@@ -1145,6 +1242,7 @@ class SpecificationsTab(QWidget):
             specs = self.db.search_files(
                 spec_number=spec_query if spec_query else None,
                 release_version=version_query if version_query else None,
+                tag=self.tag_filter,
                 **self.table_filters,
             )
 
@@ -1152,7 +1250,9 @@ class SpecificationsTab(QWidget):
 
             grouped_specs = {}
             for row in specs:
-                series, spec_num, title, spec_type, filename, version, url, upload_date = row
+                series, spec_num, title, spec_type, filename, version, url, upload_date, *rest = row
+                row_tags = rest[0] if len(rest) > 0 else ""
+                row_comments = rest[1] if len(rest) > 1 else ""
                 if filename:
                     part_match = re.search(r"\d{4,5}-(\d{1,2})(?:[-_.]|$)", filename)
                     if part_match and "-" not in spec_num:
@@ -1163,6 +1263,8 @@ class SpecificationsTab(QWidget):
                         "title": title,
                         "type": spec_type if spec_type else "TS",
                         "versions": [],
+                        "tags": [t.strip() for t in row_tags.split(",") if t.strip()] if row_tags else [],
+                        "comments": row_comments or "",
                     }
                 grouped_specs[spec_num]["versions"].append((version, url, filename, upload_date))
 
@@ -1242,6 +1344,10 @@ class SpecificationsTab(QWidget):
 
                 fav_label = "⭐ Remove from Favorites" if is_fav else "⭐ Add to Favorites"
                 menu.addAction(fav_label).triggered.connect(lambda _, s=spec_num: self._toggle_favorite(s))
+
+                ann_action = menu.addAction("🏷️  Edit Tags & Notes...")
+                ann_action.triggered.connect(lambda _, s=spec_num: self._open_edit_annotations(s))
+
                 menu.addSeparator()
 
                 info_action = menu.addAction("ℹ️  View Details")
@@ -1302,8 +1408,52 @@ class SpecificationsTab(QWidget):
                 spec_layout.addStretch()
                 self.table.setCellWidget(row_idx, 0, spec_widget)
 
-                # --- COLUMN 1: Title ---
-                self.table.setItem(row_idx, 1, QTableWidgetItem(data["title"] if data["title"] else "Unknown Title"))
+                # --- COLUMN 1: Title + Tags & Comments ---
+                title_text = data["title"] if data["title"] else "Unknown Title"
+                tags = data.get("tags", [])
+                comments = data.get("comments", "").strip()
+
+                if tags or comments:
+                    title_widget = QWidget()
+                    title_layout = QVBoxLayout(title_widget)
+                    title_layout.setContentsMargins(4, 3, 4, 3)
+                    title_layout.setSpacing(2)
+
+                    title_lbl = QLabel(title_text)
+                    title_lbl.setStyleSheet("font-size: 12px; color: #1E293B;")
+                    title_lbl.setWordWrap(True)
+                    title_layout.addWidget(title_lbl)
+
+                    meta_row = QHBoxLayout()
+                    meta_row.setContentsMargins(0, 0, 0, 0)
+                    meta_row.setSpacing(4)
+
+                    for tag_str in tags:
+                        tag_pill = QLabel(f"🏷️ {tag_str}")
+                        tag_pill.setStyleSheet("""
+                            background-color: #EBF3FC; color: #1E5C99; border: 1px solid #BDD7EE;
+                            border-radius: 9px; padding: 1px 6px; font-size: 10px; font-weight: bold;
+                        """)
+                        tag_pill.setToolTip(f"User Tag: {tag_str}")
+                        meta_row.addWidget(tag_pill)
+
+                    if comments:
+                        note_pill = QLabel("📝 Note")
+                        note_pill.setStyleSheet("""
+                            background-color: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;
+                            border-radius: 9px; padding: 1px 6px; font-size: 10px; font-weight: bold;
+                        """)
+                        preview = comments if len(comments) <= 250 else f"{comments[:247]}..."
+                        note_pill.setToolTip(f"Personal Note:\n{preview}")
+                        meta_row.addWidget(note_pill)
+
+                    meta_row.addStretch()
+                    title_layout.addLayout(meta_row)
+                    self.table.setCellWidget(row_idx, 1, title_widget)
+                    self.table.setRowHeight(row_idx, 48)
+                else:
+                    self.table.setItem(row_idx, 1, QTableWidgetItem(title_text))
+                    self.table.setRowHeight(row_idx, 34)
 
                 # --- COLUMN 2: Documents Action Bar ---
                 version_combo = QComboBox()

@@ -51,6 +51,9 @@ def show_spec_context_menu(tab, position):
         is_fav = spec_num in tab.favorites
         fav_label = "⭐ Remove from Favorites" if is_fav else "⭐ Add to Favorites"
         menu.addAction(fav_label).triggered.connect(lambda _, s=spec_num: tab._toggle_favorite(s))
+
+        edit_ann_action = menu.addAction("🏷️ Edit Tags & Notes...")
+        edit_ann_action.triggered.connect(lambda _, s=spec_num: tab._open_edit_annotations(s))
     else:
         menu.addAction(f"⭐ Add selected ({len(target_specs)}) to Favorites").triggered.connect(
             lambda: tab._batch_set_favorites(target_specs, True)
@@ -58,6 +61,9 @@ def show_spec_context_menu(tab, position):
         menu.addAction(f"🗑️ Remove selected ({len(target_specs)}) from Favorites").triggered.connect(
             lambda: tab._batch_set_favorites(target_specs, False)
         )
+        menu.addSeparator()
+        batch_tag_action = menu.addAction(f"🏷️ Add Tag to selected ({len(target_specs)})...")
+        batch_tag_action.triggered.connect(lambda: tab._batch_add_tag(target_specs))
 
     menu.addSeparator()
     update_action = menu.addAction(f"🔄 Sync metadata for selected ({len(target_specs)})")

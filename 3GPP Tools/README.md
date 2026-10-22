@@ -209,7 +209,16 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Multi-Series Checkable ComboBox:** Filter across multiple specification series simultaneously (e.g., `23` and `24` or `38` and `36`) using `CheckableComboBox`.
   * **Dynamic TSG & WG Synergy:** Selecting a TSG chip (`SA`, `RAN`, `CT`) dynamically scopes the working group dropdown choices to relevant groups (e.g., `SA1`..`SA6`) without state collisions.
   * **Faceted Attributes:** Real-time dropdown and segmented controls for Radio Technology (`5G`, `LTE`, `6G`, `3G`, `2G`), Document Type (`All`, `TS`, `TR`), Release Version (`Ver:`), and Scope Toggles (`💾 Downloaded Only`, `⭐ Favorites`).
-  * **Dismissible Active Filter Badges:** Visible pill badges for every active constraint (`[Group: SA5 ✕]`, `[Tech: 5G ✕]`, `[Series: 23, 24 ✕]`) featuring 1-click single-constraint removal with hover feedback, alongside a unified `❌ Reset All` button.
+  * **Dismissible Active Filter Badges:** Visible pill badges for every active constraint (`[Group: SA5 ✕]`, `[Tech: 5G ✕]`, `[Series: 23, 24 ✕]`, `[Tag: data framework ✕]`) featuring 1-click single-constraint removal with hover feedback, alongside a unified `❌ Reset All` button.
+
+* **🏷️ Specification Tags, Personal Notes & Universal Search Integration:**
+  * **Custom Domain Tags & Multi-Line Notes:** Assign custom domain tags (e.g. `data framework`, `analytics`, `charging`, `NWDAF`) and personal remarks/comments to any specification.
+  * **Backwards-Compatible Storage (`spec_user_annotations`):** Stored in a dedicated SQLite table within `3gpp_data.db`, completely isolated from core specification rows so your tags and notes survive all DynaReport updates, catalog re-syncs, and schema migrations.
+  * **Normal Search Integration:** Searching in the primary search bar of the Specifications tab (or universal Ingestion dialogs) automatically queries tags and comments alongside specification numbers and titles.
+  * **In-Table Badges & Hover Previews:** The specifications table dynamically renders custom tag pills (`[🏷️ data framework]`) directly beneath the specification title, alongside a `📝 Note` pill showing full multi-line notes on hover.
+  * **Convenient Multi-Surface Editing:** Double-click any table row, select `🏷️ Edit Tags & Notes...` from the `⋮` action menu or table context menu, or manage annotations directly inside `SpecInfoDialog` (`ℹ️ View Details`).
+  * **Batch Tagging:** Select multiple specifications (e.g., an entire set of SA5 specs) and right-click $\rightarrow$ **`🏷️ Add Tag to selected (N)...`** to tag all of them at once.
+  * **Tag Filter Dropdown & Pills:** Filter the table by any user tag using the dedicated `🏷️ Tag:` filter dropdown or dismissible filter badges.
 
 * **✂️ 3GPP Specification Clause & Excerpt Extractor:**
   * **Instant Excerpt Dialog from Version Menu:** Select any specification release in the Specifications tab and click **`✂️ Extract Clauses (Excerpt)...`** to launch a modeless clause extractor window.
@@ -629,6 +638,13 @@ python -m main_tools
     * Select your export scope (e.g., **`🎯 Followed Work Items`** to focus on your delegation's assignments, or **`🌐 Whole Meeting`** for a complete report).
     * Configure included categories (Incoming LS, agreed pCRs, agreed CRs, agreed Outgoing LS) and click **Export Dossier**.
     * The tool compiles all relevant documents into structured `Rel-XX/<WI>/{LS_IN, pCR, CR, LS_OUT}/` folders with collision-free media, cross-WI notices, and master/local `index.md` summaries, automatically revealing the generated export folder in Windows Explorer.
+12. **Adding Tags, Notes & Searching Custom Annotations:**
+    * **Editing Annotations:** Double-click any specification row, click `⋮` $\to$ **`🏷️ Edit Tags & Notes...`**, or right-click any row to open the editor.
+    * **Adding Tags:** Type custom tags (e.g., `data framework`, `analytics`, `charging`) and press Enter or click suggestions.
+    * **Adding Notes:** Write multi-line technical context or delegation stance in the notes box.
+    * **Normal Search Integration:** Type your custom tag or note terms into the primary search bar (e.g., typing `data framework`); all tagged specifications will match immediately.
+    * **Filtering by Tag:** Select any tag from the **`🏷️ Tag:`** dropdown on the filter bar to isolate only specifications matching that domain tag.
+    * **Batch Tagging:** Select multiple specifications in the table, right-click $\to$ **`🏷️ Add Tag to selected (N)...`** to tag all of them simultaneously.
 
 ---
 
