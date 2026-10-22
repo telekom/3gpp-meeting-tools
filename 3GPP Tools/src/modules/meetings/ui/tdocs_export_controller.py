@@ -272,3 +272,83 @@ def export_markdown_single(window: Any, tdoc_id: str) -> None:
     window.md_export_thread.progress.connect(window._on_md_progress)
     window.md_export_thread.finished.connect(window._on_md_single_finished)
     window.md_export_thread.start()
+
+
+def open_post_meeting_export_dialog(window: Any) -> None:
+    """Opens PostMeetingExportDialog and triggers PostMeetingExporterThread."""
+    from modules.meetings.ui.post_meeting_export_dialog import PostMeetingExportDialog
+    from modules.meetings.core.post_meeting_exporter import PostMeetingExporterThread
+
+    visible_tdocs = []
+    for r in range(window.proxy.rowCount()):
+        index = window.proxy.index(r, 0)
+        source_index = window.proxy.mapToSource(index)
+        if source_index.isValid() and source_index.row() < len(window.model._data):
+            visible_tdocs.append(window.model._data[source_index.row()])
+
+    followed_tokens = getattr(window.proxy, "followed_wi_tokens", set())
+    starred_tokens = getattr(window.proxy, "starred_wi_tokens", set())
+
+    dialog = PostMeetingExportDialog(
+        parent=window,
+        meeting_dir=window.meeting_dir,
+        all_rows=window.model._data,
+        visible_rows=visible_tdocs,
+        agenda_map=window.agenda_map,
+        mtg_info=window.mtg_info,
+        followed_tokens=followed_tokens,
+        starred_tokens=starred_tokens,
+    )
+
+    if dialog.exec_() != QDialog.Accepted:
+        return
+
+    cfg = dialog.get_export_config()
+
+    window.export_btn.setText("⏳ Preparing Post-Meeting Export...")
+    window.export_btn.setEnabled(False)
+
+    thread = PostMeetingExporterThread(
+        meeting_dir=window.meeting_dir,
+        all_rows=window.model._data,
+        visible_rows=visible_tdocs,
+        agenda_map=window.agenda_map,
+        mtg_info=window.mtg_info,
+        docs_ftp_url=window.docs_ftp_url,
+        revisions_url=window.revisions_url,
+        scope_mode=cfg["scope_mode"],
+        custom_wis=cfg["custom_wis"],
+        followed_tokens=followed_tokens,
+        starred_tokens=starred_tokens,
+        include_ls_in=cfg["include_ls_in"],
+        include_pcr=cfg["include_pcr"],
+        include_cr=cfg["include_cr"],
+        include_ls_out=cfg["include_ls_out"],
+        include_general_ls=cfg["include_general_ls"],
+        generate_local_indices=cfg["generate_local_indices"],
+        download_missing=cfg["download_missing"],
+        force_reconvert=cfg["force_reconvert"],
+        output_dir=cfg["output_dir"],
+        parent=window,
+    )
+    window.md_export_thread = thread
+    thread.progress.connect(window._on_md_progress)
+    thread.finished.connect(
+        lambda success, msg, auto_open=cfg["auto_open"]: on_post_meeting_export_finished(
+            window, success, msg, auto_open
+        )
+    )
+    thread.start()
+
+
+def on_post_meeting_export_finished(window: Any, success: bool, msg: str, auto_open: bool = True) -> None:
+    window.export_btn.setText("📤 Export ▾")
+    window.export_btn.setEnabled(True)
+    if success:
+        QMessageBox.information(window, "Post-Meeting Export Complete", msg)
+        target = getattr(window.md_export_thread, "export_dir", None)
+        if auto_open and target and target.is_dir():
+            _open_folder(target)
+    else:
+        QMessageBox.warning(window, "Post-Meeting Export Failed", msg)
+
