@@ -19,6 +19,7 @@ src/modules/meetings/
 │   ├── excel_exporter.py              # Formatted Excel (.xlsx) export
 │   ├── llm_exporter.py                # Batch/single document extraction and export to Markdown
 │   ├── markdown_exporter.py           # Meeting summary reports (agreed CRs, LSs, company contributions)
+│   ├── post_meeting_exporter.py       # Post-meeting report generator (per-release & per-WI dossier)
 │   ├── meetings_data_loader.py        # 3gpp_data.db queries and meeting list loaders
 │   ├── meetings_network_sync.py       # FTP sync for meetings and TDoc lists
 │   ├── tdoc_file_handler.py           # Downloading and caching TDoc ZIP/Word documents
@@ -71,3 +72,13 @@ src/modules/meetings/
   - Dynamically calculates facet badge counts (`(N)`) in `_update_filter_facets` matching active criteria.
   - Seamlessly resets in `_clear_all_filters`.
   - Re-evaluates on window focus (`showEvent`) to instantly pick up tracking changes from the Work Items tab without window reload.
+
+### 3.5. Post-Meeting Report & Dossier Markdown Generator
+- **UI Dialog (`PostMeetingExportDialog`):** Modeless configuration dialog accessible from `TDocsWindow`'s Export menu (`📑 Export Post-Meeting Report (.md)...`). Allows selecting export scopes (`🎯 Followed Work Items`, `⭐ Starred Work Items`, `🎯+⭐ All Tracked`, `🌐 Whole Meeting`, `👁️ Currently Visible`, or `📋 Custom Work Items Selection...`), contribution categories (`LS in`, `pCR`, `CR`, `LS out`, `General LS`), and conversion options (auto-open, force reconversion, local index generation).
+- **Exporter Worker (`PostMeetingExporterThread`):**
+  - **Structure:** Hierarchical dossier tree under `Export/PostMeeting_<WG>_<Meeting>_<timestamp>/` arranged chronologically by Release (`Rel-XX/`) and then by Work Item (`<WI>/`), containing type subfolders (`LS_IN/`, `pCR/`, `CR/`, `LS_OUT/`).
+  - **Contribution Filtering:** Strictly captures received incoming liaison statements (`LS in`) and approved/agreed normative outputs (`pCR`, `CR`, `LS out`). Filters out discussion papers, working papers, and unapproved/withdrawn contributions.
+  - **Cross-WI Contributions:** Replicates documents associated with multiple Work Items into every relevant WI folder while embedding a bidirectional callout notice (`> [!NOTE] Cross-WI Contribution: ...`).
+  - **Multi-Agenda Item Tracking:** Aggregates and lists all Agenda Items associated with a Work Item (e.g., SA2's `FS_6G_ARC` spanning AI 5.2.1, 5.2.2, etc.).
+  - **Media Isolation:** Preserves collision-free media by copying `{tdoc_id}_*` assets into local `media/` subdirectories.
+  - **Executive Indexing:** Generates comprehensive master `index.md` overview tables and per-WI local `index.md` summaries with relative Markdown hyperlinks.
