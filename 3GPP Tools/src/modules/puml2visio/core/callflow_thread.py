@@ -1,12 +1,16 @@
 # --- File: modules/puml2visio/core/callflow_thread.py ---
 import re
 import logging
+import tempfile
+from pathlib import Path
+from typing import List, Dict, Optional
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.ai.ollama_client import OllamaClient
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES, COMMON_STYLE
 
 logger = logging.getLogger(__name__)
+
 
 class CallFlowGeneratorThread(QThread):
     """Worker thread for streaming PlantUML generation from call flow text."""
@@ -15,14 +19,17 @@ class CallFlowGeneratorThread(QThread):
     generation_failed = pyqtSignal(str)
 
     def __init__(self, client: OllamaClient, model: str, system_prompt: str,
-                 user_prompt: str, diagram_type: str = "Sequence", parent=None):
+                 user_prompt: str, diagram_type: str = "Sequence", parent=None,
+                 messages: Optional[List[Dict[str, str]]] = None):
         super().__init__(parent)
         self.client = client
         self.model = model
         self.system_prompt = system_prompt
         self.user_prompt = user_prompt
         self.diagram_type = diagram_type
+        self.initial_messages = messages
         self._is_cancelled = False
+        self.history: List[Dict[str, str]] = []
 
     def cancel(self):
         """Flag the thread to abort processing."""
@@ -30,10 +37,13 @@ class CallFlowGeneratorThread(QThread):
 
     def run(self):
         accumulated_text = []
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": self.user_prompt}
-        ]
+        if self.initial_messages:
+            messages = list(self.initial_messages)
+        else:
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": self.user_prompt}
+            ]
 
         try:
             logger.info(f"🤖 Generating {self.diagram_type} PlantUML call flow with model '{self.model}'...")
@@ -46,6 +56,7 @@ class CallFlowGeneratorThread(QThread):
                 self.token_received.emit(token)
 
             raw_code = "".join(accumulated_text)
+            self.history = messages + [{"role": "assistant", "content": raw_code}]
             sanitized_code = self._post_process(raw_code)
             logger.info("✅ PlantUML call-flow generation completed.")
             self.generation_completed.emit(sanitized_code)
@@ -90,3 +101,36 @@ class CallFlowGeneratorThread(QThread):
             final_puml = f"@startuml\n{COMMON_STYLE}\n{inner_content}\n@enduml"
 
         return final_puml
+
+
+class CallFlowValidationThread(QThread):
+    """Background worker verifying PlantUML syntax and rendering preview SVG."""
+    validation_success = pyqtSignal(str)          # svg_path
+    validation_error = pyqtSignal(int, str)       # (line_no, error_message)
+
+    def __init__(self, puml_code: str, jar_path: Path, parent=None):
+        super().__init__(parent)
+        self.puml_code = puml_code
+        self.jar_path = jar_path
+
+    def run(self):
+        from modules.puml2visio.utils.utils import generate_cleaned_svg
+
+        temp_dir = Path(tempfile.gettempdir()) / "puml2visio_callflow"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_puml = temp_dir / "preview.puml"
+
+        try:
+            temp_puml.write_text(self.puml_code, encoding="utf-8")
+            svg_path = generate_cleaned_svg(temp_puml, self.jar_path, log_callback=lambda m, l: None)
+            self.validation_success.emit(str(svg_path))
+        except Exception as e:
+            err_str = str(e)
+            line_no = 0
+            match = re.search(r'Error line (\d+)', err_str, flags=re.IGNORECASE)
+            if match:
+                try:
+                    line_no = int(match.group(1))
+                except ValueError:
+                    line_no = 0
+            self.validation_error.emit(line_no, err_str)

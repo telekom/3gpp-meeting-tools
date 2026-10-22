@@ -768,3 +768,62 @@ skinparam ParticipantPadding 10
 !pragma teoz true""",
     ),
 ]
+
+# =========================================================================
+# --- SAMPLE 3GPP PROCEDURE SPECIFICATION TEXTS ---
+# =========================================================================
+
+SAMPLE_3GPP_PROCEDURES = {
+    "5GS Initial Registration (TS 23.502 §4.2.2)": """1. UE sends Registration Request (SUCI, 5G-GUTI, Requested NSSAI) to (R)AN.
+2. (R)AN selects AMF based on RAT and NSSAI, and sends N2 Initial UE Message (Registration Request).
+3. If identity cannot be resolved, AMF sends Identity Request to UE, and UE responds with Identity Response (SUCI).
+4. AMF initiates Authentication: AMF invokes Nausf_UEAuthentication_Authenticate Request to AUSF.
+5. AUSF contacts UDM (Nudm_UEAuthentication_Get Request) to retrieve Authentication Vectors (5G-AKA/EAP-AKA').
+6. UDM returns vectors to AUSF, which challenges UE via AMF (NAS Authentication Request / Response).
+7. Upon successful authentication, AUSF returns confirmation to AMF.
+8. AMF initiates NAS Security Mode Command / Complete to establish ciphering and integrity protection.
+9. AMF invokes Nudm_SDM_Get to retrieve Access and Mobility Subscription data from UDM.
+10. AMF establishes Policy Association with PCF (Npcf_AMPolicyControl_Create).
+11. AMF transmits Registration Accept (5G-GUTI, Allowed NSSAI, T3512) to (R)AN, which delivers it to UE.
+12. UE sends Registration Complete to AMF.""",
+
+    "5GS PDU Session Establishment (TS 23.502 §4.3.2)": """1. UE sends NAS message (PDU Session Establishment Request) to AMF with PDU Session ID, S-NSSAI, DNN.
+2. AMF selects SMF and sends Nsmf_PDUSession_CreateSMContext Request to SMF.
+3. SMF retrieves session management subscription data from UDM (Nudm_SDM_Get).
+4. SMF responds to AMF with Nsmf_PDUSession_CreateSMContext Response.
+5. SMF performs session policy association with PCF (Npcf_SMPolicyControl_Create).
+6. SMF selects UPF and establishes N4 Session via N4 Session Establishment Request / Response.
+7. SMF sends Namf_Communication_N1N2MessageTransfer (N2 SM Information: CN tunnel info, QoS Profile; N1 SM: PDU Session Establishment Accept) to AMF.
+8. AMF sends N2 PDU Session Request to (R)AN.
+9. (R)AN performs RRC Reconfiguration with UE to set up Data Radio Bearers (DRB).
+10. (R)AN sends N2 PDU Session Response (AN tunnel info) to AMF.
+11. AMF forwards AN tunnel info to SMF via Nsmf_PDUSession_UpdateSMContext Request.
+12. SMF updates UPF with downlink AN tunnel info via N4 Session Modification Request / Response.
+13. SMF responds to AMF with Nsmf_PDUSession_UpdateSMContext Response. User Plane data path is now active.""",
+
+    "Xn-based Handover (TS 38.300 §9.2.3)": """1. Source gNB evaluates UE Measurement Reports and makes handover decision.
+2. Source gNB sends Xn Handover Request to Target gNB with UE context and QoS flow details.
+3. Target gNB performs Admission Control and allocates radio resources.
+4. Target gNB responds to Source gNB with Xn Handover Request Acknowledge.
+5. Source gNB sends RRCReconfiguration with sync (Handover Command) to UE.
+6. Source gNB delivers SN Status Transfer to Target gNB and starts data forwarding.
+7. UE synchronizes to Target gNB and transmits RRCReconfigurationComplete.
+8. Target gNB sends Path Switch Request to AMF via NGAP.
+9. AMF invokes Nsmf_PDUSession_UpdateSMContext Request to SMF.
+10. SMF instructs UPF via N4 Session Modification to switch downlink path to Target gNB.
+11. UPF sends End Marker packets to Source gNB and switches path to Target gNB.
+12. AMF confirms Path Switch to Target gNB with Path Switch Request Ack.
+13. Target gNB sends Xn UE Context Release to Source gNB to free resources.""",
+
+    "5GS Service Request Procedure (TS 23.502 §4.2.3)": """1. UE in CM-IDLE sends RRC Setup Complete with NAS Service Request to (R)AN.
+2. (R)AN sends N2 Initial UE Message (Service Request, User Location Info) to AMF.
+3. If security not active, AMF performs Authentication and NAS Security Mode procedures.
+4. AMF sends Nsmf_PDUSession_UpdateSMContext Request to SMF to activate User Plane connections.
+5. SMF initiates N4 Session Modification with UPF to allocate downlink tunnel endpoint.
+6. SMF sends N2 SM Information (QoS profiles, UPF Core Tunnel Info) back to AMF.
+7. AMF sends N2 Request (Security Context, N2 SM Information) to (R)AN.
+8. (R)AN performs RRC Reconfiguration to establish Data Radio Bearers with UE.
+9. (R)AN sends N2 Response (AN Tunnel Info) to AMF.
+10. AMF sends Nsmf_PDUSession_UpdateSMContext Request to SMF with AN Tunnel Info.
+11. SMF modifies UPF with AN Tunnel Info. Uplink and Downlink data path are active."""
+}
