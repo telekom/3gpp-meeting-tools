@@ -64,6 +64,8 @@ from modules.word_tools.core.document_opener import open_document
 
 logger = logging.getLogger(__name__)
 
+PART_NUM_REGEX = re.compile(r"\d{4,5}-(\d{1,2})(?:[-_.]|$)")
+
 # --- STYLES FOR SPECIFICATIONS FILTER CONTROLS ---
 SPEC_FILTER_COMBO_STYLE = """
 QComboBox {
@@ -233,13 +235,18 @@ class SpecificationsTab(QWidget):
         # Load persisted settings
         self._load_settings()
 
-        # Timers
-        self.search_timer = QTimer()
+        # Debounce Timers
+        self.search_timer = QTimer(self)
         self.search_timer.setSingleShot(True)
-        self.search_timer.setInterval(350)
+        self.search_timer.setInterval(300)
         self.search_timer.timeout.connect(self.refresh_table)
 
-        self.save_settings_timer = QTimer()
+        self.filter_timer = QTimer(self)
+        self.filter_timer.setSingleShot(True)
+        self.filter_timer.setInterval(150)
+        self.filter_timer.timeout.connect(self.refresh_table)
+
+        self.save_settings_timer = QTimer(self)
         self.save_settings_timer.setSingleShot(True)
         self.save_settings_timer.setInterval(800)
         self.save_settings_timer.timeout.connect(self._save_settings)
@@ -694,16 +701,16 @@ class SpecificationsTab(QWidget):
     def _toggle_favorites_filter(self, checked: bool = False):
         """Toggle the favorites-only filter mode."""
         self.favorites_only = self.fav_chip.isChecked()
-        self._save_settings()
+        self.save_settings_timer.start()
         self._update_chip_styles()
         self._update_active_tags()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _toggle_downloaded_filter(self, checked: bool = False):
         """Toggle the downloaded-only filter mode."""
-        self._save_settings()
+        self.save_settings_timer.start()
         self._update_active_tags()
-        self.refresh_table()
+        self.filter_timer.start()
 
     # ==========================================
     # --- EVENT HANDLERS & FILTERS ---
@@ -718,7 +725,6 @@ class SpecificationsTab(QWidget):
                 self.refresh_table()
 
     def _on_search_changed(self):
-        self._update_active_tags()
         self.search_timer.start()
         self.save_settings_timer.start()
 
@@ -827,7 +833,7 @@ class SpecificationsTab(QWidget):
         self._update_chip_styles()
         self._update_active_tags()
         self.save_settings_timer.start()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _on_chip_clicked(self, tsg_val: str):
         """Backward compatibility wrapper for TSG chip clicks."""
@@ -847,7 +853,7 @@ class SpecificationsTab(QWidget):
         self._update_chip_styles()
         self._update_active_tags()
         self.save_settings_timer.start()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _on_series_filter_changed(self, checked_items: list):
         if self.series_combo.isAllChecked() or not checked_items:
@@ -857,21 +863,21 @@ class SpecificationsTab(QWidget):
 
         self._update_active_tags()
         self.save_settings_timer.start()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _on_tech_combo_changed(self):
         data = self.tech_combo.currentData() or ""
         self.table_filters["tech"] = data
         self._update_active_tags()
         self.save_settings_timer.start()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _on_type_button_clicked(self, type_val: str):
         self.table_filters["spec_type"] = type_val
         self._update_chip_styles()
         self._update_active_tags()
         self.save_settings_timer.start()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _populate_tag_filter_combo(self):
         if not hasattr(self, "tag_filter_combo"):
@@ -900,14 +906,14 @@ class SpecificationsTab(QWidget):
         self.tag_filter = data if data else None
         self._update_active_tags()
         self.save_settings_timer.start()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _reset_tag_filter(self):
         self.tag_filter_combo.setCurrentIndex(0)
         self.tag_filter = None
         self._update_active_tags()
         self.save_settings_timer.start()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _update_chip_styles(self):
         fav_count = len(self.favorites)
@@ -923,12 +929,6 @@ class SpecificationsTab(QWidget):
 
     def _update_active_tags(self):
         """Re-render active filter tags dynamically with 1-click removal."""
-        while self.active_tags_container_layout.count():
-            item = self.active_tags_container_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
-
         tags = []
 
         sq = self.spec_search_input.text().strip()
@@ -967,6 +967,17 @@ class SpecificationsTab(QWidget):
         if stype and stype != "Any":
             tags.append((f'Type: {stype} ✕', self._reset_type_filter))
 
+        tag_labels = [label for label, _ in tags]
+        if getattr(self, "_rendered_tag_labels", None) == tag_labels:
+            return
+        self._rendered_tag_labels = tag_labels
+
+        while self.active_tags_container_layout.count():
+            item = self.active_tags_container_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
         has_tags = len(tags) > 0
         self.active_tags_label.setVisible(has_tags)
         self.clear_all_btn.setVisible(has_tags)
@@ -987,30 +998,31 @@ class SpecificationsTab(QWidget):
         self._update_chip_styles()
         self._update_active_tags()
         self.save_settings_timer.start()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _reset_series_filter(self):
         self.series_combo.setCheckedItems([])
         self.table_filters["series"] = ""
         self._update_active_tags()
         self.save_settings_timer.start()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _reset_tech_filter(self):
         self.tech_combo.setCurrentIndex(0)
         self.table_filters["tech"] = ""
         self._update_active_tags()
         self.save_settings_timer.start()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _reset_type_filter(self):
         self.table_filters["spec_type"] = "Any"
         self._update_chip_styles()
         self._update_active_tags()
         self.save_settings_timer.start()
-        self.refresh_table()
+        self.filter_timer.start()
 
     def _clear_all_filters(self):
+        self._rendered_tag_labels = None
         self.spec_search_input.blockSignals(True)
         self.version_search_input.blockSignals(True)
         self.downloaded_only_btn.blockSignals(True)
@@ -1274,6 +1286,10 @@ class SpecificationsTab(QWidget):
         combo.setItemData(index, " • ".join(tooltips), Qt.ToolTipRole)
 
     def refresh_table(self):
+        self.search_timer.stop()
+        self.filter_timer.stop()
+        self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
         try:
             spec_query = self.spec_search_input.text().strip()
             version_query = self.version_search_input.text().strip()
@@ -1303,9 +1319,9 @@ class SpecificationsTab(QWidget):
                 series, spec_num, title, spec_type, filename, version, url, upload_date, *rest = row
                 row_tags = rest[0] if len(rest) > 0 else ""
                 row_comments = rest[1] if len(rest) > 1 else ""
-                if filename:
-                    part_match = re.search(r"\d{4,5}-(\d{1,2})(?:[-_.]|$)", filename)
-                    if part_match and "-" not in spec_num:
+                if filename and "-" not in spec_num:
+                    part_match = PART_NUM_REGEX.search(filename)
+                    if part_match:
                         spec_num = f"{spec_num}-{part_match.group(1)}"
 
                 if spec_num not in grouped_specs:
@@ -1319,12 +1335,11 @@ class SpecificationsTab(QWidget):
                 grouped_specs[spec_num]["versions"].append((version, url, filename, upload_date))
 
             if downloaded_only and base_dl_dir.exists():
-                filtered_grouped = {}
-                for s_num, s_data in grouped_specs.items():
-                    s_dir = base_dl_dir / s_num
-                    if s_dir.exists() and any(s_dir.iterdir()):
-                        filtered_grouped[s_num] = s_data
-                grouped_specs = filtered_grouped
+                try:
+                    existing_dirs = {d.name for d in base_dl_dir.iterdir() if d.is_dir()}
+                    grouped_specs = {s_num: s_data for s_num, s_data in grouped_specs.items() if s_num in existing_dirs}
+                except Exception:
+                    pass
 
             if self.favorites_only:
                 filtered_grouped = {}
@@ -1750,7 +1765,12 @@ class SpecificationsTab(QWidget):
                     doc_copy_sub = menu.addMenu(f"📋 Quick Copy ({ver_title})")
                     doc_copy_sub.setToolTipsVisible(True)
                     doc_copy_sub.setToolTip(f"Copy specification metadata and download links for version {ver_title}.")
-                    populate_spec_copy_menu(doc_copy_sub, self, c_data["spec_num"], version_info=c_data, db=self.db)
+
+                    def _on_doc_copy_about_to_show(sub=doc_copy_sub, s=c_data["spec_num"], v=c_data):
+                        sub.clear()
+                        populate_spec_copy_menu(sub, self, s, version_info=v, db=self.db)
+
+                    doc_copy_sub.aboutToShow.connect(_on_doc_copy_about_to_show)
 
                     if dir_ready:
                         act_dir = menu.addAction("📂 Open Local Folder")
@@ -1776,6 +1796,9 @@ class SpecificationsTab(QWidget):
 
         except Exception as e:
             logger.error(f"Error during refresh_table: {e}", exc_info=True)
+        finally:
+            self.table.blockSignals(False)
+            self.table.setUpdatesEnabled(True)
 
     # ==========================================
     # --- DOCUMENT FETCH & EXTRACTION ---
