@@ -441,7 +441,7 @@ class MeetingsConfigDialog(QDialog):
         layout.addWidget(scrape_group)
 
         # 3. Work Item Auto-Discovery
-        wi_group = QGroupBox("🎯 Work Items & Enrichment")
+        wi_group = QGroupBox("🎯 Work Items && Enrichment")
         wi_layout = QVBoxLayout(wi_group)
 
         self.chk_auto_enrich_wis = QCheckBox("Auto-enrich missing Work Items from meeting spreadsheets")

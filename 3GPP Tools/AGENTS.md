@@ -185,6 +185,13 @@ The project intentionally separates domain data into distinct SQLite databases l
 ### 5.7. Protected Drop-In Files & External Components
 - **Strictly Protected File (`src/modules/meetings/core/tdoc2md.py`):** Under **NO** circumstances should `src/modules/meetings/core/tdoc2md.py` be modified. It is maintained externally in a separate repository (`3gpp-tdoc-markdown-exporter`) and dropped into this project verbatim. If application-specific adaptations, office tools, wrappers, or custom pipelines are required, they must reside exclusively in `tdoc_markdown_converter.py` or surrounding application code.
 
+### 5.8. Qt UI Text & Ampersand Mnemonic Escaping
+- **Literal Ampersands Must Be Escaped (`&&`):** In Qt/PyQt, controls that support keyboard shortcuts and mnemonics (`QPushButton`, `QToolButton`, `QCommandLinkButton`, `QCheckBox`, `QRadioButton`, `QGroupBox`, `QAction`, `QMenu`, `QMenuBar`, `QTabBar`, and `QTabWidget`) interpret a single `&` as an accelerator mnemonic prefix.
+  - When a single `&` is used in a string literal (e.g., `"Save & Close"`, `"Followed & Starred"`, `"Work Items & Enrichment"`), Qt suppresses the character and either renders an underscore `_` or underbars the succeeding character on Windows.
+  - **Always escape literal ampersands as `&&`** across all user-facing labels, button texts, group titles, menu items, action labels, and tab titles (e.g. `"Save && Close"`, `"Followed && Starred"`, `"🎯 Work Items && Enrichment"`, `"Tags && Notes"`).
+  - Never use a single `&` in UI labels unless deliberately establishing an `Alt+<Key>` accelerator shortcut.
+  - This rule is enforced automatically across all `src/` modules via `tests/test_ui_ampersand_escaping.py`.
+
 ---
 
 ## 6. Development & Verification Workflow
@@ -193,4 +200,5 @@ When adding new features or fixing bugs:
 1. **Verify Python Syntax & Imports:** Ensure imports resolve cleanly with `PYTHONPATH=".;src"`.
 2. **Preserve Comments & Docstrings:** Do not strip existing architectural comments or docstrings from untouched code.
 3. **Check Submodule Guides & Protected Files:** When touching protocol parsing, consult [`src/modules/nas/core/parsing/AGENTS.md`](file:///src/modules/nas/core/parsing/AGENTS.md). When touching the Assistant, consult [`src/modules/assistant/AGENTS.md`](file:///src/modules/assistant/AGENTS.md). When touching meetings or TDoc markdown conversion, consult [`src/modules/meetings/AGENTS.md`](file:///src/modules/meetings/AGENTS.md) (and **NEVER edit `src/modules/meetings/core/tdoc2md.py`**).
-4. **Manual Verification:** Because the application is a graphical Qt desktop environment, test modified tabs or workers by running `python -m main_tools` and verifying that the Qt event loop starts and stops cleanly without console tracebacks or thread leaks.
+4. **UI Mnemonic Escaping Verification:** When adding or modifying buttons, actions, checkboxes, menus, or groupboxes containing ampersands, always use `&&` (not `&`). Verify by running `python -m unittest tests/test_ui_ampersand_escaping.py`.
+5. **Manual Verification:** Because the application is a graphical Qt desktop environment, test modified tabs or workers by running `python -m main_tools` and verifying that the Qt event loop starts and stops cleanly without console tracebacks or thread leaks.
