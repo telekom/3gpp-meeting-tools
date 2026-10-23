@@ -49,6 +49,8 @@ python -m main_tools
 ├── README.md                      # Comprehensive user & architectural documentation
 ├── requirements.txt               # Direct runtime dependencies
 ├── AGENTS.md                      # Root developer and AI agent guide (this file)
+├── docs/                          # Technical references, audits & porting roadmaps
+│   └── LEGACY_FUNCTIONALITIES.md  # Legacy Meeting Helper functionality audit & porting guide
 ├── output/                        # Default export directory for converted diagrams/docs
 ├── src/
 │   ├── Launch.cmd                 # Startup script with PYTHONPATH configuration
