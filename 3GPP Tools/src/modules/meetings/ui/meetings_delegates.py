@@ -5,7 +5,55 @@ from PyQt5.QtCore import Qt, QEvent
 from PyQt5.QtGui import QBrush, QColor, QPen
 from PyQt5.QtWidgets import QMenu, QStyle, QStyledItemDelegate
 
+from core.ui.ui_components import get_wg_colors
+
 logger = logging.getLogger(__name__)
+
+
+class WGTagDelegate(QStyledItemDelegate):
+    """Paints styled TSG domain badges for the Working Group column."""
+    def __init__(self, parent_tab):
+        super().__init__(parent_tab.table)
+        self.parent_tab = parent_tab
+
+    def paint(self, painter, option, index):
+        wg = index.data(Qt.DisplayRole)
+        if not wg:
+            super().paint(painter, option, index)
+            return
+
+        painter.save()
+        painter.setRenderHint(painter.Antialiasing)
+
+        if option.state & QStyle.State_Selected:
+            painter.fillRect(option.rect, option.palette.highlight())
+
+        colors = get_wg_colors(wg)
+        bg = colors.get("bg", "#F1F5F9")
+        border = colors.get("border", "#CBD5E1")
+        text_col = colors.get("text", "#475569")
+
+        if option.state & QStyle.State_MouseOver:
+            border_pen = QPen(QColor(text_col), 1.5)
+        else:
+            border_pen = QPen(QColor(border), 1)
+
+        rect = option.rect
+        badge_rect = rect.adjusted(6, 6, -6, -6)
+
+        painter.setBrush(QBrush(QColor(bg)))
+        painter.setPen(border_pen)
+        painter.drawRoundedRect(badge_rect, 4, 4)
+
+        font = painter.font()
+        font.setPointSize(9)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(text_col)))
+        painter.drawText(badge_rect, Qt.AlignCenter, wg)
+
+        painter.restore()
+
 
 class TDocsButtonDelegate(QStyledItemDelegate):
     def __init__(self, parent_tab):
@@ -30,6 +78,9 @@ class TDocsButtonDelegate(QStyledItemDelegate):
             bg, border, text_col, text = "#FFFBEB", "#FDE68A", "#B45309", "⏳ Fetching"
         else:
             bg, border, text_col, text = "#EBF3FC", "#BFDBFE", "#1E5C99", "⬇ Get"
+
+        if option.state & QStyle.State_MouseOver and status != 'na':
+            border = text_col
 
         rect = option.rect
         btn_rect = rect.adjusted(4, 6, -4, -6)

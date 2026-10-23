@@ -31,15 +31,20 @@ src/modules/meetings/
 │   ├── tdocs_db.py                    # SQLite interface for user_tdocs.db
 │   └── stats/                         # Meeting statistics calculation and HTML report generation
 └── ui/
-    ├── meeting_selection_dialog.py    # Meeting picker dialog
-    ├── meetings_tab.py                # Meetings browser UI tab
-    ├── tdoc_details_dialog.py         # Full TDoc metadata and history dialog
-    ├── tdoc_info_dialog.py            # Quick info card modal
-    ├── tdoc_triage_dialog.py          # AI TDoc Triage execution & preview dialog
+    ├── contribution_dialog.py         # Multi-meeting company contribution audit dialog
+    ├── dialogs.py                     # MeetingInfoDialog, AddMeetingDialog, MeetingsConfigDialog
+    ├── meetings_actions.py            # Async download, caching, and export actions for MeetingsTab
+    ├── meetings_delegates.py          # DynamicHoverMenuDelegate, TDocsButtonDelegate, WGTagDelegate
+    ├── meetings_menu.py               # Right-click context menu builder for meetings table
+    ├── models.py                      # MeetingsTableModel (7 consolidated columns, English date ranges)
+    ├── post_meeting_export_dialog.py  # Post-meeting report generator dialog
+    ├── search_controller.py           # GlobalSearchController for inline Quick TDoc Jump
+    ├── tdocs_components.py            # CheckableComboBox and custom styled UI widgets
     ├── tdocs_dialogs.py               # Statistics parameters, export configuration dialogs
     ├── tdocs_menus.py                 # Right-click context menus for TDoc tables
     ├── tdocs_models.py                # High-performance TDocsTableModel & TDocsFilterProxyModel
-    └── tdocs_window.py                # Primary TDoc list viewer window
+    ├── tdocs_window.py                # Primary TDoc list viewer window
+    └── ui_tabs.py                     # MeetingsTab (full-width browser, 2-row top ribbon, floating cart)
 ```
 
 ---
@@ -123,3 +128,17 @@ src/modules/meetings/
 - **Background Scraping:** Dispatches polite concurrent requests (`fetch_wi_details_from_portal`) and atomically persists newly discovered WIs with their metadata, responsible groups, and remarks (`WorkItemsDatabase.upsert_single_work_item()`).
 - **Audit Marker Caching:** Writes `<excel_path>.wi_checked.json` (recording timestamp, file mtime, discovered count, and scraped codes). On subsequent opens, `is_enrichment_needed` checks `mtime(marker) >= mtime(excel)` and exits in ~0 ms.
 - **Dynamic Refresh & Config:** Quietly updates tracked tokens and filter badges if any newly scraped WI matches user watchlist tokens. Can be toggled on/off in `MeetingsConfigDialog`.
+
+### 3.8. Meetings Browser Modern Architecture (`MeetingsTab`)
+- **Full-Width Table & 2-Row Top Ribbon:** Eliminates the legacy fixed-width right sidebar, allocating 100% of horizontal space to the meetings table:
+  - **Row 1 (Primary Navigation & Toolbar):** Houses `🚀 Last Meeting` quick launcher with active theme styling, inline `⚡ TDoc:` jump box with dynamic `📄 Doc` and `🗓️ Mtg` action buttons, right-aligned `🔄 Sync ▾` menu, `📊 Reports ▾` menu, and `⚙️ Settings`.
+  - **Row 2 (Inline Filter Engine):** `🔍 Search` (by number, city, or title), TSG segmented buttons (`[All] [SA] [RAN] [CT]`), `Working Group` checkable multi-select combo, Nature (`Regular` / `Ad-Hoc`), Format (`In-Person` / `Electronic`), and Date Presets (`All Dates`, `Upcoming`, `This Year`, `Past 12 Months`, `Custom Range...`). Selecting *Custom Range...* dynamically reveals the calendar pickers.
+- **7-Column Table Design & Delegates:**
+  - `Action` (col 1): `TDocsButtonDelegate` painting interactive `✔ Open`, `⬇ Get`, or `⏳ Fetching` status pills with hover feedback.
+  - `WG` (col 2): `WGTagDelegate` rendering color-coded TSG domain badges (Soft Indigo for SA, Soft Emerald for RAN, Soft Amber for CT) using `get_wg_colors()`.
+  - `Location` (col 4): Icon-prefixed labels (`📍 City, Country` vs `🌐 Online (eMeeting)`).
+  - `Dates` (col 5): English consolidated ranges (`12 – 16 Oct 2026`) via `format_meeting_dates()` with temporal awareness tooltips (`🟢 Ongoing`, `🔵 Upcoming`, `⚪ Past`).
+  - `Allocated TDocs` (col 6): Preserves full WG prefixes (`C4-264009 → C4-264023`, `—` when unallocated).
+  - Double-clicking any row directly launches the meeting TDocs window (or downloads it if uncached).
+- **Floating Comparison Cart:** Compact lower-right status bar pill that **auto-hides completely when empty**, sliding into view only when items are staged into Slot A or Slot B (`⚖️ Cart: <Doc A> vs <Doc B> [Compare in Word] [Clear]`).
+- **Safe Maintenance Grouping:** Relocated destructive `Clear All Meetings...` from the main UI into `MeetingsConfigDialog` (`⚙️ Settings`) under a dedicated *⚠️ Database Maintenance (Danger Zone)* section.
