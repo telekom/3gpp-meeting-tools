@@ -88,3 +88,27 @@ class MeetingsSettings:
             return data.get("filters", {})
         except Exception:
             return {}
+
+    def get_include_unassigned_ls_in(self) -> bool:
+        if not self.config_file.exists():
+            return True
+        try:
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data.get("include_unassigned_ls_in", True)
+        except Exception:
+            return True
+
+    def set_include_unassigned_ls_in(self, enabled: bool):
+        try:
+            data = {}
+            if self.config_file.exists():
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+            data['include_unassigned_ls_in'] = bool(enabled)
+
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+        except Exception as e:
+            logger.error(f"[MeetingsSettings] Error saving include_unassigned_ls_in: {e}")

@@ -10,15 +10,19 @@ import pandas as pd
 import plotly.express as px
 from plotly.offline import get_plotlyjs_version
 
-from core.config.plot_styles import PALETTE, THEME_COLOR, CLUSTER_PALETTE
+from core.config.plot_styles import (
+    PALETTE, THEME_COLOR, CLUSTER_PALETTE,
+    STATUS_COLORS, STATUS_ORDER, DOC_TYPE_COLORS,
+    normalize_status, classify_doc_type,
+)
 from core.utils.company_sanitizer import CompanySanitizer
 from modules.meetings.core.agenda_manager import AgendaManager
 from .plot_agenda import generate_ai_volume_plot, generate_ai_status_plot
-from .plot_status import generate_outcomes_plot
+from .plot_status import generate_outcomes_plot, generate_doc_types_plot
 from .plot_contributors import generate_top_contributors_plot, generate_company_ai_heatmap
 from .plot_alliances import compute_global_communities, generate_alliance_plots
 from .plot_insights import (generate_revision_intensity_plot, generate_company_specialization_plot,
-                            build_revision_stats, build_company_specialization)
+                            build_revision_stats, build_company_specialization, _is_revision)
 
 
 class StatisticsExporterThread(QThread):
@@ -45,6 +49,83 @@ class StatisticsExporterThread(QThread):
         self.PALETTE = PALETTE
         self.CLUSTER_PALETTE = CLUSTER_PALETTE
 
+    def _compute_scope_kpis(self, scope_df: pd.DataFrame, scope_type: str = "global") -> dict:
+        total_tdocs = len(scope_df)
+        if total_tdocs == 0:
+            return {
+                'total_tdocs': 0, 'orig_count': 0, 'rev_count': 0,
+                'cr_total': 0, 'cr_agreed_count': 0, 'cr_agree_pct': None,
+                'handling_pct': 0.0, 'handled_count': 0, 'untreated_count': 0,
+                'disc_total': 0, 'ls_total': 0, 'total_companies': 0, 'joint_pct': 0.0,
+                'scope_dim_val': '0', 'scope_dim_title': 'Items', 'scope_dim_subtext': '',
+            }
+
+        is_rev = scope_df['_IsRevision'] if '_IsRevision' in scope_df.columns else scope_df.apply(_is_revision, axis=1)
+        rev_count = int(is_rev.sum())
+        orig_count = total_tdocs - rev_count
+
+        doc_types = scope_df['Clean_Doc_Type'] if 'Clean_Doc_Type' in scope_df.columns else pd.Series(['Other'] * total_tdocs)
+        statuses = scope_df['Clean_Status'] if 'Clean_Status' in scope_df.columns else scope_df['TDoc Status'].apply(normalize_status)
+
+        cr_mask = doc_types.isin(['CR', 'pCR'])
+        cr_total = int(cr_mask.sum())
+        cr_agreed_count = int((cr_mask & statuses.isin(['Agreed', 'Approved'])).sum())
+        cr_agree_pct = round((cr_agreed_count / cr_total) * 100, 1) if cr_total > 0 else None
+
+        disc_mask = doc_types == 'Discussion'
+        disc_total = int(disc_mask.sum())
+
+        ls_mask = doc_types.isin(['LS in', 'LS out', 'LS'])
+        ls_total = int(ls_mask.sum())
+
+        handled_mask = ~statuses.isin(['Not Treated', 'Postponed', 'Unknown'])
+        handled_count = int(handled_mask.sum())
+        untreated_count = total_tdocs - handled_count
+        handling_pct = round((handled_count / total_tdocs) * 100, 1) if total_tdocs > 0 else 0.0
+
+        companies = [c for sublist in scope_df.get('Clean_Companies', []) for c in (sublist or [])]
+        total_companies = len(set(companies))
+
+        solo_count = sum(1 for comps in scope_df.get('Clean_Companies', []) if len(comps or []) <= 1)
+        joint_count = total_tdocs - solo_count
+        joint_pct = round((joint_count / total_tdocs) * 100, 1) if total_tdocs > 0 else 0.0
+
+        unique_wis = len(set(wi for sublist in scope_df.get('Clean_WI_List', []) for wi in (sublist or []) if wi not in ['Unspecified', 'DUMMY', 'None', '']))
+        unique_ais = scope_df.get('Agenda Item', pd.Series(dtype='object')).fillna('').astype(str).str.strip().replace('', pd.NA).dropna().nunique()
+
+        if scope_type == "global":
+            scope_dim_val = str(unique_wis)
+            scope_dim_title = "Active Work Items"
+            scope_dim_subtext = f"{unique_ais} Agenda Items Covered"
+        elif scope_type == "wi":
+            scope_dim_val = str(unique_ais)
+            scope_dim_title = "Agenda Items"
+            scope_dim_subtext = "Covered under this Work Item"
+        else:  # "ai"
+            scope_dim_val = str(unique_wis)
+            scope_dim_title = "Related Work Items"
+            scope_dim_subtext = "Addressed under this Agenda Item"
+
+        return {
+            'total_tdocs': total_tdocs,
+            'orig_count': orig_count,
+            'rev_count': rev_count,
+            'cr_total': cr_total,
+            'cr_agreed_count': cr_agreed_count,
+            'cr_agree_pct': cr_agree_pct,
+            'handling_pct': handling_pct,
+            'handled_count': handled_count,
+            'untreated_count': untreated_count,
+            'disc_total': disc_total,
+            'ls_total': ls_total,
+            'total_companies': total_companies,
+            'joint_pct': joint_pct,
+            'scope_dim_val': scope_dim_val,
+            'scope_dim_title': scope_dim_title,
+            'scope_dim_subtext': scope_dim_subtext,
+            'unique_ais': unique_ais,
+        }
+
     def run(self):
         try:
             self.export_dir.mkdir(parents=True, exist_ok=True)
@@ -64,6 +145,10 @@ class StatisticsExporterThread(QThread):
                     na=False
                 )
             ].copy().reset_index(drop=True)
+
+            df['Clean_Status'] = df['TDoc Status'].apply(normalize_status)
+            df['Clean_Doc_Type'] = df.apply(lambda r: classify_doc_type(r.get('Type', ''), r.get('Spec', '')), axis=1)
+            df['_IsRevision'] = df.apply(_is_revision, axis=1)
 
             df['Clean_Companies'] = df['Source'].apply(
                 CompanySanitizer.get_matching_contributors
@@ -132,6 +217,7 @@ class StatisticsExporterThread(QThread):
             for _, row in df.iterrows():
                 interactive_rows.append({
                     'tdoc': str(row.get('TDoc', '') or ''),
+                    'type': str(row.get('Clean_Doc_Type', row.get('Type', '')) or ''),
                     'ai': str(row.get('Agenda Item', '') or '').strip(),
                     'aiDisplay': str(row.get('AI_Display', row.get('Agenda Item', '')) or '').strip(),
                     'wis': list(row.get('Clean_WI_List', []) or []),
@@ -186,15 +272,21 @@ class StatisticsExporterThread(QThread):
             views_html_buffer = []
             dropdown_options = ['<option value="global">🌐 Overall Meeting View</option>']
 
+            g_kpis = self._compute_scope_kpis(df, "global")
+            g_html_doc_type, g_table_doc_type = generate_doc_types_plot(df, plots_dir, prefix_id="Global",
+                                                                         save_html=self.cfg_export_html)
+
             # Inject the Global plots into the template
             views_html_buffer.append(
-                self._compile_view_block("global", len(df), total_companies,
+                self._compile_view_block("global", g_kpis,
                                          g_html_ai, g_html_status, g_html_comp,
                                          g_html_net, g_html_cluster, g_html_cohesion, g_html_list,
                                          ai_status_html=g_html_ai_status, heatmap_html=g_html_heatmap,
+                                         doc_type_html=g_html_doc_type,
                                          ai_volume_table=g_table_ai, status_table=g_table_status,
                                          comp_table=g_table_comp, ai_status_table=g_table_ai_status,
-                                         heatmap_table=g_table_heatmap, network_table=g_alliance_tables.get("network", ""),
+                                         heatmap_table=g_table_heatmap, doc_type_table=g_table_doc_type,
+                                         network_table=g_alliance_tables.get("network", ""),
                                          cluster_table=g_alliance_tables.get("cluster", ""), cohesion_table=g_alliance_tables.get("cohesion", ""),
                                          revision_html=g_html_revision, revision_table=g_table_revision,
                                          specialization_html=g_html_specialization, specialization_table=g_table_specialization,
@@ -219,10 +311,15 @@ class StatisticsExporterThread(QThread):
                     wi_df, plots_dir, self.cfg_threshold, self.CLUSTER_PALETTE, global_factions, safe_wi_prefix, self.cfg_export_html)
                 wi_html_revision, wi_table_revision = generate_revision_intensity_plot(
                     wi_df, plots_dir, self.THEME_COLOR, safe_wi_prefix, self.cfg_export_html)
+                wi_kpis = self._compute_scope_kpis(wi_df, "wi")
+                wi_html_doc_type, wi_table_doc_type = generate_doc_types_plot(wi_df, plots_dir, prefix_id=safe_wi_prefix,
+                                                                             save_html=self.cfg_export_html)
                 views_html_buffer.append(self._compile_view_block(
-                    safe_id, len(wi_df), wi_companies, wi_html_ai, wi_html_status, wi_html_comp,
+                    safe_id, wi_kpis, wi_html_ai, wi_html_status, wi_html_comp,
                     wi_html_net, wi_html_cluster, wi_html_cohesion, wi_html_list,
+                    doc_type_html=wi_html_doc_type,
                     ai_volume_table=wi_table_ai, status_table=wi_table_status, comp_table=wi_table_comp,
+                    doc_type_table=wi_table_doc_type,
                     network_table=wi_alliance_tables.get('network', ''), cluster_table=wi_alliance_tables.get('cluster', ''),
                     cohesion_table=wi_alliance_tables.get('cohesion', ''), revision_html=wi_html_revision,
                     revision_table=wi_table_revision, is_visible=False))
@@ -256,14 +353,19 @@ class StatisticsExporterThread(QThread):
                                                                                                        safe_ai_prefix,
                                                                                                        save_html=self.cfg_export_html)
 
+                ai_kpis = self._compute_scope_kpis(ai_df, "ai")
+                ai_html_doc_type, ai_table_doc_type = generate_doc_types_plot(ai_df, plots_dir, prefix_id=safe_ai_prefix,
+                                                                             save_html=self.cfg_export_html)
                 # Keep AI Status and Heatmap explicitly None for individual Agenda Items
                 views_html_buffer.append(self._compile_view_block(
-                    safe_id, len(ai_df), ai_companies,
+                    safe_id, ai_kpis,
                     ai_volume_html=None, status_html=ai_html_status, comp_html=ai_html_comp,
                     net_html=ai_html_net, cluster_html=ai_html_cluster, cohesion_html=ai_html_cohesion,
                     list_html=ai_html_list,
                     ai_status_html=None, heatmap_html=None,
+                    doc_type_html=ai_html_doc_type,
                     status_table=ai_table_status, comp_table=ai_table_comp,
+                    doc_type_table=ai_table_doc_type,
                     network_table=ai_alliance_tables.get("network", ""), cluster_table=ai_alliance_tables.get("cluster", ""),
                     cohesion_table=ai_alliance_tables.get("cohesion", ""), is_visible=False
                 ))
@@ -284,10 +386,12 @@ class StatisticsExporterThread(QThread):
                     .selector-container label {{ font-weight: bold; margin-right: 12px; align-self: center; color: #444; }}
                     select {{ padding: 8px 16px; border-radius: 6px; border: 1px solid #CCCCCC; font-size: 14px; font-weight: bold; color: #005A9E; outline: none; background: #F4F8FC; cursor: pointer; }}
                     select:hover {{ border-color: #005A9E; background: #EBF3FC; }}
-                    .kpi-container {{ display: flex; justify-content: center; gap: 20px; margin-bottom: 40px; }}
-                    .kpi-card {{ background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; text-align: center; width: 220px; border-top: 4px solid #005A9E; }}
-                    .kpi-card h3 {{ margin: 0; font-size: 32px; color: #005A9E; }}
-                    .kpi-card p {{ margin: 5px 0 0; color: #666; font-size: 14px; text-transform: uppercase; font-weight: bold; }}
+                    .kpi-container {{ display: flex; justify-content: center; gap: 14px; margin-bottom: 28px; flex-wrap: wrap; }}
+                    .kpi-card {{ background: #FFFFFF; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.06); padding: 16px 14px; text-align: center; flex: 1 1 160px; min-width: 155px; max-width: 215px; border-top: 4px solid #1E5C99; border-left: 1px solid #E2E8F0; border-right: 1px solid #E2E8F0; border-bottom: 1px solid #E2E8F0; transition: transform 0.15s ease, box-shadow 0.15s ease; }}
+                    .kpi-card:hover {{ transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.09); }}
+                    .kpi-card h3 {{ margin: 0; font-size: 24px; color: #1E5C99; font-weight: 700; line-height: 1.2; }}
+                    .kpi-card p {{ margin: 4px 0 0; color: #475569; font-size: 11px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; }}
+                    .kpi-subtext {{ margin-top: 6px; font-size: 11px; color: #64748B; font-weight: 500; }}
                     .grid-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }}
                     .chart-card {{ position: relative; background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 40px 15px 15px 15px; height: 500px; display: flex; flex-direction: column; transition: all 0.3s ease; }}
                     .chart-card > .chart-pane, .chart-card > .data-pane {{ flex-grow: 1; width: 100%; height: 100%; min-height: 0; }}
@@ -490,7 +594,7 @@ class StatisticsExporterThread(QThread):
                         const q=(matchingSearch||'').trim().toLowerCase();
                         const rows=filteredRows();
                         if(!q) return rows;
-                        return rows.filter(r => [r.tdoc,r.ai,r.aiDisplay,(r.wis||[]).join(' '),r.source,(r.companies||[]).join(' '),r.status]
+                        return rows.filter(r => [r.tdoc,r.type,r.ai,r.aiDisplay,(r.wis||[]).join(' '),r.source,(r.companies||[]).join(' '),r.status]
                             .some(v => String(v||'').toLowerCase().includes(q)));
                     }}
 
@@ -504,7 +608,7 @@ class StatisticsExporterThread(QThread):
                         if(!body) return;
                         const rows=matchingRowsAfterSearch();
                         const shown=matchingShowAll ? rows : rows.slice(0, MATCHING_PREVIEW_LIMIT);
-                        body.innerHTML=shown.map((r,i)=>`<tr data-original-index="${{i}}"><td data-value="${{escapeHtml(r.tdoc)}}">${{escapeHtml(r.tdoc)}}</td><td data-value="${{escapeHtml(r.ai)}}">${{escapeHtml(r.ai)}}</td><td data-value="${{escapeHtml(r.aiDisplay)}}">${{escapeHtml(r.aiDisplay)}}</td><td data-value="${{escapeHtml((r.wis||[]).join('; '))}}">${{escapeHtml((r.wis||[]).join('; '))}}</td><td data-value="${{escapeHtml(r.source || (r.companies||[]).join(', '))}}">${{escapeHtml(r.source || (r.companies||[]).join(', '))}}</td><td data-value="${{escapeHtml(r.status)}}">${{escapeHtml(r.status)}}</td></tr>`).join('');
+                        body.innerHTML=shown.map((r,i)=>`<tr data-original-index="${{i}}"><td data-value="${{escapeHtml(r.tdoc)}}">${{escapeHtml(r.tdoc)}}</td><td data-value="${{escapeHtml(r.type || '')}}">${{escapeHtml(r.type || '')}}</td><td data-value="${{escapeHtml(r.ai)}}">${{escapeHtml(r.ai)}}</td><td data-value="${{escapeHtml(r.aiDisplay)}}">${{escapeHtml(r.aiDisplay)}}</td><td data-value="${{escapeHtml((r.wis||[]).join('; '))}}">${{escapeHtml((r.wis||[]).join('; '))}}</td><td data-value="${{escapeHtml(r.source || (r.companies||[]).join(', '))}}">${{escapeHtml(r.source || (r.companies||[]).join(', '))}}</td><td data-value="${{escapeHtml(r.status)}}">${{escapeHtml(r.status)}}</td></tr>`).join('');
                         if(count) count.textContent = shown.length < rows.length ? `Showing ${{shown.length}} of ${{rows.length}}` : `${{rows.length}} rows`;
                         const more=document.getElementById('matching-show-all');
                         if(more) {{
@@ -586,7 +690,7 @@ class StatisticsExporterThread(QThread):
                     }}
                     function matchingMatrix() {{
                         const rows=matchingRowsAfterSearch();
-                        return [['TDoc','AI','Topic','WI/SI','Source','Status'], ...rows.map(r=>[r.tdoc,r.ai,r.aiDisplay,(r.wis||[]).join('; '),r.source || (r.companies||[]).join(', '),r.status])];
+                        return [['TDoc','Type','AI','Topic','WI/SI','Source','Status'], ...rows.map(r=>[r.tdoc,r.type || '',r.ai,r.aiDisplay,(r.wis||[]).join('; '),r.source || (r.companies||[]).join(', '),r.status])];
                     }}
                     function copyMatchingTDocs(btn) {{
                         const m=matchingMatrix(); navigator.clipboard?.writeText(m.map(r=>r.join('\\t')).join('\\n'));
@@ -627,6 +731,7 @@ class StatisticsExporterThread(QThread):
                     <div class="data-table-wrap" style="max-height:420px;">
                         <table class="data-table" id="matching-tdocs-table"><thead><tr>
                             <th onclick="sortStatsTable(this)">TDoc <span class="sort-indicator">↕</span></th>
+                            <th onclick="sortStatsTable(this)">Type <span class="sort-indicator">↕</span></th>
                             <th onclick="sortStatsTable(this)">AI <span class="sort-indicator">↕</span></th>
                             <th onclick="sortStatsTable(this)">Topic <span class="sort-indicator">↕</span></th>
                             <th onclick="sortStatsTable(this)">WI/SI <span class="sort-indicator">↕</span></th>
@@ -662,15 +767,41 @@ class StatisticsExporterThread(QThread):
 
     def _export_statistics_workbook(self, df: pd.DataFrame, path: Path):
         """Write reusable aggregated statistics behind the HTML dashboard."""
+        kpis = self._compute_scope_kpis(df, "global")
+        summary_data = [
+            {'Metric': 'Total Contributions (TDocs)', 'Value': kpis['total_tdocs'], 'Notes': 'Excludes withdrawn documents'},
+            {'Metric': 'Original TDocs', 'Value': kpis['orig_count'], 'Notes': 'First document revisions'},
+            {'Metric': 'Subsequent Revisions', 'Value': kpis['rev_count'], 'Notes': 'r01, r02, etc.'},
+            {'Metric': 'CR Agreement Rate', 'Value': f"{kpis['cr_agree_pct']}%" if kpis['cr_agree_pct'] is not None else 'N/A',
+             'Notes': f"{kpis['cr_agreed_count']} of {kpis['cr_total']} CRs/pCRs agreed"},
+            {'Metric': 'Meeting Treatment Rate', 'Value': f"{kpis['handling_pct']}%",
+             'Notes': f"{kpis['handled_count']} handled, {kpis['untreated_count']} not treated/postponed"},
+            {'Metric': 'Change Requests (CR + pCR)', 'Value': kpis['cr_total'], 'Notes': 'Normative specification changes'},
+            {'Metric': 'Discussion Papers', 'Value': kpis['disc_total'], 'Notes': 'Inputs, PDPs, decisions'},
+            {'Metric': 'Liaison Statements (LS)', 'Value': kpis['ls_total'], 'Notes': 'Incoming & outgoing LS'},
+            {'Metric': 'Active Contributing Entities', 'Value': kpis['total_companies'], 'Notes': 'Sanitized company names'},
+            {'Metric': 'Joint Contributions Share', 'Value': f"{kpis['joint_pct']}%", 'Notes': 'Multi-company co-sponsored docs'},
+            {'Metric': 'Active Work Items', 'Value': kpis['scope_dim_val'], 'Notes': 'Tracked and general WIs'},
+        ]
+        summary_df = pd.DataFrame(summary_data)
+
+        doc_type_summary = (df.groupby(['Clean_Doc_Type', 'Clean_Status']).size()
+                            .unstack(fill_value=0))
+        ordered_st = [s for s in STATUS_ORDER if s in doc_type_summary.columns] + [c for c in doc_type_summary.columns if c not in STATUS_ORDER]
+        doc_type_summary = doc_type_summary[ordered_st]
+        doc_type_summary['Total'] = doc_type_summary.sum(axis=1)
+        doc_type_summary = doc_type_summary.sort_values('Total', ascending=False).reset_index().rename(columns={'Clean_Doc_Type': 'Document Type'})
+
         ai_cols = ['Agenda Item', 'AI_Acronym', 'AI_Topic']
         ai_volume = (df.groupby(ai_cols, dropna=False).size().reset_index(name='TDocs')
                      .sort_values('TDocs', ascending=False))
-        status = df['TDoc Status'].fillna('').astype(str).value_counts().rename_axis('Status').reset_index(name='TDocs')
+        status = df['Clean_Status'].fillna('').astype(str).value_counts().rename_axis('Status').reset_index(name='TDocs')
         company_rows = []
         for _, row in df.iterrows():
             for company in set(row.get('Clean_Companies', []) or []):
                 company_rows.append({'Company': company, 'Agenda Item': row.get('Agenda Item', ''),
-                                     'WI': '; '.join(row.get('Clean_WI_List', []) or []), 'TDoc': row.get('TDoc', '')})
+                                     'WI': '; '.join(row.get('Clean_WI_List', []) or []), 'TDoc': row.get('TDoc', ''),
+                                     'Type': row.get('Clean_Doc_Type', ''), 'Status': row.get('Clean_Status', '')})
         company_df = pd.DataFrame(company_rows)
         company_volume = (company_df.groupby('Company').size().reset_index(name='TDocs').sort_values('TDocs', ascending=False)
                           if not company_df.empty else pd.DataFrame(columns=['Company', 'TDocs']))
@@ -678,13 +809,15 @@ class StatisticsExporterThread(QThread):
         for _, row in df.iterrows():
             for wi in row.get('Clean_WI_List', []) or []:
                 wi_rows.append({'WI/SI': wi, 'TDoc': row.get('TDoc', ''), 'Agenda Item': row.get('Agenda Item', ''),
-                                'Status': row.get('TDoc Status', '')})
+                                'Type': row.get('Clean_Doc_Type', ''), 'Status': row.get('Clean_Status', '')})
         wi_df = pd.DataFrame(wi_rows)
         wi_volume = (wi_df.groupby('WI/SI').size().reset_index(name='TDocs').sort_values('TDocs', ascending=False)
                      if not wi_df.empty else pd.DataFrame(columns=['WI/SI', 'TDocs']))
         revision = build_revision_stats(df).drop(columns=['_Axis'], errors='ignore')
         specialization = build_company_specialization(df)
         with pd.ExcelWriter(path, engine='openpyxl') as writer:
+            summary_df.to_excel(writer, sheet_name='Executive Summary', index=False)
+            doc_type_summary.to_excel(writer, sheet_name='Document Types', index=False)
             ai_volume.to_excel(writer, sheet_name='AI Volume', index=False)
             status.to_excel(writer, sheet_name='Outcomes', index=False)
             wi_volume.to_excel(writer, sheet_name='WI-SI Volume', index=False)

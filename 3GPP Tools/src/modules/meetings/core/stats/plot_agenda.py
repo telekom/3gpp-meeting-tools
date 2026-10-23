@@ -1,6 +1,8 @@
+# --- File: src/modules/meetings/core/stats/plot_agenda.py ---
 import pandas as pd
 import plotly.express as px
 
+from core.config.plot_styles import STATUS_COLORS, STATUS_ORDER, normalize_status
 from .stats_html import dataframe_to_html_table
 
 
@@ -49,11 +51,17 @@ def generate_ai_volume_plot(df, export_dir, theme_color, prefix_id="Global", sav
                            config=svg_config), dataframe_to_html_table(table))
 
 
-def generate_ai_status_plot(df, export_dir, palette, prefix_id="Global", save_html=False):
+def generate_ai_status_plot(df, export_dir, palette=None, prefix_id="Global", save_html=False):
     axis_col = _axis_col(df)
-    valid_df = df[(df['Agenda Item'].astype(str).str.strip() != '') &
-                  (df['TDoc Status'].astype(str).str.strip() != '')].copy()
-    counts = valid_df.groupby(['Agenda Item', axis_col, 'TDoc Status']).size().reset_index(name='Count')
+    status_col = 'Clean_Status' if 'Clean_Status' in df.columns else 'TDoc Status'
+    work_df = df.copy()
+    if status_col not in work_df.columns:
+        work_df[status_col] = 'Unknown'
+    work_df[status_col] = work_df[status_col].apply(normalize_status)
+
+    valid_df = work_df[(work_df['Agenda Item'].astype(str).str.strip() != '') &
+                       (work_df[status_col].astype(str).str.strip() != '')].copy()
+    counts = valid_df.groupby(['Agenda Item', axis_col, status_col]).size().reset_index(name='Count')
     top_ais = valid_df['Agenda Item'].value_counts().index
     plot_df = counts[counts['Agenda Item'].isin(top_ais)]
 
@@ -61,9 +69,20 @@ def generate_ai_status_plot(df, export_dir, palette, prefix_id="Global", save_ht
         meta = valid_df[['Agenda Item', 'AI_Display']].drop_duplicates('Agenda Item')
         plot_df = plot_df.merge(meta, on='Agenda Item', how='left')
     hover_name = 'AI_Display' if 'AI_Display' in plot_df.columns else 'Agenda Item'
-    fig = px.bar(plot_df, x=axis_col, y='Count', color='TDoc Status', title="Agenda Items by Outcome Status",
-                 color_discrete_sequence=palette, barmode='stack', hover_name=hover_name, hover_data={'Agenda Item': True},
-                 custom_data=['Agenda Item'])
+
+    fig = px.bar(
+        plot_df,
+        x=axis_col,
+        y='Count',
+        color=status_col,
+        title="Agenda Items by Outcome Status",
+        color_discrete_map=STATUS_COLORS,
+        category_orders={status_col: STATUS_ORDER},
+        barmode='stack',
+        hover_name=hover_name,
+        hover_data={'Agenda Item': True},
+        custom_data=['Agenda Item']
+    )
     fig.update_traces(meta={'filterDimension': 'ai'})
     fig.update_xaxes(type='category', categoryorder='total descending', title="Agenda Item / Topic")
     fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
@@ -71,7 +90,9 @@ def generate_ai_status_plot(df, export_dir, palette, prefix_id="Global", save_ht
         fig.write_html(str(export_dir / f"{prefix_id}_AI_Status.html"))
     svg_config = {'toImageButtonOptions': {'format': 'svg', 'filename': f'{prefix_id}_AI_Status'}}
 
-    pivot = plot_df.pivot_table(index='Agenda Item', columns='TDoc Status', values='Count', aggfunc='sum', fill_value=0)
+    pivot = plot_df.pivot_table(index='Agenda Item', columns=status_col, values='Count', aggfunc='sum', fill_value=0)
+    ordered_status = [s for s in STATUS_ORDER if s in pivot.columns] + [c for c in pivot.columns if c not in STATUS_ORDER]
+    pivot = pivot[ordered_status]
     pivot['Total'] = pivot.sum(axis=1)
     pivot = pivot.sort_values('Total', ascending=False).reset_index()
     for col in ['AI_Acronym', 'AI_Topic']:

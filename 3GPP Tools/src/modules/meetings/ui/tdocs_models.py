@@ -6,6 +6,7 @@ from pathlib import Path
 from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyModel
 
 from core.utils.company_sanitizer import CompanySanitizer
+from modules.meetings.core.agenda_manager import AgendaItem
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +82,15 @@ class TDocsTableModel(QAbstractTableModel):
 
         desc = str(row.get("Agenda item description", "")).strip()
         if desc:
-            match = re.search(r'\(([A-Za-z0-9_\-\/]+)\)', desc)
-            if match:
-                tokens.update(self._extract_base_tokens(match.group(1)))
+            cand = AgendaItem._extract_acronym(desc)
+            if cand:
+                tokens.update(self._extract_base_tokens(cand))
+            else:
+                match = re.search(r'\(([A-Za-z0-9_\-\/]+)\)', desc)
+                if match:
+                    candidate = match.group(1).strip()
+                    if 2 <= len(candidate) <= 25 and any(c.isupper() or c.isdigit() for c in candidate):
+                        tokens.update(self._extract_base_tokens(candidate))
 
         return tokens
 
@@ -624,6 +631,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.filter_no_comments = False
         self.filter_followed_wis = False
         self.filter_starred_wis = False
+        self.include_unassigned_ls_in = True
         self.followed_wi_tokens = set()
         self.starred_wi_tokens = set()
 
@@ -686,6 +694,13 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.filter_starred_wis = bool(filter_starred)
         self.invalidateFilter()
 
+    def setIncludeUnassignedLsIn(self, include_unassigned: bool):
+        new_val = bool(include_unassigned)
+        if self.include_unassigned_ls_in != new_val:
+            self.include_unassigned_ls_in = new_val
+            if self.filter_followed_wis or self.filter_starred_wis:
+                self.invalidateFilter()
+
     def rowMatchesFilters(self, source_row, exclude_filter=None):
         """Return whether a source row matches active filters, optionally ignoring one facet."""
         model = self.sourceModel()
@@ -708,7 +723,16 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             if row_tokens is None:
                 row_tokens = model._extract_row_wi_tokens(row)
                 row["_wi_tokens"] = row_tokens
-            if not (row_tokens & target_tokens):
+
+            doc_type = str(row.get("Type", "") or "").strip().lower()
+            raw_wis = model._split_related_wis(row.get("Related WIs", ""))
+            has_assigned_wi = any(w and w.lower() not in {"(no wi)", "none", "nan", "-"} for w in raw_wis)
+            is_unassigned_ls = ("ls in" in doc_type or doc_type == "ls") and not has_assigned_wi
+
+            wi_match = bool(row_tokens & target_tokens)
+            ls_match = bool(self.include_unassigned_ls_in and is_unassigned_ls)
+
+            if not (wi_match or ls_match):
                 return False
 
         if exclude_filter != "type" and str(row.get("Type", "") or "").strip() not in self.type_filters:

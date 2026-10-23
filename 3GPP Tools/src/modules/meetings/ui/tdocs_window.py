@@ -34,6 +34,7 @@ from modules.meetings.core.llm_exporter import (
     LLMExporterThread,
 )
 from modules.meetings.core.markdown_exporter import MarkdownExporterThread
+from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.core.stats.exporter_thread import StatisticsExporterThread
 from modules.meetings.core.tdocs_db import TDocsDatabase
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
@@ -481,7 +482,9 @@ class TDocsWindow(QWidget):
         self.btn_followed_wis.setCheckable(True)
         self.btn_followed_wis.setCursor(Qt.PointingHandCursor)
         self.btn_followed_wis.setFixedSize(30, 28)
-        self.btn_followed_wis.setToolTip("Filter to TDocs associated with Work Items you are following (assigned responsibility).")
+        self.btn_followed_wis.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.btn_followed_wis.customContextMenuRequested.connect(self._show_tracked_wi_context_menu)
+        self.btn_followed_wis.setToolTip("Filter to TDocs associated with Work Items you are following (assigned responsibility).\nRight-click to toggle including unassigned Incoming LS.")
         self.btn_followed_wis.clicked.connect(self._toggle_followed_wis_filter)
         filter_layout.addWidget(self.btn_followed_wis)
 
@@ -489,7 +492,9 @@ class TDocsWindow(QWidget):
         self.btn_starred_wis.setCheckable(True)
         self.btn_starred_wis.setCursor(Qt.PointingHandCursor)
         self.btn_starred_wis.setFixedSize(30, 28)
-        self.btn_starred_wis.setToolTip("Filter to TDocs associated with Work Items you have starred (personal watchlist).")
+        self.btn_starred_wis.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.btn_starred_wis.customContextMenuRequested.connect(self._show_tracked_wi_context_menu)
+        self.btn_starred_wis.setToolTip("Filter to TDocs associated with Work Items you have starred (personal watchlist).\nRight-click to toggle including unassigned Incoming LS.")
         self.btn_starred_wis.clicked.connect(self._toggle_starred_wis_filter)
         filter_layout.addWidget(self.btn_starred_wis)
         self._update_tracked_wi_button_styles()
@@ -572,9 +577,11 @@ class TDocsWindow(QWidget):
         layout.addWidget(filter_frame)
 
     def _setup_table(self, layout, data, user_data):
+        self.settings = MeetingsSettings()
         self.table = QTableView()
         self.model = TDocsTableModel(self.meeting_dir, data, user_data, agenda_map=self.agenda_map)
         self.proxy = TDocsFilterProxyModel()
+        self.proxy.setIncludeUnassignedLsIn(self.settings.get_include_unassigned_ls_in())
         self.proxy.setSourceModel(self.model)
         self.proxy.layoutChanged.connect(self._update_count_label)
 
@@ -728,6 +735,28 @@ class TDocsWindow(QWidget):
         self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
+    def _show_tracked_wi_context_menu(self, pos):
+        sender = self.sender()
+        menu = QMenu(self)
+        act = menu.addAction("Include unassigned Incoming LS (LS in)")
+        act.setCheckable(True)
+        act.setChecked(getattr(self.proxy, "include_unassigned_ls_in", True))
+        act.toggled.connect(self._on_toggle_include_unassigned_ls_in)
+        if sender and hasattr(sender, "mapToGlobal"):
+            menu.exec_(sender.mapToGlobal(pos))
+        else:
+            from PyQt5.QtGui import QCursor
+            menu.exec_(QCursor.pos())
+
+    def _on_toggle_include_unassigned_ls_in(self, checked: bool):
+        if not hasattr(self, "settings"):
+            self.settings = MeetingsSettings()
+        self.settings.set_include_unassigned_ls_in(checked)
+        self.proxy.setIncludeUnassignedLsIn(checked)
+        self._update_facet_counts()
+        self._update_filter_facets()
+        QTimer.singleShot(0, self._update_count_label)
+
     def _update_tracked_wi_button_styles(self):
         """Update active/inactive visual styles of Followed and Starred WI quick-filter chips."""
         if not hasattr(self, "btn_followed_wis") or not hasattr(self, "btn_starred_wis"):
@@ -864,9 +893,19 @@ class TDocsWindow(QWidget):
                     if row_tokens is None:
                         row_tokens = self.model._extract_row_wi_tokens(row)
                         row["_wi_tokens"] = row_tokens
-                    if has_followed_tokens and (row_tokens & self.proxy.followed_wi_tokens):
+
+                    doc_type = str(row.get("Type", "") or "").strip().lower()
+                    raw_wis = self.model._split_related_wis(row.get("Related WIs", ""))
+                    has_assigned_wi = any(w and w.lower() not in {"(no wi)", "none", "nan", "-"} for w in raw_wis)
+                    is_unassigned_ls = ("ls in" in doc_type or doc_type == "ls") and not has_assigned_wi
+
+                    wi_followed = bool(has_followed_tokens and (row_tokens & self.proxy.followed_wi_tokens))
+                    wi_starred = bool(has_starred_tokens and (row_tokens & self.proxy.starred_wi_tokens))
+                    ls_included = bool(self.proxy.include_unassigned_ls_in and is_unassigned_ls)
+
+                    if wi_followed or (has_followed_tokens and ls_included):
                         followed_count += 1
-                    if has_starred_tokens and (row_tokens & self.proxy.starred_wi_tokens):
+                    if wi_starred or (has_starred_tokens and ls_included):
                         starred_count += 1
 
         self.company_combo.setAvailability(facets["company"])
@@ -876,17 +915,21 @@ class TDocsWindow(QWidget):
         self.status_combo.setAvailability(facets["status"])
         self.my_status_combo.setAvailability(facets["my_status"])
 
+        ls_suffix = " (incl. unassigned LS in)" if getattr(self.proxy, "include_unassigned_ls_in", True) else ""
+
         if hasattr(self, "btn_followed_wis"):
             self.btn_followed_wis.setText("🎯")
             self.btn_followed_wis.setToolTip(
-                f"🎯 Followed Work Items ({followed_count} matching)\n"
-                "Filter to TDocs associated with Work Items you are following (assigned responsibility)."
+                f"🎯 Followed Work Items ({followed_count} matching{ls_suffix})\n"
+                "Filter to TDocs associated with Work Items you are following (assigned responsibility).\n"
+                "Right-click to toggle including unassigned Incoming LS."
             )
         if hasattr(self, "btn_starred_wis"):
             self.btn_starred_wis.setText("⭐")
             self.btn_starred_wis.setToolTip(
-                f"⭐ Starred Work Items ({starred_count} matching)\n"
-                "Filter to TDocs associated with Work Items you have starred (personal watchlist)."
+                f"⭐ Starred Work Items ({starred_count} matching{ls_suffix})\n"
+                "Filter to TDocs associated with Work Items you have starred (personal watchlist).\n"
+                "Right-click to toggle including unassigned Incoming LS."
             )
 
     def _refresh_comboboxes(self):
