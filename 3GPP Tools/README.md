@@ -561,21 +561,25 @@ python -m main_tools
 
 ### 🔎 3GPP Specification Full-Text & Evolution Search
 1. Navigate to the **🔎 Spec Search** tab.
-2. **Importing Specifications:**
-   * Click **📥 Import from Specs DB** to open the universal specification browser. Select any 3GPP document (Series 01–55) or filter by Working Group. Missing archives download and extract from the 3GPP FTP server automatically.
-   * Use **`⚡ Select All Unindexed`** or **`⭐ Select Latest per Release`** to batch-select versions with checkboxes.
-   * Click **📁 Import Local .docx** to ingest single or multi-part split documents (`_s00_s04.docx`, `_s05_s08.docx`) directly from your drive.
+2. **Importing & Managing Specifications:**
+   * Click **📥 Import Specs ▾** on the compact toolbar to import from the specifications catalogue (**`📥 Import from Specs DB...`**) or ingest local single/multi-part split Word documents (**`📁 Import Local .docx...`**).
+   * Monitor indexed specifications and releases at a glance via the live capacity chip (`📦 X Specs · Y Releases Indexed`).
+   * Manage indexed records via **`⚙️ Database ▾`** (`Clear Specific Version...`, `⚠️ Wipe Entire Search Database...`).
+   * In the **Indexed Specs** left card, filter specifications in real time using the quick search bar (`Filter specs...`) and toggle releases with 1-click **`[All]`** / **`[None]`** buttons.
 3. **Executing Substring Searches:**
-   * Type any exact phrase or keyword into the search bar (e.g., `"slice replacement"`, `"ATSSS"`, `"emergency"`). Search queries with 3 or more characters automatically execute across the FTS5 trigram index.
-   * Optionally enter a clause number in the **Filter clause** field (e.g., `5.2`, `4.3.2`) to focus on specific sections.
+   * Type any exact phrase or keyword into the search bar inside the unified **Search Console Card** (e.g., `"slice replacement"`, `"ATSSS"`, `"emergency"`). Search queries with 3 or more characters automatically execute across the FTS5 trigram index.
+   * Optionally enter a clause number in the **Clause** field (e.g., `5.2`, `4.3.2`) to focus on specific sections.
+   * Review instant executive KPI result pills above the matrix: `Results: [ 🔍 'query' ] [ N Clauses ] [ M Spec(s) ]`.
 4. **Date Cutoff & "First Added" Text Analysis:**
    * Review the **Release Evolution Matrix** displayed in per-specification tabs (e.g., `TS 23.501 (32)`, `TS 23.502 (20)`).
-   * Toggle **🎯 Date Cutoff** and select a cutoff date. Text introduced after that date will be highlighted with ⚡ **`⚡ Post-Cutoff Added`**.
+   * Status cells are styled as sleek, centered, rounded pill badges (**`🟢 Added`**, **`⚡ Post-Cutoff`**, **`✓ Present`**, or muted **`—`**). Selecting any row highlights it in soft sky-blue (`#EBF3FC`) without masking or inverting badge colors.
+   * Toggle **🎯 Date Cutoff** and select a cutoff date. Text introduced after that date will be highlighted with ⚡ **`⚡ Post-Cutoff`**.
    * Check **Show Only Post-Cutoff Additions** to filter out older prior art and show only clauses containing post-cutoff date modifications.
-5. **Inspecting Matching Clause Content & Multi-Format Copying:**
+5. **Inspecting Matching Clause Content & Flexible Reading Layout:**
    * Click any cell in the matrix to load the clause into the **Clause Content Inspector**.
-   * The **💡 Key Match Excerpt** callout at the top highlights the matching paragraph with surrounding sentence context.
-   * Use **`[ ◀ Prev ]`** and **`[ Next ▶ ]`** to cycle between match occurrences in long clauses.
+   * **Flexible Layout & Maximize:** Click **`◫ Right Pane`** to switch the inspector to a tall vertical side-by-side reading pane (layout preference is saved automatically across sessions), or click **`⤢`** to maximize the reading pane to full height.
+   * The **💡 Key Match Excerpt** callout at the top highlights the matching paragraph with surrounding sentence context without duplicating clause headings.
+   * Use **`[ ◀ ]`** and **`[ ▶ ]`** to cycle between match occurrences in long clauses.
    * Click **`📋 Copy ▾`** to copy the clause in your preferred format:
      * **📋 Copy for Email / Outlook (Rich Text):** Dual-format clipboard copy setting styled rich HTML with a formal 3GPP citation header banner and formatted paragraphs alongside clean plain text fallback.
      * **📝 Copy as Markdown (Quote Block):** Formatted GitHub-style callout quote block (`> [!NOTE]`) citing specification release and clause metadata.
@@ -689,7 +693,7 @@ python -m main_tools
 ---
 
 ### 📊 Cross-Meeting Company Contribution Audit & Reporting
-1. Navigate to the **Meetings** tab and click **📊 Contributions Report...**.
+1. Navigate to the **Meetings** tab and click **`📊 Reports ▾`** $\to$ **`📊 Contributions Report...`**.
 2. The audit dialog opens as a modeless, non-blocking window, allowing you to use other app tabs and meeting windows concurrently.
 3. **Configuring Search Filters:**
    * **Working Groups:** Select one or multiple Working Groups via the checkable dropdown (e.g., `SA2`, `SA1`, `RAN2`).
@@ -778,7 +782,7 @@ python -m main_tools
 ---
 
 ### 📝 Slicing, Extracting & Comparing Word Documents
-1. **Compare documents:** In the **Comparison Cart** at the bottom of the Meetings Tab, sequentially select documents. The round-robin queue automatically populates Slot A and Slot B with local files or fetched 3GPP revisions. Click **Compare in Word** to generate a native Word redline comparison in the background.
+1. **Compare documents:** In the **Comparison Cart** pill at the bottom-right of the Meetings Tab (which automatically appears as soon as items are staged), sequentially select documents. The round-robin queue automatically populates Slot A and Slot B with local files or fetched 3GPP revisions. Click **Compare in Word** to generate a native Word redline comparison in the background.
 2. **Split a large specification:** In **Word Tools**, select **Subtractive Slicing (Split by Clause)**, choose the target clause prefix and heading depth, and drop a `.docx` file. The splitter creates individual chapter/section documents while retaining the source document's formatting and embedded content.
 3. **Build a selective excerpt from headings:** Select **Extract Sections by Heading** and drop one or more `.docx` files. This is intended both for single large specifications and for specifications split across several Word files.
    * Choose **Filename order** (default) to naturally sort multi-part specification files by filename, or **Drop order** when the order in which the files were added should be preserved.

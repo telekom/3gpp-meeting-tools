@@ -111,6 +111,12 @@ python -m main_tools
   - **Native Word Excerpt (.docx):** Non-blocking background worker (`SpecClauseWordExtractorThread`) locates specification documents via `SpecDocResolver`, automatically unzips archives, scans heading hierarchies with `WordHeadingScanner`, routes multi-part split documents (`match_multipart_document_for_clause`), and extracts standalone `.docx` excerpts preserving native formatting and tables via `WordExcerptEngine` (with `python-docx` fallback).
   - **High-Fidelity Markdown Export (.md with Pictures):** Exports standalone Markdown files integrating the repository's `tdoc_markdown_converter` pipeline (`convert_document_to_markdown`). Automatically extracts all pictures, figures, and diagrams into an isolated media directory (`{filename}_media/`), converts vector EMF/WMF drawings to PNG, links embedded Visio sources, renders native Markdown tables, and adds formal 3GPP release metadata headers.
   - **Multi-Format Clipboard Copying:** `copy_clause_to_clipboard` sets dual-format `QMimeData` providing styled rich HTML for Outlook, Microsoft Word, and Teams (including citation header banners and styled paragraphs) alongside plain text fallbacks, GitHub-flavored Markdown quote callouts (`> [!NOTE]`), plain text, and formal 3GPP citations.
+- **Spec Search UI Architecture & Ergonomics (`spec_search_tabs.py`, `spec_search_components.py`, `spec_search_models.py`):**
+  - **Compact Toolbar & Live Database Health:** Consolidates administrative actions into compact dropdowns (`📥 Import Specs ▾`, `⚙️ Database ▾`) alongside a live database capacity badge (`📦 X Specs · Y Releases Indexed`).
+  - **Indexed Specs Tree Card & Instant Filter:** Left card container with instant client-side filtering (`filter_tree`), 1-click `[All]` / `[None]` toggle pills, and responsive sizing avoiding date clipping.
+  - **Unified Search Console Card:** High-contrast search input with embedded icon, clear button, fixed date cutoff edit (`125px`, eliminating digit truncation), and executive KPI badge chips (`Results: [ 🔍 query ] [ N Clauses ] [ M Spec(s) ]`).
+  - **Sleek Rounded Status Badges (`SpecEvolutionStatusDelegate`):** Custom delegate rendering clean centered rounded pill badges (`🟢 Added`, `⚡ Post-Cutoff`, `✓ Present`, `—`) and soft sky-blue row selection (`#EBF3FC` with `#0F172A` text), eliminating harsh Windows solid blue selection and grid cell rectangular color fills.
+  - **Two-Tier Clause Content Inspector:** Tier 1 provides context title, clickable first-added pill, match navigation (`◀ N Match(es) ▶`), 1-click **Layout Toggle** (`⬒ Bottom Split` <-> `◫ Right Pane`), and **Maximize Button** (`⤢` <-> `⤡`). Tier 2 provides a unified, harmonized action toolbar (`📋 Copy ▾`, `✂️ Extract ▾`, `📖 Full Doc ▾`, `🔍 Specs Tab`, `🔍 Diff Prev`, `🤖 LLM Diff`). Includes intelligent heading deduplication preventing repeated clause titles.
 
 ### 4.4. Protocol Matrix & Inspector (`src/modules/nas`)
 - **Multi-Protocol Support:** Covers 5GS NAS (TS 24.501), EPS NAS (TS 24.301), NR RRC (TS 38.331), LTE RRC (TS 36.331), NGAP (TS 38.413), GTPv1-U (TS 29.281), PDU Session UP (TS 38.415), and PFCP (TS 29.244).
@@ -123,6 +129,17 @@ python -m main_tools
 
 ### 4.5. Meetings & TDocs (`src/modules/meetings`)
 - **Subsystem Guide:** For complete module architecture, conversion pipeline details, and filter proxy design, consult [`src/modules/meetings/AGENTS.md`](file:///src/modules/meetings/AGENTS.md).
+- **Full-Width Meetings Browser & 2-Row Top Ribbon:** Complete modernization of `MeetingsTab` replacing the cramped vertical right sidebar with a 100% full-width table and clean 2-row horizontal top ribbon:
+  - **Row 1 (Primary Navigation & Actions):** Quick launch button (`🚀 Last Meeting`), inline `⚡ TDoc:` jump box with dynamic `📄 Doc` and `🗓️ Mtg` action buttons, right-aligned `🔄 Sync ▾` menu (*Sync All*, *Add / Fetch Meeting...*, *Preferences*), `📊 Reports ▾` menu (*Contributions Report...*, *Export Merged TDocs*), and `⚙️ Settings`.
+  - **Row 2 (Filter Engine):** `🔍 Search` (number, city, title), TSG quick-toggle pills (`[All] [SA] [RAN] [CT]`), `Working Group` checkable multi-select combo, Nature (`Regular` / `Ad-Hoc`), Format (`In-Person` / `Electronic`), and Date presets dropdown (`All Dates`, `Upcoming`, `This Year`, `Past 12 Months`, `Custom Range...`) with dynamic calendar pickers.
+- **7-Column Table & Domain Visual Hierarchy:**
+  - **Working Group Badges (`WGTagDelegate`):** Color-coded domain pills by TSG (Soft Indigo for SA, Soft Emerald for RAN, Soft Amber for CT) using `core.ui.ui_components.get_wg_colors`.
+  - **Consolidated English Dates:** Formatted into human-readable ranges (`12 – 16 Oct 2026`) with temporal tooltips (`🟢 Ongoing`, `🔵 Upcoming`, `⚪ Past`).
+  - **Preserved Allocated TDoc Range:** Formatted with full WG prefixes (`C4-264009 → C4-264023`, `—` when not yet allocated).
+  - **Location Icons:** Clean icon prefixes (`📍 City, Country` vs `🌐 Online (eMeeting)`).
+  - **Double-Click Navigation:** Double-clicking any meeting row directly launches the meeting viewer or opens the metadata dialog.
+- **Floating Comparison Cart:** Converted from the bulky full-width bottom frame into a compact lower-right status bar pill that **auto-hides completely when empty** and slides in automatically when items are staged into Slot A or Slot B.
+- **Destructive Action Relocation:** Moved `Clear All Meetings...` from the main UI into `MeetingsConfigDialog` under a dedicated *⚠️ Database Maintenance (Danger Zone)* section.
 - **Three-Phase Sync:** Asynchronously synchronizes meeting lists, TDoc metadata, and dynamic agenda reservations from 3GPP FTP servers.
 - **AI TDoc Triage:** Modeless dialog extracting CR cover sheets and redlines to synthesize structured executive summaries (*Objective*, *Key Changes*, *Potential Impacts*).
 - **Personal Notes & Stance:** Integrates local SQLite user notes (`user_tdocs.db`) with stance tagging (`⚪ Neutral`, `🔵 My TDoc`, `🟢 Support`, `🔴 Object`, `🟡 Monitor`).

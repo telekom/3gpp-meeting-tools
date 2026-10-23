@@ -187,9 +187,9 @@ class SpecEvolutionMatrixModel(QAbstractTableModel):
 
             if role == Qt.DisplayRole:
                 if not is_match:
-                    return "-"
+                    return "—"
                 if is_first_added:
-                    return "⚡ Post-Cutoff Added" if is_post_cutoff else "🟢 Added"
+                    return "⚡ Post-Cutoff" if is_post_cutoff else "🟢 Added"
                 return "✓ Present"
 
             if role == Qt.TextAlignmentRole:
@@ -203,26 +203,8 @@ class SpecEvolutionMatrixModel(QAbstractTableModel):
                     return f"Match in {ver_col}{date_str}:\n{status_prefix}{clean_snip}"
                 return f"Text not present in {ver_col}{date_str}"
 
-            if role == Qt.BackgroundRole:
-                if is_match:
-                    if is_post_cutoff:
-                        return QBrush(QColor("#FEF08A"))
-                    if is_first_added:
-                        return QBrush(QColor("#DCFCE7"))
-                    return QBrush(QColor("#F0FDF4"))
-                else:
-                    if v_idx > 0 and str(self._pivot_df.iloc[row][self._version_cols[v_idx - 1]]) != "-":
-                        return QBrush(QColor("#FEE2E2"))
-                    return None
-
-            if role == Qt.ForegroundRole:
-                if is_match:
-                    if is_post_cutoff:
-                        return QBrush(QColor("#B45309"))
-                    if is_first_added:
-                        return QBrush(QColor("#15803D"))
-                    return QBrush(QColor("#166534"))
-                return QBrush(QColor("#94A3B8"))
+            # Background and foreground are managed with rounded pill badges by SpecEvolutionStatusDelegate
+            return None
 
         return None
 
