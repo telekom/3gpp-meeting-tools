@@ -3,9 +3,12 @@ import shutil
 import tempfile
 import time
 import unittest
+import zipfile
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 from core.utils.paths import to_extended_path
+from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.llm_exporter import (
     TDocMarkdownExporterThread,
     LLMExporterThread,
@@ -380,6 +383,119 @@ class TestTDocMarkdownExporter(unittest.TestCase):
         )
         # Now it is up-to-date!
         self.assertFalse(is_conversion_stale(docx_file, md_file, expected_mode=expected_mode))
+
+    def test_file_handler_atomic_download_and_cache_validation(self):
+        """Verify TDocFileHandler downloads atomically, verifies archive integrity, and recovers from corrupt files."""
+        tdoc_dir = self.meeting_dir / "S2-2400999"
+        tdoc_dir.mkdir(parents=True, exist_ok=True)
+        zip_path = tdoc_dir / "S2-2400999.zip"
+
+        # 1. Create a corrupt (0-byte) zip file simulating an aborted download
+        zip_path.write_bytes(b"")
+        self.assertTrue(zip_path.exists())
+
+        # Build a valid in-memory zip payload for the mock response
+        import io
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as z:
+            z.writestr("S2-2400999.docx", b"dummy_docx_content")
+        valid_zip_bytes = zip_buffer.getvalue()
+
+        mock_resp = MagicMock()
+        mock_resp.iter_content = MagicMock(return_value=[valid_zip_bytes])
+        mock_resp.raise_for_status = MagicMock()
+
+        with patch("core.network.session.NetworkSession.get_instance") as mock_get_inst:
+            mock_session = MagicMock()
+            mock_session.get.return_value = mock_resp
+            mock_get_inst.return_value = mock_session
+
+            # Call download_and_extract_tdoc; it must detect corrupt zip, delete it, and download fresh
+            extracted = TDocFileHandler.download_and_extract_tdoc(
+                "S2-2400999", "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/Docs", tdoc_dir
+            )
+            self.assertTrue(zip_path.exists())
+            self.assertGreater(zip_path.stat().st_size, 0)
+            self.assertTrue(zipfile.is_zipfile(to_extended_path(zip_path)))
+            self.assertEqual(len(extracted), 1)
+            self.assertTrue(extracted[0].exists())
+
+    def test_file_handler_cancellation_check(self):
+        """Verify TDocFileHandler aborts immediately when cancellation is requested."""
+        tdoc_dir = self.meeting_dir / "S2-2400888"
+        tdoc_dir.mkdir(parents=True, exist_ok=True)
+
+        with self.assertRaises(InterruptedError):
+            TDocFileHandler.download_and_extract_tdoc(
+                "S2-2400888",
+                "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/Docs",
+                tdoc_dir,
+                cancel_check=lambda: True,
+            )
+
+    def test_exporter_parallel_predownload_phase(self):
+        """
+        Verify that TDocMarkdownExporterThread pre-downloads only missing TDocs in parallel,
+        skips already cached ones, and properly converts them.
+        """
+        # 1. Cached TDoc (already has docx and md)
+        cached_tdoc = "S2-2400010"
+        cached_folder = self.meeting_dir / cached_tdoc
+        cached_folder.mkdir(parents=True, exist_ok=True)
+        (cached_folder / f"{cached_tdoc}.docx").write_bytes(b"cached_content")
+        (cached_folder / f"{cached_tdoc}.md").write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n# {cached_tdoc}\nCached text",
+            encoding="utf-8"
+        )
+
+        # 2. Missing TDocs
+        missing_tdoc1 = "S2-2400011"
+        missing_tdoc2 = "S2-2400012"
+
+        tdocs_list = [
+            {"TDoc": cached_tdoc, "Title": "Cached TDoc", "Type": "CR"},
+            {"TDoc": missing_tdoc1, "Title": "Missing TDoc 1", "Type": "Discussion"},
+            {"TDoc": missing_tdoc2, "Title": "Missing TDoc 2", "Type": "Discussion"},
+        ]
+
+        exporter = TDocMarkdownExporterThread(
+            meeting_dir=self.meeting_dir,
+            tdocs_list=tdocs_list,
+            docs_ftp_url="https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/Docs",
+            revisions_url="https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/INBOX/Revisions",
+            is_bulk=True,
+        )
+
+        downloaded_tdocs = []
+
+        def fake_download(tdoc_id, folder):
+            downloaded_tdocs.append(tdoc_id)
+            folder.mkdir(parents=True, exist_ok=True)
+            doc_file = folder / f"{tdoc_id}.docx"
+            doc_file.write_bytes(b"downloaded_content")
+            # Write a fresh md file so convert_document_to_markdown isn't doing full docx parsing on dummy bytes
+            md_file = folder / f"{tdoc_id}.md"
+            md_file.write_text(
+                f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=accept --->\n# {tdoc_id}\nFresh text",
+                encoding="utf-8"
+            )
+            return doc_file
+
+        with patch.object(exporter, "_download_and_extract_tdoc", side_effect=fake_download):
+            progress_messages = []
+            exporter.progress.connect(progress_messages.append)
+            exporter.run()
+
+        # Cached TDoc must NOT have been scheduled for download
+        self.assertNotIn(cached_tdoc, downloaded_tdocs)
+        # Missing TDocs must have been downloaded
+        self.assertIn(missing_tdoc1, downloaded_tdocs)
+        self.assertIn(missing_tdoc2, downloaded_tdocs)
+
+        # Progress messages should show parallel download and conversion
+        joined_progress = " ".join(progress_messages)
+        self.assertIn("in parallel", joined_progress)
+        self.assertIn("Converting", joined_progress)
 
 
 if __name__ == "__main__":
