@@ -134,7 +134,7 @@ class OllamaConfigDialog(QDialog):
         # ==========================================
         # 2. SERVER & NETWORK GROUP
         # ==========================================
-        server_group = QGroupBox("🌐 Server & Network")
+        server_group = QGroupBox("🌐 Server && Network")
         server_layout = QVBoxLayout(server_group)
         server_layout.setSpacing(8)
 

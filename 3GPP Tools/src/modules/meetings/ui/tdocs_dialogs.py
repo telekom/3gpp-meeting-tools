@@ -220,7 +220,7 @@ class StatisticsSettingsDialog(QDialog):
 
         # --- Buttons ---
         btn_layout = QHBoxLayout()
-        save_btn = QPushButton("💾 Save & Apply")
+        save_btn = QPushButton("💾 Save && Apply")
         save_btn.setStyleSheet(
             "padding: 6px 15px; font-weight: bold; background-color: #005A9E; color: white; border-radius: 4px;")
         save_btn.clicked.connect(self.save_config)

@@ -378,7 +378,7 @@ def populate_spec_copy_menu(
             )
         )
         if title:
-            sub_both.addAction("📋 Copy Number & Title (Both Links)").triggered.connect(
+            sub_both.addAction("📋 Copy Number && Title (Both Links)").triggered.connect(
                 lambda _, p=cdata["num_title_plain"], h=cdata["num_title_both_html"]: _copy_to_clipboard(
                     p, h, "Number & Title (Both Links)", parent_widget
                 )
@@ -411,7 +411,7 @@ def populate_spec_copy_menu(
         )
     )
     if title:
-        sub_web.addAction("📋 Copy Number & Title (Web Link)").triggered.connect(
+        sub_web.addAction("📋 Copy Number && Title (Web Link)").triggered.connect(
             lambda _, p=cdata["num_title_web_plain"], h=cdata["num_title_web_html"]: _copy_to_clipboard(
                 p, h, "Number & Title (Web Link)", parent_widget
             )
@@ -422,7 +422,7 @@ def populate_spec_copy_menu(
         )
     )
     if wg:
-        sub_web.addAction(f"📋 Copy Number & WG ({canonical} ({wg}))").triggered.connect(
+        sub_web.addAction(f"📋 Copy Number && WG ({canonical} ({wg}))").triggered.connect(
             lambda _, p=f"{canonical} ({wg})", h=f"{cdata['web_anchor']} ({safe_wg})": _copy_to_clipboard(
                 p, h, "Number & WG", parent_widget
             )
@@ -457,7 +457,7 @@ def populate_spec_copy_menu(
             )
         )
         if title:
-            sub_zip.addAction(f"📋 Copy Number & Title (ZIP Link{ver_label})").triggered.connect(
+            sub_zip.addAction(f"📋 Copy Number && Title (ZIP Link{ver_label})").triggered.connect(
                 lambda _, p=cdata["num_title_plain"], h=cdata["num_title_zip_html"]: _copy_to_clipboard(
                     p, h, f"Number & Title (ZIP{ver_label})", parent_widget
                 )
@@ -468,7 +468,7 @@ def populate_spec_copy_menu(
             )
         )
         if wg:
-            sub_zip.addAction(f"📋 Copy Number & WG (with ZIP Link)").triggered.connect(
+            sub_zip.addAction(f"📋 Copy Number && WG (with ZIP Link)").triggered.connect(
                 lambda _, p=f"{canonical} ({clean_ver}) ({wg})", h=f"{cdata['zip_anchor']} ({safe_wg})": _copy_to_clipboard(
                     p, h, f"Number & WG (ZIP{ver_label})", parent_widget
                 )
@@ -622,7 +622,7 @@ def populate_multi_spec_copy_menu(
     # 5. Numbers & Titles
     nt_plain = "\n".join(cd["num_title_plain"] for cd in cdatas)
     nt_html = "<p>" + "<br>".join(cd["num_title_both_html"] for cd in cdatas) + "</p>"
-    act_nt = copy_sub.addAction(f"📋 Copy Numbers & Titles ({count})")
+    act_nt = copy_sub.addAction(f"📋 Copy Numbers && Titles ({count})")
     act_nt.setToolTip("Copy specification numbers and titles (one per line).")
     act_nt.triggered.connect(
         lambda _, p=nt_plain, h=nt_html, c=count: _copy_to_clipboard(
@@ -792,7 +792,7 @@ def show_spec_context_menu(tab, position):
         fav_label = "⭐ Remove from Favorites" if is_fav else "⭐ Add to Favorites"
         menu.addAction(fav_label).triggered.connect(lambda _, s=spec_num: tab._toggle_favorite(s))
 
-        edit_ann_action = menu.addAction("🏷️ Edit Tags & Notes...")
+        edit_ann_action = menu.addAction("🏷️ Edit Tags && Notes...")
         edit_ann_action.triggered.connect(lambda _, s=spec_num: tab._open_edit_annotations(s))
 
         menu.addSeparator()

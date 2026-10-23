@@ -1535,7 +1535,7 @@ class SpecificationsTab(QWidget):
                 fav_label = "⭐ Remove from Favorites" if is_fav else "⭐ Add to Favorites"
                 menu.addAction(fav_label).triggered.connect(lambda _, s=spec_num: self._toggle_favorite(s))
 
-                ann_action = menu.addAction("🏷️  Edit Tags & Notes...")
+                ann_action = menu.addAction("🏷️  Edit Tags && Notes...")
                 ann_action.triggered.connect(lambda _, s=spec_num: self._open_edit_annotations(s))
 
                 menu.addSeparator()

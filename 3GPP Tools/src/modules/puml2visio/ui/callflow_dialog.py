@@ -190,7 +190,7 @@ class CallFlowDialog(QDialog):
         left_layout.addWidget(self.input_text, stretch=1)
 
         # 3GPP Generation Style Toggles (Prompt Modifiers)
-        style_box = QGroupBox("⚙️ 3GPP Diagram Style & Detail Options")
+        style_box = QGroupBox("⚙️ 3GPP Diagram Style && Detail Options")
         style_box.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -220,7 +220,7 @@ class CallFlowDialog(QDialog):
         self.opt_boxes.setChecked(True)
         self.opt_boxes.setToolTip("Enclose participants in colored visual boxes (RAN, Core Control Plane, User Plane).")
 
-        self.opt_ies = QCheckBox("📑 Extract Key Message IEs & Parameters")
+        self.opt_ies = QCheckBox("📑 Extract Key Message IEs && Parameters")
         self.opt_ies.setChecked(True)
         self.opt_ies.setToolTip("Extract key parameters (e.g. SUCI, NSSAI, PDU Session ID) into message labels or notes.")
 

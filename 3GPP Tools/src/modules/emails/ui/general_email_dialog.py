@@ -60,7 +60,7 @@ class GeneralEmailFoldersDialog(QDialog):
         layout.addLayout(btn_row)
 
         bottom_row = QHBoxLayout()
-        btn_save = QPushButton("💾 Save & Close")
+        btn_save = QPushButton("💾 Save && Close")
         btn_save.setStyleSheet("font-weight: bold; background-color: #0078D7; color: white; padding: 6px 15px; border-radius: 4px;")
         btn_save.clicked.connect(self._save_and_close)
         btn_cancel = QPushButton("Cancel")

@@ -231,7 +231,7 @@ class SpecInfoDialog(QDialog):
         header_row.addWidget(title_lbl)
         header_row.addStretch()
 
-        edit_btn = QPushButton("✏️ Edit Tags & Notes")
+        edit_btn = QPushButton("✏️ Edit Tags && Notes")
         edit_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         edit_btn.setCursor(Qt.PointingHandCursor)
         edit_btn.clicked.connect(self._edit_annotations)

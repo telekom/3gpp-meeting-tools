@@ -181,7 +181,7 @@ class CrPcrDialog(QDialog):
         mode_label.setStyleSheet("font-size: 13px; color: #1A202C;")
         top_layout.addWidget(mode_label)
 
-        self.radio_pcr = QRadioButton("Pseudo-CR (pCR / Discussion & Proposal)")
+        self.radio_pcr = QRadioButton("Pseudo-CR (pCR / Discussion && Proposal)")
         self.radio_pcr.setStyleSheet("font-size: 13px; font-weight: bold; color: #005A9E;")
         self.radio_cr = QRadioButton("Formal Change Request (CR Template)")
         self.radio_cr.setStyleSheet("font-size: 13px; font-weight: bold; color: #005A9E;")
