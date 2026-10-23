@@ -436,6 +436,242 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 }
 """
 
+SEGMENT_BTN_STYLE = """
+QPushButton {
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 500;
+    background-color: #F8FAFC;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+}
+QPushButton:hover {
+    background-color: #F1F5F9;
+    border-color: #94A3B8;
+}
+QPushButton:checked {
+    background-color: #0066CC;
+    color: #FFFFFF;
+    font-weight: bold;
+    border: 1px solid #0055AA;
+}
+"""
+
+TOGGLE_PILL_STYLE = """
+QPushButton {
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    background-color: #F8FAFC;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    border-radius: 12px;
+}
+QPushButton:hover {
+    background-color: #F1F5F9;
+    border-color: #94A3B8;
+}
+QPushButton:checked {
+    background-color: #EBF3FC;
+    color: #1E5C99;
+    font-weight: bold;
+    border: 1.5px solid #1E5C99;
+}
+QPushButton:checked:hover {
+    background-color: #DFEDFA;
+}
+"""
+
+FAV_PILL_STYLE = """
+QPushButton {
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    background-color: #F8FAFC;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    border-radius: 12px;
+}
+QPushButton:hover {
+    background-color: #F1F5F9;
+    border-color: #94A3B8;
+}
+QPushButton:checked {
+    background-color: #FEF3C7;
+    color: #92400E;
+    font-weight: bold;
+    border: 1.5px solid #F59E0B;
+}
+QPushButton:checked:hover {
+    background-color: #FDE68A;
+}
+"""
+
+DISMISSIBLE_TAG_STYLE = """
+QPushButton {
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    background-color: #EFF6FF;
+    color: #1E40AF;
+    border: 1px solid #BFDBFE;
+    border-radius: 10px;
+}
+QPushButton:hover {
+    background-color: #FEE2E2;
+    color: #991B1B;
+    border-color: #FCA5A5;
+}
+"""
+
+CLEAR_ALL_BTN_STYLE = """
+QPushButton {
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: bold;
+    background-color: #FEF2F2;
+    color: #B91C1C;
+    border: 1px solid #FECACA;
+    border-radius: 4px;
+}
+QPushButton:hover {
+    background-color: #FEE2E2;
+    border-color: #F87171;
+}
+"""
+
+SPEC_FILTER_COMBO_STYLE = """
+QComboBox {
+    padding: 3px 8px;
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+    font-size: 12px;
+    background-color: #FFFFFF;
+    color: #1E293B;
+}
+QComboBox:hover {
+    border-color: #94A3B8;
+}
+QComboBox:focus {
+    border-color: #1E5C99;
+}
+"""
+
+SPEC_FILTER_INPUT_STYLE = """
+QLineEdit {
+    padding: 4px 8px;
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+    font-size: 12px;
+    background-color: #FFFFFF;
+    color: #1E293B;
+}
+QLineEdit:focus {
+    border: 1px solid #1E5C99;
+}
+"""
+
+# ==========================================
+# --- 3GPP WORKING GROUP STYLING & PALETTES ---
+# ==========================================
+
+WG_DESCRIPTIONS = {
+    # SA
+    "SA": "Service and System Aspects (Plenary)",
+    "SA1": "Services",
+    "SA2": "Architecture",
+    "SA3": "Security",
+    "SA4": "Codec",
+    "SA5": "Telecom Management",
+    "SA6": "Mission Critical & Vertical Applications",
+    # RAN
+    "RAN": "Radio Access Network (Plenary)",
+    "RAN1": "Radio Layer 1 (Physical layer)",
+    "RAN2": "Radio Layer 2 & 3",
+    "RAN3": "Architecture & Network Interfaces",
+    "RAN4": "Radio Performance & Protocol Aspects",
+    "RAN5": "Mobile Terminal Conformance Testing",
+    "RAN6": "GSM/EDGE Radio Access Network",
+    # CT
+    "CT": "Core Network and Terminals (Plenary)",
+    "CT1": "User Equipment - Core Network Protocols",
+    "CT3": "Interworking with External Networks",
+    "CT4": "Core Network Protocols",
+    "CT6": "Smart Card Application Aspects",
+    # Legacy / Other
+    "GERAN": "GSM EDGE Radio Access Network",
+    "GERAN1": "GERAN Radio Aspects",
+    "GERAN2": "GERAN Protocol Aspects",
+    "GERAN3": "GERAN Base Station Testing",
+    "CN1": "Core Network 1 (Legacy)",
+    "CN3": "Core Network 3 (Legacy)",
+    "CN4": "Core Network 4 (Legacy)",
+    "CN5": "Open Service Access (Legacy)",
+    "T2": "Mobile Terminal Services (Legacy)",
+    "T3": "USIM / Smart Cards (Legacy)",
+    "SMG01": "Special Mobile Group 1 (Legacy)",
+    "SMG03": "Special Mobile Group 3 (Legacy)",
+}
+
+
+def get_wg_colors(wg: str) -> dict:
+    """Returns standardized palette hex colors for Working Group badges."""
+    wg_upper = str(wg or "").strip().upper()
+    desc = WG_DESCRIPTIONS.get(wg_upper, "Working Group")
+
+    # SA (Soft Indigo)
+    if wg_upper.startswith("SA"):
+        return {
+            "bg": "#EEF2FF",
+            "text": "#3730A3",
+            "border": "#C7D2FE",
+            "desc": desc,
+            "tsg": "SA",
+        }
+    # RAN (Soft Emerald)
+    elif wg_upper.startswith("RAN") or wg_upper.startswith("GERAN"):
+        return {
+            "bg": "#ECFDF5",
+            "text": "#065F46",
+            "border": "#A7F3D0",
+            "desc": desc,
+            "tsg": "RAN",
+        }
+    # CT (Soft Amber)
+    elif wg_upper.startswith("CT") or wg_upper.startswith("CN"):
+        return {
+            "bg": "#FFF7ED",
+            "text": "#9A3412",
+            "border": "#FED7AA",
+            "desc": desc,
+            "tsg": "CT",
+        }
+    # Default (Slate)
+    else:
+        return {
+            "bg": "#F1F5F9",
+            "text": "#475569",
+            "border": "#CBD5E1",
+            "desc": desc,
+            "tsg": "OTHER",
+        }
+
+
+def get_wg_badge_style_and_desc(wg: str) -> Tuple[str, str]:
+    """Returns CSS stylesheet and description for QWidget/HTML rendering."""
+    c = get_wg_colors(wg)
+    style = f"""
+        background-color: {c['bg']};
+        color: {c['text']};
+        border: 1px solid {c['border']};
+        border-radius: 3px;
+        padding: 1px 0px;
+        font-size: 10px;
+        font-weight: bold;
+    """
+    return style, c["desc"]
+
 
 def create_app_icon():
     """Load the stable application icon used by Qt and the Windows shell."""

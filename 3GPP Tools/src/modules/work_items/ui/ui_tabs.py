@@ -5,7 +5,7 @@ from pathlib import Path
 import logging
 
 from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QTimer, QEvent, QRect, pyqtSignal
-from PyQt5.QtGui import QColor, QPalette, QBrush, QFont
+from PyQt5.QtGui import QColor, QPalette, QBrush, QFont, QPen
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableView, QHeaderView,
     QPushButton, QProgressBar, QMessageBox, QLineEdit, QMenu, QStyle,
@@ -13,7 +13,18 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFormLayout
 )
 
-from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
+from core.ui.ui_components import (
+    BUTTON_STYLE_TOOLBAR_SECONDARY,
+    SEGMENT_BTN_STYLE,
+    TOGGLE_PILL_STYLE,
+    FAV_PILL_STYLE,
+    DISMISSIBLE_TAG_STYLE,
+    CLEAR_ALL_BTN_STYLE,
+    SPEC_FILTER_COMBO_STYLE,
+    SPEC_FILTER_INPUT_STYLE,
+    WG_DESCRIPTIONS,
+    get_wg_colors,
+)
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import WorkItemsScraperThread, TargetedWIScraperThread
@@ -36,8 +47,8 @@ class TrackingDelegate(QStyledItemDelegate):
 
         rect = option.rect
         mid_x = rect.left() + rect.width() // 2
-        star_rect = QRect(rect.left() + 3, rect.top() + 3, (rect.width() // 2) - 4, rect.height() - 6)
-        follow_rect = QRect(mid_x + 1, rect.top() + 3, (rect.width() // 2) - 4, rect.height() - 6)
+        star_rect = QRect(rect.left() + 2, rect.top() + 3, (rect.width() // 2) - 3, rect.height() - 6)
+        follow_rect = QRect(mid_x + 1, rect.top() + 3, (rect.width() // 2) - 3, rect.height() - 6)
 
         painter.save()
         painter.setRenderHint(painter.Antialiasing)
@@ -53,7 +64,10 @@ class TrackingDelegate(QStyledItemDelegate):
             painter.setFont(font)
             painter.drawText(star_rect, Qt.AlignCenter, "⭐")
         else:
-            painter.setPen(QColor("#CBD5E1"))
+            painter.setPen(QColor("#94A3B8"))
+            font = option.font
+            font.setPointSize(font.pointSize() if font.pointSize() > 8 else 9)
+            painter.setFont(font)
             painter.drawText(star_rect, Qt.AlignCenter, "☆")
 
         # Draw Following pill/icon
@@ -67,8 +81,12 @@ class TrackingDelegate(QStyledItemDelegate):
             painter.setFont(font)
             painter.drawText(follow_rect, Qt.AlignCenter, "🎯")
         else:
-            painter.setPen(QColor("#CBD5E1"))
-            painter.drawText(follow_rect, Qt.AlignCenter, "🎯")
+            # Concentric circular target outline (avoids red Windows emoji glyphs when unfollowed)
+            painter.setPen(QPen(QColor("#94A3B8"), 1.3))
+            painter.setBrush(Qt.NoBrush)
+            center = follow_rect.center()
+            painter.drawEllipse(center, 6, 6)
+            painter.drawEllipse(center, 2, 2)
 
         painter.restore()
 
@@ -87,8 +105,64 @@ class TrackingDelegate(QStyledItemDelegate):
         return super().editorEvent(event, model, option, index)
 
 
+class WgBadgeDelegate(QStyledItemDelegate):
+    """Renders Working Groups as TSG domain-colored badges side-by-side."""
+
+    def paint(self, painter, option, index):
+        QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
+        raw_text = index.data(Qt.DisplayRole)
+        if not raw_text or raw_text == "-":
+            return
+
+        wgs = [w.strip() for w in str(raw_text).split(",") if w.strip()]
+        if not wgs:
+            return
+
+        painter.save()
+        painter.setRenderHint(painter.Antialiasing)
+
+        font = option.font
+        font.setBold(True)
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
+        painter.setFont(font)
+        fm = painter.fontMetrics()
+
+        badges = []
+        total_width = 0
+        badge_h = 18
+        spacing = 3
+
+        for wg in wgs:
+            tw = fm.horizontalAdvance(wg) if hasattr(fm, 'horizontalAdvance') else fm.width(wg)
+            w = max(tw + 8, 28)
+            badges.append((wg, w))
+            total_width += w
+        total_width += spacing * (len(badges) - 1)
+
+        start_x = option.rect.left() + max(3, (option.rect.width() - total_width) // 2)
+        y = option.rect.top() + (option.rect.height() - badge_h) // 2
+
+        cur_x = start_x
+        for wg, w in badges:
+            colors = get_wg_colors(wg)
+            bg_col = QColor(colors.get("bg", "#F1F5F9"))
+            border_col = QColor(colors.get("border", "#CBD5E1"))
+            text_col = QColor(colors.get("text", "#475569"))
+
+            badge_rect = QRect(cur_x, y, w, badge_h)
+            painter.setBrush(bg_col)
+            painter.setPen(border_col)
+            painter.drawRoundedRect(badge_rect, 3, 3)
+
+            painter.setPen(text_col)
+            painter.drawText(badge_rect, Qt.AlignCenter, wg)
+            cur_x += w + spacing
+
+        painter.restore()
+
+
 class WidDelegate(QStyledItemDelegate):
-    """Renders the Latest WID as a clickable hyperlink using the common palette."""
+    """Renders Latest WID as an interactive document chip."""
     link_clicked = pyqtSignal(str, str)
 
     def paint(self, painter, option, index):
@@ -97,17 +171,33 @@ class WidDelegate(QStyledItemDelegate):
         if not text:
             return
 
+        badge_w = min(max(80, option.rect.width() - 12), 95)
+        badge_h = 20
+        badge_rect = QRect(
+            option.rect.left() + (option.rect.width() - badge_w) // 2,
+            option.rect.top() + (option.rect.height() - badge_h) // 2,
+            badge_w,
+            badge_h
+        )
+
         painter.save()
-        font = option.font
-        font.setUnderline(True)
-        painter.setFont(font)
+        painter.setRenderHint(painter.Antialiasing)
+        is_selected = bool(option.state & QStyle.State_Selected)
 
-        if option.state & QStyle.State_Selected:
-            painter.setPen(option.palette.color(QPalette.HighlightedText))
+        if is_selected:
+            painter.setBrush(QColor("#DBEAFE"))
+            painter.setPen(QColor("#2563EB"))
         else:
-            painter.setPen(QColor("#1E5C99"))
+            painter.setBrush(QColor("#EFF6FF"))
+            painter.setPen(QColor("#BFDBFE"))
+        painter.drawRoundedRect(badge_rect, 4, 4)
 
-        painter.drawText(option.rect, Qt.AlignCenter, text)
+        painter.setPen(QColor("#1E40AF" if is_selected else "#1E5C99"))
+        font = option.font
+        font.setBold(True)
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
+        painter.setFont(font)
+        painter.drawText(badge_rect, Qt.AlignCenter, f"📄 {text}")
         painter.restore()
 
     def editorEvent(self, event, model, option, index):
@@ -117,6 +207,83 @@ class WidDelegate(QStyledItemDelegate):
                 self.link_clicked.emit(text, "open_doc")
                 return True
         return super().editorEvent(event, model, option, index)
+
+
+class ReleaseBadgeDelegate(QStyledItemDelegate):
+    """Renders Release as a subtle standardized pill badge."""
+
+    def paint(self, painter, option, index):
+        QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
+        text = index.data(Qt.DisplayRole)
+        if not text or text == "-":
+            return
+
+        badge_w = min(max(54, option.rect.width() - 16), 64)
+        badge_h = 20
+        badge_rect = QRect(
+            option.rect.left() + (option.rect.width() - badge_w) // 2,
+            option.rect.top() + (option.rect.height() - badge_h) // 2,
+            badge_w,
+            badge_h
+        )
+
+        painter.save()
+        painter.setRenderHint(painter.Antialiasing)
+        painter.setBrush(QColor("#F1F5F9"))
+        painter.setPen(QColor("#CBD5E1"))
+        painter.drawRoundedRect(badge_rect, 4, 4)
+
+        painter.setPen(QColor("#334155"))
+        font = option.font
+        font.setBold(True)
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
+        painter.setFont(font)
+        painter.drawText(badge_rect, Qt.AlignCenter, text)
+        painter.restore()
+
+
+class StatusBadgeDelegate(QStyledItemDelegate):
+    """Renders Status as a modern pill badge (Active in emerald, Finished in slate)."""
+
+    def paint(self, painter, option, index):
+        QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
+        text = index.data(Qt.DisplayRole)
+        if not text:
+            return
+
+        is_active = (str(text).strip().lower() == "active")
+        badge_w = 78
+        badge_h = 20
+        badge_rect = QRect(
+            option.rect.left() + (option.rect.width() - badge_w) // 2,
+            option.rect.top() + (option.rect.height() - badge_h) // 2,
+            badge_w,
+            badge_h
+        )
+
+        painter.save()
+        painter.setRenderHint(painter.Antialiasing)
+
+        if is_active:
+            painter.setBrush(QColor("#ECFDF5"))
+            painter.setPen(QColor("#A7F3D0"))
+            text_color = QColor("#065F46")
+            label = "🟢 Active"
+        else:
+            painter.setBrush(QColor("#F1F5F9"))
+            painter.setPen(QColor("#CBD5E1"))
+            text_color = QColor("#475569")
+            label = "🏁 Finished"
+
+        painter.drawRoundedRect(badge_rect, 10, 10)
+
+        painter.setPen(text_color)
+        font = option.font
+        font.setBold(True)
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
+        painter.setFont(font)
+        painter.drawText(badge_rect, Qt.AlignCenter, label)
+        painter.restore()
 
 
 class SpecsDelegate(QStyledItemDelegate):
@@ -133,7 +300,14 @@ class SpecsDelegate(QStyledItemDelegate):
             painter.restore()
             return
 
-        badge_rect = QRect(option.rect.left() + 4, option.rect.top() + 4, option.rect.width() - 8, option.rect.height() - 8)
+        badge_w = min(max(44, option.rect.width() - 12), 52)
+        badge_h = 20
+        badge_rect = QRect(
+            option.rect.left() + (option.rect.width() - badge_w) // 2,
+            option.rect.top() + (option.rect.height() - badge_h) // 2,
+            badge_w,
+            badge_h
+        )
 
         painter.save()
         painter.setRenderHint(painter.Antialiasing)
@@ -156,6 +330,31 @@ class SpecsDelegate(QStyledItemDelegate):
                 self.specs_clicked.emit(index.row())
                 return True
         return super().editorEvent(event, model, option, index)
+
+
+class TimelineDelegate(QStyledItemDelegate):
+    """Renders compact Year-Month timeline."""
+
+    def paint(self, painter, option, index):
+        QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
+        text = index.data(Qt.DisplayRole)
+        if not text or text == "-":
+            painter.save()
+            painter.setPen(QColor("#94A3B8"))
+            painter.drawText(option.rect, Qt.AlignCenter, "-")
+            painter.restore()
+            return
+
+        painter.save()
+        if option.state & QStyle.State_Selected:
+            painter.setPen(option.palette.color(QPalette.HighlightedText))
+        else:
+            painter.setPen(QColor("#334155"))
+        font = option.font
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
+        painter.setFont(font)
+        painter.drawText(option.rect, Qt.AlignCenter, text)
+        painter.restore()
 
 
 class RemarksDelegate(QStyledItemDelegate):
@@ -230,7 +429,7 @@ class WorkItemsTableModel(QAbstractTableModel):
         self._headers = [
             "Track", "Code", "Acronym", "Name", "WG",
             "Latest WID", "Release", "Status", "Specs",
-            "Start Date", "End Date", "Remarks"
+            "Timeline", "Remarks"
         ]
 
     def set_tracking_sets(self, starred: set, following: set):
@@ -267,11 +466,23 @@ class WorkItemsTableModel(QAbstractTableModel):
             key_map = {
                 "Code": "code", "Acronym": "acronym", "Name": "name",
                 "WG": "wg_names", "Latest WID": "latest_wid", "Release": "release",
-                "Specs": "spec_count", "Start Date": "start_date", "End Date": "end_date",
-                "Remarks": "remarks"
+                "Specs": "spec_count", "Remarks": "remarks"
             }
             if col_name == "Remarks" and role == Qt.DisplayRole:
                 return ""
+
+            if col_name == "Timeline" and role == Qt.DisplayRole:
+                start = str(row.get("start_date") or "").strip()
+                end = str(row.get("end_date") or "").strip()
+                s_ym = start[:7] if len(start) >= 7 else ""
+                e_ym = end[:7] if len(end) >= 7 else ""
+                if s_ym and e_ym:
+                    return f"{s_ym} → {e_ym}"
+                elif e_ym:
+                    return f"End: {e_ym}"
+                elif s_ym:
+                    return f"Start: {s_ym}"
+                return "-"
 
             if col_name == "Status" and role == Qt.DisplayRole:
                 end_date = str(row.get("end_date") or "").strip()
@@ -303,59 +514,72 @@ class WorkItemsTableModel(QAbstractTableModel):
                 if acronym == self.search_term.casefold():
                     return QBrush(QColor("#DBEAFE"))
 
-            # Highlight followed and starred rows subtly in Acronym and Track columns
-            if col_name in ("Acronym", "Track"):
-                if wi_code in self.following_codes:
-                    return QBrush(QColor("#EFF6FF"))
-                elif wi_code in self.starred_codes:
-                    return QBrush(QColor("#FFFBEB"))
-
-            if col_name == "Release" and str(row.get("release") or "").strip():
-                return QBrush(QColor("#F1F5F9"))
-            if col_name == "Status":
-                end_date = str(row.get("end_date") or "").strip()
-                finished = bool(end_date and end_date < datetime.now().strftime("%Y-%m-%d"))
-                return QBrush(QColor("#F1F5F9" if finished else "#ECFDF5"))
+            # Unified soft row highlight for tracked items
+            if wi_code in self.following_codes:
+                return QBrush(QColor("#EFF6FF"))
+            elif wi_code in self.starred_codes:
+                return QBrush(QColor("#FFFBEB"))
 
         elif role == Qt.ForegroundRole:
             if col_name == "Acronym" and self.search_term and str(row.get("acronym") or "").strip().casefold() == self.search_term.casefold():
                 return QBrush(QColor("#1E5C99"))
-            if col_name == "Status":
-                end_date = str(row.get("end_date") or "").strip()
-                finished = bool(end_date and end_date < datetime.now().strftime("%Y-%m-%d"))
-                return QBrush(QColor("#475569" if finished else "#065F46"))
+            elif col_name == "Code":
+                return QBrush(QColor("#475569"))
 
         elif role == Qt.FontRole:
-            if col_name in ["Acronym", "Release", "Status"]:
+            if col_name in ["Acronym", "Latest WID"]:
                 font = QFont()
+                font.setBold(True)
+                return font
+            elif col_name == "Code":
+                font = QFont("Consolas", 9)
                 font.setBold(True)
                 return font
 
         elif role == Qt.ToolTipRole:
             if col_name == "Track":
                 s_state = "⭐ Starred" if wi_code in self.starred_codes else "☆ Not Starred"
-                f_state = "🎯 Following" if wi_code in self.following_codes else "🎯 Not Following"
+                f_state = "🎯 Following" if wi_code in self.following_codes else "◎ Not Following"
                 return (
                     f"<b>Tracking Status (WI #{wi_code})</b><br>"
                     f"Left (⭐): {s_state} (Personal Interest)<br>"
                     f"Right (🎯): {f_state} (Assigned Duty)<br><br>"
                     f"<i>Click left to toggle Star · Click right to toggle Follow</i>"
                 )
+            elif col_name == "Code":
+                return f"<b>Work Item #{wi_code}</b><br>Double-click row to view full details, history, and linked specifications."
             elif col_name == "Name":
                 return f"<b>{row.get('acronym', '')}</b><br>{row.get('name', '')}"
             elif col_name == "Acronym":
-                return row.get('name', '')
+                return f"<b>{row.get('acronym', '')}</b><br>{row.get('name', '')}"
+            elif col_name == "WG":
+                raw_wgs = [w.strip() for w in str(row.get('wg_names') or '').split(',') if w.strip()]
+                if raw_wgs:
+                    lines = [f"• <b>{w}</b>: {WG_DESCRIPTIONS.get(w.upper(), 'Working Group')}" for w in raw_wgs]
+                    return "<b>Working Groups:</b><br>" + "<br>".join(lines)
+                return None
             elif col_name == "Specs":
                 cnt = row.get("spec_count", 0)
                 return f"Click to view all {cnt} linked specifications" if cnt > 0 else "No linked specifications"
             elif col_name == "Latest WID":
                 wid = row.get("latest_wid", "")
                 return f"Click to download/open latest Work Item Description ({wid})" if wid else ""
+            elif col_name == "Release":
+                rel = row.get("release", "")
+                return f"<b>Release:</b> {rel}" if rel else None
+            elif col_name == "Status":
+                end_date = str(row.get("end_date") or "").strip()
+                finished = bool(end_date and end_date < datetime.now().strftime("%Y-%m-%d"))
+                return "<b>Status: Finished</b><br>Target completion date has passed." if finished else "<b>Status: Active / Ongoing</b><br>Normative work is actively ongoing."
+            elif col_name == "Timeline":
+                start = str(row.get("start_date") or "").strip() or "N/A"
+                end = str(row.get("end_date") or "").strip() or "N/A"
+                return f"<b>Work Item Timeline</b><br>• Start Date: {start}<br>• Target End Date: {end}"
             elif col_name == "Remarks":
                 raw = row.get("remarks", "")
                 if raw:
                     entries = [r.split(":::")[-1] for r in raw.split("|||")]
-                    return "<br>• " + "<br>• ".join(entries[:5])
+                    return "<b>Recent Remarks:</b><br>• " + "<br>• ".join(entries[:5])
             return None
 
         elif role == Qt.TextAlignmentRole:
@@ -417,6 +641,9 @@ class WorkItemsTab(QWidget):
         self.starred, self.following = self.settings.get_tracking_sets()
         self.starred_only = False
         self.following_only = False
+        self._current_tsg = ""
+        self.tsg_buttons = {}
+        self._rendered_tag_labels = None
 
         self.search_timer = QTimer()
         self.search_timer.setSingleShot(True)
@@ -437,6 +664,7 @@ class WorkItemsTab(QWidget):
     def _save_filters(self):
         filters = {
             "search": self.search_input.text().strip(),
+            "tsg": self._current_tsg,
             "releases": self.release_combo.getCheckedItems(),
             "wgs": self.wg_combo.getCheckedItems(),
             "status": self.status_combo.currentData() or "active",
@@ -460,6 +688,9 @@ class WorkItemsTab(QWidget):
 
             if "search" in filters:
                 self.search_input.setText(filters["search"])
+
+            if "tsg" in filters:
+                self._current_tsg = filters["tsg"]
 
             if "releases" in filters:
                 self._apply_checked_items(self.release_combo, filters["releases"])
@@ -542,10 +773,10 @@ class WorkItemsTab(QWidget):
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(8)
 
-        # --- HEADER & CONTROLS ---
+        # --- ROW 1: HEADER & ACTION BUTTONS ---
         header_layout = QHBoxLayout()
         header_lbl = QLabel("<b>📋 3GPP Work Items (WIs)</b>")
         header_lbl.setStyleSheet("font-size: 16px; color: #1E293B;")
@@ -570,10 +801,10 @@ class WorkItemsTab(QWidget):
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setVisible(False)
-        self.progress_bar.setFixedWidth(200)
+        self.progress_bar.setFixedWidth(180)
 
         self.status_lbl = QLabel("")
-        self.status_lbl.setStyleSheet("color: #64748B; font-style: italic;")
+        self.status_lbl.setStyleSheet("color: #64748B; font-style: italic; font-size: 11px;")
 
         header_layout.addWidget(header_lbl)
         header_layout.addStretch()
@@ -584,31 +815,53 @@ class WorkItemsTab(QWidget):
         header_layout.addWidget(self.sync_btn)
         main_layout.addLayout(header_layout)
 
-        # --- INLINE SEARCH & FILTER BAR ---
+        # --- ROW 2: INLINE SEARCH & FILTER BAR WITH TSG QUICK SCOPE ---
         search_layout = QHBoxLayout()
-        search_layout.addWidget(QLabel("<b>🔍 Local Search:</b>"))
+        search_layout.setSpacing(8)
+
+        search_layout.addWidget(QLabel("<b>🔍 Search:</b>"))
 
         self.search_input = QLineEdit()
+        self.search_input.setStyleSheet(SPEC_FILTER_INPUT_STYLE)
         self.search_input.setPlaceholderText("Search Code, Acronym, or Name...")
-        self.search_input.setToolTip("Filter the table instantly by typing keywords.")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.setToolTip("Filter the table instantly by typing keywords or WI code.")
         self.search_input.textChanged.connect(lambda: self.search_timer.start())
-        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.search_input, stretch=3)
+
+        # TSG Quick-Scope buttons
+        tsg_lbl = QLabel("TSG:")
+        tsg_lbl.setStyleSheet("color: #475569; font-weight: bold; font-size: 11px;")
+        search_layout.addWidget(tsg_lbl)
+
+        self.tsg_buttons = {}
+        for tsg in ["All", "SA", "RAN", "CT"]:
+            btn = QPushButton(tsg)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(SEGMENT_BTN_STYLE)
+            btn.setToolTip(f"Filter Work Items to {tsg if tsg != 'All' else 'all'} Technical Specification Groups")
+            btn.clicked.connect(lambda _, t=tsg: self._on_tsg_clicked(t))
+            self.tsg_buttons[tsg] = btn
+            search_layout.addWidget(btn)
+        self.tsg_buttons["All"].setChecked(True)
 
         self.release_combo = CheckableComboBox("Release")
         self.release_combo.setToolTip("Filter by 3GPP Release")
-        self.release_combo.setMinimumWidth(150)
+        self.release_combo.setMinimumWidth(130)
         self.release_combo.selectionChanged.connect(lambda _: self.search_timer.start())
         search_layout.addWidget(self.release_combo)
 
         self.wg_combo = CheckableComboBox("WG")
         self.wg_combo.setToolTip("Filter by Working Group")
-        self.wg_combo.setMinimumWidth(130)
+        self.wg_combo.setMinimumWidth(120)
         self.wg_combo.selectionChanged.connect(lambda _: self.search_timer.start())
         search_layout.addWidget(self.wg_combo)
 
         self.status_combo = QComboBox()
+        self.status_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
         self.status_combo.setToolTip("Filter by Work Item completion status (End Date)")
-        self.status_combo.setMinimumWidth(150)
+        self.status_combo.setMinimumWidth(140)
         self.status_combo.addItem("🟢 Active / Ongoing", "active")
         self.status_combo.addItem("All Statuses", "all")
         self.status_combo.addItem("🏁 Finished", "finished")
@@ -624,7 +877,7 @@ class WorkItemsTab(QWidget):
 
         main_layout.addLayout(search_layout)
 
-        # --- ROW 3: TRACKING FILTER CHIPS & RESULTS COUNTER ---
+        # --- ROW 3: TRACKING FILTER CHIPS, ACTIVE DISMISSIBLE TAGS & RESULTS COUNTER ---
         chips_layout = QHBoxLayout()
         chips_layout.setSpacing(6)
 
@@ -634,22 +887,47 @@ class WorkItemsTab(QWidget):
 
         # Following Filter Chip (Assigned Duty)
         self.following_chip = QPushButton("🎯 Following (0)")
+        self.following_chip.setCheckable(True)
         self.following_chip.setCursor(Qt.PointingHandCursor)
+        self.following_chip.setStyleSheet(TOGGLE_PILL_STYLE)
         self.following_chip.setToolTip("Toggle view to show only Work Items you are assigned to follow.")
         self.following_chip.clicked.connect(self._toggle_following_filter)
         chips_layout.addWidget(self.following_chip)
 
         # Starred Filter Chip (Personal Interest)
         self.starred_chip = QPushButton("⭐ Starred (0)")
+        self.starred_chip.setCheckable(True)
         self.starred_chip.setCursor(Qt.PointingHandCursor)
+        self.starred_chip.setStyleSheet(FAV_PILL_STYLE)
         self.starred_chip.setToolTip("Toggle view to show only your starred/favorite Work Items.")
         self.starred_chip.clicked.connect(self._toggle_starred_filter)
         chips_layout.addWidget(self.starred_chip)
 
+        # Divider line
+        div_lbl = QLabel("|")
+        div_lbl.setStyleSheet("color: #CBD5E1; margin: 0 4px;")
+        chips_layout.addWidget(div_lbl)
+
+        # Active Dismissible Tags Container
+        self.active_tags_widget = QWidget()
+        self.active_tags_container_layout = QHBoxLayout(self.active_tags_widget)
+        self.active_tags_container_layout.setContentsMargins(0, 0, 0, 0)
+        self.active_tags_container_layout.setSpacing(4)
+        chips_layout.addWidget(self.active_tags_widget)
+
+        # Clear all active tags button
+        self.clear_all_btn = QPushButton("✕ Clear All")
+        self.clear_all_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_all_btn.setStyleSheet(CLEAR_ALL_BTN_STYLE)
+        self.clear_all_btn.setToolTip("Clear all active search and filter constraints.")
+        self.clear_all_btn.setVisible(False)
+        self.clear_all_btn.clicked.connect(self._clear_all_filters)
+        chips_layout.addWidget(self.clear_all_btn)
+
         chips_layout.addStretch()
 
         self.count_label = QLabel("Showing 0 Work Items")
-        self.count_label.setStyleSheet("font-weight: bold; color: #64748B; margin-top: 2px;")
+        self.count_label.setStyleSheet("font-weight: bold; color: #64748B; font-size: 11px;")
         chips_layout.addWidget(self.count_label)
 
         main_layout.addLayout(chips_layout)
@@ -663,22 +941,29 @@ class WorkItemsTab(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableView.SelectRows)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.setShowGrid(True)
         self.table.setStyleSheet("""
             QTableView {
+                background-color: #FFFFFF;
                 border: 1px solid #CBD5E1;
                 gridline-color: #F1F5F9;
-                background-color: #FFFFFF;
+                selection-background-color: #EBF3FC;
+                selection-color: #1E293B;
             }
-            QTableView::item:selected {
-                background-color: #EBF3FC;
-                color: #1E293B;
+            QTableView::item {
+                padding: 2px 4px;
+                border-bottom: 1px solid #F1F5F9;
             }
             QHeaderView::section {
                 background-color: #F8FAFC;
-                padding: 4px;
+                color: #475569;
                 font-weight: bold;
-                border: 1px solid #E2E8F0;
-                color: #1E293B;
+                font-size: 11px;
+                border: none;
+                border-bottom: 1px solid #CBD5E1;
+                border-right: 1px solid #E2E8F0;
+                padding: 5px 6px;
             }
         """)
 
@@ -689,33 +974,131 @@ class WorkItemsTab(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
 
-        # Column 0: Track
+        # Column 0: Track (Fixed)
         header.setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 62)
+        self.table.setColumnWidth(0, 64)
         self.tracking_delegate = TrackingDelegate(self.table)
         self.tracking_delegate.star_toggled.connect(self._toggle_star)
         self.tracking_delegate.follow_toggled.connect(self._toggle_follow)
         self.table.setItemDelegateForColumn(0, self.tracking_delegate)
 
-        # Column 3: Name
+        # Column 1: Code
+        self.table.setColumnWidth(1, 75)
+
+        # Column 2: Acronym
+        self.table.setColumnWidth(2, 185)
+
+        # Column 3: Name (Stretch)
         header.setSectionResizeMode(3, QHeaderView.Stretch)
 
+        # Column 4: WG
+        self.table.setColumnWidth(4, 95)
+        self.wg_delegate = WgBadgeDelegate(self.table)
+        self.table.setItemDelegateForColumn(4, self.wg_delegate)
+
         # Column 5: Latest WID
+        self.table.setColumnWidth(5, 105)
         self.wid_delegate = WidDelegate(self.table)
         self.wid_delegate.link_clicked.connect(self._log_and_forward_action)
         self.table.setItemDelegateForColumn(5, self.wid_delegate)
 
+        # Column 6: Release
+        self.table.setColumnWidth(6, 75)
+        self.release_delegate = ReleaseBadgeDelegate(self.table)
+        self.table.setItemDelegateForColumn(6, self.release_delegate)
+
+        # Column 7: Status
+        self.table.setColumnWidth(7, 95)
+        self.status_delegate = StatusBadgeDelegate(self.table)
+        self.table.setItemDelegateForColumn(7, self.status_delegate)
+
         # Column 8: Specs
+        self.table.setColumnWidth(8, 65)
         self.specs_delegate = SpecsDelegate(self.table)
         self.specs_delegate.specs_clicked.connect(self._on_specs_clicked)
         self.table.setItemDelegateForColumn(8, self.specs_delegate)
 
-        # Column 11: Remarks
-        header.setSectionResizeMode(11, QHeaderView.Stretch)
-        self.table.setItemDelegateForColumn(11, RemarksDelegate(self.table))
+        # Column 9: Timeline
+        self.table.setColumnWidth(9, 135)
+        self.timeline_delegate = TimelineDelegate(self.table)
+        self.table.setItemDelegateForColumn(9, self.timeline_delegate)
+
+        # Column 10: Remarks (Stretch)
+        header.setSectionResizeMode(10, QHeaderView.Stretch)
+        self.remarks_delegate = RemarksDelegate(self.table)
+        self.table.setItemDelegateForColumn(10, self.remarks_delegate)
 
         self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
         main_layout.addWidget(self.table)
+
+    def _on_tsg_clicked(self, tsg: str):
+        if tsg == "All":
+            self._current_tsg = ""
+        else:
+            self._current_tsg = tsg
+
+        self._update_chip_styles()
+        self.refresh_table(reset_pagination=True)
+
+    def _update_active_tags(self):
+        """Re-render active filter tags dynamically with 1-click removal."""
+        tags = []
+
+        query = self.search_input.text().strip()
+        if query:
+            disp_q = query if len(query) <= 18 else f"{query[:15]}..."
+            tags.append((f'🔍 "{disp_q}" ✕', lambda: self.search_input.clear()))
+
+        if self._current_tsg:
+            tags.append((f'TSG: {self._current_tsg} ✕', lambda: self._on_tsg_clicked("All")))
+
+        if hasattr(self.wg_combo, "isFiltered") and self.wg_combo.isFiltered():
+            selected_wgs = self.wg_combo.getCheckedItems()
+            if selected_wgs:
+                w_str = ", ".join(selected_wgs)
+                disp_w = w_str if len(w_str) <= 18 else f"{w_str[:15]}..."
+                tags.append((f'WG: {disp_w} ✕', lambda: (self._apply_checked_items(self.wg_combo, []), self.refresh_table(True))))
+
+        if hasattr(self.release_combo, "isFiltered") and self.release_combo.isFiltered():
+            selected_rels = self.release_combo.getCheckedItems()
+            if selected_rels:
+                r_str = ", ".join(selected_rels)
+                disp_r = r_str if len(r_str) <= 18 else f"{r_str[:15]}..."
+                tags.append((f'Rel: {disp_r} ✕', lambda: (self._apply_checked_items(self.release_combo, []), self.refresh_table(True))))
+
+        cur_status = self.status_combo.currentData()
+        if cur_status and cur_status != "active":
+            status_name = "Finished" if cur_status == "finished" else "All Statuses"
+            tags.append((f'Status: {status_name} ✕', lambda: self.status_combo.setCurrentIndex(0)))
+
+        if self.following_only:
+            tags.append(('🎯 Following ✕', self._toggle_following_filter))
+
+        if self.starred_only:
+            tags.append(('⭐ Starred ✕', self._toggle_starred_filter))
+
+        tag_labels = [label for label, _ in tags]
+        if getattr(self, "_rendered_tag_labels", None) == tag_labels:
+            return
+        self._rendered_tag_labels = tag_labels
+
+        while self.active_tags_container_layout.count():
+            item = self.active_tags_container_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        has_tags = len(tags) > 0
+        if hasattr(self, "clear_all_btn"):
+            self.clear_all_btn.setVisible(has_tags)
+
+        for label, callback in tags:
+            tag_btn = QPushButton(label)
+            tag_btn.setCursor(Qt.PointingHandCursor)
+            tag_btn.setToolTip("Click to remove this filter constraint")
+            tag_btn.setStyleSheet(DISMISSIBLE_TAG_STYLE)
+            tag_btn.clicked.connect(callback)
+            self.active_tags_container_layout.addWidget(tag_btn)
 
     def _toggle_starred_filter(self):
         self.starred_only = not self.starred_only
@@ -738,39 +1121,12 @@ class WorkItemsTab(QWidget):
             self.sync_tracked_btn.setText(f"🎯 Update Tracked ({tracked_count})")
             self.sync_tracked_btn.setEnabled(tracked_count > 0)
 
-        if self.starred_only:
-            self.starred_chip.setStyleSheet("""
-                QPushButton {
-                    background-color: #FEF3C7; color: #92400E; border: 1px solid #F59E0B;
-                    border-radius: 10px; font-weight: bold; padding: 3px 10px; font-size: 11px;
-                }
-                QPushButton:hover { background-color: #FDE68A; }
-            """)
-        else:
-            self.starred_chip.setStyleSheet("""
-                QPushButton {
-                    background-color: #F0F4F8; color: #4B5563; border: 1px solid #D1D5DB;
-                    border-radius: 10px; padding: 3px 10px; font-size: 11px;
-                }
-                QPushButton:hover { background-color: #E2E8F0; }
-            """)
+        self.starred_chip.setChecked(self.starred_only)
+        self.following_chip.setChecked(self.following_only)
 
-        if self.following_only:
-            self.following_chip.setStyleSheet("""
-                QPushButton {
-                    background-color: #DBEAFE; color: #1E40AF; border: 1px solid #3B82F6;
-                    border-radius: 10px; font-weight: bold; padding: 3px 10px; font-size: 11px;
-                }
-                QPushButton:hover { background-color: #BFDBFE; }
-            """)
-        else:
-            self.following_chip.setStyleSheet("""
-                QPushButton {
-                    background-color: #F0F4F8; color: #4B5563; border: 1px solid #D1D5DB;
-                    border-radius: 10px; padding: 3px 10px; font-size: 11px;
-                }
-                QPushButton:hover { background-color: #E2E8F0; }
-            """)
+        if hasattr(self, "tsg_buttons"):
+            for tsg_val, btn in self.tsg_buttons.items():
+                btn.setChecked((tsg_val == "All" and not self._current_tsg) or (tsg_val == self._current_tsg))
 
     def _get_active_filter_codes(self):
         """Returns list of WI codes if filter chips are active, or None if no tracking filter is active."""
@@ -858,12 +1214,14 @@ class WorkItemsTab(QWidget):
 
     def _clear_all_filters(self):
         self.search_input.clear()
+        self._current_tsg = ""
         self._apply_checked_items(self.release_combo, [])
         self._apply_checked_items(self.wg_combo, [])
         self.status_combo.setCurrentIndex(0)
         self.starred_only = False
         self.following_only = False
         self._update_chip_styles()
+        self._update_active_tags()
         self.refresh_table(reset_pagination=True)
 
     def _on_scroll(self, value):
@@ -886,6 +1244,19 @@ class WorkItemsTab(QWidget):
         self.wg_combo.updateItems(options.get('groups', []))
         self.wg_combo.blockSignals(False)
 
+    def _resolve_effective_wgs(self) -> list:
+        if hasattr(self.wg_combo, "isFiltered") and self.wg_combo.isFiltered():
+            return self.wg_combo.getCheckedItems()
+        elif self._current_tsg:
+            all_wgs = self.db.get_filter_options().get('groups', [])
+            if self._current_tsg == "SA":
+                return [g for g in all_wgs if g.startswith("SA")]
+            elif self._current_tsg == "RAN":
+                return [g for g in all_wgs if g.startswith("RAN") or g.startswith("GERAN")]
+            elif self._current_tsg == "CT":
+                return [g for g in all_wgs if g.startswith("CT") or g.startswith("CN")]
+        return []
+
     def refresh_table(self, reset_pagination: bool = True):
         self.save_filters_timer.start()
 
@@ -894,8 +1265,8 @@ class WorkItemsTab(QWidget):
             self._loaded_data = []
 
         search_term = self.search_input.text().strip()
-        selected_releases = self.release_combo.getCheckedItems()
-        selected_wgs = self.wg_combo.getCheckedItems()
+        selected_releases = self.release_combo.getCheckedItems() if (hasattr(self.release_combo, "isFiltered") and self.release_combo.isFiltered()) else []
+        selected_wgs = self._resolve_effective_wgs()
         selected_status = self.status_combo.currentData() or "active"
         filter_codes = self._get_active_filter_codes()
 
@@ -921,14 +1292,16 @@ class WorkItemsTab(QWidget):
         self.table_model.set_search_term(search_term)
         self.table_model.update_data(self._loaded_data)
         self._update_count_label()
+        self._update_chip_styles()
+        self._update_active_tags()
 
     def _load_next_chunk(self):
         self._is_loading_chunk = True
         self._current_offset += self._chunk_size
 
         search_term = self.search_input.text().strip()
-        selected_releases = self.release_combo.getCheckedItems()
-        selected_wgs = self.wg_combo.getCheckedItems()
+        selected_releases = self.release_combo.getCheckedItems() if (hasattr(self.release_combo, "isFiltered") and self.release_combo.isFiltered()) else []
+        selected_wgs = self._resolve_effective_wgs()
         selected_status = self.status_combo.currentData() or "active"
         filter_codes = self._get_active_filter_codes()
 
@@ -956,14 +1329,7 @@ class WorkItemsTab(QWidget):
         if query:
             exact_count = sum(1 for r in self._loaded_data if str(r.get("acronym") or "").strip().casefold() == query.casefold())
 
-        filter_desc = []
-        if self.following_only:
-            filter_desc.append("🎯 Following")
-        if self.starred_only:
-            filter_desc.append("⭐ Starred")
-
-        mode_str = f" [{' + '.join(filter_desc)}]" if filter_desc else ""
-        prefix = f'{self._total_count} matches for "{query}"{mode_str}' if query else f"{self._total_count} Work Items{mode_str}"
+        prefix = f'{self._total_count} matches for "{query}"' if query else f"{self._total_count} Work Items"
         if query and exact_count:
             prefix += f" · Exact acronym: {exact_count}"
         if self._total_count > loaded:
