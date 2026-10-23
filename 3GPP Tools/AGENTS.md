@@ -200,6 +200,7 @@ The project intentionally separates domain data into distinct SQLite databases l
 ### 5.9. Documentation Synchronization & Commit Hygiene
 - **Documentation as Code:** Never treat documentation as an afterthought. When adding new capabilities, refactoring architectural patterns, modifying configurations, or updating UI controls, update corresponding documentation (`README.md`, `AGENTS.md`, and module guides) in the same work unit.
 - **Commit Completed Work Units:** Do not accumulate large batches of uncommitted, disparate changes across multiple subsystems. Once a feature or bugfix is verified and documented, commit it cleanly with a concise, descriptive commit message.
+- **Never Execute `git push` (Manual User Review Boundary):** AI agents must **never** run `git push`. Pushing commits to the remote repository is reserved exclusively for the human developer. This guarantees the user has full opportunity to inspect commit logs, review diffs, test changes, and amend commits before publishing upstream.
 
 ---
 
@@ -217,7 +218,8 @@ When adding new features or fixing bugs:
    - Subsystem guides (e.g. [`src/modules/meetings/AGENTS.md`](file:///src/modules/meetings/AGENTS.md), [`src/modules/assistant/AGENTS.md`](file:///src/modules/assistant/AGENTS.md), [`src/modules/nas/core/parsing/AGENTS.md`](file:///src/modules/nas/core/parsing/AGENTS.md)).
    - In-code docstrings, type annotations, and module header comments.
    Keeping documentation synchronized is vital: in this repository, documentation acts as the ground-truth system context and guardrails for both human developers and AI coding agents.
-7. **Commit Changes Atomically:** Once a logical feature or bugfix is implemented, verified, and documented:
+7. **Commit Changes Atomically (Local Only):** Once a logical feature or bugfix is implemented, verified, and documented:
    - Create an atomic git commit grouping the implementation, relevant tests, and documentation updates together.
    - Use clear conventional commit messages (e.g., `feat(module): ...`, `fix(module): ...`, `docs(agents): ...`).
    - Avoid leaving lingering uncommitted changes across unrelated modules or lumping disparate tasks into monolithic commits.
+   - **Do NOT execute `git push`:** Pushing to the remote repository is strictly left to the developer, providing a final review and verification boundary before publishing changes.
