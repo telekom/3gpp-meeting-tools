@@ -29,7 +29,20 @@ from PyQt5.QtWidgets import (
     QWidget, QDialog,
 )
 
-from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_DANGER
+from core.ui.ui_components import (
+    BUTTON_STYLE_TOOLBAR_SECONDARY,
+    BUTTON_STYLE_TOOLBAR_DANGER,
+    SEGMENT_BTN_STYLE,
+    TOGGLE_PILL_STYLE,
+    FAV_PILL_STYLE,
+    DISMISSIBLE_TAG_STYLE,
+    CLEAR_ALL_BTN_STYLE,
+    SPEC_FILTER_COMBO_STYLE,
+    SPEC_FILTER_INPUT_STYLE,
+    WG_DESCRIPTIONS,
+    get_wg_colors,
+    get_wg_badge_style_and_desc,
+)
 from core.utils.paths import get_project_root, to_extended_path
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.specifications.core.database import SpecsDatabase
@@ -67,231 +80,7 @@ logger = logging.getLogger(__name__)
 
 PART_NUM_REGEX = re.compile(r"\d{4,5}-(\d{1,2})(?:[-_.]|$)")
 
-# --- STYLES FOR SPECIFICATIONS FILTER CONTROLS ---
-SPEC_FILTER_COMBO_STYLE = """
-QComboBox {
-    padding: 3px 8px;
-    border: 1px solid #CBD5E1;
-    border-radius: 4px;
-    font-size: 12px;
-    background-color: #FFFFFF;
-    color: #1E293B;
-}
-QComboBox:hover {
-    border-color: #94A3B8;
-}
-QComboBox:focus {
-    border-color: #1E5C99;
-}
-"""
-
-SPEC_FILTER_INPUT_STYLE = """
-QLineEdit {
-    padding: 4px 8px;
-    border: 1px solid #CBD5E1;
-    border-radius: 4px;
-    font-size: 12px;
-    background-color: #FFFFFF;
-    color: #1E293B;
-}
-QLineEdit:focus {
-    border: 1px solid #1E5C99;
-}
-"""
-
-SEGMENT_BTN_STYLE = """
-QPushButton {
-    padding: 3px 9px;
-    font-size: 11px;
-    font-weight: 500;
-    background-color: #F8FAFC;
-    color: #334155;
-    border: 1px solid #CBD5E1;
-    border-radius: 4px;
-}
-QPushButton:hover {
-    background-color: #F1F5F9;
-    border-color: #94A3B8;
-}
-QPushButton:checked {
-    background-color: #0066CC;
-    color: #FFFFFF;
-    font-weight: bold;
-    border: 1px solid #0055AA;
-}
-"""
-
-TOGGLE_PILL_STYLE = """
-QPushButton {
-    padding: 3px 10px;
-    font-size: 11px;
-    font-weight: 500;
-    background-color: #F8FAFC;
-    color: #334155;
-    border: 1px solid #CBD5E1;
-    border-radius: 12px;
-}
-QPushButton:hover {
-    background-color: #F1F5F9;
-    border-color: #94A3B8;
-}
-QPushButton:checked {
-    background-color: #EBF3FC;
-    color: #1E5C99;
-    font-weight: bold;
-    border: 1.5px solid #1E5C99;
-}
-QPushButton:checked:hover {
-    background-color: #DFEDFA;
-}
-"""
-
-FAV_PILL_STYLE = """
-QPushButton {
-    padding: 3px 10px;
-    font-size: 11px;
-    font-weight: 500;
-    background-color: #F8FAFC;
-    color: #334155;
-    border: 1px solid #CBD5E1;
-    border-radius: 12px;
-}
-QPushButton:hover {
-    background-color: #F1F5F9;
-    border-color: #94A3B8;
-}
-QPushButton:checked {
-    background-color: #FEF3C7;
-    color: #92400E;
-    font-weight: bold;
-    border: 1.5px solid #F59E0B;
-}
-QPushButton:checked:hover {
-    background-color: #FDE68A;
-}
-"""
-
-DISMISSIBLE_TAG_STYLE = """
-QPushButton {
-    padding: 2px 8px;
-    font-size: 11px;
-    font-weight: 500;
-    background-color: #EFF6FF;
-    color: #1E40AF;
-    border: 1px solid #BFDBFE;
-    border-radius: 10px;
-}
-QPushButton:hover {
-    background-color: #FEE2E2;
-    color: #991B1B;
-    border-color: #FCA5A5;
-}
-"""
-
-CLEAR_ALL_BTN_STYLE = """
-QPushButton {
-    padding: 2px 8px;
-    font-size: 11px;
-    font-weight: bold;
-    background-color: #FEF2F2;
-    color: #B91C1C;
-    border: 1px solid #FECACA;
-    border-radius: 4px;
-}
-QPushButton:hover {
-    background-color: #FEE2E2;
-    border-color: #F87171;
-}
-"""
-
-WG_DESCRIPTIONS = {
-    # SA
-    "SA": "Service and System Aspects (Plenary)",
-    "SA1": "Services",
-    "SA2": "Architecture",
-    "SA3": "Security",
-    "SA4": "Codec",
-    "SA5": "Telecom Management",
-    "SA6": "Mission Critical & Vertical Applications",
-    # RAN
-    "RAN": "Radio Access Network (Plenary)",
-    "RAN1": "Radio Layer 1 (Physical layer)",
-    "RAN2": "Radio Layer 2 & 3",
-    "RAN3": "Architecture & Network Interfaces",
-    "RAN4": "Radio Performance & Protocol Aspects",
-    "RAN5": "Mobile Terminal Conformance Testing",
-    "RAN6": "GSM/EDGE Radio Access Network",
-    # CT
-    "CT": "Core Network and Terminals (Plenary)",
-    "CT1": "User Equipment - Core Network Protocols",
-    "CT3": "Interworking with External Networks",
-    "CT4": "Core Network Protocols",
-    "CT6": "Smart Card Application Aspects",
-    # Legacy / Other
-    "GERAN": "GSM EDGE Radio Access Network",
-    "GERAN1": "GERAN Radio Aspects",
-    "GERAN2": "GERAN Protocol Aspects",
-    "GERAN3": "GERAN Base Station Testing",
-    "CN1": "Core Network 1 (Legacy)",
-    "CN3": "Core Network 3 (Legacy)",
-    "CN4": "Core Network 4 (Legacy)",
-    "CN5": "Open Service Access (Legacy)",
-    "T2": "Mobile Terminal Services (Legacy)",
-    "T3": "USIM / Smart Cards (Legacy)",
-    "SMG01": "Special Mobile Group 1 (Legacy)",
-    "SMG03": "Special Mobile Group 3 (Legacy)",
-}
-
-
-def get_wg_badge_style_and_desc(wg: str) -> tuple:
-    wg_upper = str(wg or "").strip().upper()
-    desc = WG_DESCRIPTIONS.get(wg_upper, "Working Group")
-
-    # SA (Soft Indigo / Blue)
-    if wg_upper.startswith("SA"):
-        style = """
-            background-color: #EEF2FF;
-            color: #3730A3;
-            border: 1px solid #C7D2FE;
-            border-radius: 3px;
-            padding: 1px 0px;
-            font-size: 10px;
-            font-weight: bold;
-        """
-    # RAN (Soft Emerald / Green)
-    elif wg_upper.startswith("RAN") or wg_upper.startswith("GERAN"):
-        style = """
-            background-color: #ECFDF5;
-            color: #065F46;
-            border: 1px solid #A7F3D0;
-            border-radius: 3px;
-            padding: 1px 0px;
-            font-size: 10px;
-            font-weight: bold;
-        """
-    # CT (Soft Amber / Warm Orange)
-    elif wg_upper.startswith("CT") or wg_upper.startswith("CN"):
-        style = """
-            background-color: #FFF7ED;
-            color: #9A3412;
-            border: 1px solid #FED7AA;
-            border-radius: 3px;
-            padding: 1px 0px;
-            font-size: 10px;
-            font-weight: bold;
-        """
-    # Default Slate
-    else:
-        style = """
-            background-color: #F1F5F9;
-            color: #475569;
-            border: 1px solid #CBD5E1;
-            border-radius: 3px;
-            padding: 1px 0px;
-            font-size: 10px;
-            font-weight: bold;
-        """
-    return style, desc
+# (Styles and WG palettes imported from core.ui.ui_components)
 
 
 class SpecificationsTab(QWidget):
