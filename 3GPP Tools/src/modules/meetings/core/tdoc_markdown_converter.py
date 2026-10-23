@@ -76,6 +76,42 @@ class DocxConverter(_core.DocxConverter):
         super().__init__(*args, **kwargs)
 
 
+def is_plain_document_type(doc_type: Optional[str]) -> bool:
+    """Check if a 3GPP document type represents a plain document that does not
+    rely on specification change marks (such as LS IN, LS OUT, or liaison statements).
+    """
+    if not doc_type:
+        return False
+    s = str(doc_type).strip().lower()
+    norm = re.sub(r"[\(\)\[\]_\-/\\]+", " ", s)
+    tokens = set(norm.split())
+
+    if "ls" in tokens or "liaison" in norm:
+        return True
+    if any(k in norm for k in ["ls in", "ls out", "incoming ls", "outgoing ls", "reply ls"]):
+        return True
+    return False
+
+
+def resolve_revision_mode_for_type(
+    doc_type: Optional[str] = None,
+    default_mode: str = "markup",
+) -> str:
+    """Determine the appropriate revision rendering mode ('markup' or 'accept') based on 3GPP document type.
+
+    - CR and pCR documents represent specification modifications and rely on 'markup' mode
+      (with [INSERTED] / [DELETED] markers and markup legend).
+    - LS IN and LS OUT documents (Liaison Statements) are self-contained communications
+      that do not rely on Word change marks and are exported as plain documents ('accept' mode).
+    - If default_mode is explicitly 'accept' or 'reject', it is honored.
+    """
+    if default_mode != "markup":
+        return default_mode
+    if is_plain_document_type(doc_type):
+        return "accept"
+    return default_mode
+
+
 def convert_docx_file(
     docx_path: Path,
     out_dir: Path,
@@ -92,15 +128,20 @@ def convert_docx_file(
     cancellation_check: Optional[Callable[[], bool]] = None,
 ) -> ExportedDoc:
     """Convert DOCX using the shared parser and application image rendering."""
+    doc_type = None
+    if meta:
+        doc_type = meta.get("Type") or meta.get("type") or meta.get("doc_type")
+    effective_revisions = resolve_revision_mode_for_type(doc_type, default_mode=revisions)
+
     res = _core.convert_docx_file(
         docx_path, out_dir, tdoc_id=tdoc_id, name=name, meta=meta,
-        original_name=original_name, revisions=revisions, image_dpi=image_dpi,
+        original_name=original_name, revisions=effective_revisions, image_dpi=image_dpi,
         convert_images=convert_images, keep_metafiles=keep_metafiles,
         media_dir=media_dir, media_rel=media_rel,
         cancellation_check=cancellation_check, metafile_converter=convert_metafiles,
     )
     # Stamp machine-readable metadata header for multi-tier stale detection
-    stamp = f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode={revisions} --->\n"
+    stamp = f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode={effective_revisions} --->\n"
     if not res.text.startswith("<!--- tdoc_converter:"):
         res.text = stamp + res.text
         try:
@@ -135,6 +176,11 @@ def convert_document_to_markdown(
     tid = tdoc_id or guess_tdoc_id(path)
     suffix = path.suffix.lower()
 
+    doc_type = None
+    if meta:
+        doc_type = meta.get("Type") or meta.get("type") or meta.get("doc_type")
+    effective_revisions = resolve_revision_mode_for_type(doc_type, default_mode=revisions)
+
     if suffix == ".doc":
         logger.info(f"Converting legacy .doc to .docx for {tid} using application converters...")
         tmp_dir = Path(tempfile.mkdtemp(prefix="tdoc_conv_"))
@@ -142,7 +188,7 @@ def convert_document_to_markdown(
             tmp_docx = convert_doc_to_docx(path, output_path=tmp_dir / f"{path.stem}.docx", logger=logger)
             return convert_docx_file(
                 tmp_docx, target_dir, tdoc_id=tid, name=tid, meta=meta,
-                original_name=path.name, revisions=revisions,
+                original_name=path.name, revisions=effective_revisions,
                 media_dir=media_dir, media_rel=media_rel,
                 cancellation_check=cancellation_check,
             )
@@ -151,7 +197,7 @@ def convert_document_to_markdown(
     else:
         return convert_docx_file(
             path, target_dir, tdoc_id=tid, name=tid, meta=meta,
-            original_name=path.name, revisions=revisions,
+            original_name=path.name, revisions=effective_revisions,
             media_dir=media_dir, media_rel=media_rel,
             cancellation_check=cancellation_check,
         )

@@ -17,6 +17,7 @@ from modules.meetings.core.tdoc_markdown_converter import (
     sanitize_filename,
     write_index,
     is_conversion_stale,
+    resolve_revision_mode_for_type,
     CONVERTER_VERSION,
     ExportedDoc,
 )
@@ -86,6 +87,8 @@ class TDocMarkdownExporterThread(QThread):
                 title = str(tdoc_data.get("Title", "")).strip()
                 status = str(tdoc_data.get("TDoc Status", "")).strip()
 
+                expected_mode = resolve_revision_mode_for_type(doc_type, default_mode="markup")
+
                 msg = f"Processing {tdoc_id} ({idx}/{total})..."
                 self.progress.emit(msg)
                 logging.info(f"[Markdown Exporter] {msg}")
@@ -99,12 +102,12 @@ class TDocMarkdownExporterThread(QThread):
 
                 # 1. Multi-tier stale check on local canonical dossier
                 needs_conversion = self.force_reconvert or is_conversion_stale(
-                    doc_path, local_md_file, expected_version=TDOC_MD_EXTRACTOR_VERSION, expected_mode="markup"
+                    doc_path, local_md_file, expected_version=TDOC_MD_EXTRACTOR_VERSION, expected_mode=expected_mode
                 )
 
                 # Check legacy cache as fallback if local_md_file is missing
                 if needs_conversion and not self.force_reconvert:
-                    if not is_conversion_stale(doc_path, legacy_cache_file, expected_version=TDOC_MD_EXTRACTOR_VERSION, expected_mode="markup"):
+                    if not is_conversion_stale(doc_path, legacy_cache_file, expected_version=TDOC_MD_EXTRACTOR_VERSION, expected_mode=expected_mode):
                         try:
                             shutil.copy2(to_extended_path(legacy_cache_file), to_extended_path(local_md_file))
                             needs_conversion = False
@@ -132,7 +135,7 @@ class TDocMarkdownExporterThread(QThread):
                                 out_dir=tdoc_folder,
                                 tdoc_id=tdoc_id,
                                 meta=tdoc_data,
-                                revisions="markup",
+                                revisions=expected_mode,
                                 media_dir=local_media_dir,
                                 media_rel="media",
                                 cancellation_check=self.isInterruptionRequested,
