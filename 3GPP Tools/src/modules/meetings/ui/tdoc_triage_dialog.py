@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
 from core.ai.ollama_client import OllamaClient, load_ollama_config
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from modules.meetings.core.tdoc_triage_worker import TDocTriageWorker
+from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.ui.tdocs_dialogs import MY_STATUS_OPTIONS
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,9 @@ class TDocTriageDialog(QDialog):
         self.docs_ftp_url = docs_ftp_url
         self.revisions_url = revisions_url
         self.save_callback = save_callback
+        self.tdoc_url = resolve_tdoc_download_url(
+            self.tdoc_id, docs_url=self.docs_ftp_url, revisions_url=self.revisions_url, meta=self.tdoc_data
+        )
 
         self.setWindowTitle(f"🤖 AI Technical Triage: {self.tdoc_id}")
         self.resize(860, 640)
@@ -125,6 +129,12 @@ class TDocTriageDialog(QDialog):
         src_lbl = QLabel(f"Source: <b>{src_str}</b>")
         src_lbl.setStyleSheet("color: #334155; font-size: 12px;")
         title_line.addWidget(src_lbl)
+
+        if self.tdoc_url:
+            url_link = QLabel(f'<a href="{self.tdoc_url}" style="color: #2563EB; font-weight: bold; text-decoration: none;">📥 3GPP Server ZIP</a>')
+            url_link.setOpenExternalLinks(True)
+            url_link.setToolTip(f"Open or download original 3GPP archive:\n{self.tdoc_url}")
+            title_line.addWidget(url_link)
 
         title_line.addStretch()
         meta_layout.addLayout(title_line)
@@ -409,7 +419,10 @@ class TDocTriageDialog(QDialog):
         model_name = self.model_combo.currentText().strip() or "Ollama"
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        header = f"--- 🤖 AI Triage ({model_name} @ {timestamp}) ---"
+        header_lines = [f"--- 🤖 AI Triage ({model_name} @ {timestamp}) ---"]
+        if self.tdoc_url:
+            header_lines.append(f"📥 3GPP URL: {self.tdoc_url}")
+        header = "\n".join(header_lines)
 
         existing_notes = (
             str(self.tdoc_data.get("My Notes", ""))
@@ -443,8 +456,13 @@ class TDocTriageDialog(QDialog):
     def _copy_summary(self):
         text = self.output_text.toPlainText().strip()
         if text:
+            if self.tdoc_url and self.tdoc_url not in text:
+                title = str(self.tdoc_data.get("Title", "")).strip()
+                header_parts = [f"### {self.tdoc_id}: {title}" if title else f"### {self.tdoc_id}"]
+                header_parts.append(f"**3GPP Server URL:** [{self.tdoc_url}]({self.tdoc_url})")
+                text = "\n".join(header_parts) + "\n\n" + text
             QApplication.clipboard().setText(text)
-            QToolTip.showText(QCursor.pos(), "📋 Copied summary to clipboard!", self)
+            QToolTip.showText(QCursor.pos(), "📋 Copied summary with 3GPP URL to clipboard!", self)
 
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():

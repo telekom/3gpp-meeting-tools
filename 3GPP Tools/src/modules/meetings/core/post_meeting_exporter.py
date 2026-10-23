@@ -12,6 +12,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.utils.paths import to_extended_path, get_project_root
 from modules.meetings.core.agenda_manager import AgendaItem
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
+from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.core.tdoc_markdown_converter import (
     convert_document_to_markdown,
     sanitize_filename,
@@ -382,6 +383,9 @@ class PostMeetingExporterThread(QThread):
                 if ai_num and ai_desc and ai_num not in tree[release][target_wi]["ai_titles"]:
                     tree[release][target_wi]["ai_titles"][ai_num] = ai_desc
 
+                tdoc_url = resolve_tdoc_download_url(
+                    tdoc_id, docs_url=self.docs_ftp_url, revisions_url=self.revisions_url, meta=row
+                )
                 entry = {
                     "tdoc_id": tdoc_id,
                     "title": str(row.get("Title", "")).strip(),
@@ -395,6 +399,7 @@ class PostMeetingExporterThread(QThread):
                     "replies": sorted(list(in_to_replies.get(tdoc_id, set()))),
                     "reply_to_ids": sorted(list(out_to_in.get(tdoc_id, set()))),
                     "row_data": row,
+                    "tdoc_url": tdoc_url,
                 }
                 tree[release][target_wi]["categories"][category].append(entry)
 
@@ -450,6 +455,9 @@ class PostMeetingExporterThread(QThread):
             raw_wis = TDocsTableModel._split_related_wis(rep_row.get("Related WIs", ""))
             clean_wis = [w for w in raw_wis if w and w.lower() not in {"(no wi)", "none", "nan", "-"}]
 
+            rep_url = resolve_tdoc_download_url(
+                rep_id, docs_url=self.docs_ftp_url, revisions_url=self.revisions_url, meta=rep_row
+            )
             rep_entry = {
                 "tdoc_id": rep_id,
                 "title": str(rep_row.get("Title", "")).strip(),
@@ -463,6 +471,7 @@ class PostMeetingExporterThread(QThread):
                 "replies": sorted(list(in_to_replies.get(rep_id, set()))),
                 "reply_to_ids": sorted(list(out_to_in.get(rep_id, set()))),
                 "row_data": rep_row,
+                "tdoc_url": rep_url,
             }
             tree[rep_rel][target_wi]["categories"]["LS_OUT"].append(rep_entry)
             all_included_tdocs.add(rep_id)
@@ -738,6 +747,18 @@ class PostMeetingExporterThread(QThread):
                                 with open(to_extended_path(local_md_file), "r", encoding="utf-8") as f:
                                     md_content = f.read()
 
+                                tdoc_url = doc.get("tdoc_url") or resolve_tdoc_download_url(
+                                    tdoc_id, docs_url=self.docs_ftp_url, revisions_url=self.revisions_url, meta=doc.get("row_data")
+                                )
+                                if tdoc_url and "- **3GPP Server URL:**" not in md_content:
+                                    url_bullet = f"- **3GPP Server URL:** [{tdoc_url}]({tdoc_url})\n"
+                                    if "- **Original file:**" in md_content:
+                                        md_content = md_content.replace("- **Original file:**", f"{url_bullet}- **Original file:**", 1)
+                                    elif "- **Exporter:**" in md_content:
+                                        md_content = md_content.replace("- **Exporter:**", f"{url_bullet}- **Exporter:**", 1)
+                                    elif "\n---\n" in md_content:
+                                        md_content = md_content.replace("\n---\n", f"\n{url_bullet}\n---\n", 1)
+
                                 if notice_block:
                                     if md_content.startswith("<!---"):
                                         first_break = md_content.find("\n\n")
@@ -815,6 +836,12 @@ class PostMeetingExporterThread(QThread):
                 try:
                     os.makedirs(to_extended_path(tdoc_folder), exist_ok=True)
                     os.makedirs(to_extended_path(local_media_dir), exist_ok=True)
+                    tdoc_download_url = resolve_tdoc_download_url(
+                        tdoc_id,
+                        docs_url=self.docs_ftp_url,
+                        revisions_url=self.revisions_url,
+                        meta=row_data,
+                    )
                     convert_document_to_markdown(
                         doc_path,
                         out_dir=tdoc_folder,
@@ -824,6 +851,7 @@ class PostMeetingExporterThread(QThread):
                         media_dir=local_media_dir,
                         media_rel="media",
                         cancellation_check=self.isInterruptionRequested,
+                        tdoc_url=tdoc_download_url,
                     )
                 except Exception as e:
                     logger.warning(f"[PostMeetingExporter] Conversion error on {tdoc_id}: {e}")
@@ -1046,7 +1074,7 @@ class PostMeetingExporterThread(QThread):
         if base_dir is None:
             base_dir = self.export_dir
 
-        headers = ["TDoc", "Type", "Status", "AI", "Title", "Source", "Cross-WI", "Dossier Link"]
+        headers = ["TDoc", "Type", "Status", "AI", "Title", "Source", "Cross-WI", "Links"]
         lines = [
             "| " + " | ".join(headers) + " |",
             "|" + "|".join([":---"] * len(headers)) + "|",
@@ -1103,6 +1131,21 @@ class PostMeetingExporterThread(QThread):
             else:
                 status_cell = raw_status
 
+            tdoc_url = d.get("tdoc_url") or resolve_tdoc_download_url(
+                tdoc_id,
+                docs_url=self.docs_ftp_url,
+                revisions_url=self.revisions_url,
+                meta=d.get("row_data"),
+            )
+            if link_path and tdoc_url:
+                links_cell = f"[Dossier]({link_path}) · [📥 3GPP]({tdoc_url})"
+            elif link_path:
+                links_cell = f"[Dossier]({link_path})"
+            elif tdoc_url:
+                links_cell = f"[📥 3GPP]({tdoc_url})"
+            else:
+                links_cell = "—"
+
             row_cells = [
                 link_str,
                 str(d.get("type", "")),
@@ -1111,7 +1154,7 @@ class PostMeetingExporterThread(QThread):
                 title_safe,
                 source_safe,
                 cross_wi_str,
-                f"[View]({link_path})" if link_path else "—",
+                links_cell,
             ]
             lines.append("| " + " | ".join(row_cells) + " |")
 

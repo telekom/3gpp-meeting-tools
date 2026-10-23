@@ -12,6 +12,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.paths import to_extended_path
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
+from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.core.tdoc_markdown_converter import (
     convert_document_to_markdown,
     sanitize_filename,
@@ -88,6 +89,14 @@ class TDocMarkdownExporterThread(QThread):
                 status = str(tdoc_data.get("TDoc Status", "")).strip()
 
                 expected_mode = resolve_revision_mode_for_type(doc_type, default_mode="markup")
+                tdoc_download_url = resolve_tdoc_download_url(
+                    tdoc_id,
+                    docs_url=self.docs_ftp_url,
+                    revisions_url=self.revisions_url,
+                    meta=tdoc_data,
+                )
+                if tdoc_download_url:
+                    tdoc_data["3gpp_url"] = tdoc_download_url
 
                 msg = f"Processing {tdoc_id} ({idx}/{total})..."
                 self.progress.emit(msg)
@@ -139,6 +148,7 @@ class TDocMarkdownExporterThread(QThread):
                                 media_dir=local_media_dir,
                                 media_rel="media",
                                 cancellation_check=self.isInterruptionRequested,
+                                tdoc_url=tdoc_download_url,
                             )
                             # Also update legacy cache for backwards compatibility
                             if doc_obj and doc_obj.text:
@@ -161,7 +171,18 @@ class TDocMarkdownExporterThread(QThread):
                             md_text = self._extract_from_word(word_app, doc_path, doc_type)
                             if md_text and not md_text.startswith("Error"):
                                 if not md_text.strip().startswith(f"# {tdoc_id}"):
-                                    header = f"# {tdoc_id}: {title}\n**Source:** {tdoc_data.get('Source', '')}\n**Agenda Item:** {raw_ai}\n\n---\n\n"
+                                    header_lines = [
+                                        f"# {tdoc_id}: {title}",
+                                        f"- **TDoc:** {tdoc_id}",
+                                        f"- **Title:** {title}",
+                                        f"- **Source:** {tdoc_data.get('Source', '')}",
+                                        f"- **Type:** {doc_type}",
+                                        f"- **Agenda Item:** {raw_ai}",
+                                    ]
+                                    if tdoc_download_url:
+                                        header_lines.append(f"- **3GPP Server URL:** [{tdoc_download_url}]({tdoc_download_url})")
+                                    header_lines.append(f"- **Original file:** `{doc_path.name}`")
+                                    header = "\n".join(header_lines) + "\n\n---\n\n"
                                     md_text = header + md_text
 
                                 try:
@@ -198,6 +219,20 @@ class TDocMarkdownExporterThread(QThread):
 
                         with open(to_extended_path(target_md_file), "r", encoding="utf-8") as f:
                             md_content = f.read()
+
+                        if tdoc_download_url and "- **3GPP Server URL:**" not in md_content:
+                            url_bullet = f"- **3GPP Server URL:** [{tdoc_download_url}]({tdoc_download_url})\n"
+                            if "- **Original file:**" in md_content:
+                                md_content = md_content.replace("- **Original file:**", f"{url_bullet}- **Original file:**", 1)
+                            elif "- **Exporter:**" in md_content:
+                                md_content = md_content.replace("- **Exporter:**", f"{url_bullet}- **Exporter:**", 1)
+                            elif "\n---\n" in md_content:
+                                md_content = md_content.replace("\n---\n", f"\n{url_bullet}\n---\n", 1)
+                            try:
+                                with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
+                                    f.write(md_content)
+                            except Exception:
+                                pass
 
                         exported_docs.append(
                             ExportedDoc(

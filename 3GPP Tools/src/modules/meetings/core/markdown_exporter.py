@@ -7,6 +7,7 @@ from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.paths import to_extended_path
+from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
 
 logger = logging.getLogger(__name__)
 
@@ -168,9 +169,10 @@ class MarkdownExporterThread(QThread):
                 val = str(d.get(col, '')).replace('\n', ' ').replace('\r', '').replace('|', '\\|')
 
                 # Render the TDoc URL hyperlink natively
-                if col == "TDoc" and val and self.docs_url:
-                    base_url = self.docs_url.rstrip('/')
-                    val = f"[{val}]({base_url}/{val}.zip)"
+                if col == "TDoc" and val:
+                    tdoc_url = resolve_tdoc_download_url(val, docs_url=self.docs_url, meta=d)
+                    if tdoc_url:
+                        val = f"[{val}]({tdoc_url})"
 
                 row_data.append(val)
 
