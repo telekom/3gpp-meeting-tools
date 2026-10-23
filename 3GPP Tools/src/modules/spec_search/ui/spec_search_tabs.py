@@ -834,10 +834,10 @@ class SpecSearchTab(QWidget):
         menu.addSeparator()
 
         if prev_ver:
-            act_compare = menu.addAction(f"🔍 Compare Clause {clause_num} (Diff & AI Analysis vs v{prev_ver})...")
+            act_compare = menu.addAction(f"🔍 Compare Clause {clause_num} (Diff && AI Analysis vs v{prev_ver})...")
             act_compare.triggered.connect(lambda: self._open_clause_diff_dialog(spec_num, version, clause_num, clause_title, base_version=prev_ver))
         else:
-            act_compare = menu.addAction(f"🔍 Compare Clause {clause_num} (Diff & AI Analysis)...")
+            act_compare = menu.addAction(f"🔍 Compare Clause {clause_num} (Diff && AI Analysis)...")
             act_compare.triggered.connect(lambda: self._open_clause_diff_dialog(spec_num, version, clause_num, clause_title))
 
         menu.addSeparator()

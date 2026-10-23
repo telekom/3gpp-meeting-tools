@@ -151,7 +151,7 @@ class PostMeetingExportDialog(QDialog):
         self.rb_followed = QRadioButton(f"🎯 Followed Work Items only ({n_followed} WIs in meeting)")
         self.rb_whole = QRadioButton(f"🌐 Whole Meeting ({n_all_wis} WIs, {n_total} TDocs total)")
         self.rb_starred = QRadioButton(f"⭐ Starred Work Items only ({n_starred} WIs in meeting)")
-        self.rb_tracked = QRadioButton(f"🎯 Followed & ⭐ Starred Work Items ({n_tracked} WIs)")
+        self.rb_tracked = QRadioButton(f"🎯 Followed && ⭐ Starred Work Items ({n_tracked} WIs)")
         self.rb_visible = QRadioButton(f"🔍 Current Filtered Table View ({n_visible} TDocs visible)")
         self.rb_custom = QRadioButton("📋 Custom Work Item Selection...")
 
@@ -202,7 +202,7 @@ class PostMeetingExportDialog(QDialog):
         main_layout.addWidget(scope_group)
 
         # --- Group 2: Document Types & Statuses ---
-        docs_group = QGroupBox("2. Target Document Types & Statuses")
+        docs_group = QGroupBox("2. Target Document Types && Statuses")
         docs_layout = QVBoxLayout(docs_group)
         docs_layout.setSpacing(4)
 
@@ -222,7 +222,7 @@ class PostMeetingExportDialog(QDialog):
         self.chk_ls_out.setChecked(True)
         self.chk_ls_out.setToolTip("Include outgoing Liaison Statements approved by the meeting.")
 
-        self.chk_general_ls = QCheckBox("📦 Include unassigned & general LS in (without followed WI)")
+        self.chk_general_ls = QCheckBox("📦 Include unassigned && general LS in (without followed WI)")
         self.chk_general_ls.setChecked(True)
         self.chk_general_ls.setToolTip(
             "Include incoming Liaison Statements (LS in) for which no specific Work Item was assigned "
@@ -238,7 +238,7 @@ class PostMeetingExportDialog(QDialog):
         main_layout.addWidget(docs_group)
 
         # --- Group 3: Conversion & Output Options ---
-        opts_group = QGroupBox("3. Organization & Conversion Options")
+        opts_group = QGroupBox("3. Organization && Conversion Options")
         opts_layout = QVBoxLayout(opts_group)
         opts_layout.setSpacing(4)
 

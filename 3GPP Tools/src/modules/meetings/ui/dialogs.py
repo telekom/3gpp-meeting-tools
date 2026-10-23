@@ -425,12 +425,12 @@ class MeetingsConfigDialog(QDialog):
         self.chk_wg.setChecked(True)
         self.chk_wg.setToolTip("Phase 1: Scrapes 3GPP FTP directories to discover newly created meeting folders.")
 
-        self.chk_dyna = QCheckBox("Update Metadata (Phase 3: Dates & Locations via DynaReport)")
+        self.chk_dyna = QCheckBox("Update Metadata (Phase 3: Dates && Locations via DynaReport)")
         self.chk_dyna.setChecked(True)
         self.chk_dyna.setToolTip(
             "Phase 3: Fetches official start/end dates, host cities, and eMeeting flags from 3GPP DynaReport.")
 
-        self.chk_docs = QCheckBox("Deep Scrape 'Docs/' (Phase 2: Identify First & Last TDocs)")
+        self.chk_docs = QCheckBox("Deep Scrape 'Docs/' (Phase 2: Identify First && Last TDocs)")
         self.chk_docs.setChecked(True)
         self.chk_docs.setToolTip(
             "Phase 2: Crawls the Docs/ folder of each meeting to determine the first and last allocated TDoc numbers.")

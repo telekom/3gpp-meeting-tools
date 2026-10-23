@@ -78,7 +78,7 @@ class ExcelExportDialog(QDialog):
         layout.addWidget(scope_group)
 
         # --- Columns Selection & Reordering ---
-        col_group = QGroupBox("2. Choose Columns & Drag to Reorder")
+        col_group = QGroupBox("2. Choose Columns && Drag to Reorder")
         col_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         col_main_layout = QHBoxLayout(col_group)
 
