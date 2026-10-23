@@ -13,6 +13,7 @@ from core.ai.ollama_client import OllamaClient
 from core.utils.paths import get_project_root, to_extended_path
 from modules.meetings.core.llm_exporter import LLM_EXTRACTOR_VERSION
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
+from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.core.tdoc_markdown_converter import (
     convert_document_to_markdown,
     is_conversion_stale,
@@ -168,6 +169,12 @@ class TDocTriageWorker(QThread):
 
             doc_type = str(self.tdoc_data.get("Type", "CR"))
             expected_mode = resolve_revision_mode_for_type(doc_type, default_mode="markup")
+            tdoc_download_url = resolve_tdoc_download_url(
+                tdoc_id,
+                docs_url=self.docs_ftp_url,
+                revisions_url=self.revisions_url,
+                meta=self.tdoc_data,
+            )
 
             # 1. Check existing Markdown dossier with multi-tier stale check
             is_stale = is_conversion_stale(
@@ -212,6 +219,7 @@ class TDocTriageWorker(QThread):
                         media_dir=tdoc_folder / "media",
                         media_rel="media",
                         cancellation_check=lambda: self._is_cancelled,
+                        tdoc_url=tdoc_download_url,
                     )
                     raw_markdown = exported_doc.text
                 except Exception as conv_err:
@@ -224,6 +232,19 @@ class TDocTriageWorker(QThread):
                     word_app.Visible = False
                     word_app.DisplayAlerts = 0
                     raw_markdown = self._extract_from_word(word_app, doc_path, doc_type)
+                    if raw_markdown and not raw_markdown.strip().startswith(f"# {tdoc_id}"):
+                        header_lines = [
+                            f"# {tdoc_id}: {self.tdoc_data.get('Title', '')}",
+                            f"- **TDoc:** {tdoc_id}",
+                            f"- **Title:** {self.tdoc_data.get('Title', '')}",
+                            f"- **Source:** {self.tdoc_data.get('Source', '')}",
+                            f"- **Type:** {doc_type}",
+                            f"- **Agenda Item:** {self.tdoc_data.get('Agenda Item', '')}",
+                        ]
+                        if tdoc_download_url:
+                            header_lines.append(f"- **3GPP Server URL:** [{tdoc_download_url}]({tdoc_download_url})")
+                        header_lines.append(f"- **Original file:** `{doc_path.name}`")
+                        raw_markdown = "\n".join(header_lines) + "\n\n---\n\n" + raw_markdown
 
                 if raw_markdown:
                     os.makedirs(to_extended_path(tdoc_folder), exist_ok=True)

@@ -24,6 +24,7 @@ src/modules/meetings/
 │   ├── meetings_data_loader.py        # 3gpp_data.db queries and meeting list loaders
 │   ├── meetings_network_sync.py       # FTP sync for meetings and TDoc lists
 │   ├── tdoc_file_handler.py           # Downloading and caching TDoc ZIP/Word documents
+│   ├── tdoc_url_resolver.py           # Official 3GPP server HTTPS download URL resolution
 │   ├── tdoc_markdown_converter.py     # Application adapter & Office wrappers for tdoc2md
 │   ├── tdoc2md.py                     # [PROTECTED] Standalone 3GPP TDoc to Markdown conversion core
 │   ├── tdoc_triage_worker.py          # Local LLM technical triage generation
@@ -56,7 +57,7 @@ src/modules/meetings/
 - All FTP downloads, file extractions, Word COM automations, and LLM triage must run in `QThread` workers (e.g. `LLMExporterThread`, `TDocTriageWorker`, `MeetingsNetworkSync`).
 - COM automation must initialize COM with `pythoncom.CoInitialize()` and clean up with `pythoncom.CoUninitialize()` in `finally` blocks.
 
-### 3.3. TDoc Markdown Conversion Flow
+### 3.3. TDoc Markdown Conversion & Provenance Flow
 - Primary entry point for application code: `tdoc_markdown_converter.convert_document_to_markdown()`.
 - Supports `.docx`, `.docm`, and legacy `.doc` (via sensitivity-aware Word COM / LibreOffice pre-conversion).
 - Extracts track changes (`[INSERTED: ...]`, `[DELETED: ...]`), tables, figures, Visio diagrams, and metadata headers.
@@ -64,6 +65,12 @@ src/modules/meetings/
   - **CR & pCR:** Normative specification change proposals retain specification revision markers (`revisions="markup"` with `[INSERTED]`/`[DELETED]` tags and markup legend).
   - **LS IN & LS OUT (Liaisons):** Inter-group correspondence statements do not indicate specification changes and are exported as plain documents in `revisions="accept"` mode (all insertions rendered as normal text, deletions dropped, and markup legend omitted).
   - **Stale Detection Upgrade:** `is_conversion_stale` incorporates `expected_mode` matching, automatically re-converting older cached `markup` dossiers of LS documents into clean `accept` mode.
+- **3GPP Server URL & Provenance Preservation (`tdoc_url_resolver.py`):**
+  - Canonical resolution (`resolve_tdoc_download_url`) normalizes legacy FTP paths to official HTTPS (`https://www.3gpp.org/ftp/...`) and routes revisions (e.g. `r01`, `rev2`) to `/INBOX/Revisions/` and base contributions to `/Docs/`.
+  - Embeds `- **3GPP Server URL:** [<url>](<url>)` directly into standalone `.md` headers, ensuring permanent provenance when summaries are mixed or exported downstream.
+  - Manifest index (`write_index`) includes a dedicated `3GPP Server` download link column (`[📥 Download ZIP](<url>)`).
+  - Post-Meeting reports display dual links (`[Dossier](<rel_path>) · [📥 3GPP](<url>)`) in executive and WI index tables.
+  - AI TDoc Triage dialog provides 1-click header links and includes the download URL in copied summaries and saved user notes.
 
 ### 3.4. Tracked Work Items Quick Filters (Integration with Work Items Module)
 - **Token Resolution & Precomputation:** When loading meeting TDocs, `TDocsTableModel._precompute_row_wi_tokens` parses and caches normalized WI tokens on each row dictionary (`row["_wi_tokens"]`). This covers explicit `Related WIs`, `agenda_map` acronyms, and parenthesized acronyms in `Agenda item description`.
