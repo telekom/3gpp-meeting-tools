@@ -16,6 +16,7 @@ from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdoc_markdown_converter import (
     convert_document_to_markdown,
     is_conversion_stale,
+    resolve_revision_mode_for_type,
     sanitize_filename,
 )
 
@@ -165,14 +166,17 @@ class TDocTriageWorker(QThread):
                 alt_folder = self.meeting_dir / "TDocs" / base_tdoc
                 doc_path = self._find_word_doc(alt_folder, tdoc_id)
 
+            doc_type = str(self.tdoc_data.get("Type", "CR"))
+            expected_mode = resolve_revision_mode_for_type(doc_type, default_mode="markup")
+
             # 1. Check existing Markdown dossier with multi-tier stale check
             is_stale = is_conversion_stale(
-                doc_path, local_md_file, expected_version=LLM_EXTRACTOR_VERSION, expected_mode="markup"
+                doc_path, local_md_file, expected_version=LLM_EXTRACTOR_VERSION, expected_mode=expected_mode
             )
             target_read_file = ext_local_md
 
             if is_stale and os.path.exists(ext_cache_file):
-                if not is_conversion_stale(doc_path, cache_file, expected_version=LLM_EXTRACTOR_VERSION, expected_mode="markup"):
+                if not is_conversion_stale(doc_path, cache_file, expected_version=LLM_EXTRACTOR_VERSION, expected_mode=expected_mode):
                     is_stale = False
                     target_read_file = ext_cache_file
 
@@ -204,7 +208,7 @@ class TDocTriageWorker(QThread):
                         out_dir=tdoc_folder,
                         tdoc_id=tdoc_id,
                         meta=self.tdoc_data,
-                        revisions="markup",
+                        revisions=expected_mode,
                         media_dir=tdoc_folder / "media",
                         media_rel="media",
                         cancellation_check=lambda: self._is_cancelled,

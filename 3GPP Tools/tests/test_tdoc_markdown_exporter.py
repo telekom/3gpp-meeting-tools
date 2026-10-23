@@ -14,6 +14,8 @@ from modules.meetings.core.llm_exporter import (
 from modules.meetings.core.tdoc_markdown_converter import (
     convert_document_to_markdown,
     is_conversion_stale,
+    is_plain_document_type,
+    resolve_revision_mode_for_type,
     write_index,
     ExportedDoc,
     CONVERTER_VERSION,
@@ -236,6 +238,148 @@ class TestTDocMarkdownExporter(unittest.TestCase):
         index_file = export_dir / "index.md"
         self.assertTrue(index_file.exists())
         self.assertIn(f"[{tdoc_id}]({tdoc_id}/{tdoc_id}.md)", index_file.read_text(encoding="utf-8"))
+
+    def test_plain_document_type_resolution(self):
+        """Verify that LS documents are classified as plain documents, while CRs are not."""
+        plain_types = [
+            "LS in", "ls in", "LS IN", "LS (in)", "Incoming LS",
+            "LS out", "ls out", "LS OUT", "LS (out)", "Outgoing LS",
+            "LS", "ls", "Liaison", "Liaison Statement", "Reply LS",
+            "LS_IN", "LS_OUT",
+        ]
+        for t in plain_types:
+            self.assertTrue(is_plain_document_type(t), f"'{t}' must be identified as plain document")
+            self.assertEqual(resolve_revision_mode_for_type(t), "accept",
+                             f"'{t}' must resolve to 'accept' revision mode")
+
+        markup_types = [
+            "CR", "cr", "pCR", "p-cr", "Draft CR", "CR (draft)", "Discussion", "Report", "WID", "", None
+        ]
+        for t in markup_types:
+            self.assertFalse(is_plain_document_type(t), f"'{t}' must NOT be identified as plain document")
+            self.assertEqual(resolve_revision_mode_for_type(t), "markup",
+                             f"'{t}' must default to 'markup' revision mode")
+
+        # Explicit mode overrides should be preserved
+        self.assertEqual(resolve_revision_mode_for_type("LS in", default_mode="reject"), "reject")
+        self.assertEqual(resolve_revision_mode_for_type("CR", default_mode="accept"), "accept")
+
+    def test_plain_document_export_omits_markup_and_legend(self):
+        """
+        Verify that LS documents with Word tracked changes are exported in 'accept' mode
+        without change marks ([INSERTED]/[DELETED]) and without markup legend,
+        while CR documents retain change marks and markup legend.
+        """
+        import docx
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        folder = self.meeting_dir / "Docs"
+        folder.mkdir(parents=True, exist_ok=True)
+
+        def create_doc_with_track_changes(filename: str) -> Path:
+            doc = docx.Document()
+            doc.add_heading("Technical Statement", level=1)
+            p = doc.add_paragraph("Base text: ")
+
+            # Add an inserted run: <w:ins><w:r><w:t>new addition</w:t></w:r></w:ins>
+            ins = OxmlElement("w:ins")
+            ins.set(qn("w:id"), "1")
+            ins.set(qn("w:author"), "Author")
+            r_ins = OxmlElement("w:r")
+            t_ins = OxmlElement("w:t")
+            t_ins.text = "new addition"
+            r_ins.append(t_ins)
+            ins.append(r_ins)
+            p._p.append(ins)
+
+            # Add a deleted run: <w:del><w:r><w:delText>old removed</w:delText></w:r></w:del>
+            deleted = OxmlElement("w:del")
+            deleted.set(qn("w:id"), "2")
+            deleted.set(qn("w:author"), "Author")
+            r_del = OxmlElement("w:r")
+            t_del = OxmlElement("w:delText")
+            t_del.text = "old removed"
+            r_del.append(t_del)
+            deleted.append(r_del)
+            p._p.append(deleted)
+
+            path = folder / filename
+            doc.save(str(path))
+            return path
+
+        ls_docx = create_doc_with_track_changes("LS_Test.docx")
+        cr_docx = create_doc_with_track_changes("CR_Test.docx")
+
+        # 1. Convert with Type: "LS in"
+        ls_out = folder / "ls_out"
+        ls_res = convert_document_to_markdown(
+            ls_docx, out_dir=ls_out, tdoc_id="S2-2400010",
+            meta={"Type": "LS in", "Title": "Incoming Liaison on 5GS"}
+        )
+        ls_text = ls_res.text
+        # Header version stamp must reflect mode=accept
+        self.assertIn("mode=accept", ls_text)
+        self.assertIn("(revisions: accept)", ls_text)
+        # Must NOT contain markup legend
+        self.assertNotIn("Markup legend:", ls_text)
+        self.assertNotIn("[INSERTED:", ls_text)
+        self.assertNotIn("[DELETED:", ls_text)
+        # Plain text must contain the addition cleanly
+        self.assertIn("new addition", ls_text)
+        # Deleted text must be dropped
+        self.assertNotIn("old removed", ls_text)
+
+        # 2. Convert with Type: "CR"
+        cr_out = folder / "cr_out"
+        cr_res = convert_document_to_markdown(
+            cr_docx, out_dir=cr_out, tdoc_id="S2-2400020",
+            meta={"Type": "CR", "Title": "Normative Spec Revision"}
+        )
+        cr_text = cr_res.text
+        # Header version stamp must reflect mode=markup
+        self.assertIn("mode=markup", cr_text)
+        self.assertIn("(revisions: markup)", cr_text)
+        # Must contain markup legend
+        self.assertIn("Markup legend:", cr_text)
+        # Must contain inserted marker
+        self.assertIn("[INSERTED: new addition]", cr_text)
+        self.assertIn("[DELETED: old removed]", cr_text)
+
+    def test_stale_detection_auto_upgrades_ls_markup_to_accept(self):
+        """
+        Verify that an LS document previously cached with mode=markup is detected
+        as stale when checked with expected_mode=accept, and re-converting updates it to accept mode.
+        """
+        tdoc_id = "S2-2400030"
+        folder = self.meeting_dir / tdoc_id
+        folder.mkdir(parents=True, exist_ok=True)
+        docx_file = folder / f"{tdoc_id}.docx"
+        docx_file.write_bytes(b"dummy_docx_content")
+        md_file = folder / f"{tdoc_id}.md"
+
+        # Simulate older export that generated mode=markup for this LS
+        md_file.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n"
+            f"# {tdoc_id}: LS Title\n\n- **Type:** LS in\n- **Exporter:** tdoc2md v2.1.0 (revisions: markup)\n\n"
+            f"> **Markup legend:** `[INSERTED: ...]`\n\nBody",
+            encoding="utf-8"
+        )
+
+        expected_mode = resolve_revision_mode_for_type("LS in")
+        self.assertEqual(expected_mode, "accept")
+
+        # Must be flagged as stale due to mode mismatch!
+        self.assertTrue(is_conversion_stale(docx_file, md_file, expected_mode=expected_mode))
+
+        # Re-save with mode=accept
+        md_file.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=accept --->\n"
+            f"# {tdoc_id}: LS Title\n\n- **Type:** LS in\n- **Exporter:** tdoc2md v2.1.0 (revisions: accept)\n\nBody",
+            encoding="utf-8"
+        )
+        # Now it is up-to-date!
+        self.assertFalse(is_conversion_stale(docx_file, md_file, expected_mode=expected_mode))
 
 
 if __name__ == "__main__":

@@ -10,11 +10,13 @@ from typing import Dict, List, Optional, Set, Any
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.paths import to_extended_path, get_project_root
+from modules.meetings.core.agenda_manager import AgendaItem
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdoc_markdown_converter import (
     convert_document_to_markdown,
     sanitize_filename,
     is_conversion_stale,
+    resolve_revision_mode_for_type,
     CONVERTER_VERSION,
 )
 from modules.meetings.ui.tdocs_models import TDocsTableModel
@@ -249,6 +251,11 @@ class PostMeetingExporterThread(QThread):
             if self.scope_mode == "visible" and tdoc_id not in visible_tdoc_ids:
                 continue
 
+            # Check if official Related WIs had an assigned WI
+            raw_wis = TDocsTableModel._split_related_wis(row.get("Related WIs", ""))
+            clean_wis = [w for w in raw_wis if w and w.lower() not in {"(no wi)", "none", "nan", "-"}]
+            has_official_wi = bool(clean_wis)
+
             # Resolve associated Work Items
             associated_wis = self._resolve_tdoc_wis(row, wi_db_info)
 
@@ -284,6 +291,15 @@ class PostMeetingExporterThread(QThread):
                         matching_wis.append(wi)
                 else:  # "whole" or "visible"
                     matching_wis.append(wi)
+
+            # If this is an LS IN with no official WI assigned in Related WIs,
+            # and it didn't match any followed/selected WI in matching_wis,
+            # but self.include_general_ls is enabled:
+            # Fall back to "General" so unassigned LS INs are NEVER dropped!
+            if category == "LS_IN" and self.include_general_ls and not has_official_wi and not matching_wis:
+                matching_wis.append("General")
+                if "General" not in associated_wis:
+                    associated_wis.append("General")
 
             if not matching_wis:
                 continue
@@ -357,9 +373,14 @@ class PostMeetingExporterThread(QThread):
 
             desc = str(row.get("Agenda item description", "")).strip()
             if desc:
-                match = re.search(r'\(([A-Za-z0-9_\-\/]+)\)', desc)
-                if match:
-                    candidate = match.group(1).strip()
+                candidate = AgendaItem._extract_acronym(desc)
+                if not candidate:
+                    match = re.search(r'\(([A-Za-z0-9_\-\/]+)\)', desc)
+                    if match:
+                        cand = match.group(1).strip()
+                        if 2 <= len(cand) <= 25 and any(c.isupper() or c.isdigit() for c in cand):
+                            candidate = cand
+                if candidate:
                     canonical = self._canonicalize_wi_name(candidate, wi_db_info)
                     if canonical and canonical not in wis:
                         wis.append(canonical)
@@ -586,13 +607,15 @@ class PostMeetingExporterThread(QThread):
         legacy_cache_file = tdoc_folder / f"{tdoc_id}_LLM_v{CONVERTER_VERSION}.md"
 
         doc_path = self._find_word_doc(tdoc_folder, tdoc_id)
+        doc_type = row_data.get("Type", "") if row_data else ""
+        expected_mode = resolve_revision_mode_for_type(doc_type, default_mode="markup")
 
         needs_conversion = self.force_reconvert or is_conversion_stale(
-            doc_path, local_md_file, expected_version=CONVERTER_VERSION, expected_mode="markup"
+            doc_path, local_md_file, expected_version=CONVERTER_VERSION, expected_mode=expected_mode
         )
 
         if needs_conversion and not self.force_reconvert and os.path.exists(to_extended_path(legacy_cache_file)):
-            if not is_conversion_stale(doc_path, legacy_cache_file, expected_version=CONVERTER_VERSION, expected_mode="markup"):
+            if not is_conversion_stale(doc_path, legacy_cache_file, expected_version=CONVERTER_VERSION, expected_mode=expected_mode):
                 try:
                     shutil.copy2(to_extended_path(legacy_cache_file), to_extended_path(local_md_file))
                     needs_conversion = False
@@ -613,7 +636,7 @@ class PostMeetingExporterThread(QThread):
                         out_dir=tdoc_folder,
                         tdoc_id=tdoc_id,
                         meta=row_data,
-                        revisions="markup",
+                        revisions=expected_mode,
                         media_dir=local_media_dir,
                         media_rel="media",
                         cancellation_check=self.isInterruptionRequested,
