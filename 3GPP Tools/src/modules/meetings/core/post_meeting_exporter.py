@@ -1,11 +1,12 @@
 # --- File: src/modules/meetings/core/post_meeting_exporter.py ---
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime
 import logging
 import os
 import re
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Any
+from typing import Dict, List, Optional, Set, Any, Tuple
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -646,12 +647,64 @@ class PostMeetingExporterThread(QThread):
         total_unique = len(unique_tdocs)
         converted_cache = {}  # tdoc_id -> local_md_file
 
+        # Phase 0: Parallel pre-download of missing documents
+        if self.download_missing:
+            missing_dl_tasks: List[Tuple[str, Path]] = []
+            for tdoc_id, row_data in unique_tdocs.items():
+                base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
+                base_tdoc = base_match.group(1).upper() if base_match else tdoc_id.upper()
+                tdoc_folder = self.meeting_dir / base_tdoc
+                local_md_file = tdoc_folder / f"{sanitize_filename(tdoc_id)}.md"
+                legacy_cache_file = tdoc_folder / f"{tdoc_id}_LLM_v{CONVERTER_VERSION}.md"
+                doc_path = self._find_word_doc(tdoc_folder, tdoc_id)
+                doc_type = row_data.get("Type", "") if row_data else ""
+                expected_mode = resolve_revision_mode_for_type(doc_type, default_mode="markup")
+
+                needs_conversion = self.force_reconvert or is_conversion_stale(
+                    doc_path, local_md_file, expected_version=CONVERTER_VERSION, expected_mode=expected_mode
+                )
+                if needs_conversion and not self.force_reconvert and os.path.exists(to_extended_path(legacy_cache_file)):
+                    if not is_conversion_stale(doc_path, legacy_cache_file, expected_version=CONVERTER_VERSION, expected_mode=expected_mode):
+                        needs_conversion = False
+
+                if needs_conversion and not doc_path:
+                    missing_dl_tasks.append((tdoc_id, tdoc_folder))
+
+            if missing_dl_tasks:
+                total_dl = len(missing_dl_tasks)
+                dl_workers = min(6, total_dl)
+                self.progress.emit(f"Downloading {total_dl} missing TDoc(s) in parallel ({dl_workers} workers)...")
+                logger.info(f"[PostMeetingExporter] Concurrently downloading {total_dl} missing TDocs using {dl_workers} workers...")
+                dl_done = 0
+                with ThreadPoolExecutor(max_workers=dl_workers) as executor:
+                    future_to_tid = {
+                        executor.submit(self._download_and_extract_tdoc, tid, folder): tid
+                        for tid, folder in missing_dl_tasks
+                    }
+                    for future in as_completed(future_to_tid):
+                        if self.isInterruptionRequested():
+                            try:
+                                executor.shutdown(wait=False, cancel_futures=True)
+                            except TypeError:
+                                executor.shutdown(wait=False)
+                            return
+                        tid = future_to_tid[future]
+                        dl_done += 1
+                        try:
+                            res_path = future.result()
+                            if res_path:
+                                self.progress.emit(f"Downloaded TDoc {tid} ({dl_done}/{total_dl})")
+                            else:
+                                self.progress.emit(f"Failed to download {tid} ({dl_done}/{total_dl})")
+                        except Exception as dl_err:
+                            logger.error(f"[PostMeetingExporter] Error downloading {tid}: {dl_err}")
+
         # Phase 1: Ensure all canonical Markdown files exist in meeting cache
         for idx, (tdoc_id, row_data) in enumerate(unique_tdocs.items(), 1):
             if self.isInterruptionRequested():
                 return
 
-            self.progress.emit(f"Preparing Markdown for {tdoc_id} ({idx}/{total_unique})...")
+            self.progress.emit(f"Converting {tdoc_id} to Markdown ({idx}/{total_unique})...")
             local_md_file, local_media_dir = self._ensure_tdoc_markdown(tdoc_id, row_data)
             converted_cache[tdoc_id] = (local_md_file, local_media_dir)
 
@@ -873,15 +926,47 @@ class PostMeetingExporterThread(QThread):
     def _download_and_extract_tdoc(self, tdoc_id: str, tdoc_folder: Path) -> Optional[Path]:
         base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
         is_revision = bool(base_match)
-        base_url = self.revisions_url if (is_revision and self.revisions_url) else self.docs_ftp_url
-        if not base_url:
+
+        # Build candidate routes: prioritize revisions_url for revisions, docs_ftp_url for base
+        candidate_urls: List[str] = []
+        if is_revision:
+            if self.revisions_url:
+                candidate_urls.append(self.revisions_url)
+            if self.docs_ftp_url and self.docs_ftp_url not in candidate_urls:
+                candidate_urls.append(self.docs_ftp_url)
+        else:
+            if self.docs_ftp_url:
+                candidate_urls.append(self.docs_ftp_url)
+            if self.revisions_url and self.revisions_url not in candidate_urls:
+                candidate_urls.append(self.revisions_url)
+
+        if not candidate_urls:
+            logger.error(f"[PostMeetingExporter] No base URLs configured for downloading {tdoc_id}")
             return None
-        try:
-            TDocFileHandler.download_and_extract_tdoc(tdoc_id, base_url, tdoc_folder)
-            return self._find_word_doc(tdoc_folder, tdoc_id)
-        except Exception as e:
-            logger.error(f"[PostMeetingExporter] Download failed for {tdoc_id}: {e}")
-            return None
+
+        last_error = None
+        for base_url in candidate_urls:
+            if self.isInterruptionRequested():
+                return None
+            try:
+                logger.info(f"[PostMeetingExporter] Attempting download of {tdoc_id} from {base_url}")
+                TDocFileHandler.download_and_extract_tdoc(
+                    tdoc_id,
+                    base_url,
+                    tdoc_folder,
+                    timeout=15,
+                    cancel_check=self.isInterruptionRequested,
+                )
+                doc_path = self._find_word_doc(tdoc_folder, tdoc_id)
+                if doc_path:
+                    return doc_path
+            except Exception as e:
+                last_error = e
+                logger.debug(f"[PostMeetingExporter] Route {base_url} failed for {tdoc_id}: {e}")
+
+        if last_error:
+            logger.warning(f"[PostMeetingExporter] Failed to download {tdoc_id} across all routes: {last_error}")
+        return None
 
     def _generate_local_wi_indices(self, filtered_entries: dict):
         """Writes an index.md dossier cover inside each Work Item directory."""

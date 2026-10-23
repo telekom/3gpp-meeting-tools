@@ -497,6 +497,58 @@ class TestUnassignedLsInExport(unittest.TestCase):
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def test_post_meeting_exporter_parallel_predownload(self):
+        """Verify PostMeetingExporterThread parallel pre-download triggers for missing TDocs."""
+        import shutil
+        import tempfile
+        from unittest.mock import patch
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="3gpp_test_pm_dl_"))
+        try:
+            meeting_dir = tmp_dir / "Meeting_102"
+            meeting_dir.mkdir(parents=True, exist_ok=True)
+
+            rows = [
+                {"TDoc": "S2-2601111", "Type": "CR", "TDoc Status": "agreed", "Related WIs": "WI_TEST", "Release": "Rel-19", "Title": "CR 1"},
+                {"TDoc": "S2-2602222", "Type": "CR", "TDoc Status": "agreed", "Related WIs": "WI_TEST", "Release": "Rel-19", "Title": "CR 2"},
+            ]
+
+            exporter = PostMeetingExporterThread(
+                meeting_dir=meeting_dir,
+                all_rows=rows,
+                visible_rows=rows,
+                agenda_map={},
+                mtg_info={"wg_name": "SA2", "meeting_number": "177"},
+                docs_ftp_url="https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/Docs",
+                revisions_url="https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/INBOX/Revisions",
+                scope_mode="all",
+                download_missing=True,
+            )
+
+            downloaded = []
+            def fake_download(tdoc_id, folder):
+                downloaded.append(tdoc_id)
+                folder.mkdir(parents=True, exist_ok=True)
+                doc_path = folder / f"{tdoc_id}.docx"
+                doc_path.write_bytes(b"dummy")
+                md_path = folder / f"{tdoc_id}.md"
+                md_path.write_text(f"# {tdoc_id}\nContent", encoding="utf-8")
+                return doc_path
+
+            progress_messages = []
+            exporter.progress.connect(progress_messages.append)
+
+            with patch.object(exporter, "_download_and_extract_tdoc", side_effect=fake_download):
+                exporter.run()
+
+            self.assertIn("S2-2601111", downloaded)
+            self.assertIn("S2-2602222", downloaded)
+            joined_prog = " ".join(progress_messages)
+            self.assertIn("in parallel", joined_prog)
+
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,11 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime
 import logging
 import os
 import re
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import pythoncom
 import win32com.client
@@ -72,6 +73,74 @@ class TDocMarkdownExporterThread(QThread):
             failed_tdocs: List[str] = []
             total = len(self.tdocs_list)
 
+            # --- Phase 1: Parallel Pre-download of Missing Documents ---
+            missing_download_tasks: List[Tuple[str, Path]] = []
+            seen_tdocs = set()
+
+            for tdoc_data in self.tdocs_list:
+                tdoc_id = str(tdoc_data.get("TDoc", "")).strip()
+                if not tdoc_id or tdoc_id in seen_tdocs:
+                    continue
+                seen_tdocs.add(tdoc_id)
+
+                base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
+                base_tdoc = base_match.group(1).upper() if base_match else tdoc_id.upper()
+                doc_type = str(tdoc_data.get("Type", "Other"))
+                expected_mode = resolve_revision_mode_for_type(doc_type, default_mode="markup")
+
+                tdoc_folder = self.meeting_dir / base_tdoc
+                local_md_file = tdoc_folder / f"{sanitize_filename(tdoc_id)}.md"
+                legacy_cache_file = tdoc_folder / f"{tdoc_id}_LLM_v{TDOC_MD_EXTRACTOR_VERSION}.md"
+
+                doc_path = self._find_word_doc(tdoc_folder, tdoc_id)
+
+                needs_conversion = self.force_reconvert or is_conversion_stale(
+                    doc_path, local_md_file, expected_version=TDOC_MD_EXTRACTOR_VERSION, expected_mode=expected_mode
+                )
+                if needs_conversion and not self.force_reconvert:
+                    if not is_conversion_stale(doc_path, legacy_cache_file, expected_version=TDOC_MD_EXTRACTOR_VERSION, expected_mode=expected_mode):
+                        needs_conversion = False
+
+                if needs_conversion and not doc_path:
+                    missing_download_tasks.append((tdoc_id, tdoc_folder))
+
+            if missing_download_tasks:
+                total_missing = len(missing_download_tasks)
+                dl_workers = min(6, total_missing)
+                self.progress.emit(f"Downloading {total_missing} missing TDoc(s) in parallel ({dl_workers} workers)...")
+                logging.info(
+                    f"[Markdown Exporter] Pre-downloading {total_missing} missing TDoc(s) using "
+                    f"a thread pool of {dl_workers} workers..."
+                )
+
+                dl_done = 0
+                with ThreadPoolExecutor(max_workers=dl_workers) as executor:
+                    future_to_tid = {
+                        executor.submit(self._download_and_extract_tdoc, tid, folder): tid
+                        for (tid, folder) in missing_download_tasks
+                    }
+
+                    for future in as_completed(future_to_tid):
+                        if self.isInterruptionRequested():
+                            logging.info("[Markdown Exporter] Interruption requested during parallel download.")
+                            try:
+                                executor.shutdown(wait=False, cancel_futures=True)
+                            except TypeError:
+                                executor.shutdown(wait=False)
+                            break
+
+                        tid = future_to_tid[future]
+                        dl_done += 1
+                        try:
+                            res_path = future.result()
+                            if res_path:
+                                self.progress.emit(f"Downloaded TDoc {tid} ({dl_done}/{total_missing})")
+                            else:
+                                self.progress.emit(f"Failed to download {tid} ({dl_done}/{total_missing})")
+                        except Exception as dl_err:
+                            logging.error(f"[Markdown Exporter] Error downloading {tid}: {dl_err}")
+
+            # --- Phase 2: Sequential In-Memory Conversion & Packaging ---
             for idx, tdoc_data in enumerate(self.tdocs_list, 1):
                 if self.isInterruptionRequested():
                     logging.info("[Markdown Exporter] Interruption requested by user. Halting.")
@@ -98,7 +167,7 @@ class TDocMarkdownExporterThread(QThread):
                 if tdoc_download_url:
                     tdoc_data["3gpp_url"] = tdoc_download_url
 
-                msg = f"Processing {tdoc_id} ({idx}/{total})..."
+                msg = f"Converting {tdoc_id} to Markdown ({idx}/{total})..."
                 self.progress.emit(msg)
                 logging.info(f"[Markdown Exporter] {msg}")
 
@@ -306,20 +375,47 @@ class TDocMarkdownExporterThread(QThread):
         base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
         is_revision = bool(base_match)
 
-        base_url = self.revisions_url if (is_revision and self.revisions_url) else self.docs_ftp_url
-        if not base_url:
-            logging.error(f"[Markdown Exporter] No base URL configured for downloading {tdoc_id}")
+        # Build candidate routes: prioritize revisions_url for revisions, docs_ftp_url for base
+        candidate_urls: List[str] = []
+        if is_revision:
+            if self.revisions_url:
+                candidate_urls.append(self.revisions_url)
+            if self.docs_ftp_url and self.docs_ftp_url not in candidate_urls:
+                candidate_urls.append(self.docs_ftp_url)
+        else:
+            if self.docs_ftp_url:
+                candidate_urls.append(self.docs_ftp_url)
+            if self.revisions_url and self.revisions_url not in candidate_urls:
+                candidate_urls.append(self.revisions_url)
+
+        if not candidate_urls:
+            logging.error(f"[Markdown Exporter] No base URLs configured for downloading {tdoc_id}")
             return None
 
-        try:
-            logging.info(f"[Markdown Exporter] Triggering TDocFileHandler for {tdoc_id} against {base_url}")
-            TDocFileHandler.download_and_extract_tdoc(tdoc_id, base_url, tdoc_folder)
-            return self._find_word_doc(tdoc_folder, tdoc_id)
-        except Exception as e:
-            err_msg = f"Failed to download {tdoc_id}: {str(e)}"
-            self.progress.emit(err_msg)
-            logging.error(f"[Markdown Exporter] {err_msg}", exc_info=True)
-            return None
+        last_error = None
+        for base_url in candidate_urls:
+            if self.isInterruptionRequested():
+                return None
+            try:
+                logging.info(f"[Markdown Exporter] Attempting download of {tdoc_id} from {base_url}")
+                TDocFileHandler.download_and_extract_tdoc(
+                    tdoc_id,
+                    base_url,
+                    tdoc_folder,
+                    timeout=15,
+                    cancel_check=self.isInterruptionRequested,
+                )
+                doc_path = self._find_word_doc(tdoc_folder, tdoc_id)
+                if doc_path:
+                    return doc_path
+            except Exception as e:
+                last_error = e
+                logging.debug(f"[Markdown Exporter] Route {base_url} failed for {tdoc_id}: {e}")
+
+        if last_error:
+            err_msg = f"Failed to download {tdoc_id}: {str(last_error)}"
+            logging.warning(f"[Markdown Exporter] {err_msg}")
+        return None
 
     def _extract_from_word(self, word_app, doc_path: Path, doc_type: str) -> str:
         """Legacy COM fallback in case OpenXML direct parsing is not available."""
