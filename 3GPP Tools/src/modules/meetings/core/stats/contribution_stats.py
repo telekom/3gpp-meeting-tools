@@ -6,78 +6,15 @@ from PyQt5.QtCore import QThread, pyqtSignal
 import pandas as pd
 import plotly.graph_objects as go
 
-from core.config.plot_styles import THEME_COLOR
+from core.config.plot_styles import (
+    THEME_COLOR,
+    STATUS_COLORS,
+    STATUS_ORDER,
+    WG_COLORS,
+    FALLBACK_PALETTE,
+    normalize_status,
+)
 from core.utils.company_sanitizer import CompanySanitizer
-
-# Semantic color palette for standard 3GPP contribution outcomes
-STATUS_COLORS = {
-    'Agreed': '#10B981',       # Emerald Green
-    'Approved': '#059669',     # Deep Green
-    'Not Treated': '#94A3B8',  # Slate Grey
-    'Revised': '#6366F1',      # Indigo Blue
-    'Noted': '#F59E0B',        # Amber
-    'Postponed': '#EAB308',    # Yellow
-    'Merged': '#06B6D4',       # Cyan
-    'Endorsed': '#14B8A6',     # Teal
-    'Replied To': '#8B5CF6',   # Purple
-    'Available': '#38BDF8',    # Sky Blue
-    'Withdrawn': '#EF4444',    # Red
-    'Unknown': '#CBD5E1'       # Muted Grey
-}
-
-STATUS_ORDER = [
-    'Agreed', 'Approved', 'Merged', 'Endorsed',
-    'Noted', 'Postponed', 'Replied To', 'Available',
-    'Not Treated', 'Revised', 'Unknown'
-]
-
-# Committee palette for Working Groups in Top Co-signers
-WG_COLORS = {
-    'SA1': '#3B82F6',    # Blue
-    'SA2': '#10B981',    # Green
-    'SA3': '#8B5CF6',    # Purple
-    'SA4': '#F59E0B',    # Amber
-    'SA5': '#06B6D4',    # Cyan
-    'SA6': '#EC4899',    # Pink
-    'RAN1': '#F97316',   # Orange
-    'RAN2': '#6366F1',   # Indigo
-    'RAN3': '#14B8A6',   # Teal
-    'RAN4': '#84CC16',   # Lime
-    'CT1': '#E11D48',    # Rose
-    'CT3': '#A855F7',    # Violet
-    'CT4': '#0284C7',    # Sky
-}
-FALLBACK_PALETTE = ['#0D9488', '#2563EB', '#D97706', '#7C3AED', '#DB2777', '#059669', '#475569']
-
-
-def normalize_status(val: str) -> str:
-    """Normalizes raw 3GPP outcome strings into canonical categories."""
-    s = str(val).strip().lower()
-    if not s or s in ['nan', 'none', '-', '']:
-        return 'Unknown'
-    if 'not treated' in s or 'not handled' in s:
-        return 'Not Treated'
-    if 'agreed' in s:
-        return 'Agreed'
-    if 'approved' in s:
-        return 'Approved'
-    if 'revised' in s:
-        return 'Revised'
-    if 'noted' in s:
-        return 'Noted'
-    if 'postponed' in s:
-        return 'Postponed'
-    if 'merged' in s:
-        return 'Merged'
-    if 'endorsed' in s:
-        return 'Endorsed'
-    if 'replied' in s:
-        return 'Replied To'
-    if 'available' in s:
-        return 'Available'
-    if 'withdrawn' in s:
-        return 'Withdrawn'
-    return s.title()
 
 
 class ContributionStatsExporterThread(QThread):

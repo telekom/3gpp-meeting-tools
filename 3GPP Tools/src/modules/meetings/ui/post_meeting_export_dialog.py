@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
+from modules.meetings.core.agenda_manager import AgendaItem
 from modules.meetings.ui.tdocs_models import TDocsTableModel
 
 
@@ -95,10 +96,9 @@ class PostMeetingExportDialog(QDialog):
 
             desc = str(r.get("Agenda item description", "")).strip()
             if desc:
-                import re
-                m = re.search(r'\(([A-Za-z0-9_\-\/]+)\)', desc)
-                if m:
-                    wis.add(m.group(1).strip())
+                cand = AgendaItem._extract_acronym(desc)
+                if cand:
+                    wis.add(cand.strip())
 
         return sorted(list(wis), key=lambda x: x.lower())
 
@@ -222,9 +222,12 @@ class PostMeetingExportDialog(QDialog):
         self.chk_ls_out.setChecked(True)
         self.chk_ls_out.setToolTip("Include outgoing Liaison Statements approved by the meeting.")
 
-        self.chk_general_ls = QCheckBox("📦 Include General / Overarching LS in (without specific WI)")
+        self.chk_general_ls = QCheckBox("📦 Include unassigned & general LS in (without followed WI)")
         self.chk_general_ls.setChecked(True)
-        self.chk_general_ls.setToolTip("Places general incoming LS (e.g. AI 4.1) under a dedicated 'General/LS_IN/' folder.")
+        self.chk_general_ls.setToolTip(
+            "Include incoming Liaison Statements (LS in) for which no specific Work Item was assigned "
+            "or whose topic is not followed, placing them under 'General/LS_IN/'."
+        )
 
         docs_layout.addWidget(self.chk_ls_in)
         docs_layout.addWidget(self.chk_pcr)
