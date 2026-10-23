@@ -197,6 +197,10 @@ The project intentionally separates domain data into distinct SQLite databases l
   - Never use a single `&` in UI labels unless deliberately establishing an `Alt+<Key>` accelerator shortcut.
   - This rule is enforced automatically across all `src/` modules via `tests/test_ui_ampersand_escaping.py`.
 
+### 5.9. Documentation Synchronization & Commit Hygiene
+- **Documentation as Code:** Never treat documentation as an afterthought. When adding new capabilities, refactoring architectural patterns, modifying configurations, or updating UI controls, update corresponding documentation (`README.md`, `AGENTS.md`, and module guides) in the same work unit.
+- **Commit Completed Work Units:** Do not accumulate large batches of uncommitted, disparate changes across multiple subsystems. Once a feature or bugfix is verified and documented, commit it cleanly with a concise, descriptive commit message.
+
 ---
 
 ## 6. Development & Verification Workflow
@@ -207,3 +211,13 @@ When adding new features or fixing bugs:
 3. **Check Submodule Guides & Protected Files:** When touching protocol parsing, consult [`src/modules/nas/core/parsing/AGENTS.md`](file:///src/modules/nas/core/parsing/AGENTS.md). When touching the Assistant, consult [`src/modules/assistant/AGENTS.md`](file:///src/modules/assistant/AGENTS.md). When touching meetings or TDoc markdown conversion, consult [`src/modules/meetings/AGENTS.md`](file:///src/modules/meetings/AGENTS.md) (and **NEVER edit `src/modules/meetings/core/tdoc2md.py`**).
 4. **UI Mnemonic Escaping Verification:** When adding or modifying buttons, actions, checkboxes, menus, or groupboxes containing ampersands, always use `&&` (not `&`). Verify by running `python -m unittest tests/test_ui_ampersand_escaping.py`.
 5. **Manual Verification:** Because the application is a graphical Qt desktop environment, test modified tabs or workers by running `python -m main_tools` and verifying that the Qt event loop starts and stops cleanly without console tracebacks or thread leaks.
+6. **Synchronize Documentation (Docs-as-Code):** Whenever introducing new features, configuration parameters, data models, or UI workflows, immediately update the relevant documentation:
+   - Root [`AGENTS.md`](file:///AGENTS.md) (architecture overview, module guides, and safety constraints).
+   - Root [`README.md`](file:///README.md) (feature lists, user workflows, and usage instructions).
+   - Subsystem guides (e.g. [`src/modules/meetings/AGENTS.md`](file:///src/modules/meetings/AGENTS.md), [`src/modules/assistant/AGENTS.md`](file:///src/modules/assistant/AGENTS.md), [`src/modules/nas/core/parsing/AGENTS.md`](file:///src/modules/nas/core/parsing/AGENTS.md)).
+   - In-code docstrings, type annotations, and module header comments.
+   Keeping documentation synchronized is vital: in this repository, documentation acts as the ground-truth system context and guardrails for both human developers and AI coding agents.
+7. **Commit Changes Atomically:** Once a logical feature or bugfix is implemented, verified, and documented:
+   - Create an atomic git commit grouping the implementation, relevant tests, and documentation updates together.
+   - Use clear conventional commit messages (e.g., `feat(module): ...`, `fix(module): ...`, `docs(agents): ...`).
+   - Avoid leaving lingering uncommitted changes across unrelated modules or lumping disparate tasks into monolithic commits.
