@@ -4,6 +4,7 @@ Visualizes multi-specification search results in dedicated per-specification tab
 persistence of active filters and selected specification versions.
 """
 
+import html
 import json
 import logging
 import os
@@ -14,15 +15,16 @@ from typing import Any, Dict, List, Optional
 from PyQt5.QtCore import QDate, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
-    QMenu,
     QCheckBox,
     QDateEdit,
     QFileDialog,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -55,7 +57,11 @@ from modules.spec_search.core.spec_search_threads import (
     SpecSearchWipeWorker,
     is_change_mark_file,
 )
-from modules.spec_search.ui.spec_search_components import SpecClauseInspector, SpecSearchVersionTreeWidget
+from modules.spec_search.ui.spec_search_components import (
+    SpecClauseInspector,
+    SpecEvolutionStatusDelegate,
+    SpecSearchVersionTreeWidget,
+)
 from modules.spec_search.ui.spec_search_dialogs import (
     SpecClauseDiffDialog,
     SpecSearchVersionSelectDialog,
@@ -109,39 +115,64 @@ class SpecSearchTab(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
         # ---------------------------------------------------------------------
-        # Toolbar
+        # Top Toolbar (Compact & Sleek)
         # ---------------------------------------------------------------------
         toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 2)
         toolbar.setSpacing(8)
 
-        self.fetch_btn = QPushButton("📥 Import from Specs DB")
-        self.fetch_btn.setCursor(Qt.PointingHandCursor)
-        self.fetch_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.fetch_btn.clicked.connect(self._on_fetch_clicked)
-        toolbar.addWidget(self.fetch_btn)
+        # 1. Compact Import Menu Button
+        self.import_menu_btn = QPushButton("📥 Import Specs ▾")
+        self.import_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.import_menu_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        import_menu = QMenu(self)
+        act_import_db = import_menu.addAction("📥 Import from Specifications DB...")
+        act_import_db.triggered.connect(self._on_fetch_clicked)
+        act_import_docx = import_menu.addAction("📁 Import Local Word Document (.docx)...")
+        act_import_docx.triggered.connect(self._on_import_local_clicked)
+        self.import_menu_btn.setMenu(import_menu)
+        toolbar.addWidget(self.import_menu_btn)
 
-        self.import_local_btn = QPushButton("📁 Import Local .docx")
-        self.import_local_btn.setCursor(Qt.PointingHandCursor)
-        self.import_local_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.import_local_btn.clicked.connect(self._on_import_local_clicked)
-        toolbar.addWidget(self.import_local_btn)
+        # 2. Compact Database Management Menu Button
+        self.db_menu_btn = QPushButton("⚙️ Database ▾")
+        self.db_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.db_menu_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        db_menu = QMenu(self)
+        self.act_clear_ver = db_menu.addAction("🗑️ Clear Specific Version...")
+        self.act_clear_ver.triggered.connect(self._on_clear_version_clicked)
+        db_menu.addSeparator()
+        self.act_wipe_db = db_menu.addAction("⚠️ Wipe Entire Search Database...")
+        self.act_wipe_db.triggered.connect(self._on_wipe_db_clicked)
+        self.db_menu_btn.setMenu(db_menu)
+        toolbar.addWidget(self.db_menu_btn)
 
-        self.clear_ver_btn = QPushButton("🗑️ Clear Version")
-        self.clear_ver_btn.setCursor(Qt.PointingHandCursor)
-        self.clear_ver_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_WARNING)
-        self.clear_ver_btn.clicked.connect(self._on_clear_version_clicked)
-        toolbar.addWidget(self.clear_ver_btn)
-
-        self.wipe_db_btn = QPushButton("⚠️ Wipe DB")
-        self.wipe_db_btn.setCursor(Qt.PointingHandCursor)
-        self.wipe_db_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
-        self.wipe_db_btn.clicked.connect(self._on_wipe_db_clicked)
-        toolbar.addWidget(self.wipe_db_btn)
+        # Aliases for background workers and existing callbacks
+        self.fetch_btn = self.import_menu_btn
+        self.import_local_btn = self.import_menu_btn
+        self.clear_ver_btn = self.db_menu_btn
+        self.wipe_db_btn = self.db_menu_btn
 
         toolbar.addStretch()
+
+        # Database Summary Stats Chip
+        self.db_stats_label = QLabel("📦 Loading specs...")
+        self.db_stats_label.setStyleSheet("""
+            QLabel {
+                color: #64748B;
+                font-size: 11px;
+                font-weight: 500;
+                background-color: #F8FAFC;
+                border: 1px solid #E2E8F0;
+                border-radius: 4px;
+                padding: 3px 8px;
+            }
+        """)
+        toolbar.addWidget(self.db_stats_label)
+
         layout.addLayout(toolbar)
 
         self.progress_bar = QProgressBar()
@@ -149,51 +180,197 @@ class SpecSearchTab(QWidget):
         layout.addWidget(self.progress_bar)
 
         # ---------------------------------------------------------------------
-        # Splitter Layout (Left: Version Tree, Right: Tabs & Inspector)
+        # Main Splitter Layout (Left: Version Tree, Right: Search, Tabs & Inspector)
         # ---------------------------------------------------------------------
-        main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter = QSplitter(Qt.Horizontal)
 
-        # Left Panel: Versions Tree
+        # Left Panel: Versions Tree inside a Card Frame
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(6)
 
-        tree_group = QGroupBox("Indexed Specifications && Releases")
-        tree_layout = QVBoxLayout(tree_group)
+        left_card = QFrame()
+        left_card.setObjectName("specTreeCard")
+        left_card.setStyleSheet("""
+            QFrame#specTreeCard {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+            }
+        """)
+        card_layout = QVBoxLayout(left_card)
+        card_layout.setContentsMargins(6, 8, 6, 6)
+        card_layout.setSpacing(6)
+
+        # Card Header: Title + Count Badge
+        tree_hdr_layout = QHBoxLayout()
+        tree_hdr_layout.setContentsMargins(2, 0, 2, 0)
+        tree_title = QLabel("📚 Indexed Specs")
+        tree_title.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B;")
+        tree_hdr_layout.addWidget(tree_title)
+
+        self.tree_stats_badge = QLabel("0 specs")
+        self.tree_stats_badge.setStyleSheet("""
+            background-color: #F1F5F9;
+            color: #475569;
+            font-size: 10px;
+            font-weight: bold;
+            border: 1px solid #E2E8F0;
+            border-radius: 4px;
+            padding: 1px 6px;
+        """)
+        tree_hdr_layout.addWidget(self.tree_stats_badge)
+        tree_hdr_layout.addStretch()
+        card_layout.addLayout(tree_hdr_layout)
+
+        # Quick Filter + Select All / None Actions
+        tree_actions_layout = QHBoxLayout()
+        tree_actions_layout.setSpacing(4)
+        self.tree_filter_input = QLineEdit()
+        self.tree_filter_input.setPlaceholderText("Filter specs (e.g. 23.501)...")
+        self.tree_filter_input.setClearButtonEnabled(True)
+        self.tree_filter_input.setStyleSheet("""
+            QLineEdit {
+                padding: 2px 6px;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                font-size: 11px;
+                background-color: #F8FAFC;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0284C7;
+                background-color: #FFFFFF;
+            }
+        """)
+        tree_actions_layout.addWidget(self.tree_filter_input, stretch=1)
+
+        btn_all = QPushButton("All")
+        btn_all.setToolTip("Select all indexed releases")
+        btn_all.setCursor(Qt.PointingHandCursor)
+        btn_all.setStyleSheet("""
+            QPushButton {
+                font-size: 10px;
+                font-weight: 600;
+                color: #334155;
+                background-color: #F8FAFC;
+                border: 1px solid #CBD5E1;
+                border-radius: 3px;
+                padding: 2px 6px;
+            }
+            QPushButton:hover {
+                background-color: #E2E8F0;
+                color: #0F172A;
+            }
+        """)
+        tree_actions_layout.addWidget(btn_all)
+
+        btn_none = QPushButton("None")
+        btn_none.setToolTip("Deselect all indexed releases")
+        btn_none.setCursor(Qt.PointingHandCursor)
+        btn_none.setStyleSheet("""
+            QPushButton {
+                font-size: 10px;
+                font-weight: 600;
+                color: #334155;
+                background-color: #F8FAFC;
+                border: 1px solid #CBD5E1;
+                border-radius: 3px;
+                padding: 2px 6px;
+            }
+            QPushButton:hover {
+                background-color: #E2E8F0;
+                color: #0F172A;
+            }
+        """)
+        tree_actions_layout.addWidget(btn_none)
+        card_layout.addLayout(tree_actions_layout)
+
         self.version_tree = SpecSearchVersionTreeWidget()
         self.version_tree.selection_changed.connect(self._on_version_selection_changed)
         self.version_tree.delete_version_requested.connect(self._delete_single_version)
         self.version_tree.delete_spec_requested.connect(self._delete_spec_group)
-        tree_layout.addWidget(self.version_tree)
-        left_layout.addWidget(tree_group)
-        main_splitter.addWidget(left_widget)
+        self.tree_filter_input.textChanged.connect(self.version_tree.filter_tree)
+        btn_all.clicked.connect(self.version_tree.select_all)
+        btn_none.clicked.connect(self.version_tree.deselect_all)
+        card_layout.addWidget(self.version_tree)
+
+        left_layout.addWidget(left_card)
+        self.main_splitter.addWidget(left_widget)
 
         # Right Panel: Search Controls, Tabbed Evolution Matrix, Inspector
-        right_splitter = QSplitter(Qt.Vertical)
+        self.right_splitter = QSplitter(Qt.Vertical)
 
         matrix_widget = QWidget()
         matrix_layout = QVBoxLayout(matrix_widget)
         matrix_layout.setContentsMargins(0, 0, 0, 0)
+        matrix_layout.setSpacing(6)
 
-        # Search substring & Clause Filter
+        # ---------------------------------------------------------------------
+        # Search & Filter Console Card
+        # ---------------------------------------------------------------------
+        search_card = QFrame()
+        search_card.setObjectName("searchCard")
+        search_card.setStyleSheet("""
+            QFrame#searchCard {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+            }
+        """)
+        search_card_layout = QVBoxLayout(search_card)
+        search_card_layout.setContentsMargins(8, 8, 8, 8)
+        search_card_layout.setSpacing(6)
+
+        # Row 1: Substring Search & Clause Filter
         search_bar_layout = QHBoxLayout()
+        search_bar_layout.setSpacing(6)
+
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search exact substring or phrase (e.g. 'slice replacement', 'emergency', 'PDU session')...")
+        self.search_input.setPlaceholderText("🔍 Search exact substring or phrase (e.g. 'No-Transmit Zone', 'emergency', 'PDU session')...")
         self.search_input.setClearButtonEnabled(True)
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                padding: 5px 10px;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                font-size: 13px;
+                background-color: #FFFFFF;
+                color: #0F172A;
+            }
+            QLineEdit:focus {
+                border: 1.5px solid #0284C7;
+            }
+        """)
         self.search_input.textChanged.connect(self._on_filter_changed)
-        search_bar_layout.addWidget(self.search_input)
+        search_bar_layout.addWidget(self.search_input, stretch=1)
 
         self.clause_filter_input = QLineEdit()
-        self.clause_filter_input.setPlaceholderText("Filter clause (e.g. 5.2, 8.1)...")
-        self.clause_filter_input.setFixedWidth(160)
+        self.clause_filter_input.setPlaceholderText("Clause (e.g. 5.2)...")
+        self.clause_filter_input.setFixedWidth(150)
         self.clause_filter_input.setClearButtonEnabled(True)
+        self.clause_filter_input.setStyleSheet("""
+            QLineEdit {
+                padding: 5px 8px;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                font-size: 12px;
+                background-color: #FFFFFF;
+            }
+            QLineEdit:focus {
+                border: 1.5px solid #0284C7;
+            }
+        """)
         self.clause_filter_input.textChanged.connect(self._on_filter_changed)
         search_bar_layout.addWidget(self.clause_filter_input)
-        matrix_layout.addLayout(search_bar_layout)
+        search_card_layout.addLayout(search_bar_layout)
 
-        # Cutoff Date Filter Bar
+        # Row 2: Cutoff Date Filter + Post-Cutoff Checkbox
         cutoff_date_bar = QHBoxLayout()
+        cutoff_date_bar.setSpacing(8)
+
         self.chk_filing_date = QCheckBox("🎯 Date Cutoff:")
+        self.chk_filing_date.setStyleSheet("font-weight: 600; font-size: 11px; color: #334155;")
         self.chk_filing_date.toggled.connect(self._on_cutoff_date_filter_toggled)
         cutoff_date_bar.addWidget(self.chk_filing_date)
 
@@ -201,28 +378,77 @@ class SpecSearchTab(QWidget):
         self.cutoff_date_edit.setCalendarPopup(True)
         self.cutoff_date_edit.setDisplayFormat("yyyy-MM-dd")
         self.cutoff_date_edit.setDate(QDate.currentDate().addYears(-3))
+        self.cutoff_date_edit.setMinimumWidth(125)
         self.cutoff_date_edit.setEnabled(False)
+        self.cutoff_date_edit.setStyleSheet("""
+            QDateEdit {
+                padding: 3px 6px;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                font-size: 12px;
+                background-color: #FFFFFF;
+                color: #1E293B;
+            }
+            QDateEdit:disabled {
+                background-color: #F8FAFC;
+                color: #94A3B8;
+            }
+        """)
         self.cutoff_date_edit.dateChanged.connect(self._on_filter_changed)
         cutoff_date_bar.addWidget(self.cutoff_date_edit)
 
         self.chk_post_date_only = QCheckBox("Show Only Post-Cutoff Additions")
         self.chk_post_date_only.setToolTip("Hides clauses where matching text was already present prior to the selected date.")
+        self.chk_post_date_only.setStyleSheet("font-size: 11px; color: #475569;")
         self.chk_post_date_only.setEnabled(False)
         self.chk_post_date_only.toggled.connect(self._on_filter_changed)
         cutoff_date_bar.addWidget(self.chk_post_date_only)
 
         cutoff_date_bar.addStretch()
-        matrix_layout.addLayout(cutoff_date_bar)
+        search_card_layout.addLayout(cutoff_date_bar)
 
-        self.matrix_title = QLabel("Type a query above to see Release Evolution Matrix")
-        self.matrix_title.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B; margin-top: 4px;")
+        matrix_layout.addWidget(search_card)
+
+        # Executive Results Status Pill Bar
+        self.matrix_title = QLabel("💡 Type a query above to trace clause evolution across releases.")
+        self.matrix_title.setStyleSheet("font-size: 12px; color: #64748B; margin-top: 2px; margin-bottom: 2px;")
         matrix_layout.addWidget(self.matrix_title)
 
         # Tabbed Container for Per-Specification Matrices
         self.spec_results_tabs = QTabWidget()
         self.spec_results_tabs.setDocumentMode(True)
+        self.spec_results_tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                background-color: #FFFFFF;
+                top: -1px;
+            }
+            QTabBar::tab {
+                background-color: #F1F5F9;
+                color: #475569;
+                font-weight: 600;
+                font-size: 11px;
+                border: 1px solid #CBD5E1;
+                border-bottom: none;
+                padding: 5px 14px;
+                margin-right: 2px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }
+            QTabBar::tab:selected {
+                background-color: #FFFFFF;
+                color: #0284C7;
+                font-weight: bold;
+                border-bottom: 2px solid #0284C7;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #E2E8F0;
+                color: #0F172A;
+            }
+        """)
         matrix_layout.addWidget(self.spec_results_tabs)
-        right_splitter.addWidget(matrix_widget)
+        self.right_splitter.addWidget(matrix_widget)
 
         self.inspector = SpecClauseInspector()
         self.inspector.compare_clause_requested.connect(self._open_clause_diff_dialog)
@@ -232,12 +458,14 @@ class SpecSearchTab(QWidget):
         self.inspector.jump_to_version_requested.connect(self._handle_jump_to_version)
         self.inspector.extract_clause_requested.connect(self._handle_extract_clause_word)
         self.inspector.export_markdown_requested.connect(self._handle_export_clause_markdown)
-        right_splitter.addWidget(self.inspector)
+        self.inspector.layout_orientation_toggle_requested.connect(self._toggle_inspector_layout)
+        self.inspector.maximize_toggle_requested.connect(self._toggle_inspector_maximize)
+        self.right_splitter.addWidget(self.inspector)
 
-        right_splitter.setSizes([420, 240])
-        main_splitter.addWidget(right_splitter)
-        main_splitter.setSizes([260, 690])
-        layout.addWidget(main_splitter)
+        self.right_splitter.setSizes([380, 260])
+        self.main_splitter.addWidget(self.right_splitter)
+        self.main_splitter.setSizes([300, 750])
+        layout.addWidget(self.main_splitter)
 
     # -------------------------------------------------------------------------
     # Configuration Persistence
@@ -254,6 +482,7 @@ class SpecSearchTab(QWidget):
                 "cutoff_date": self.cutoff_date_edit.date().toString("yyyy-MM-dd"),
                 "only_post_cutoff": self.chk_post_date_only.isChecked(),
                 "checked_versions": checked_versions,
+                "inspector_side_by_side": (self.right_splitter.orientation() == Qt.Horizontal),
             }
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(config_data, f, indent=4)
@@ -309,9 +538,50 @@ class SpecSearchTab(QWidget):
             self.cutoff_date_edit.blockSignals(False)
             self.chk_post_date_only.blockSignals(False)
 
+            if config.get("inspector_side_by_side", False):
+                self.inspector.set_side_by_side(True)
+                self.right_splitter.setOrientation(Qt.Horizontal)
+                self.right_splitter.setSizes([550, 450])
+
+        self._update_db_stats()
+
         # Trigger search if a saved query exists
         if self.search_input.text().strip():
             self._execute_search()
+
+    def _toggle_inspector_layout(self, side_by_side: bool):
+        if side_by_side:
+            self.right_splitter.setOrientation(Qt.Horizontal)
+            self.right_splitter.setSizes([550, 450])
+        else:
+            self.right_splitter.setOrientation(Qt.Vertical)
+            self.right_splitter.setSizes([380, 260])
+        self._save_config()
+
+    def _toggle_inspector_maximize(self, is_maximized: bool):
+        if is_maximized:
+            self._pre_maximize_sizes = self.right_splitter.sizes()
+            self.right_splitter.setSizes([0, 1000])
+        else:
+            if hasattr(self, "_pre_maximize_sizes") and self._pre_maximize_sizes and any(self._pre_maximize_sizes):
+                self.right_splitter.setSizes(self._pre_maximize_sizes)
+            else:
+                if self.right_splitter.orientation() == Qt.Horizontal:
+                    self.right_splitter.setSizes([550, 450])
+                else:
+                    self.right_splitter.setSizes([380, 260])
+
+    def _update_db_stats(self):
+        try:
+            versions = self.db.get_imported_versions()
+            specs = set(v.get("spec_number") for v in versions if v.get("spec_number"))
+            num_specs = len(specs)
+            num_vers = len(versions)
+            self.db_stats_label.setText(f"📦 {num_specs} Specs · {num_vers} Releases Indexed")
+            if hasattr(self, "tree_stats_badge"):
+                self.tree_stats_badge.setText(f"{num_specs} Specs ({num_vers} Releases)")
+        except Exception:
+            self.db_stats_label.setText("📦 0 Specs Indexed")
 
     def _on_filter_changed(self):
         self._search_timer.start()
@@ -337,7 +607,7 @@ class SpecSearchTab(QWidget):
 
         if not self.selected_version_ids or not query:
             self.spec_results_tabs.clear()
-            self.matrix_title.setText("Type a query above to see Release Evolution Matrix")
+            self.matrix_title.setText("<span style='color: #64748B; font-size: 12px;'>💡 Type a query above to trace clause evolution across releases.</span>")
             self.inspector.clear_display()
             return
 
@@ -374,7 +644,7 @@ class SpecSearchTab(QWidget):
         self.spec_results_tabs.clear()
 
         if df.empty:
-            self.matrix_title.setText(f"No matching clauses found for '{query}' across selected releases.")
+            self.matrix_title.setText(f"<span style='color: #64748B; font-size: 12px;'>No matching clauses found for '<b>{html.escape(query)}</b>' across selected releases.</span>")
             self.inspector.clear_display()
             return
 
@@ -402,19 +672,41 @@ class SpecSearchTab(QWidget):
             total_clauses_count += model.rowCount()
 
             table = QTableView()
-            table.setAlternatingRowColors(True)
+            table.setAlternatingRowColors(False)
             table.setSelectionBehavior(QTableView.SelectRows)
             table.setSelectionMode(QTableView.SingleSelection)
-            table.verticalHeader().setDefaultSectionSize(24)
+            table.verticalHeader().setDefaultSectionSize(26)
             table.verticalHeader().setVisible(False)
+            table.setItemDelegate(SpecEvolutionStatusDelegate(table))
             table.setModel(model)
+            table.setStyleSheet("""
+                QTableView {
+                    background-color: #FFFFFF;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 4px;
+                    gridline-color: transparent;
+                    font-size: 12px;
+                    selection-background-color: #EBF3FC;
+                    selection-color: #0F172A;
+                }
+                QHeaderView::section {
+                    background-color: #F8FAFC;
+                    color: #475569;
+                    font-weight: bold;
+                    font-size: 11px;
+                    border: none;
+                    border-bottom: 1px solid #CBD5E1;
+                    border-right: 1px solid #E2E8F0;
+                    padding: 5px 8px;
+                }
+            """)
 
             h_header = table.horizontalHeader()
             h_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
             h_header.setSectionResizeMode(1, QHeaderView.Stretch)
             for c in range(2, model.columnCount()):
                 h_header.setSectionResizeMode(c, QHeaderView.Interactive)
-                table.setColumnWidth(c, 110)
+                table.setColumnWidth(c, 115)
 
             table.clicked.connect(lambda idx, s=spec_num, t=table: self._on_tab_table_clicked(idx, s, t))
             table.doubleClicked.connect(lambda idx, s=spec_num, t=table: self._on_table_double_clicked(idx, s, t))
@@ -425,13 +717,21 @@ class SpecSearchTab(QWidget):
             self.spec_results_tabs.addTab(table, tab_title)
 
         if specs_with_hits == 0:
-            self.matrix_title.setText(f"No matching clauses found for '{query}' matching the active date cutoff.")
+            self.matrix_title.setText(f"<span style='color: #64748B; font-size: 12px;'>No matching clauses found for '<b>{html.escape(query)}</b>' matching active filters.</span>")
             self.inspector.clear_display()
             return
 
-        date_suffix = f" (Cutoff: ≥ {cutoff_date})" if cutoff_date and only_post_date else ""
+        date_badge = (
+            f" <span style='background-color: #FEF3C7; color: #B45309; font-weight: bold; padding: 2px 7px; border-radius: 4px; border: 1px solid #FDE68A; font-size: 11px;'>Cutoff ≥ {cutoff_date}</span>"
+            if cutoff_date and only_post_date
+            else ""
+        )
         self.matrix_title.setText(
-            f"Found matches in {total_clauses_count} clause(s) across {specs_with_hits} specification(s) for query: '{query}'{date_suffix}"
+            f"<span style='color: #475569; font-size: 11px; font-weight: 600;'>Results:</span> "
+            f"<span style='background-color: #EBF3FC; color: #0284C7; font-weight: bold; padding: 2px 8px; border-radius: 4px; border: 1px solid #BEE3F8; font-size: 11px;'>🔍 {html.escape(query)}</span> "
+            f"<span style='background-color: #DCFCE7; color: #15803D; font-weight: bold; padding: 2px 8px; border-radius: 4px; border: 1px solid #86EFAC; font-size: 11px;'>{total_clauses_count} Clauses</span> "
+            f"<span style='background-color: #F1F5F9; color: #334155; font-weight: bold; padding: 2px 8px; border-radius: 4px; border: 1px solid #CBD5E1; font-size: 11px;'>{specs_with_hits} Spec(s)</span>"
+            f"{date_badge}"
         )
 
     def _on_tab_table_clicked(self, index, spec_num: str, table: QTableView):
@@ -505,6 +805,7 @@ class SpecSearchTab(QWidget):
 
         self.version_tree.populate(versions, saved_checked=saved_checked)
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
+        self._update_db_stats()
 
     def _on_fetch_clicked(self):
         if not self.specs_db:
