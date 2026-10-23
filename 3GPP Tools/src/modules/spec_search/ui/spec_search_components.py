@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from modules.spec_search.core.spec_clause_exporter import copy_clause_to_clipboard
 from modules.spec_search.core.spec_search_db import parse_version_tuple
 
 
@@ -252,6 +253,8 @@ class SpecClauseInspector(QGroupBox):
     show_in_specs_tab_requested = pyqtSignal(str, str)          # spec_number, version
     quick_diff_requested = pyqtSignal(str, str, str, str, str)  # spec_number, base_ver, target_ver, clause_number, clause_title
     jump_to_version_requested = pyqtSignal(str, str, str)       # spec_number, target_version, clause_number
+    extract_clause_requested = pyqtSignal(str, str, str, str, str, bool)  # spec_number, version, clause_number, clause_title, content, save_as
+    export_markdown_requested = pyqtSignal(str, str, str, str, str)       # spec_number, version, clause_number, clause_title, content
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__("Clause Content Inspector", parent)
@@ -261,6 +264,8 @@ class SpecClauseInspector(QGroupBox):
         self._current_version = ""
         self._current_clause_num = ""
         self._current_clause_title = ""
+        self._current_content = ""
+        self._current_release_date = ""
         self._first_added_ver = ""
         self._prev_ver = ""
         self._setup_ui()
@@ -318,28 +323,74 @@ class SpecClauseInspector(QGroupBox):
         self.btn_next.setEnabled(False)
         header_bar.addWidget(self.btn_next)
 
-        self.btn_copy = QPushButton("📋 Copy Citation")
-        self.btn_copy.setToolTip("Copy clause citation and text to clipboard")
-        self.btn_copy.clicked.connect(self._copy_citation)
+        self.btn_copy = QPushButton("📋 Copy ▾")
+        self.btn_copy.setToolTip("Copy clause text (Rich HTML for Email/Outlook, Markdown quote block, or Plain Text)")
+        self.btn_copy.setCursor(Qt.PointingHandCursor)
+        copy_menu = QMenu(self)
+        act_cp_email = copy_menu.addAction("📋 Copy for Email / Outlook (Rich Text)")
+        act_cp_email.triggered.connect(lambda: self._copy_formatted("email"))
+        act_cp_md = copy_menu.addAction("📝 Copy as Markdown (Quote Block)")
+        act_cp_md.triggered.connect(lambda: self._copy_formatted("markdown"))
+        act_cp_plain = copy_menu.addAction("📄 Copy Plain Text")
+        act_cp_plain.triggered.connect(lambda: self._copy_formatted("text"))
+        copy_menu.addSeparator()
+        act_cp_cite = copy_menu.addAction("🔖 Copy Citation Only")
+        act_cp_cite.triggered.connect(lambda: self._copy_formatted("citation"))
+        self.btn_copy.setMenu(copy_menu)
         self.btn_copy.setEnabled(False)
         header_bar.addWidget(self.btn_copy)
 
-        # 1-Click Open Spec Document Button with Format Menu
-        self.btn_open_doc = QPushButton("📝 Open Word ▾")
-        self.btn_open_doc.setToolTip("Open specification Word document (Clause number copied to clipboard for instant search with Ctrl+F in Word)")
-        self.btn_open_doc.setCursor(Qt.PointingHandCursor)
-        self.btn_open_doc.setStyleSheet("""
+        # Clause Extraction to Word / Markdown
+        self.btn_extract = QPushButton("✂️ Extract ▾")
+        self.btn_extract.setToolTip("Extract this clause to a clean Word (.docx) document or export to Markdown (.md)")
+        self.btn_extract.setCursor(Qt.PointingHandCursor)
+        self.btn_extract.setStyleSheet("""
             QPushButton {
                 font-weight: bold;
-                background-color: #E8F5E9;
-                color: #2E7D32;
-                border: 1px solid #A5D6A7;
+                background-color: #F0FDF4;
+                color: #166534;
+                border: 1px solid #BBF7D0;
                 padding: 2px 8px;
                 border-radius: 4px;
             }
             QPushButton:hover {
-                background-color: #C8E6C9;
-                color: #1B5E20;
+                background-color: #DCFCE7;
+                color: #14532D;
+            }
+            QPushButton:disabled {
+                background-color: #F3F4F6;
+                color: #9CA3AF;
+                border: 1px solid #E5E7EB;
+            }
+        """)
+        extract_menu = QMenu(self)
+        act_ext_word = extract_menu.addAction("✂️ Extract Clause in Word (.docx)")
+        act_ext_word.triggered.connect(lambda: self._on_extract_clicked(save_as=False))
+        act_ext_save = extract_menu.addAction("💾 Save Clause as Word (.docx)...")
+        act_ext_save.triggered.connect(lambda: self._on_extract_clicked(save_as=True))
+        extract_menu.addSeparator()
+        act_ext_md = extract_menu.addAction("📘 Export Clause to Markdown (.md)...")
+        act_ext_md.triggered.connect(self._on_export_markdown_clicked)
+        self.btn_extract.setMenu(extract_menu)
+        self.btn_extract.setEnabled(False)
+        header_bar.addWidget(self.btn_extract)
+
+        # 1-Click Open Spec Document Button with Format Menu
+        self.btn_open_doc = QPushButton("📖 Full Doc ▾")
+        self.btn_open_doc.setToolTip("Open complete specification document in Microsoft Word or PDF")
+        self.btn_open_doc.setCursor(Qt.PointingHandCursor)
+        self.btn_open_doc.setStyleSheet("""
+            QPushButton {
+                font-weight: 500;
+                background-color: #F8FAFC;
+                color: #334155;
+                border: 1px solid #CBD5E1;
+                padding: 2px 8px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #F1F5F9;
+                color: #0F172A;
             }
             QPushButton:disabled {
                 background-color: #F3F4F6;
@@ -348,7 +399,7 @@ class SpecClauseInspector(QGroupBox):
             }
         """)
         doc_menu = QMenu(self)
-        act_word = doc_menu.addAction("📝 Open Word Document (.docx / .doc)")
+        act_word = doc_menu.addAction("📝 Open Full Specification in Word (.docx / .doc)")
         act_word.triggered.connect(lambda: self._on_open_doc_clicked("word"))
         act_pdf = doc_menu.addAction("📕 Open Converted PDF (.pdf)")
         act_pdf.triggered.connect(lambda: self._on_open_doc_clicked("pdf"))
@@ -464,6 +515,8 @@ class SpecClauseInspector(QGroupBox):
         self._current_version = version
         self._current_clause_num = clause_number
         self._current_clause_title = clause_title
+        self._current_content = content
+        self._current_release_date = release_date or ""
         self._current_search_query = search_query.strip()
         self._first_added_ver = first_added_ver or ""
         self._prev_ver = prev_ver or ""
@@ -474,6 +527,7 @@ class SpecClauseInspector(QGroupBox):
 
         self._last_citation_text = f"3GPP TS {spec_number} v{version}{date_str}, Clause {clause_number} ({clause_title}):\n\n{content}"
         self.btn_copy.setEnabled(True)
+        self.btn_extract.setEnabled(True)
         self.btn_llm_diff.setEnabled(True)
         self.btn_open_doc.setEnabled(True)
         self.btn_show_in_specs.setEnabled(True)
@@ -621,11 +675,44 @@ class SpecClauseInspector(QGroupBox):
             self.browser.moveCursor(QTextCursor.End)
             self.browser.find(self._current_search_query, QTextDocument.FindBackward)
 
+    def _copy_formatted(self, mode: str = "email"):
+        if not self._current_spec or not self._current_clause_num or not self._current_content:
+            return
+        status = copy_clause_to_clipboard(
+            self._current_spec,
+            self._current_version,
+            self._current_clause_num,
+            self._current_clause_title,
+            self._current_content,
+            self._current_release_date,
+            mode=mode,
+        )
+        self.btn_copy.setText("✅ Copied!")
+        QTimer.singleShot(1500, lambda: self.btn_copy.setText("📋 Copy ▾"))
+
+    def _on_extract_clicked(self, save_as: bool = False):
+        if self._current_spec and self._current_version and self._current_clause_num:
+            self.extract_clause_requested.emit(
+                self._current_spec,
+                self._current_version,
+                self._current_clause_num,
+                self._current_clause_title,
+                self._current_content,
+                save_as,
+            )
+
+    def _on_export_markdown_clicked(self):
+        if self._current_spec and self._current_version and self._current_clause_num:
+            self.export_markdown_requested.emit(
+                self._current_spec,
+                self._current_version,
+                self._current_clause_num,
+                self._current_clause_title,
+                self._current_content,
+            )
+
     def _copy_citation(self):
-        if self._last_citation_text:
-            QApplication.clipboard().setText(self._last_citation_text)
-            self.btn_copy.setText("✅ Copied!")
-            QTimer.singleShot(1500, lambda: self.btn_copy.setText("📋 Copy Citation"))
+        self._copy_formatted("citation")
 
     def clear_display(self):
         self.title_lbl.setText("No clause selected")
@@ -634,6 +721,7 @@ class SpecClauseInspector(QGroupBox):
         self.btn_prev.setEnabled(False)
         self.btn_next.setEnabled(False)
         self.btn_copy.setEnabled(False)
+        self.btn_extract.setEnabled(False)
         self.btn_open_doc.setEnabled(False)
         self.btn_show_in_specs.setEnabled(False)
         self.btn_quick_diff.setEnabled(False)
@@ -645,5 +733,7 @@ class SpecClauseInspector(QGroupBox):
         self._current_version = ""
         self._current_clause_num = ""
         self._current_clause_title = ""
+        self._current_content = ""
+        self._current_release_date = ""
         self._first_added_ver = ""
         self._prev_ver = ""

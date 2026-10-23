@@ -47,6 +47,7 @@ from modules.specifications.ui.spec_annotations_dialog import (
     BatchTagDialog,
     EditSpecAnnotationsDialog,
 )
+from modules.spec_search.core.spec_search_db import SpecSearchDatabase
 from modules.specifications.ui.spec_action_controller import (
     handle_document_action,
     handle_zip_action,
@@ -299,10 +300,12 @@ class SpecificationsTab(QWidget):
     log_msg = pyqtSignal(str, int)
     search_in_spec_search_requested = pyqtSignal(str, str)  # spec_number, version
     index_in_spec_search_requested = pyqtSignal(str, str)   # spec_number, version
+    batch_index_in_spec_search_requested = pyqtSignal(list) # list of (spec_number, version) tuples
 
     def __init__(self, db_path: Path):
         super().__init__()
         self.db = SpecsDatabase(db_path)
+        self.spec_search_db = SpecSearchDatabase(get_project_root() / "db" / "3gpp_spec_search.db")
         self._download_threads = []
 
         self.config_file = get_project_root() / "config" / "specs_config.json"
@@ -1336,6 +1339,33 @@ class SpecificationsTab(QWidget):
         if url:
             webbrowser.open(url)
 
+    def _get_row_version(self, row_idx: int) -> str:
+        cell_widget = self.table.cellWidget(row_idx, 2)
+        if cell_widget:
+            combo = cell_widget.findChild(QComboBox)
+            if combo:
+                c_data = combo.currentData()
+                if c_data and isinstance(c_data, dict):
+                    return c_data.get("version", "")
+        return ""
+
+    def _handle_search_spec_action(self, spec_num: str, row_idx: int):
+        ver = self._get_row_version(row_idx)
+        self.search_in_spec_search_requested.emit(spec_num, ver)
+
+    def _handle_index_spec_action(self, spec_num: str, row_idx: int):
+        ver = self._get_row_version(row_idx)
+        self.index_in_spec_search_requested.emit(spec_num, ver)
+
+    def _batch_index_in_spec_search(self, target_items: list):
+        spec_items = []
+        for item in target_items:
+            spec_num = item[0]
+            v_info = item[1] if len(item) > 1 else None
+            ver = v_info.get("version", "") if v_info else ""
+            spec_items.append((spec_num, ver))
+        self.batch_index_in_spec_search_requested.emit(spec_items)
+
     # ==========================================
     # --- TABLE REFRESH & RENDERING ---
     # ==========================================
@@ -1547,7 +1577,10 @@ class SpecificationsTab(QWidget):
                 web_action.triggered.connect(lambda _, s=spec_num: self._open_web_report(s))
 
                 search_action = menu.addAction("🔎  Track Evolution in Spec Search")
-                search_action.triggered.connect(lambda _, s=spec_num: self.search_in_spec_search_requested.emit(s, ""))
+                search_action.triggered.connect(lambda _, s=spec_num, r=row_idx: self._handle_search_spec_action(s, r))
+
+                index_action = menu.addAction("📥  Index into Spec Search DB")
+                index_action.triggered.connect(lambda _, s=spec_num, r=row_idx: self._handle_index_spec_action(s, r))
 
                 menu.addSeparator()
 
@@ -1573,13 +1606,26 @@ class SpecificationsTab(QWidget):
                 folder_action = menu.addAction("📂  Open Local Folder")
                 folder_action.triggered.connect(lambda _, s=spec_num: self._open_spec_folder(s))
 
-                def _update_menu_state(act=folder_action, path=spec_target_dir):
+                def _update_menu_state(act=folder_action, path=spec_target_dir, idx_act=index_action, s=spec_num, r=row_idx):
                     if path.exists() and any(path.iterdir()):
                         act.setText("📂  Open Local Folder")
                         act.setEnabled(True)
                     else:
                         act.setText("📁  Folder Not Created")
                         act.setEnabled(False)
+                    ver = self._get_row_version(r)
+                    if ver:
+                        is_idx = (
+                            self.spec_search_db.is_version_indexed(s, ver)
+                            if hasattr(self, "spec_search_db") and self.spec_search_db
+                            else False
+                        )
+                        if is_idx:
+                            idx_act.setText(f"🔄  Re-index v{ver} in Spec Search DB")
+                        else:
+                            idx_act.setText(f"📥  Index v{ver} into Spec Search DB")
+                    else:
+                        idx_act.setText("📥  Index into Spec Search DB")
 
                 menu.addSeparator()
                 del_action = menu.addAction("🗑️  Delete Specification")
@@ -1882,7 +1928,15 @@ class SpecificationsTab(QWidget):
                     act_search_tab = menu.addAction("🔎 Track Evolution / Clauses in Spec Search")
                     act_search_tab.triggered.connect(lambda: self.search_in_spec_search_requested.emit(c_data["spec_num"], c_data.get("version", "")))
 
-                    act_index_search = menu.addAction("📥 Index into Spec Search DB")
+                    ver_val = c_data.get("version", "")
+                    ver_tag = f" (v{ver_val})" if ver_val else ""
+                    is_idx = (
+                        self.spec_search_db.is_version_indexed(c_data["spec_num"], ver_val)
+                        if hasattr(self, "spec_search_db") and self.spec_search_db and ver_val
+                        else False
+                    )
+                    idx_lbl = f"🔄 Re-index{ver_tag} in Spec Search DB" if is_idx else f"📥 Index{ver_tag} into Spec Search DB"
+                    act_index_search = menu.addAction(idx_lbl)
                     act_index_search.triggered.connect(lambda: self.index_in_spec_search_requested.emit(c_data["spec_num"], c_data.get("version", "")))
 
                     menu.addSeparator()
