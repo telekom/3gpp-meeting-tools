@@ -332,6 +332,171 @@ class TestUnassignedLsInExport(unittest.TestCase):
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def test_post_meeting_ls_reply_tracking_and_inclusion(self):
+        import tempfile
+        import shutil
+
+        rows = [
+            # 1. Incoming LS with no assigned WI, replied to via S2-2610500 (draft)
+            {
+                "TDoc": "S2-2609300",
+                "Type": "LS in",
+                "TDoc Status": "replied to",
+                "Reply in": "S2-2610500, S2-2610500",
+                "Reply to": "",
+                "Related WIs": "",
+                "Agenda Item": "4.1",
+                "Agenda item description": "Common issues and Incoming LSs",
+                "Release": "Rel-19",
+                "Title": "Incoming LS on Avatars",
+                "Source": "GSMA",
+            },
+            # 2. Draft reply LS, revised to S2-2610956
+            {
+                "TDoc": "S2-2610500",
+                "Type": "LS out",
+                "TDoc Status": "revised",
+                "Revised to": "S2-2610956",
+                "Reply in": "",
+                "Reply to": "S2-2609300",
+                "Related WIs": "AvCall-MED",
+                "Agenda Item": "19.2",
+                "Agenda item description": "Avatars Call",
+                "Release": "Rel-19",
+                "Title": "Draft Reply LS",
+                "Source": "SA2",
+            },
+            # 3. Final approved reply LS (WI is AvCall-MED, NOT in user followed tokens)
+            {
+                "TDoc": "S2-2610956",
+                "Type": "LS out",
+                "TDoc Status": "approved",
+                "Reply in": "",
+                "Reply to": "S2-2609300",
+                "Related WIs": "AvCall-MED",
+                "Agenda Item": "19.2",
+                "Agenda item description": "Avatars Call",
+                "Release": "Rel-19",
+                "Title": "Final Approved Reply LS",
+                "Source": "SA2",
+            },
+            # 4. Followed WI CR (User only follows 6G_ARC)
+            {
+                "TDoc": "S2-2609400",
+                "Type": "CR",
+                "TDoc Status": "Agreed",
+                "Related WIs": "6G_ARC",
+                "Agenda Item": "20.6.20",
+                "Agenda item description": "Study on 6G",
+                "Release": "Rel-20",
+                "Title": "Agreed CR on 6G",
+                "Source": "Qualcomm",
+            },
+        ]
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="test_ls_replies_"))
+        try:
+            meeting_dir = tmp_dir / "Meeting"
+            export_dir = tmp_dir / "Export"
+            meeting_dir.mkdir(parents=True, exist_ok=True)
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+            exporter = PostMeetingExporterThread(
+                meeting_dir=meeting_dir,
+                all_rows=rows,
+                visible_rows=rows,
+                agenda_map={},
+                mtg_info={"wg_name": "SA2", "meeting_number": "177"},
+                docs_ftp_url="",
+                revisions_url="",
+                scope_mode="followed",
+                followed_tokens={"6g_arc", "fs_6g_arc"},
+                include_ls_in=True,
+                include_ls_out=True,
+                include_general_ls=True,
+                output_dir=export_dir,
+            )
+
+            # 1. Test reply mapping with revision resolution
+            in_to_replies, out_to_in, tdoc_map = exporter._build_ls_reply_map()
+            self.assertIn("S2-2609300", in_to_replies)
+            self.assertEqual(in_to_replies["S2-2609300"], {"S2-2610956"})
+            self.assertIn("S2-2610956", out_to_in)
+            self.assertEqual(out_to_in["S2-2610956"], {"S2-2609300"})
+
+            # 2. Test grouping and guaranteed inclusion of replies
+            tree = exporter._filter_and_group_tdocs(self.wi_db_info)
+
+            # S2-2609300 (LS IN) must be in Rel-19/General
+            self.assertIn("Rel-19", tree)
+            self.assertIn("General", tree["Rel-19"])
+            ls_in_docs = tree["Rel-19"]["General"]["categories"]["LS_IN"]
+            self.assertEqual(len(ls_in_docs), 1)
+            self.assertEqual(ls_in_docs[0]["tdoc_id"], "S2-2609300")
+            self.assertEqual(ls_in_docs[0]["replies"], ["S2-2610956"])
+
+            # S2-2610956 (LS OUT) MUST be in Rel-19/General/LS_OUT even though AvCall-MED is not followed!
+            ls_out_docs = tree["Rel-19"]["General"]["categories"]["LS_OUT"]
+            self.assertEqual(len(ls_out_docs), 1)
+            self.assertEqual(ls_out_docs[0]["tdoc_id"], "S2-2610956")
+            self.assertEqual(ls_out_docs[0]["reply_to_ids"], ["S2-2609300"])
+            self.assertEqual(ls_out_docs[0]["cross_wis"], ["AvCall-MED"])
+
+            # AvCall-MED must NOT be present as an independent WI section
+            self.assertNotIn("AvCall-MED", tree.get("Rel-19", {}))
+            self.assertNotIn("AvCall-MED", tree.get("Rel-20", {}))
+
+            # Followed WI 6G_ARC must be present in Rel-20
+            self.assertIn("Rel-20", tree)
+            self.assertIn("6G_ARC", tree["Rel-20"])
+
+            # 3. Test dossier export and reciprocal headers
+            # Create dummy cache files
+            for t_id, title in [("S2-2609300", "Incoming LS on Avatars"), ("S2-2610956", "Final Approved Reply LS")]:
+                f_dir = meeting_dir / t_id
+                f_dir.mkdir(parents=True, exist_ok=True)
+                (f_dir / f"{t_id}.md").write_text(f"# {t_id}: {title}\n\nDocument body.", encoding="utf-8")
+
+            exporter._export_all_dossiers(tree)
+
+            in_md_file = export_dir / "Rel-19" / "General" / "LS_IN" / "S2-2609300.md"
+            out_md_file = export_dir / "Rel-19" / "General" / "LS_OUT" / "S2-2610956.md"
+            self.assertTrue(in_md_file.exists())
+            self.assertTrue(out_md_file.exists())
+
+            in_content = in_md_file.read_text(encoding="utf-8")
+            out_content = out_md_file.read_text(encoding="utf-8")
+
+            # Check reciprocal callouts
+            self.assertIn("[!TIP]", in_content)
+            self.assertIn("Outgoing Reply:", in_content)
+            self.assertIn("[S2-2610956](../LS_OUT/S2-2610956.md)", in_content)
+
+            self.assertIn("[!NOTE]", out_content)
+            self.assertIn("Reply Liaison Statement:", out_content)
+            self.assertIn("[S2-2609300](../LS_IN/S2-2609300.md)", out_content)
+
+            # 4. Test table rendering with reply hyperlinks
+            # Master index table for LS_IN
+            master_in_table = exporter._render_markdown_table(ls_in_docs, is_local_wi=False, base_dir=export_dir)
+            self.assertIn("replied to in [S2-2610956](Rel-19/General/LS_OUT/S2-2610956.md)", master_in_table)
+
+            # Master index table for LS_OUT
+            master_out_table = exporter._render_markdown_table(ls_out_docs, is_local_wi=False, base_dir=export_dir)
+            self.assertIn("approved (reply to [S2-2609300](Rel-19/General/LS_IN/S2-2609300.md))", master_out_table)
+
+            # Local WI index table for LS_IN (from Rel-19/General/index.md)
+            general_dir = export_dir / "Rel-19" / "General"
+            local_in_table = exporter._render_markdown_table(ls_in_docs, is_local_wi=True, base_dir=general_dir)
+            self.assertIn("replied to in [S2-2610956](LS_OUT/S2-2610956.md)", local_in_table)
+
+            # Local WI index table for LS_OUT
+            local_out_table = exporter._render_markdown_table(ls_out_docs, is_local_wi=True, base_dir=general_dir)
+            self.assertIn("approved (reply to [S2-2609300](LS_IN/S2-2609300.md))", local_out_table)
+
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

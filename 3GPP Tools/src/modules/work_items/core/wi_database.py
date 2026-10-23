@@ -266,6 +266,26 @@ class WorkItemsDatabase:
 
         return {t.lower() for t in tokens if t}
 
+    def get_existing_wi_codes(self, codes: set) -> set:
+        """
+        Returns the subset of provided WI code strings that already exist in the database.
+        """
+        if not codes:
+            return set()
+        clean_codes = [str(c).strip() for c in codes if str(c).strip()]
+        if not clean_codes:
+            return set()
+        placeholders = ','.join(['?'] * len(clean_codes))
+        query = f"SELECT code FROM work_items WHERE code IN ({placeholders})"
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, clean_codes)
+                return {str(r[0]) for r in cursor.fetchall()}
+        except Exception as e:
+            logger.error(f"Failed to check existing WI codes: {e}", exc_info=True)
+            return set()
+
     def get_work_item_details(self, wi_code: str) -> dict:
         """Retrieves comprehensive details for a single Work Item."""
         query = """
