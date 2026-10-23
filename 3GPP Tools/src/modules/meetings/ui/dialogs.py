@@ -440,7 +440,25 @@ class MeetingsConfigDialog(QDialog):
         scrape_layout.addWidget(self.chk_docs)
         layout.addWidget(scrape_group)
 
-        # 3. Footer Actions
+        # 3. Work Item Auto-Discovery
+        wi_group = QGroupBox("🎯 Work Items & Enrichment")
+        wi_layout = QVBoxLayout(wi_group)
+
+        self.chk_auto_enrich_wis = QCheckBox("Auto-enrich missing Work Items from meeting spreadsheets")
+        self.chk_auto_enrich_wis.setChecked(self.settings.get_auto_enrich_wis())
+        self.chk_auto_enrich_wis.setToolTip(
+            "When opening or refreshing a meeting, checks if referenced Work Items exist in the database and automatically scrapes missing details in the background."
+        )
+        self.chk_auto_enrich_wis.toggled.connect(self.settings.set_auto_enrich_wis)
+        wi_layout.addWidget(self.chk_auto_enrich_wis)
+
+        wi_desc = QLabel("Runs transparently off-thread without slowing down meeting loading or UI interactions.")
+        wi_desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        wi_layout.addWidget(wi_desc)
+
+        layout.addWidget(wi_group)
+
+        # 4. Footer Actions
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 

@@ -40,6 +40,7 @@ from modules.meetings.core.tdocs_db import TDocsDatabase
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.core.tdocs_package_exporter import TDocsPackageExporterThread
+from modules.meetings.core.meeting_wi_enricher import MeetingWIEnricherThread
 from modules.meetings.core.tdocs_threads import (
     TDocsRevisionsFetcherThread,
     TDocActionThread,
@@ -158,6 +159,7 @@ class TDocsWindow(QWidget):
         self._setup_cache()
 
         self.drop_overlay = DropOverlayWidget(self)
+        self._start_background_wi_enrichment()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1264,10 +1266,40 @@ class TDocsWindow(QWidget):
                 self._refresh_comboboxes()
                 self._refresh_email_counts()
                 self.last_mod_lbl.setText(self._get_mod_date_str())
+                self._start_background_wi_enrichment()
             else:
                 QMessageBox.warning(self, "Parse Error", "Downloaded, but could not parse the Excel file.")
         else:
             QMessageBox.critical(self, "Download Error", f"Failed to refresh TDocs:\n{result}")
+
+    def _start_background_wi_enrichment(self):
+        """Dispatches an unnoticeable, asynchronous background thread to enrich missing Work Items."""
+        try:
+            if not getattr(self, "filepath", None):
+                return
+            excel_path = Path(self.filepath)
+            if not excel_path.exists():
+                return
+            if "wi_enrichment" in self.active_threads:
+                existing = self.active_threads["wi_enrichment"]
+                if existing.isRunning():
+                    return
+            thread = MeetingWIEnricherThread(excel_path, parent=self)
+            thread.finished_enrichment.connect(self._on_wi_enrichment_finished)
+            self.active_threads["wi_enrichment"] = thread
+            thread.start()
+        except Exception as e:
+            logging.debug(f"[TDocsWindow] Failed to dispatch background WI enrichment: {e}")
+
+    def _on_wi_enrichment_finished(self, success: bool, count: int, msg: str):
+        if "wi_enrichment" in self.active_threads:
+            del self.active_threads["wi_enrichment"]
+        if success and count > 0:
+            try:
+                self._load_tracked_wi_tokens()
+                self._update_filter_facets()
+            except Exception as e:
+                logging.debug(f"[TDocsWindow] Filter refresh after WI enrichment: {e}")
 
     def _refresh_revisions(self, silent=False):
         if not self.revisions_url:

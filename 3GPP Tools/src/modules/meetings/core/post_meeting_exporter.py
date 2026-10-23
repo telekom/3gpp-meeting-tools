@@ -144,6 +144,58 @@ class PostMeetingExporterThread(QThread):
             logger.error(f"[PostMeetingExporter] Critical failure during export: {e}", exc_info=True)
             self.finished.emit(False, str(e))
 
+    def _build_ls_reply_map(self) -> tuple:
+        """
+        Scans all meeting rows to build bidirectional reply mappings:
+        - in_to_replies: incoming_tdoc_id -> set of final approved/agreed reply tdoc_ids
+        - out_to_in: outgoing_tdoc_id -> set of incoming tdoc_ids
+        - tdoc_map: tdoc_id -> row_dict
+        Follows revision chains ('Revised to') to identify final approved reply TDocs.
+        """
+        tdoc_map = {str(r.get("TDoc", "")).strip().upper(): r for r in self.all_rows if r.get("TDoc")}
+
+        def _resolve_final(tdoc_id: str) -> str:
+            curr = tdoc_id.upper()
+            visited = set()
+            while curr and curr not in visited:
+                visited.add(curr)
+                row = tdoc_map.get(curr)
+                if not row:
+                    break
+                rev = str(row.get("Revised to", "")).strip()
+                if rev:
+                    matches = re.findall(r'[A-Za-z0-9]+-\d+', rev)
+                    if matches:
+                        curr = matches[-1].upper()
+                        continue
+                break
+            return curr
+
+        in_to_replies: Dict[str, Set[str]] = {}
+        out_to_in: Dict[str, Set[str]] = {}
+
+        for r in self.all_rows:
+            tdoc = str(r.get("TDoc", "")).strip().upper()
+            if not tdoc:
+                continue
+            rep_in = str(r.get("Reply in", "")).strip()
+            rep_to = str(r.get("Reply to", "")).strip()
+
+            if rep_in:
+                targets = [_resolve_final(x) for x in re.findall(r'[A-Za-z0-9]+-\d+', rep_in)]
+                for tgt in targets:
+                    in_to_replies.setdefault(tdoc, set()).add(tgt)
+                    out_to_in.setdefault(tgt, set()).add(tdoc)
+
+            if rep_to:
+                incomings = [x.upper() for x in re.findall(r'[A-Za-z0-9]+-\d+', rep_to)]
+                final_out = _resolve_final(tdoc)
+                for inc in incomings:
+                    in_to_replies.setdefault(inc, set()).add(final_out)
+                    out_to_in.setdefault(final_out, set()).add(inc)
+
+        return in_to_replies, out_to_in, tdoc_map
+
     def _load_work_items_info(self) -> dict:
         """Loads Work Items records and tracking tokens from settings and 3gpp_data.db."""
         info = {
@@ -205,6 +257,7 @@ class PostMeetingExporterThread(QThread):
         - Only incoming LS (LS in) and agreed/approved contributions (pCR, CR, LS out).
         - Groups by Release -> Work Item -> Category.
         - Identifies cross-WI overlaps.
+        - Connects incoming LS to approved outgoing replies (and guarantees reply export).
         """
         # Data structure:
         # tree[release][wi_acronym] = {
@@ -215,6 +268,7 @@ class PostMeetingExporterThread(QThread):
         # }
         tree: Dict[str, Dict[str, Any]] = {}
 
+        in_to_replies, out_to_in, tdoc_map = self._build_ls_reply_map()
         visible_tdoc_ids = {str(r.get("TDoc", "")).strip().upper() for r in self.visible_rows if r.get("TDoc")}
 
         for row in self.all_rows:
@@ -261,7 +315,7 @@ class PostMeetingExporterThread(QThread):
 
             if not associated_wis:
                 # Non-WI contribution
-                if category == "LS_IN" and self.include_general_ls:
+                if (category in ("LS_IN", "LS_OUT")) and self.include_general_ls:
                     associated_wis = ["General"]
                 elif self.scope_mode == "whole":
                     associated_wis = ["General"]
@@ -272,7 +326,7 @@ class PostMeetingExporterThread(QThread):
             matching_wis = []
             for wi in associated_wis:
                 if wi == "General":
-                    if self.scope_mode in ["whole", "visible"] or (category == "LS_IN" and self.include_general_ls):
+                    if self.scope_mode in ["whole", "visible"] or ((category in ("LS_IN", "LS_OUT")) and self.include_general_ls):
                         matching_wis.append(wi)
                     continue
 
@@ -292,11 +346,11 @@ class PostMeetingExporterThread(QThread):
                 else:  # "whole" or "visible"
                     matching_wis.append(wi)
 
-            # If this is an LS IN with no official WI assigned in Related WIs,
+            # If this is an LS IN or LS OUT with no official WI assigned in Related WIs,
             # and it didn't match any followed/selected WI in matching_wis,
             # but self.include_general_ls is enabled:
-            # Fall back to "General" so unassigned LS INs are NEVER dropped!
-            if category == "LS_IN" and self.include_general_ls and not has_official_wi and not matching_wis:
+            # Fall back to "General" so unassigned LS documents are preserved!
+            if (category in ("LS_IN", "LS_OUT")) and self.include_general_ls and not has_official_wi and not matching_wis:
                 matching_wis.append("General")
                 if "General" not in associated_wis:
                     associated_wis.append("General")
@@ -338,9 +392,80 @@ class PostMeetingExporterThread(QThread):
                     "spec": str(row.get("Spec", "")).strip(),
                     "category": category,
                     "cross_wis": other_wis,
+                    "replies": sorted(list(in_to_replies.get(tdoc_id, set()))),
+                    "reply_to_ids": sorted(list(out_to_in.get(tdoc_id, set()))),
                     "row_data": row,
                 }
                 tree[release][target_wi]["categories"][category].append(entry)
+
+        # Post-pass: Guarantee that any approved reply LS OUT answering an included LS IN
+        # is present in the export. If its WI was not in the export scope (or unassigned),
+        # attach it under General/LS_OUT so the reply dossier is created without cluttering
+        # the report with unwanted WI sections.
+        all_included_tdocs = {
+            doc["tdoc_id"]
+            for rel_data in tree.values()
+            for wi_data in rel_data.values()
+            for doc_list in wi_data["categories"].values()
+            for doc in doc_list
+        }
+
+        needed_replies = set()
+        for rel_data in tree.values():
+            for wi_data in rel_data.values():
+                for ls_in_doc in wi_data["categories"].get("LS_IN", []):
+                    for rep_id in ls_in_doc.get("replies", []):
+                        if rep_id not in all_included_tdocs:
+                            needed_replies.add(rep_id)
+
+        for rep_id in sorted(needed_replies):
+            rep_row = tdoc_map.get(rep_id)
+            if not rep_row:
+                continue
+
+            # Only export if agreed/approved (or not withdrawn)
+            rep_status = str(rep_row.get("TDoc Status", "")).strip().lower()
+            if any(neg in rep_status for neg in ["withdrawn", "rejected", "not approved", "not agreed"]):
+                continue
+
+            rep_rel = self._resolve_tdoc_release(rep_row, ["General"], wi_db_info)
+            target_wi = "General"
+
+            if rep_rel not in tree:
+                tree[rep_rel] = {}
+            if target_wi not in tree[rep_rel]:
+                tree[rep_rel][target_wi] = {
+                    "info": self._get_wi_display_info(target_wi, wi_db_info, rep_rel),
+                    "ais": set(),
+                    "ai_titles": {},
+                    "categories": {"LS_IN": [], "pCR": [], "CR": [], "LS_OUT": []},
+                }
+
+            rep_ai = str(rep_row.get("Agenda Item", "")).strip() or "Unassigned"
+            rep_ai_desc = str(rep_row.get("Agenda item description", "")).strip()
+            tree[rep_rel][target_wi]["ais"].add(rep_ai)
+            if rep_ai and rep_ai_desc and rep_ai not in tree[rep_rel][target_wi]["ai_titles"]:
+                tree[rep_rel][target_wi]["ai_titles"][rep_ai] = rep_ai_desc
+
+            raw_wis = TDocsTableModel._split_related_wis(rep_row.get("Related WIs", ""))
+            clean_wis = [w for w in raw_wis if w and w.lower() not in {"(no wi)", "none", "nan", "-"}]
+
+            rep_entry = {
+                "tdoc_id": rep_id,
+                "title": str(rep_row.get("Title", "")).strip(),
+                "source": str(rep_row.get("Source", "")).strip(),
+                "type": str(rep_row.get("Type", "")).strip(),
+                "status": str(rep_row.get("TDoc Status", "")).strip(),
+                "ai": rep_ai,
+                "spec": str(rep_row.get("Spec", "")).strip(),
+                "category": "LS_OUT",
+                "cross_wis": clean_wis,  # Mention original WIs in cross-WI column
+                "replies": sorted(list(in_to_replies.get(rep_id, set()))),
+                "reply_to_ids": sorted(list(out_to_in.get(rep_id, set()))),
+                "row_data": rep_row,
+            }
+            tree[rep_rel][target_wi]["categories"]["LS_OUT"].append(rep_entry)
+            all_included_tdocs.add(rep_id)
 
         # Sort entries
         for rel in tree.values():
@@ -521,6 +646,26 @@ class PostMeetingExporterThread(QThread):
             local_md_file, local_media_dir = self._ensure_tdoc_markdown(tdoc_id, row_data)
             converted_cache[tdoc_id] = (local_md_file, local_media_dir)
 
+        # Pre-register target paths for all documents across the dossier structure
+        self.exported_tdoc_paths: Dict[str, Path] = {}
+        self.tdoc_titles: Dict[str, str] = {}
+
+        for rel_name, wis in filtered_entries.items():
+            rel_slug = sanitize_folder_name(rel_name)
+            for wi_name, wi_data in wis.items():
+                wi_slug = sanitize_folder_name(wi_name)
+                for cat_name, cat_docs in wi_data["categories"].items():
+                    type_dir = self.export_dir / rel_slug / wi_slug / cat_name
+                    for doc in cat_docs:
+                        tdoc_id = doc["tdoc_id"]
+                        target_md_file = type_dir / f"{sanitize_filename(tdoc_id)}.md"
+                        doc["target_md_abs_path"] = target_md_file
+                        doc["target_md_rel_path"] = f"{rel_slug}/{wi_slug}/{cat_name}/{sanitize_filename(tdoc_id)}.md"
+                        doc["wi_local_rel_path"] = f"{cat_name}/{sanitize_filename(tdoc_id)}.md"
+                        if tdoc_id not in self.exported_tdoc_paths:
+                            self.exported_tdoc_paths[tdoc_id] = target_md_file
+                            self.tdoc_titles[tdoc_id] = doc.get("title", "")
+
         # Phase 2: Copy dossiers into target directory structure
         for rel_name, wis in filtered_entries.items():
             rel_slug = sanitize_folder_name(rel_name)
@@ -538,32 +683,70 @@ class PostMeetingExporterThread(QThread):
                     for doc in cat_docs:
                         tdoc_id = doc["tdoc_id"]
                         local_md_file, local_media_dir = converted_cache.get(tdoc_id, (None, None))
-                        target_md_file = type_dir / f"{sanitize_filename(tdoc_id)}.md"
+                        target_md_file = doc.get("target_md_abs_path") or (type_dir / f"{sanitize_filename(tdoc_id)}.md")
 
-                        doc["target_md_rel_path"] = f"{rel_slug}/{wi_slug}/{cat_name}/{sanitize_filename(tdoc_id)}.md"
-                        doc["wi_local_rel_path"] = f"{cat_name}/{sanitize_filename(tdoc_id)}.md"
+                        # Collect header notices (cross-WI, replies, reply-to)
+                        header_notices = []
+
+                        # Inject cross-WI notification header if this TDoc overlaps with other WIs
+                        if doc.get("cross_wis"):
+                            other_wis_str = ", ".join(f"`{w}`" for w in doc["cross_wis"])
+                            header_notices.append(
+                                f"> [!NOTE]\n"
+                                f"> **Cross-WI Contribution:** This TDoc is also associated with {other_wis_str}."
+                            )
+
+                        # Inject reciprocal links for LS documents
+                        if doc.get("category") == "LS_IN" and doc.get("replies"):
+                            rep_links = []
+                            for rep_id in doc["replies"]:
+                                rep_abs = self.exported_tdoc_paths.get(rep_id)
+                                rep_title = self.tdoc_titles.get(rep_id, "")
+                                rep_title_str = f" (*{rep_title}*)" if rep_title else ""
+                                if rep_abs:
+                                    rel = os.path.relpath(rep_abs, target_md_file.parent).replace("\\", "/")
+                                    rep_links.append(f"**[{rep_id}]({rel})**{rep_title_str}")
+                                else:
+                                    rep_links.append(f"**{rep_id}**{rep_title_str}")
+                            if rep_links:
+                                header_notices.append(
+                                    f"> [!TIP]\n"
+                                    f"> **Outgoing Reply:** This incoming Liaison Statement was replied to in {', '.join(rep_links)}."
+                                )
+
+                        if doc.get("category") == "LS_OUT" and doc.get("reply_to_ids"):
+                            in_links = []
+                            for in_id in doc["reply_to_ids"]:
+                                in_abs = self.exported_tdoc_paths.get(in_id)
+                                in_title = self.tdoc_titles.get(in_id, "")
+                                in_title_str = f" (*{in_title}*)" if in_title else ""
+                                if in_abs:
+                                    rel = os.path.relpath(in_abs, target_md_file.parent).replace("\\", "/")
+                                    in_links.append(f"**[{in_id}]({rel})**{in_title_str}")
+                                else:
+                                    in_links.append(f"**{in_id}**{in_title_str}")
+                            if in_links:
+                                header_notices.append(
+                                    f"> [!NOTE]\n"
+                                    f"> **Reply Liaison Statement:** This outgoing LS is a reply to incoming LS {', '.join(in_links)}."
+                                )
+
+                        notice_block = "\n\n".join(header_notices) + ("\n\n" if header_notices else "")
 
                         if local_md_file and os.path.exists(to_extended_path(local_md_file)):
                             try:
                                 with open(to_extended_path(local_md_file), "r", encoding="utf-8") as f:
                                     md_content = f.read()
 
-                                # Inject cross-WI notification header if this TDoc overlaps with other WIs
-                                if doc.get("cross_wis"):
-                                    other_wis_str = ", ".join(f"`{w}`" for w in doc["cross_wis"])
-                                    notice = (
-                                        f"> [!NOTE]\n"
-                                        f"> **Cross-WI Contribution:** This TDoc is also associated with {other_wis_str}.\n\n"
-                                    )
-                                    # Insert right after header or at top
+                                if notice_block:
                                     if md_content.startswith("<!---"):
                                         first_break = md_content.find("\n\n")
                                         if first_break != -1:
-                                            md_content = md_content[:first_break + 2] + notice + md_content[first_break + 2:]
+                                            md_content = md_content[:first_break + 2] + notice_block + md_content[first_break + 2:]
                                         else:
-                                            md_content = notice + md_content
+                                            md_content = notice_block + md_content
                                     else:
-                                        md_content = notice + md_content
+                                        md_content = notice_block + md_content
 
                                 with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
                                     f.write(md_content)
@@ -587,6 +770,7 @@ class PostMeetingExporterThread(QThread):
                                 with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
                                     f.write(
                                         f"# {tdoc_id}: {doc['title']}\n\n"
+                                        f"{notice_block}"
                                         f"* **Source:** {doc['source']}\n"
                                         f"* **Type:** {doc['type']}\n"
                                         f"* **Agenda Item:** {doc['ai']}\n"
@@ -720,7 +904,7 @@ class PostMeetingExporterThread(QThread):
                     if docs:
                         has_docs = True
                         lines.append(f"### {cat_title}\n")
-                        lines.append(self._render_markdown_table(docs, is_local_wi=True))
+                        lines.append(self._render_markdown_table(docs, is_local_wi=True, base_dir=wi_dir))
                         lines.append("")
 
                 if not has_docs:
@@ -840,7 +1024,7 @@ class PostMeetingExporterThread(QThread):
                     if docs:
                         has_docs = True
                         lines.append(f"#### {cat_title}\n")
-                        lines.append(self._render_markdown_table(docs, is_local_wi=False))
+                        lines.append(self._render_markdown_table(docs, is_local_wi=False, base_dir=self.export_dir))
                         lines.append("")
 
                 if not has_docs:
@@ -854,10 +1038,13 @@ class PostMeetingExporterThread(QThread):
         except Exception as e:
             logger.error(f"[PostMeetingExporter] Error writing master index.md: {e}", exc_info=True)
 
-    def _render_markdown_table(self, docs: List[dict], is_local_wi: bool) -> str:
+    def _render_markdown_table(self, docs: List[dict], is_local_wi: bool = False, base_dir: Optional[Path] = None) -> str:
         """Renders a standard markdown table for a list of TDoc entries."""
         if not docs:
             return "*None*\n"
+
+        if base_dir is None:
+            base_dir = self.export_dir
 
         headers = ["TDoc", "Type", "Status", "AI", "Title", "Source", "Cross-WI", "Dossier Link"]
         lines = [
@@ -867,17 +1054,59 @@ class PostMeetingExporterThread(QThread):
 
         for d in docs:
             tdoc_id = d["tdoc_id"]
-            link_path = d.get("wi_local_rel_path") if is_local_wi else d.get("target_md_rel_path")
+            target_abs = d.get("target_md_abs_path")
+            if target_abs and base_dir:
+                link_path = os.path.relpath(target_abs, base_dir).replace("\\", "/")
+            elif is_local_wi:
+                link_path = d.get("wi_local_rel_path")
+            else:
+                link_path = d.get("target_md_rel_path")
+
             link_str = f"[{tdoc_id}]({link_path})" if link_path else tdoc_id
 
             title_safe = str(d.get("title", "")).replace("\n", " ").replace("\r", "").replace("|", "\\|")
             source_safe = str(d.get("source", "")).replace("\n", " ").replace("\r", "").replace("|", "\\|")
             cross_wi_str = ", ".join(f"`{w}`" for w in d.get("cross_wis", [])) if d.get("cross_wis") else "—"
 
+            raw_status = str(d.get("status", "")).strip()
+            cat = d.get("category", "")
+            if cat == "LS_IN" and d.get("replies"):
+                rep_items = []
+                for rep_id in d["replies"]:
+                    rep_abs = getattr(self, "exported_tdoc_paths", {}).get(rep_id)
+                    if rep_abs and base_dir:
+                        r_rel = os.path.relpath(rep_abs, base_dir).replace("\\", "/")
+                        rep_items.append(f"[{rep_id}]({r_rel})")
+                    else:
+                        rep_items.append(rep_id)
+                rep_str = ", ".join(rep_items)
+                if "replied" in raw_status.lower():
+                    status_cell = f"replied to in {rep_str}"
+                elif raw_status:
+                    status_cell = f"{raw_status} (replied in {rep_str})"
+                else:
+                    status_cell = f"replied to in {rep_str}"
+            elif cat == "LS_OUT" and d.get("reply_to_ids"):
+                in_items = []
+                for in_id in d["reply_to_ids"]:
+                    in_abs = getattr(self, "exported_tdoc_paths", {}).get(in_id)
+                    if in_abs and base_dir:
+                        i_rel = os.path.relpath(in_abs, base_dir).replace("\\", "/")
+                        in_items.append(f"[{in_id}]({i_rel})")
+                    else:
+                        in_items.append(in_id)
+                in_str = ", ".join(in_items)
+                if raw_status:
+                    status_cell = f"{raw_status} (reply to {in_str})"
+                else:
+                    status_cell = f"reply to {in_str}"
+            else:
+                status_cell = raw_status
+
             row_cells = [
                 link_str,
                 str(d.get("type", "")),
-                str(d.get("status", "")),
+                status_cell,
                 str(d.get("ai", "")),
                 title_safe,
                 source_safe,

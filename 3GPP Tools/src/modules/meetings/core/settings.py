@@ -112,3 +112,27 @@ class MeetingsSettings:
                 json.dump(data, f, indent=4)
         except Exception as e:
             logger.error(f"[MeetingsSettings] Error saving include_unassigned_ls_in: {e}")
+
+    def get_auto_enrich_wis(self) -> bool:
+        if not self.config_file.exists():
+            return True
+        try:
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data.get("auto_enrich_wis", True)
+        except Exception:
+            return True
+
+    def set_auto_enrich_wis(self, enabled: bool):
+        try:
+            data = {}
+            if self.config_file.exists():
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+            data['auto_enrich_wis'] = bool(enabled)
+
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+        except Exception as e:
+            logger.error(f"[MeetingsSettings] Error saving auto_enrich_wis: {e}")
