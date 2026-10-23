@@ -235,6 +235,7 @@ class DragDropUI(QMainWindow):
         self.spec_search_tab.navigate_to_specs_tab_requested.connect(self._navigate_from_search_to_specs)
         self.specs_tab.search_in_spec_search_requested.connect(self._navigate_from_specs_to_search)
         self.specs_tab.index_in_spec_search_requested.connect(self._index_spec_from_specs_tab)
+        self.specs_tab.batch_index_in_spec_search_requested.connect(self._batch_index_specs_from_specs_tab)
 
         logging.info("🏁 [STARTUP:UI:TAB] 9/9 Initializing AssistantTab...")
         self.assistant_tab = AssistantTab(
@@ -322,25 +323,89 @@ class DragDropUI(QMainWindow):
         self.spec_search_tab.focus_spec(spec_number, version)
 
     def _index_spec_from_specs_tab(self, spec_number: str, version: str):
-        """Directly indexes a specification version from Specifications tab into Spec Search."""
-        clean_spec = spec_number.strip()
-        clean_ver = version.lstrip("v").strip()
-        rows = self.specs_tab.db.search_files(spec_number=clean_spec, release_version=clean_ver)
-        if not rows:
-            QMessageBox.warning(self, "Spec Not Found", f"No database records found for TS {clean_spec} v{clean_ver}.")
+        """Directly indexes a single specification version from Specifications tab into Spec Search."""
+        self._batch_index_specs_from_specs_tab([(spec_number, version)])
+
+    def _batch_index_specs_from_specs_tab(self, spec_items: list):
+        """Directly indexes one or more specification versions from Specifications tab into Spec Search."""
+        from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
+        from modules.spec_search.core.spec_search_threads import is_change_mark_file
+
+        if not spec_items:
             return
 
-        row = rows[0]
-        task = {
-            "spec_number": clean_spec,
-            "version": clean_ver,
-            "filename": row[4],
-            "file_url": row[6],
-            "release_date": row[7],
-        }
+        tasks = []
+        for spec_number, version in spec_items:
+            clean_spec = str(spec_number).strip()
+            clean_ver = str(version).lstrip("vV").strip()
+
+            # 1. Exact lookup via get_spec_files
+            files = self.specs_tab.db.get_spec_files(clean_spec)
+            matching_file = None
+            if clean_ver:
+                matching_file = next(
+                    (f for f in files if str(f.get("version", "")).lstrip("vV").strip() == clean_ver),
+                    None
+                )
+            elif files:
+                matching_file = files[0]
+                clean_ver = str(matching_file.get("version", "")).lstrip("vV").strip()
+
+            filename = ""
+            file_url = ""
+            release_date = ""
+
+            if matching_file:
+                filename = matching_file.get("filename", "")
+                file_url = matching_file.get("url", "")
+                release_date = matching_file.get("upload_date", "")
+            else:
+                rows = self.specs_tab.db.search_files(spec_number=clean_spec, release_version=clean_ver)
+                if rows:
+                    filename = rows[0][4]
+                    file_url = rows[0][6]
+                    release_date = rows[0][7]
+                    if not clean_ver and len(rows[0]) > 5:
+                        clean_ver = str(rows[0][5]).lstrip("vV").strip()
+
+            if not filename and not file_url:
+                continue
+
+            task = {
+                "spec_number": clean_spec,
+                "version": clean_ver,
+                "filename": filename,
+                "file_url": file_url,
+                "release_date": release_date,
+            }
+
+            # Check if Word document is already extracted locally in download_dir
+            spec_dir = Path(self.specs_tab.download_dir) / clean_spec
+            stem = filename.replace(".zip", "")
+            if spec_dir.exists() and stem:
+                local_docs = [
+                    f for f in spec_dir.iterdir()
+                    if f.is_file()
+                    and f.stem.lower().startswith(stem.lower())
+                    and f.suffix.lower() in [".docx", ".doc"]
+                    and not is_change_mark_file(f.name)
+                ]
+                if local_docs:
+                    local_docs.sort(key=lambda p: ProtocolDocxDispatcher._extract_part_index(p.name))
+                    task["local_docx_paths"] = local_docs
+
+            tasks.append(task)
+
+        if not tasks:
+            QMessageBox.warning(
+                self,
+                "Spec Not Found",
+                "Could not find specification metadata or archive records for the requested version(s)."
+            )
+            return
 
         self.tabs.setCurrentWidget(self.spec_search_tab)
-        self.spec_search_tab._start_batch_ingestion([task])
+        self.spec_search_tab._start_batch_ingestion(tasks)
 
     def _launch_init_thread(self, check_updates=False):
         """Thread-safe launcher that prevents duplicate initialization checks."""

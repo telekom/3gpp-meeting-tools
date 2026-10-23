@@ -6,6 +6,7 @@ persistence of active filters and selected specification versions.
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -32,11 +33,20 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_WARNING, \
-    BUTTON_STYLE_TOOLBAR_DANGER
+from core.ui.ui_components import (
+    BUTTON_STYLE_TOOLBAR_SECONDARY,
+    BUTTON_STYLE_TOOLBAR_WARNING,
+    BUTTON_STYLE_TOOLBAR_DANGER,
+)
 from core.utils.paths import get_project_root, get_specs_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
+from modules.spec_search.core.spec_clause_exporter import (
+    SpecClauseWordExtractorThread,
+    copy_clause_to_clipboard,
+    export_clause_to_markdown_file,
+    get_default_clause_export_path,
+)
 from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase
 from modules.spec_search.core.spec_search_threads import (
@@ -220,6 +230,8 @@ class SpecSearchTab(QWidget):
         self.inspector.show_in_specs_tab_requested.connect(self._handle_show_in_specs_tab)
         self.inspector.quick_diff_requested.connect(self._handle_quick_diff)
         self.inspector.jump_to_version_requested.connect(self._handle_jump_to_version)
+        self.inspector.extract_clause_requested.connect(self._handle_extract_clause_word)
+        self.inspector.export_markdown_requested.connect(self._handle_export_clause_markdown)
         right_splitter.addWidget(self.inspector)
 
         right_splitter.setSizes([420, 240])
@@ -539,6 +551,7 @@ class SpecSearchTab(QWidget):
         self._start_batch_ingestion(tasks)
 
     def _start_batch_ingestion(self, tasks: List[Dict[str, Any]]):
+        self._current_ingesting_tasks = tasks
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         self.fetch_btn.setEnabled(False)
@@ -563,8 +576,32 @@ class SpecSearchTab(QWidget):
         self.fetch_btn.setEnabled(True)
         self.import_local_btn.setEnabled(True)
         logger.log(logging.INFO, f"✅ Indexed {specs_count} specification(s) ({clauses_count} total clauses).")
-        self.refresh_versions()
+
+        # Ensure newly ingested versions are preserved in saved_checked
+        tasks = getattr(self, "_current_ingesting_tasks", [])
+        saved_checked = self.version_tree.get_checked_versions_info()
+        if saved_checked is None:
+            saved_checked = []
+        for t in tasks:
+            s_num = str(t.get("spec_number", "")).strip()
+            ver = str(t.get("version", "")).lstrip("vV").strip()
+            if s_num and ver:
+                if not any(
+                    str(item.get("spec_number", "")).strip() == s_num
+                    and str(item.get("version", "")).lstrip("vV").strip() == ver
+                    for item in saved_checked
+                ):
+                    saved_checked.append({"spec_number": s_num, "version": ver})
+
+        versions = self.db.get_imported_versions()
+        self.version_tree.populate(versions, saved_checked=saved_checked)
+        self.selected_version_ids = self.version_tree.get_selected_version_ids()
         self._save_config()
+
+        # Focus newly indexed version if single spec
+        if len(tasks) == 1:
+            t = tasks[0]
+            self.focus_spec(t.get("spec_number", ""), t.get("version", ""))
 
     def _on_import_error(self, err: str):
         self.progress_bar.setVisible(False)
@@ -735,6 +772,185 @@ class SpecSearchTab(QWidget):
         worker.start()
         prog.exec_()
 
+    def _handle_extract_clause_word(
+        self,
+        spec_number: str,
+        version: str,
+        clause_number: str,
+        clause_title: str,
+        content: str,
+        save_as: bool = False,
+    ):
+        """Extracts clause into a standalone Word (.docx) document with native formatting and tables."""
+        from PyQt5.QtWidgets import QFileDialog, QProgressDialog
+
+        dest_path = None
+        if save_as:
+            default_path = get_default_clause_export_path(spec_number, version, clause_number, ext=".docx")
+            chosen, _ = QFileDialog.getSaveFileName(
+                self,
+                f"Save Clause {clause_number} as Word Document",
+                str(default_path),
+                "Word Document (*.docx)",
+            )
+            if not chosen:
+                return
+            dest_path = Path(chosen)
+
+        prog = QProgressDialog(
+            f"Extracting Clause {clause_number} from TS {spec_number} v{version}...",
+            "Cancel",
+            0,
+            100,
+            self,
+        )
+        prog.setWindowTitle("Extracting Clause to Word")
+        prog.setWindowModality(Qt.WindowModal)
+        prog.setValue(5)
+
+        worker = SpecClauseWordExtractorThread(
+            spec_number=spec_number,
+            version=version,
+            clause_number=clause_number,
+            clause_title=clause_title,
+            clause_content=content,
+            output_path=dest_path,
+            cache_dir=self.cache_dir,
+            specs_db=self.specs_db,
+        )
+
+        def on_progress(val, msg):
+            prog.setValue(val)
+            prog.setLabelText(msg)
+
+        def on_success(out_file):
+            prog.close()
+            logger.info(f"Clause excerpt created at: {out_file}")
+            try:
+                os.startfile(str(out_file))
+            except Exception as e:
+                logger.warning(f"Could not open file directly: {e}")
+                QMessageBox.information(
+                    self,
+                    "Clause Extracted",
+                    f"Clause {clause_number} extracted successfully to:\n{out_file}",
+                )
+
+        def on_error(err):
+            prog.close()
+            QMessageBox.critical(
+                self,
+                "Clause Extraction Failed",
+                f"Could not extract Clause {clause_number} in Word:\n{err}",
+            )
+
+        worker.progress.connect(on_progress)
+        worker.finished_success.connect(on_success)
+        worker.error.connect(on_error)
+        prog.canceled.connect(worker.requestInterruption)
+
+        self._active_word_workers = getattr(self, "_active_word_workers", [])
+        self._active_word_workers.append(worker)
+        worker.finished.connect(
+            lambda: self._active_word_workers.remove(worker)
+            if worker in self._active_word_workers
+            else None
+        )
+
+        worker.start()
+        prog.exec_()
+
+    def _handle_export_clause_markdown(
+        self,
+        spec_number: str,
+        version: str,
+        clause_number: str,
+        clause_title: str,
+        content: str,
+    ):
+        """Exports the clause to a standalone Markdown (.md) document file with pictures and diagrams."""
+        from PyQt5.QtWidgets import QFileDialog, QProgressDialog
+
+        default_path = get_default_clause_export_path(spec_number, version, clause_number, ext=".md")
+        chosen, _ = QFileDialog.getSaveFileName(
+            self,
+            f"Export Clause {clause_number} to Markdown",
+            str(default_path),
+            "Markdown File (*.md);;All Files (*)",
+        )
+        if not chosen:
+            return
+
+        dest_path = Path(chosen)
+        prog = QProgressDialog(
+            f"Exporting Clause {clause_number} to Markdown with diagrams...",
+            "Cancel",
+            0,
+            100,
+            self,
+        )
+        prog.setWindowTitle("Exporting Clause to Markdown")
+        prog.setWindowModality(Qt.WindowModal)
+        prog.setValue(5)
+
+        worker = SpecClauseWordExtractorThread(
+            spec_number=spec_number,
+            version=version,
+            clause_number=clause_number,
+            clause_title=clause_title,
+            clause_content=content,
+            output_path=dest_path,
+            cache_dir=self.cache_dir,
+            specs_db=self.specs_db,
+            export_format="markdown",
+        )
+
+        def on_progress(val, msg):
+            prog.setValue(val)
+            prog.setLabelText(msg)
+
+        def on_success(out_file):
+            prog.close()
+            img_count = getattr(worker, "images_count", 0)
+            img_msg = f" with {img_count} diagram(s)/image(s) extracted into '{out_file.stem}_media/'" if img_count > 0 else ""
+            logger.info(f"Clause exported to Markdown at: {out_file}{img_msg}")
+            reply = QMessageBox.question(
+                self,
+                "Clause Exported to Markdown",
+                f"Clause {clause_number} exported successfully to:\n{out_file}{img_msg}\n\nDo you want to open the file?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Yes:
+                try:
+                    os.startfile(str(out_file))
+                except Exception as e:
+                    logger.warning(f"Could not open file: {e}")
+
+        def on_error(err):
+            prog.close()
+            QMessageBox.critical(
+                self,
+                "Markdown Export Failed",
+                f"Could not export Clause {clause_number} to Markdown:\n{err}",
+            )
+
+        worker.progress.connect(on_progress)
+        worker.finished_success.connect(on_success)
+        worker.error.connect(on_error)
+        prog.canceled.connect(worker.requestInterruption)
+
+        self._active_word_workers = getattr(self, "_active_word_workers", [])
+        self._active_word_workers.append(worker)
+        worker.finished.connect(
+            lambda: self._active_word_workers.remove(worker)
+            if worker in self._active_word_workers
+            else None
+        )
+
+        worker.start()
+        prog.exec_()
+
     def _handle_show_in_specs_tab(self, spec_number: str, version: str):
         """Emits signal to switch to Specifications tab with spec and version pre-selected."""
         self.navigate_to_specs_tab_requested.emit(spec_number, version)
@@ -841,6 +1057,58 @@ class SpecSearchTab(QWidget):
             act_compare.triggered.connect(lambda: self._open_clause_diff_dialog(spec_num, version, clause_num, clause_title))
 
         menu.addSeparator()
+        clause_rec = self.db.get_clause_content_by_spec_ver(spec_num, version, clause_num)
+        clause_text = clause_rec.get("content", "") if clause_rec else ""
+        rel_date = clause_rec.get("release_date", "") if clause_rec else ""
+        actual_title = clause_rec.get("clause_title", clause_title) if clause_rec else clause_title
+
+        menu.addSeparator()
+        act_ext_word = menu.addAction(f"✂️ Extract Clause {clause_num} in Word (.docx)")
+        act_ext_word.triggered.connect(
+            lambda: self._handle_extract_clause_word(
+                spec_num, version, clause_num, actual_title, clause_text, save_as=False
+            )
+        )
+        act_save_word = menu.addAction(f"💾 Save Clause {clause_num} as Word (.docx)...")
+        act_save_word.triggered.connect(
+            lambda: self._handle_extract_clause_word(
+                spec_num, version, clause_num, actual_title, clause_text, save_as=True
+            )
+        )
+        act_export_md = menu.addAction(f"📘 Export Clause {clause_num} to Markdown (.md)...")
+        act_export_md.triggered.connect(
+            lambda: self._handle_export_clause_markdown(
+                spec_num, version, clause_num, actual_title, clause_text
+            )
+        )
+
+        menu.addSeparator()
+        copy_menu = menu.addMenu("📋 Copy Clause")
+        act_cp_email = copy_menu.addAction("📋 Copy for Email / Outlook (Rich Text)")
+        act_cp_email.triggered.connect(
+            lambda: copy_clause_to_clipboard(
+                spec_num, version, clause_num, actual_title, clause_text, rel_date, mode="email"
+            )
+        )
+        act_cp_md = copy_menu.addAction("📝 Copy as Markdown (Quote Block)")
+        act_cp_md.triggered.connect(
+            lambda: copy_clause_to_clipboard(
+                spec_num, version, clause_num, actual_title, clause_text, rel_date, mode="markdown"
+            )
+        )
+        act_cp_plain = copy_menu.addAction("📄 Copy Plain Text")
+        act_cp_plain.triggered.connect(
+            lambda: copy_clause_to_clipboard(
+                spec_num, version, clause_num, actual_title, clause_text, rel_date, mode="text"
+            )
+        )
+        copy_menu.addSeparator()
+        act_cp_cite = copy_menu.addAction("🔖 Copy Citation Only")
+        act_cp_cite.triggered.connect(
+            lambda: copy_clause_to_clipboard(
+                spec_num, version, clause_num, actual_title, clause_text, rel_date, mode="citation"
+            )
+        )
         act_copy = menu.addAction("📋 Copy Clause Citation")
         act_copy.triggered.connect(lambda: QApplication.clipboard().setText(f"3GPP TS {spec_num} v{version}, Clause {clause_num} ({clause_title})"))
 
@@ -852,7 +1120,7 @@ class SpecSearchTab(QWidget):
         Ensures the spec is selected in the version tree and search bar is focused.
         """
         clean_spec = spec_number.strip()
-        clean_ver = version.lstrip("v").strip() if version else None
+        clean_ver = str(version).lstrip("vV").strip() if version else None
 
         # Check if spec is in version tree
         all_specs = [
@@ -862,26 +1130,89 @@ class SpecSearchTab(QWidget):
         ]
 
         if clean_spec in all_specs:
+            target_spec_item = None
+            target_child_item = None
             for i in range(1, self.version_tree.topLevelItemCount()):
                 item = self.version_tree.topLevelItem(i)
                 data = item.data(0, Qt.UserRole) or {}
                 if data.get("spec_number") == clean_spec:
+                    target_spec_item = item
                     item.setExpanded(True)
-                    item.setCheckState(0, Qt.Checked)
-                    self.version_tree.setCurrentItem(item)
-                    self.version_tree.scrollToItem(item)
+                    if clean_ver:
+                        for c_idx in range(item.childCount()):
+                            child = item.child(c_idx)
+                            c_data = child.data(0, Qt.UserRole) or {}
+                            if str(c_data.get("version", "")).lstrip("vV").strip() == clean_ver:
+                                target_child_item = child
+                                child.setCheckState(0, Qt.Checked)
+                                break
+                    if not target_child_item and not clean_ver:
+                        item.setCheckState(0, Qt.Checked)
                     break
+
+            if target_child_item:
+                self.version_tree.setCurrentItem(target_child_item)
+                self.version_tree.scrollToItem(target_child_item)
+            elif target_spec_item:
+                self.version_tree.setCurrentItem(target_spec_item)
+                self.version_tree.scrollToItem(target_spec_item)
+                if clean_ver:
+                    reply = QMessageBox.question(
+                        self,
+                        "Version Not Indexed",
+                        f"TS {clean_spec} is indexed in Spec Search, but version v{clean_ver} is not yet added.\n\n"
+                        f"Would you like to index TS {clean_spec} v{clean_ver} now?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.Yes,
+                    )
+                    if reply == QMessageBox.Yes and self.specs_db:
+                        files = self.specs_db.get_spec_files(clean_spec)
+                        matching_file = next(
+                            (f for f in files if str(f.get("version", "")).lstrip("vV").strip() == clean_ver),
+                            None
+                        )
+                        if matching_file:
+                            task = {
+                                "spec_number": clean_spec,
+                                "version": clean_ver,
+                                "filename": matching_file.get("filename", ""),
+                                "file_url": matching_file.get("url", ""),
+                                "release_date": matching_file.get("upload_date", ""),
+                            }
+                            self._start_batch_ingestion([task])
+                            return
+
             self.selected_version_ids = self.version_tree.get_selected_version_ids()
         else:
+            prompt_msg = (
+                f"TS {clean_spec} v{clean_ver} is not yet indexed in the Spec Search database.\n\nWould you like to index it now?"
+                if clean_ver
+                else f"TS {clean_spec} is not yet indexed in the Spec Search database.\n\nWould you like to import it from the Specifications database now?"
+            )
             reply = QMessageBox.question(
                 self,
                 "Spec Not Indexed",
-                f"TS {clean_spec} is not yet indexed in the Spec Search database.\n\n"
-                f"Would you like to import it from the Specifications database now?",
+                prompt_msg,
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes,
             )
             if reply == QMessageBox.Yes:
+                if clean_ver and self.specs_db:
+                    files = self.specs_db.get_spec_files(clean_spec)
+                    matching_file = next(
+                        (f for f in files if str(f.get("version", "")).lstrip("vV").strip() == clean_ver),
+                        None
+                    )
+                    if matching_file:
+                        task = {
+                            "spec_number": clean_spec,
+                            "version": clean_ver,
+                            "filename": matching_file.get("filename", ""),
+                            "file_url": matching_file.get("url", ""),
+                            "release_date": matching_file.get("upload_date", ""),
+                        }
+                        self._start_batch_ingestion([task])
+                        return
                 self._on_fetch_clicked()
                 return
 

@@ -812,9 +812,31 @@ def show_spec_context_menu(tab, position):
         web_action = menu.addAction("🌐 Open 3GPP Web Report")
         web_action.triggered.connect(lambda _, s=spec_num: tab._open_web_report(s))
 
+        ver_str = v_info.get("version", "") if v_info else ""
+        clean_ver = ver_str.lstrip("vV").strip() if ver_str else ""
+
         search_action = menu.addAction("🔎 Track Evolution in Spec Search")
         search_action.triggered.connect(
-            lambda _, s=spec_num: tab.search_in_spec_search_requested.emit(s, "")
+            lambda _, s=spec_num, v=clean_ver: tab.search_in_spec_search_requested.emit(s, v)
+        )
+
+        is_indexed = (
+            tab.spec_search_db.is_version_indexed(spec_num, clean_ver)
+            if hasattr(tab, "spec_search_db") and tab.spec_search_db and clean_ver
+            else False
+        )
+        if is_indexed:
+            index_action = menu.addAction(f"🔄 Re-index v{clean_ver} in Spec Search DB")
+            index_action.setToolTip(f"TS {spec_num} v{clean_ver} is already indexed. Re-extract and refresh search index.")
+        elif clean_ver:
+            index_action = menu.addAction(f"📥 Index v{clean_ver} into Spec Search DB")
+            index_action.setToolTip(f"Ingest and index TS {spec_num} v{clean_ver} into the local trigram Spec Search database.")
+        else:
+            index_action = menu.addAction("📥 Index into Spec Search DB")
+            index_action.setToolTip("Ingest this specification into the local trigram Spec Search database.")
+
+        index_action.triggered.connect(
+            lambda _, s=spec_num, v=clean_ver: tab.index_in_spec_search_requested.emit(s, v)
         )
 
         menu.addSeparator()
@@ -856,6 +878,12 @@ def show_spec_context_menu(tab, position):
         copy_sub.setToolTipsVisible(True)
         copy_sub.setToolTip("Copy metadata and download links for all selected specifications.")
         populate_multi_spec_copy_menu(copy_sub, tab, target_items, db=tab.db)
+
+        menu.addSeparator()
+
+        batch_index_action = menu.addAction(f"📥 Index selected ({len(target_items)}) into Spec Search DB")
+        batch_index_action.setToolTip("Ingest and index active versions for all selected specifications into Spec Search DB.")
+        batch_index_action.triggered.connect(lambda: tab._batch_index_in_spec_search(target_items))
 
         menu.addSeparator()
 

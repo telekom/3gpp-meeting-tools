@@ -144,7 +144,8 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Universal Access:** Launch the unified comparison directly from the matrix cell right-click menu (**`🔍 Compare Clause (Diff & AI Analysis)...`**), or click **`📝 Open in Word (Track Changes)`** from inside the comparison dialog.
 * **Two-Way Cross-Tab Synergy with Specifications Tab:**
   * **Deep Link to Specifications Tab:** Click the **`🔍 Specs Tab`** button in the Inspector or select **`Show in Specifications Tab`** from the matrix context menu to switch to the **📚 Specifications** tab with the exact document and release selected.
-  * **Deep Link to Spec Search:** From the **📚 Specifications** tab, right-click any specification or version to select **`🔎 Track Evolution in Spec Search`** (instantly filtering the search matrix to that spec) or **`📥 Index into Spec Search DB`** to ingest missing releases on demand.
+  * **Deep Link to Spec Search:** From the **📚 Specifications** tab, right-click any specification or version to select **`🔎 Track Evolution in Spec Search`** (instantly filtering the search matrix to that spec and focusing the active version).
+  * **1-Click Version Indexing into Spec Search DB:** In the **📚 Specifications** tab, right-click any row to select **`📥 Index vX.Y.Z into Spec Search DB`** (or **`🔄 Re-index vX.Y.Z`** if already present), or select multiple specifications to batch-index active versions (**`📥 Index selected (N) into Spec Search DB`**). The engine detects locally extracted Word documents to avoid re-downloading, switches to Spec Search, and automatically activates and focuses the newly indexed release in the tree.
 * **Persistent Search Configuration:**
   * Active search queries, clause filters, cutoff dates, and exact checked specification versions are automatically persisted to `spec_search_config.json` and restored across application sessions.
 * **Non-Blocking Database Maintenance:**
@@ -268,6 +269,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **🤖 Instant AI Technical Triage:** Right-click any proposal row or open its details card to launch the AI Triage assistant. Streams a focused summary covering the problem statement, proposed normative changes, and contentious impact points, with 1-click status assignment and note persistence into SQLite.
   * **Persistent Personal Notes & Status (Sidecar Database):** Keep a private, local SQLite database that "overlays" your data onto the 3GPP list. Double-click any TDoc to assign a color-coded status (🟢 Support, 🔴 Object, 🟡 Monitor) and save personal notes. Your data survives perfectly even when downloading fresh 3GPP Excel updates.
   * **Tracked Work Items Quick Filters (🎯 Followed & ⭐ Starred):** Instant 1-click filter bar toggle chips (`🎯 Followed WIs`, `⭐ Starred WIs`) that isolate meeting contributions associated with your assigned delegation responsibilities and personal watchlist. Dynamically displays badge counts of matching TDocs, automatically reflects newly tracked items from the Work Items tab on focus, and seamlessly combines via `AND` logic with other filters (e.g., TDoc Status like "Approved/Agreed", Contributing Company, Type). By default, includes unassigned incoming Liaison Statements (`LS in`) without an assigned Work Item so crucial inter-group communications are never missed (toggleable via right-click context menu on either chip). Features robust token normalization stripping WG suffixes (`-ARC`, `-CT`, etc.) and `FS_` prefixes, with fallback to parenthesized acronyms in Agenda Item descriptions for discussion papers lacking explicit metadata.
+  * **⚡ Opportunistic Work Item Auto-Enrichment:** When loading or refreshing any meeting's TDocs list, a dedicated background worker (`MeetingWIEnricherThread`) automatically scans the "Related WIs" column off-thread for 3GPP Portal hyperlinks (`workitemId=\d+`). It performs a sub-millisecond check against SQLite (`work_items`), and quietly scrapes missing/unindexed Work Items from the 3GPP Portal in the background with zero impact on UI responsiveness or TDoc table loading speed. Employs a persistent JSON audit marker (`<excel>.wi_checked.json`) ensuring subsequent opens bypass checking (~0 ms), and dynamically updates tracked tokens and filter badges upon completion. Fully configurable in Meetings Configuration.
   * **📑 Post-Meeting Report & Dossier Markdown Generator (`Export Post-Meeting Report (.md)...`):**
     * **Hierarchical Release & Work Item Organization:** Exports meeting contributions into an organized dossier under `{meeting_dir}/Export/PostMeeting_<WG>_<Meeting>_<timestamp>/`, grouped chronologically by 3GPP Release (e.g., `Rel-19`, `Rel-20`) and then by Work Item (e.g., `FS_6G_ARC`).
     * **Contribution Type Categorization:** Within each Work Item, documents are cleanly routed into dedicated type subfolders: `LS_IN/` (incoming liaison statements), `pCR/` (agreed pseudo-CRs), `CR/` (agreed Change Requests), and `LS_OUT/` (agreed outgoing liaison statements). General non-WI incoming liaison statements are collected under `General/LS_IN/` (enabled by default via `Include unassigned & general LS in`).
@@ -568,22 +570,31 @@ python -m main_tools
    * Review the **Release Evolution Matrix** displayed in per-specification tabs (e.g., `TS 23.501 (32)`, `TS 23.502 (20)`).
    * Toggle **🎯 Date Cutoff** and select a cutoff date. Text introduced after that date will be highlighted with ⚡ **`⚡ Post-Cutoff Added`**.
    * Check **Show Only Post-Cutoff Additions** to filter out older prior art and show only clauses containing post-cutoff date modifications.
-5. **Inspecting Matching Clause Content:**
+5. **Inspecting Matching Clause Content & Multi-Format Copying:**
    * Click any cell in the matrix to load the clause into the **Clause Content Inspector**.
    * The **💡 Key Match Excerpt** callout at the top highlights the matching paragraph with surrounding sentence context.
    * Use **`[ ◀ Prev ]`** and **`[ Next ▶ ]`** to cycle between match occurrences in long clauses.
-   * Click **`[ 📋 Copy Citation ]`** to copy the formatted text with 3GPP document, version, and release date metadata directly to your clipboard.
+   * Click **`📋 Copy ▾`** to copy the clause in your preferred format:
+     * **📋 Copy for Email / Outlook (Rich Text):** Dual-format clipboard copy setting styled rich HTML with a formal 3GPP citation header banner and formatted paragraphs alongside clean plain text fallback.
+     * **📝 Copy as Markdown (Quote Block):** Formatted GitHub-style callout quote block (`> [!NOTE]`) citing specification release and clause metadata.
+     * **📄 Copy Plain Text:** Full clause text with citation.
+     * **🔖 Copy Citation Only:** Pure citation string (`3GPP TS 23.256 v19.5.0, Clause 5.15 (Title)`).
    * Click **`🟢 First Added in v...`** to jump immediately to the matrix release where this text was introduced, or click **`[ 🔍 Diff Prev ]`** to view the in-app side-by-side textual diff.
-6. **Opening Specifications Directly & Clipboard Assistance:**
-   * Click **`📝 Open Word ▾`** in the Inspector (or double-click any matrix cell) to launch the exact specification release in Microsoft Word or PDF.
+6. **Extracting Individual Clauses to Word (.docx) & Markdown (.md):**
+   * Click **`✂️ Extract ▾`** on the inspector toolbar (or right-click any matrix cell):
+     * **✂️ Extract Clause in Word (.docx):** Non-blocking background worker locates the Word document (auto-extracting or downloading if needed), scans heading hierarchies with `WordHeadingScanner`, routes multi-part split documents (`_s00_s04`, `_s05_s08`), and compiles a clean, standalone Word document containing that clause with native styles, tables, and figures, immediately opening it in Word.
+     * **💾 Save Clause as Word (.docx)...:** Prompts for a custom destination folder/filename before generating the standalone Word excerpt.
+     * **📘 Export Clause to Markdown (.md)...:** Converts the clause into high-fidelity Markdown powered by the application's Markdown conversion engine. All figures, diagrams, and pictures are automatically extracted into a version-isolated media directory (`{filename}_media/`), EMF/WMF vector drawings are converted to crisp PNG, embedded Visio source files are hyperlinked, and native Markdown tables are generated.
+7. **Opening Full Specifications Directly & Clipboard Assistance:**
+   * Click **`📖 Full Doc ▾`** in the Inspector (or double-click any matrix cell) to launch the full specification release in Microsoft Word, PDF, or open its local folder.
    * For multi-part documents (`_s00_s04.docx`, etc.), the resolver automatically opens the specific sub-part containing that clause.
    * The clause identifier (`Clause X.Y.Z`) is automatically copied to your clipboard so you can jump to it in Word immediately via <kbd>Ctrl+F</kbd> + <kbd>Ctrl+V</kbd>.
-7. **Clause-Level Comparison & Word Track Changes:**
+8. **Clause-Level Comparison & Word Track Changes:**
    * Right-click any matrix cell and select **`🔍 Compare Clause (Diff & AI Analysis)...`**, or click **`📝 Open in Word (Track Changes)`** from inside the comparison dialog.
    * The background engine extracts only the selected clause from both releases, applies corporate sensitivity labels, and drives Microsoft Word COM to generate an executive tracked-changes comparison document. In addition, you can inspect the color-coded textual diff directly in the app without launching Word.
-8. **Cross-Tab Deep Linking:**
+9. **Cross-Tab Deep Linking:**
    * Click **`🔍 Specs Tab`** in the Inspector to jump directly to that specification and release in the **📚 Specifications** tab.
-   * In the **📚 Specifications** tab, right-click any specification or release to select **`🔎 Track Evolution in Spec Search`** or **`📥 Index into Spec Search DB`**.
+   * In the **📚 Specifications** tab, right-click any specification or release to select **`🔎 Track Evolution in Spec Search`** or **`📥 Index vX.Y.Z into Spec Search DB`** (or batch-index multiple selected specifications via **`📥 Index selected (N) into Spec Search DB`**).
 
 ---
 

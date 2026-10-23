@@ -402,6 +402,21 @@ class SpecSearchDatabase:
             rows = [dict(row) for row in cursor.fetchall()]
         return sorted(rows, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
 
+    def is_version_indexed(self, spec_number: str, version: str) -> bool:
+        """Checks if a specific specification and version are already indexed."""
+        clean_spec = re.sub(r"^(?:TS|TR)\s*", "", str(spec_number).strip(), flags=re.IGNORECASE).strip()
+        clean_ver = str(version).lstrip("vV").strip()
+        if not clean_spec or not clean_ver:
+            return False
+        query = "SELECT 1 FROM indexed_versions WHERE spec_number = ? AND version = ? LIMIT 1"
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (clean_spec, clean_ver))
+                return cursor.fetchone() is not None
+        except Exception:
+            return False
+
     def get_clause_hierarchy(self, spec_number: str, version: str, clause_number: str) -> List[Dict[str, Any]]:
         """
         Retrieves the chain of parent ancestor clauses for hierarchical context.
