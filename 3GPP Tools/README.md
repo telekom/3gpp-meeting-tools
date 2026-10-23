@@ -601,24 +601,32 @@ python -m main_tools
 ---
 
 ### 🔬 3GPP Protocols Evolution Matrix (NAS, ASN.1 & PFCP)
-1. Navigate to the **🔬 Protocols** (or **🔬 NAS**) tab.
-2. **Importing Specifications:**
-   * Click **📥 Import from Specs DB** to select specification releases across **TS 38.331 (NR RRC)**, **TS 36.331 (LTE RRC)**, **TS 38.413 (NGAP)**, **TS 29.244 (PFCP)**, **TS 24.501 (5GS NAS)**, or **TS 24.301 (EPS NAS)**. Missing versions download and convert automatically from the 3GPP FTP archive.
+1. Navigate to the **🔬 Protocols** tab.
+2. **Action Bar & Database Stats Ribbon:**
+   * Review local database capacity at a glance via the top metrics ribbon: `📦 X Specs`, `🏷️ Y Releases`, `📨 Z Messages · W IEs`.
+   * Click **📥 Import from Specs DB** to select specification releases across **TS 38.331 (NR RRC)**, **TS 36.331 (LTE RRC)**, **TS 38.413 (NGAP)**, **TS 29.244 (PFCP)**, **TS 24.501 (5GS NAS)**, or **TS 24.301 (EPS NAS)**. The dialog includes a descriptive summary banner explaining the domain and role of each specification. Missing versions download and convert automatically from the 3GPP FTP archive.
    * Click **📁 Import Local .docx** to ingest local single-file or multi-part split specification documents directly.
-3. **Selecting Browse Mode, Releases & Messages/IEs:**
-   * Use the **Specification Versions & Releases** tree to activate, deactivate, or right-click to delete specific releases or entire specification series.
+   * Administrative and maintenance operations (`Clear Selected Version`, `Wipe Database`) are safely accessible via the **⚙️ Manage ▾** dropdown menu.
+3. **Selecting Releases with Built-In Specification Clues:**
+   * Specifications in the tree are annotated with their responsible Working Group badges (`[CT1]`, `[RAN2]`, `[CT4]`) and friendly acronyms (`5GS NAS`, `PFCP`, `NR RRC`), while versions clearly denote their 3GPP generation (`Rel-20 · v20.0.0`, `Rel-19 · v19.7.0`).
+   * Use quick-toggle buttons in the tree header (**All** | **Latest** | **Clear**) to instantly compare only the latest releases across all specifications without manually managing dozens of checkboxes.
+   * Multi-line tooltips describe the formal title, responsible Working Group, and architectural role for every specification.
+4. **Browsing & Searching Protocol Messages / IEs:**
    * **Browse Mode Toggle (`[📨 Messages | 🧩 All IEs / Types]`):**
-     * **`📨 Messages` Mode (Default):** Select a Message, SIB, or PDU from the list (e.g., `DL NAS TRANSPORT`, `REGISTRATION REQUEST`, `RRCReconfiguration`, `PFCP Session Establishment Request`). The **Evolution Matrix** pivots all Information Elements and automatically unrolls nested ASN.1 sequences, PFCP Grouped IEs, and encapsulated NAS container payloads (e.g., `Payload container └─ UE parameters update transparent container`), color-coding additions (🟢), removals (🔴), and modifications (🟡).
-     * **`🧩 All IEs / Types` Mode:** Browse all parsed Clause 9 / Annex D / ASN.1 / PFCP Information Elements directly (including standalone handover containers like `Intra N1 mode NAS transparent container 9.11.2.6` and `Serving network name 9.12.1`). Selecting an IE renders its release-evolution matrix in the top table and its full Clause 9 bit-level diagrams, coding tables, and `"Used in: N messages ▾"` lookup in the Inspector below.
-4. **Filtering Fields, Descriptions & Interfaces:**
-   * **Multi-Word Tokenized Search:** Type multi-word queries into either search bar (e.g., `"UE parameters transparent container"`); the engine splits queries into tokens to match relevant fields even if words like `"update"` are inserted.
-   * Use **Filter message/SIB name** (or **Filter IE / Type name**) to search names and clause numbers.
-   * Use **Filter by IE / Field** to isolate specific parameters across the matrix.
+     * **`📨 Messages` Mode (Default):** Each item in the library is formatted with its bold name, source specification/WG chip, and clause pill (e.g. `AUTHENTICATION REQUEST [CT1 · 24.501] Cl. 8.2.4.1.1`).
+     * **`🧩 All IEs / Types` Mode:** Browse all parsed Clause 9 / Annex D / ASN.1 / PFCP Information Elements directly.
+   * **Search by Acronym, Spec or Name:** Type acronyms (`"PFCP"`, `"NAS"`, `"RRC"`, `"NGAP"`), spec numbers (`"24.501"`, `"38.331"`), or message names into the search bar. The library live-updates with an active match counter (`Showing X of Y items`).
    * Click the **`📖 Desc`** button to toggle extended description search, matching keywords located deep inside Clause 8/9 IE definitions and ASN.1 field description tables.
-   * For PFCP messages, use the **Interface Selector Dropdown** (`All Interfaces`, `N4`, `N4mb`, `Sxa`, `Sxb`, `Sxc`) positioned above the matrix table to instantly filter parameters by target reference point.
-5. **Inspecting Structure & Reverse Lookup:**
-   * Click any row in the matrix to render its Clause 8/9 coding diagram (bit-level octet diagram) or ASN.1 syntax block and Field Descriptions table in the bottom **Inspector**.
-   * Click the **Used in: N messages ▾** badge in the inspector header (or right-click any row in the matrix) to find all other messages referencing that parameter across active releases.
+   * For PFCP messages, use the **Interface Selector Dropdown** (`All Interfaces`, `N4`, `N4mb`, `Sxa`, `Sxb`, `Sxc`) positioned above the matrix table to filter parameters by target reference point.
+5. **Evolution Matrix & 1-Click TSV Export:**
+   * When no message is selected, an illustrated empty state (`🔀`) guides delegates.
+   * When populated, the matrix header displays the source specification clue and an inline diff legend: `🟢 Added`, `🟡 Modified`, `🔴 Removed`.
+   * Column headers are tagged with 3GPP release numbers (e.g. `Rel-20\nv20.0.0`).
+   * Click **📋 Copy TSV** to export the entire multi-release comparison matrix directly to the system clipboard for immediate pasting into Microsoft Excel, Word, or emails.
+6. **Inspecting Structure, Syntax & Reverse Lookup:**
+   * Click any row in the matrix to inspect its bit-level octet layout diagram or ASN.1 syntax block and field description callout in the **Inspector** card below.
+   * Click **📋 Copy Definition** to copy the formatted ASN.1 syntax or parameter definition.
+   * Click the **Used in: N msgs ▾** badge in the inspector header (or right-click any row in the matrix) to find all other messages referencing that parameter across active releases.
 
 ---
 

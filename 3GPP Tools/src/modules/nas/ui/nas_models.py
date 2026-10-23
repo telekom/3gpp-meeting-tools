@@ -291,14 +291,28 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
     def headerData(
             self, section: int, orientation: Qt.Orientation, role=Qt.DisplayRole
     ) -> Any:
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+        if orientation == Qt.Horizontal:
             col_name = self._get_visible_column_name(section)
-            header_map = {
-                "iei": "IEI / ID",
-                "ie_name": "Field / Information Element",
-                "type_reference": "Type / Reference",
-            }
-            if col_name in header_map:
-                return header_map[col_name]
-            return col_name if col_name.startswith("TS ") or col_name.startswith("v") else f"v{col_name}"
+            if role == Qt.DisplayRole:
+                header_map = {
+                    "iei": "IEI / ID",
+                    "ie_name": "Field / Information Element",
+                    "type_reference": "Type / Reference",
+                }
+                if col_name in header_map:
+                    return header_map[col_name]
+                match_v = re.search(r"v?(\d+)\.\d+\.\d+", col_name)
+                if match_v:
+                    rel_num = match_v.group(1)
+                    if " " in col_name:
+                        prefix, v_str = col_name.split(" ", 1)
+                        v_clean = v_str if v_str.startswith("v") else f"v{v_str}"
+                        return f"{prefix} Rel-{rel_num}\n{v_clean}"
+                    v_clean = col_name if col_name.startswith("v") else f"v{col_name}"
+                    return f"Rel-{rel_num}\n{v_clean}"
+                return col_name if col_name.startswith("TS ") or col_name.startswith("v") else f"v{col_name}"
+            elif role == Qt.ToolTipRole:
+                match_v = re.search(r"v?(\d+)\.\d+\.\d+", col_name)
+                if match_v:
+                    return f"3GPP Release {match_v.group(1)} (Specification Version {match_v.group(0)})"
         return None
