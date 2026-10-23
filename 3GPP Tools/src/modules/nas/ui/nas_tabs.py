@@ -7,10 +7,11 @@ from typing import Any, Dict, List, Optional
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
+    QApplication,
     QComboBox,
     QDialog,
     QFileDialog,
-    QGroupBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -23,6 +24,7 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -39,8 +41,17 @@ from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
 from modules.nas.core.nas_threads import NASFetchAndImportThread
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
-from modules.nas.ui.nas_components import NASInspectorWidget, NASVersionTreeWidget
-from modules.nas.ui.nas_dialogs import NASVersionSelectDialog
+from modules.nas.ui.nas_components import (
+    NASInspectorWidget,
+    NASMessageItemDelegate,
+    NASVersionTreeWidget,
+)
+from modules.nas.ui.nas_dialogs import (
+    NASVersionSelectDialog,
+    get_spec_metadata,
+    get_spec_title,
+    get_spec_tooltip,
+)
 from modules.nas.ui.nas_models import NASEvolutionMatrixModel
 from modules.nas.ui.nas_ingest_controller import (
     clear_version_clicked,
@@ -89,6 +100,35 @@ TOGGLE_BUTTON_STYLE = """
     }
 """
 
+TINY_HEADER_BTN_STYLE = """
+    QPushButton {
+        font-size: 10px;
+        font-weight: 500;
+        color: #475569;
+        background-color: #FFFFFF;
+        border: 1px solid #CBD5E1;
+        border-radius: 3px;
+        padding: 1px 7px;
+    }
+    QPushButton:hover {
+        background-color: #F1F5F9;
+        color: #0F172A;
+        border-color: #94A3B8;
+    }
+    QPushButton:pressed {
+        background-color: #E2E8F0;
+    }
+"""
+
+RIBBON_BADGE_STYLE = """
+    background-color: #F1F5F9;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid #E2E8F0;
+    border-radius: 11px;
+    padding: 3px 10px;
+"""
 
 
 # Worker threads extracted to nas_workers.py
@@ -150,8 +190,11 @@ class NASTab(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
 
-        # Toolbar
+        # ---------------------------------------------------------------------
+        # 1. Top Action Bar: Primary Ingestion, Stats Ribbon, and Manage Menu
+        # ---------------------------------------------------------------------
         toolbar = QHBoxLayout()
         toolbar.setSpacing(8)
 
@@ -167,44 +210,193 @@ class NASTab(QWidget):
         self.import_file_btn.clicked.connect(self._on_import_local_file_clicked)
         toolbar.addWidget(self.import_file_btn)
 
-        self.clear_ver_btn = QPushButton("🗑️ Clear Version")
-        self.clear_ver_btn.setCursor(Qt.PointingHandCursor)
-        self.clear_ver_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_WARNING)
-        self.clear_ver_btn.clicked.connect(self._on_clear_version_clicked)
-        toolbar.addWidget(self.clear_ver_btn)
+        # Subtle separator between actions and metrics
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        sep.setStyleSheet("color: #CBD5E1;")
+        toolbar.addWidget(sep)
 
-        self.wipe_db_btn = QPushButton("⚠️ Wipe DB")
-        self.wipe_db_btn.setCursor(Qt.PointingHandCursor)
-        self.wipe_db_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
-        self.wipe_db_btn.clicked.connect(self._on_wipe_db_clicked)
-        toolbar.addWidget(self.wipe_db_btn)
+        # Live Database KPI Stats Ribbon
+        self.stats_specs_lbl = QLabel("📦 0 Specs")
+        self.stats_specs_lbl.setStyleSheet(RIBBON_BADGE_STYLE)
+        toolbar.addWidget(self.stats_specs_lbl)
+
+        self.stats_vers_lbl = QLabel("🏷️ 0 Versions")
+        self.stats_vers_lbl.setStyleSheet(RIBBON_BADGE_STYLE)
+        toolbar.addWidget(self.stats_vers_lbl)
+
+        self.stats_msgs_lbl = QLabel("📨 0 Items")
+        self.stats_msgs_lbl.setStyleSheet(RIBBON_BADGE_STYLE)
+        toolbar.addWidget(self.stats_msgs_lbl)
 
         toolbar.addStretch()
+
+        # Manage / Maintenance Dropdown Menu
+        self.manage_btn = QPushButton("⚙️ Manage ▾")
+        self.manage_btn.setCursor(Qt.PointingHandCursor)
+        self.manage_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+
+        manage_menu = QMenu(self)
+        manage_menu.setStyleSheet("""
+            QMenu {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                padding: 4px;
+                font-size: 12px;
+            }
+            QMenu::item {
+                padding: 6px 18px 6px 10px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #EBF3FC;
+                color: #1E5C99;
+            }
+        """)
+
+        act_clear = QAction("🗑️ Clear Selected Version / Spec...", self)
+        act_clear.triggered.connect(self._on_clear_version_clicked)
+        manage_menu.addAction(act_clear)
+
+        manage_menu.addSeparator()
+
+        act_wipe = QAction("⚠️ Wipe Protocol Database...", self)
+        act_wipe.triggered.connect(self._on_wipe_db_clicked)
+        manage_menu.addAction(act_wipe)
+
+        self.manage_btn.setMenu(manage_menu)
+        toolbar.addWidget(self.manage_btn)
+
         layout.addLayout(toolbar)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
+        # ---------------------------------------------------------------------
+        # 2. Main Horizontal Splitter
+        # ---------------------------------------------------------------------
         main_splitter = QSplitter(Qt.Horizontal)
 
-        # Left Panel (Tree + Message / IE List)
+        # --- Left Panel (Spec Tree Card + Protocol Library Card) ---
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
 
-        ver_group = QGroupBox("Specification Versions && Releases")
-        ver_layout = QVBoxLayout(ver_group)
+        # Specification Versions Card Frame
+        ver_card = QFrame()
+        ver_card.setObjectName("cardFrame")
+        ver_card.setStyleSheet("""
+            QFrame#cardFrame {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+            }
+        """)
+        ver_card_layout = QVBoxLayout(ver_card)
+        ver_card_layout.setContentsMargins(0, 0, 0, 0)
+        ver_card_layout.setSpacing(0)
+
+        ver_header = QFrame()
+        ver_header.setStyleSheet("""
+            QFrame {
+                background-color: #F8FAFC;
+                border-bottom: 1px solid #E2E8F0;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                padding: 4px 8px;
+            }
+        """)
+        ver_header_layout = QHBoxLayout(ver_header)
+        ver_header_layout.setContentsMargins(6, 4, 6, 4)
+        ver_header_layout.setSpacing(6)
+
+        ver_title = QLabel("🏷️ Specification Releases")
+        ver_title.setStyleSheet("font-weight: bold; font-size: 11px; color: #1E293B;")
+        ver_header_layout.addWidget(ver_title)
+        ver_header_layout.addStretch()
+
+        btn_all = QPushButton("All")
+        btn_all.setToolTip("Select all specifications and releases")
+        btn_all.setStyleSheet(TINY_HEADER_BTN_STYLE)
+        btn_all.clicked.connect(self._on_select_all_specs)
+        ver_header_layout.addWidget(btn_all)
+
+        btn_latest = QPushButton("Latest")
+        btn_latest.setToolTip("Select only latest version for each specification")
+        btn_latest.setStyleSheet(TINY_HEADER_BTN_STYLE)
+        btn_latest.clicked.connect(self._on_select_latest_specs)
+        ver_header_layout.addWidget(btn_latest)
+
+        btn_none = QPushButton("Clear")
+        btn_none.setToolTip("Deselect all specifications")
+        btn_none.setStyleSheet(TINY_HEADER_BTN_STYLE)
+        btn_none.clicked.connect(self._on_select_none_specs)
+        ver_header_layout.addWidget(btn_none)
+
+        ver_card_layout.addWidget(ver_header)
+
         self.version_tree = NASVersionTreeWidget()
         self.version_tree.selection_changed.connect(self._on_version_selection_changed)
         self.version_tree.structure_changed.connect(self._save_config)
         self.version_tree.delete_version_requested.connect(self._delete_single_version)
         self.version_tree.delete_spec_requested.connect(self._delete_spec_group)
-        ver_layout.addWidget(self.version_tree)
-        left_layout.addWidget(ver_group)
+        ver_card_layout.addWidget(self.version_tree)
+        left_layout.addWidget(ver_card, 1)
 
-        self.msg_group = QGroupBox("Protocol Messages && Information Elements")
-        msg_layout = QVBoxLayout(self.msg_group)
+        # Protocol Library Card Frame
+        msg_card = QFrame()
+        msg_card.setObjectName("cardFrame")
+        msg_card.setStyleSheet("""
+            QFrame#cardFrame {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+            }
+        """)
+        msg_card_layout = QVBoxLayout(msg_card)
+        msg_card_layout.setContentsMargins(0, 0, 0, 0)
+        msg_card_layout.setSpacing(0)
+
+        msg_header = QFrame()
+        msg_header.setStyleSheet("""
+            QFrame {
+                background-color: #F8FAFC;
+                border-bottom: 1px solid #E2E8F0;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                padding: 4px 8px;
+            }
+        """)
+        msg_header_layout = QHBoxLayout(msg_header)
+        msg_header_layout.setContentsMargins(6, 4, 6, 4)
+        msg_header_layout.setSpacing(6)
+
+        msg_card_title = QLabel("📨 Protocol Library")
+        msg_card_title.setStyleSheet("font-weight: bold; font-size: 11px; color: #1E293B;")
+        msg_header_layout.addWidget(msg_card_title)
+        msg_header_layout.addStretch()
+
+        self.msg_count_lbl = QLabel("0 items")
+        self.msg_count_lbl.setStyleSheet("""
+            color: #64748B;
+            font-size: 10px;
+            font-weight: bold;
+            background-color: #F1F5F9;
+            border: 1px solid #E2E8F0;
+            border-radius: 9px;
+            padding: 1px 7px;
+        """)
+        msg_header_layout.addWidget(self.msg_count_lbl)
+        msg_card_layout.addWidget(msg_header)
+
+        msg_body = QWidget()
+        msg_body_layout = QVBoxLayout(msg_body)
+        msg_body_layout.setContentsMargins(6, 6, 6, 6)
+        msg_body_layout.setSpacing(5)
 
         # Mode Toggle Bar: [📨 Messages | 🧩 All IEs / Types]
         mode_bar_layout = QHBoxLayout()
@@ -233,13 +425,13 @@ class NASTab(QWidget):
         self.mode_ies_btn.clicked.connect(lambda: self._set_browse_mode("ies"))
         mode_bar_layout.addWidget(self.mode_ies_btn)
 
-        msg_layout.addLayout(mode_bar_layout)
+        msg_body_layout.addLayout(mode_bar_layout)
 
         self.msg_search = QLineEdit()
-        self.msg_search.setPlaceholderText("Filter message/SIB name (e.g. SIB1, Reconfig)...")
+        self.msg_search.setPlaceholderText("Filter by name, acronym, or spec (e.g. SIB1, PFCP, 24.501)...")
         self.msg_search.setClearButtonEnabled(True)
         self.msg_search.textChanged.connect(lambda: self._msg_search_timer.start())
-        msg_layout.addWidget(self.msg_search)
+        msg_body_layout.addWidget(self.msg_search)
 
         ie_search_bar_layout = QHBoxLayout()
         ie_search_bar_layout.setContentsMargins(0, 0, 0, 0)
@@ -260,28 +452,79 @@ class NASTab(QWidget):
         self.deep_search_btn.setStyleSheet(TOGGLE_BUTTON_STYLE)
         self.deep_search_btn.toggled.connect(self._on_deep_search_toggled)
         ie_search_bar_layout.addWidget(self.deep_search_btn)
-        msg_layout.addLayout(ie_search_bar_layout)
+        msg_body_layout.addLayout(ie_search_bar_layout)
 
         self.msg_list = QListWidget()
+        self.msg_list.setItemDelegate(NASMessageItemDelegate(self.msg_list))
         self.msg_list.itemClicked.connect(self._on_message_clicked)
-        msg_layout.addWidget(self.msg_list)
-        left_layout.addWidget(self.msg_group)
+        self.msg_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                background-color: #FFFFFF;
+                padding: 2px;
+                outline: none;
+            }
+        """)
+        msg_body_layout.addWidget(self.msg_list)
+        msg_card_layout.addWidget(msg_body)
+        left_layout.addWidget(msg_card, 2)
+
         main_splitter.addWidget(left_widget)
 
-        # Right Panel (Matrix Table + Inspector)
+        # --- Right Panel (Matrix Card + Inspector Card) ---
         right_splitter = QSplitter(Qt.Vertical)
 
-        matrix_widget = QWidget()
-        matrix_layout = QVBoxLayout(matrix_widget)
-        matrix_layout.setContentsMargins(0, 0, 0, 0)
+        matrix_card = QFrame()
+        matrix_card.setObjectName("cardFrame")
+        matrix_card.setStyleSheet("""
+            QFrame#cardFrame {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+            }
+        """)
+        matrix_card_layout = QVBoxLayout(matrix_card)
+        matrix_card_layout.setContentsMargins(0, 0, 0, 0)
+        matrix_card_layout.setSpacing(0)
 
-        matrix_header_layout = QHBoxLayout()
+        matrix_header_frame = QFrame()
+        matrix_header_frame.setStyleSheet("""
+            QFrame {
+                background-color: #F8FAFC;
+                border-bottom: 1px solid #E2E8F0;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                padding: 4px 8px;
+            }
+        """)
+        matrix_header_layout = QHBoxLayout(matrix_header_frame)
+        matrix_header_layout.setContentsMargins(6, 4, 6, 4)
+        matrix_header_layout.setSpacing(8)
+
         self.matrix_title = QLabel("Select a Message to View Evolution Matrix")
-        self.matrix_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1E293B;")
+        self.matrix_title.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B;")
         matrix_header_layout.addWidget(self.matrix_title)
+
+        # Diff Legend Pill Bar
+        diff_legend = QHBoxLayout()
+        diff_legend.setSpacing(4)
+
+        lbl_added = QLabel("🟢 Added")
+        lbl_added.setStyleSheet("background-color: #E8F5E9; color: #166534; font-size: 10px; font-weight: bold; border: 1px solid #BBF7D0; border-radius: 3px; padding: 1px 5px;")
+        diff_legend.addWidget(lbl_added)
+
+        lbl_mod = QLabel("🟡 Modified")
+        lbl_mod.setStyleSheet("background-color: #FEF9C3; color: #854D0E; font-size: 10px; font-weight: bold; border: 1px solid #FEF08A; border-radius: 3px; padding: 1px 5px;")
+        diff_legend.addWidget(lbl_mod)
+
+        lbl_rem = QLabel("🔴 Removed")
+        lbl_rem.setStyleSheet("background-color: #FEE2E2; color: #991B1B; font-size: 10px; font-weight: bold; border: 1px solid #FECACA; border-radius: 3px; padding: 1px 5px;")
+        diff_legend.addWidget(lbl_rem)
+
+        matrix_header_layout.addLayout(diff_legend)
         matrix_header_layout.addStretch()
 
-        # Interface Filter Dropdown styled using the application-wide COMBOBOX_STYLE_TOOLBAR
         self.interface_combo = QComboBox()
         list_view = QListView(self.interface_combo)
         list_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -294,7 +537,64 @@ class NASTab(QWidget):
         self.interface_combo.setVisible(False)
         self.interface_combo.currentIndexChanged.connect(lambda _: self._rebuild_matrix_model())
         matrix_header_layout.addWidget(self.interface_combo)
-        matrix_layout.addLayout(matrix_header_layout)
+
+        self.copy_matrix_btn = QPushButton("📋 Copy TSV")
+        self.copy_matrix_btn.setCursor(Qt.PointingHandCursor)
+        self.copy_matrix_btn.setToolTip("Copy entire evolution matrix to clipboard as tab-separated values (for Excel / Word)")
+        self.copy_matrix_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                font-weight: 500;
+                color: #334155;
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 2px 8px;
+            }
+            QPushButton:hover {
+                background-color: #F1F5F9;
+                color: #0F172A;
+                border-color: #94A3B8;
+            }
+            QPushButton:disabled {
+                color: #94A3B8;
+                background-color: #F8FAFC;
+                border-color: #E2E8F0;
+            }
+        """)
+        self.copy_matrix_btn.setEnabled(False)
+        self.copy_matrix_btn.clicked.connect(self._copy_matrix_tsv)
+        matrix_header_layout.addWidget(self.copy_matrix_btn)
+
+        matrix_card_layout.addWidget(matrix_header_frame)
+
+        # Matrix Stack: Page 0 = Empty State View, Page 1 = Table View
+        self.matrix_stack = QStackedWidget()
+
+        self.matrix_empty_widget = QWidget()
+        matrix_empty_layout = QVBoxLayout(self.matrix_empty_widget)
+        matrix_empty_layout.setAlignment(Qt.AlignCenter)
+        matrix_empty_layout.setSpacing(8)
+
+        m_empty_icon = QLabel("🔀")
+        m_empty_icon.setStyleSheet("font-size: 32px;")
+        m_empty_icon.setAlignment(Qt.AlignCenter)
+        matrix_empty_layout.addWidget(m_empty_icon)
+
+        m_empty_title = QLabel("Select a Protocol Message or Information Element")
+        m_empty_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1E293B;")
+        m_empty_title.setAlignment(Qt.AlignCenter)
+        matrix_empty_layout.addWidget(m_empty_title)
+
+        m_empty_sub = QLabel(
+            "Choose a message or IE from the library on the left to inspect its evolution across 3GPP releases.\n"
+            "Field presence, ASN.1 syntax, and format changes will be diff-highlighted here."
+        )
+        m_empty_sub.setStyleSheet("font-size: 11px; color: #64748B; line-height: 1.4;")
+        m_empty_sub.setAlignment(Qt.AlignCenter)
+        matrix_empty_layout.addWidget(m_empty_sub)
+
+        self.matrix_stack.addWidget(self.matrix_empty_widget)
 
         self.matrix_table = QTableView()
         self.matrix_table.setAlternatingRowColors(True)
@@ -302,6 +602,28 @@ class NASTab(QWidget):
         self.matrix_table.setSelectionMode(QTableView.SingleSelection)
         self.matrix_table.verticalHeader().setDefaultSectionSize(24)
         self.matrix_table.verticalHeader().setVisible(False)
+        self.matrix_table.setStyleSheet("""
+            QTableView {
+                border: none;
+                gridline-color: #F1F5F9;
+                background-color: #FFFFFF;
+                alternate-background-color: #F8FAFC;
+            }
+            QTableView::item:selected {
+                background-color: #EBF3FC;
+                color: #0F172A;
+            }
+            QHeaderView::section {
+                background-color: #F8FAFC;
+                color: #334155;
+                font-weight: bold;
+                font-size: 11px;
+                border: none;
+                border-bottom: 1px solid #CBD5E1;
+                border-right: 1px solid #E2E8F0;
+                padding: 4px 6px;
+            }
+        """)
 
         h_header = self.matrix_table.horizontalHeader()
         h_header.setHighlightSections(False)
@@ -310,9 +632,12 @@ class NASTab(QWidget):
         self.matrix_table.clicked.connect(self._on_table_cell_clicked)
         self.matrix_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.matrix_table.customContextMenuRequested.connect(self._on_matrix_context_menu)
-        matrix_layout.addWidget(self.matrix_table)
-        right_splitter.addWidget(matrix_widget)
+        self.matrix_stack.addWidget(self.matrix_table)
 
+        matrix_card_layout.addWidget(self.matrix_stack)
+        right_splitter.addWidget(matrix_card)
+
+        # Inspector Card (Bottom Right)
         self.inspector = NASInspectorWidget(db=self.db)
         self.inspector.jump_to_message_requested.connect(self._jump_to_message)
         self.inspector.filter_by_ie_requested.connect(self._on_filter_by_ie_requested)
@@ -321,8 +646,66 @@ class NASTab(QWidget):
 
         right_splitter.setSizes([380, 320])
         main_splitter.addWidget(right_splitter)
-        main_splitter.setSizes([300, 650])
+        main_splitter.setSizes([320, 680])
         layout.addWidget(main_splitter)
+
+    # -------------------------------------------------------------------------
+    # Quick Spec Tree Helpers
+    # -------------------------------------------------------------------------
+
+    def _on_select_all_specs(self):
+        self.version_tree.select_all()
+
+    def _on_select_latest_specs(self):
+        self.version_tree.select_latest_only()
+
+    def _on_select_none_specs(self):
+        self.version_tree.select_none()
+
+    def _copy_matrix_tsv(self):
+        """Exports the active evolution matrix to the system clipboard as tab-separated values."""
+        model = self.matrix_table.model()
+        if not model or model.rowCount() == 0:
+            return
+
+        headers = [
+            str(model.headerData(c, Qt.Horizontal, Qt.DisplayRole) or "").replace("\n", " ")
+            for c in range(model.columnCount())
+        ]
+        lines = ["\t".join(headers)]
+
+        for r in range(model.rowCount()):
+            row_vals = [
+                str(model.data(model.index(r, c), Qt.DisplayRole) or "")
+                for c in range(model.columnCount())
+            ]
+            lines.append("\t".join(row_vals))
+
+        tsv_content = "\n".join(lines)
+        QApplication.clipboard().setText(tsv_content)
+        prev_text = self.copy_matrix_btn.text()
+        self.copy_matrix_btn.setText("✓ Copied!")
+        QTimer.singleShot(1500, lambda: self.copy_matrix_btn.setText(prev_text))
+
+    def _update_stats_ribbon(self):
+        """Updates live KPI stats badges in the toolbar ribbon."""
+        try:
+            versions = self.db.get_imported_versions()
+            unique_specs = len(set(v.get("spec_number") for v in versions if v.get("spec_number")))
+            total_versions = len(versions)
+
+            with self.db._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(DISTINCT message_name) FROM nas_messages")
+                total_msgs = cursor.fetchone()[0] or 0
+                cursor.execute("SELECT COUNT(DISTINCT ie_name) FROM ie_definitions")
+                total_ies = cursor.fetchone()[0] or 0
+
+            self.stats_specs_lbl.setText(f"📦 {unique_specs} Spec{'s' if unique_specs != 1 else ''}")
+            self.stats_vers_lbl.setText(f"🏷️ {total_versions} Version{'s' if total_versions != 1 else ''}")
+            self.stats_msgs_lbl.setText(f"📨 {total_msgs} Messages · {total_ies} IEs")
+        except Exception as e:
+            logger.debug(f"Could not update stats ribbon: {e}")
 
     # -------------------------------------------------------------------------
     # Browse Mode & Configuration Persistence
@@ -348,14 +731,14 @@ class NASTab(QWidget):
     def _update_search_placeholders(self):
         checked = self.deep_search_btn.isChecked()
         if self._browse_mode == "ies":
-            self.msg_search.setPlaceholderText("Filter IE / Type name or Clause (e.g. UE parameters, 9.11.3)...")
+            self.msg_search.setPlaceholderText("Filter IE / Type name, acronym, or Clause (e.g. UE parameters, 9.11.3)...")
             self.ie_search.setPlaceholderText(
                 "Filter IE by keyword or Description..."
                 if checked
                 else "Additional IE / Clause keyword filter..."
             )
         else:
-            self.msg_search.setPlaceholderText("Filter message/SIB name (e.g. SIB1, Reconfig)...")
+            self.msg_search.setPlaceholderText("Filter by name, acronym, or spec (e.g. SIB1, PFCP, 24.501)...")
             self.ie_search.setPlaceholderText(
                 "Filter by Field or Description (e.g. emergency)..."
                 if checked
@@ -431,6 +814,8 @@ class NASTab(QWidget):
             saved_collapsed=set(saved_config.get("collapsed_specs", [])),
         )
 
+        self._update_stats_ribbon()
+
         if not self._initialized_filters:
             self._loading_config = True
             if "browse_mode" in saved_config:
@@ -448,12 +833,6 @@ class NASTab(QWidget):
             self._loading_config = False
             self._initialized_filters = True
 
-        # NASVersionTreeWidget.populate() emits selection_changed once after the
-        # tree has been rebuilt. That signal already invokes
-        # _on_version_selection_changed() -> _populate_messages(). Do not call
-        # _populate_messages() a second time here: doing so used to start a
-        # worker and immediately terminate it during NASTab construction.
-
     def _on_version_selection_changed(self):
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
         self._save_config()
@@ -464,6 +843,8 @@ class NASTab(QWidget):
             self._on_message_clicked(current_msg_item)
         else:
             self.matrix_table.setModel(None)
+            self.matrix_stack.setCurrentIndex(0)
+            self.copy_matrix_btn.setEnabled(False)
 
     def _delete_single_version(self, spec_number: str, version: str):
         delete_single_version(self, spec_number, version)
@@ -478,9 +859,12 @@ class NASTab(QWidget):
     def _populate_messages(self):
         if not self.selected_version_ids:
             self.msg_list.clear()
+            self.msg_count_lbl.setText("0 items")
             self.matrix_table.setModel(None)
+            self.matrix_stack.setCurrentIndex(0)
+            self.copy_matrix_btn.setEnabled(False)
             default_prompt = (
-                "Select an Information Element to View Evolution & Definition"
+                "Select an Information Element to View Evolution && Definition"
                 if self._browse_mode == "ies"
                 else "Select a Message to View Evolution Matrix"
             )
@@ -490,7 +874,6 @@ class NASTab(QWidget):
 
         ie_query = self.ie_search.text().strip()
         if self._browse_mode == "ies":
-            # In All IEs mode, combine both search boxes so either input filters IE definitions
             top_query = self.msg_search.text().strip()
             combined_query = f"{top_query} {ie_query}".strip()
         else:
@@ -501,10 +884,6 @@ class NASTab(QWidget):
         self._msg_query_req_id += 1
         req_id = self._msg_query_req_id
 
-        # Do not terminate an in-flight QThread. QThread.terminate() can stop a
-        # worker while native/SQLite code holds internal locks, which can leave
-        # Qt/native state inconsistent. Request IDs already make stale results
-        # harmless, so let older workers finish naturally.
         worker = NASMessageListWorker(
             db=self.db,
             ie_query=combined_query,
@@ -535,50 +914,90 @@ class NASTab(QWidget):
         self.msg_list.clear()
 
         target_item = None
+        visible_count = 0
 
         if self._browse_mode == "ies":
             target_key = self.current_selected_ie_key
             for d in items:
                 ie_name = d.get("ie_name", "")
                 clause = d.get("clause", "")
-                spec_num = d.get("spec_number", "")
-                item_text = f"{ie_name} ({clause})" if clause and clause != ie_name else ie_name
+                spec_num = str(d.get("spec_number", "")).replace("TS", "").strip()
+                meta = get_spec_metadata(spec_num) if spec_num else {}
+
                 ie_key = f"{ie_name}::{clause}"
 
-                item = QListWidgetItem(item_text)
+                item = QListWidgetItem(ie_name)
                 item.setData(Qt.UserRole, ie_key)
                 item.setData(Qt.UserRole + 1, d)
+                item.setData(Qt.UserRole + 2, spec_num)
+                item.setData(Qt.UserRole + 3, clause)
+                item.setData(Qt.UserRole + 4, meta.get("acronym", ""))
+                item.setData(Qt.UserRole + 5, meta.get("wg", ""))
+
+                tooltip_lines = [f"Information Element: {ie_name}"]
+                if clause:
+                    tooltip_lines.append(f"Clause / Type: {clause}")
                 if spec_num:
-                    item.setToolTip(f"Specification: TS {spec_num}\nClause / Type: {clause}")
+                    tooltip_lines.append(f"Specification: TS {spec_num} ({meta.get('title', '')})")
+                    tooltip_lines.append(f"Working Group: {meta.get('wg', '')} • Domain: {meta.get('tech', '')}")
+                item.setToolTip("\n".join(tooltip_lines))
 
                 self.msg_list.addItem(item)
 
-                if target_key and ie_key == target_key:
+                search_target = f"{ie_name} {clause} {spec_num} {meta.get('acronym', '')} {meta.get('title', '')}".lower()
+                if msg_tokens and not all(tok in search_target for tok in msg_tokens):
+                    item.setHidden(True)
+                else:
+                    visible_count += 1
+
+                if target_key and ie_key == target_key and not item.isHidden():
                     target_item = item
         else:
             target_msg_name = self.current_selected_message_name
             for m in items:
                 msg_name = m["message_name"]
-                spec_num = m.get("spec_number", "")
-                item_text = f"{msg_name} ({m['clause']})"
-                item = QListWidgetItem(item_text)
+                clause = m.get("clause", "")
+                spec_num = str(m.get("spec_number", "")).replace("TS", "").strip()
+                meta = get_spec_metadata(spec_num) if spec_num else {}
+
+                item = QListWidgetItem(msg_name)
                 item.setData(Qt.UserRole, msg_name)
                 item.setData(Qt.UserRole + 1, m)
+                item.setData(Qt.UserRole + 2, spec_num)
+                item.setData(Qt.UserRole + 3, clause)
+                item.setData(Qt.UserRole + 4, meta.get("acronym", ""))
+                item.setData(Qt.UserRole + 5, meta.get("wg", ""))
+
+                tooltip_lines = [f"Message: {msg_name}"]
+                if clause:
+                    tooltip_lines.append(f"Clause: {clause}")
                 if spec_num:
-                    item.setToolTip(f"Specification: TS {spec_num}\nClause: {m['clause']}")
+                    tooltip_lines.append(f"Specification: TS {spec_num} ({meta.get('title', '')})")
+                    tooltip_lines.append(f"Working Group: {meta.get('wg', '')} • Domain: {meta.get('tech', '')}")
+                item.setToolTip("\n".join(tooltip_lines))
 
                 self.msg_list.addItem(item)
 
-                if msg_tokens and not all(tok in item_text.lower() for tok in msg_tokens):
+                search_target = f"{msg_name} {clause} {spec_num} {meta.get('acronym', '')} {meta.get('title', '')}".lower()
+                if msg_tokens and not all(tok in search_target for tok in msg_tokens):
                     item.setHidden(True)
+                else:
+                    visible_count += 1
 
                 if target_msg_name and msg_name == target_msg_name and not item.isHidden():
                     target_item = item
 
         self.msg_list.blockSignals(False)
 
+        # Update counter label
+        total_count = self.msg_list.count()
+        if visible_count == total_count:
+            self.msg_count_lbl.setText(f"{total_count} items")
+        else:
+            self.msg_count_lbl.setText(f"{visible_count} / {total_count} items")
+
         default_prompt = (
-            "Select an Information Element to View Evolution & Definition"
+            "Select an Information Element to View Evolution && Definition"
             if self._browse_mode == "ies"
             else "Select a Message to View Evolution Matrix"
         )
@@ -587,16 +1006,19 @@ class NASTab(QWidget):
             self.msg_list.setCurrentItem(target_item)
             self._on_message_clicked(target_item)
         elif self.msg_list.count() == 1 and (msg_tokens or self.ie_search.text().strip()):
-            # Auto-select when search narrows down to a single exact item
             only_item = self.msg_list.item(0)
             if not only_item.isHidden():
                 self.msg_list.setCurrentItem(only_item)
                 self._on_message_clicked(only_item)
         elif self.msg_list.count() > 0:
             self.matrix_table.setModel(None)
+            self.matrix_stack.setCurrentIndex(0)
+            self.copy_matrix_btn.setEnabled(False)
             self.matrix_title.setText(default_prompt)
         else:
             self.matrix_table.setModel(None)
+            self.matrix_stack.setCurrentIndex(0)
+            self.copy_matrix_btn.setEnabled(False)
             self.matrix_title.setText(default_prompt)
             self.inspector.clear_display()
 
@@ -622,9 +1044,10 @@ class NASTab(QWidget):
             else:
                 self._current_message_spec = None
 
-            spec_prefix = f" ({', '.join(specs)})" if specs else ""
+            meta = get_spec_metadata(self._current_message_spec) if self._current_message_spec else {}
+            spec_badge = f" [{meta.get('acronym', f'TS {self._current_message_spec}')}]" if self._current_message_spec else ""
             clause_suffix = f" [Clause {clause}]" if clause and clause != ie_name else ""
-            self.matrix_title.setText(f"Information Element{spec_prefix}: {ie_name}{clause_suffix}")
+            self.matrix_title.setText(f"Information Element{spec_badge}: {ie_name}{clause_suffix}")
             self.interface_combo.setVisible(False)
 
             self._current_matrix_df = df
@@ -678,8 +1101,9 @@ class NASTab(QWidget):
         else:
             self._current_message_spec = None
 
-        spec_prefix = f" ({', '.join(specs)})" if specs else ""
-        self.matrix_title.setText(f"Message{spec_prefix}: {msg_name}{title_suffix}")
+        meta = get_spec_metadata(self._current_message_spec) if self._current_message_spec else {}
+        spec_badge = f" [{meta.get('acronym', f'TS {self._current_message_spec}')}]" if self._current_message_spec else ""
+        self.matrix_title.setText(f"Message{spec_badge}: {msg_name}{title_suffix}")
 
         has_appl = bool(
             "applicability" in df.columns
@@ -719,6 +1143,9 @@ class NASTab(QWidget):
 
     def _rebuild_matrix_model(self, ignore_ie_filter: bool = False):
         if not hasattr(self, "_current_matrix_df") or self._current_matrix_df.empty:
+            self.matrix_table.setModel(None)
+            self.matrix_stack.setCurrentIndex(0)
+            self.copy_matrix_btn.setEnabled(False)
             return
 
         df = self._current_matrix_df
@@ -733,6 +1160,9 @@ class NASTab(QWidget):
             interface_filter=active_if,
         )
         self.matrix_table.setModel(model)
+        has_rows = model.rowCount() > 0
+        self.matrix_stack.setCurrentIndex(1 if has_rows else 0)
+        self.copy_matrix_btn.setEnabled(has_rows)
 
         h_header = self.matrix_table.horizontalHeader()
         if model.columnCount() > 0:
@@ -769,7 +1199,6 @@ class NASTab(QWidget):
     def _on_table_cell_clicked(self, index):
         handle_table_cell_click(self, index)
 
-
     def _release_reverse_lookup_worker(self, req_id: int):
         """Release a completed reverse-lookup worker safely."""
         worker = self._reverse_lookup_workers.pop(req_id, None)
@@ -782,7 +1211,6 @@ class NASTab(QWidget):
 
     def _on_matrix_context_menu(self, pos):
         show_matrix_context_menu(self, pos)
-
 
     def _jump_to_message(self, message_name: str):
         self.current_selected_message_name = message_name
@@ -863,5 +1291,3 @@ class NASTab(QWidget):
         for worker in workers:
             if worker.isRunning():
                 worker.wait(wait_ms)
-
-

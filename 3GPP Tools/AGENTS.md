@@ -115,7 +115,11 @@ python -m main_tools
 ### 4.4. Protocol Matrix & Inspector (`src/modules/nas`)
 - **Multi-Protocol Support:** Covers 5GS NAS (TS 24.501), EPS NAS (TS 24.301), NR RRC (TS 38.331), LTE RRC (TS 36.331), NGAP (TS 38.413), GTPv1-U (TS 29.281), PDU Session UP (TS 38.415), and PFCP (TS 29.244).
 - **Parsing Architecture:** Unified under `ProtocolDocxDispatcher`. For in-depth parsing guidelines, refer to [`src/modules/nas/core/parsing/AGENTS.md`](file:///src/modules/nas/core/parsing/AGENTS.md).
-- **Inspection UI:** Renders bit-level octet layouts, OpenXML tables with `gridSpan`/`vMerge`, and ASN.1 syntax blocks with field description tables.
+- **Inspection UI & Ergonomics:** Modern Card Frame architecture with live database KPI stats ribbon (`📦 Specs`, `🏷️ Versions`, `📨 Messages · IEs`), safe maintenance dropdown (`⚙️ Manage ▾`), and welcoming empty-state placeholders for both the matrix and inspector panels.
+- **Specification Clues & Working Group Context (`nas_dialogs.py`):** Centralized `PROTOCOL_SPEC_CATALOG` resolves 3GPP specification numbers to Working Group badges (`[CT1]`, `[RAN2]`, `[CT4]`), acronyms (`5GS NAS`, `NR RRC`, `PFCP`), full formal 3GPP titles, and plain-English architectural roles. Features release-tagged tree items (`Rel-20 · v20.0.0`), multi-token search by acronym/spec number, quick selection helpers (`All` | `Latest` | `Clear`), and a descriptive banner in `NASVersionSelectDialog`.
+- **Protocol Library Item Delegate (`NASMessageItemDelegate`):** Custom styled delegate rendering message names with right-aligned WG/Spec badges and rounded clause pills (`Cl. X.Y.Z`).
+- **Evolution Matrix & 1-Click Clipboard (`nas_models.py`, `nas_tabs.py`):** Multi-release comparison table with visual diff coloring (`🟢 Added`, `🟡 Modified`, `🔴 Removed`), inline diff legend, column headers formatted with 3GPP Release tags (`Rel-20\nv20.0.0`), and 1-click **📋 Copy TSV** matrix export for Excel/Word/Email.
+- **Inspection UI (`NASInspectorWidget`):** Renders bit-level octet layouts, OpenXML tables with `gridSpan`/`vMerge`, and ASN.1 syntax blocks with field description tables, cross-spec reference detection (TS 24.501 <-> TS 24.301), and a 1-click **📋 Copy Definition** clipboard action.
 
 ### 4.5. Meetings & TDocs (`src/modules/meetings`)
 - **Subsystem Guide:** For complete module architecture, conversion pipeline details, and filter proxy design, consult [`src/modules/meetings/AGENTS.md`](file:///src/modules/meetings/AGENTS.md).
