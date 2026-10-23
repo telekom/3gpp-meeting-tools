@@ -526,6 +526,18 @@ class SpecsDatabase:
             cursor.execute(query, params)
             return [row[0] for row in cursor.fetchall()]
 
+    def get_all_spec_titles(self) -> Dict[str, str]:
+        """Return a mapping of specification number (e.g. '23.501') to its formal title."""
+        query = "SELECT number, title FROM specifications WHERE title IS NOT NULL AND title != ''"
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query)
+                return {row[0]: row[1] for row in cursor.fetchall()}
+        except Exception as e:
+            self.logger.error(f"Error fetching spec titles: {e}")
+            return {}
+
     def get_spec_details(self, spec_number: str) -> dict:
         query = "SELECT * FROM specifications WHERE number = ?"
         with self._get_connection() as conn:

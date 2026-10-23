@@ -306,8 +306,10 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
 
         for s_idx in range(1, self.topLevelItemCount()):
             spec_item = self.topLevelItem(s_idx)
+            s_data = spec_item.data(0, Qt.UserRole) or {}
+            spec_title = (s_data.get("title") or "").lower()
             spec_text = spec_item.text(0).lower()
-            spec_matches = query in spec_text
+            spec_matches = (query in spec_text) or (query in spec_title)
 
             any_child_matches = False
             for c_idx in range(spec_item.childCount()):
@@ -332,10 +334,16 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
         if self.topLevelItemCount() > 0:
             self.topLevelItem(0).setCheckState(0, Qt.Unchecked)
 
-    def populate(self, versions: List[Dict[str, Any]], saved_checked: Optional[List[Dict[str, Any]]] = None):
+    def populate(
+        self,
+        versions: List[Dict[str, Any]],
+        saved_checked: Optional[List[Dict[str, Any]]] = None,
+        spec_titles: Optional[Dict[str, str]] = None,
+    ):
         """
         Populates the tree with indexed specifications and releases.
         Restores check states from saved_checked (if provided), or defaults to all checked.
+        Accepts optional spec_titles dictionary to show concise descriptive specification names.
         """
         self._updating_checks = True
         self.clear()
@@ -368,8 +376,30 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
         for spec_num in sorted(specs_map.keys()):
             sorted_vers = sorted(specs_map[spec_num], key=lambda x: parse_version_tuple(x["version"]), reverse=True)
             spec_item = QTreeWidgetItem(self)
-            spec_item.setText(0, f"TS {spec_num}  ({len(sorted_vers)})")
-            spec_item.setData(0, Qt.UserRole, {"type": "spec", "spec_number": spec_num})
+
+            # Resolve specification title if available
+            title = ""
+            if spec_titles:
+                clean_num = re.sub(r'^(TS|TR)\s*', '', spec_num.strip(), flags=re.IGNORECASE)
+                title = spec_titles.get(clean_num, "")
+                if not title:
+                    base_num = clean_num.split('-')[0]
+                    title = spec_titles.get(base_num, "")
+
+            if title:
+                # Format short title for tree display (e.g. up to 40 chars)
+                clean_title = re.sub(r'^(NR;\s*|LTE;\s*|Universal Mobile Telecommunications System \(UMTS\);\s*)', '', title, flags=re.IGNORECASE)
+                parts = [p.strip() for p in clean_title.split(';') if p.strip()]
+                display_title = parts[0] if parts else clean_title
+                if len(display_title) > 40:
+                    display_title = display_title[:39].rstrip() + "…"
+                spec_item.setText(0, f"TS {spec_num}: {display_title}  ({len(sorted_vers)})")
+                spec_item.setToolTip(0, f"TS {spec_num}: {title}\n{len(sorted_vers)} indexed release(s)")
+            else:
+                spec_item.setText(0, f"TS {spec_num}  ({len(sorted_vers)})")
+                spec_item.setToolTip(0, f"TS {spec_num}\n{len(sorted_vers)} indexed release(s)")
+
+            spec_item.setData(0, Qt.UserRole, {"type": "spec", "spec_number": spec_num, "title": title})
             spec_item.setFlags(spec_item.flags() | Qt.ItemIsUserCheckable)
             spec_item.setFont(0, bold_font)
 
@@ -801,6 +831,7 @@ class SpecClauseInspector(QGroupBox):
         search_query: str = "",
         first_added_ver: Optional[str] = None,
         prev_ver: Optional[str] = None,
+        spec_title: Optional[str] = None,
     ):
         self._current_spec = spec_number
         self._current_version = version
@@ -811,9 +842,15 @@ class SpecClauseInspector(QGroupBox):
         self._current_search_query = search_query.strip()
         self._first_added_ver = first_added_ver or ""
         self._prev_ver = prev_ver or ""
+        self._current_spec_title = spec_title or ""
 
         date_str = f" ({release_date})" if release_date else ""
-        header_title = f"TS {spec_number} v{version}{date_str} — Clause {clause_number}: {clause_title}"
+        if spec_title:
+            header_title = f"TS {spec_number} ({spec_title}) v{version}{date_str} — Clause {clause_number}: {clause_title}"
+            self.title_lbl.setToolTip(f"TS {spec_number}: {spec_title}")
+        else:
+            header_title = f"TS {spec_number} v{version}{date_str} — Clause {clause_number}: {clause_title}"
+            self.title_lbl.setToolTip("")
         self.title_lbl.setText(header_title)
 
         self._last_citation_text = f"3GPP TS {spec_number} v{version}{date_str}, Clause {clause_number} ({clause_title}):\n\n{content}"
