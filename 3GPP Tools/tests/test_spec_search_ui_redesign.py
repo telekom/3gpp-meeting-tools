@@ -126,6 +126,104 @@ class TestSpecSearchUIRedesign(unittest.TestCase):
         # Background role is None (handled by custom pill delegate)
         self.assertIsNone(model.data(model.index(0, 2), Qt.BackgroundRole))
 
+    def test_version_tree_with_spec_titles_and_keyword_filter(self):
+        tree = SpecSearchVersionTreeWidget()
+        sample_versions = [
+            {"id": 1, "spec_number": "23.501", "version": "18.2.0", "release_date": "2024-03-20"},
+            {"id": 2, "spec_number": "23.256", "version": "19.5.0", "release_date": "2025-12-19"},
+        ]
+        sample_titles = {
+            "23.501": "System architecture for the 5G System (5GS)",
+            "23.256": "Support of Uncrewed Aerial Systems (UAS) connectivity, identification and tracking; Stage 2",
+        }
+        tree.populate(sample_versions, spec_titles=sample_titles)
+
+        # Item 1 is TS 23.256 (sorted order)
+        item_23256 = tree.topLevelItem(1)
+        self.assertIn("TS 23.256", item_23256.text(0))
+        self.assertIn("Support of Uncrewed Aerial Systems", item_23256.text(0))
+        self.assertIn("Stage 2", item_23256.toolTip(0))
+
+        # Item 2 is TS 23.501
+        item_23501 = tree.topLevelItem(2)
+        self.assertIn("TS 23.501", item_23501.text(0))
+        self.assertIn("System architecture", item_23501.text(0))
+        self.assertIn("5GS", item_23501.toolTip(0))
+
+        # Filter by keyword that is ONLY in the title (not in spec number)
+        tree.filter_tree("drone")  # not matching either
+        self.assertTrue(item_23256.isHidden())
+        self.assertTrue(item_23501.isHidden())
+
+        tree.filter_tree("uas")  # should match TS 23.256
+        self.assertFalse(item_23256.isHidden())
+        self.assertTrue(item_23501.isHidden())
+
+        tree.filter_tree("architecture")  # should match TS 23.501
+        self.assertTrue(item_23256.isHidden())
+        self.assertFalse(item_23501.isHidden())
+
+        # Clear filter
+        tree.filter_tree("")
+        self.assertFalse(item_23256.isHidden())
+        self.assertFalse(item_23501.isHidden())
+
+    def test_inspector_spec_title_display(self):
+        inspector = SpecClauseInspector()
+        inspector.display_clause(
+            clause_number="5.1",
+            clause_title="Overview",
+            spec_number="23.501",
+            version="18.2.0",
+            content="5GS architecture principles...",
+            spec_title="5GS Architecture",
+        )
+        self.assertIn("TS 23.501 (5GS Architecture)", inspector.title_lbl.text())
+        self.assertIn("Clause 5.1: Overview", inspector.title_lbl.text())
+        self.assertEqual(inspector.title_lbl.toolTip(), "TS 23.501: 5GS Architecture")
+
+    def test_spec_search_tab_compact_layout_and_title_helpers(self):
+        import tempfile
+        from modules.spec_search.core.spec_search_db import SpecSearchDatabase
+        from modules.specifications.core.database import SpecsDatabase
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            search_db_path = tmp_path / "search.db"
+            specs_db_path = tmp_path / "specs.db"
+
+            s_db = SpecSearchDatabase(search_db_path)
+            sp_db = SpecsDatabase(specs_db_path)
+
+            # Insert sample spec into specs database
+            with sp_db._get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO specifications (id, number, title) VALUES (1, '23.501', 'System architecture for the 5G System (5GS)')"
+                )
+                conn.execute(
+                    "INSERT INTO specifications (id, number, title) VALUES (2, '23.256', 'Support of Uncrewed Aerial Systems (UAS) connectivity, identification and tracking; Stage 2')"
+                )
+                conn.commit()
+
+            tab = SpecSearchTab(search_db_path, specs_db_path)
+
+            # Check title helpers
+            self.assertEqual(tab.get_spec_title("23.501"), "System architecture for the 5G System (5GS)")
+            self.assertEqual(tab.get_spec_title("TS 23.501"), "System architecture for the 5G System (5GS)")
+            self.assertEqual(tab.get_spec_short_name("23.501"), "5GS Architecture")
+            self.assertEqual(tab.get_spec_short_name("23.256"), "UAS")
+
+            # Check UI consolidation: import_menu_btn and db_menu_btn exist and have menus
+            self.assertIsNotNone(tab.import_menu_btn.menu())
+            self.assertIsNotNone(tab.db_menu_btn.menu())
+            self.assertEqual(tab.import_menu_btn.text(), "📥 Import ▾")
+            self.assertEqual(tab.db_menu_btn.text(), "⚙️ ▾")
+
+            # Check progress_bar is inside card (height 4)
+            self.assertEqual(tab.progress_bar.height(), 4)
+            self.assertFalse(tab.progress_bar.isVisible())
+
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -92,6 +92,8 @@ class SpecSearchTab(QWidget):
 
         self.db = SpecSearchDatabase(self.search_db_path)
         self.specs_db = SpecsDatabase(self.specs_db_path) if self.specs_db_path and self.specs_db_path.exists() else None
+        self._spec_titles: Dict[str, str] = {}
+        self._load_spec_titles()
 
         self._query_worker: Optional[SpecSearchQueryWorker] = None
         self._active_query_workers: Dict[int, SpecSearchQueryWorker] = {}
@@ -113,71 +115,75 @@ class SpecSearchTab(QWidget):
         self._setup_ui()
         self._load_config_and_refresh()
 
+    def _load_spec_titles(self):
+        """Loads specification numbers and formal titles from SpecsDatabase into memory cache."""
+        if not self.specs_db:
+            default_path = get_project_root() / "db" / "3gpp_data.db"
+            if default_path.exists():
+                self.specs_db = SpecsDatabase(default_path)
+
+        if self.specs_db:
+            try:
+                self._spec_titles = self.specs_db.get_all_spec_titles()
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Could not load spec titles: {e}")
+                self._spec_titles = {}
+
+    def get_spec_title(self, spec_number: str) -> str:
+        """Returns the formal specification title (e.g. 'System architecture for the 5G System (5GS)')."""
+        if not spec_number:
+            return ""
+        clean = re.sub(r'^(TS|TR)\s*', '', spec_number.strip(), flags=re.IGNORECASE)
+        if clean in self._spec_titles:
+            return self._spec_titles[clean]
+        # Check base number without sub-part (e.g. 23.801-01 -> 23.801)
+        base = clean.split('-')[0]
+        if base in self._spec_titles:
+            return self._spec_titles[base]
+        # Fallback to PROTOCOL_SPEC_CATALOG if available
+        try:
+            from modules.nas.ui.nas_dialogs import PROTOCOL_SPEC_CATALOG
+            if clean in PROTOCOL_SPEC_CATALOG:
+                return PROTOCOL_SPEC_CATALOG[clean].get("full_title", "")
+        except Exception:
+            pass
+        return ""
+
+    def get_spec_short_name(self, spec_number: str) -> str:
+        """Returns a concise acronym or short name for a spec (e.g. '5GS NAS', 'NR RRC', 'UAS', '5GS Architecture')."""
+        if not spec_number:
+            return ""
+        clean = re.sub(r'^(TS|TR)\s*', '', spec_number.strip(), flags=re.IGNORECASE)
+        # Check PROTOCOL_SPEC_CATALOG first for gold-standard curated telecom acronyms
+        try:
+            from modules.nas.ui.nas_dialogs import PROTOCOL_SPEC_CATALOG
+            if clean in PROTOCOL_SPEC_CATALOG:
+                return PROTOCOL_SPEC_CATALOG[clean].get("acronym", "")
+        except Exception:
+            pass
+
+        title = self.get_spec_title(clean)
+        if not title:
+            return ""
+
+        # Check for parenthesized acronym e.g. '(UAS)', '(5GS)', '(V2X)', '(ProSe)'
+        acronyms = re.findall(r'\(([A-Z0-9\-_]{2,8})\)', title)
+        for acr in acronyms:
+            if acr.upper() not in ("TS", "TR", "STAGE 2", "STAGE 3", "REL"):
+                return acr
+
+        # Fallback to concise title (first phrase before semicolon)
+        s = re.sub(r'^(NR;\s*|LTE;\s*|Universal Mobile Telecommunications System \(UMTS\);\s*)', '', title, flags=re.IGNORECASE)
+        parts = [p.strip() for p in s.split(';') if p.strip()]
+        first_part = parts[0] if parts else title
+        if len(first_part) > 22:
+            return first_part[:21].rstrip() + "…"
+        return first_part
+
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(6)
-
-        # ---------------------------------------------------------------------
-        # Top Toolbar (Compact & Sleek)
-        # ---------------------------------------------------------------------
-        toolbar = QHBoxLayout()
-        toolbar.setContentsMargins(0, 0, 0, 2)
-        toolbar.setSpacing(8)
-
-        # 1. Compact Import Menu Button
-        self.import_menu_btn = QPushButton("📥 Import Specs ▾")
-        self.import_menu_btn.setCursor(Qt.PointingHandCursor)
-        self.import_menu_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        import_menu = QMenu(self)
-        act_import_db = import_menu.addAction("📥 Import from Specifications DB...")
-        act_import_db.triggered.connect(self._on_fetch_clicked)
-        act_import_docx = import_menu.addAction("📁 Import Local Word Document (.docx)...")
-        act_import_docx.triggered.connect(self._on_import_local_clicked)
-        self.import_menu_btn.setMenu(import_menu)
-        toolbar.addWidget(self.import_menu_btn)
-
-        # 2. Compact Database Management Menu Button
-        self.db_menu_btn = QPushButton("⚙️ Database ▾")
-        self.db_menu_btn.setCursor(Qt.PointingHandCursor)
-        self.db_menu_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        db_menu = QMenu(self)
-        self.act_clear_ver = db_menu.addAction("🗑️ Clear Specific Version...")
-        self.act_clear_ver.triggered.connect(self._on_clear_version_clicked)
-        db_menu.addSeparator()
-        self.act_wipe_db = db_menu.addAction("⚠️ Wipe Entire Search Database...")
-        self.act_wipe_db.triggered.connect(self._on_wipe_db_clicked)
-        self.db_menu_btn.setMenu(db_menu)
-        toolbar.addWidget(self.db_menu_btn)
-
-        # Aliases for background workers and existing callbacks
-        self.fetch_btn = self.import_menu_btn
-        self.import_local_btn = self.import_menu_btn
-        self.clear_ver_btn = self.db_menu_btn
-        self.wipe_db_btn = self.db_menu_btn
-
-        toolbar.addStretch()
-
-        # Database Summary Stats Chip
-        self.db_stats_label = QLabel("📦 Loading specs...")
-        self.db_stats_label.setStyleSheet("""
-            QLabel {
-                color: #64748B;
-                font-size: 11px;
-                font-weight: 500;
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
-                border-radius: 4px;
-                padding: 3px 8px;
-            }
-        """)
-        toolbar.addWidget(self.db_stats_label)
-
-        layout.addLayout(toolbar)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        layout.addWidget(self.progress_bar)
 
         # ---------------------------------------------------------------------
         # Main Splitter Layout (Left: Version Tree, Right: Search, Tabs & Inspector)
@@ -203,14 +209,15 @@ class SpecSearchTab(QWidget):
         card_layout.setContentsMargins(6, 8, 6, 6)
         card_layout.setSpacing(6)
 
-        # Card Header: Title + Count Badge
+        # Card Header: Title + Count Badge + Compact Import & Maintenance Dropdowns
         tree_hdr_layout = QHBoxLayout()
         tree_hdr_layout.setContentsMargins(2, 0, 2, 0)
+        tree_hdr_layout.setSpacing(4)
         tree_title = QLabel("📚 Indexed Specs")
         tree_title.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B;")
         tree_hdr_layout.addWidget(tree_title)
 
-        self.tree_stats_badge = QLabel("0 specs")
+        self.tree_stats_badge = QLabel("0")
         self.tree_stats_badge.setStyleSheet("""
             background-color: #F1F5F9;
             color: #475569;
@@ -218,11 +225,100 @@ class SpecSearchTab(QWidget):
             font-weight: bold;
             border: 1px solid #E2E8F0;
             border-radius: 4px;
-            padding: 1px 6px;
+            padding: 1px 5px;
         """)
         tree_hdr_layout.addWidget(self.tree_stats_badge)
         tree_hdr_layout.addStretch()
+
+        # 1. Compact Import Menu Button
+        self.import_menu_btn = QPushButton("📥 Import ▾")
+        self.import_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.import_menu_btn.setToolTip("Import specifications from DB or local Word .docx")
+        self.import_menu_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #F8FAFC;
+                color: #1E293B;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 2px 7px;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #F1F5F9;
+                border-color: #94A3B8;
+            }
+            QPushButton::menu-indicator {
+                image: none;
+                width: 0px;
+            }
+        """)
+        import_menu = QMenu(self)
+        act_import_db = import_menu.addAction("📥 Import from Specifications DB...")
+        act_import_db.triggered.connect(self._on_fetch_clicked)
+        act_import_docx = import_menu.addAction("📁 Import Local Word Document (.docx)...")
+        act_import_docx.triggered.connect(self._on_import_local_clicked)
+        self.import_menu_btn.setMenu(import_menu)
+        tree_hdr_layout.addWidget(self.import_menu_btn)
+
+        # 2. Compact Database Management Menu Button
+        self.db_menu_btn = QPushButton("⚙️ ▾")
+        self.db_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.db_menu_btn.setToolTip("Search database maintenance (clear versions, wipe DB)")
+        self.db_menu_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #F8FAFC;
+                color: #475569;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 2px 6px;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #F1F5F9;
+                border-color: #94A3B8;
+            }
+            QPushButton::menu-indicator {
+                image: none;
+                width: 0px;
+            }
+        """)
+        db_menu = QMenu(self)
+        self.act_clear_ver = db_menu.addAction("🗑️ Clear Specific Version...")
+        self.act_clear_ver.triggered.connect(self._on_clear_version_clicked)
+        db_menu.addSeparator()
+        self.act_wipe_db = db_menu.addAction("⚠️ Wipe Entire Search Database...")
+        self.act_wipe_db.triggered.connect(self._on_wipe_db_clicked)
+        self.db_menu_btn.setMenu(db_menu)
+        tree_hdr_layout.addWidget(self.db_menu_btn)
+
+        # Aliases for background workers and existing callbacks
+        self.fetch_btn = self.import_menu_btn
+        self.import_local_btn = self.import_menu_btn
+        self.clear_ver_btn = self.db_menu_btn
+        self.wipe_db_btn = self.db_menu_btn
+        self.db_stats_label = self.tree_stats_badge
+
         card_layout.addLayout(tree_hdr_layout)
+
+        # Progress bar for imports (sleek 4px inline bar inside left card)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: none;
+                background-color: #E2E8F0;
+                border-radius: 2px;
+            }
+            QProgressBar::chunk {
+                background-color: #0284C7;
+                border-radius: 2px;
+            }
+        """)
+        self.progress_bar.setVisible(False)
+        card_layout.addWidget(self.progress_bar)
 
         # Quick Filter + Select All / None Actions
         tree_actions_layout = QHBoxLayout()
@@ -505,7 +601,7 @@ class SpecSearchTab(QWidget):
         versions = self.db.get_imported_versions()
 
         saved_checked = config.get("checked_versions", None) if config else None
-        self.version_tree.populate(versions, saved_checked=saved_checked)
+        self.version_tree.populate(versions, saved_checked=saved_checked, spec_titles=self._spec_titles)
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
 
         if config:
@@ -577,11 +673,14 @@ class SpecSearchTab(QWidget):
             specs = set(v.get("spec_number") for v in versions if v.get("spec_number"))
             num_specs = len(specs)
             num_vers = len(versions)
-            self.db_stats_label.setText(f"📦 {num_specs} Specs · {num_vers} Releases Indexed")
             if hasattr(self, "tree_stats_badge"):
-                self.tree_stats_badge.setText(f"{num_specs} Specs ({num_vers} Releases)")
+                self.tree_stats_badge.setText(f"{num_specs}")
+                self.tree_stats_badge.setToolTip(f"{num_specs} Specification(s), {num_vers} Release(s) Indexed")
+            if hasattr(self, "db_stats_label") and self.db_stats_label != self.tree_stats_badge:
+                self.db_stats_label.setText(f"📦 {num_specs} Specs · {num_vers} Releases Indexed")
         except Exception:
-            self.db_stats_label.setText("📦 0 Specs Indexed")
+            if hasattr(self, "tree_stats_badge"):
+                self.tree_stats_badge.setText("0")
 
     def _on_filter_changed(self):
         self._search_timer.start()
@@ -713,8 +812,14 @@ class SpecSearchTab(QWidget):
             table.setContextMenuPolicy(Qt.CustomContextMenu)
             table.customContextMenuRequested.connect(lambda pos, t=table, s=spec_num: self._show_matrix_context_menu(pos, t, s))
 
-            tab_title = f"TS {spec_num} ({model.rowCount()})"
-            self.spec_results_tabs.addTab(table, tab_title)
+            short_name = self.get_spec_short_name(spec_num)
+            tab_title = f"TS {spec_num} · {short_name} ({model.rowCount()})" if short_name else f"TS {spec_num} ({model.rowCount()})"
+            tab_idx = self.spec_results_tabs.addTab(table, tab_title)
+            full_title = self.get_spec_title(spec_num)
+            if full_title:
+                self.spec_results_tabs.setTabToolTip(tab_idx, f"TS {spec_num}: {full_title} ({model.rowCount()} clauses)")
+            else:
+                self.spec_results_tabs.setTabToolTip(tab_idx, f"TS {spec_num} ({model.rowCount()} clauses)")
 
         if specs_with_hits == 0:
             self.matrix_title.setText(f"<span style='color: #64748B; font-size: 12px;'>No matching clauses found for '<b>{html.escape(query)}</b>' matching active filters.</span>")
@@ -780,6 +885,7 @@ class SpecSearchTab(QWidget):
             clause_data = self.db.get_clause_content_by_spec_ver(spec_num, version, clause_num)
 
         if clause_data:
+            spec_title = self.get_spec_short_name(spec_num) or self.get_spec_title(spec_num)
             self.inspector.display_clause(
                 clause_number=clause_num,
                 clause_title=clause_title,
@@ -790,6 +896,7 @@ class SpecSearchTab(QWidget):
                 search_query=query,
                 first_added_ver=first_added_ver,
                 prev_ver=prev_ver,
+                spec_title=spec_title,
             )
 
     # -------------------------------------------------------------------------
@@ -803,7 +910,7 @@ class SpecSearchTab(QWidget):
             cfg = self._load_config()
             saved_checked = cfg.get("checked_versions") if cfg else None
 
-        self.version_tree.populate(versions, saved_checked=saved_checked)
+        self.version_tree.populate(versions, saved_checked=saved_checked, spec_titles=self._spec_titles)
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
         self._update_db_stats()
 
@@ -895,7 +1002,7 @@ class SpecSearchTab(QWidget):
                     saved_checked.append({"spec_number": s_num, "version": ver})
 
         versions = self.db.get_imported_versions()
-        self.version_tree.populate(versions, saved_checked=saved_checked)
+        self.version_tree.populate(versions, saved_checked=saved_checked, spec_titles=self._spec_titles)
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
         self._save_config()
 
