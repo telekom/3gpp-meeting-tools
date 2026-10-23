@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 import os
 from PyQt5.QtWidgets import QFileDialog
 
-from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
+from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_DANGER
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.scraper import ManualMeetingFetcherThread, MEETING_SOURCES
 
@@ -458,7 +458,26 @@ class MeetingsConfigDialog(QDialog):
 
         layout.addWidget(wi_group)
 
-        # 4. Footer Actions
+        # 4. Database Maintenance (Danger Zone)
+        danger_group = QGroupBox("⚠️ Database Maintenance")
+        danger_layout = QVBoxLayout(danger_group)
+
+        danger_desc = QLabel("Permanently erase all meeting records and offline metadata from the local database:")
+        danger_desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        danger_layout.addWidget(danger_desc)
+
+        danger_btn_row = QHBoxLayout()
+        self.btn_clear = QPushButton("🗑️ Clear All Meetings...")
+        self.btn_clear.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
+        self.btn_clear.setToolTip("Permanently delete all meeting records from the local SQLite database.")
+        self.btn_clear.clicked.connect(self._on_clear_all_clicked)
+        danger_btn_row.addWidget(self.btn_clear)
+        danger_btn_row.addStretch()
+        danger_layout.addLayout(danger_btn_row)
+
+        layout.addWidget(danger_group)
+
+        # 5. Footer Actions
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
@@ -470,6 +489,11 @@ class MeetingsConfigDialog(QDialog):
         btn_layout.addWidget(btn_done)
 
         layout.addLayout(btn_layout)
+
+    def _on_clear_all_clicked(self):
+        parent = self.parent()
+        if parent and hasattr(parent, "_confirm_delete_all"):
+            parent._confirm_delete_all()
 
     def _browse_cache_dir(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Cache Directory", self.dl_dir_input.text())

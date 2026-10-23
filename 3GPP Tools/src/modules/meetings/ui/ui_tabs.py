@@ -10,7 +10,7 @@ from PyQt5.QtGui import QPen, QColor, QBrush
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLineEdit, QComboBox, QTableView, QHeaderView,
-    QMenu, QLabel, QCheckBox, QDateEdit, QSplitter,
+    QMenu, QLabel, QCheckBox, QDateEdit,
     QMessageBox, QFrame, QFileDialog, QDialog, QStyledItemDelegate, QStyle
 )
 
@@ -18,7 +18,10 @@ from core.network.session import NetworkConfigDialog
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     BUTTON_STYLE_TOOLBAR_DANGER,
-    BUTTON_STYLE_TOOLBAR_WARNING
+    BUTTON_STYLE_TOOLBAR_WARNING,
+    SEGMENT_BTN_STYLE,
+    SPEC_FILTER_COMBO_STYLE,
+    SPEC_FILTER_INPUT_STYLE,
 )
 from modules.meetings.core.agenda_manager import AgendaDownloaderThread
 from modules.meetings.core.compare_manager import ComparisonManager
@@ -35,10 +38,8 @@ from modules.word_tools.core.word_comparator import WordComparatorThread
 from modules.meetings.core.tdocs_merger import TDocsMergerThread
 from modules.meetings.ui.contribution_dialog import ContributionReportDialog
 
-
-
-# Delegates extracted to meetings_delegates.py (re-exported for backward compatibility)
-from modules.meetings.ui.meetings_delegates import TDocsButtonDelegate, DynamicHoverMenuDelegate
+# Delegates
+from modules.meetings.ui.meetings_delegates import TDocsButtonDelegate, DynamicHoverMenuDelegate, WGTagDelegate
 from modules.meetings.ui.meetings_menu import populate_meeting_context_menu
 from modules.meetings.ui.meetings_actions import (
     open_last_meeting,
@@ -49,7 +50,6 @@ from modules.meetings.ui.meetings_actions import (
     open_contribution_report,
     open_meeting_from_report,
 )
-
 
 
 class MeetingsTab(QWidget):
@@ -64,6 +64,7 @@ class MeetingsTab(QWidget):
 
         self.tdoc_windows = {}
         self._active_dl_threads = {}
+        self._current_tsg = ""
 
         self.save_filters_timer = QTimer()
         self.save_filters_timer.setSingleShot(True)
@@ -85,7 +86,9 @@ class MeetingsTab(QWidget):
             "search": self.search_input.text().strip(),
             "enable_dates": self.enable_dates_cb.isChecked(),
             "date_from": self.date_from.date().toString("yyyy-MM-dd"),
-            "date_to": self.date_to.date().toString("yyyy-MM-dd")
+            "date_to": self.date_to.date().toString("yyyy-MM-dd"),
+            "date_preset": self.date_preset_combo.currentText(),
+            "tsg": getattr(self, "_current_tsg", ""),
         }
         self.settings.save_filters(filters)
 
@@ -101,6 +104,11 @@ class MeetingsTab(QWidget):
         self.enable_dates_cb.blockSignals(True)
         self.date_from.blockSignals(True)
         self.date_to.blockSignals(True)
+        self.date_preset_combo.blockSignals(True)
+
+        if "tsg" in filters:
+            self._current_tsg = filters["tsg"]
+            self._update_tsg_button_styles()
 
         if "wg" in filters:
             saved_wgs = filters["wg"]
@@ -126,6 +134,16 @@ class MeetingsTab(QWidget):
         if "search" in filters:
             self.search_input.setText(filters["search"])
 
+        if "date_preset" in filters:
+            preset_name = filters["date_preset"]
+            idx = self.date_preset_combo.findText(preset_name)
+            if idx >= 0:
+                self.date_preset_combo.setCurrentIndex(idx)
+                is_custom = (preset_name == "Custom Range...")
+                self.date_from.setVisible(is_custom)
+                self.arrow_lbl.setVisible(is_custom)
+                self.date_to.setVisible(is_custom)
+
         if "enable_dates" in filters:
             self.enable_dates_cb.setChecked(filters["enable_dates"])
             self._toggle_date_inputs(filters["enable_dates"])
@@ -147,6 +165,7 @@ class MeetingsTab(QWidget):
         self.enable_dates_cb.blockSignals(False)
         self.date_from.blockSignals(False)
         self.date_to.blockSignals(False)
+        self.date_preset_combo.blockSignals(False)
 
     def _browse_cache_dir(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Cache Directory", self.dl_dir_input.text())
@@ -155,10 +174,10 @@ class MeetingsTab(QWidget):
             self.dl_dir_input.setText(normalized_dir)
             self.settings.save_settings(normalized_dir)
 
-
     def _setup_ui(self):
-        main_layout = QHBoxLayout(self)
-        self.splitter = QSplitter(Qt.Horizontal)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(6)
 
         # --- Settings Dialog & Persistent Reference Bridge ---
         self.config_dialog = MeetingsConfigDialog(self.settings, self)
@@ -166,13 +185,254 @@ class MeetingsTab(QWidget):
         self.chk_wg = self.config_dialog.chk_wg
         self.chk_dyna = self.config_dialog.chk_dyna
         self.chk_docs = self.config_dialog.chk_docs
+        self.delete_all_btn = getattr(self.config_dialog, "btn_clear", None)
 
-        # --- Left Side: Table View ---
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(8)
+        # ==========================================
+        # --- ROW 1: Quick Actions & Primary Toolbar ---
+        # ==========================================
+        row1_layout = QHBoxLayout()
+        row1_layout.setSpacing(8)
 
+        # 1. Quick Launch Last Meeting
+        self.btn_open_last = QPushButton("🚀 Open Last Meeting")
+        self.btn_open_last.setObjectName("primaryBtn")
+        self.btn_open_last.setFixedHeight(30)
+        self.btn_open_last.setCursor(Qt.PointingHandCursor)
+        self.btn_open_last.clicked.connect(self._open_last_meeting)
+        row1_layout.addWidget(self.btn_open_last)
+
+        # Vertical Divider
+        sep_v1 = QFrame()
+        sep_v1.setFrameShape(QFrame.VLine)
+        sep_v1.setFrameShadow(QFrame.Sunken)
+        row1_layout.addWidget(sep_v1)
+
+        # 2. Quick TDoc Jump
+        tdoc_lbl = QLabel("⚡ <b>TDoc:</b>")
+        tdoc_lbl.setStyleSheet("color: #475569; font-size: 11px;")
+        row1_layout.addWidget(tdoc_lbl)
+
+        self.global_tdoc_input = QLineEdit()
+        self.global_tdoc_input.setStyleSheet(SPEC_FILTER_INPUT_STYLE)
+        self.global_tdoc_input.setPlaceholderText("Jump to TDoc (e.g., S2-2605740)...")
+        self.global_tdoc_input.setFixedHeight(30)
+        self.global_tdoc_input.setMinimumWidth(210)
+        self.global_tdoc_input.setClearButtonEnabled(True)
+        self.global_tdoc_input.setToolTip("Type a TDoc number. Press Enter to open or use the quick buttons.")
+        row1_layout.addWidget(self.global_tdoc_input)
+
+        self.btn_open_tdoc = QPushButton("📄 Doc")
+        self.btn_open_tdoc.setObjectName("primaryBtn")
+        self.btn_open_tdoc.setCursor(Qt.PointingHandCursor)
+        self.btn_open_tdoc.setFixedHeight(28)
+        self.btn_open_tdoc.setVisible(False)
+        self.btn_open_tdoc.setToolTip("Download and open the specified TDoc directly in Microsoft Word.")
+        row1_layout.addWidget(self.btn_open_tdoc)
+
+        self.btn_open_meeting = QPushButton("🗓️ Mtg")
+        self.btn_open_meeting.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_open_meeting.setCursor(Qt.PointingHandCursor)
+        self.btn_open_meeting.setFixedHeight(28)
+        self.btn_open_meeting.setVisible(False)
+        self.btn_open_meeting.setToolTip("Open the full meeting table containing this TDoc.")
+        row1_layout.addWidget(self.btn_open_meeting)
+
+        self.tdoc_metadata_warning = QLabel()
+        self.tdoc_metadata_warning.setStyleSheet("color: #B45309; font-size: 11px; font-weight: bold;")
+        self.tdoc_metadata_warning.setVisible(False)
+        row1_layout.addWidget(self.tdoc_metadata_warning)
+
+        self.btn_update_tdoc_metadata = QPushButton("🔄 Update metadata")
+        self.btn_update_tdoc_metadata.setStyleSheet(BUTTON_STYLE_TOOLBAR_WARNING)
+        self.btn_update_tdoc_metadata.setFixedHeight(26)
+        self.btn_update_tdoc_metadata.setVisible(False)
+        self.btn_update_tdoc_metadata.setToolTip("Deep-scrape Docs/ folders to rebuild missing first/last TDoc ranges.")
+        self.btn_update_tdoc_metadata.clicked.connect(self._update_incomplete_tdoc_metadata)
+        row1_layout.addWidget(self.btn_update_tdoc_metadata)
+
+        row1_layout.addStretch()
+
+        # 3. Network Sync Menu
+        self.sync_menu_btn = QPushButton("🔄 Sync ▾")
+        self.sync_menu_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.sync_menu_btn.setFixedHeight(30)
+        self.sync_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.sync_menu_btn.setToolTip("Synchronization and FTP scraping options...")
+
+        sync_menu = QMenu(self)
+        sync_act_all = sync_menu.addAction("🔄 Sync All Meetings", lambda: self.update_db_requested.emit(
+            self.chk_wg.isChecked(), self.chk_docs.isChecked(), self.chk_dyna.isChecked()
+        ))
+        sync_act_all.setToolTip("Run multi-phase FTP scrape according to configured scraper options.")
+
+        sync_act_add = sync_menu.addAction("➕ Add / Fetch Specific Meeting...", self._open_add_meeting_dialog)
+        sync_act_add.setToolTip("Manually query, preview, and import a specific meeting via Portal ID or FTP URL.")
+
+        sync_menu.addSeparator()
+        sync_act_cfg = sync_menu.addAction("⚙️ Scraper && Cache Preferences...", self.config_dialog.exec_)
+        sync_act_cfg.setToolTip("Configure local cache directory and FTP scraper phase toggles.")
+
+        self.sync_menu_btn.setMenu(sync_menu)
+        row1_layout.addWidget(self.sync_menu_btn)
+        self.update_btn = self.sync_menu_btn  # Compatibility alias
+        self.btn_add_meeting = self.sync_menu_btn  # Compatibility alias
+
+        # 4. Reports & Analytics Menu
+        self.reports_menu_btn = QPushButton("📊 Reports ▾")
+        self.reports_menu_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.reports_menu_btn.setFixedHeight(30)
+        self.reports_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.reports_menu_btn.setToolTip("Reports, analytics, and consolidated exports...")
+
+        reports_menu = QMenu(self)
+        rep_act_contrib = reports_menu.addAction("📊 Contributions Report...", self._open_contribution_report)
+        rep_act_contrib.setToolTip("Filter and audit company contributions across multiple meetings.")
+
+        rep_act_merge = reports_menu.addAction("📥 Export Merged TDocs (Excel)...", self._export_merged_tdocs)
+        rep_act_merge.setToolTip("Download and consolidate TDoc lists from filtered meetings into a single Excel workbook.")
+
+        self.reports_menu_btn.setMenu(reports_menu)
+        row1_layout.addWidget(self.reports_menu_btn)
+        self.btn_contribution_report = self.reports_menu_btn  # Compatibility alias
+        self.btn_export_merged = self.reports_menu_btn  # Compatibility alias
+
+        # 5. Settings Button
+        self.btn_config = QPushButton("⚙️ Settings")
+        self.btn_config.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_config.setFixedHeight(30)
+        self.btn_config.setCursor(Qt.PointingHandCursor)
+        self.btn_config.setToolTip("Open Meetings & Cache Configuration...")
+        self.btn_config.clicked.connect(self.config_dialog.exec_)
+        row1_layout.addWidget(self.btn_config)
+
+        main_layout.addLayout(row1_layout)
+
+        # ==========================================
+        # --- ROW 2: Search & Filter Engine ---
+        # ==========================================
+        row2_layout = QHBoxLayout()
+        row2_layout.setSpacing(6)
+
+        search_lbl = QLabel("<b>🔍 Search:</b>")
+        search_lbl.setStyleSheet("color: #334155; font-size: 11px;")
+        row2_layout.addWidget(search_lbl)
+
+        self.search_input = QLineEdit()
+        self.search_input.setStyleSheet(SPEC_FILTER_INPUT_STYLE)
+        self.search_input.setPlaceholderText("Filter number, city, or title...")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.setFixedHeight(28)
+        self.search_input.setMinimumWidth(180)
+        self.search_input.setToolTip("Filter visible meetings by meeting number, host city, or title.")
+        self.search_input.textChanged.connect(self.refresh_table)
+        row2_layout.addWidget(self.search_input, stretch=2)
+
+        # TSG Segmented Chips (All, SA, RAN, CT)
+        tsg_lbl = QLabel("TSG:")
+        tsg_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold; margin-left: 2px;")
+        row2_layout.addWidget(tsg_lbl)
+
+        self.tsg_buttons = {}
+        for t_label, t_val in [("All", ""), ("SA", "SA"), ("RAN", "RAN"), ("CT", "CT")]:
+            btn = QPushButton(t_label)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(SEGMENT_BTN_STYLE)
+            btn.setFixedHeight(26)
+            btn.setToolTip(f"Filter meetings under TSG {t_label}" if t_val else "Show meetings across all TSGs")
+            btn.clicked.connect(lambda _, tv=t_val: self._on_tsg_button_clicked(tv))
+            self.tsg_buttons[t_val] = btn
+            row2_layout.addWidget(btn)
+        self._update_tsg_button_styles()
+
+        # Working Group Selector
+        wg_lbl = QLabel("WG:")
+        wg_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold; margin-left: 2px;")
+        row2_layout.addWidget(wg_lbl)
+
+        self.wg_filter = CheckableComboBox("Working Group")
+        self.wg_filter.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.wg_filter.setMinimumWidth(125)
+        self.wg_filter.setFixedHeight(28)
+        self.wg_filter.setToolTip("Filter meetings by Working Group (e.g., SA2, RAN1).")
+        self.wg_filter.selectionChanged.connect(self.refresh_table)
+        row2_layout.addWidget(self.wg_filter)
+
+        # Ad-Hoc / Nature Dropdown
+        self.adhoc_filter = QComboBox()
+        self.adhoc_filter.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.adhoc_filter.addItems(["All Meetings", "Regular", "Ad-Hoc / BIS"])
+        self.adhoc_filter.setFixedHeight(28)
+        self.adhoc_filter.setToolTip("Filter by regular vs. ad-hoc meetings.")
+        self.adhoc_filter.currentTextChanged.connect(self.refresh_table)
+        row2_layout.addWidget(self.adhoc_filter)
+
+        # In-Person / Electronic Dropdown
+        self.type_filter = QComboBox()
+        self.type_filter.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.type_filter.addItems(["All Formats", "In-Person", "Electronic"])
+        self.type_filter.setFixedHeight(28)
+        self.type_filter.setToolTip("Filter by in-person vs. electronic meetings.")
+        self.type_filter.currentTextChanged.connect(self.refresh_table)
+        row2_layout.addWidget(self.type_filter)
+
+        # Dates Filter: Preset Combo + Date Range Pickers
+        dates_lbl = QLabel("Dates:")
+        dates_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold; margin-left: 2px;")
+        row2_layout.addWidget(dates_lbl)
+
+        self.date_preset_combo = QComboBox()
+        self.date_preset_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.date_preset_combo.addItems(["All Dates", "Upcoming", "This Year", "Past 12 Months", "Custom Range..."])
+        self.date_preset_combo.setFixedHeight(28)
+        self.date_preset_combo.setToolTip("Quickly scope meetings by date presets or select a custom range.")
+        self.date_preset_combo.currentIndexChanged.connect(self._on_date_preset_changed)
+        row2_layout.addWidget(self.date_preset_combo)
+
+        # Hidden checkbox used internally for backward compatibility
+        self.enable_dates_cb = QCheckBox("Filter by Date Range")
+        self.enable_dates_cb.setVisible(False)
+
+        self.date_from = QDateEdit()
+        self.date_from.setCalendarPopup(True)
+        self.date_from.setFixedHeight(28)
+        self.date_from.setDate(QDate.currentDate().addYears(-1))
+        self.date_from.setToolTip("Filter meetings starting on or after this date.")
+        self.date_from.dateChanged.connect(self.refresh_table)
+        self.date_from.setEnabled(False)
+        self.date_from.setVisible(False)
+        row2_layout.addWidget(self.date_from)
+
+        self.arrow_lbl = QLabel("➔")
+        self.arrow_lbl.setAlignment(Qt.AlignCenter)
+        self.arrow_lbl.setStyleSheet("color: #94A3B8; font-weight: bold;")
+        self.arrow_lbl.setVisible(False)
+        row2_layout.addWidget(self.arrow_lbl)
+
+        self.date_to = QDateEdit()
+        self.date_to.setCalendarPopup(True)
+        self.date_to.setFixedHeight(28)
+        self.date_to.setDate(QDate.currentDate().addYears(1))
+        self.date_to.setToolTip("Filter meetings ending on or before this date.")
+        self.date_to.dateChanged.connect(self.refresh_table)
+        self.date_to.setEnabled(False)
+        self.date_to.setVisible(False)
+        row2_layout.addWidget(self.date_to)
+
+        # Reset Filters Button
+        self.btn_reset_filters = QPushButton("✕ Clear")
+        self.btn_reset_filters.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_reset_filters.setFixedHeight(28)
+        self.btn_reset_filters.setCursor(Qt.PointingHandCursor)
+        self.btn_reset_filters.setToolTip("Reset all filters to defaults.")
+        self.btn_reset_filters.clicked.connect(self._reset_filters)
+        row2_layout.addWidget(self.btn_reset_filters)
+
+        main_layout.addLayout(row2_layout)
+
+        # ==========================================
+        # --- ROW 3: Full-Width Meetings Table ---
+        # ==========================================
         self.table = QTableView()
         self.table.setMouseTracking(True)
         self.table_model = MeetingsTableModel()
@@ -183,304 +443,248 @@ class MeetingsTab(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(36)
-        self.table.setStyleSheet(
-            "QTableView { border: 1px solid #CBD5E1; gridline-color: #F1F5F9; background-color: #FFFFFF; } "
-            "QTableView::item:selected { background-color: #EBF3FC; color: #1E293B; }"
-        )
+        self.table.setStyleSheet("""
+            QTableView {
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                gridline-color: #F1F5F9;
+                background-color: #FFFFFF;
+                alternate-background-color: #F8FAFC;
+                selection-background-color: #EBF3FC;
+                selection-color: #1E293B;
+            }
+            QTableView::item {
+                padding: 4px 6px;
+                border-bottom: 1px solid #F1F5F9;
+            }
+            QTableView::item:selected {
+                background-color: #EBF3FC;
+                color: #1E293B;
+            }
+            QHeaderView::section {
+                background-color: #F8FAFC;
+                color: #475569;
+                font-weight: bold;
+                font-size: 11px;
+                border: none;
+                border-bottom: 1px solid #CBD5E1;
+                padding: 6px 8px;
+            }
+        """)
 
+        # Column Delegates
         self.hover_delegate = DynamicHoverMenuDelegate(self)
         self.table.setItemDelegateForColumn(0, self.hover_delegate)
 
         self.tdocs_delegate = TDocsButtonDelegate(self)
         self.table.setItemDelegateForColumn(1, self.tdocs_delegate)
 
+        self.wg_delegate = WGTagDelegate(self)
+        self.table.setItemDelegateForColumn(2, self.wg_delegate)
+
+        # Column Layout (7 clean columns)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         header.setSectionResizeMode(1, QHeaderView.Fixed)
-        header.resizeSection(0, 40)
-        header.resizeSection(1, 90)
-        header.resizeSection(2, 60)
-        header.resizeSection(3, 90)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
         header.setSectionResizeMode(4, QHeaderView.Stretch)
-        header.resizeSection(5, 90)
-        header.resizeSection(6, 90)
-        header.resizeSection(7, 110)
-        header.resizeSection(8, 110)
+        header.setSectionResizeMode(5, QHeaderView.Fixed)
+        header.setSectionResizeMode(6, QHeaderView.Fixed)
+
+        header.resizeSection(0, 38)
+        header.resizeSection(1, 90)
+        header.resizeSection(2, 75)
+        header.resizeSection(3, 95)
+        # col 4 Stretch (Location)
+        header.resizeSection(5, 145)
+        header.resizeSection(6, 185)
 
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_right_click_menu)
-        left_layout.addWidget(self.table)
+        self.table.doubleClicked.connect(self._on_table_double_clicked)
+        main_layout.addWidget(self.table)
 
-        # --- Comparison Cart ---
+        # ==========================================
+        # --- ROW 4: Status Strip & Floating Cart ---
+        # ==========================================
+        bottom_layout = QHBoxLayout()
+        bottom_layout.setContentsMargins(4, 2, 4, 2)
+        bottom_layout.setSpacing(10)
+
+        self.status_lbl = QLabel("Showing 0 meetings")
+        self.status_lbl.setStyleSheet("color: #475569; font-size: 11px;")
+        bottom_layout.addWidget(self.status_lbl)
+
+        bottom_layout.addStretch()
+
+        # Floating Comparison Cart Pill (hidden when empty)
         self.cart_frame = QFrame()
+        self.cart_frame.setObjectName("cartFrame")
         self.cart_frame.setStyleSheet("""
-                QFrame {
-                    background-color: #F8FAFC;
-                    border: 1px solid #CBD5E1;
-                    border-radius: 6px;
-                }
-                QLabel { color: #1E293B; border: none; }
-            """)
+            QFrame#cartFrame {
+                background-color: #F8FAFC;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                padding: 2px 8px;
+            }
+            QLabel { color: #1E293B; border: none; font-size: 11px; }
+        """)
         cart_layout = QHBoxLayout(self.cart_frame)
-        cart_layout.setContentsMargins(12, 8, 12, 8)
+        cart_layout.setContentsMargins(8, 2, 8, 2)
+        cart_layout.setSpacing(6)
 
-        cart_layout.addWidget(QLabel("<b>⚖️ Comparison Cart:</b>"))
+        cart_layout.addWidget(QLabel("<b>⚖️ Cart:</b>"))
         self.lbl_slot_a = QLabel("<i style='color:#64748B;'>[Slot A Empty]</i>")
         self.lbl_slot_b = QLabel("<i style='color:#64748B;'>[Slot B Empty]</i>")
-
-        cart_layout.addSpacing(8)
         cart_layout.addWidget(self.lbl_slot_a)
-        cart_layout.addWidget(QLabel(" <b>VS</b> "))
+        cart_layout.addWidget(QLabel("<b>vs</b>"))
         cart_layout.addWidget(self.lbl_slot_b)
-        cart_layout.addStretch()
 
         self.btn_compare = QPushButton("⚖️ Compare in Word")
         self.btn_compare.setObjectName("primaryBtn")
         self.btn_compare.setEnabled(False)
+        self.btn_compare.setFixedHeight(24)
         self.btn_compare.setToolTip("Launch an invisible Word instance to generate a visual redline diff.")
         self.btn_compare.clicked.connect(self._run_comparison)
+        cart_layout.addWidget(self.btn_compare)
 
         self.btn_clear_cart = QPushButton("✖ Clear")
         self.btn_clear_cart.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_clear_cart.setFixedHeight(24)
         self.btn_clear_cart.setToolTip("Clear all items from the comparison cart.")
         self.btn_clear_cart.clicked.connect(ComparisonManager.get_instance().clear_cart)
-
-        cart_layout.addWidget(self.btn_compare)
         cart_layout.addWidget(self.btn_clear_cart)
-        left_layout.addWidget(self.cart_frame)
-        self.splitter.addWidget(left_widget)
+
+        self.cart_frame.setVisible(False)
+        bottom_layout.addWidget(self.cart_frame)
+
+        main_layout.addLayout(bottom_layout)
 
         ComparisonManager.get_instance().cart_updated.connect(self._update_cart_ui)
-
-        # --- Right Side: Refactored Filter & Action Panel ---
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setAlignment(Qt.AlignTop)
-        right_layout.setSpacing(10)
-        right_layout.setContentsMargins(6, 4, 6, 6)
-
-        # 1. Quick Launch
-        self.btn_open_last = QPushButton("🚀 Open Last Meeting")
-        self.btn_open_last.setObjectName("primaryBtn")
-        self.btn_open_last.setFixedHeight(34)
-        self.btn_open_last.clicked.connect(self._open_last_meeting)
-        right_layout.addWidget(self.btn_open_last)
-
-        # 2. Smart Global TDoc Jump Card
-        jump_frame = QFrame()
-        jump_frame.setStyleSheet("""
-                QFrame {
-                    background-color: #F8FAFC;
-                    border: 1px solid #E2E8F0;
-                    border-radius: 6px;
-                }
-            """)
-        jump_layout = QVBoxLayout(jump_frame)
-        jump_layout.setContentsMargins(8, 6, 8, 6)
-        jump_layout.setSpacing(4)
-
-        jump_header = QLabel("⚡ <b>Quick TDoc Jump</b>")
-        jump_header.setStyleSheet("font-size: 11px; color: #475569; border: none;")
-        jump_layout.addWidget(jump_header)
-
-        global_search_layout = QHBoxLayout()
-        global_search_layout.setSpacing(4)
-
-        # Quick TDoc Jump Card
-        self.global_tdoc_input = QLineEdit()
-        self.global_tdoc_input.setPlaceholderText("e.g., S2-2605740")
-        self.global_tdoc_input.setToolTip(
-            "Type a valid TDoc number. Press Enter to open the document, or use the quick buttons.")
-
-        self.btn_open_tdoc = QPushButton("📄 Doc")
-        self.btn_open_tdoc.setCursor(Qt.PointingHandCursor)
-        self.btn_open_tdoc.setFixedHeight(26)
-        self.btn_open_tdoc.setObjectName("primaryBtn")
-        self.btn_open_tdoc.setVisible(False)
-        self.btn_open_tdoc.setToolTip("Download and open the specified TDoc directly in Microsoft Word.")
-
-        self.btn_open_meeting = QPushButton("🗓️ Mtg")
-        self.btn_open_meeting.setCursor(Qt.PointingHandCursor)
-        self.btn_open_meeting.setFixedHeight(26)
-        self.btn_open_meeting.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_open_meeting.setVisible(False)
-        self.btn_open_meeting.setToolTip("Open the full meeting table containing this TDoc.")
-
-        global_search_layout.addWidget(self.global_tdoc_input, 1)
-        global_search_layout.addWidget(self.btn_open_tdoc)
-        global_search_layout.addWidget(self.btn_open_meeting)
-        jump_layout.addLayout(global_search_layout)
-
-        # Shown only when strict Quick TDoc Jump cannot resolve the document
-        # and same-year meetings have incomplete Docs-derived TDoc metadata.
-        self.tdoc_metadata_warning = QLabel()
-        self.tdoc_metadata_warning.setWordWrap(True)
-        self.tdoc_metadata_warning.setStyleSheet(
-            "color: #B45309; font-size: 10px; border: none; background: transparent;"
-        )
-        self.tdoc_metadata_warning.setVisible(False)
-        jump_layout.addWidget(self.tdoc_metadata_warning)
-
-        self.btn_update_tdoc_metadata = QPushButton("🔄 Update TDoc metadata")
-        self.btn_update_tdoc_metadata.setStyleSheet(BUTTON_STYLE_TOOLBAR_WARNING)
-        self.btn_update_tdoc_metadata.setFixedHeight(26)
-        self.btn_update_tdoc_metadata.setVisible(False)
-        self.btn_update_tdoc_metadata.setToolTip(
-            "Deep-scrape the Docs/ folders of the affected meetings to rebuild their first/last TDoc ranges."
-        )
-        self.btn_update_tdoc_metadata.clicked.connect(self._update_incomplete_tdoc_metadata)
-        jump_layout.addWidget(self.btn_update_tdoc_metadata)
-
-        right_layout.addWidget(jump_frame)
-
-        # 3. Filter & Search Controls
-        filter_title = QLabel("🔍 <b>Filters</b>")
-        filter_title.setStyleSheet("font-size: 12px; color: #1E293B; margin-top: 2px;")
-        right_layout.addWidget(filter_title)
-
-        # Working Group Selector
-        self.wg_filter = CheckableComboBox("Working Group")
-        self.wg_filter.setToolTip("Filter meetings by Working Group (e.g., SA2, RAN1).")
-        self.wg_filter.selectionChanged.connect(self.refresh_table)
-        right_layout.addWidget(self.wg_filter)
-
-        # Compact Side-by-Side Combos (Ad-Hoc & Meeting Type)
-        type_row = QHBoxLayout()
-        type_row.setSpacing(6)
-
-        self.adhoc_filter = QComboBox()
-        self.adhoc_filter.addItems(["All Meetings", "Regular", "Ad-Hoc / BIS"])
-        self.adhoc_filter.setToolTip("Filter by regular vs. ad-hoc meetings.")
-        self.adhoc_filter.currentTextChanged.connect(self.refresh_table)
-
-        self.type_filter = QComboBox()
-        self.type_filter.addItems(["All Types", "In-Person", "Electronic"])
-        self.type_filter.setToolTip("Filter by in-person vs. electronic meetings.")
-        self.type_filter.currentTextChanged.connect(self.refresh_table)
-
-        type_row.addWidget(self.adhoc_filter, 1)
-        type_row.addWidget(self.type_filter, 1)
-        right_layout.addLayout(type_row)
-
-        # Search Box
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Filter number, city, or name...")
-        self.search_input.setClearButtonEnabled(True)
-        self.search_input.setToolTip("Filter visible meetings by meeting number, host city, or title.")
-        self.search_input.textChanged.connect(self.refresh_table)
-        right_layout.addWidget(self.search_input)
-
-        # Compact Date Range Selection
-        self.enable_dates_cb = QCheckBox("Filter by Date Range")
-        self.enable_dates_cb.setToolTip("Filter meetings within specific dates.")
-        self.enable_dates_cb.toggled.connect(self._toggle_date_inputs)
-        self.enable_dates_cb.toggled.connect(self.refresh_table)
-        right_layout.addWidget(self.enable_dates_cb)
-
-        dates_row = QHBoxLayout()
-        dates_row.setSpacing(4)
-
-        # Date Pickers
-        self.date_from = QDateEdit()
-        self.date_from.setCalendarPopup(True)
-        self.date_from.setDate(QDate.currentDate().addYears(-1))
-        self.date_from.setToolTip("Filter meetings starting on or after this date.")
-        self.date_from.dateChanged.connect(self.refresh_table)
-        self.date_from.setEnabled(False)
-
-        arrow_lbl = QLabel("➔")
-        arrow_lbl.setAlignment(Qt.AlignCenter)
-        arrow_lbl.setStyleSheet("color: #94A3B8; font-weight: bold;")
-
-        self.date_to = QDateEdit()
-        self.date_to.setCalendarPopup(True)
-        self.date_to.setDate(QDate.currentDate().addYears(1))
-        self.date_to.setToolTip("Filter meetings ending on or before this date.")
-        self.date_to.dateChanged.connect(self.refresh_table)
-        self.date_to.setEnabled(False)
-
-        dates_row.addWidget(self.date_from, 1)
-        dates_row.addWidget(arrow_lbl)
-        dates_row.addWidget(self.date_to, 1)
-        right_layout.addLayout(dates_row)
-        self.enable_dates_cb.setChecked(True)
-
-        sep1 = QFrame()
-        sep1.setFrameShape(QFrame.HLine)
-        sep1.setFrameShadow(QFrame.Sunken)
-        right_layout.addWidget(sep1)
-
-        # 4. Synchronization & Data Management
-        sync_lbl = QLabel("<b>Sync & Database</b>")
-        sync_lbl.setStyleSheet("font-size: 11px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;")
-        right_layout.addWidget(sync_lbl)
-
-        sync_btn_row = QHBoxLayout()
-        sync_btn_row.setSpacing(4)
-
-        # Sync & Database Buttons
-        self.update_btn = QPushButton("🔄 Sync All Meetings")
-        self.update_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.update_btn.setToolTip(
-            "Run multi-phase scrape across 3GPP FTP servers according to configured scraper options.")
-        self.update_btn.clicked.connect(lambda: self.update_db_requested.emit(
-            self.chk_wg.isChecked(), self.chk_docs.isChecked(), self.chk_dyna.isChecked()
-        ))
-        sync_btn_row.addWidget(self.update_btn, 1)
-
-        self.btn_config = QPushButton("⚙️")
-        self.btn_config.setFixedWidth(32)
-        self.btn_config.setToolTip("Configure local cache directory and scraping options...")
-        self.btn_config.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_config.clicked.connect(self.config_dialog.exec_)
-        sync_btn_row.addWidget(self.btn_config)
-        right_layout.addLayout(sync_btn_row)
-
-        self.btn_add_meeting = QPushButton("➕ Add / Fetch Meeting...")
-        self.btn_add_meeting.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_add_meeting.setToolTip(
-            "Manually query, preview, and import a specific meeting via Portal ID, number, or FTP URL.")
-        self.btn_add_meeting.clicked.connect(self._open_add_meeting_dialog)
-        right_layout.addWidget(self.btn_add_meeting)
-
-        sep2 = QFrame()
-        sep2.setFrameShape(QFrame.HLine)
-        sep2.setFrameShadow(QFrame.Sunken)
-        right_layout.addWidget(sep2)
-
-        # 5. Reports & Analytics
-        reports_lbl = QLabel("<b>Reports & Exports</b>")
-        reports_lbl.setStyleSheet("font-size: 11px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;")
-        right_layout.addWidget(reports_lbl)
-
-        self.btn_contribution_report = QPushButton("📊 Contributions Report...")
-        self.btn_contribution_report.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_contribution_report.setToolTip("Filter and audit company contributions across multiple meetings.")
-        self.btn_contribution_report.clicked.connect(self._open_contribution_report)
-        right_layout.addWidget(self.btn_contribution_report)
-
-        # Export & Destructive Actions
-        self.btn_export_merged = QPushButton("📥 Export Merged TDocs (Excel)")
-        self.btn_export_merged.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_export_merged.setToolTip(
-            "Download and consolidate TDoc lists from all currently filtered meetings into a single Excel workbook.")
-        self.btn_export_merged.clicked.connect(self._export_merged_tdocs)
-        right_layout.addWidget(self.btn_export_merged)
-
-        right_layout.addStretch()
-
-        # 6. Destructive Actions (De-emphasized at the bottom)
-        self.delete_all_btn = QPushButton("🗑️ Clear All Meetings...")
-        self.delete_all_btn.setToolTip("Permanently erase all meeting records and metadata from the local database.")
-        self.delete_all_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
-        self.delete_all_btn.clicked.connect(self._confirm_delete_all)
-        right_layout.addWidget(self.delete_all_btn)
-
-        self.splitter.addWidget(right_widget)
-        self.splitter.setSizes([750, 250])
-        main_layout.addWidget(self.splitter)
         self._populate_filters()
+
+    # ==========================================
+    # --- FILTER HANDLERS ---
+    # ==========================================
+    def _on_tsg_button_clicked(self, tsg_val: str):
+        if getattr(self, "_current_tsg", "") == tsg_val and tsg_val != "":
+            self._current_tsg = ""
+        else:
+            self._current_tsg = tsg_val
+
+        self._update_tsg_button_styles()
+
+        model = self.wg_filter.model()
+        self.wg_filter.blockSignals(True)
+        try:
+            for i in range(1, model.rowCount()):
+                item = model.item(i)
+                wg_name = item.text().upper()
+                if not self._current_tsg:
+                    item.setCheckState(Qt.Unchecked)
+                elif self._current_tsg == "SA" and wg_name.startswith("SA"):
+                    item.setCheckState(Qt.Checked)
+                elif self._current_tsg == "RAN" and (wg_name.startswith("RAN") or wg_name.startswith("GERAN")):
+                    item.setCheckState(Qt.Checked)
+                elif self._current_tsg == "CT" and (wg_name.startswith("CT") or wg_name.startswith("CN")):
+                    item.setCheckState(Qt.Checked)
+                else:
+                    item.setCheckState(Qt.Unchecked)
+            self.wg_filter.updateText()
+        finally:
+            self.wg_filter.blockSignals(False)
+
+        self.refresh_table()
+
+    def _update_tsg_button_styles(self):
+        curr = getattr(self, "_current_tsg", "")
+        for t_val, btn in getattr(self, "tsg_buttons", {}).items():
+            btn.setChecked(curr == t_val)
+
+    def _on_date_preset_changed(self):
+        preset = self.date_preset_combo.currentText()
+        today = QDate.currentDate()
+        self.enable_dates_cb.blockSignals(True)
+        self.date_from.blockSignals(True)
+        self.date_to.blockSignals(True)
+
+        is_custom = (preset == "Custom Range...")
+        self.date_from.setVisible(is_custom)
+        self.arrow_lbl.setVisible(is_custom)
+        self.date_to.setVisible(is_custom)
+
+        try:
+            if preset == "All Dates":
+                self.enable_dates_cb.setChecked(False)
+                self.date_from.setEnabled(False)
+                self.date_to.setEnabled(False)
+            elif preset == "Upcoming":
+                self.enable_dates_cb.setChecked(True)
+                self.date_from.setDate(today)
+                self.date_to.setDate(today.addYears(3))
+                self.date_from.setEnabled(False)
+                self.date_to.setEnabled(False)
+            elif preset == "This Year":
+                self.enable_dates_cb.setChecked(True)
+                self.date_from.setDate(QDate(today.year(), 1, 1))
+                self.date_to.setDate(QDate(today.year(), 12, 31))
+                self.date_from.setEnabled(False)
+                self.date_to.setEnabled(False)
+            elif preset == "Past 12 Months":
+                self.enable_dates_cb.setChecked(True)
+                self.date_from.setDate(today.addYears(-1))
+                self.date_to.setDate(today)
+                self.date_from.setEnabled(False)
+                self.date_to.setEnabled(False)
+            elif preset == "Custom Range...":
+                self.enable_dates_cb.setChecked(True)
+                self.date_from.setEnabled(True)
+                self.date_to.setEnabled(True)
+        finally:
+            self.enable_dates_cb.blockSignals(False)
+            self.date_from.blockSignals(False)
+            self.date_to.blockSignals(False)
+
+        self.refresh_table()
+
+    def _reset_filters(self):
+        self._current_tsg = ""
+        self._update_tsg_button_styles()
+        self.search_input.clear()
+        self.adhoc_filter.setCurrentIndex(0)
+        self.type_filter.setCurrentIndex(0)
+        self.date_preset_combo.setCurrentIndex(0)
+        self.date_from.setVisible(False)
+        self.arrow_lbl.setVisible(False)
+        self.date_to.setVisible(False)
+
+        model = self.wg_filter.model()
+        self.wg_filter.blockSignals(True)
+        try:
+            for i in range(1, model.rowCount()):
+                model.item(i).setCheckState(Qt.Unchecked)
+            self.wg_filter.updateText()
+        finally:
+            self.wg_filter.blockSignals(False)
+
+        self.refresh_table()
+
+    def _on_table_double_clicked(self, index):
+        if not index.isValid():
+            return
+        row_data = self.table_model.data(index, Qt.UserRole)
+        if not row_data:
+            return
+
+        status = row_data.get('tdoc_btn_status', 'na')
+        if status == 'open':
+            self._open_tdocs_window(row_data, row_data.get('tdoc_filepath'))
+        elif status == 'get':
+            self._download_and_open_tdocs(row_data, index.row())
+        else:
+            self.show_meeting_info(row_data)
 
     def refresh_quick_tdoc_lookup(self):
         """Re-evaluate the current Quick TDoc Jump after meeting metadata changes."""
@@ -495,7 +699,7 @@ class MeetingsTab(QWidget):
             self.tdoc_metadata_warning.setVisible(False)
             self.btn_update_tdoc_metadata.setVisible(False)
             self.btn_update_tdoc_metadata.setEnabled(True)
-            self.btn_update_tdoc_metadata.setText("🔄 Update TDoc metadata")
+            self.btn_update_tdoc_metadata.setText("🔄 Update metadata")
             return
 
         refreshable = [m for m in meetings if (m.get("url_key") or "").strip()]
@@ -521,7 +725,7 @@ class MeetingsTab(QWidget):
         self.tdoc_metadata_warning.setVisible(True)
         self.btn_update_tdoc_metadata.setVisible(bool(refreshable))
         self.btn_update_tdoc_metadata.setEnabled(bool(refreshable))
-        self.btn_update_tdoc_metadata.setText("🔄 Update TDoc metadata")
+        self.btn_update_tdoc_metadata.setText("🔄 Update metadata")
 
     def _update_incomplete_tdoc_metadata(self):
         """
@@ -546,12 +750,6 @@ class MeetingsTab(QWidget):
             f"{'meeting' if len(targets) == 1 else 'meetings'}. "
             "Re-run the Quick TDoc Jump after synchronization completes."
         )
-
-        # update_specific_requested(targets, sync_wg, sync_docs, sync_dyna)
-        #
-        # Do not leave this local button disabled here: MeetingsTab emits the
-        # request, but synchronization is owned by the outer meetings plugin
-        # and this controller has no completion signal to re-enable it safely.
         self.update_specific_requested.emit(targets, False, True, False)
 
     def _open_add_meeting_dialog(self):
@@ -586,10 +784,19 @@ class MeetingsTab(QWidget):
         self.date_to.setEnabled(checked)
 
     def _update_cart_ui(self, slot_a: dict, slot_b: dict):
-        self.lbl_slot_a.setText(
-            f"<b style='color:#1E5C99;'>{slot_a['name']}</b>" if slot_a else "<i style='color:#64748B;'>[Slot A Empty]</i>")
-        self.lbl_slot_b.setText(
-            f"<b style='color:#1E5C99;'>{slot_b['name']}</b>" if slot_b else "<i style='color:#64748B;'>[Slot B Empty]</i>")
+        has_items = bool(slot_a or slot_b)
+        self.cart_frame.setVisible(has_items)
+
+        if slot_a:
+            self.lbl_slot_a.setText(f"<b style='color:#1E5C99;'>{slot_a.get('name', 'Doc A')}</b>")
+        else:
+            self.lbl_slot_a.setText("<i style='color:#64748B;'>[Slot A Empty]</i>")
+
+        if slot_b:
+            self.lbl_slot_b.setText(f"<b style='color:#1E5C99;'>{slot_b.get('name', 'Doc B')}</b>")
+        else:
+            self.lbl_slot_b.setText("<i style='color:#64748B;'>[Slot B Empty]</i>")
+
         self.btn_compare.setEnabled(bool(slot_a and slot_b))
 
     def _run_comparison(self):
@@ -604,25 +811,16 @@ class MeetingsTab(QWidget):
             self.cmp_thread.start()
 
     def _populate_filters(self):
-        """
-        Refresh the available WG choices without discarding the user's current
-        selection. Database synchronization may discover new WGs, but a UI
-        refresh must not silently reset existing filters.
-        """
         selected_wgs = set(self.wg_filter.getCheckedItems())
         wgs = self.db.get_working_groups()
 
         self.wg_filter.blockSignals(True)
         try:
             self.wg_filter.updateItems(wgs)
-
-            # CheckableComboBox reserves row 0 for its "all/summary" entry.
-            # Restore only selections that still exist in the refreshed list.
             model = self.wg_filter.model()
             for i in range(1, model.rowCount()):
                 item = model.item(i)
                 item.setCheckState(Qt.Checked if item.text() in selected_wgs else Qt.Unchecked)
-
             self.wg_filter.updateText()
         finally:
             self.wg_filter.blockSignals(False)
@@ -646,8 +844,23 @@ class MeetingsTab(QWidget):
         cache_path = Path(current_cache)
         cached_folders = set(f.name for f in cache_path.iterdir() if f.is_dir()) if cache_path.exists() else set()
 
+        cached_count = 0
+        live_count = 0
+        today = QDate.currentDate()
+
         for row in data:
             mtg_id = row.get("mtg_id")
+            s = row.get("start_date", "")
+            e = row.get("end_date", "")
+            if s and e:
+                try:
+                    d1 = QDate.fromString(s, "yyyy-MM-dd")
+                    d2 = QDate.fromString(e, "yyyy-MM-dd")
+                    if d1.isValid() and d2.isValid() and d1 <= today <= d2:
+                        live_count += 1
+                except Exception:
+                    pass
+
             if not mtg_id:
                 row['tdoc_btn_status'] = 'na'
                 continue
@@ -668,10 +881,21 @@ class MeetingsTab(QWidget):
             if filepath:
                 row['tdoc_btn_status'] = 'open'
                 row['tdoc_filepath'] = str(filepath)
+                cached_count += 1
             else:
                 row['tdoc_btn_status'] = 'get'
 
         self.table_model.update_data(data)
+
+        # Update status bar summary
+        total_count = len(data)
+        summary_parts = [f"Showing <b>{total_count}</b> meeting{'s' if total_count != 1 else ''}"]
+        if cached_count > 0:
+            summary_parts.append(f"<b>{cached_count}</b> cached")
+        if live_count > 0:
+            summary_parts.append(f"<span style='color:#059669; font-weight:bold;'>🟢 {live_count} live</span>")
+
+        self.status_lbl.setText(" · ".join(summary_parts))
 
     def _emit_multi_sync(self, selected_rows):
         targets = [{"wg": self.table_model.data(r, Qt.UserRole).get("wg_name"),
@@ -794,15 +1018,16 @@ class MeetingsTab(QWidget):
 
         if last_num:
             display_tag = f"{last_wg}#{last_num}" if last_wg else f"{last_num}"
-            self.btn_open_last.setText(f"🚀 Open Last Meeting ({display_tag})")
+            self.btn_open_last.setText(f"🚀 Last Meeting ({display_tag})")
             self.btn_open_last.setToolTip(f"Instantly resume working on meeting {display_tag}")
+            self.btn_open_last.setEnabled(True)
         else:
             self.btn_open_last.setText("🚀 Open Last Meeting")
             self.btn_open_last.setToolTip("No recent meeting history found. Please open a meeting first.")
+            self.btn_open_last.setEnabled(False)
 
     def _populate_dynamic_menu(self, menu: QMenu, row_data: dict, row_idx: int):
         populate_meeting_context_menu(self, menu, row_data, row_idx)
-
 
     def _download_agenda_csv(self, row_data: dict):
         current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.settings.cache_dir
