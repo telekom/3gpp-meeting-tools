@@ -20,27 +20,29 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 
 ### Gap Analysis Matrix
 
-| ID | Feature Domain | Legacy Feature | Original Implementation | Current Status in 3GPP Tools | Implementation Complexity | Priority |
+> [!TIP] Detailed individual specifications with architectural diagrams, code samples, and implementation plans for each feature are available in the [Legacy Features Catalog](legacy_features/README.md).
+
+| ID | Feature Domain | Legacy Feature | Detailed Specification | Current Status in 3GPP Tools | Complexity | Priority |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **F-01** | **OS Integration** | Windows `tdoc://` URL Protocol Handler | `search_and_open_tdoc.py`, `tdoc.reg` | ❌ Not implemented | Low (Windows Registry + CLI) | 🟢 High |
-| **F-02** | **Word Automation** | Batch CR Cover Sheet Parser to Excel | `parsing/word/pywin32.py`, `gui/tdocs_table.py` | ❌ Only 1-by-1 AI triage | Medium (Word COM / `python-docx`) | 🟢 High |
-| **F-03** | **Office Automation** | PowerPoint Presentation Merger | `application/powerpoint.py`, `gui/tdocs_table.py` | ❌ Not implemented | Low (PowerPoint COM) | 🟡 Medium |
-| **F-04** | **PDF & AI Tools** | Bookmarked PDF Dossier & LLM Prompt | `gui/tdocs_table_from_excel.py` | ❌ Merges Excel / Markdown | Medium (`pypdf` + Word COM) | 🟡 Medium |
-| **F-05** | **Word Automation** | Active Word vs. TDoc Direct Compare | `_3GPP_Delegate_Helper.py` | ❌ Slot A vs B in Cart only | Low (Word COM `GetActiveObject`) | 🟢 High |
-| **F-06** | **Security / Compliance** | MIP / Purview Sensitivity Label Setter | `sensitivity_label_setter.py`, `application/sensitivity_label.py` | ❌ Not implemented | Medium (Office Sensitivity API) | 🟡 Medium |
-| **F-07** | **Word Automation** | Track Changes Revision Author Renamer | `application/word.py`, `gui/tools_overview.py` | ❌ Not implemented | Low (OpenXML / Zip replacement) | ⚪ Low |
-| **F-08** | **Word Automation** | Word Process Watchdog / Force Killer | `application/word.py` (`close_word`) | ❌ Process managed internally | Low (win32com / psutil) | ⚪ Low |
-| **F-09** | **Word Automation** | Word Meeting Contribution Report (.docx) | `parsing/word/pywin32.py` (`insert_doc_data_to_doc`) | ❌ Markdown / HTML / Excel only | High (Word COM table styling) | ⚪ Low |
-| **F-10** | **Word Automation** | "Accept All Changes" Clean Export | `application/word.py` (`export_document`) | ❌ Not implemented | Low (Word COM) | ⚪ Low |
-| **F-11** | **Excel Sync** | Bi-directional Excel AutoFilter Sync | `gui/tdocs_table_from_excel.py` | ❌ In-app filters only | Medium (Excel COM) | ⚪ Low |
-| **F-12** | **Excel Sync** | Company Comments Matrix Importer | `parsing/excel.py` (`read_comments_file`) | ❌ Personal notes only | Medium (`pandas` / `openpyxl`) | 🟡 Medium |
-| **F-13** | **Excel Sync** | Native Excel Pivot Tables & Charts | `parsing/excel.py` (`add_pivot_table...`) | ❌ HTML Plotly & openpyxl | Medium (Excel COM) | ⚪ Low |
-| **F-14** | **Email Reflector** | Reflector `Attachment.txt` Redirect Fetcher | `parsing/outlook.py` (`get_attachment_data`) | ❌ IMAP/HTML sync only | Low (Regex + NetworkSession) | 🟡 Medium |
-| **F-15** | **Email Reflector** | Chairman Email Notes (`<<START>>...<<END>>`) | `parsing/outlook.py` | ❌ Not implemented | Low (Regex) | ⚪ Low |
-| **F-16** | **Email Reflector** | Email Approval Excel Export | `parsing/excel.py` (`export_email_approval_list`) | ❌ Not implemented | Medium (`openpyxl`) | ⚪ Low |
-| **F-17** | **Web Links** | 3GPP Guru Web Viewer Integration | `gui/specs_table.py` (`get_3gpp_guru_url...`) | ❌ Portal / FTP links only | Very Low (URL template) | 🟢 High |
-| **F-18** | **Web Links** | 3GPP Forge APIs Direct Link | `_3GPP_Delegate_Helper.py` (`apis_3gpp_forge_url`) | ❌ Not in menu | Very Low (URL launcher) | 🟢 High |
-| **F-19** | **Meeting Notes** | Chairman\'s Notes Word Table Parser (WIP) | `Tests for Chair Notes.ipynb`, `chairnotes.py` | ❌ File download only | High (Word COM / `python-docx`) | 🟡 Medium |
+| **F-01** | **OS Integration** | Windows `tdoc://` URL Protocol Handler | [F01: Windows URL Handler](legacy_features/F01_windows_tdoc_url_handler.md) | ❌ Not implemented | Low | 🟢 High |
+| **F-02** | **Word Automation** | Batch CR Cover Sheet Parser to Excel | [F02: Batch CR Cover Parser](legacy_features/F02_batch_cr_cover_sheet_parser.md) | ❌ Only 1-by-1 AI triage | Medium | 🟢 High |
+| **F-03** | **Office Automation** | PowerPoint Presentation Merger | [F03: PowerPoint Merger](legacy_features/F03_powerpoint_presentation_merger.md) | ❌ Not implemented | Low | 🟡 Medium |
+| **F-04** | **PDF & AI Tools** | Bookmarked PDF Dossier & LLM Prompt | [F04: Bookmarked PDF & Prompt](legacy_features/F04_bookmarked_pdf_dossier_llm_prompt.md) | ❌ Merges Excel / Markdown | Medium | 🟡 Medium |
+| **F-05** | **Word Automation** | Active Word vs. TDoc Direct Compare | [F05: Active Word vs. TDoc](legacy_features/F05_active_word_vs_tdoc_comparison.md) | ❌ Slot A vs B in Cart only | Low | 🟢 High |
+| **F-06** | **Security / Compliance** | MIP / Purview Sensitivity Label Setter | [F06: MIP Sensitivity Setter](legacy_features/F06_mip_sensitivity_label_setter.md) | ❌ Not implemented | Medium | 🟡 Medium |
+| **F-07** | **Word Automation** | Track Changes Revision Author Renamer | [F07: Author Renamer](legacy_features/F07_track_changes_author_renamer.md) | ❌ Not implemented | Low | ⚪ Low |
+| **F-08** | **Word Automation** | Word Process Watchdog / Force Killer | [F08: Word Process Watchdog](legacy_features/F08_word_process_watchdog_killer.md) | ❌ Process managed internally | Low | ⚪ Low |
+| **F-09** | **Word Automation** | Word Meeting Contribution Report (.docx) | [F09: Word Contribution Report](legacy_features/F09_word_meeting_contribution_report.md) | ❌ Markdown / HTML / Excel only | High | ⚪ Low |
+| **F-10** | **Word Automation** | "Accept All Changes" Clean Export | [F10: Accept All Changes Export](legacy_features/F10_word_accept_all_changes_export.md) | ❌ Not implemented | Low | ⚪ Low |
+| **F-11** | **Excel Sync** | Bi-directional Excel AutoFilter Sync | [F11: Excel AutoFilter Sync](legacy_features/F11_excel_bidirectional_autofilter_sync.md) | ❌ In-app filters only | Medium | ⚪ Low |
+| **F-12** | **Excel Sync** | Company Comments Matrix Importer | [F12: Comments Matrix Importer](legacy_features/F12_company_comments_matrix_importer.md) | ❌ Personal notes only | Medium | 🟡 Medium |
+| **F-13** | **Excel Sync** | Native Excel Pivot Tables & Charts | [F13: Excel Pivot Tables](legacy_features/F13_native_excel_pivot_tables_charts.md) | ❌ HTML Plotly & openpyxl | Medium | ⚪ Low |
+| **F-14** | **Email Reflector** | Reflector `Attachment.txt` Redirect Fetcher | [F14: Attachment Link Fetcher](legacy_features/F14_reflector_attachment_link_fetcher.md) | ❌ IMAP/HTML sync only | Low | 🟡 Medium |
+| **F-15** | **Email Reflector** | Chairman Email Notes (`<<START>>...<<END>>`) | [F15: Chairman Notes Parser](legacy_features/F15_chairman_email_notes_parser.md) | ❌ Not implemented | Low | ⚪ Low |
+| **F-16** | **Email Reflector** | Email Approval Excel Export | [F16: Email Approval Excel](legacy_features/F16_email_approval_excel_export.md) | ❌ Not implemented | Medium | ⚪ Low |
+| **F-17** | **Web Links** | 3GPP Guru Web Viewer Integration | [F17: 3GPP Guru Integration](legacy_features/F17_3gpp_guru_web_viewer_integration.md) | ❌ Portal / FTP links only | Very Low | 🟢 High |
+| **F-18** | **Web Links** | 3GPP Forge APIs Direct Link | [F18: 3GPP Forge APIs](legacy_features/F18_3gpp_forge_apis_launcher.md) | ❌ Not in menu | Very Low | 🟢 High |
+| **F-19** | **Meeting Notes** | Chairman\'s Notes Word Table Parser (WIP) | [F19: Chair Notes Word Parser](legacy_features/F19_chairmans_notes_word_table_parser.md) | ❌ File download only | High | 🟡 Medium |
 
 ---
 
