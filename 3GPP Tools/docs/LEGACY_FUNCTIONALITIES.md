@@ -20,7 +20,9 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 
 ### Gap Analysis Matrix
 
-> [!TIP] Detailed individual specifications with architectural diagrams, code samples, and implementation plans for each feature are available in the [Legacy Features Catalog](legacy_features/README.md).
+> [!TIP]
+> Detailed individual specifications with architectural diagrams, code samples, and implementation plans for each feature are available in the [**Legacy Features Catalog (README.md)**](legacy_features/README.md).  
+> For a comprehensive business and workflow value evaluation across all features, see the [**Strategic Value & ROI Analysis (VALUE_ANALYSIS.md)**](legacy_features/VALUE_ANALYSIS.md).
 
 | ID | Feature Domain | Legacy Feature | Detailed Specification | Current Status in 3GPP Tools | Complexity | Priority |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |

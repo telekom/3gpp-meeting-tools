@@ -13,11 +13,46 @@ Before submitting the contribution to 3GPP or circulating it during drafting ses
 
 Attempting this in Microsoft Word natively is painful and requires tedious macro scripting or manually accepting and re-typing changes. The legacy application provided a tool in `application/word.py` that modified `word/document.xml` to execute regex search & replace on revision authors.
 
-This document analyzes **F-07** in depth: its implementation feasibility, why Word COM cannot be used, how Python's standard library provides a zero-dependency solution, the existing 3GPP Tools functionality that can be reused, and its exact placement in the **Word Tools Tab**.
+This document analyzes **F-07** in depth: its value proposition and return on investment (ROI), implementation feasibility, why Word COM cannot be used, how Python's standard library provides a zero-dependency solution, the existing 3GPP Tools functionality that can be reused, and its exact placement in the **Word Tools Tab**.
 
 ---
 
-## 2. Technical Feasibility & Complexity Analysis
+## 2. Value Analysis & Return on Investment (ROI)
+
+### 2.1. Target User Personas & Real-World Use Cases
+* **3GPP Standards Delegate & Co-Author:** Preparing a Change Request (CR) co-authored or reviewed by 2–5 colleagues from internal R&D, patent teams, or external contractors before uploading to 3GPP portals.
+* **Work Item Rapporteur:** Cleaning up a 3GPP Technical Report (TR) or multi-company study item before formal submission to plenary, ensuring all editor notes and drafting revisions are consistently tagged as `"Rapporteur"` or `"Editor"`.
+* **Standards Team Lead / Corporate IP Counsel:** Ensuring that outgoing contributions strictly comply with corporate disclosure guidelines, antitrust guidelines, and data privacy regulations by scrubbing personal contractor/engineer tags before public distribution.
+
+### 2.2. Quantitative Time & Friction Savings
+* **The Manual Baseline in Microsoft Word:**
+  Microsoft Word offers **no native capability** to batch-rename Track Changes authors without accepting them. Users are forced into two painful workarounds:
+  1. *Manual re-typing:* Accept all revisions, switch Word user profile identity, and manually re-apply all deletions and insertions (takes **15 to 45 minutes per contribution**, prone to human transcription errors).
+  2. *Manual ZIP surgery:* Rename `.docx` to `.zip`, extract XML, open `document.xml` in a text editor, run manual regex search/replace, re-zip, and rename back to `.docx` (takes **5 to 10 minutes per document**, with a high failure rate of XML corruption when ampersands like `"AT&T"` are inserted).
+* **With F-07 Integrated Tool:**
+  1-click operation in Word Tools: select file/open document -> enter unified company signature -> click **"Rename Authors"** (takes **< 5 seconds**).
+* **Net Savings:**
+  * **~15 to 40 minutes saved per document submission.**
+  * For an active standards team preparing 10–20 contributions per meeting cycle, this translates to **~3 to 8 delegate hours saved per meeting**.
+
+### 2.3. Qualitative & Strategic Value
+1. **Brand Consistency & Unified Corporate Stance:**
+   In 3GPP working groups (e.g. SA2, RAN1), proposals carry political and consensus weight when attributed directly to the contributing entity (e.g., `"T-Mobile"`, `"Qualcomm"`, `"Ericsson"`, `"China Mobile"`) rather than fragmented individual names.
+2. **Confidentiality & Data Privacy Protection (GDPR / Corporate IT):**
+   Prevents accidental leakage of internal contractor names, external partner identities, or internal network usernames (`colomikunoj`, `ext_jdoe`) into public 3GPP meeting archives that remain permanently online for decades.
+3. **Guaranteed XML Integrity:**
+   By utilizing Python's built-in `xml.etree.ElementTree` with automatic XML entity escaping (`AT&amp;T`), documents are guaranteed to open cleanly in Word without the notorious *"Word found unreadable content"* corrupt package error.
+4. **Author Normalization for Multi-Turn Offline Drafting:**
+   During fast-paced evening drafting sessions where multiple revisions pass back and forth, standardizing the author tag allows all changes to be tracked under a single color and reviewer filter in Word.
+
+### 2.4. Value-to-Effort (ROI) Rating
+* **Implementation Effort:** Very Low (~2.5 to 3 hours).
+* **Business / Workflow Value:** High (8.5 / 10).
+* **ROI Ratio:** **🔥 Very High** — Solves a fundamental limitation that Microsoft Word COM cannot handle natively.
+
+---
+
+## 3. Technical Feasibility & Complexity Analysis
 
 ### Is it really so easy to implement?
 **Yes — with one critical technical caveat.** 
@@ -64,7 +99,7 @@ The legacy implementation in `3GPP Meeting Helper` used a crude `str.replace('w:
 
 ---
 
-## 3. Existing Functionality in 3GPP Tools Ready to Reuse
+## 4. Existing Functionality in 3GPP Tools Ready to Reuse
 
 The current `3GPP Tools` codebase already possesses all the building blocks required for F-07:
 
@@ -122,7 +157,7 @@ flowchart LR
 
 ---
 
-## 4. Where It Should Be Placed in the UI
+## 5. Where It Should Be Placed in the UI
 
 ### Primary Surface: Word Tools Tab (`WordExtractorTab`)
 
@@ -183,7 +218,7 @@ This opens a compact dialog pre-populated with that TDoc's `.docx` file.
 
 ---
 
-## 5. Production-Grade Engine Specification
+## 6. Production-Grade Engine Specification
 
 ### Implementation: Zero-Dependency `author_renamer.py`
 
@@ -336,7 +371,7 @@ class WordAuthorRenamer:
 
 ---
 
-## 6. Implementation Roadmap & Estimates
+## 7. Implementation Roadmap & Estimates
 
 | Phase | Task Description | Estimated Effort |
 | :--- | :--- | :--- |
