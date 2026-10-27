@@ -457,6 +457,7 @@ def convert_doc_to_docx(
 class WordConverterThread(QThread):
     ui_log_msg = pyqtSignal(str, int)
     finished_path = pyqtSignal(str)
+    conversion_failed = pyqtSignal(str)
 
     FORMAT_MAP = {
         "pdf": WD_FORMAT_PDF,
@@ -516,18 +517,31 @@ class WordConverterThread(QThread):
 
     def run(self):
         self._downloaded_temp = None
+        temp_snapshot_to_cleanup = None
         try:
             source_path = self._resolve_path(self.doc_source)
             is_remote_url = source_path.startswith("http://") or source_path.startswith("https://")
             if is_remote_url:
                 source = Path(source_path.split("?")[0].split("/")[-1] or "remote_document.docx")
+                original_source = source
             else:
-                source = Path(source_path).resolve()
-                _sanitize_file_attributes(source)
+                original_source = Path(source_path).resolve()
+                _sanitize_file_attributes(original_source)
+
+                from modules.word_tools.core.document_opener import ensure_readable_word_document
+                readable_path, temp_snapshot_to_cleanup = ensure_readable_word_document(
+                    original_source,
+                    logger_fn=lambda msg: self._log(msg, logging.INFO),
+                )
+                source = readable_path
 
             # 1. Markdown Export Pipeline (OpenXML / tdoc_markdown_converter)
             if self.target_format in ("md", "markdown"):
-                self._run_markdown_export(source, raw_source=source_path if is_remote_url else None)
+                self._run_markdown_export(
+                    source,
+                    raw_source=source_path if is_remote_url else None,
+                    original_source=original_source,
+                )
                 return
 
             # 2. Explicit LibreOffice Engine Request
@@ -590,7 +604,13 @@ class WordConverterThread(QThread):
 
         except Exception as e:
             self._log(f"❌ Conversion Error: {str(e)}", logging.ERROR)
+            self.conversion_failed.emit(str(e))
         finally:
+            if temp_snapshot_to_cleanup and temp_snapshot_to_cleanup.exists():
+                try:
+                    temp_snapshot_to_cleanup.unlink()
+                except Exception:
+                    pass
             if self._downloaded_temp and self._downloaded_temp.exists():
                 try:
                     self._downloaded_temp.unlink()
@@ -794,28 +814,34 @@ class WordConverterThread(QThread):
             self._log(f"✅ Conversion complete: {out_name}", logging.INFO)
             self.finished_path.emit(out_path)
 
-    def _run_markdown_export(self, source: Path, raw_source: Optional[str] = None) -> None:
+    def _run_markdown_export(
+        self,
+        source: Path,
+        raw_source: Optional[str] = None,
+        original_source: Optional[Path] = None,
+    ) -> None:
         """Export document to Markdown with figure extraction and revision tracking."""
         from core.utils.paths import get_project_root, strip_extended_path
         from modules.meetings.core.tdoc_markdown_converter import convert_document_to_markdown
 
+        orig = original_source or source
         if self.output_dir:
             out_dir = Path(self.output_dir).resolve()
         elif raw_source:
             out_dir = get_project_root().parent / "output"
         else:
-            out_dir = source.parent
+            out_dir = orig.parent
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        self._log(f"⏳ Converting '{source.name}' to Markdown (revisions: {self.revisions})...", logging.INFO)
+        self._log(f"⏳ Converting '{orig.name}' to Markdown (revisions: {self.revisions})...", logging.INFO)
 
-        media_folder = out_dir / f"{source.stem}_media" if self.extract_media else None
-        media_rel = f"{source.stem}_media"
+        media_folder = out_dir / f"{orig.stem}_media" if self.extract_media else None
+        media_rel = f"{orig.stem}_media"
 
         exported = convert_document_to_markdown(
             doc_path=source,
             out_dir=out_dir,
-            tdoc_id=source.stem,
+            tdoc_id=orig.stem,
             revisions=self.revisions,
             media_dir=media_folder,
             media_rel=media_rel,

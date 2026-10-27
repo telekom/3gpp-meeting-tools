@@ -95,6 +95,7 @@ class DragDropUI(QMainWindow):
         self.queue_manager.queue_updated.connect(self.queue_panel.update_list)
         self.queue_manager.processing_state_changed.connect(self._update_system_status)
         self.queue_manager.conversion_success.connect(self.on_conversion_success)
+        self.queue_manager.conversion_failed.connect(self.on_conversion_failed)
 
         self.queue_panel.remove_requested.connect(self.queue_manager.remove_items)
         self.queue_panel.clear_requested.connect(self.queue_manager.clear_queue)
@@ -527,6 +528,8 @@ class DragDropUI(QMainWindow):
 
     def _update_system_status(self, is_processing: bool, status_text: str):
         self.status_bar.showMessage(status_text)
+        if hasattr(self, 'word_tab') and hasattr(self.word_tab, 'on_processing_state_changed'):
+            self.word_tab.on_processing_state_changed(is_processing)
         if is_processing:
             self.batch_tab.set_state(
                 "busy", "⚙️ Processing Queue...\n\nPlease wait until finished or drop more files to queue them."
@@ -679,6 +682,10 @@ class DragDropUI(QMainWindow):
             f.write(raw_text)
 
         self.queue_manager.add_item(puml_path, target_format)
+
+    def on_conversion_failed(self, error_msg: str):
+        if hasattr(self, 'word_tab') and hasattr(self.word_tab, 'on_conversion_failed'):
+            self.word_tab.on_conversion_failed(error_msg)
 
     def on_conversion_success(self, out_path: str):
         if out_path == "SPECS_DB_PASS_ONE":

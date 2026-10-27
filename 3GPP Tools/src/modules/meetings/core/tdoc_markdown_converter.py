@@ -191,6 +191,17 @@ def convert_document_to_markdown(
     if not path.is_file():
         raise FileNotFoundError(f"Document not found: {path}")
 
+    # Ensure document can be opened and read without file-sharing locks (e.g. open in Word / OneDrive)
+    snapshot_cleanup = None
+    effective_path = path
+    try:
+        from modules.word_tools.core.document_opener import ensure_readable_word_document
+        readable_path, snapshot_cleanup = ensure_readable_word_document(path, logger_fn=lambda m: logger.info(m))
+        effective_path = Path(to_extended_path(readable_path))
+    except Exception as lock_err:
+        logger.debug(f"ensure_readable_word_document skipped: {lock_err}")
+        effective_path = path
+
     target_dir = Path(to_extended_path(out_dir)) if out_dir else path.parent
     target_dir.mkdir(parents=True, exist_ok=True)
     tid = tdoc_id or guess_tdoc_id(path)
@@ -203,13 +214,26 @@ def convert_document_to_markdown(
 
     resolved_tdoc_url = tdoc_url or resolve_tdoc_download_url(tid, meta=meta)
 
-    if suffix == ".doc":
-        logger.info(f"Converting legacy .doc to .docx for {tid} using application converters...")
-        tmp_dir = Path(tempfile.mkdtemp(prefix="tdoc_conv_"))
-        try:
-            tmp_docx = convert_doc_to_docx(path, output_path=tmp_dir / f"{path.stem}.docx", logger=logger)
+    try:
+        if suffix == ".doc":
+            logger.info(f"Converting legacy .doc to .docx for {tid} using application converters...")
+            tmp_dir = Path(tempfile.mkdtemp(prefix="tdoc_conv_"))
+            try:
+                tmp_docx = convert_doc_to_docx(effective_path, output_path=tmp_dir / f"{path.stem}.docx", logger=logger)
+                return convert_docx_file(
+                    tmp_docx, target_dir, tdoc_id=tid, name=tid, meta=meta,
+                    original_name=path.name, revisions=effective_revisions,
+                    convert_images=convert_images,
+                    media_dir=media_dir, media_rel=media_rel,
+                    cancellation_check=cancellation_check,
+                    tdoc_url=resolved_tdoc_url,
+                    include_header=include_header,
+                )
+            finally:
+                shutil.rmtree(to_extended_path(tmp_dir), ignore_errors=True)
+        else:
             return convert_docx_file(
-                tmp_docx, target_dir, tdoc_id=tid, name=tid, meta=meta,
+                effective_path, target_dir, tdoc_id=tid, name=tid, meta=meta,
                 original_name=path.name, revisions=effective_revisions,
                 convert_images=convert_images,
                 media_dir=media_dir, media_rel=media_rel,
@@ -217,18 +241,12 @@ def convert_document_to_markdown(
                 tdoc_url=resolved_tdoc_url,
                 include_header=include_header,
             )
-        finally:
-            shutil.rmtree(to_extended_path(tmp_dir), ignore_errors=True)
-    else:
-        return convert_docx_file(
-            path, target_dir, tdoc_id=tid, name=tid, meta=meta,
-            original_name=path.name, revisions=effective_revisions,
-            convert_images=convert_images,
-            media_dir=media_dir, media_rel=media_rel,
-            cancellation_check=cancellation_check,
-            tdoc_url=resolved_tdoc_url,
-            include_header=include_header,
-        )
+    finally:
+        if snapshot_cleanup and snapshot_cleanup.exists():
+            try:
+                snapshot_cleanup.unlink()
+            except OSError:
+                pass
 
 
 def is_conversion_stale(
