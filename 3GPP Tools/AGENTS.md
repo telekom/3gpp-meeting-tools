@@ -263,6 +263,22 @@ The project intentionally separates domain data into distinct SQLite databases l
 - **Commit Completed Work Units:** Do not accumulate large batches of uncommitted, disparate changes across multiple subsystems. Once a feature or bugfix is verified and documented, commit it cleanly with a concise, descriptive commit message.
 - **Never Execute `git push` (Manual User Review Boundary):** AI agents must **never** run `git push`. Pushing commits to the remote repository is reserved exclusively for the human developer. This guarantees the user has full opportunity to inspect commit logs, review diffs, test changes, and amend commits before publishing upstream.
 
+### 5.10. Dialog Modality, Floating Windows & High-DPI UI Rules
+- **NEVER Use `Qt.WindowStaysOnTopHint` on Tool/Utility Dialogs:**
+  - Forcing dialogs or floating windows to always stay on top pins them above *all* desktop applications (Microsoft Word, Teams, Outlook, web browsers). This severely impairs multitasking and delegate workflows.
+  - Windows must be created with standard `self.setWindowFlags(Qt.Window)` without the `Qt.WindowStaysOnTopHint` flag.
+- **Modeless Multi-Window Architecture (`Qt.NonModal`):**
+  - Utility and inspector tools (e.g. `DatabaseMaintenanceDialog`, `DatabaseInspectorDialog`, `ProcessManagerDialog`, `SpecVersionHistoryDialog`, `SpecTDocReportDialog`) must be non-blocking floating windows (`self.setWindowModality(Qt.NonModal)`).
+  - Launch with `.show()` rather than `.exec_()`. Blocking modal dialogs prevent delegates from interacting with other tabs, searching specs, or cross-referencing documents.
+  - Retain a persistent reference on the spawning parent (e.g. `self.db_maintenance_dialog`) to prevent Python garbage collection, and invoke `.raise_()` + `.activateWindow()` if triggered when already open.
+  - Modal execution (`.exec_()`) is strictly restricted to brief confirmation prompts (e.g. `QMessageBox.question` before destructive actions) or modal input pickers.
+- **High-DPI Scaling & Dynamic Button Sizing:**
+  - Never set hardcoded tight pixel widths (e.g. `setFixedWidth(72)`) on buttons containing text and icons. Under Windows display scaling (125%, 150%, 200%) or custom system fonts, text will be clipped (e.g. `Inspect` -> `Insne`, `Compact` -> `Compa`, `Wipe` -> `Win`).
+  - Rely on CSS padding (e.g. `padding: 2px 10px;`), `min-width` rules, and allocate generous container column bounds (`>= 280px` for multi-button table action cells).
+- **Vertical Clearance & Font Descenders:**
+  - Buttons and table row section heights must provide sufficient vertical clearance (e.g. button `min-height: 26-28px`, table row `defaultSectionSize: 46-48px`) so that character descenders (`p`, `g`, `y`, `q`, `j`) are never sliced off at the bottom border.
+
+
 ---
 
 ## 6. Development & Verification Workflow
