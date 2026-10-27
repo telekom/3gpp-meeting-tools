@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import shutil
+import urllib.parse
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Any, Tuple
 
@@ -29,9 +30,52 @@ logger = logging.getLogger(__name__)
 
 
 def sanitize_folder_name(name: str) -> str:
-    """Sanitizes directory names, removing illegal Windows/filesystem characters."""
-    clean = re.sub(r'[\\/*?:"<>|]', "_", str(name or "")).strip()
+    """Sanitizes directory names, removing illegal Windows/filesystem and URL-breaking characters."""
+    clean = re.sub(r'[\\/*?:"<>|#%]', "_", str(name or "")).strip()
     return re.sub(r'_+', '_', clean).strip("._ ") or "General"
+
+
+def safe_relpath(target: Path, base: Path) -> str:
+    """
+    Computes a clean, forward-slashed relative path between two paths,
+    resilient to Windows extended path prefixes (\\?\\) and drive casing differences.
+    """
+    try:
+        t_str = str(target).replace("\\\\?\\", "").replace("//?/", "")
+        b_str = str(base).replace("\\\\?\\", "").replace("//?/", "")
+        t_abs = Path(t_str).resolve()
+        b_abs = Path(b_str).resolve()
+        return os.path.relpath(t_abs, b_abs).replace("\\", "/")
+    except Exception:
+        return str(target).replace("\\", "/")
+
+
+def quote_markdown_path(rel_path: str) -> str:
+    """
+    Percent-encodes relative paths for standard CommonMark / GitHub-flavored Markdown links,
+    preserving slashes and fragment hashes while encoding spaces (%20) and other special characters.
+    """
+    if not rel_path:
+        return ""
+    clean_path = str(rel_path).replace("\\", "/")
+    if "#" in clean_path:
+        path_part, fragment = clean_path.split("#", 1)
+        quoted_path = urllib.parse.quote(path_part, safe="/")
+        quoted_frag = urllib.parse.quote(fragment, safe="")
+        return f"{quoted_path}#{quoted_frag}"
+    return urllib.parse.quote(clean_path, safe="/")
+
+
+def safe_markdown_rel_link(target: Path, base: Path) -> str:
+    """Computes a URL-encoded relative path for Markdown links."""
+    rel = safe_relpath(target, base)
+    return quote_markdown_path(rel)
+
+
+def slugify_anchor(name: str) -> str:
+    """Generates a clean, URL-safe anchor slug for Markdown and HTML heading targets."""
+    slug = re.sub(r'[^a-zA-Z0-9_-]+', '-', str(name or '').lower()).strip('-')
+    return slug or "section"
 
 
 class PostMeetingExporterThread(QThread):
@@ -803,7 +847,7 @@ class PostMeetingExporterThread(QThread):
                                 rep_title = self.tdoc_titles.get(rep_id, "")
                                 rep_title_str = f" (*{rep_title}*)" if rep_title else ""
                                 if rep_abs:
-                                    rel = os.path.relpath(rep_abs, target_md_file.parent).replace("\\", "/")
+                                    rel = safe_markdown_rel_link(rep_abs, target_md_file.parent)
                                     rep_links.append(f"**[{rep_id}]({rel})**{rep_title_str}")
                                 else:
                                     rep_links.append(f"**{rep_id}**{rep_title_str}")
@@ -820,7 +864,7 @@ class PostMeetingExporterThread(QThread):
                                 in_title = self.tdoc_titles.get(in_id, "")
                                 in_title_str = f" (*{in_title}*)" if in_title else ""
                                 if in_abs:
-                                    rel = os.path.relpath(in_abs, target_md_file.parent).replace("\\", "/")
+                                    rel = safe_markdown_rel_link(in_abs, target_md_file.parent)
                                     in_links.append(f"**[{in_id}]({rel})**{in_title_str}")
                                 else:
                                     in_links.append(f"**{in_id}**{in_title_str}")
@@ -831,6 +875,18 @@ class PostMeetingExporterThread(QThread):
                                 )
 
                         notice_block = "\n\n".join(header_notices) + ("\n\n" if header_notices else "")
+
+                        # Navigation breadcrumbs
+                        master_index_file = self.export_dir / "index.md"
+                        master_rel = safe_markdown_rel_link(master_index_file, target_md_file.parent)
+                        wi_index_file = self.export_dir / rel_slug / wi_slug / "index.md"
+                        if self.generate_local_indices:
+                            wi_rel = safe_markdown_rel_link(wi_index_file, target_md_file.parent)
+                            nav_bar = f"[📁 Master Report]({master_rel}) · [🎯 {wi_name} Dossier]({wi_rel})\n\n---\n\n"
+                        else:
+                            nav_bar = f"[📁 Master Report]({master_rel})\n\n---\n\n"
+
+                        full_header_block = nav_bar + notice_block
 
                         if local_md_file and os.path.exists(to_extended_path(local_md_file)):
                             try:
@@ -849,15 +905,15 @@ class PostMeetingExporterThread(QThread):
                                     elif "\n---\n" in md_content:
                                         md_content = md_content.replace("\n---\n", f"\n{url_bullet}\n---\n", 1)
 
-                                if notice_block:
+                                if full_header_block:
                                     if md_content.startswith("<!---"):
                                         first_break = md_content.find("\n\n")
                                         if first_break != -1:
-                                            md_content = md_content[:first_break + 2] + notice_block + md_content[first_break + 2:]
+                                            md_content = md_content[:first_break + 2] + full_header_block + md_content[first_break + 2:]
                                         else:
-                                            md_content = notice_block + md_content
+                                            md_content = full_header_block + md_content
                                     else:
-                                        md_content = notice_block + md_content
+                                        md_content = full_header_block + md_content
 
                                 with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
                                     f.write(md_content)
@@ -880,6 +936,7 @@ class PostMeetingExporterThread(QThread):
                             try:
                                 with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
                                     f.write(
+                                        f"{nav_bar}"
                                         f"# {tdoc_id}: {doc['title']}\n\n"
                                         f"{notice_block}"
                                         f"* **Source:** {doc['source']}\n"
@@ -1019,6 +1076,8 @@ class PostMeetingExporterThread(QThread):
                 wi_code = info.get("code")
 
                 lines = []
+                master_rel = safe_markdown_rel_link(self.export_dir / "index.md", wi_dir)
+                lines.append(f"[⬅ Back to Master Report]({master_rel})\n")
                 lines.append(f"# Work Item Dossier: {wi_name}\n")
                 if wi_title and wi_title != wi_name:
                     lines.append(f"**Name:** {wi_title}  \n")
@@ -1128,8 +1187,13 @@ class PostMeetingExporterThread(QThread):
             lines.append(f"* **{rel_name}**")
             for wi_name in sorted(filtered_entries[rel_name].keys()):
                 wi_slug = sanitize_folder_name(wi_name)
-                wi_anchor = f"wi-{wi_slug.lower()}"
-                lines.append(f"  * [{wi_name}](#{wi_anchor}) ([Dossier Folder]({rel_slug}/{wi_slug}/))")
+                wi_anchor = f"wi-{slugify_anchor(wi_slug)}"
+                wi_index_file = self.export_dir / rel_slug / wi_slug / "index.md"
+                if self.generate_local_indices:
+                    wi_link = safe_markdown_rel_link(wi_index_file, self.export_dir)
+                    lines.append(f"  * [{wi_name}](#{wi_anchor}) ([Dossier Index]({wi_link}))")
+                else:
+                    lines.append(f"  * [{wi_name}](#{wi_anchor})")
         lines.append("\n---\n")
 
         # Per-Release / Per-WI Detailed Tables
@@ -1140,19 +1204,25 @@ class PostMeetingExporterThread(QThread):
             for wi_name in sorted(filtered_entries[rel_name].keys()):
                 wi_data = filtered_entries[rel_name][wi_name]
                 wi_slug = sanitize_folder_name(wi_name)
-                wi_anchor = f"wi-{wi_slug.lower()}"
+                wi_anchor = f"wi-{slugify_anchor(wi_slug)}"
 
                 info = wi_data["info"]
                 wi_title = info.get("name") or wi_name
                 wi_code = info.get("code")
 
-                lines.append(f'<a name="{wi_anchor}"></a>\n')
+                lines.append(f'<a id="{wi_anchor}" name="{wi_anchor}"></a>\n')
                 lines.append(f"### 🎯 Work Item: `{wi_name}`\n")
                 if wi_title and wi_title != wi_name:
                     lines.append(f"**Title:** {wi_title}  \n")
                 if wi_code:
                     lines.append(f"**WI Code:** `{wi_code}`  \n")
-                lines.append(f"**Dossier Subfolder:** [`{rel_slug}/{wi_slug}/`]({rel_slug}/{wi_slug}/index.md)  \n")
+
+                wi_index_file = self.export_dir / rel_slug / wi_slug / "index.md"
+                if self.generate_local_indices:
+                    wi_link = safe_markdown_rel_link(wi_index_file, self.export_dir)
+                    lines.append(f"**Dossier Subfolder:** [`{rel_slug}/{wi_slug}/`]({wi_link})  \n")
+                else:
+                    lines.append(f"**Dossier Subfolder:** `{rel_slug}/{wi_slug}/`  \n")
 
                 if wi_data["ais"]:
                     ai_bullets = []
@@ -1210,11 +1280,11 @@ class PostMeetingExporterThread(QThread):
             tdoc_id = d["tdoc_id"]
             target_abs = d.get("target_md_abs_path")
             if target_abs and base_dir:
-                link_path = os.path.relpath(target_abs, base_dir).replace("\\", "/")
+                link_path = safe_markdown_rel_link(target_abs, base_dir)
             elif is_local_wi:
-                link_path = d.get("wi_local_rel_path")
+                link_path = quote_markdown_path(d.get("wi_local_rel_path", ""))
             else:
-                link_path = d.get("target_md_rel_path")
+                link_path = quote_markdown_path(d.get("target_md_rel_path", ""))
 
             link_str = f"[{tdoc_id}]({link_path})" if link_path else tdoc_id
 
@@ -1229,7 +1299,7 @@ class PostMeetingExporterThread(QThread):
                 for rep_id in d["replies"]:
                     rep_abs = getattr(self, "exported_tdoc_paths", {}).get(rep_id)
                     if rep_abs and base_dir:
-                        r_rel = os.path.relpath(rep_abs, base_dir).replace("\\", "/")
+                        r_rel = safe_markdown_rel_link(rep_abs, base_dir)
                         rep_items.append(f"[{rep_id}]({r_rel})")
                     else:
                         rep_items.append(rep_id)
@@ -1245,7 +1315,7 @@ class PostMeetingExporterThread(QThread):
                 for in_id in d["reply_to_ids"]:
                     in_abs = getattr(self, "exported_tdoc_paths", {}).get(in_id)
                     if in_abs and base_dir:
-                        i_rel = os.path.relpath(in_abs, base_dir).replace("\\", "/")
+                        i_rel = safe_markdown_rel_link(in_abs, base_dir)
                         in_items.append(f"[{in_id}]({i_rel})")
                     else:
                         in_items.append(in_id)
