@@ -1,4 +1,7 @@
-# F-05: "Active Word vs. TDoc" Direct Comparison
+# F-05: "Active Word vs. TDoc" Direct Comparison (✅ Implemented)
+
+> [!NOTE]
+> **Implementation Status: ✅ Implemented** across `src/modules/word_tools/core/document_opener.py`, `src/modules/meetings/core/compare_manager.py`, `src/modules/meetings/ui/tdocs_components.py`, `src/modules/meetings/ui/search_controller.py`, `src/modules/meetings/ui/ui_tabs.py`, `src/modules/meetings/ui/tdocs_window.py`, `src/modules/meetings/ui/tdocs_menus.py`, and `src/modules/word_tools/ui/document_selector_pane.py`.
 
 ## 1. Executive Summary & Workflow Value
 

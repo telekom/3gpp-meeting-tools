@@ -204,10 +204,10 @@ flowchart TD
 
 ---
 
-### F-05: "Active Word vs. TDoc" Direct Comparison
+### F-05: "Active Word vs. TDoc" Direct Comparison (✅ Implemented)
 
 #### Overview & Delegate Workflow
-During active drafting sessions at 3GPP meetings, delegates often have a local draft or incoming revision open in Microsoft Word. They frequently need to run an immediate redline comparison between their active desktop Word window and an official TDoc without locating files in Windows Explorer or staging items in comparison carts.
+During active drafting sessions at 3GPP meetings, delegates often have a local draft or incoming revision open in Microsoft Word. They frequently need to run an immediate redline comparison between their active desktop Word window and an official TDoc without locating files in Windows Explorer or manually staging paths.
 
 #### Legacy Implementation
 * **Files:**
@@ -218,9 +218,16 @@ During active drafting sessions at 3GPP meetings, delegates often have a local d
   * Downloaded the requested TDoc via `server.tdoc_search`.
   * Executed `word.CompareDocuments(active_doc_path, downloaded_doc_path)`.
 
-#### Proposed Integration into 3GPP Tools
-1. **Location:** `src/modules/meetings/ui/meetings_actions.py` and `tdocs_menus.py`.
-2. **UI Surface:** Context menu on any TDoc row -> `"Compare vs. Active Word Document"`, or an action button in the Quick Jump bar.
+#### Modern Implementation in 3GPP Tools
+1. **Core Word COM & Archive Helpers (`src/modules/word_tools/core/document_opener.py`):**
+   * `get_active_word_document(allow_unsaved_snapshot=True)` inspects the foreground Microsoft Word document and automatically writes a non-destructive temporary copy (`SaveCopyAs`) when the document is unsaved (`Document1`), has unsaved edits, or is cloud-backed.
+   * `select_best_word_document(extracted_paths, target_tdoc)` prioritizes the matching contribution `.docx`/`.doc` inside multi-file ZIP archives.
+2. **Synchronized Comparison Cart (`src/modules/meetings/core/compare_manager.py`, `src/modules/meetings/ui/tdocs_components.py`):**
+   * Shared `ComparisonCartWidget` embedded in the bottom status bar of both `MeetingsTab` and `TDocsWindow`, featuring interactive `[Slot A ▾]` and `[Slot B ▾]` pill menus, a `⇄` 1-click slot swap button, a `🪟 Active Word` quick-stage button, a compact `⚖️ Stage Active Word ▾` launcher when empty, and automatic live snapshot refresh (`resolve_comparison_paths()`) right before comparison.
+3. **Multi-Surface UI Access:**
+   * **Meetings Tab Quick Jump (`ui_tabs.py`, `search_controller.py`):** `⚖️ vs Word` button next to `📄 Doc` and `🗓️ Mtg`.
+   * **TDocs Viewer (`tdocs_window.py`, `tdocs_menus.py`):** `⚖️ vs Word` button next to `🚀 Instant Fetch`, plus `⚖️ Compare {tdoc} vs Active Word` in the row context menu (base TDoc and revisions), Column 0 `Open` menu, and Related TDoc hyperlink menu.
+   * **Word Tools (`document_selector_pane.py`):** `🪟 Use Active Word` header button and `🪟 Select Active Document` button in `🖥️ Open Docs`.
 
 ---
 

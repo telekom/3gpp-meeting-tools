@@ -110,12 +110,13 @@ quadrantChart
 
 ---
 
-### F-05: "Active Word vs. TDoc" Direct Comparison
+### F-05: "Active Word vs. TDoc" Direct Comparison (✅ Implemented)
+* **Status:** ✅ **Implemented (Multi-Surface + Live Comparison Cart)**
 * **Core Value Proposition:** Instant 1-click comparison between whatever Word document is currently active on the user's desktop and a target TDoc from the meeting server.
 * **Target Personas:** Active 3GPP delegates in live sessions, drafting group leaders, rapporteurs.
 * **Quantitative Savings:** Cuts comparison staging from **80 seconds down to 5 seconds (95% reduction in friction)**. Saves **1.5 to 3.5 hours per meeting week**.
 * **Qualitative Impact (Tactical Advantage):** In 3GPP meetings, agenda items are frequently gavelled within 60–90 seconds. A 5-second redline allows delegates to verify technical changes and raise objections before consensus is declared.
-* **Cost of Not Implementing:** High risk of missing critical drafting changes or comparing against the wrong local draft version.
+* **Modern Implementation:** Integrated across the `MeetingsTab` Quick TDoc Jump bar (`⚖️ vs Word`), `TDocsWindow` Instant Fetch bar (`⚖️ vs Word`), table row context menu, Column 0 `Open` menu, Related TDoc hyperlinks, `Word Tools` document selector (`🪟 Use Active Word`), and the shared `ComparisonCartWidget` (`[Slot A ▾]`, `[Slot B ▾]`, `🪟 Active Word`, and `⇄` Swap) with non-destructive `SaveCopyAs` snapshotting for unsaved drafts.
 
 ---
 
