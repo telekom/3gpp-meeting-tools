@@ -210,5 +210,91 @@ class TestSpecTDocReport(unittest.TestCase):
         self.assertIn("FS_6G_ARC", csv_str)
 
 
+class TestSpecVersionHistoryDialog(unittest.TestCase):
+    """Tests for SpecVersionHistoryDialog interactive notes rendering, anchor navigation, and title."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PyQt5.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication(sys.argv)
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "test_history.db"
+        self.history_db = SpecHistoryDatabase(self.db_path)
+
+        # Insert test records
+        records = [
+            {
+                "spec_number": "23.501",
+                "version": "18.3.0",
+                "date": "2024-06",
+                "meeting": "SA#104",
+                "source_tdoc": "SP-240582",
+                "cr_number": "3210",
+                "revision": "-",
+                "category": "B",
+                "subject": (
+                    "Documented approved p-CRs at S2#175-AHE:\n"
+                    "S2-2606363, S2-2606365.\n"
+                    "The implementation of some pCRs have been adjusted:\n"
+                    "- S2-2606625: Agreement to add NOTE.\n"
+                    "- S2-2606670: Revision S2-2606265r01 implemented."
+                ),
+                "pcr_tdocs": ["S2-2606363", "S2-2606365", "S2-2606625", "S2-2606670", "S2-2606265r01"],
+                "row_order": 1,
+            }
+        ]
+        self.history_db.upsert_history_records(records)
+        from modules.specifications.ui.spec_history_dialog import SpecVersionHistoryDialog
+        self.dlg = SpecVersionHistoryDialog(
+            spec_number="23.501",
+            initial_version="18.3.0",
+            history_db=self.history_db,
+        )
+
+    def tearDown(self):
+        self.dlg.close()
+        self.temp_dir.cleanup()
+
+    def test_window_title_escaping(self):
+        """Verifies window title has a single '&' and no '&&'."""
+        self.assertIn("&", self.dlg.windowTitle())
+        self.assertNotIn("&&", self.dlg.windowTitle())
+        self.assertEqual(self.dlg.windowTitle(), "Change History & Integrated TDocs — 23.501")
+
+    def test_notes_browser_interactive_html(self):
+        """Verifies that notes_browser renders clickable anchor badges for all embedded TDocs."""
+        html_content = self.dlg.notes_browser.toHtml()
+        self.assertIn("tdoc:S2-2606363", html_content)
+        self.assertIn("tdoc:S2-2606365", html_content)
+        self.assertIn("tdoc:S2-2606625", html_content)
+        self.assertIn("tdoc:S2-2606670", html_content)
+        self.assertIn("tdoc:S2-2606265r01", html_content)
+        self.assertIn("SP-240582", html_content)
+
+    def test_notes_anchor_click_dispatch(self):
+        """Verifies that clicking an anchor dispatches to open the TDoc."""
+        from PyQt5.QtCore import QUrl
+        opened = []
+        self.dlg._open_tdoc = lambda tdoc, meeting: opened.append((tdoc, meeting))
+        self.dlg._on_notes_anchor_clicked(QUrl("tdoc:S2-2606363"))
+        self.assertEqual(opened, [("S2-2606363", "SA#104")])
+
+    def test_copy_entry_tdocs(self):
+        """Verifies that copying entry TDocs gathers all tokens."""
+        copied = []
+        import modules.meetings.ui.tdocs_menus as tm
+        orig_copy = tm._copy_to_clipboard
+        tm._copy_to_clipboard = lambda text, **kw: copied.append(text)
+        try:
+            self.dlg._copy_selected_entry_tdocs()
+            self.assertTrue(len(copied) > 0)
+            self.assertIn("S2-2606363", copied[0])
+            self.assertIn("SP-240582", copied[0])
+        finally:
+            tm._copy_to_clipboard = orig_copy
+
+
 if __name__ == "__main__":
     unittest.main()

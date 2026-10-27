@@ -7,11 +7,12 @@ and rapporteur notes. Allows direct 1-click opening of referenced TDoc documents
 (.docx / .zip), cross-referencing to meetings, and batch clipboard export.
 """
 
+import html
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import QPoint, Qt
+from PyQt5.QtCore import QPoint, Qt, QUrl
 from PyQt5.QtGui import QBrush, QColor, QCursor, QFont
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -27,11 +28,10 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
-    QScrollArea,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
-    QTextEdit,
+    QTextBrowser,
     QToolTip,
     QVBoxLayout,
     QWidget,
@@ -48,8 +48,10 @@ from core.ui.ui_components import (
     TABLE_STYLE_CLEAN,
 )
 from core.utils.paths import get_project_root
+from modules.meetings.ui.tdocs_menus import _copy_to_clipboard
 from modules.specifications.core.spec_history_db import SpecHistoryDatabase
 from modules.specifications.core.spec_history_extractor import (
+    RE_TDOC_TOKEN,
     SpecHistoryExtractThread,
     SpecHistoryExtractor,
 )
@@ -95,7 +97,7 @@ class SpecVersionHistoryDialog(QDialog):
         self.setWindowModality(Qt.NonModal)
         self.setAttribute(Qt.WA_DeleteOnClose, False)
 
-        self.setWindowTitle(f"Change History && Integrated TDocs — {self.spec_number}")
+        self.setWindowTitle(f"Change History & Integrated TDocs — {self.spec_number}")
         self.resize(1060, 680)
         self.setMinimumSize(850, 500)
 
@@ -117,7 +119,7 @@ class SpecVersionHistoryDialog(QDialog):
         """Switches the active specification and reloads change history records."""
         self.spec_number = spec_number.strip()
         self.initial_version = version.lstrip("vV").strip() if version else ""
-        self.setWindowTitle(f"Change History && Integrated TDocs — {self.spec_number}")
+        self.setWindowTitle(f"Change History & Integrated TDocs — {self.spec_number}")
 
         spec_title = "Specification Change History"
         if self.specs_db and hasattr(self.specs_db, "get_spec_details"):
@@ -272,7 +274,7 @@ class SpecVersionHistoryDialog(QDialog):
         table_layout.addWidget(self.table)
         splitter.addWidget(table_card)
 
-        # Details / Rapporteur Notes / TDoc Chips Card
+        # Details / Rapporteur Notes / Interactive TDoc View Card
         self.details_card = QFrame()
         self.details_card.setObjectName("cardFrame")
         details_layout = QVBoxLayout(self.details_card)
@@ -283,53 +285,46 @@ class SpecVersionHistoryDialog(QDialog):
         self.drawer_title_lbl = QLabel("<b>Selected Entry Details:</b>")
         self.drawer_title_lbl.setStyleSheet("font-size: 12px; color: #334155;")
 
+        self.btn_copy_entry_tdocs = QPushButton("📋 Copy Entry TDocs")
+        self.btn_copy_entry_tdocs.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_copy_entry_tdocs.setCursor(Qt.PointingHandCursor)
+        self.btn_copy_entry_tdocs.setToolTip("Copies all TDoc identifiers for the selected entry to the clipboard.")
+        self.btn_copy_entry_tdocs.clicked.connect(self._copy_selected_entry_tdocs)
+        self.btn_copy_entry_tdocs.setEnabled(False)
+
         self.btn_open_primary = QPushButton("📄 Open TDoc")
         self.btn_open_primary.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_open_primary.setCursor(Qt.PointingHandCursor)
         self.btn_open_primary.setToolTip("Open the primary TDoc Word document or ZIP archive.")
         self.btn_open_primary.clicked.connect(self._open_selected_tdoc)
+        self.btn_open_primary.setEnabled(False)
 
         details_header.addWidget(self.drawer_title_lbl)
         details_header.addStretch()
+        details_header.addWidget(self.btn_copy_entry_tdocs)
         details_header.addWidget(self.btn_open_primary)
         details_layout.addLayout(details_header)
 
-        # Rapporteur note preview text
-        self.notes_edit = QTextEdit()
-        self.notes_edit.setReadOnly(True)
-        self.notes_edit.setFixedHeight(75)
-        self.notes_edit.setStyleSheet("""
-            QTextEdit {
+        # Unified Interactive Notes & TDoc Browser
+        self.notes_browser = QTextBrowser()
+        self.notes_browser.setReadOnly(True)
+        self.notes_browser.setOpenLinks(False)
+        self.notes_browser.setStyleSheet("""
+            QTextBrowser {
                 background-color: #F8FAFC;
                 border: 1px solid #E2E8F0;
                 border-radius: 4px;
                 color: #1E293B;
-                font-size: 12px;
-                font-family: Consolas, 'Segoe UI', monospace;
+                padding: 6px 8px;
             }
         """)
-        details_layout.addWidget(self.notes_edit)
-
-        # Chips Container for p-CRs
-        chips_header = QLabel("<b>Integrated TDoc(s) / p-CRs (click to open):</b>")
-        chips_header.setStyleSheet("font-size: 11px; color: #64748B;")
-        details_layout.addWidget(chips_header)
-
-        self.chips_scroll = QScrollArea()
-        self.chips_scroll.setWidgetResizable(True)
-        self.chips_scroll.setFixedHeight(65)
-        self.chips_scroll.setStyleSheet("QScrollArea { border: 1px solid #E2E8F0; border-radius: 4px; background: white; }")
-
-        self.chips_widget = QWidget()
-        self.chips_layout = QHBoxLayout(self.chips_widget)
-        self.chips_layout.setContentsMargins(6, 4, 6, 4)
-        self.chips_layout.setSpacing(6)
-        self.chips_layout.addStretch()
-        self.chips_scroll.setWidget(self.chips_widget)
-        details_layout.addWidget(self.chips_scroll)
+        self.notes_browser.anchorClicked.connect(self._on_notes_anchor_clicked)
+        self.notes_browser.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.notes_browser.customContextMenuRequested.connect(self._show_notes_context_menu)
+        details_layout.addWidget(self.notes_browser)
 
         splitter.addWidget(self.details_card)
-        splitter.setSizes([420, 180])
+        splitter.setSizes([400, 200])
         main_layout.addWidget(splitter, stretch=1)
 
         # -------------------------------------------------------------
@@ -528,12 +523,118 @@ class SpecVersionHistoryDialog(QDialog):
         if total_rows > 0:
             self.table.selectRow(0)
 
+    def _format_record_to_html(self, rec: Dict[str, Any]) -> str:
+        """Formats the selected entry's metadata and rapporteur notes into interactive HTML with clickable TDoc badges."""
+        if not rec:
+            return (
+                "<html><body style=\"font-family: 'Segoe UI', -apple-system, sans-serif; "
+                "font-size: 12px; color: #94A3B8; background-color: #F8FAFC; margin: 10px;\">"
+                "<i>Select an entry above to view details, rapporteur notes, and clickable TDoc links.</i>"
+                "</body></html>"
+            )
+
+        subject_text = rec.get("subject", "").strip()
+        primary = rec.get("source_tdoc", "").strip()
+        if primary == "-":
+            primary = ""
+        meeting = rec.get("meeting", "—")
+        version = rec.get("version", "—")
+        cr_num = rec.get("cr_number", "—")
+        cat = rec.get("category", "—")
+
+        all_tdocs = rec.get("tdocs", [])
+        raw_tokens: List[str] = []
+        if primary:
+            raw_tokens.append(primary)
+        for t in all_tdocs:
+            tok = t.get("raw_tdoc", "")
+            if tok and tok not in raw_tokens:
+                raw_tokens.append(tok)
+
+        def _make_badge(token: str, trailing_nbsp: bool = True) -> str:
+            t_sp = "&nbsp;" if trailing_nbsp else ""
+            return (
+                f'<a href="tdoc:{token}" title="Click to open {token} (Right-click for options)" '
+                f'style="color: #0369A1; background-color: #E0F2FE; text-decoration: none; '
+                f'font-weight: bold; font-family: Consolas, monospace;">'
+                f'&nbsp;{token}{t_sp}</a>'
+            )
+
+        if subject_text:
+            escaped = html.escape(subject_text)
+
+            def _repl_tdoc(match):
+                token = match.group(1)
+                next_char = escaped[match.end():match.end()+1]
+                trailing = next_char not in (",", ";", ":", ".", "!", "?", ")", "]", '"')
+                return _make_badge(token, trailing_nbsp=trailing)
+
+            html_body = RE_TDOC_TOKEN.sub(_repl_tdoc, escaped)
+            lines = html_body.split("\n")
+            formatted_lines = []
+            for line in lines:
+                l_str = line.strip()
+                if not l_str:
+                    formatted_lines.append("<div style='height: 6px;'></div>")
+                elif l_str.startswith(("- ", "* ", "• ")):
+                    clean_b = l_str[2:].strip()
+                    formatted_lines.append(f"<div style='margin-left: 14px; margin-bottom: 4px;'>• {clean_b}</div>")
+                else:
+                    formatted_lines.append(f"<div style='margin-bottom: 5px; line-height: 1.5;'>{line}</div>")
+            notes_html = "\n".join(formatted_lines)
+        else:
+            notes_html = "<div style='color: #64748B;'><i>(No rapporteur notes recorded for this entry)</i></div>"
+
+        # Top metadata row
+        primary_html = ""
+        if primary and primary not in subject_text:
+            primary_html = f"&nbsp;&nbsp;|&nbsp;&nbsp;<b>Primary TDoc:</b> {_make_badge(primary, False)}"
+
+        count_html = ""
+        if len(raw_tokens) > 0:
+            count_html = f"&nbsp;&nbsp;|&nbsp;&nbsp;<b style='color: #0284C7;'>{len(raw_tokens)} TDoc(s)</b>"
+
+        meta_row = (
+            f"<div style='padding-bottom: 8px; margin-bottom: 10px; border-bottom: 1px solid #E2E8F0; "
+            f"font-size: 11px; color: #475569;'>"
+            f"<b>Meeting:</b> {meeting} &nbsp;&nbsp;|&nbsp;&nbsp; "
+            f"<b>Version:</b> v{version} &nbsp;&nbsp;|&nbsp;&nbsp; "
+            f"<b>CR:</b> {cr_num} (Cat {cat})"
+            f"{primary_html}"
+            f"{count_html}"
+            f"</div>"
+        )
+
+        full_html = f"""
+        <html>
+        <head>
+        <style>
+          body {{
+            font-family: 'Segoe UI', -apple-system, sans-serif;
+            font-size: 12px;
+            color: #1E293B;
+            background-color: #F8FAFC;
+            margin: 6px 8px;
+          }}
+        </style>
+        </head>
+        <body>
+          {meta_row}
+          {notes_html}
+        </body>
+        </html>
+        """
+        return full_html
+
     def _on_table_selection_changed(self):
-        """Populates the bottom drawer with the selected row's rapporteur note and TDoc chips."""
+        """Populates the bottom drawer with the selected row's interactive notes and clickable TDocs."""
         selected = self.table.selectedItems()
         if not selected:
-            self.notes_edit.clear()
-            self._clear_chips()
+            self.notes_browser.setHtml(self._format_record_to_html({}))
+            self.drawer_title_lbl.setText("<b>Selected Entry Details:</b>")
+            self.btn_open_primary.setText("📄 Open TDoc")
+            self.btn_open_primary.setEnabled(False)
+            self.btn_copy_entry_tdocs.setEnabled(False)
             return
 
         row_idx = self.table.currentRow()
@@ -542,17 +643,9 @@ class SpecVersionHistoryDialog(QDialog):
 
         rec = self.filtered_records[row_idx]
 
-        # 1. Subject notes
-        subject = rec.get("subject", "")
-        self.notes_edit.setPlainText(subject)
-
-        # 2. Build TDoc chips
-        self._clear_chips()
-
+        # Collect unique raw tokens
         all_tdocs = rec.get("tdocs", [])
         primary = rec.get("source_tdoc", "")
-
-        # Collect unique raw tokens
         raw_tokens: List[str] = []
         if primary and primary != "-":
             raw_tokens.append(primary)
@@ -561,58 +654,103 @@ class SpecVersionHistoryDialog(QDialog):
             if tok and tok not in raw_tokens:
                 raw_tokens.append(tok)
 
+        self.notes_browser.setHtml(self._format_record_to_html(rec))
+
+        # Update drawer header title
+        m_name = rec.get("meeting", "")
+        v_name = f"v{rec.get('version', '')}" if rec.get("version") else ""
+        cr_text = f"CR {rec.get('cr_number')}" if rec.get("cr_number") and rec.get("cr_number") != "-" else "p-CRs / Draft"
+        header_text = f"<b>Selected Entry:</b> {f'{v_name} · ' if v_name else ''}{f'{m_name} · ' if m_name else ''}{cr_text}"
+        if raw_tokens:
+            header_text += f" <span style='color: #64748B;'>({len(raw_tokens)} TDoc{'s' if len(raw_tokens) > 1 else ''})</span>"
+        self.drawer_title_lbl.setText(header_text)
+
         self.btn_open_primary.setEnabled(bool(raw_tokens))
         if raw_tokens:
             self.btn_open_primary.setText(f"📄 Open {raw_tokens[0]}")
         else:
             self.btn_open_primary.setText("📄 Open TDoc")
 
-        chip_style = """
-            QPushButton {
-                background-color: #EFF6FF;
-                border: 1px solid #BFDBFE;
-                border-radius: 4px;
-                padding: 3px 8px;
-                font-size: 11px;
-                font-weight: bold;
-                color: #1D4ED8;
-            }
-            QPushButton:hover {
-                background-color: #DBEAFE;
-                border-color: #3B82F6;
-            }
-        """
+        self.btn_copy_entry_tdocs.setEnabled(bool(raw_tokens))
 
-        for token in raw_tokens:
-            btn = QPushButton(token)
-            btn.setStyleSheet(chip_style)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setToolTip(f"Click to open {token} directly.\nRight-click for options.")
-            btn.clicked.connect(lambda _, tok=token, m=rec.get("meeting", ""): self._open_tdoc(tok, m))
-            btn.setContextMenuPolicy(Qt.CustomContextMenu)
-            btn.customContextMenuRequested.connect(
-                lambda pos, tok=token, m=rec.get("meeting", ""), b=btn: self._show_chip_menu(pos, tok, m, b)
+    def _on_notes_anchor_clicked(self, url: QUrl):
+        """Dispatches left-click navigation on interactive links in the notes browser."""
+        url_str = url.toString()
+        if url_str.startswith("tdoc:"):
+            tdoc_id = url_str.split(":", 1)[1]
+            row_idx = self.table.currentRow()
+            meeting = ""
+            if 0 <= row_idx < len(self.filtered_records):
+                meeting = self.filtered_records[row_idx].get("meeting", "")
+            self._open_tdoc(tdoc_id, meeting)
+        elif url.scheme() in ("http", "https"):
+            from PyQt5.QtGui import QDesktopServices
+            QDesktopServices.openUrl(url)
+
+    def _show_notes_context_menu(self, pos: QPoint):
+        """Shows context menu on right-click inside the notes browser, targeting TDoc links or selection."""
+        anchor = self.notes_browser.anchorAt(pos)
+        row_idx = self.table.currentRow()
+        rec = self.filtered_records[row_idx] if 0 <= row_idx < len(self.filtered_records) else {}
+        meeting_name = rec.get("meeting", "")
+
+        menu = QMenu(self)
+
+        if anchor and anchor.startswith("tdoc:"):
+            tdoc_id = anchor.split(":", 1)[1]
+            act_open = menu.addAction(f"📄 Open {tdoc_id} Document")
+            act_open.triggered.connect(lambda: self._open_tdoc(tdoc_id, meeting_name))
+
+            act_jump = menu.addAction(f"🚀 Jump to {tdoc_id} in Meetings Tab")
+            act_jump.triggered.connect(lambda: SpecTDocOpener.jump_to_meetings_tab(tdoc_id))
+
+            act_portal = menu.addAction(f"🌐 Open {tdoc_id} on 3GPP Portal (3GU)")
+            act_portal.triggered.connect(lambda: SpecTDocOpener.open_tdoc_in_browser(tdoc_id))
+
+            menu.addSeparator()
+            act_copy_cit = menu.addAction(f"📋 Copy Citation ({tdoc_id})")
+            act_copy_cit.triggered.connect(
+                lambda: SpecTDocOpener.copy_tdoc_citation(
+                    tdoc_id, self.spec_number, rec.get("version", ""), meeting_name, rec.get("subject", ""), parent=self
+                )
             )
-            # Insert before stretch
-            self.chips_layout.insertWidget(self.chips_layout.count() - 1, btn)
 
-    def _clear_chips(self):
-        """Clears all dynamic TDoc chips from the bottom drawer."""
-        while self.chips_layout.count() > 1:
-            item = self.chips_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            act_copy_id = menu.addAction(f"📋 Copy Identifier ({tdoc_id})")
+            act_copy_id.triggered.connect(
+                lambda: _copy_to_clipboard(tdoc_id, label=tdoc_id, parent=self)
+            )
+        else:
+            if self.notes_browser.textCursor().hasSelection():
+                act_copy_sel = menu.addAction("📋 Copy Selection")
+                act_copy_sel.triggered.connect(self.notes_browser.copy)
+
+            act_select_all = menu.addAction("Select All")
+            act_select_all.triggered.connect(self.notes_browser.selectAll)
+
+            if rec:
+                menu.addSeparator()
+                act_copy_all = menu.addAction("📋 Copy All TDocs for this Entry")
+                act_copy_all.triggered.connect(lambda: self._copy_entry_tdocs(rec))
+
+        menu.exec_(self.notes_browser.viewport().mapToGlobal(pos))
+
+    def _copy_selected_entry_tdocs(self):
+        """Copies all TDocs referenced in the currently selected row."""
+        row_idx = self.table.currentRow()
+        if row_idx < 0 or row_idx >= len(self.filtered_records):
+            return
+        self._copy_entry_tdocs(self.filtered_records[row_idx])
 
     def _open_selected_tdoc(self):
-        """Opens the primary TDoc of the currently selected row."""
+        """Opens the primary or first TDoc of the currently selected row."""
         row_idx = self.table.currentRow()
         if row_idx < 0 or row_idx >= len(self.filtered_records):
             return
         rec = self.filtered_records[row_idx]
         primary = rec.get("source_tdoc", "")
-        if not primary and rec.get("tdocs"):
+        if (not primary or primary == "-") and rec.get("tdocs"):
             primary = rec["tdocs"][0]["raw_tdoc"]
-        if primary:
+        if primary and primary != "-":
             self._open_tdoc(primary, rec.get("meeting", ""))
 
     def _on_row_double_clicked(self, item: QTableWidgetItem):
@@ -621,25 +759,6 @@ class SpecVersionHistoryDialog(QDialog):
     def _open_tdoc(self, tdoc_id: str, meeting_name: str = ""):
         """Dispatches direct opening of the target TDoc Word/ZIP file."""
         SpecTDocOpener.open_tdoc(tdoc_id, meeting_name, parent=self)
-
-    def _show_chip_menu(self, pos: QPoint, tdoc_id: str, meeting_name: str, btn: QPushButton):
-        """Shows quick action context menu for a TDoc chip."""
-        menu = QMenu(self)
-        act_open = menu.addAction(f"📄 Open {tdoc_id} Document")
-        act_open.triggered.connect(lambda: self._open_tdoc(tdoc_id, meeting_name))
-
-        act_jump = menu.addAction("🚀 Jump to TDoc in Meetings Tab")
-        act_jump.triggered.connect(lambda: SpecTDocOpener.jump_to_meetings_tab(tdoc_id))
-
-        menu.addSeparator()
-        act_copy = menu.addAction("📋 Copy TDoc Citation")
-        act_copy.triggered.connect(
-            lambda: SpecTDocOpener.copy_tdoc_citation(
-                tdoc_id, self.spec_number, self.version_combo.currentData() or "", meeting_name, parent=self
-            )
-        )
-
-        menu.exec_(btn.mapToGlobal(pos))
 
     def _show_context_menu(self, pos: QPoint):
         """Context menu on table rows."""
