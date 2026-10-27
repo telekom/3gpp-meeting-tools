@@ -864,7 +864,13 @@ class WordExtractorTab(QWidget):
         self.run_markdown_btn.setEnabled(True)
 
         size_kb = p.stat().st_size / 1024
+        self.md_result_icon.setText("✅")
+        self.md_result_lbl.setStyleSheet("font-weight: bold; color: #0F766E;")
         self.md_result_lbl.setText(f"Converted to Markdown: {p.name} ({size_kb:.1f} KB)")
+        self.md_open_folder_btn.setEnabled(True)
+        self.md_open_file_btn.setEnabled(True)
+        self.md_copy_btn.setEnabled(True)
+        self.md_preview_toggle_btn.setEnabled(True)
         self.md_result_frame.setVisible(True)
 
         try:
@@ -872,6 +878,24 @@ class WordExtractorTab(QWidget):
             self.md_preview_edit.setPlainText(sample)
         except Exception:
             pass
+
+    def on_conversion_failed(self, error_msg: str):
+        self.md_progress.setVisible(False)
+        self.run_markdown_btn.setEnabled(True)
+        self.md_result_icon.setText("❌")
+        self.md_result_lbl.setStyleSheet("font-weight: bold; color: #DC2626;")
+        self.md_result_lbl.setText(f"Conversion failed: {error_msg}")
+        self.md_open_folder_btn.setEnabled(False)
+        self.md_open_file_btn.setEnabled(False)
+        self.md_copy_btn.setEnabled(False)
+        self.md_preview_toggle_btn.setEnabled(False)
+        self.md_preview_edit.setVisible(False)
+        self.md_result_frame.setVisible(True)
+
+    def on_processing_state_changed(self, is_processing: bool):
+        if not is_processing:
+            self.run_markdown_btn.setEnabled(True)
+            self.md_progress.setVisible(False)
 
     def _open_md_folder(self):
         if hasattr(self, "_last_converted_md") and self._last_converted_md:

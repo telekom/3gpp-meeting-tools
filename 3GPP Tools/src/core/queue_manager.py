@@ -37,6 +37,7 @@ class QueueManager(QObject):
     queue_updated = pyqtSignal(list)
     processing_state_changed = pyqtSignal(bool, str)
     conversion_success = pyqtSignal(str)
+    conversion_failed = pyqtSignal(str)
 
     def __init__(self, app_context: dict = None):
         super().__init__()
@@ -196,9 +197,13 @@ class QueueManager(QObject):
             if hasattr(self.conv_thread, 'finished_path'):
                 self.conv_thread.finished_path.connect(self.conversion_success.emit)
 
+            if hasattr(self.conv_thread, 'conversion_failed'):
+                self.conv_thread.conversion_failed.connect(self.conversion_failed.emit)
+
             self.conv_thread.finished.connect(self.process_next)
             self.conv_thread.start()
 
         except Exception as e:
             logger.log(logging.ERROR, f"❌ Failed to execute task '{target_format}': {str(e)}")
+            self.conversion_failed.emit(str(e))
             self.process_next()

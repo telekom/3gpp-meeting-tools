@@ -4,7 +4,7 @@ import os
 import platform
 import webbrowser
 from pathlib import Path
-from typing import List, Optional, Sequence, Union
+from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
 
@@ -227,7 +227,15 @@ def get_active_word_document(
             except Exception:
                 is_active = (doc == active_doc)
 
-        if not exists or not is_saved:
+        is_locked = False
+        if exists:
+            try:
+                with open(full_name, "rb") as test_f:
+                    test_f.read(16)
+            except (PermissionError, OSError):
+                is_locked = True
+
+        if not exists or not is_saved or is_locked:
             if not allow_unsaved_snapshot:
                 return {
                     "name": doc_name,
@@ -238,10 +246,12 @@ def get_active_word_document(
                     "is_active": is_active,
                     "modified": not is_saved,
                     "unsaved": not exists,
+                    "is_locked": is_locked,
                 }
             snap = _snapshot_com_document(doc, doc_name, full_name, exists)
             if snap is not None:
                 snap["is_active"] = is_active
+                snap["is_locked"] = is_locked
                 return snap
             return None
 
@@ -413,3 +423,123 @@ def close_open_word_documents(excluded_paths=None, discard_changes: bool = False
         doc = docs = word = None
         gc.collect()
         pythoncom.CoUninitialize()
+
+
+def ensure_readable_word_document(
+    file_path: Union[str, Path],
+    logger_fn: Optional[Callable[[str], None]] = None,
+) -> Tuple[Path, Optional[Path]]:
+    """
+    Ensures that a Word document (.docx, .doc, .docm) can be opened and read without
+    file-sharing lock violations ([Errno 13] Permission denied), such as when the document
+    is currently open in Microsoft Word or locked by OneDrive sync.
+
+    1. Checks if the file can be opened directly in binary read mode.
+    2. If opening fails with PermissionError / OSError or if Microsoft Word currently holds
+       an open document matching this path/filename:
+       - Uses Word COM SaveCopyAs to take a non-destructive temporary snapshot.
+       - Returns (snapshot_path, snapshot_path) so the caller can convert the snapshot
+         and delete it upon completion.
+    3. If Word COM is not running or doesn't have the document, attempts a headless Word COM
+       read-only open and SaveCopyAs fallback.
+    4. If all snapshotting attempts fail, returns the original path (to let the underlying
+       exception surface naturally).
+
+    Returns:
+        Tuple[Path, Optional[Path]]: (usable_path, temp_file_to_cleanup)
+    """
+    path = Path(file_path).resolve()
+    log = logger_fn or (lambda msg: logger.info(msg))
+
+    if not path.is_file():
+        return path, None
+
+    # 1. Quick check: can we open and read the first bytes?
+    is_locked = False
+    try:
+        with open(path, "rb") as test_f:
+            test_f.read(32)
+    except (PermissionError, OSError) as exc:
+        is_locked = True
+        log(f"⚠️ Document '{path.name}' is locked by another process ({exc}). Attempting snapshot recovery...")
+
+    # 2. Check if Microsoft Word is running on Windows and has this document open
+    if platform.system() == "Windows":
+        import tempfile
+        import pythoncom
+        import win32com.client
+
+        pythoncom.CoInitialize()
+        try:
+            word = None
+            try:
+                word = win32com.client.GetActiveObject("Word.Application")
+            except Exception:
+                word = None
+
+            matched_doc = None
+            if word is not None:
+                try:
+                    target_name = path.name.casefold()
+                    target_full = str(path).casefold()
+                    for d in word.Documents:
+                        try:
+                            d_name = str(d.Name or "").strip().casefold()
+                            d_full = str(d.FullName or "").strip().casefold()
+                            if target_full == d_full or target_name == d_name:
+                                matched_doc = d
+                                break
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+
+            if matched_doc is not None:
+                # If it's open in Word, snapshot it if locked or unsaved!
+                is_saved = bool(getattr(matched_doc, "Saved", True))
+                if is_locked or not is_saved:
+                    log(f"🪟 Document '{matched_doc.Name}' is currently open in Word. Taking live snapshot...")
+                    temp_dir = Path(tempfile.gettempdir()) / "3gpp_word_snapshots"
+                    temp_dir.mkdir(parents=True, exist_ok=True)
+                    safe_base = "".join(c if c.isalnum() or c in "._- " else "_" for c in path.stem).strip() or "Doc"
+                    snap_name = f"Snapshot_{safe_base}_{os.getpid()}{path.suffix}"
+                    snap_path = temp_dir / snap_name
+                    try:
+                        matched_doc.SaveCopyAs(str(snap_path))
+                        if snap_path.is_file() and snap_path.stat().st_size > 0:
+                            log(f"✅ Created live unlocked snapshot: {snap_name}")
+                            return snap_path, snap_path
+                    except Exception as snap_err:
+                        log(f"⚠️ SaveCopyAs failed on open Word document: {snap_err}")
+
+            # 3. If file is locked and active Word was not open or didn't have it,
+            # try headless Word COM read-only open
+            if is_locked:
+                try:
+                    log(f"⏳ Attempting headless Word COM snapshot for locked file '{path.name}'...")
+                    word_headless = win32com.client.DispatchEx("Word.Application")
+                    word_headless.Visible = False
+                    word_headless.DisplayAlerts = 0
+                    doc = word_headless.Documents.Open(
+                        FileName=str(path),
+                        ConfirmConversions=False,
+                        ReadOnly=True,
+                        AddToRecentFiles=False,
+                    )
+                    temp_dir = Path(tempfile.gettempdir()) / "3gpp_word_snapshots"
+                    temp_dir.mkdir(parents=True, exist_ok=True)
+                    safe_base = "".join(c if c.isalnum() or c in "._- " else "_" for c in path.stem).strip() or "Doc"
+                    snap_name = f"Snapshot_{safe_base}_{os.getpid()}{path.suffix}"
+                    snap_path = temp_dir / snap_name
+                    doc.SaveCopyAs(str(snap_path))
+                    doc.Close(SaveChanges=False)
+                    word_headless.Quit()
+                    if snap_path.is_file() and snap_path.stat().st_size > 0:
+                        log(f"✅ Created unlocked snapshot via Word COM: {snap_name}")
+                        return snap_path, snap_path
+                except Exception as com_err:
+                    log(f"⚠️ Headless Word COM snapshot could not open locked file: {com_err}")
+        finally:
+            pythoncom.CoUninitialize()
+
+    return path, None
