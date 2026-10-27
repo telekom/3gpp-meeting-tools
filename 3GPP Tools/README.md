@@ -190,11 +190,14 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ---
 
-### 🗄️ Database Maintenance, Inspection & Compaction
-* **System-Level Database Manager:** Integrated `🗄️ Database` tool accessible directly from the bottom Console Panel.
-* **Read-Only SQLite Schema & Data Inspector (`DatabaseInspectorDialog`):** Click **Inspect** on any tracked database to launch a dedicated browser displaying all tables and views, live row counts, SQL DDL creation schemas, column data types, PRAGMA diagnostics (page size, freelist page count, journal mode), and interactive paginated table data without needing external database tools.
-* **Automatic Freelist & WAL Compaction:** Inspects on-disk database sizes and active Write-Ahead Logs (`-wal`), executing `PRAGMA wal_checkpoint(TRUNCATE)` and `VACUUM` to defragment pages and reclaim megabytes of disk space after heavy scraping or database wiping.
-* **Batch Maintenance:** One-click **Compact All Databases** to optimize `3gpp_data.db`, `3gpp_protocol_data.db`, `3gpp_spec_search.db`, `3gpp_spec_history.db`, and auxiliary cache databases concurrently.
+### 🗄️ Database Maintenance, Inspection & Compaction Hub (`DatabaseMaintenanceDialog`)
+* **System-Level Database & Storage Hub:** Integrated `🗄️ Database` tool accessible directly from the bottom Console Panel.
+* **Executive KPI Metric Cards:** Real-time top KPI dashboard displaying Total Storage (MB/GB), Reclaimable Space (calculating SQLite unused freelist pages via `PRAGMA freelist_count * page_size`), WAL Log Status, and Total User Tables across all active database schemas.
+* **Two-Tier Storage Ledger:** Displays clean domain-specific icons (📋 Core Data, 📡 Protocol Specs, 🔍 Search Index, 📜 Change History), full database titles, and secondary subtitles showing filenames and storage purpose with zero text truncation.
+* **Read-Only SQLite Schema & Data Inspector (`DatabaseInspectorDialog`):** Click **🔍 Inspect** on any tracked database to launch a dedicated browser displaying all tables and views, live row counts, SQL DDL creation schemas, column data types, PRAGMA diagnostics (page size, freelist page count, journal mode), and interactive paginated table data without needing external database tools.
+* **Automatic Freelist & WAL Compaction:** Inspects on-disk database sizes, reclaimable space (`⚡ X MB` vs `✓ Optimal`), and active Write-Ahead Logs (`-wal`), executing `PRAGMA wal_checkpoint(TRUNCATE)` and `VACUUM` to defragment pages and reclaim disk space.
+* **Batch & Single-Database Compaction:** One-click **🧹 Compact All Databases** with an animated progress bar and live status feedback to optimize `3gpp_data.db`, `3gpp_protocol_data.db`, `3gpp_spec_search.db`, `3gpp_spec_history.db`, and auxiliary databases.
+* **Safe Action Ergonomics:** Fixed-width actions column preventing button clipping (`🔍 Inspect`, `⚡ Compact`), distinct red warning treatment for destructive database wiping (`🗑️ Wipe`), and 1-click **📂 Open DB Folder** in Windows File Explorer.
 
 ---
 

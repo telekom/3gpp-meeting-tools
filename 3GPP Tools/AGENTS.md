@@ -234,7 +234,7 @@ The project intentionally separates domain data into distinct SQLite databases l
 4. `user_tdocs.db`: User notes, personal review status, and triage archives.
 
 - **Cross-Database Queries:** Do not couple queries across these databases using SQLite `ATTACH` unless strictly isolated inside a dedicated maintenance script.
-- **WAL Compaction:** After massive writes or deletions, perform compaction via `PRAGMA wal_checkpoint(TRUNCATE)` and `VACUUM` (available via `DatabaseMaintenanceDialog`).
+- **WAL Compaction & Storage Hub (`DatabaseMaintenanceDialog`):** Provides an executive storage dashboard featuring top KPI summary cards (Total Storage, Reclaimable Freelist Space, WAL Log Health, User Table Counts), two-tier table rows with domain-specific icons and filenames, and animated progress feedback for `PRAGMA wal_checkpoint(TRUNCATE)` and `VACUUM` batch compaction. Destructive wiping actions (`🗑️ Wipe`) are visually isolated with warning styles to prevent misclicks. Features 1-click **📂 Open DB Folder** in Windows File Explorer.
 
 ### 5.5. Logging & Diagnostics
 - Use standard `logging.getLogger(__name__)`.
