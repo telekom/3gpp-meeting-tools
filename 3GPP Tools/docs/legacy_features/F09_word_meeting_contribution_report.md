@@ -1,18 +1,34 @@
 # F-09: Microsoft Word Meeting Contribution Summary Report (.docx)
 
+> [!WARNING]
+> **Status: DEPRECATED / SUPERSEDED**  
+> **Superseded by:**
+> 1. **Interactive HTML5 Analytics Dashboard (`Statistics_Report.html`):** Multi-meeting executive analytics, Chart.js visual metrics, Louvain alliance networks, and responsive KPI strips (`src/modules/meetings/core/stats/html_dashboard_compiler.py`).
+> 2. **Multi-Tab Excel Workbook (`Statistics_Data.xlsx`):** Structured, searchable meeting data compiled via `openpyxl`.
+> 3. **Post-Meeting Export Dossier Generator (`post_meeting_export_dialog.py`):** Structured per-release and per-Work Item Markdown dossiers (`.md`) with embedded media and AI summaries.
+> 
+> Generating static, unformatted Word tables via Word COM is obsolete. Modern web dashboards and Markdown dossiers provide vastly superior readability, interactive search, cross-filtering, and zero Microsoft Office dependency.
+
 ## 1. Executive Summary & Objective
 
-In corporate management reporting and meeting debriefs, standards delegates are often required to deliver formal Microsoft Word reports (`.docx`) summarizing meeting outcomes. 
+In corporate management reporting and meeting debriefs, standards delegates historically generated Microsoft Word documents (`.docx`) summarizing meeting outcomes.
 
-While **3GPP Tools** generates modern, interactive HTML dashboards (`Statistics_Report.html`) and structured Markdown dossiers (`.md`), corporate engineering leadership and non-technical stakeholders frequently demand formatted Word documents containing:
-* Executive Summary with TDoc statistics per Work Item and category.
-* Formal Table of Contents (TOC) with page references.
-* Structured tables with corporate typography (`Überschrift 1/2`), cell merging, and hyperlinked document references.
-* Filtered lists of approved CRs, Liaison Statements (LS in / LS out), and Work Item progress.
+The legacy application provided a Word COM automation engine (`parsing/word/pywin32.py`) that generated static `.docx` tables directly from meeting agendas.
 
-The legacy application provided a specialized Word COM automation engine (`parsing/word/pywin32.py`) that generated complete, styled `.docx` reports directly from meeting agendas.
+---
 
-The objective of **F-09** is to provide an automated `.docx` executive report generator in 3GPP Tools, modernized to run headlessly using `python-docx` without requiring Microsoft Word COM automation.
+## 2. Deprecation Rationale & Modern Architectural Replacements
+
+### Why the Legacy Feature is Deprecated
+1. **Locale-Dependent Word Formatting Bugs:** The legacy COM script relied on hardcoded German Word style names (e.g. `'Überschrift 1'`, `'Überschrift 2'`). When executed on English, French, or Asian Windows installations, Word COM raised fatal `com_error` exceptions because the styles did not exist.
+2. **Static & Unresponsive:** A massive Word table with 2,000 rows is difficult to navigate, lacks search, has no dynamic filtering, and offers no interactive visualization.
+3. **Heavy Office COM Overhead:** Building a 2,000-row table cell-by-cell in Word COM took several minutes and frequently froze or wedged the desktop Word application.
+
+### The Modern Replacements in 3GPP Tools
+Modern **3GPP Tools** delivers three specialized reporting engines that completely replace static Word tables:
+* **Interactive HTML5 Dashboard (`Statistics_Report.html`):** Renders executive KPIs (Total TDocs, CR Agreement Rate %, Meeting Treatment Rate %, Document Composition), interactive Chart.js graphs, alliance network graphs, and dual Chart/Data toggle tables that open in any browser without Office dependencies.
+* **Structured Multi-Tab Excel Workbooks (`Statistics_Data.xlsx`):** Provides raw, clean data with auto-filters and formatting, built off-thread using `openpyxl`.
+* **Post-Meeting Markdown Dossiers:** Organizes contributions by Work Item and Release into high-fidelity Markdown files with full AI triage context, hyperlinked citations, and offline reading support.
 
 ---
 

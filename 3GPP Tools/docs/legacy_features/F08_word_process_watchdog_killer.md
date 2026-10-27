@@ -1,5 +1,11 @@
 # F-08: Word Process Watchdog & Force Killer ("Close Word")
 
+> [!WARNING]
+> **Status: DEPRECATED / NOT RECOMMENDED FOR PORTING**  
+> **Superseded by:** [`ProcessManagerDialog`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/core/ui/process_manager_dialog.py) (`🖥️ Task Manager`) in the Console Panel and deterministic COM lifecycle cleanup in [`src/modules/word_tools/core/document_opener.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/word_tools/core/document_opener.py).
+> 
+> The legacy approach of executing a brute-force `taskkill /f /im WINWORD.EXE` is dangerous because it abruptly kills delegates' active drafting work across unrelated open documents. In the modern **3GPP Tools** architecture, this need is fully addressed by safe, document-by-document COM closing, user-controlled document exclusions, PID isolation, and robust `pythoncom.CoUninitialize()` resource cleanup.
+
 ## 1. Executive Summary & Objective
 
 In Microsoft Windows desktop environments, running COM automation against Microsoft Word (`win32com.client`) frequently creates orphaned, hidden background processes (`WINWORD.EXE`). 
@@ -14,9 +20,27 @@ When orphaned `WINWORD.EXE` instances accumulate in the background:
 2. Subsequent COM calls hang indefinitely while attempting to marshal calls to a wedged COM apartment.
 3. System memory and CPU cycles are consumed silently.
 
-The legacy application provided a dedicated **"Close Word"** button directly on the primary launcher window that executed a safe two-tiered cleanup: attempting graceful COM document closing first, followed by hard process termination if unresponsive.
+The legacy application provided a **"Close Word"** button directly on the primary launcher window that executed a crude fallback cleanup: attempting graceful COM document closing first, followed by hard shell termination (`taskkill /f /im WINWORD.EXE`) if unresponsive.
 
-The objective of **F-08** is to implement a robust Word Process Watchdog in modern 3GPP Tools.
+---
+
+## 2. Deprecation Rationale & Modern Architectural Replacement
+
+### Why the Legacy Feature is Deprecated
+1. **High Risk of Data Loss:** The legacy fallback `taskkill /f /im WINWORD.EXE` indiscriminately killed every running instance of Microsoft Word on the operating system. If a delegate was actively editing a critical company CR or rapporteur text in an interactive Word window, that unsaved work was instantly lost.
+2. **Synchronous CLI Flashing:** Invoking `os.system("taskkill ...")` caused distracting black Windows console windows to flash on screen during delegate meetings.
+3. **No Process Attribution:** Did not distinguish between background COM automation instances spawned by the tool and the user's primary interactive desktop Word session.
+
+### The Modern Replacement: Built-In COM Task Manager
+Modern **3GPP Tools** completely eliminates the need for this crude brute-force killer through two architectural mechanisms:
+
+1. **Deterministic Apartment Management:** All COM operations in `src/modules/word_tools/` are wrapped in strict `try ... finally: pythoncom.CoUninitialize()` blocks with garbage collection (`gc.collect()`), ensuring COM pointers release immediately upon completion.
+2. **Interactive COM Task Manager (`ProcessManagerDialog`):**
+   * Accessible via **🖥️ Task Manager** in the bottom Console Panel.
+   * Inspects all active instances of Word (`winword`), PowerPoint (`powerpnt`), and Visio (`visio`) with their PIDs.
+   * **Document-Level Granular Closing:** Enumerates all currently open documents across instances, allowing users to close specific files via COM (`doc.Close(SaveChanges=wdPromptToSaveChanges)`).
+   * **Selective Keep-Open Sets:** Uncheck specific documents to protect them from automated batch operations.
+   * **Surgical Process Kill:** Allows killing a specific, frozen background PID without terminating other healthy Word windows.
 
 ---
 
