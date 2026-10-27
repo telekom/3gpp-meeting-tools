@@ -498,28 +498,24 @@ flowchart LR
     T4 --> T5["5. Word Tools Tab<br>DocumentSelectorPane button"]
 ```
 
-1. [ ] **Step 1: Core COM Helper**
-   - Add `get_active_word_document(allow_unsaved_snapshot=True)` to [`src/modules/word_tools/core/document_opener.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/word_tools/core/document_opener.py).
+1. [x] **Step 1: Core COM Helper**
+   - Add `get_active_word_document(allow_unsaved_snapshot=True)` and `select_best_word_document()` to [`src/modules/word_tools/core/document_opener.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/word_tools/core/document_opener.py).
    - Ensure `CoInitialize()` / `CoUninitialize()` safety.
    - Implement `SaveCopyAs` temporary snapshotting for unsaved/dirty documents.
 
-2. [ ] **Step 2: Controller & Threading**
-   - Implement `action_compare_with_active_word` in [`src/modules/meetings/ui/search_controller.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/ui/search_controller.py).
-   - Connect download callback to `ComparisonManager.add_to_cart` and launch `WordComparatorThread`.
+2. [x] **Step 2: Controller & Threading**
+   - Implement `action_compare_with_active_word` in [`src/modules/meetings/ui/search_controller.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/ui/search_controller.py) and `_compare_tdoc_with_active_word` in [`src/modules/meetings/ui/tdocs_window.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/ui/tdocs_window.py).
+   - Connect download callback to `ComparisonManager` and launch `WordComparatorThread`.
 
-3. [ ] **Step 3: Top Ribbon UI Integration**
-   - In [`src/modules/meetings/ui/ui_tabs.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/ui/ui_tabs.py): instantiate `self.btn_compare_active_word = QPushButton("⚖️ vs Active Word")`.
-   - Update visibility when `global_tdoc_input` matches a valid TDoc.
-   - Wire `clicked` signal to `self.search_controller.action_compare_with_active_word`.
+3. [x] **Step 3: Top Ribbon UI Integration & Shared ComparisonCartWidget**
+   - In [`src/modules/meetings/ui/ui_tabs.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/ui/ui_tabs.py): instantiate `self.btn_compare_active_word = QPushButton("⚖️ vs Word")`.
+   - Build reusable `ComparisonCartWidget` in [`src/modules/meetings/ui/tdocs_components.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/ui/tdocs_components.py) shared across both `MeetingsTab` and `TDocsWindow`, with interactive `[Slot A ▾]` / `[Slot B ▾]` menus, `⇄` slot swap button, `🪟 Active Word` staging, and live Word snapshot refreshing.
 
-4. [ ] **Step 4: Table Context Menu Integration**
-   - In [`src/modules/meetings/ui/tdocs_menus.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/ui/tdocs_menus.py), add context menu actions:
-     - `"⚖️ Compare vs Active Word Document"` (base TDoc).
-     - Submenu actions for all detected revisions (`r01`, `r02`).
-   - Wire to `TDocsWindow` download and comparison handler.
+4. [x] **Step 4: Table Context Menu & Action Menu Integration**
+   - In [`src/modules/meetings/ui/tdocs_menus.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/ui/tdocs_menus.py), add context menu actions across `build_row_context_menu`, `build_action_menu` (Column 0 Open button), and `build_related_menu` (hyperlinked TDocs), plus `⚖️ vs Word` next to `TDocsWindow` Instant Fetch.
 
-5. [ ] **Step 5: Word Tools Tab Integration**
-   - In [`src/modules/word_tools/ui/document_selector_pane.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/word_tools/ui/document_selector_pane.py), add a quick action button in the `🖥️ Open Docs` tab: `[ 🪟 Select Active Document ]`.
+5. [x] **Step 5: Word Tools Tab Integration**
+   - In [`src/modules/word_tools/ui/document_selector_pane.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/word_tools/ui/document_selector_pane.py), add `🪟 Use Active Word` header button and `🪟 Select Active Document` action in the `🖥️ Open Docs` tab.
 
 ### Acceptance Criteria
 * [x] **Word Detection:** Correctly identifies and extracts the file path of whatever document is in foreground focus in Microsoft Word.

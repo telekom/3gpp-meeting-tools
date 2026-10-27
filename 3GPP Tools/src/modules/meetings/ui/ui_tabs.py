@@ -32,7 +32,7 @@ from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.ui.dialogs import MeetingInfoDialog, AddMeetingDialog, MeetingsConfigDialog
 from modules.meetings.ui.models import MeetingsTableModel
 from modules.meetings.ui.search_controller import GlobalSearchController
-from modules.meetings.ui.tdocs_components import CheckableComboBox
+from modules.meetings.ui.tdocs_components import CheckableComboBox, ComparisonCartWidget
 from modules.meetings.ui.tdocs_window import TDocsWindow, _open_terminal
 from modules.word_tools.core.word_comparator import WordComparatorThread
 from modules.meetings.core.tdocs_merger import TDocsMergerThread
@@ -236,6 +236,16 @@ class MeetingsTab(QWidget):
         self.btn_open_meeting.setVisible(False)
         self.btn_open_meeting.setToolTip("Open the full meeting table containing this TDoc.")
         row1_layout.addWidget(self.btn_open_meeting)
+
+        self.btn_compare_active_word = QPushButton("⚖️ vs Word")
+        self.btn_compare_active_word.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_compare_active_word.setCursor(Qt.PointingHandCursor)
+        self.btn_compare_active_word.setFixedHeight(28)
+        self.btn_compare_active_word.setVisible(False)
+        self.btn_compare_active_word.setToolTip(
+            "Download this TDoc and immediately compare it with your currently active Microsoft Word document."
+        )
+        row1_layout.addWidget(self.btn_compare_active_word)
 
         self.tdoc_metadata_warning = QLabel()
         self.tdoc_metadata_warning.setStyleSheet("color: #B45309; font-size: 11px; font-weight: bold;")
@@ -519,50 +529,19 @@ class MeetingsTab(QWidget):
 
         bottom_layout.addStretch()
 
-        # Floating Comparison Cart Pill (hidden when empty)
-        self.cart_frame = QFrame()
-        self.cart_frame.setObjectName("cartFrame")
-        self.cart_frame.setStyleSheet("""
-            QFrame#cartFrame {
-                background-color: #F8FAFC;
-                border: 1px solid #CBD5E1;
-                border-radius: 6px;
-                padding: 2px 8px;
-            }
-            QLabel { color: #1E293B; border: none; font-size: 11px; }
-        """)
-        cart_layout = QHBoxLayout(self.cart_frame)
-        cart_layout.setContentsMargins(8, 2, 8, 2)
-        cart_layout.setSpacing(6)
+        # Floating Comparison Cart Pill (hidden when empty) + Quick Stage Active Word button
+        self.cart_frame = ComparisonCartWidget(self)
+        self.btn_cart_launcher = self.cart_frame.create_launcher_button(self)
+        self.lbl_slot_a = self.cart_frame.btn_slot_a
+        self.lbl_slot_b = self.cart_frame.btn_slot_b
+        self.btn_compare = self.cart_frame.btn_compare
+        self.btn_clear_cart = self.cart_frame.btn_clear_cart
 
-        cart_layout.addWidget(QLabel("<b>⚖️ Cart:</b>"))
-        self.lbl_slot_a = QLabel("<i style='color:#64748B;'>[Slot A Empty]</i>")
-        self.lbl_slot_b = QLabel("<i style='color:#64748B;'>[Slot B Empty]</i>")
-        cart_layout.addWidget(self.lbl_slot_a)
-        cart_layout.addWidget(QLabel("<b>vs</b>"))
-        cart_layout.addWidget(self.lbl_slot_b)
-
-        self.btn_compare = QPushButton("⚖️ Compare in Word")
-        self.btn_compare.setObjectName("primaryBtn")
-        self.btn_compare.setEnabled(False)
-        self.btn_compare.setFixedHeight(24)
-        self.btn_compare.setToolTip("Launch an invisible Word instance to generate a visual redline diff.")
-        self.btn_compare.clicked.connect(self._run_comparison)
-        cart_layout.addWidget(self.btn_compare)
-
-        self.btn_clear_cart = QPushButton("✖ Clear")
-        self.btn_clear_cart.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_clear_cart.setFixedHeight(24)
-        self.btn_clear_cart.setToolTip("Clear all items from the comparison cart.")
-        self.btn_clear_cart.clicked.connect(ComparisonManager.get_instance().clear_cart)
-        cart_layout.addWidget(self.btn_clear_cart)
-
-        self.cart_frame.setVisible(False)
+        bottom_layout.addWidget(self.btn_cart_launcher)
         bottom_layout.addWidget(self.cart_frame)
 
         main_layout.addLayout(bottom_layout)
 
-        ComparisonManager.get_instance().cart_updated.connect(self._update_cart_ui)
         self._populate_filters()
 
     # ==========================================
@@ -784,31 +763,13 @@ class MeetingsTab(QWidget):
         self.date_to.setEnabled(checked)
 
     def _update_cart_ui(self, slot_a: dict, slot_b: dict):
-        has_items = bool(slot_a or slot_b)
-        self.cart_frame.setVisible(has_items)
-
-        if slot_a:
-            self.lbl_slot_a.setText(f"<b style='color:#1E5C99;'>{slot_a.get('name', 'Doc A')}</b>")
-        else:
-            self.lbl_slot_a.setText("<i style='color:#64748B;'>[Slot A Empty]</i>")
-
-        if slot_b:
-            self.lbl_slot_b.setText(f"<b style='color:#1E5C99;'>{slot_b.get('name', 'Doc B')}</b>")
-        else:
-            self.lbl_slot_b.setText("<i style='color:#64748B;'>[Slot B Empty]</i>")
-
-        self.btn_compare.setEnabled(bool(slot_a and slot_b))
+        if hasattr(self, "cart_frame") and hasattr(self.cart_frame, "update_cart_ui"):
+            self.cart_frame.update_cart_ui(slot_a, slot_b)
 
     def _run_comparison(self):
-        mgr = ComparisonManager.get_instance()
-        if mgr.slot_a and mgr.slot_b:
-            self.btn_compare.setText("⏳ Comparing...")
-            self.btn_compare.setEnabled(False)
-
-            self.cmp_thread = WordComparatorThread(mgr.slot_a['path'], mgr.slot_b['path'])
-            self.cmp_thread.finished.connect(lambda: self.btn_compare.setText("⚖️ Compare in Word"))
-            self.cmp_thread.finished.connect(lambda: self.btn_compare.setEnabled(True))
-            self.cmp_thread.start()
+        if hasattr(self, "cart_frame") and hasattr(self.cart_frame, "run_comparison"):
+            self.cart_frame.run_comparison()
+            self.cmp_thread = self.cart_frame.cmp_thread
 
     def _populate_filters(self):
         selected_wgs = set(self.wg_filter.getCheckedItems())
@@ -1105,6 +1066,8 @@ class MeetingsTab(QWidget):
             self.search_controller.action_open_tdoc_only()
         elif action == 'add_to_cart':
             self.search_controller.action_add_to_cart()
+        elif action == 'compare_active_word':
+            self.search_controller.action_compare_with_active_word()
 
     def _export_merged_tdocs(self):
         export_merged_tdocs(self)

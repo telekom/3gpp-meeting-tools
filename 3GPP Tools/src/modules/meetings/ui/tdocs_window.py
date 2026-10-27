@@ -49,7 +49,7 @@ from modules.meetings.core.tdocs_threads import (
 )
 from modules.meetings.core.url_router import URLRouter
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
-from modules.meetings.ui.tdocs_components import CheckableComboBox
+from modules.meetings.ui.tdocs_components import CheckableComboBox, ComparisonCartWidget
 from modules.meetings.ui.tdocs_dialogs import (
     ReadOnlyViewerDialog,
     InteractiveNotesDialog,
@@ -338,12 +338,21 @@ class TDocsWindow(QWidget):
         self.instant_fetch_input.setFocus()
         self.instant_fetch_input.setCursorPosition(len(self.instant_fetch_input.text()))
 
+        self.instant_cmp_btn = QPushButton("⚖️ vs Word")
+        self.instant_cmp_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.instant_cmp_btn.setCursor(Qt.PointingHandCursor)
+        self.instant_cmp_btn.setToolTip(
+            "Download the TDoc entered in Instant Fetch and immediately compare it with your currently active Microsoft Word document."
+        )
+        self.instant_cmp_btn.clicked.connect(self._on_instant_compare_active_word)
+
         header_layout.addWidget(title_lbl)
         header_layout.addWidget(self.routing_indicator)
         header_layout.addStretch()
 
         header_layout.addWidget(QLabel("🚀"))
         header_layout.addWidget(self.instant_fetch_input)
+        header_layout.addWidget(self.instant_cmp_btn)
         header_layout.addSpacing(10)
 
         header_layout.addWidget(self.last_mod_lbl)
@@ -407,7 +416,7 @@ class TDocsWindow(QWidget):
             self.folder_menu.addAction("🌐 Web FTP: Revisions Folder", lambda: webbrowser.open(self.revisions_url))
 
     def _trigger_download_thread(self, base_tdoc: str, target_filename: str, legacy_url: str = None,
-                                 is_silent_compare: bool = False):
+                                 is_silent_compare: bool = False, auto_compare_active_word: bool = False):
         self.model.set_loading(base_tdoc, True)
         is_active = self.mtg_info.get("is_active_sync", False)
 
@@ -422,11 +431,35 @@ class TDocsWindow(QWidget):
         thread = TDocActionThread(base_tdoc, target_filename, url_list, self.meeting_dir,
                                   open_file=not is_silent_compare)
         thread.is_silent_compare = is_silent_compare
+        thread.auto_compare_active_word = auto_compare_active_word
         thread.target_filename = target_filename
         thread.finished_action.connect(lambda t, s, m, th=thread: self._on_tdoc_action_finished(t, s, m, th))
 
         self.active_threads[base_tdoc] = thread
         thread.start()
+
+    def _compare_tdoc_with_active_word(self, base_tdoc: str, target_filename: str):
+        """
+        1-click action to compare the currently active Microsoft Word document (Slot A)
+        against the specified TDoc or revision (Slot B).
+        """
+        mgr = ComparisonManager.get_instance()
+        active_doc = mgr.stage_active_word_document(slot="A")
+        if not active_doc:
+            QMessageBox.warning(
+                self,
+                "No Active Word Document",
+                "No active Microsoft Word document could be detected.\n\n"
+                "Please ensure Microsoft Word is running and the document you wish to compare is open on your screen.",
+            )
+            return
+
+        self._trigger_download_thread(
+            base_tdoc,
+            target_filename,
+            is_silent_compare=True,
+            auto_compare_active_word=True,
+        )
 
     def _setup_filters(self, layout):
         self.search_timer = QTimer(self)
@@ -642,6 +675,19 @@ class TDocsWindow(QWidget):
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
 
         layout.addWidget(self.table)
+
+        # Bottom Status & Shared Comparison Cart Bar
+        bottom_bar = QHBoxLayout()
+        bottom_bar.setContentsMargins(2, 2, 2, 0)
+        bottom_bar.setSpacing(8)
+        bottom_bar.addStretch()
+
+        self.cart_frame = ComparisonCartWidget(self)
+        self.btn_cart_launcher = self.cart_frame.create_launcher_button(self)
+        bottom_bar.addWidget(self.btn_cart_launcher)
+        bottom_bar.addWidget(self.cart_frame)
+        layout.addLayout(bottom_bar)
+
         self._load_tracked_wi_tokens()
         self._refresh_comboboxes()
         self._refresh_email_counts()
@@ -1063,16 +1109,35 @@ class TDocsWindow(QWidget):
         if base_tdoc in self.model.loading_tdocs or not self.docs_ftp_url:
             return
         revisions = self.model.revisions.get(base_tdoc, [])
-        build_action_menu(self.table, base_tdoc, self.docs_ftp_url, self.revisions_url, revisions, self.meeting_dir,
-                          self._trigger_download_thread, self._export_llm_single, self._compose_email_draft,
-                          QCursor.pos())
+        build_action_menu(
+            self.table,
+            base_tdoc,
+            self.docs_ftp_url,
+            self.revisions_url,
+            revisions,
+            self.meeting_dir,
+            self._trigger_download_thread,
+            self._export_llm_single,
+            self._compose_email_draft,
+            QCursor.pos(),
+            compare_active_word_callback=self._compare_tdoc_with_active_word,
+        )
 
     def _show_related_menu(self, target_tdoc: str, pos: QPoint):
         build_related_menu(
-            self, target_tdoc, self.model.valid_tdocs, self.docs_ftp_url, self.revisions_url,
-            self._scroll_to_tdoc, self._trigger_download_thread, self._export_llm_single,
-            self.global_action_requested.emit, self._compose_email_draft, pos,
-            triage_callback=self._open_tdoc_triage  # <--- Added
+            self,
+            target_tdoc,
+            self.model.valid_tdocs,
+            self.docs_ftp_url,
+            self.revisions_url,
+            self._scroll_to_tdoc,
+            self._trigger_download_thread,
+            self._export_llm_single,
+            self.global_action_requested.emit,
+            self._compose_email_draft,
+            pos,
+            triage_callback=self._open_tdoc_triage,
+            compare_active_word_callback=self._compare_tdoc_with_active_word,
         )
 
     def _compose_email_draft(self, tdoc_id: str):
@@ -1237,11 +1302,25 @@ class TDocsWindow(QWidget):
         if not success:
             return QMessageBox.warning(self, f"Action Failed: {tdoc}", msg)
         if getattr(thread, "is_silent_compare", False):
+            from modules.word_tools.core.document_opener import select_best_word_document
+
             files = getattr(thread, "extracted_doc_paths", [])
-            if files:
-                ComparisonManager.get_instance().add_to_cart(thread.target_filename, str(files[0]))
+            best_word = select_best_word_document(files, thread.target_filename)
+            if best_word:
+                mgr = ComparisonManager.get_instance()
+                if getattr(thread, "auto_compare_active_word", False):
+                    mgr.set_slot_b(thread.target_filename, str(best_word))
+                    if hasattr(self, "cart_frame") and hasattr(self.cart_frame, "run_comparison"):
+                        self.cart_frame.run_comparison()
+                else:
+                    mgr.add_to_cart(thread.target_filename, str(best_word))
             else:
-                QMessageBox.warning(self, "Compare Failed", "No Word document found in TDoc ZIP.")
+                found_exts = ", ".join(sorted({Path(f).suffix.lower() for f in files})) or "none"
+                QMessageBox.warning(
+                    self,
+                    "Compare Failed",
+                    f"No Word document (.docx / .doc) found in {thread.target_filename}.zip (found: {found_exts}).",
+                )
 
     def _refresh_both(self):
         self._refresh_excel()
@@ -1581,6 +1660,17 @@ class TDocsWindow(QWidget):
         base_tdoc = match.group(1).upper()
         target_filename = (base_tdoc + (match.group(2) or "")).upper()
         self._trigger_download_thread(base_tdoc, target_filename, legacy_url=None, is_silent_compare=False)
+
+    def _on_instant_compare_active_word(self):
+        tdoc_str = self.instant_fetch_input.text().strip()
+        match = re.match(r'^([A-Za-z0-9]+-\d+)(r\d+[a-zA-Z]?)?$', tdoc_str, re.IGNORECASE)
+        if not match:
+            QMessageBox.warning(self, "Invalid TDoc", "Please enter a valid TDoc number (e.g., S2-261234).")
+            return
+
+        base_tdoc = match.group(1).upper()
+        target_filename = (base_tdoc + (match.group(2) or "")).upper()
+        self._compare_tdoc_with_active_word(base_tdoc, target_filename)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

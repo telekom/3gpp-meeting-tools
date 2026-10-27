@@ -30,7 +30,7 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 | **F-02** | **Word Automation** | Batch CR Cover Sheet Parser to Excel | [F02: Batch CR Cover Parser](legacy_features/F02_batch_cr_cover_sheet_parser.md) | ❌ Only 1-by-1 AI triage | Medium | 🟢 High |
 | **F-03** | **Office Automation** | PowerPoint Presentation Merger | [F03: PowerPoint Merger](legacy_features/F03_powerpoint_presentation_merger.md) | ❌ Not implemented | Low | 🟡 Medium |
 | **F-04** | **PDF & AI Tools** | Bookmarked PDF Dossier & LLM Prompt | [F04: Bookmarked PDF & Prompt](legacy_features/F04_bookmarked_pdf_dossier_llm_prompt.md) | ❌ Merges Excel / Markdown | Medium | 🟡 Medium |
-| **F-05** | **Word Automation** | Active Word vs. TDoc Direct Compare | [F05: Active Word vs. TDoc](legacy_features/F05_active_word_vs_tdoc_comparison.md) | ❌ Slot A vs B in Cart only | Low | 🟢 High |
+| **F-05** | **Word Automation** | Active Word vs. TDoc Direct Compare | [F05: Active Word vs. TDoc](legacy_features/F05_active_word_vs_tdoc_comparison.md) | ✅ Implemented (Multi-Surface + Live Cart) | Low | 🟢 High |
 | **F-06** | **Security / Compliance** | MIP / Purview Sensitivity Label Setter | [F06: MIP Sensitivity Setter](legacy_features/F06_mip_sensitivity_label_setter.md) | ❌ Not implemented | Medium | 🟡 Medium |
 | **F-07** | **Word Automation** | Track Changes Revision Author Renamer | [F07: Author Renamer](legacy_features/F07_track_changes_author_renamer.md) | ❌ Not implemented | Low | ⚪ Low |
 | **F-08** | **Word Automation** | Word Process Watchdog / Force Killer | [F08: Word Process Watchdog](legacy_features/F08_word_process_watchdog_killer.md) | 🔴 Deprecated (Superseded by COM Task Manager Dialog) | Low | ⚪ Low |
