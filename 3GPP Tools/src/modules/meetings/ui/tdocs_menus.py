@@ -90,6 +90,7 @@ def build_action_menu(
     export_llm_callback=None,
     compose_email_callback=None,
     pos: QPoint = None,
+    compare_active_word_callback=None,
 ):
     """Fast, dedicated document opener for the Column 0 button."""
     menu = QMenu(parent)
@@ -142,6 +143,33 @@ def build_action_menu(
             )
         )
 
+    if compare_active_word_callback:
+        menu.addSeparator()
+        if revisions:
+            latest_rev = revisions[-1]
+            act_cmp_lat = menu.addAction(f"⚖️ Compare Latest ({latest_rev}) vs Active Word")
+            act_cmp_lat.setToolTip(
+                "Compare the newest revision of this TDoc against the document currently active in Microsoft Word."
+            )
+            act_cmp_lat.triggered.connect(
+                lambda: compare_active_word_callback(base_tdoc, latest_rev)
+            )
+            act_cmp_base = menu.addAction(f"⚖️ Compare Base ({base_tdoc}) vs Active Word")
+            act_cmp_base.setToolTip(
+                "Compare the baseline TDoc against the document currently active in Microsoft Word."
+            )
+            act_cmp_base.triggered.connect(
+                lambda: compare_active_word_callback(base_tdoc, base_tdoc)
+            )
+        else:
+            act_cmp_base = menu.addAction(f"⚖️ Compare {base_tdoc} vs Active Word")
+            act_cmp_base.setToolTip(
+                "Compare this TDoc against the document currently active in Microsoft Word."
+            )
+            act_cmp_base.triggered.connect(
+                lambda: compare_active_word_callback(base_tdoc, base_tdoc)
+            )
+
     menu.addSeparator()
     act_folder = menu.addAction("📂 Open Local Folder")
     act_folder.setToolTip('Open the local folder used to cache this TDoc and its extracted files.')
@@ -178,6 +206,7 @@ def build_row_context_menu(
     pos: QPoint = None,
     triage_callback=None,  # <--- Added parameter
     draft_cr_callback=None,
+    compare_active_word_callback=None,
 ):
     """Complete command center menu for row-level operations."""
     menu = QMenu(parent)
@@ -261,10 +290,43 @@ def build_row_context_menu(
     act_portal.setToolTip('Open this TDoc in the official 3GPP 3GU portal.')
     act_portal.triggered.connect(lambda: open_3gu_portal(tdoc_id))
 
-    # --- 3. COMPARISON CART SUBMENU ---
+    # --- 3. COMPARE WITH ACTIVE WORD & COMPARISON CART SUBMENU ---
+    if compare_active_word_callback:
+        if revisions:
+            latest_rev = revisions[-1]
+            act_cmp_lat = menu.addAction(f"⚖️ Compare Latest ({latest_rev}) vs Active Word")
+            act_cmp_lat.setToolTip(
+                "Immediately compare the latest revision of this TDoc against the document currently active in Microsoft Word."
+            )
+            act_cmp_lat.triggered.connect(
+                lambda: compare_active_word_callback(tdoc_id, latest_rev)
+            )
+
+            cmp_rev_sub = menu.addMenu(f"⚖️ Compare {tdoc_id} (Base / Revs) vs Active Word")
+            cmp_rev_sub.setToolTipsVisible(True)
+            act_cmp_base = cmp_rev_sub.addAction(f"⚖️ Compare Base: {tdoc_id} vs Active Word")
+            act_cmp_base.setToolTip("Compare baseline TDoc against active Word document.")
+            act_cmp_base.triggered.connect(
+                lambda: compare_active_word_callback(tdoc_id, tdoc_id)
+            )
+            cmp_rev_sub.addSeparator()
+            for rev in revisions:
+                act_cmp_r = cmp_rev_sub.addAction(f"⚖️ Compare Rev: {rev} vs Active Word")
+                act_cmp_r.triggered.connect(
+                    lambda _, r=rev: compare_active_word_callback(tdoc_id, r)
+                )
+        else:
+            act_cmp_active = menu.addAction(f"⚖️ Compare {tdoc_id} vs Active Word")
+            act_cmp_active.setToolTip(
+                "Immediately compare this TDoc against the document currently active in Microsoft Word."
+            )
+            act_cmp_active.triggered.connect(
+                lambda: compare_active_word_callback(tdoc_id, tdoc_id)
+            )
+
     cart_sub = menu.addMenu("⚖️ Comparison Cart")
     cart_sub.setToolTipsVisible(True)
-    cart_sub.setToolTip("Add the base TDoc or a revision to the comparison cart without opening it.")
+    cart_sub.setToolTip("Add the base TDoc, a revision, or an open Word document to the comparison cart.")
     act_cart_base = cart_sub.addAction(f"➕ Add Base: {tdoc_id}")
     act_cart_base.setToolTip('Download/cache the baseline as needed and add it to the comparison cart.')
     act_cart_base.triggered.connect(
@@ -280,6 +342,17 @@ def build_row_context_menu(
                     tdoc_id, r, is_silent_compare=True
                 )
             )
+
+    cart_sub.addSeparator()
+    from modules.meetings.ui.tdocs_components import populate_slot_word_menu
+
+    word_slot_a_sub = cart_sub.addMenu("🪟 Stage Open Word Doc in Slot A (Original)")
+    word_slot_a_sub.setToolTipsVisible(True)
+    populate_slot_word_menu(word_slot_a_sub, "A", parent)
+
+    word_slot_b_sub = cart_sub.addMenu("🪟 Stage Open Word Doc in Slot B (Revised)")
+    word_slot_b_sub.setToolTipsVisible(True)
+    populate_slot_word_menu(word_slot_b_sub, "B", parent)
 
     # --- 4. MARKDOWN EXPORT ---
     if export_llm_callback:
@@ -430,6 +503,7 @@ def build_related_menu(
     compose_email_callback,
     pos: QPoint,
     triage_callback=None,  # <--- Added parameter
+    compare_active_word_callback=None,
 ):
     """Context menu triggered when right-clicking hyperlinked TDoc tags."""
     menu = QMenu(parent)
@@ -454,6 +528,13 @@ def build_related_menu(
                 base_tdoc, clean_tdoc, is_silent_compare=False
             )
         )
+
+        if compare_active_word_callback:
+            act_cmp_active = menu.addAction(f"⚖️ Compare {clean_tdoc} vs Active Word")
+            act_cmp_active.setToolTip("Compare this related TDoc against your currently active Microsoft Word document.")
+            act_cmp_active.triggered.connect(
+                lambda: compare_active_word_callback(base_tdoc, clean_tdoc)
+            )
 
         act_cart = menu.addAction(f"⚖️ Add {clean_tdoc} to Comparison Cart")
         act_cart.setToolTip('Add this related TDoc to the comparison cart.')
@@ -497,6 +578,13 @@ def build_related_menu(
                 base_tdoc, clean_tdoc, is_silent_compare=False
             )
         )
+
+        if compare_active_word_callback:
+            act_cmp_ext = menu.addAction(f"⚖️ Compare {clean_tdoc} vs Active Word")
+            act_cmp_ext.setToolTip("Compare this TDoc against your currently active Microsoft Word document.")
+            act_cmp_ext.triggered.connect(
+                lambda: compare_active_word_callback(base_tdoc, clean_tdoc)
+            )
 
     menu.addSeparator()
     act_copy = menu.addAction(f"📋 Copy TDoc ID ({clean_tdoc})")

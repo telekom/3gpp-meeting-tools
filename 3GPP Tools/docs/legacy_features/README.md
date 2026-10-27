@@ -25,7 +25,7 @@ Each document provides a comprehensive analysis covering:
 | **F-02** | [F02: Batch CR Cover Sheet Parser to Excel](F02_batch_cr_cover_sheet_parser.md) | Word Automation | Med (5.0h) | 🔥 8.5 (Very High) | Specification Ready |
 | **F-03** | [F03: PowerPoint Status Report & Presentation Merger](F03_powerpoint_presentation_merger.md) | Office Automation | Low (3.0h) | 🟢 7.5 (High) | Specification Ready |
 | **F-04** | [F04: Bookmarked Multi-TDoc PDF Dossier & LLM Prompt](F04_bookmarked_pdf_dossier_llm_prompt.md) | PDF & AI Tools | Med (4.0h) | 🟢 8.0 (High) | Specification Ready |
-| **F-05** | [F05: "Active Word vs. TDoc" Direct Comparison](F05_active_word_vs_tdoc_comparison.md) | Word Automation | Low (1.5h) | 🌟 9.5 (Exceptional) | Deep-Dive Complete |
+| **F-05** | [F05: "Active Word vs. TDoc" Direct Comparison](F05_active_word_vs_tdoc_comparison.md) | Word Automation | Low (1.5h) | 🌟 9.5 (Exceptional) | ✅ Implemented (Multi-Surface + Live Cart) |
 | **F-06** | [F06: MIP / Purview Sensitivity Label Setter](F06_mip_sensitivity_label_setter.md) | Security & DLP | Med (3.0h) | 🟡 7.0 (Moderate) | Specification Ready |
 | **F-07** | [F07: Track Changes Revision Author Replacement](F07_track_changes_author_renamer.md) | Word Automation | Low (3.0h) | 🔥 8.5 (Very High) | Deep-Dive Complete |
 | **F-08** | [F08: Word Process Watchdog & Force Killer](F08_word_process_watchdog_killer.md) | System Watchdog | Low (1.5h) | ⚪ 3.0 (Low ROI) | 🔴 Deprecated (Superseded by Task Manager) |

@@ -131,7 +131,7 @@ src/modules/meetings/
 
 ### 3.8. Meetings Browser Modern Architecture (`MeetingsTab`)
 - **Full-Width Table & 2-Row Top Ribbon:** Eliminates the legacy fixed-width right sidebar, allocating 100% of horizontal space to the meetings table:
-  - **Row 1 (Primary Navigation & Toolbar):** Houses `🚀 Last Meeting` quick launcher with active theme styling, inline `⚡ TDoc:` jump box with dynamic `📄 Doc` and `🗓️ Mtg` action buttons, right-aligned `🔄 Sync ▾` menu, `📊 Reports ▾` menu, and `⚙️ Settings`.
+  - **Row 1 (Primary Navigation & Toolbar):** Houses `🚀 Last Meeting` quick launcher with active theme styling, inline `⚡ TDoc:` jump box with dynamic `📄 Doc`, `🗓️ Mtg`, and `⚖️ vs Word` action buttons, right-aligned `🔄 Sync ▾` menu, `📊 Reports ▾` menu, and `⚙️ Settings`.
   - **Row 2 (Inline Filter Engine):** `🔍 Search` (by number, city, or title), TSG segmented buttons (`[All] [SA] [RAN] [CT]`), `Working Group` checkable multi-select combo, Nature (`Regular` / `Ad-Hoc`), Format (`In-Person` / `Electronic`), and Date Presets (`All Dates`, `Upcoming`, `This Year`, `Past 12 Months`, `Custom Range...`). Selecting *Custom Range...* dynamically reveals the calendar pickers.
 - **7-Column Table Design & Delegates:**
   - `Action` (col 1): `TDocsButtonDelegate` painting interactive `✔ Open`, `⬇ Get`, or `⏳ Fetching` status pills with hover feedback.
@@ -140,7 +140,7 @@ src/modules/meetings/
   - `Dates` (col 5): English consolidated ranges (`12 – 16 Oct 2026`) via `format_meeting_dates()` with temporal awareness tooltips (`🟢 Ongoing`, `🔵 Upcoming`, `⚪ Past`).
   - `Allocated TDocs` (col 6): Preserves full WG prefixes (`C4-264009 → C4-264023`, `—` when unallocated).
   - Double-clicking any row directly launches the meeting TDocs window (or downloads it if uncached).
-- **Floating Comparison Cart:** Compact lower-right status bar pill that **auto-hides completely when empty**, sliding into view only when items are staged into Slot A or Slot B (`⚖️ Cart: <Doc A> vs <Doc B> [Compare in Word] [Clear]`).
+- **Floating Comparison Cart & Active Word Comparison (`ComparisonCartWidget`, `ComparisonManager`):** Shared lower-right status bar widget across `MeetingsTab` and `TDocsWindow` that collapses to a compact `⚖️ Stage Active Word ▾` launcher when empty and expands when Slot A or Slot B is populated (`⚖️ Cart: [Slot A ▾] ⇄ [Slot B ▾] [🪟 Active Word] [Compare in Word] [Clear]`). Supports 1-click staging of the foreground Active Word document, any open Word document, TDocs, or local files into either slot, 1-click slot direction swapping (`⇄`), automatic snapshot refresh (`resolve_comparison_paths()`) for unsaved/edited open Word drafts, and direct 1-click **Active Word vs. TDoc** comparison from the Quick Jump bar, `TDocsWindow` Instant Fetch bar, row context menu, action button menu, and Related TDoc hyperlinks.
 - **Safe Maintenance Grouping:** Relocated destructive `Clear All Meetings...` from the main UI into `MeetingsConfigDialog` (`⚙️ Settings`) under a dedicated *⚠️ Database Maintenance (Danger Zone)* section.
 
 ### 3.9. High-Speed Parallel Pre-Download Pipeline for Markdown Exports (`llm_exporter.py`, `post_meeting_exporter.py`, `tdoc_file_handler.py`)

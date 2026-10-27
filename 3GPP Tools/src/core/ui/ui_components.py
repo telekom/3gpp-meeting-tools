@@ -88,6 +88,11 @@ GLOBAL_STYLE = """
     QPushButton#primaryBtn:hover, QPushButton#pptBtn:hover, QPushButton#svgBtn:hover {
         background-color: #15426E;
     }
+    QPushButton#primaryBtn:disabled, QPushButton#pptBtn:disabled, QPushButton#svgBtn:disabled {
+        background-color: #E2E8F0;
+        color: #94A3B8;
+        border: 1px solid #CBD5E1;
+    }
     QMenu {
         background-color: #FFFFFF;
         border: 1px solid #CCCCCC;
@@ -671,6 +676,30 @@ def get_wg_badge_style_and_desc(wg: str) -> Tuple[str, str]:
         font-weight: bold;
     """
     return style, c["desc"]
+
+
+def escape_qt_mnemonic(text: Optional[str]) -> str:
+    """
+    Escape literal ampersands for Qt controls, actions, and menus (& -> &&).
+
+    In Qt/PyQt, widgets and actions that support keyboard shortcuts and mnemonics
+    (QAction, QMenu, QPushButton, QCheckBox, QRadioButton, QGroupBox, QTabBar,
+    QTabWidget, etc.) interpret a single '&' as an accelerator key prefix,
+    stripping the ampersand and underlining the subsequent character.
+
+    This function safely converts single '&' to '&&' while preserving already-escaped
+    '&&' sequences, preventing double-escaping bugs when processing dynamic data
+    (e.g., from JSON files, databases, or network feeds).
+
+    :param text: Text string potentially containing ampersands, or None.
+    :return: Escaped string safe for Qt mnemonic-aware controls.
+    """
+    if not text:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    # Protect existing '&&' by substituting a temporary marker, replacing single '&', then restoring
+    return text.replace("&&", "\x00").replace("&", "&&").replace("\x00", "&&")
 
 
 def create_app_icon():

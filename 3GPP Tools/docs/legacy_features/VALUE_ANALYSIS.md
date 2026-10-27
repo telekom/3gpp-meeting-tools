@@ -50,7 +50,7 @@ quadrantChart
 
 | Rank | ID | Feature Name | Domain | Time Saved / Meeting | Value (1-10) | Effort (h) | ROI Rating | Recommended Action |
 | :---: | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| **1** | [**F-05**](F05_active_word_vs_tdoc_comparison.md) | "Active Word vs. TDoc" Direct Comparison | Word Automation | 1.5 – 3.5 hrs | **9.5** | 1.5h | 🌟 Exceptional | **Implement Immediately (Sprint 1)** |
+| **1** | [**F-05**](F05_active_word_vs_tdoc_comparison.md) | "Active Word vs. TDoc" Direct Comparison | Word Automation | 1.5 – 3.5 hrs | **9.5** | 1.5h | 🌟 Exceptional | ✅ **Implemented (Multi-Surface + Live Cart)** |
 | **2** | [**F-01**](F01_windows_tdoc_url_handler.md) | Windows `tdoc://` URL Protocol Handler | OS Integration | 1.0 – 2.0 hrs | **9.0** | 2.5h | 🌟 Exceptional | **Implement Immediately (Sprint 1)** |
 | **3** | [**F-07**](F07_track_changes_author_renamer.md) | Track Changes Author Replacement & Anonymizer | Word Automation | 3.0 – 8.0 hrs | **8.5** | 3.0h | 🔥 Very High | **Implement Immediately (Sprint 1)** |
 | **4** | [**F-02**](F02_batch_cr_cover_sheet_parser.md) | Batch CR Cover Sheet Parser to Excel | Word Automation | 4.0 – 8.0 hrs | **8.5** | 5.0h | 🔥 Very High | **Implement in Sprint 2** |
