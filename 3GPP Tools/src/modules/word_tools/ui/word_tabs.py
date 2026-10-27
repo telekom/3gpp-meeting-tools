@@ -1,13 +1,16 @@
 # --- File: src/modules/word_tools/ui/word_tabs.py ---
+import os
 import webbrowser
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
+    QAction,
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -15,6 +18,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
     QAbstractItemView,
     QPlainTextEdit,
     QShortcut,
@@ -34,9 +38,13 @@ import pythoncom
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     CARD_FRAME_STYLE,
-    InteractiveDropLabel
+    COMBOBOX_STYLE_TOOLBAR,
+    TOGGLE_PILL_STYLE,
+    InteractiveDropLabel,
 )
+from modules.word_tools.core.document_opener import get_active_word_document
 from modules.word_tools.core.styles_3gpp import (
+    OFFICIAL_CR_TEMPLATE_URL,
     install_3gpp_dotx_template,
     is_3gpp_dotx_installed,
     uninstall_3gpp_dotx_template,
@@ -53,10 +61,9 @@ from modules.word_tools.core.libreoffice_converter import (
     resolve_soffice_binary,
 )
 
-
-
 # Subcomponents extracted to dedicated modules (re-exported for backward compatibility)
 from modules.word_tools.ui.document_selector_pane import DocumentSelectorPane
+from modules.word_tools.ui.word_settings_dialog import WordSettingsDialog
 
 
 class WordExtractorTab(QWidget):
@@ -68,40 +75,117 @@ class WordExtractorTab(QWidget):
 
     def __init__(self):
         super().__init__()
+        self._syncing_nav = False
         self._setup_ui()
         self._check_libreoffice_status()
         self._check_dotx_status()
+        self._poll_active_word()
+        # Default to Compare & Redline
+        self.set_active_operation(4)
 
     def _setup_ui(self):
         layout = QVBoxLayout()
-        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
 
-        self.status_banner = QWidget()
-        banner_layout = QHBoxLayout(self.status_banner)
-        banner_layout.setContentsMargins(12, 8, 12, 8)
-        banner_layout.setSpacing(10)
+        # -------------------------------------------------------------
+        # 1. Top Ribbon Frame: System & Environment (Row 1) + Workbench Nav (Row 2)
+        # -------------------------------------------------------------
+        self.ribbon_frame = QFrame()
+        self.ribbon_frame.setObjectName("cardFrame")
+        self.ribbon_frame.setStyleSheet(CARD_FRAME_STYLE)
+        ribbon_layout = QVBoxLayout(self.ribbon_frame)
+        ribbon_layout.setContentsMargins(10, 8, 10, 8)
+        ribbon_layout.setSpacing(6)
 
-        self.banner_icon = QLabel("⚠️")
-        self.banner_text = QLabel()
-        self.banner_text.setWordWrap(True)
-        self.locate_btn = QPushButton("📂 Locate Executable")
-        self.locate_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.locate_btn.setToolTip("Select soffice.exe or LibreOfficePortable.exe from your disk")
-        self.locate_btn.clicked.connect(self._browse_for_libreoffice)
-        self.download_btn = QPushButton("📥 Download Portable")
-        self.download_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.download_btn.clicked.connect(lambda: webbrowser.open(LIBREOFFICE_DOWNLOAD_URL))
+        # Row 1: System, Environment & Active Word Status
+        row1 = QHBoxLayout()
+        row1.setSpacing(8)
 
-        banner_layout.addWidget(self.banner_icon)
-        banner_layout.addWidget(self.banner_text, 1)
-        banner_layout.addWidget(self.locate_btn)
-        banner_layout.addWidget(self.download_btn)
-        layout.addWidget(self.status_banner)
+        self.btn_active_word = QPushButton("🪟 Active Word: Scanning...")
+        self.btn_active_word.setStyleSheet(TOGGLE_PILL_STYLE)
+        self.btn_active_word.setCursor(Qt.PointingHandCursor)
+        self.btn_active_word.setToolTip("Click to scan and refresh active Microsoft Word documents.")
+        self.btn_active_word.clicked.connect(self._poll_active_word)
+        row1.addWidget(self.btn_active_word)
 
-        switcher_layout = QHBoxLayout()
-        switcher_layout.addWidget(QLabel("<b>⚙️ Operation Type:</b>"))
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.VLine)
+        sep1.setFrameShadow(QFrame.Sunken)
+        sep1.setStyleSheet("color: #CBD5E1;")
+        row1.addWidget(sep1)
+
+        self.dotx_badge = QLabel()
+        row1.addWidget(self.dotx_badge)
+
+        self.dotx_btn = QPushButton("📥 Install Template")
+        self.dotx_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.dotx_btn.setCursor(Qt.PointingHandCursor)
+        self.dotx_btn.clicked.connect(self._on_toggle_dotx_clicked)
+        row1.addWidget(self.dotx_btn)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.VLine)
+        sep2.setFrameShadow(QFrame.Sunken)
+        sep2.setStyleSheet("color: #CBD5E1;")
+        row1.addWidget(sep2)
+
+        self.lo_badge = QLabel()
+        row1.addWidget(self.lo_badge)
+
+        row1.addStretch()
+
+        self.settings_btn = QPushButton("⚙️ Word Settings ▾")
+        self.settings_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.settings_btn.setCursor(Qt.PointingHandCursor)
+        self._setup_settings_menu()
+        row1.addWidget(self.settings_btn)
+
+        ribbon_layout.addLayout(row1)
+
+        # Subtle separator
+        hsep = QFrame()
+        hsep.setFrameShape(QFrame.HLine)
+        hsep.setFrameShadow(QFrame.Sunken)
+        hsep.setStyleSheet("color: #F1F5F9;")
+        ribbon_layout.addWidget(hsep)
+
+        # Row 2: Segmented Workbench Navigation
+        row2 = QHBoxLayout()
+        row2.setSpacing(6)
+
+        lbl_nav = QLabel("<b>Workbench:</b>")
+        lbl_nav.setStyleSheet("color: #475569; font-size: 11px;")
+        row2.addWidget(lbl_nav)
+
+        self.nav_btn_compare = QPushButton("⚖️ Compare & Redline")
+        self.nav_btn_markdown = QPushButton("📝 Word → Markdown")
+        self.nav_btn_cr_pcr = QPushButton("🏛️ 3GPP CR & Templates")
+        self.nav_btn_slice = QPushButton("✂️ Slice & Excerpt")
+        self.nav_btn_convert = QPushButton("🔄 Format Converter")
+        self.nav_btn_visio = QPushButton("🖼️ Visio & Media Extractor")
+
+        self._nav_buttons = [
+            (self.nav_btn_compare, 4),
+            (self.nav_btn_markdown, 6),
+            (self.nav_btn_cr_pcr, 7),
+            (self.nav_btn_slice, 3),
+            (self.nav_btn_convert, 5),
+            (self.nav_btn_visio, 1),
+        ]
+
+        for btn, idx in self._nav_buttons:
+            btn.setCheckable(True)
+            btn.setStyleSheet(TOGGLE_PILL_STYLE)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda checked, i=idx: self.set_active_operation(i))
+            row2.addWidget(btn)
+
+        row2.addStretch()
+
+        row2.addWidget(QLabel("<b>Jump:</b>"))
         self.op_combo = QComboBox()
+        self.op_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
         self.op_combo.addItems([
             "Convert Legacy .doc to .docx (Explicit LibreOffice)",
             "Extract Embedded Visio Diagrams",
@@ -110,19 +194,29 @@ class WordExtractorTab(QWidget):
             "Compare Documents (Native Word Diff)",
             "Convert Document Format (Auto / Word)",
             "Convert Word to Markdown (.md)",
+            "Draft 3GPP Contribution (CR / pCR)",
         ])
-        switcher_layout.addWidget(self.op_combo)
-        switcher_layout.addStretch()
+        row2.addWidget(self.op_combo)
 
-        switcher_layout.addWidget(QLabel("<b>3GPP Template:</b>"))
-        self.dotx_badge = QLabel()
-        switcher_layout.addWidget(self.dotx_badge)
-        self.dotx_btn = QPushButton()
-        self.dotx_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.dotx_btn.clicked.connect(self._on_toggle_dotx_clicked)
-        switcher_layout.addWidget(self.dotx_btn)
+        ribbon_layout.addLayout(row2)
+        layout.addWidget(self.ribbon_frame)
 
-        layout.addLayout(switcher_layout)
+        # Retain backward-compatible status_banner and buttons (hidden)
+        self.status_banner = QWidget()
+        banner_layout = QHBoxLayout(self.status_banner)
+        self.banner_icon = QLabel("⚠️")
+        self.banner_text = QLabel()
+        self.locate_btn = QPushButton("📂 Locate Executable")
+        self.locate_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.locate_btn.clicked.connect(self._browse_for_libreoffice)
+        self.download_btn = QPushButton("📥 Download Portable")
+        self.download_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.download_btn.clicked.connect(lambda: webbrowser.open(LIBREOFFICE_DOWNLOAD_URL))
+        banner_layout.addWidget(self.banner_icon)
+        banner_layout.addWidget(self.banner_text)
+        banner_layout.addWidget(self.locate_btn)
+        banner_layout.addWidget(self.download_btn)
+        self.status_banner.setVisible(False)
 
         self.stack = QStackedWidget()
 
@@ -423,9 +517,12 @@ class WordExtractorTab(QWidget):
         self.stack.addWidget(self.card_markdown)
         self._last_converted_md = None
 
+        self.card_cr_pcr = self._create_cr_pcr_card()
+        self.stack.addWidget(self.card_cr_pcr)
+
         layout.addWidget(self.stack)
         self.setLayout(layout)
-        self.op_combo.currentIndexChanged.connect(self.stack.setCurrentIndex)
+        self.op_combo.currentIndexChanged.connect(self._on_op_combo_changed)
 
     def _scan_excerpt_files(self, files):
         if not files:
@@ -681,6 +778,188 @@ class WordExtractorTab(QWidget):
         self.excerpt_extract_btn.setText("✂️ Extract Selected Sections")
         self.excerpt_extract_btn.setEnabled(bool(self._excerpt_headings))
 
+    def _poll_active_word(self):
+        """Checks for active foreground document in Microsoft Word and updates status pill."""
+        try:
+            active_doc = get_active_word_document(allow_unsaved_snapshot=False)
+            if active_doc and active_doc.get("name"):
+                name = active_doc["name"]
+                is_mod = active_doc.get("modified", False)
+                mod_str = " *" if is_mod else ""
+                self.btn_active_word.setText(f"🪟 Active Word: {name}{mod_str}")
+                self.btn_active_word.setStyleSheet("""
+                    QPushButton {
+                        background-color: #ECFDF5;
+                        color: #065F46;
+                        border: 1px solid #A7F3D0;
+                        border-radius: 12px;
+                        padding: 3px 10px;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+                    QPushButton:hover {
+                        background-color: #D1FAE5;
+                        border-color: #6EE7B7;
+                    }
+                """)
+                self.btn_active_word.setToolTip(
+                    f"Active document in Microsoft Word: {active_doc.get('full_name', name)}\nClick to refresh open documents."
+                )
+            else:
+                self.btn_active_word.setText("⚪ Word: No Active Document")
+                self.btn_active_word.setStyleSheet(TOGGLE_PILL_STYLE)
+                self.btn_active_word.setToolTip("No active document currently open in Microsoft Word. Click to scan.")
+        except Exception as e:
+            self.btn_active_word.setText("⚪ Word: Offline / Idle")
+            self.btn_active_word.setStyleSheet(TOGGLE_PILL_STYLE)
+            self.btn_active_word.setToolTip(f"Word status check: {e}")
+
+    def _setup_settings_menu(self):
+        settings_menu = QMenu(self)
+        settings_menu.setStyleSheet("""
+            QMenu {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                padding: 4px;
+                font-size: 12px;
+            }
+            QMenu::item {
+                padding: 6px 18px 6px 10px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #EBF3FC;
+                color: #1E5C99;
+            }
+        """)
+        act_pref = settings_menu.addAction("⚙️ Word Tools Preferences & Sensitivity Labels...")
+        act_pref.triggered.connect(self._open_settings_dialog)
+        settings_menu.addSeparator()
+        act_tpl_folder = settings_menu.addAction("📂 Open Word Templates Folder")
+        act_tpl_folder.triggered.connect(self._open_word_templates_folder)
+        act_toggle_dotx = settings_menu.addAction("📥 Install / Remove 3gpp_70.dotx")
+        act_toggle_dotx.triggered.connect(self._on_toggle_dotx_clicked)
+        act_dl_tpl = settings_menu.addAction("🌐 Official 3GPP Templates Portal...")
+        act_dl_tpl.triggered.connect(lambda: webbrowser.open(OFFICIAL_CR_TEMPLATE_URL))
+        settings_menu.addSeparator()
+        act_lo = settings_menu.addAction("📂 Locate LibreOffice Binary...")
+        act_lo.triggered.connect(self._browse_for_libreoffice)
+        self.settings_btn.setMenu(settings_menu)
+
+    def _open_settings_dialog(self):
+        dlg = WordSettingsDialog(self)
+        if dlg.exec_() == QDialog.Accepted:
+            self._check_libreoffice_status()
+            self._check_dotx_status()
+
+    def _open_word_templates_folder(self):
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            tpl_dir = Path(appdata) / "Microsoft" / "Templates"
+            tpl_dir.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(tpl_dir))
+
+    def set_active_operation(self, index: int):
+        if 0 <= index < self.stack.count():
+            self.stack.setCurrentIndex(index)
+            if self.op_combo.currentIndex() != index:
+                self.op_combo.setCurrentIndex(index)
+            self._update_nav_pills(index)
+
+    def _on_op_combo_changed(self, index: int):
+        if not self._syncing_nav:
+            self.set_active_operation(index)
+
+    def _update_nav_pills(self, index: int):
+        self._syncing_nav = True
+        try:
+            pill_map = {
+                0: self.nav_btn_convert,
+                1: self.nav_btn_visio,
+                2: self.nav_btn_slice,
+                3: self.nav_btn_slice,
+                4: self.nav_btn_compare,
+                5: self.nav_btn_convert,
+                6: self.nav_btn_markdown,
+                7: self.nav_btn_cr_pcr,
+            }
+            active_btn = pill_map.get(index)
+            for btn, _ in self._nav_buttons:
+                btn.setChecked(btn is active_btn)
+        finally:
+            self._syncing_nav = False
+
+    def _create_cr_pcr_card(self) -> QWidget:
+        card = QWidget()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 10, 12, 10)
+        card_layout.setSpacing(10)
+
+        info_frame = QFrame()
+        info_frame.setStyleSheet(CARD_FRAME_STYLE)
+        info_layout = QVBoxLayout(info_frame)
+        info_layout.setContentsMargins(16, 14, 16, 14)
+        info_layout.setSpacing(8)
+
+        title = QLabel("<b>🏛️ 3GPP Contribution & Template Workbench</b>")
+        title.setStyleSheet("font-size: 14px; color: #1E293B;")
+        info_layout.addWidget(title)
+
+        desc = QLabel(
+            "Draft formal 3GPP Change Requests (CR) or Pseudo-CRs (pCR) with automated "
+            "meeting metadata pre-fill, contiguous change-block grouping, 3GPP style enforcement, "
+            "and enterprise sensitivity labeling."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #475569; font-size: 12px;")
+        info_layout.addWidget(desc)
+
+        card_layout.addWidget(info_frame)
+
+        btn_row = QHBoxLayout()
+        self.btn_launch_cr = QPushButton("📝 Draft 3GPP Contribution (CR / pCR)...")
+        self.btn_launch_cr.setObjectName("primaryBtn")
+        self.btn_launch_cr.setCursor(Qt.PointingHandCursor)
+        self.btn_launch_cr.clicked.connect(self._launch_cr_pcr_dialog)
+        btn_row.addWidget(self.btn_launch_cr)
+
+        self.btn_open_tpl_hub = QPushButton("📂 Open Microsoft Templates Folder")
+        self.btn_open_tpl_hub.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_open_tpl_hub.setCursor(Qt.PointingHandCursor)
+        self.btn_open_tpl_hub.clicked.connect(self._open_word_templates_folder)
+        btn_row.addWidget(self.btn_open_tpl_hub)
+
+        self.btn_dl_cr_tpl = QPushButton("🌐 Download Official Templates")
+        self.btn_dl_cr_tpl.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_dl_cr_tpl.setCursor(Qt.PointingHandCursor)
+        self.btn_dl_cr_tpl.clicked.connect(lambda: webbrowser.open(OFFICIAL_CR_TEMPLATE_URL))
+        btn_row.addWidget(self.btn_dl_cr_tpl)
+        btn_row.addStretch()
+
+        card_layout.addLayout(btn_row)
+        card_layout.addStretch()
+        return card
+
+    def _launch_cr_pcr_dialog(self):
+        try:
+            from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
+            active_doc = get_active_word_document(allow_unsaved_snapshot=False)
+            ordered_paths = []
+            if active_doc and active_doc.get("full_name"):
+                doc_path = str(active_doc["full_name"])
+                if Path(doc_path).exists():
+                    ordered_paths = [doc_path]
+            dlg = CrPcrDialog(
+                spec_num="",
+                version="",
+                ordered_paths=ordered_paths,
+                parent=self,
+            )
+            dlg.exec_()
+        except Exception as e:
+            QMessageBox.critical(self, "Error Launching CR Dialog", f"Could not open CR/pCR Generator:\n{e}")
+
     def _check_libreoffice_status(self):
         """
         Passive status check only.
@@ -695,6 +974,19 @@ class WordExtractorTab(QWidget):
                 if executable.name.lower() == "libreofficeportable.exe"
                 else "Installed"
             )
+            self.lo_badge.setText(f"🟢 LibreOffice ({runtime_type})")
+            self.lo_badge.setStyleSheet("""
+                QLabel {
+                    font-size: 11px;
+                    font-weight: bold;
+                    color: #065F46;
+                    background-color: #D1FAE5;
+                    border: 1px solid #A7F3D0;
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                }
+            """)
+            self.lo_badge.setToolTip(f"LibreOffice is configured ({runtime_type}):\n{executable}")
             self.status_banner.setStyleSheet(
                 "background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 6px;"
             )
@@ -707,6 +999,22 @@ class WordExtractorTab(QWidget):
             self.locate_btn.setText("⚙️ Change Path")
             self.download_btn.setVisible(False)
         else:
+            self.lo_badge.setText("⚪ LibreOffice Optional")
+            self.lo_badge.setStyleSheet("""
+                QLabel {
+                    font-size: 11px;
+                    color: #64748B;
+                    background-color: #F1F5F9;
+                    border: 1px solid #E2E8F0;
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                }
+            """)
+            self.lo_badge.setToolTip(
+                "LibreOffice is not detected.\n"
+                "Optional: Only needed for headless or legacy .doc conversion.\n"
+                "Native Word features (diff, CR/pCR, styling) use Microsoft Word COM."
+            )
             self.status_banner.setStyleSheet(
                 "background-color: #FFFBEB; border: 1px solid #FDE68A; border-radius: 6px;"
             )
@@ -722,7 +1030,7 @@ class WordExtractorTab(QWidget):
     def _check_dotx_status(self):
         installed = is_3gpp_dotx_installed()
         if installed:
-            self.dotx_badge.setText("🟢 Installed (3gpp_70.dotx)")
+            self.dotx_badge.setText("🟢 3gpp_70.dotx")
             self.dotx_badge.setStyleSheet("""
                 QLabel {
                     font-size: 11px;
@@ -738,7 +1046,7 @@ class WordExtractorTab(QWidget):
             self.dotx_btn.setText("🗑️ Remove Template")
             self.dotx_btn.setToolTip("Remove 3gpp_70.dotx from your Microsoft Word templates folder")
         else:
-            self.dotx_badge.setText("⚪ Not Installed")
+            self.dotx_badge.setText("⚪ Template Not Installed")
             self.dotx_badge.setStyleSheet("""
                 QLabel {
                     font-size: 11px;
@@ -750,7 +1058,7 @@ class WordExtractorTab(QWidget):
                 }
             """)
             self.dotx_badge.setToolTip("3gpp_70.dotx is not installed in %APPDATA%\\Microsoft\\Templates")
-            self.dotx_btn.setText("📥 Install 3GPP Template")
+            self.dotx_btn.setText("📥 Install Template")
             self.dotx_btn.setToolTip("Download and install 3gpp_70.dotx into %APPDATA%\\Microsoft\\Templates")
 
     def _on_toggle_dotx_clicked(self):

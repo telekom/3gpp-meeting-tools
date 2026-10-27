@@ -16,6 +16,7 @@ class WordConfig:
             "sensitivity_level_label_name": "OFFEN",
             "save_document_after_setting_sensitivity_label": False,
             "libreoffice_path": "",
+            "default_source_company": "",
         }
         try:
             if CONFIG_PATH.exists():
