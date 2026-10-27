@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": 1,
+  "description": "Configurable external web resources, tools, and specification viewers for the Help dropdown menu.",
+  "categories": [
+    {
+      "name": "Documentation & Help",
+      "links": [
+        {
+          "title": "Application Documentation",
+          "url": "https://github.com/telekom/3gpp-meeting-tools/tree/master/3GPP%20Tools",
+          "icon": "📖",
+          "shortcut": "F1",
+          "tooltip": "Open official 3GPP Tools documentation, user guides, and architecture manuals."
+        }
+      ]
+    },
+    {
+      "name": "Specification Viewers & Search",
+      "links": [
+        {
+          "title": "3GPP Guru Viewer",
+          "url": "https://3gpp.guru/",
+          "icon": "🌐",
+          "tooltip": "Fast web-based 3GPP specification viewer with syntax highlighting and cross-clause hyperlinks."
+        },
+        {
+          "title": "SpecViewer (specviewer.org)",
+          "url": "https://specviewer.org/",
+          "icon": "🔍",
+          "tooltip": "3GPP specifications by version with clause-level search and diffing."
+        },
+        {
+          "title": "TDocHamster",
+          "url": "https://tdochamster.com/",
+          "icon": "🐹",
+          "tooltip": "3GPP TDoc search, comparison, and meeting contribution visualizer."
+        }
+      ]
+    },
+    {
+      "name": "Official 3GPP Portals & APIs",
+      "links": [
+        {
+          "title": "3GPP Forge OpenAPI Specs",
+          "url": "https://forge.3gpp.org/rep/all/apis",
+          "icon": "🛠️",
+          "tooltip": "Official 3GPP OpenAPI 3.0 / YAML specifications repository for 5G Core, NWDAF, and SBA."
+        },
+        {
+          "title": "3GPP Portal (3GU)",
+          "url": "https://portal.3gpp.org/",
+          "icon": "🏛️",
+          "tooltip": "Official 3GPP Portal: meetings calendar, work items, and Change Request (CR) database."
+        },
+        {
+          "title": "3GPP Work Plan & Release Timelines",
+          "url": "https://www.3gpp.org/ftp/Information/WORK_PLAN/",
+          "icon": "📅",
+          "tooltip": "Official 3GPP Work Plan, Release timelines, study item schedules, and GANTT charts."
+        }
+      ]
+    }
+  ]
+}

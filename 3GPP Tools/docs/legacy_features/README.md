@@ -37,8 +37,8 @@ Each document provides a comprehensive analysis covering:
 | **F-14** | [F14: Reflector `Attachment.txt` Redirect Link Fetcher](F14_reflector_attachment_link_fetcher.md) | Email Reflector | Low (2.0h) | 🟢 7.0 (High) | Specification Ready |
 | **F-15** | [F15: Chairman Email Discussion Notes Parser (`<<START>>...<<END>>`)](F15_chairman_email_notes_parser.md) | Email Reflector | Low (2.0h) | 🟡 6.5 (Moderate) | Specification Ready |
 | **F-16** | [F16: Email Approval Excel Summary](F16_email_approval_excel_export.md) | Email Reflector | Med (3.0h) | 🟡 6.0 (Moderate) | Specification Ready |
-| **F-17** | [F17: 3GPP Guru Web Viewer Integration](F17_3gpp_guru_web_viewer_integration.md) | Web Services | V.Low (0.5h) | 🌟 7.5 (Exceptional) | Specification Ready |
-| **F-18** | [F18: 3GPP Forge APIs Direct Launcher](F18_3gpp_forge_apis_launcher.md) | Web Services | V.Low (0.5h) | 🌟 7.0 (Exceptional) | Specification Ready |
+| **F-17** | [F17: 3GPP Guru Web Viewer Integration](F17_3gpp_guru_web_viewer_integration.md) | Web Services | V.Low (0.5h) | 🌟 7.5 (Exceptional) | ✅ Implemented (Help & Resources Menu) |
+| **F-18** | [F18: 3GPP Forge APIs Direct Launcher](F18_3gpp_forge_apis_launcher.md) | Web Services | V.Low (0.5h) | 🌟 7.0 (Exceptional) | ✅ Implemented (Help & Resources Menu) |
 | **F-19** | [F19: Chairman's Notes Word Table Parser (Experimental / WIP)](F19_chairmans_notes_word_table_parser.md) | Meeting Live Notes | High (8.0h) | 🟡 7.5 (Moderate) | Specification Ready |
 
 ---

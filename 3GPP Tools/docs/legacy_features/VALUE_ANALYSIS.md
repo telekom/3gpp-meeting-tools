@@ -54,8 +54,8 @@ quadrantChart
 | **2** | [**F-01**](F01_windows_tdoc_url_handler.md) | Windows `tdoc://` URL Protocol Handler | OS Integration | 1.0 – 2.0 hrs | **9.0** | 2.5h | 🌟 Exceptional | **Implement Immediately (Sprint 1)** |
 | **3** | [**F-07**](F07_track_changes_author_renamer.md) | Track Changes Author Replacement & Anonymizer | Word Automation | 3.0 – 8.0 hrs | **8.5** | 3.0h | 🔥 Very High | **Implement Immediately (Sprint 1)** |
 | **4** | [**F-02**](F02_batch_cr_cover_sheet_parser.md) | Batch CR Cover Sheet Parser to Excel | Word Automation | 4.0 – 8.0 hrs | **8.5** | 5.0h | 🔥 Very High | **Implement in Sprint 2** |
-| **5** | [**F-17**](F17_3gpp_guru_web_viewer_integration.md) | 3GPP Guru Web Viewer Integration | Web Services | 0.5 – 1.0 hr | **7.5** | 0.5h | 🌟 Exceptional | **Implement in Sprint 1 (Quick Win)** |
-| **6** | [**F-18**](F18_3gpp_forge_apis_launcher.md) | 3GPP Forge APIs Direct Launcher | Web Services | 0.5 – 1.0 hr | **7.0** | 0.5h | 🌟 Exceptional | **Implement in Sprint 1 (Quick Win)** |
+| **5** | [**F-17**](F17_3gpp_guru_web_viewer_integration.md) | 3GPP Guru Web Viewer Integration | Web Services | 0.5 – 1.0 hr | **7.5** | 0.5h | 🌟 Exceptional | ✅ **Implemented (Help & Resources Menu)** |
+| **6** | [**F-18**](F18_3gpp_forge_apis_launcher.md) | 3GPP Forge APIs Direct Launcher | Web Services | 0.5 – 1.0 hr | **7.0** | 0.5h | 🌟 Exceptional | ✅ **Implemented (Help & Resources Menu)** |
 | **7** | [**F-10**](F10_word_accept_all_changes_export.md) | "Accept All Changes" Clean Word/PDF Export | Word Automation | 1.0 – 2.0 hrs | **7.5** | 2.0h | 🟢 High | **Implement in Sprint 2** |
 | **8** | [**F-04**](F04_bookmarked_pdf_dossier_llm_prompt.md) | Bookmarked Multi-TDoc PDF Dossier & LLM Context | PDF & AI Tools | 2.0 – 4.0 hrs | **8.0** | 4.0h | 🟢 High | **Implement in Sprint 2** |
 | **9** | [**F-03**](F03_powerpoint_presentation_merger.md) | PowerPoint Status Report Presentation Merger | Office Automation | 1.0 – 2.5 hrs | **7.5** | 3.0h | 🟢 High | **Implement in Sprint 2** |
@@ -204,18 +204,20 @@ quadrantChart
 ---
 
 ### F-17: 3GPP Guru Web Viewer Integration
+* **Status:** ✅ **IMPLEMENTED** (Integrated into `📖 Help ▾` dropdown menu & `useful_links.json`)
 * **Core Value Proposition:** 1-click context menu and button action to launch any specification, meeting, or TDoc directly in `3gpp.guru`.
 * **Target Personas:** All delegates and specification researchers.
-* **Quantitative Savings:** Near-zero development effort (30 minutes) for permanent daily convenience.
-* **ROI Rating:** **🌟 Exceptional (Trivial Effort, Permanent Value)**.
+* **Quantitative Savings:** Instant browser launch to 3GPP Guru alongside SpecViewer and TDocHamster.
+* **ROI Rating:** **🌟 Exceptional (Implemented)**.
 
 ---
 
 ### F-18: 3GPP Forge APIs Direct Launcher
+* **Status:** ✅ **IMPLEMENTED** (Integrated into `📖 Help ▾` dropdown menu & `useful_links.json`)
 * **Core Value Proposition:** 1-click navigation to official 3GPP OpenAPI specifications (5G Core, NWDAF, NEF, CAPIF) on `forge.3gpp.org`.
 * **Target Personas:** Protocol architects and CT4/SA2 delegates reviewing RESTful OpenAPI definitions.
-* **Quantitative Savings:** Instant browser launch with exact specification and branch targeting (< 30 minutes development).
-* **ROI Rating:** **🌟 Exceptional (Trivial Effort, Permanent Value)**.
+* **Quantitative Savings:** Instant browser launch to official OpenAPI specifications.
+* **ROI Rating:** **🌟 Exceptional (Implemented)**.
 
 ---
 
