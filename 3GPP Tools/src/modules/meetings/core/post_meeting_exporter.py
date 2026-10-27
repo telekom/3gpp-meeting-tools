@@ -64,12 +64,15 @@ class PostMeetingExporterThread(QThread):
         revisions_url: str,
         scope_mode: str = "followed",  # "followed", "starred", "tracked", "visible", "whole", "custom"
         custom_wis: Optional[Set[str]] = None,
+        custom_ais: Optional[Set[str]] = None,
+        custom_wi_ais: Optional[Dict[str, Set[str]]] = None,
         followed_tokens: Optional[Set[str]] = None,
         starred_tokens: Optional[Set[str]] = None,
         include_ls_in: bool = True,
         include_pcr: bool = True,
         include_cr: bool = True,
         include_ls_out: bool = True,
+        include_disc: bool = False,
         include_general_ls: bool = True,
         generate_local_indices: bool = True,
         download_missing: bool = True,
@@ -87,12 +90,18 @@ class PostMeetingExporterThread(QThread):
         self.revisions_url = revisions_url or ""
         self.scope_mode = scope_mode
         self.custom_wis = {str(w).strip().lower() for w in (custom_wis or set()) if str(w).strip()}
+        self.custom_ais = {str(a).strip() for a in (custom_ais or set()) if str(a).strip()}
+        self.custom_wi_ais: Dict[str, Set[str]] = {}
+        if custom_wi_ais:
+            for k, v in custom_wi_ais.items():
+                self.custom_wi_ais[str(k).strip().lower()] = {str(a).strip() for a in (v or set()) if str(a).strip()}
         self.followed_tokens = {str(t).strip().lower() for t in (followed_tokens or set()) if str(t).strip()}
         self.starred_tokens = {str(t).strip().lower() for t in (starred_tokens or set()) if str(t).strip()}
         self.include_ls_in = include_ls_in
         self.include_pcr = include_pcr
         self.include_cr = include_cr
         self.include_ls_out = include_ls_out
+        self.include_disc = include_disc
         self.include_general_ls = include_general_ls
         self.generate_local_indices = generate_local_indices
         self.download_missing = download_missing
@@ -300,6 +309,10 @@ class PostMeetingExporterThread(QThread):
             elif "cr" in doc_type:
                 if self.include_cr and is_agreed:
                     category = "CR"
+            elif any(d in doc_type for d in ["disc", "discussion", "report", "wid", "sid"]):
+                is_not_final = any(neg in status for neg in ["not agreed", "not approved", "rejected", "postponed", "withdrawn", "revised", "not discussed"])
+                if self.include_disc and (not is_not_final) and (status == "" or any(s in status for s in ["noted", "agreed", "approved"])):
+                    category = "DISC"
 
             if not category:
                 continue
@@ -315,11 +328,14 @@ class PostMeetingExporterThread(QThread):
             # Resolve associated Work Items
             associated_wis = self._resolve_tdoc_wis(row, wi_db_info)
 
+            ai_num = str(row.get("Agenda Item", "")).strip() or "Unassigned"
+            ai_desc = str(row.get("Agenda item description", "")).strip()
+
             if not associated_wis:
                 # Non-WI contribution
                 if (category in ("LS_IN", "LS_OUT")) and self.include_general_ls:
                     associated_wis = ["General"]
-                elif self.scope_mode == "whole":
+                elif self.scope_mode in ["whole", "custom"]:
                     associated_wis = ["General"]
                 else:
                     continue
@@ -330,6 +346,11 @@ class PostMeetingExporterThread(QThread):
                 if wi == "General":
                     if self.scope_mode in ["whole", "visible"] or ((category in ("LS_IN", "LS_OUT")) and self.include_general_ls):
                         matching_wis.append(wi)
+                    elif self.scope_mode == "custom":
+                        if "general" in self.custom_wis or (self.custom_ais and ai_num in self.custom_ais):
+                            matching_wis.append(wi)
+                        elif self.custom_wi_ais and "general" in self.custom_wi_ais and ai_num in self.custom_wi_ais["general"]:
+                            matching_wis.append(wi)
                     continue
 
                 wi_tokens = TDocsTableModel._extract_base_tokens(wi)
@@ -343,8 +364,25 @@ class PostMeetingExporterThread(QThread):
                     if wi_tokens & wi_db_info["tracked_tokens"]:
                         matching_wis.append(wi)
                 elif self.scope_mode == "custom":
-                    if any(t in self.custom_wis for t in wi_tokens) or wi.lower() in self.custom_wis:
-                        matching_wis.append(wi)
+                    wi_match = any(t in self.custom_wis for t in wi_tokens) or (wi.lower() in self.custom_wis)
+                    if wi_match:
+                        matched_ai_set = None
+                        if self.custom_wi_ais:
+                            if wi.lower() in self.custom_wi_ais:
+                                matched_ai_set = self.custom_wi_ais[wi.lower()]
+                            else:
+                                for t in wi_tokens:
+                                    if t in self.custom_wi_ais:
+                                        matched_ai_set = self.custom_wi_ais[t]
+                                        break
+                        if matched_ai_set is not None:
+                            if ai_num in matched_ai_set:
+                                matching_wis.append(wi)
+                        else:
+                            matching_wis.append(wi)
+                    elif self.custom_ais and ai_num in self.custom_ais:
+                        if wi.lower() == "general" or not self.custom_wis:
+                            matching_wis.append(wi)
                 else:  # "whole" or "visible"
                     matching_wis.append(wi)
 
@@ -364,9 +402,6 @@ class PostMeetingExporterThread(QThread):
             release = self._resolve_tdoc_release(row, matching_wis, wi_db_info)
 
             # Insert into tree (handle cross-WI duplication)
-            ai_num = str(row.get("Agenda Item", "")).strip() or "Unassigned"
-            ai_desc = str(row.get("Agenda item description", "")).strip()
-
             for target_wi in matching_wis:
                 other_wis = [w for w in associated_wis if w != target_wi]
 
@@ -377,7 +412,7 @@ class PostMeetingExporterThread(QThread):
                         "info": self._get_wi_display_info(target_wi, wi_db_info, release),
                         "ais": set(),
                         "ai_titles": {},
-                        "categories": {"LS_IN": [], "pCR": [], "CR": [], "LS_OUT": []},
+                        "categories": {"LS_IN": [], "pCR": [], "CR": [], "LS_OUT": [], "DISC": []},
                     }
 
                 tree[release][target_wi]["ais"].add(ai_num)
@@ -444,7 +479,7 @@ class PostMeetingExporterThread(QThread):
                     "info": self._get_wi_display_info(target_wi, wi_db_info, rep_rel),
                     "ais": set(),
                     "ai_titles": {},
-                    "categories": {"LS_IN": [], "pCR": [], "CR": [], "LS_OUT": []},
+                    "categories": {"LS_IN": [], "pCR": [], "CR": [], "LS_OUT": [], "DISC": []},
                 }
 
             rep_ai = str(rep_row.get("Agenda Item", "")).strip() or "Unassigned"
@@ -717,13 +752,14 @@ class PostMeetingExporterThread(QThread):
             for wi_name, wi_data in wis.items():
                 wi_slug = sanitize_folder_name(wi_name)
                 for cat_name, cat_docs in wi_data["categories"].items():
-                    type_dir = self.export_dir / rel_slug / wi_slug / cat_name
+                    cat_folder = "Discussion" if cat_name == "DISC" else cat_name
+                    type_dir = self.export_dir / rel_slug / wi_slug / cat_folder
                     for doc in cat_docs:
                         tdoc_id = doc["tdoc_id"]
                         target_md_file = type_dir / f"{sanitize_filename(tdoc_id)}.md"
                         doc["target_md_abs_path"] = target_md_file
-                        doc["target_md_rel_path"] = f"{rel_slug}/{wi_slug}/{cat_name}/{sanitize_filename(tdoc_id)}.md"
-                        doc["wi_local_rel_path"] = f"{cat_name}/{sanitize_filename(tdoc_id)}.md"
+                        doc["target_md_rel_path"] = f"{rel_slug}/{wi_slug}/{cat_folder}/{sanitize_filename(tdoc_id)}.md"
+                        doc["wi_local_rel_path"] = f"{cat_folder}/{sanitize_filename(tdoc_id)}.md"
                         if tdoc_id not in self.exported_tdoc_paths:
                             self.exported_tdoc_paths[tdoc_id] = target_md_file
                             self.tdoc_titles[tdoc_id] = doc.get("title", "")
@@ -738,7 +774,8 @@ class PostMeetingExporterThread(QThread):
                     if not cat_docs:
                         continue
 
-                    type_dir = self.export_dir / rel_slug / wi_slug / cat_name
+                    cat_folder = "Discussion" if cat_name == "DISC" else cat_name
+                    type_dir = self.export_dir / rel_slug / wi_slug / cat_folder
                     type_media_dir = type_dir / "media"
                     os.makedirs(to_extended_path(type_dir), exist_ok=True)
 
@@ -1009,6 +1046,7 @@ class PostMeetingExporterThread(QThread):
                     ("pCR", "📝 Agreed Pseudo-CRs (pCR)"),
                     ("CR", "📄 Agreed Change Requests (CR)"),
                     ("LS_OUT", "📤 Agreed Outgoing Liaison Statements (LS out)"),
+                    ("DISC", "💬 Discussion & Status Papers (Disc / WID)"),
                 ]
 
                 has_docs = False
@@ -1037,7 +1075,7 @@ class PostMeetingExporterThread(QThread):
         mtg_title = f"{wg} #{mtg}" if (wg and mtg) else "3GPP Meeting"
 
         # Compute executive counts
-        cat_counts = {"LS_IN": 0, "pCR": 0, "CR": 0, "LS_OUT": 0}
+        cat_counts = {"LS_IN": 0, "pCR": 0, "CR": 0, "LS_OUT": 0, "DISC": 0}
         total_unique_tdocs = set()
         total_wis = set()
 
@@ -1046,7 +1084,7 @@ class PostMeetingExporterThread(QThread):
                 if wi_name != "General":
                     total_wis.add(wi_name)
                 for cat, docs in wi_data["categories"].items():
-                    cat_counts[cat] += len(docs)
+                    cat_counts[cat] = cat_counts.get(cat, 0) + len(docs)
                     for d in docs:
                         total_unique_tdocs.add(d["tdoc_id"])
 
@@ -1057,7 +1095,7 @@ class PostMeetingExporterThread(QThread):
             "tracked": "🎯 Followed & ⭐ Starred Work Items",
             "visible": "🔍 Current Filtered Table View",
             "whole": "🌐 Whole Meeting (All Work Items & Contributions)",
-            "custom": "📋 Custom Work Item Selection",
+            "custom": "📋 Custom Work Item & Agenda Item Selection",
         }
         scope_str = scope_labels.get(self.scope_mode, self.scope_mode)
 
@@ -1078,6 +1116,8 @@ class PostMeetingExporterThread(QThread):
         lines.append(f"| 📝 Agreed Pseudo-CRs (`pCR`) | **{cat_counts['pCR']}** | Agreed / Approved by meeting |")
         lines.append(f"| 📄 Agreed Change Requests (`CR`) | **{cat_counts['CR']}** | Agreed / Approved by meeting |")
         lines.append(f"| 📤 Outgoing LS (`LS out`) | **{cat_counts['LS_OUT']}** | Agreed / Approved by meeting |")
+        if self.include_disc and cat_counts.get("DISC", 0) > 0:
+            lines.append(f"| 💬 Discussion & Status (`Disc`) | **{cat_counts['DISC']}** | Noted / Agreed discussion & status papers |")
         lines.append(f"| **Total Document Instances** | **{sum(cat_counts.values())}** | *(Unique TDocs: {len(total_unique_tdocs)})* |")
         lines.append("\n---\n")
 
@@ -1129,6 +1169,7 @@ class PostMeetingExporterThread(QThread):
                     ("pCR", "📝 Agreed Pseudo-CRs (pCR)"),
                     ("CR", "📄 Agreed Change Requests (CR)"),
                     ("LS_OUT", "📤 Agreed Outgoing Liaison Statements (LS out)"),
+                    ("DISC", "💬 Discussion & Status Papers (Disc / WID)"),
                 ]
 
                 has_docs = False
