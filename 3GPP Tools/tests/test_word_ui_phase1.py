@@ -29,6 +29,8 @@ class TestWordUiPhase1(unittest.TestCase):
         self.assertEqual(tab.nav_btn_markdown.text(), "📝 Word → Markdown")
         self.assertTrue(hasattr(tab, "nav_btn_cr_pcr"))
         self.assertEqual(tab.nav_btn_cr_pcr.text(), "🏛️ 3GPP CR && Templates")
+        self.assertTrue(hasattr(tab, "nav_btn_author"))
+        self.assertEqual(tab.nav_btn_author.text(), "👥 Revision Authors")
         self.assertTrue(hasattr(tab, "nav_btn_slice"))
         self.assertEqual(tab.nav_btn_slice.text(), "✂️ Slice && Excerpt")
         self.assertTrue(hasattr(tab, "nav_btn_convert"))
@@ -36,9 +38,10 @@ class TestWordUiPhase1(unittest.TestCase):
         self.assertTrue(hasattr(tab, "nav_btn_visio"))
         self.assertEqual(tab.nav_btn_visio.text(), "🖼️ Visio && Media Extractor")
 
-        # Verify new CR/pCR card exists in stack
+        # Verify cards exist in stack
         self.assertTrue(hasattr(tab, "card_cr_pcr"))
-        self.assertEqual(tab.stack.count(), 8)
+        self.assertTrue(hasattr(tab, "card_author_renamer"))
+        self.assertEqual(tab.stack.count(), 9)
 
         # Test switching to Compare Documents
         tab.set_active_operation(4)
@@ -56,6 +59,11 @@ class TestWordUiPhase1(unittest.TestCase):
         tab.set_active_operation(7)
         self.assertEqual(tab.stack.currentIndex(), 7)
         self.assertTrue(tab.nav_btn_cr_pcr.isChecked())
+
+        # Test switching to Author Renamer
+        tab.set_active_operation(8)
+        self.assertEqual(tab.stack.currentIndex(), 8)
+        self.assertTrue(tab.nav_btn_author.isChecked())
 
         # Test clicking nav pill button
         tab.nav_btn_convert.click()
