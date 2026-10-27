@@ -1100,15 +1100,29 @@ class SpecSearchTab(QWidget):
         logger.log(logging.ERROR, f"❌ Wipe error: {err}")
 
     def _open_version_history_dialog(self, spec_num: str, version: Optional[str] = None):
-        """Opens the Change History & Integrated TDocs dialog directly from Spec Search."""
+        """Opens the Change History && Integrated TDocs dialog modelessly directly from Spec Search."""
         from modules.specifications.ui.spec_history_dialog import SpecVersionHistoryDialog
+        logger.info(f"📜 [Change History] Opening Change History && TDocs browser for TS {spec_num}{f' (v{version})' if version else ''}...")
+        if hasattr(self, "_history_dialog") and self._history_dialog:
+            try:
+                self._history_dialog.load_spec(spec_num, version)
+                self._history_dialog.show()
+                self._history_dialog.raise_()
+                self._history_dialog.activateWindow()
+                return
+            except Exception:
+                pass
+
         dlg = SpecVersionHistoryDialog(
             spec_number=spec_num,
             initial_version=version,
-            parent=self,
+            parent=self.window() or self,
             specs_db=getattr(self, "specs_db", None)
         )
-        dlg.exec_()
+        self._history_dialog = dlg
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     def _open_clause_diff_dialog(
         self,
@@ -1467,7 +1481,7 @@ class SpecSearchTab(QWidget):
         act_specs = menu.addAction(f"🔍 Show TS {spec_num} v{version} in Specifications Tab")
         act_specs.triggered.connect(lambda: self._handle_show_in_specs_tab(spec_num, version))
 
-        act_changes = menu.addAction(f"📜 View Changes & TDocs for TS {spec_num} v{version}...")
+        act_changes = menu.addAction(f"📜 View Changes && TDocs for TS {spec_num} v{version}...")
         act_changes.triggered.connect(lambda: self._open_version_history_dialog(spec_num, version))
 
         menu.addSeparator()

@@ -99,6 +99,7 @@ def handle_document_action(tab, combo: QComboBox, doc_type: str, btn: QPushButto
         for doc_path in extracted_docs:
             try:
                 if doc_type == "word":
+                    logger.info(f"📂 [Word Tools] Opening specification document: {doc_path.name}")
                     open_document(doc_path)
 
                     # Refresh badges to show 📝 immediately after Word extraction

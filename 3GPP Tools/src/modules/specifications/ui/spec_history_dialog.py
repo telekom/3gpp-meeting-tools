@@ -24,6 +24,8 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -52,6 +54,11 @@ from modules.specifications.core.spec_history_extractor import (
     SpecHistoryExtractor,
 )
 from modules.specifications.core.spec_tdoc_opener import SpecTDocOpener
+from modules.specifications.core.spec_tdoc_report import (
+    SpecTDocReportGenerator,
+    SpecTDocReportThread,
+)
+from modules.specifications.ui.spec_tdoc_report_dialog import SpecTDocReportDialog
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +90,12 @@ class SpecVersionHistoryDialog(QDialog):
         self.history_db = history_db or SpecHistoryDatabase(get_project_root() / "db" / "3gpp_spec_history.db")
         self.specs_db = specs_db
 
-        self.setWindowTitle(f"Change History & Integrated TDocs — {self.spec_number}")
+        # Modeless top-level window configuration
+        self.setWindowFlags(self.windowFlags() | Qt.Window)
+        self.setWindowModality(Qt.NonModal)
+        self.setAttribute(Qt.WA_DeleteOnClose, False)
+
+        self.setWindowTitle(f"Change History && Integrated TDocs — {self.spec_number}")
         self.resize(1060, 680)
         self.setMinimumSize(850, 500)
 
@@ -94,8 +106,30 @@ class SpecVersionHistoryDialog(QDialog):
 
         self.all_records: List[Dict[str, Any]] = []
         self.filtered_records: List[Dict[str, Any]] = []
+        self._active_report_thread = None
+        self._report_dialog = None
 
+        logger.info(f"📜 [Change History] Opened Change History & TDocs browser for TS {self.spec_number}{f' (v{self.initial_version})' if self.initial_version else ''}.")
         self._setup_ui()
+        self._load_data(auto_extract_if_empty=True)
+
+    def load_spec(self, spec_number: str, version: Optional[str] = None):
+        """Switches the active specification and reloads change history records."""
+        self.spec_number = spec_number.strip()
+        self.initial_version = version.lstrip("vV").strip() if version else ""
+        self.setWindowTitle(f"Change History && Integrated TDocs — {self.spec_number}")
+
+        spec_title = "Specification Change History"
+        if self.specs_db and hasattr(self.specs_db, "get_spec_details"):
+            try:
+                details = self.specs_db.get_spec_details(self.spec_number)
+                if details and details.get("title"):
+                    spec_title = details["title"]
+            except Exception:
+                pass
+        self.title_lbl.setText(spec_title)
+        self.spec_badge.setText(f"<b>{self.spec_number}</b>")
+        logger.info(f"📜 [Change History] Reloading browser for TS {self.spec_number}{f' (v{self.initial_version})' if self.initial_version else ''}.")
         self._load_data(auto_extract_if_empty=True)
 
     def _setup_ui(self):
@@ -113,8 +147,8 @@ class SpecVersionHistoryDialog(QDialog):
         header_layout.setSpacing(8)
 
         top_row = QHBoxLayout()
-        spec_badge = QLabel(f"<b>{self.spec_number}</b>")
-        spec_badge.setStyleSheet(BADGE_STYLE_PRIMARY + " font-size: 14px; padding: 3px 10px;")
+        self.spec_badge = QLabel(f"<b>{self.spec_number}</b>")
+        self.spec_badge.setStyleSheet(BADGE_STYLE_PRIMARY + " font-size: 14px; padding: 3px 10px;")
 
         # Fetch formal title if available
         spec_title = "Specification Change History"
@@ -130,9 +164,32 @@ class SpecVersionHistoryDialog(QDialog):
         self.title_lbl.setStyleSheet("font-size: 13px; font-weight: bold; color: #1E293B;")
         self.title_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
-        top_row.addWidget(spec_badge)
+        top_row.addWidget(self.spec_badge)
         top_row.addWidget(self.title_lbl)
         top_row.addStretch()
+
+        # TDoc Metadata Report Action Button
+        self.btn_tdoc_report = QPushButton("📑 TDoc Dossier Report ▾")
+        self.btn_tdoc_report.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_tdoc_report.setCursor(Qt.PointingHandCursor)
+        self.btn_tdoc_report.setToolTip("Generate an on-demand technical report showing what all referenced TDocs are about, their authors, and abstracts.")
+        report_menu = QMenu(self)
+        report_menu.setToolTipsVisible(True)
+
+        act_ver = report_menu.addAction("📑 Report for Active Version")
+        act_ver.setToolTip("Extract metadata and generate report for all TDocs in the currently selected version.")
+        act_ver.triggered.connect(lambda: self._generate_tdoc_report(scope="version"))
+
+        act_sel = report_menu.addAction("📑 Report for Selected Rows")
+        act_sel.setToolTip("Extract metadata and generate report for TDocs in highlighted table rows.")
+        act_sel.triggered.connect(lambda: self._generate_tdoc_report(scope="selection"))
+
+        act_all = report_menu.addAction("📑 Full Specification Dossier (All Versions)")
+        act_all.setToolTip("Extract metadata and generate report for all TDocs across all indexed releases of this specification.")
+        act_all.triggered.connect(lambda: self._generate_tdoc_report(scope="all"))
+
+        self.btn_tdoc_report.setMenu(report_menu)
+        top_row.addWidget(self.btn_tdoc_report)
 
         self.rescan_btn = QPushButton("🔄 Re-scan from Local Doc")
         self.rescan_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -293,8 +350,15 @@ class SpecVersionHistoryDialog(QDialog):
         self.btn_open_doc.setToolTip("Opens the baseline specification Word document.")
         self.btn_open_doc.clicked.connect(self._open_spec_document)
 
+        self.btn_footer_report = QPushButton("📑 TDoc Dossier Report...")
+        self.btn_footer_report.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_footer_report.setCursor(Qt.PointingHandCursor)
+        self.btn_footer_report.setToolTip("Generate technical dossier report for referenced TDocs.")
+        self.btn_footer_report.clicked.connect(lambda: self._generate_tdoc_report(scope="version"))
+
         footer_layout.addWidget(self.btn_copy_list)
         footer_layout.addWidget(self.btn_open_doc)
+        footer_layout.addWidget(self.btn_footer_report)
         footer_layout.addStretch()
 
         close_btn = QPushButton("Close")
@@ -679,3 +743,116 @@ class SpecVersionHistoryDialog(QDialog):
         self.extract_thread.finished_success.connect(_on_success)
         self.extract_thread.error.connect(_on_error)
         self.extract_thread.start()
+
+    def _generate_tdoc_report(self, scope: str = "version"):
+        """
+        Gathers TDocs referenced in the specified scope, resolves their technical metadata
+        from meeting spreadsheets in background, and presents the interactive dossier dialog.
+        """
+        tdoc_set = set()
+        default_meeting = ""
+
+        if scope == "selection":
+            selected_rows = self.table.selectionModel().selectedRows()
+            if not selected_rows:
+                QMessageBox.information(self, "No Rows Selected", "Please select one or more rows in the Change History table first.")
+                return
+            for idx in selected_rows:
+                row_idx = idx.row()
+                item = self.table.item(row_idx, 0)
+                if item:
+                    r = item.data(Qt.UserRole)
+                    if r:
+                        if r.get("source_tdoc"):
+                            tdoc_set.add(r["source_tdoc"])
+                        for t in r.get("tdocs", []):
+                            tdoc_set.add(t.get("raw_tdoc") or t.get("tdoc"))
+                        if not default_meeting and r.get("meeting"):
+                            default_meeting = r["meeting"]
+        elif scope == "all":
+            for r in self.all_records:
+                if r.get("source_tdoc"):
+                    tdoc_set.add(r["source_tdoc"])
+                for t in r.get("tdocs", []):
+                    tdoc_set.add(t.get("raw_tdoc") or t.get("tdoc"))
+                if not default_meeting and r.get("meeting"):
+                    default_meeting = r["meeting"]
+        else:  # "version"
+            target_ver = self.version_combo.currentData() or ""
+            target_records = [r for r in self.all_records if not target_ver or r.get("version") == target_ver]
+            for r in target_records:
+                if r.get("source_tdoc"):
+                    tdoc_set.add(r["source_tdoc"])
+                for t in r.get("tdocs", []):
+                    tdoc_set.add(t.get("raw_tdoc") or t.get("tdoc"))
+                if not default_meeting and r.get("meeting"):
+                    default_meeting = r["meeting"]
+
+        clean_tdocs = sorted([t.strip() for t in tdoc_set if t and t.strip() != "-"])
+        if not clean_tdocs:
+            QMessageBox.information(
+                self,
+                "No TDocs Found",
+                f"No TDocs or p-CRs are referenced in the selected scope for TS {self.spec_number}."
+            )
+            return
+
+        active_ver = self.version_combo.currentData() or (self.filtered_records[0].get("version", "") if self.filtered_records else "")
+        ver_label = active_ver if scope != "all" else "all"
+
+        logger.info(f"📑 [TDoc Report] Starting dossier generation for TS {self.spec_number} v{ver_label} ({len(clean_tdocs)} TDocs)...")
+
+        # Progress Dialog
+        progress_dlg = QProgressDialog(
+            f"Resolving metadata for {len(clean_tdocs)} TDocs from meeting agendas...",
+            "Cancel",
+            0,
+            100,
+            self
+        )
+        progress_dlg.setWindowTitle(f"Generating Technical Dossier: TS {self.spec_number}")
+        progress_dlg.setMinimumDuration(150)
+        progress_dlg.setValue(5)
+
+        thread = SpecTDocReportThread(
+            spec_number=self.spec_number,
+            version=ver_label,
+            tdoc_list=clean_tdocs,
+            spec_title=self.title_lbl.text(),
+            default_meeting=default_meeting,
+            parent=self
+        )
+
+        def _on_prog(pct: int, msg: str):
+            if not progress_dlg.wasCanceled():
+                progress_dlg.setValue(pct)
+                progress_dlg.setLabelText(msg)
+
+        def _on_finish(results: list, md_report: str):
+            progress_dlg.close()
+            logger.info(f"✅ [TDoc Report] Generated dossier with {len(results)} TDocs for TS {self.spec_number} v{ver_label}.")
+            report_dlg = SpecTDocReportDialog(
+                spec_number=self.spec_number,
+                version=ver_label,
+                tdoc_entries=results,
+                markdown_report=md_report,
+                spec_title=self.title_lbl.text(),
+                parent=self.parent() or self
+            )
+            self._report_dialog = report_dlg
+            report_dlg.show()
+            report_dlg.raise_()
+            report_dlg.activateWindow()
+
+        def _on_err(err_msg: str):
+            progress_dlg.close()
+            logger.error(f"❌ [TDoc Report] Error generating dossier: {err_msg}")
+            QMessageBox.critical(self, "Report Generation Error", f"Failed to generate TDoc report:\n{err_msg}")
+
+        thread.progress.connect(_on_prog)
+        thread.finished.connect(_on_finish)
+        thread.error.connect(_on_err)
+        progress_dlg.canceled.connect(thread.requestInterruption)
+
+        self._active_report_thread = thread
+        thread.start()

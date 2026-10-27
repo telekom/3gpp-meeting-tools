@@ -1733,7 +1733,7 @@ class SpecificationsTab(QWidget):
                     ver_val = c_data.get("version", "")
                     ver_tag = f" (v{ver_val})" if ver_val else ""
 
-                    act_history = menu.addAction(f"📜 View Change History & TDocs{ver_tag}...")
+                    act_history = menu.addAction(f"📜 View Change History && TDocs{ver_tag}...")
                     act_history.triggered.connect(lambda _, s=c_data["spec_num"], v=c_data.get("version", ""): self._open_version_history_dialog(s, v))
 
                     act_search_tab = menu.addAction("🔎 Track Evolution / Clauses in Spec Search")
@@ -1798,8 +1798,16 @@ class SpecificationsTab(QWidget):
     # --- DOCUMENT FETCH & EXTRACTION ---
     # ==========================================
     def _open_version_history_dialog(self, spec_number: str, version: Optional[str] = None):
-        """Launches the dedicated Change History & Integrated TDocs dialog."""
+        """Launches the dedicated Change History && Integrated TDocs dialog modelessly."""
         try:
+            logger.info(f"📜 [Change History] Opening Change History && TDocs browser for TS {spec_number}{f' (v{version})' if version else ''}...")
+            if hasattr(self, "_history_dialog") and self._history_dialog and not sip.isdeleted(self._history_dialog):
+                self._history_dialog.load_spec(spec_number, version)
+                self._history_dialog.show()
+                self._history_dialog.raise_()
+                self._history_dialog.activateWindow()
+                return
+
             dialog = SpecVersionHistoryDialog(
                 spec_number=spec_number,
                 initial_version=version,
@@ -1807,7 +1815,10 @@ class SpecificationsTab(QWidget):
                 history_db=self.history_db,
                 specs_db=self.db,
             )
-            dialog.exec_()
+            self._history_dialog = dialog
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
         except Exception as e:
             logger.error(f"Error opening SpecVersionHistoryDialog: {e}", exc_info=True)
 

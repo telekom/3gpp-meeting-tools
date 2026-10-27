@@ -483,15 +483,19 @@ class SpecClauseDiffDialog(QDialog):
             QTimer.singleShot(1500, lambda: self.btn_copy_diff.setText("📋 Copy Diff"))
 
     def _open_version_changes(self):
-        """Opens Change History dialog pre-filtered to version B with directly openable TDocs."""
+        """Opens Change History dialog modelessly pre-filtered to version B with directly openable TDocs."""
         from modules.specifications.ui.spec_history_dialog import SpecVersionHistoryDialog
+        logger.info(f"📜 [Change History] Opening Change History && TDocs for TS {self.spec_number} v{self.version_b}...")
         dlg = SpecVersionHistoryDialog(
             spec_number=self.spec_number,
             initial_version=self.version_b,
-            parent=self,
+            parent=self.window() or self,
             specs_db=self.specs_db
         )
-        dlg.exec_()
+        self._history_dialog = dlg
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     def _copy_prompt(self):
         """Copies the formatted LLM prompt to clipboard."""
