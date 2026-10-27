@@ -177,6 +177,13 @@ class DragDropUI(QMainWindow):
                 {"fmt": target_fmt}
             )
         )
+        self.word_tab.convert_markdown_requested.connect(
+            lambda doc, rev, media, out_dir, hdr: self.queue_manager.add_item(
+                Path(doc),
+                "word_to_markdown",
+                {"fmt": "md", "revisions": rev, "extract_media": media, "output_dir": out_dir, "include_header": hdr}
+            )
+        )
 
         db_path = get_project_root() / "db" / "3gpp_data.db"
         logging.info("🏁 [STARTUP:UI:TAB] 4/8 Initializing SpecificationsTab...")
@@ -716,6 +723,9 @@ class DragDropUI(QMainWindow):
         elif out_path:
             self.last_out_path = out_path
             self.code_tab.set_copy_path_enabled(True, out_path)
+
+            if hasattr(self, 'word_tab') and hasattr(self.word_tab, 'on_conversion_success'):
+                self.word_tab.on_conversion_success(out_path)
 
             if out_path.lower().endswith(('.svg', '.txt')):
                 try:

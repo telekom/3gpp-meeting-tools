@@ -5,15 +5,18 @@ from pathlib import Path
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QAbstractItemView,
+    QPlainTextEdit,
     QShortcut,
     QMessageBox,
     QPushButton,
@@ -30,6 +33,7 @@ import win32com.client
 import pythoncom
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
+    CARD_FRAME_STYLE,
     InteractiveDropLabel
 )
 from modules.word_tools.core.styles_3gpp import (
@@ -60,6 +64,7 @@ class WordExtractorTab(QWidget):
     split_doc_requested = pyqtSignal(str, str, int)
     compare_doc_requested = pyqtSignal(str, str, bool)
     convert_doc_requested = pyqtSignal(str, str)
+    convert_markdown_requested = pyqtSignal(str, str, bool, str, bool)
 
     def __init__(self):
         super().__init__()
@@ -104,6 +109,7 @@ class WordExtractorTab(QWidget):
             "Extract Sections by Heading",
             "Compare Documents (Native Word Diff)",
             "Convert Document Format (Auto / Word)",
+            "Convert Word to Markdown (.md)",
         ])
         switcher_layout.addWidget(self.op_combo)
         switcher_layout.addStretch()
@@ -292,7 +298,7 @@ class WordExtractorTab(QWidget):
         convert_layout.addWidget(self.pane_convert)
         conv_form = QFormLayout()
         self.format_combo = QComboBox()
-        self.format_combo.addItems(["PDF", "DOCX", "HTML", "XPS", "RTF", "TXT"])
+        self.format_combo.addItems(["PDF", "DOCX", "MD", "HTML", "XPS", "RTF", "TXT"])
         conv_form.addRow("Target Format:", self.format_combo)
         convert_layout.addLayout(conv_form)
         self.run_convert_btn = QPushButton("🔄 Convert Document")
@@ -300,6 +306,122 @@ class WordExtractorTab(QWidget):
         self.run_convert_btn.clicked.connect(self._trigger_conversion)
         convert_layout.addWidget(self.run_convert_btn)
         self.stack.addWidget(self.card_convert)
+
+        # Dedicated Markdown Card
+        self.card_markdown = QWidget()
+        md_layout = QVBoxLayout(self.card_markdown)
+        md_layout.setSpacing(10)
+
+        self.pane_markdown = DocumentSelectorPane("📄 WORD DOCUMENT TO CONVERT")
+        md_layout.addWidget(self.pane_markdown)
+
+        md_options_frame = QFrame()
+        md_options_frame.setStyleSheet(CARD_FRAME_STYLE)
+        opts_layout = QVBoxLayout(md_options_frame)
+        opts_layout.setContentsMargins(12, 10, 12, 10)
+        opts_layout.setSpacing(8)
+
+        opts_row1 = QHBoxLayout()
+        opts_row1.addWidget(QLabel("<b>Track Changes:</b>"))
+        self.md_revisions_combo = QComboBox()
+        self.md_revisions_combo.addItem("Inline Markup [INSERTED / DELETED]", "markup")
+        self.md_revisions_combo.addItem("Accept All Changes (Clean Final View)", "accept")
+        self.md_revisions_combo.addItem("Reject All Changes (Original Baseline)", "reject")
+        opts_row1.addWidget(self.md_revisions_combo)
+        opts_row1.addSpacing(16)
+
+        self.md_media_cb = QCheckBox("Extract figures and drawings to media/ folder")
+        self.md_media_cb.setChecked(True)
+        self.md_media_cb.setToolTip(
+            "Extracts embedded images, converts vector EMF/WMF drawings to PNG, and links Visio (.vsdx) sources."
+        )
+        opts_row1.addWidget(self.md_media_cb)
+
+        self.md_header_cb = QCheckBox("Include summary header")
+        self.md_header_cb.setChecked(True)
+        self.md_header_cb.setToolTip(
+            "Prepends a document summary header with original filename, conversion date, and revision mode."
+        )
+        opts_row1.addWidget(self.md_header_cb)
+        opts_row1.addStretch()
+        opts_layout.addLayout(opts_row1)
+
+        dest_row = QHBoxLayout()
+        self.md_custom_dest_cb = QCheckBox("Custom output folder:")
+        self.md_custom_dest_cb.toggled.connect(self._on_md_custom_dest_toggled)
+        self.md_dest_edit = QLineEdit()
+        self.md_dest_edit.setPlaceholderText("Defaults to source document directory...")
+        self.md_dest_edit.setEnabled(False)
+        self.md_dest_browse_btn = QPushButton("📂 Browse...")
+        self.md_dest_browse_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.md_dest_browse_btn.setEnabled(False)
+        self.md_dest_browse_btn.clicked.connect(self._browse_md_dest)
+        dest_row.addWidget(self.md_custom_dest_cb)
+        dest_row.addWidget(self.md_dest_edit, 1)
+        dest_row.addWidget(self.md_dest_browse_btn)
+        opts_layout.addLayout(dest_row)
+
+        md_layout.addWidget(md_options_frame)
+
+        act_row = QHBoxLayout()
+        self.run_markdown_btn = QPushButton("📝 Convert to Markdown")
+        self.run_markdown_btn.setObjectName("primaryBtn")
+        self.run_markdown_btn.clicked.connect(self._trigger_markdown_conversion)
+        act_row.addWidget(self.run_markdown_btn)
+        md_layout.addLayout(act_row)
+
+        self.md_progress = QProgressBar()
+        self.md_progress.setRange(0, 0)
+        self.md_progress.setVisible(False)
+        md_layout.addWidget(self.md_progress)
+
+        self.md_result_frame = QFrame()
+        self.md_result_frame.setStyleSheet(CARD_FRAME_STYLE)
+        self.md_result_frame.setVisible(False)
+        res_layout = QVBoxLayout(self.md_result_frame)
+        res_layout.setContentsMargins(12, 10, 12, 10)
+        res_layout.setSpacing(8)
+
+        res_top_row = QHBoxLayout()
+        self.md_result_icon = QLabel("✅")
+        self.md_result_lbl = QLabel()
+        self.md_result_lbl.setStyleSheet("font-weight: bold; color: #0F766E;")
+        res_top_row.addWidget(self.md_result_icon)
+        res_top_row.addWidget(self.md_result_lbl, 1)
+
+        self.md_open_folder_btn = QPushButton("📂 Open Folder")
+        self.md_open_folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.md_open_folder_btn.clicked.connect(self._open_md_folder)
+
+        self.md_open_file_btn = QPushButton("📝 Open .md File")
+        self.md_open_file_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.md_open_file_btn.clicked.connect(self._open_md_file)
+
+        self.md_copy_btn = QPushButton("📋 Copy Markdown")
+        self.md_copy_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.md_copy_btn.clicked.connect(self._copy_md_to_clipboard)
+
+        self.md_preview_toggle_btn = QPushButton("👁️ Preview")
+        self.md_preview_toggle_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.md_preview_toggle_btn.clicked.connect(self._toggle_md_preview)
+
+        res_top_row.addWidget(self.md_open_folder_btn)
+        res_top_row.addWidget(self.md_open_file_btn)
+        res_top_row.addWidget(self.md_copy_btn)
+        res_top_row.addWidget(self.md_preview_toggle_btn)
+        res_layout.addLayout(res_top_row)
+
+        self.md_preview_edit = QPlainTextEdit()
+        self.md_preview_edit.setReadOnly(True)
+        self.md_preview_edit.setMaximumHeight(220)
+        self.md_preview_edit.setVisible(False)
+        res_layout.addWidget(self.md_preview_edit)
+
+        md_layout.addWidget(self.md_result_frame)
+        md_layout.addStretch()
+
+        self.stack.addWidget(self.card_markdown)
+        self._last_converted_md = None
 
         layout.addWidget(self.stack)
         self.setLayout(layout)
@@ -709,3 +831,83 @@ class WordExtractorTab(QWidget):
         for doc in source_docs:
             if doc:
                 self.convert_doc_requested.emit(doc, target_fmt)
+
+    def _trigger_markdown_conversion(self):
+        source_docs = self.pane_markdown.get_inputs()
+        if not source_docs:
+            QMessageBox.warning(self, "No Document Selected", "Please select, open, or drop a Word document to convert.")
+            return
+
+        revisions = self.md_revisions_combo.currentData() or "markup"
+        extract_media = self.md_media_cb.isChecked()
+        include_header = self.md_header_cb.isChecked()
+        out_dir = self.md_dest_edit.text().strip() if (self.md_custom_dest_cb.isChecked() and self.md_dest_edit.text().strip()) else ""
+
+        self.md_progress.setVisible(True)
+        self.run_markdown_btn.setEnabled(False)
+        self.md_result_frame.setVisible(False)
+
+        for doc in source_docs:
+            if doc:
+                self.convert_markdown_requested.emit(doc, revisions, extract_media, out_dir, include_header)
+
+    def on_conversion_success(self, out_path: str):
+        if not out_path or not str(out_path).lower().endswith(".md"):
+            return
+
+        p = Path(out_path)
+        if not p.is_file():
+            return
+
+        self._last_converted_md = str(p.resolve())
+        self.md_progress.setVisible(False)
+        self.run_markdown_btn.setEnabled(True)
+
+        size_kb = p.stat().st_size / 1024
+        self.md_result_lbl.setText(f"Converted to Markdown: {p.name} ({size_kb:.1f} KB)")
+        self.md_result_frame.setVisible(True)
+
+        try:
+            sample = p.read_text(encoding="utf-8", errors="replace")
+            self.md_preview_edit.setPlainText(sample)
+        except Exception:
+            pass
+
+    def _open_md_folder(self):
+        if hasattr(self, "_last_converted_md") and self._last_converted_md:
+            p = Path(self._last_converted_md)
+            if p.exists():
+                import os
+                os.startfile(str(p.parent))
+
+    def _open_md_file(self):
+        if hasattr(self, "_last_converted_md") and self._last_converted_md:
+            p = Path(self._last_converted_md)
+            if p.exists():
+                import os
+                os.startfile(str(p))
+
+    def _copy_md_to_clipboard(self):
+        if hasattr(self, "_last_converted_md") and self._last_converted_md:
+            p = Path(self._last_converted_md)
+            if p.exists():
+                try:
+                    text = p.read_text(encoding="utf-8", errors="replace")
+                    QApplication.clipboard().setText(text)
+                    QMessageBox.information(self, "Copied", f"Markdown content of '{p.name}' copied to clipboard.")
+                except Exception as e:
+                    QMessageBox.warning(self, "Copy Failed", f"Could not read markdown file: {e}")
+
+    def _toggle_md_preview(self):
+        is_vis = self.md_preview_edit.isVisible()
+        self.md_preview_edit.setVisible(not is_vis)
+        self.md_preview_toggle_btn.setText("🙈 Hide Preview" if not is_vis else "👁️ Preview")
+
+    def _on_md_custom_dest_toggled(self, checked: bool):
+        self.md_dest_edit.setEnabled(checked)
+        self.md_dest_browse_btn.setEnabled(checked)
+
+    def _browse_md_dest(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Output Directory")
+        if folder:
+            self.md_dest_edit.setText(folder)

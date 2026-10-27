@@ -128,6 +128,7 @@ def convert_docx_file(
     media_rel: str = "media",
     cancellation_check: Optional[Callable[[], bool]] = None,
     tdoc_url: Optional[str] = None,
+    include_header: bool = True,
 ) -> ExportedDoc:
     """Convert DOCX using the shared parser and application image rendering."""
     doc_type = None
@@ -141,6 +142,7 @@ def convert_docx_file(
         convert_images=convert_images, keep_metafiles=keep_metafiles,
         media_dir=media_dir, media_rel=media_rel,
         cancellation_check=cancellation_check, metafile_converter=convert_metafiles,
+        include_header=include_header,
     )
 
     # Inject 3GPP server download URL into the metadata header if resolvable
@@ -177,6 +179,8 @@ def convert_document_to_markdown(
     media_rel: str = "media",
     cancellation_check: Optional[Callable[[], bool]] = None,
     tdoc_url: Optional[str] = None,
+    convert_images: bool = True,
+    include_header: bool = True,
 ) -> ExportedDoc:
     """
     Primary Entry Point: Accepts .docx, .docm, or legacy binary .doc.
@@ -207,9 +211,11 @@ def convert_document_to_markdown(
             return convert_docx_file(
                 tmp_docx, target_dir, tdoc_id=tid, name=tid, meta=meta,
                 original_name=path.name, revisions=effective_revisions,
+                convert_images=convert_images,
                 media_dir=media_dir, media_rel=media_rel,
                 cancellation_check=cancellation_check,
                 tdoc_url=resolved_tdoc_url,
+                include_header=include_header,
             )
         finally:
             shutil.rmtree(to_extended_path(tmp_dir), ignore_errors=True)
@@ -217,9 +223,11 @@ def convert_document_to_markdown(
         return convert_docx_file(
             path, target_dir, tdoc_id=tid, name=tid, meta=meta,
             original_name=path.name, revisions=effective_revisions,
+            convert_images=convert_images,
             media_dir=media_dir, media_rel=media_rel,
             cancellation_check=cancellation_check,
             tdoc_url=resolved_tdoc_url,
+            include_header=include_header,
         )
 
 

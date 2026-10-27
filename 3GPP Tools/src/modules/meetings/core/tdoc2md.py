@@ -1421,28 +1421,47 @@ def _pick(meta: Dict[str, str], cover: Dict[str, str], *keys: str) -> str:
 def build_header(tdoc_id: str, meta: Dict[str, str], res: DocResult, original: str, revisions: str) -> str:
     cover = res.cover
     title = _pick(meta, cover, "title")
-    doc_type = _pick(meta, {}, "type") or "%s (detected)" % res.detected_type
-    fields = [
-        ("TDoc", tdoc_id), ("Title", title), ("Source", _pick(meta, cover, "source")),
-        ("Type", doc_type), ("Agenda Item", _pick(meta, cover, "agenda item")),
-        ("Status", _pick(meta, cover, "tdoc status", "status")),
-        ("Document for", _pick(meta, cover, "for", "document for")),
-        ("Work Item", _pick(meta, cover, "work item")), ("Spec", _pick(meta, cover, "spec")),
-        ("Version", _pick(meta, cover, "version")), ("Revision of", _pick(meta, cover, "revision of")),
-        ("Related TDocs", _pick(meta, cover, "related tdocs")),
-        ("Original file", "`%s`" % original),
-        ("Exporter", "tdoc2md v%s (revisions: %s)" % (__version__, revisions)),
-    ]
-    lines = ["# %s%s" % (tdoc_id, (": " + title) if title else ""), ""]
-    lines += ["- **%s:** %s" % (k, v.replace("\n", " ")) for k, v in fields if v]
-    lines.append("")
-    if revisions == "markup":
-        lines += [MARKUP_LEGEND, ""]
-    abstract = _pick(meta, cover, "abstract")
-    if abstract:
-        lines += ["**Abstract:** " + abstract.replace("\n", " "), ""]
-    lines += ["---", ""]
-    return "\n".join(lines)
+    is_tdoc = bool(
+        TDOC_RE.search(tdoc_id)
+        or (meta and any(k in meta for k in ("tdoc", "tdoc_id", "agenda item", "work item", "spec")))
+        or any(k in cover for k in ("source", "agenda item", "work item", "spec"))
+    )
+    if is_tdoc:
+        doc_type = _pick(meta, {}, "type") or "%s (detected)" % res.detected_type
+        fields = [
+            ("TDoc", tdoc_id), ("Title", title), ("Source", _pick(meta, cover, "source")),
+            ("Type", doc_type), ("Agenda Item", _pick(meta, cover, "agenda item")),
+            ("Status", _pick(meta, cover, "tdoc status", "status")),
+            ("Document for", _pick(meta, cover, "for", "document for")),
+            ("Work Item", _pick(meta, cover, "work item")), ("Spec", _pick(meta, cover, "spec")),
+            ("Version", _pick(meta, cover, "version")), ("Revision of", _pick(meta, cover, "revision of")),
+            ("Related TDocs", _pick(meta, cover, "related tdocs")),
+            ("Original file", "`%s`" % original),
+            ("Exporter", "tdoc2md v%s (revisions: %s)" % (__version__, revisions)),
+        ]
+        lines = ["# %s%s" % (tdoc_id, (": " + title) if title else ""), ""]
+        lines += ["- **%s:** %s" % (k, v.replace("\n", " ")) for k, v in fields if v]
+        lines.append("")
+        if revisions == "markup":
+            lines += [MARKUP_LEGEND, ""]
+        abstract = _pick(meta, cover, "abstract")
+        if abstract:
+            lines += ["**Abstract:** " + abstract.replace("\n", " "), ""]
+        lines += ["---", ""]
+        return "\n".join(lines)
+    else:
+        doc_name = title or tdoc_id.replace("_", " ")
+        fields = [
+            ("Original file", "`%s`" % original),
+            ("Exporter", "Word-to-Markdown v%s (revisions: %s)" % (__version__, revisions)),
+        ]
+        lines = ["# %s" % doc_name, ""]
+        lines += ["- **%s:** %s" % (k, v.replace("\n", " ")) for k, v in fields if v]
+        lines.append("")
+        if revisions == "markup":
+            lines += [MARKUP_LEGEND, ""]
+        lines += ["---", ""]
+        return "\n".join(lines)
 
 
 def category_for(doc_type: str) -> str:
@@ -1511,7 +1530,8 @@ def convert_docx_file(docx_path: Path, out_dir: Path, tdoc_id: Optional[str] = N
                       keep_metafiles: bool = False, media_dir: Optional[Path] = None,
                       media_rel: str = "media",
                       cancellation_check: Optional[Callable[[], bool]] = None,
-                      metafile_converter: Optional[Callable[[List[Tuple[Path, Path]], int], None]] = None) -> ExportedDoc:
+                      metafile_converter: Optional[Callable[[List[Tuple[Path, Path]], int], None]] = None,
+                      include_header: bool = True) -> ExportedDoc:
     """Convert a single .docx to <out_dir>/<name>.md (+ media in <out_dir>/media). Library entry point."""
     docx_path = Path(to_extended_path(docx_path))
     out_dir = Path(to_extended_path(out_dir))
@@ -1523,7 +1543,8 @@ def convert_docx_file(docx_path: Path, out_dir: Path, tdoc_id: Optional[str] = N
                          image_dpi=image_dpi, convert_images=convert_images, keep_metafiles=keep_metafiles,
                          cancellation_check=cancellation_check, metafile_converter=metafile_converter)
     res = conv.convert()
-    text = build_header(tdoc_id, meta, res, original_name or docx_path.name, revisions) + res.markdown
+    header_text = build_header(tdoc_id, meta, res, original_name or docx_path.name, revisions) if include_header else ""
+    text = header_text + res.markdown
     md_path = out_dir / ("%s.md" % sanitize_filename(name))
     md_path.write_text(text, encoding="utf-8")
     doc_type = _pick(meta, {}, "type") or res.detected_type

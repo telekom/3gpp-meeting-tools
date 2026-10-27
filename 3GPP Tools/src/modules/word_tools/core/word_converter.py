@@ -468,11 +468,24 @@ class WordConverterThread(QThread):
         "doc": WD_FORMAT_DOC,
     }
 
-    def __init__(self, doc_source: str, target_format: str, engine: str = "auto"):
+    def __init__(
+        self,
+        doc_source: str,
+        target_format: str,
+        engine: str = "auto",
+        revisions: str = "markup",
+        extract_media: bool = True,
+        output_dir: Optional[Union[str, Path]] = None,
+        include_header: bool = True,
+    ):
         super().__init__()
         self.doc_source = doc_source
         self.target_format = target_format.lower().replace(".", "").strip()
         self.engine = engine.lower().strip()
+        self.revisions = revisions
+        self.extract_media = extract_media
+        self.output_dir = str(output_dir) if output_dir else None
+        self.include_header = include_header
         self._downloaded_temp: Optional[Path] = None
 
     def _resolve_path(self, input_str: str) -> str:
@@ -512,7 +525,12 @@ class WordConverterThread(QThread):
                 source = Path(source_path).resolve()
                 _sanitize_file_attributes(source)
 
-            # 1. Explicit LibreOffice Engine Request
+            # 1. Markdown Export Pipeline (OpenXML / tdoc_markdown_converter)
+            if self.target_format in ("md", "markdown"):
+                self._run_markdown_export(source, raw_source=source_path if is_remote_url else None)
+                return
+
+            # 2. Explicit LibreOffice Engine Request
             if not is_remote_url and (
                 self.engine == "libreoffice" or (source.suffix.lower() == ".doc" and self.target_format == "docx_libreoffice")
             ):
@@ -525,7 +543,7 @@ class WordConverterThread(QThread):
                 self.finished_path.emit(str(out_path))
                 return
 
-            # 2. Automated Word-first pipeline.
+            # 3. Automated Word-first pipeline.
             try:
                 self._run_word_export(source, raw_source=source_path if is_remote_url else None)
             except Exception as word_err:
@@ -775,6 +793,40 @@ class WordConverterThread(QThread):
         if success:
             self._log(f"✅ Conversion complete: {out_name}", logging.INFO)
             self.finished_path.emit(out_path)
+
+    def _run_markdown_export(self, source: Path, raw_source: Optional[str] = None) -> None:
+        """Export document to Markdown with figure extraction and revision tracking."""
+        from core.utils.paths import get_project_root, strip_extended_path
+        from modules.meetings.core.tdoc_markdown_converter import convert_document_to_markdown
+
+        if self.output_dir:
+            out_dir = Path(self.output_dir).resolve()
+        elif raw_source:
+            out_dir = get_project_root().parent / "output"
+        else:
+            out_dir = source.parent
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        self._log(f"⏳ Converting '{source.name}' to Markdown (revisions: {self.revisions})...", logging.INFO)
+
+        media_folder = out_dir / f"{source.stem}_media" if self.extract_media else None
+        media_rel = f"{source.stem}_media"
+
+        exported = convert_document_to_markdown(
+            doc_path=source,
+            out_dir=out_dir,
+            tdoc_id=source.stem,
+            revisions=self.revisions,
+            media_dir=media_folder,
+            media_rel=media_rel,
+            convert_images=self.extract_media,
+            include_header=self.include_header,
+        )
+
+        clean_md_path = strip_extended_path(str(exported.md_path))
+        img_info = f" (extracted {exported.images} image/drawing(s))" if exported.images else ""
+        self._log(f"✅ Markdown conversion complete: {Path(clean_md_path).name}{img_info}", logging.INFO)
+        self.finished_path.emit(clean_md_path)
 
     def _log(self, message: str, level: int = logging.INFO) -> None:
         """
