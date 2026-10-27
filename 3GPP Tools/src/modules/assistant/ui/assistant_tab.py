@@ -10,17 +10,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
-    QApplication, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
-    QPlainTextEdit, QSplitter, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem,
-    QVBoxLayout, QWidget,
+    QApplication, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
+    QPushButton, QPlainTextEdit, QSplitter, QTextBrowser, QToolButton, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_DANGER,
     BUTTON_STYLE_TOOLBAR_SECONDARY,
-    SEARCH_INPUT_STYLE,
     TREE_STYLE_CLEAN,
 )
 from modules.assistant.core.agent_controller import AgentControllerConfig
@@ -29,6 +28,15 @@ from modules.assistant.core.agent_models import (
 )
 from modules.assistant.core.ollama_agent_adapter import OllamaAgentAdapter
 from modules.assistant.core.tools import build_read_only_tool_registry
+from modules.assistant.ui.assistant_components import (
+    CARD_FRAME_STYLE,
+    CARD_HEADER_STYLE,
+    MultilinePromptEdit,
+    StarterChipsWidget,
+    STATUS_PILL_OFFLINE,
+    STATUS_PILL_ONLINE,
+    STATUS_PILL_NEUTRAL,
+)
 from modules.assistant.ui.assistant_worker import AgentResearchWorker
 
 logger = logging.getLogger(__name__)
@@ -36,6 +44,11 @@ logger = logging.getLogger(__name__)
 
 class AssistantTab(QWidget):
     """Conversation + objective research activity + application-owned sources."""
+
+    open_ollama_settings_requested = pyqtSignal()
+    open_spec_search_requested = pyqtSignal(str, str, str)  # (spec, version, clause)
+    open_specs_requested = pyqtSignal(str, str)             # (spec, version)
+    open_protocol_requested = pyqtSignal(str, str)          # (protocol, message)
 
     def __init__(
         self,
@@ -65,37 +78,176 @@ class AssistantTab(QWidget):
         # Explicit idle state; independent of Ollama monitor state.
         self._set_running(False)
         self.status_label.setText("Ready")
+        self._refresh_ollama_status()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(7)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
-        header = QHBoxLayout()
+        # ---------------------------------------------------------------------
+        # Top Header Ribbon (Model Status, Session Actions, Layout Switcher)
+        # ---------------------------------------------------------------------
+        header_card = QFrame()
+        header_card.setObjectName("assistantCardHeader")
+        header_card.setStyleSheet("""
+            QFrame#assistantCardHeader {
+                background-color: #F8FAFC;
+                border: 1px solid #E2E8F0;
+                border-radius: 6px;
+                padding: 4px;
+            }
+        """)
+        header_layout = QHBoxLayout(header_card)
+        header_layout.setContentsMargins(8, 4, 8, 4)
+        header_layout.setSpacing(8)
+
         title = QLabel("🤖 3GPP Assistant")
-        title.setStyleSheet("font-weight: bold; font-size: 14px; color: #1E293B;")
-        header.addWidget(title)
-        header.addStretch()
+        title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1E293B;")
+        header_layout.addWidget(title)
+
+        # Model status pill
+        self.model_status_btn = QPushButton("⚪ Ollama: Checking...")
+        self.model_status_btn.setStyleSheet(STATUS_PILL_NEUTRAL)
+        self.model_status_btn.setCursor(Qt.PointingHandCursor)
+        self.model_status_btn.setToolTip("Click to configure Ollama settings.")
+        self.model_status_btn.clicked.connect(self._on_open_ollama_settings)
+        header_layout.addWidget(self.model_status_btn)
+
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: #64748B;")
-        header.addWidget(self.status_label)
-        layout.addLayout(header)
+        self.status_label.setStyleSheet("color: #64748B; font-weight: 500; font-size: 12px;")
+        header_layout.addWidget(self.status_label)
 
-        splitter = QSplitter(Qt.Vertical)
+        header_layout.addStretch()
 
-        conversation_group = QGroupBox("Conversation")
-        conversation_layout = QVBoxLayout(conversation_group)
+        # Session Action Buttons
+        self.new_chat_btn = QPushButton("➕ New Chat")
+        self.new_chat_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.new_chat_btn.setToolTip("Clear the conversation and begin a new research session.")
+        self.new_chat_btn.clicked.connect(self._on_new_chat)
+        header_layout.addWidget(self.new_chat_btn)
+
+        self.copy_chat_btn = QPushButton("📋 Copy Chat")
+        self.copy_chat_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.copy_chat_btn.setToolTip("Copy the full conversation transcript and citations to the clipboard.")
+        self.copy_chat_btn.clicked.connect(self._on_copy_conversation)
+        header_layout.addWidget(self.copy_chat_btn)
+
+        self.export_chat_btn = QPushButton("💾 Export...")
+        self.export_chat_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.export_chat_btn.setToolTip("Export the research conversation to a Markdown (.md) file.")
+        self.export_chat_btn.clicked.connect(self._on_export_markdown)
+        header_layout.addWidget(self.export_chat_btn)
+
+        # Layout Switcher Button
+        self.layout_toggle_btn = QPushButton("⬒ Bottom Split")
+        self.layout_toggle_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.layout_toggle_btn.setCheckable(True)
+        self.layout_toggle_btn.setChecked(True)  # True = Side-by-Side (Horizontal)
+        self.layout_toggle_btn.setToolTip("Toggle between Side-by-Side and Bottom Split layouts.")
+        self.layout_toggle_btn.clicked.connect(self._toggle_layout)
+        header_layout.addWidget(self.layout_toggle_btn)
+
+        layout.addWidget(header_card)
+
+        # ---------------------------------------------------------------------
+        # Main Splitter (Left: Chat & Input, Right: Research Cockpit Drawer)
+        # ---------------------------------------------------------------------
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.setChildrenCollapsible(False)
+
+        # Left / Chat Widget
+        chat_widget = QWidget()
+        chat_layout = QVBoxLayout(chat_widget)
+        chat_layout.setContentsMargins(0, 0, 0, 0)
+        chat_layout.setSpacing(6)
+
+        # Conversation Card Frame
+        conv_frame = QFrame()
+        conv_frame.setObjectName("assistantCardFrame")
+        conv_frame.setStyleSheet(CARD_FRAME_STYLE)
+        conv_frame_layout = QVBoxLayout(conv_frame)
+        conv_frame_layout.setContentsMargins(8, 8, 8, 8)
+        conv_frame_layout.setSpacing(6)
+
+        # Starter Chips for empty state
+        self.starter_chips = StarterChipsWidget()
+        self.starter_chips.prompt_selected.connect(self._on_starter_chip_selected)
+        conv_frame_layout.addWidget(self.starter_chips)
+
         self.conversation_browser = QTextBrowser()
         self.conversation_browser.setOpenExternalLinks(False)
+        self.conversation_browser.setStyleSheet("""
+            QTextBrowser {
+                background-color: #FFFFFF;
+                border: none;
+                font-family: "Segoe UI", Arial, sans-serif;
+                font-size: 13px;
+                color: #1E293B;
+            }
+        """)
         self.conversation_browser.setPlaceholderText(
             "Ask a 3GPP question. The Assistant will research local specification "
             "and protocol knowledge before answering."
         )
-        conversation_layout.addWidget(self.conversation_browser)
-        splitter.addWidget(conversation_group)
+        conv_frame_layout.addWidget(self.conversation_browser, stretch=1)
+        chat_layout.addWidget(conv_frame, stretch=1)
 
-        detail_splitter = QSplitter(Qt.Horizontal)
+        # Input Card Frame
+        input_frame = QFrame()
+        input_frame.setObjectName("assistantCardFrame")
+        input_frame.setStyleSheet(CARD_FRAME_STYLE)
+        input_frame_layout = QVBoxLayout(input_frame)
+        input_frame_layout.setContentsMargins(8, 8, 8, 8)
+        input_frame_layout.setSpacing(6)
 
+        self.question_input = MultilinePromptEdit()
+        self.question_input.submit_requested.connect(self._on_send)
+        self.question_input.textChanged.connect(self._on_prompt_changed)
+        input_frame_layout.addWidget(self.question_input)
+
+        # Action / Control bar under input
+        input_action_bar = QHBoxLayout()
+        input_action_bar.setContentsMargins(0, 0, 0, 0)
+        input_action_bar.setSpacing(6)
+
+        self.char_count_label = QLabel("0 chars")
+        self.char_count_label.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        input_action_bar.addWidget(self.char_count_label)
+
+        self.clear_input_btn = QPushButton("✕ Clear")
+        self.clear_input_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.clear_input_btn.setEnabled(False)
+        self.clear_input_btn.clicked.connect(self.question_input.clear)
+        input_action_bar.addWidget(self.clear_input_btn)
+
+        input_action_bar.addStretch()
+
+        self.send_btn = QPushButton("Send ↵")
+        self.send_btn.setObjectName("primaryBtn")
+        self.send_btn.clicked.connect(self._on_send)
+        input_action_bar.addWidget(self.send_btn)
+
+        self.stop_btn = QPushButton("■ Stop")
+        self.stop_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.clicked.connect(self._on_stop)
+        input_action_bar.addWidget(self.stop_btn)
+
+        input_frame_layout.addLayout(input_action_bar)
+        chat_layout.addWidget(input_frame)
+
+        self.main_splitter.addWidget(chat_widget)
+
+        # ---------------------------------------------------------------------
+        # Right / Research Cockpit Drawer
+        # ---------------------------------------------------------------------
+        self.detail_widget = QWidget()
+        detail_layout = QVBoxLayout(self.detail_widget)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(6)
+
+        # Research Activity Card
         activity_group = QGroupBox()
         activity_layout = QVBoxLayout(activity_group)
         activity_header = QHBoxLayout()
@@ -112,8 +264,9 @@ class AssistantTab(QWidget):
         activity_layout.addLayout(activity_header)
         self.activity_browser = QTextBrowser()
         activity_layout.addWidget(self.activity_browser)
-        detail_splitter.addWidget(activity_group)
+        detail_layout.addWidget(activity_group, stretch=1)
 
+        # Sources Tree Card
         sources_group = QGroupBox("Sources")
         sources_layout = QVBoxLayout(sources_group)
         self.sources_tree = QTreeWidget()
@@ -123,11 +276,9 @@ class AssistantTab(QWidget):
         self.sources_tree.setRootIsDecorated(False)
         self.sources_tree.itemDoubleClicked.connect(self._show_source_detail)
         sources_layout.addWidget(self.sources_tree)
-        detail_splitter.addWidget(sources_group)
+        detail_layout.addWidget(sources_group, stretch=1)
 
-        detail_splitter.setSizes([430, 520])
-        splitter.addWidget(detail_splitter)
-
+        # Exchange Details Card
         exchange_group = QGroupBox()
         exchange_layout = QVBoxLayout(exchange_group)
         exchange_header = QHBoxLayout()
@@ -157,38 +308,173 @@ class AssistantTab(QWidget):
         )
         self.exchange_browser.setVisible(False)
         exchange_layout.addWidget(self.exchange_browser)
-        splitter.addWidget(exchange_group)
+        detail_layout.addWidget(exchange_group)
 
-        splitter.setSizes([480, 240, 36])
-        layout.addWidget(splitter)
+        self.main_splitter.addWidget(self.detail_widget)
 
-        input_row = QHBoxLayout()
-        self.question_input = QLineEdit()
-        self.question_input.setStyleSheet(SEARCH_INPUT_STYLE)
-        self.question_input.setPlaceholderText("Ask about 3GPP specifications, procedures, messages or IEs...")
-        self.question_input.returnPressed.connect(self._on_send)
-        input_row.addWidget(self.question_input, stretch=1)
+        # Default side-by-side sizes (65% Chat, 35% Drawer)
+        self.main_splitter.setSizes([680, 420])
+        layout.addWidget(self.main_splitter, stretch=1)
 
-        self.send_btn = QPushButton("Send")
-        self.send_btn.setObjectName("primaryBtn")
-        self.send_btn.clicked.connect(self._on_send)
-        input_row.addWidget(self.send_btn)
+    def _toggle_layout(self, checked: bool) -> None:
+        """Toggle between Side-by-Side (Horizontal) and Bottom Split (Vertical)."""
+        if checked:
+            self.main_splitter.setOrientation(Qt.Horizontal)
+            self.main_splitter.setSizes([680, 420])
+            self.layout_toggle_btn.setText("⬒ Bottom Split")
+            self.layout_toggle_btn.setToolTip("Switch to stacked top/bottom layout")
+        else:
+            self.main_splitter.setOrientation(Qt.Vertical)
+            self.main_splitter.setSizes([450, 280])
+            self.layout_toggle_btn.setText("◫ Side Drawer")
+            self.layout_toggle_btn.setToolTip("Switch to side-by-side drawer layout")
 
-        self.stop_btn = QPushButton("■ Stop")
-        self.stop_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
-        self.stop_btn.setEnabled(False)
-        self.stop_btn.clicked.connect(self._on_stop)
-        input_row.addWidget(self.stop_btn)
-        layout.addLayout(input_row)
+    def _on_prompt_changed(self) -> None:
+        text = self.question_input.toPlainText()
+        count = len(text)
+        self.char_count_label.setText(f"{count} char" + ("s" if count != 1 else ""))
+        self.clear_input_btn.setEnabled(count > 0)
+
+    def _on_starter_chip_selected(self, prompt: str) -> None:
+        self.question_input.setPlainText(prompt)
+        self._on_send()
+
+    def _refresh_ollama_status(self) -> None:
+        try:
+            from core.ai.ollama_client import load_ollama_config, is_ollama_port_open
+            cfg = load_ollama_config()
+            host = cfg.get("host", "http://127.0.0.1:11434")
+            model = cfg.get("selected_model", "")
+            is_open = is_ollama_port_open(host)
+            if is_open and model:
+                self.model_status_btn.setText(f"🟢 Ollama: {model}")
+                self.model_status_btn.setStyleSheet(STATUS_PILL_ONLINE)
+                self.model_status_btn.setToolTip(f"Host: {host}\nModel: {model}\nClick to configure Ollama settings.")
+            elif is_open:
+                self.model_status_btn.setText("🟡 Ollama: No Model Selected")
+                self.model_status_btn.setStyleSheet(STATUS_PILL_NEUTRAL)
+                self.model_status_btn.setToolTip(f"Host: {host}\nNo model selected.\nClick to configure.")
+            else:
+                self.model_status_btn.setText("🔴 Ollama: Offline")
+                self.model_status_btn.setStyleSheet(STATUS_PILL_OFFLINE)
+                self.model_status_btn.setToolTip(f"Host: {host}\nDaemon not responding.\nClick to configure or start service.")
+        except Exception as exc:
+            logger.debug("Failed to query Ollama status: %s", exc)
+            self.model_status_btn.setText("⚪ Ollama: Unknown")
+            self.model_status_btn.setStyleSheet(STATUS_PILL_NEUTRAL)
+
+    def _on_open_ollama_settings(self) -> None:
+        if self.receivers(self.open_ollama_settings_requested) > 0:
+            self.open_ollama_settings_requested.emit()
+        else:
+            try:
+                from core.ai.ollama_dialog import OllamaConfigDialog
+                dlg = OllamaConfigDialog(self)
+                dlg.exec_()
+            except Exception as exc:
+                logger.error("Could not open Ollama settings dialog: %s", exc)
+        QTimer.singleShot(1500, self._refresh_ollama_status)
+
+    def _on_new_chat(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "Active Research in Progress",
+                "A research query is currently running. Do you want to stop it and begin a new session?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                self._on_stop()
+            else:
+                return
+
+        self._conversation.clear()
+        self._activities.clear()
+        self._evidence.clear()
+        self._last_result = None
+        self._exchange_events.clear()
+        self.conversation_browser.clear()
+        self.activity_browser.clear()
+        self.sources_tree.clear()
+        if hasattr(self, "exchange_browser"):
+            self.exchange_browser.clear()
+        self._update_activity_count()
+        self.status_label.setText("Ready")
+        self.starter_chips.setVisible(True)
+        self.question_input.clear()
+        self.question_input.setFocus()
+
+    def _on_copy_conversation(self) -> None:
+        if not self._conversation:
+            QMessageBox.information(self, "Copy Chat", "Conversation transcript is currently empty.")
+            return
+        lines = ["# 3GPP Research Assistant Transcript\n"]
+        for msg in self._conversation:
+            role = "### User" if msg.get("role") == "user" else "### Assistant"
+            content = msg.get("content", "")
+            lines.append(f"{role}\n\n{content}\n")
+        if self._evidence:
+            lines.append("## Referenced Sources & Evidence\n")
+            for eid, ev in sorted(self._evidence.items()):
+                label = self._source_label(ev)
+                lines.append(f"- **[{eid}]** {label}")
+        full_text = "\n".join(lines)
+        QApplication.clipboard().setText(full_text)
+        self.status_label.setText("Transcript copied!")
+        QTimer.singleShot(
+            2500,
+            lambda: self.status_label.setText(
+                "Ready" if not (self._worker and self._worker.isRunning()) else "Researching…"
+            ),
+        )
+
+    def _on_export_markdown(self) -> None:
+        if not self._conversation:
+            QMessageBox.information(self, "Export Transcript", "Conversation transcript is currently empty.")
+            return
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Research Transcript",
+            f"3gpp_assistant_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+            "Markdown Files (*.md);;All Files (*)",
+        )
+        if not filename:
+            return
+        lines = [
+            "# 3GPP Research Assistant Transcript\n",
+            f"*Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n",
+        ]
+        for msg in self._conversation:
+            role = "### User" if msg.get("role") == "user" else "### Assistant"
+            content = msg.get("content", "")
+            lines.append(f"{role}\n\n{content}\n")
+        if self._evidence:
+            lines.append("## Referenced Sources & Evidence\n")
+            for eid, ev in sorted(self._evidence.items()):
+                label = self._source_label(ev)
+                lines.append(f"- **[{eid}]** {label}")
+        try:
+            Path(filename).write_text("\n".join(lines), encoding="utf-8")
+            self.status_label.setText("Exported successfully!")
+            QTimer.singleShot(
+                2500,
+                lambda: self.status_label.setText(
+                    "Ready" if not (self._worker and self._worker.isRunning()) else "Researching…"
+                ),
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Failed", f"Failed to save transcript: {exc}")
 
     def _on_send(self) -> None:
         if self._worker is not None and self._worker.isRunning():
             return
-        question = self.question_input.text().strip()
+        question = self.question_input.toPlainText().strip()
         if not question:
             return
 
         self.question_input.clear()
+        self.starter_chips.setVisible(False)
         self._append_conversation("user", question)
         self._activities.clear()
         self._evidence.clear()
@@ -245,7 +531,6 @@ class AssistantTab(QWidget):
     def _on_evidence(self, evidence: Evidence) -> None:
         self._evidence[evidence.id] = evidence
         self._add_source_row(evidence)
-
 
     def _on_exchange(self, event: object) -> None:
         if not isinstance(event, dict):
