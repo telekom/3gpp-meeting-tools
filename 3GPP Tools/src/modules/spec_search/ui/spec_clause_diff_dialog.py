@@ -74,6 +74,18 @@ class SpecClauseDiffDialog(QDialog):
         self._load_available_versions()
         self._generate_diff_preview()
 
+    @property
+    def version_b(self) -> str:
+        if hasattr(self, "target_ver_combo") and self.target_ver_combo.currentData():
+            return self.target_ver_combo.currentData().get("version", "")
+        return getattr(self, "current_version", "")
+
+    @property
+    def version_a(self) -> str:
+        if hasattr(self, "base_ver_combo") and self.base_ver_combo.currentData():
+            return self.base_ver_combo.currentData().get("version", "")
+        return getattr(self, "initial_base_version", "")
+
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(14, 14, 14, 14)
@@ -134,6 +146,13 @@ class SpecClauseDiffDialog(QDialog):
         self.btn_copy_diff.setStyleSheet("padding: 4px 12px; font-weight: bold; background-color: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 4px;")
         self.btn_copy_diff.clicked.connect(self._copy_diff)
         diff_top_bar.addWidget(self.btn_copy_diff)
+
+        self.btn_view_changes = QPushButton(f"📜 v{self.version_b} Changes / TDocs")
+        self.btn_view_changes.setToolTip(f"View all integrated CRs, p-CRs, and TDocs that created v{self.version_b}, and directly open the source contribution documents.")
+        self.btn_view_changes.setStyleSheet("padding: 4px 12px; font-weight: bold; background-color: #F0FDF4; color: #166534; border: 1px solid #86EFAC; border-radius: 4px;")
+        self.btn_view_changes.setCursor(Qt.PointingHandCursor)
+        self.btn_view_changes.clicked.connect(self._open_version_changes)
+        diff_top_bar.addWidget(self.btn_view_changes)
 
         diff_layout.addLayout(diff_top_bar)
 
@@ -395,6 +414,10 @@ class SpecClauseDiffDialog(QDialog):
         target_ver = target_data.get("version", "")
         target_date = target_data.get("release_date", "")
 
+        if hasattr(self, "btn_view_changes") and target_ver:
+            self.btn_view_changes.setText(f"📜 v{target_ver} Changes / TDocs")
+            self.btn_view_changes.setToolTip(f"View all integrated CRs, p-CRs, and TDocs that created v{target_ver}, and directly open the source contribution documents.")
+
         tier = self.tier_group.checkedId()
         focus_mode = self.focus_combo.currentData() or "standards"
 
@@ -458,6 +481,17 @@ class SpecClauseDiffDialog(QDialog):
             QApplication.clipboard().setText(self._raw_diff_text)
             self.btn_copy_diff.setText("✅ Copied Diff!")
             QTimer.singleShot(1500, lambda: self.btn_copy_diff.setText("📋 Copy Diff"))
+
+    def _open_version_changes(self):
+        """Opens Change History dialog pre-filtered to version B with directly openable TDocs."""
+        from modules.specifications.ui.spec_history_dialog import SpecVersionHistoryDialog
+        dlg = SpecVersionHistoryDialog(
+            spec_number=self.spec_number,
+            initial_version=self.version_b,
+            parent=self,
+            specs_db=self.specs_db
+        )
+        dlg.exec_()
 
     def _copy_prompt(self):
         """Copies the formatted LLM prompt to clipboard."""

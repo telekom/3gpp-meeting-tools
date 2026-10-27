@@ -6,6 +6,7 @@ import re
 import webbrowser
 import zipfile
 from pathlib import Path
+from typing import Optional
 
 from PyQt5 import sip
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
@@ -60,6 +61,8 @@ from modules.specifications.ui.spec_annotations_dialog import (
     BatchTagDialog,
     EditSpecAnnotationsDialog,
 )
+from modules.specifications.core.spec_history_db import SpecHistoryDatabase
+from modules.specifications.ui.spec_history_dialog import SpecVersionHistoryDialog
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase
 from modules.specifications.ui.spec_action_controller import (
     handle_document_action,
@@ -95,6 +98,7 @@ class SpecificationsTab(QWidget):
         super().__init__()
         self.db = SpecsDatabase(db_path)
         self.spec_search_db = SpecSearchDatabase(get_project_root() / "db" / "3gpp_spec_search.db")
+        self.history_db = SpecHistoryDatabase(get_project_root() / "db" / "3gpp_spec_history.db")
         self._download_threads = []
 
         self.config_file = get_project_root() / "config" / "specs_config.json"
@@ -1252,6 +1256,13 @@ class SpecificationsTab(QWidget):
                 **self.table_filters,
             )
 
+            history_summary = {}
+            if hasattr(self, "history_db") and self.history_db:
+                try:
+                    history_summary = self.history_db.get_version_summary()
+                except Exception as e:
+                    logger.debug(f"Could not prefetch history summary: {e}")
+
             self.table.setRowCount(0)
 
             grouped_specs = {}
@@ -1549,6 +1560,11 @@ class SpecificationsTab(QWidget):
                         badges.append("🌐")
                         tooltips.append("HTML (.html) ready")
 
+                    hist_cnt = history_summary.get((spec_num, ver), 0)
+                    if hist_cnt > 0:
+                        badges.append("📜")
+                        tooltips.append(f"{hist_cnt} Change History entries (CRs/p-CRs)")
+
                     if not badges and zip_exists:
                         badges.append("📦")
                         tooltips.append("ZIP archive downloaded")
@@ -1714,11 +1730,15 @@ class SpecificationsTab(QWidget):
 
                     menu.addSeparator()
 
+                    ver_val = c_data.get("version", "")
+                    ver_tag = f" (v{ver_val})" if ver_val else ""
+
+                    act_history = menu.addAction(f"📜 View Change History & TDocs{ver_tag}...")
+                    act_history.triggered.connect(lambda _, s=c_data["spec_num"], v=c_data.get("version", ""): self._open_version_history_dialog(s, v))
+
                     act_search_tab = menu.addAction("🔎 Track Evolution / Clauses in Spec Search")
                     act_search_tab.triggered.connect(lambda: self.search_in_spec_search_requested.emit(c_data["spec_num"], c_data.get("version", "")))
 
-                    ver_val = c_data.get("version", "")
-                    ver_tag = f" (v{ver_val})" if ver_val else ""
                     is_idx = (
                         self.spec_search_db.is_version_indexed(c_data["spec_num"], ver_val)
                         if hasattr(self, "spec_search_db") and self.spec_search_db and ver_val
@@ -1777,6 +1797,20 @@ class SpecificationsTab(QWidget):
     # ==========================================
     # --- DOCUMENT FETCH & EXTRACTION ---
     # ==========================================
+    def _open_version_history_dialog(self, spec_number: str, version: Optional[str] = None):
+        """Launches the dedicated Change History & Integrated TDocs dialog."""
+        try:
+            dialog = SpecVersionHistoryDialog(
+                spec_number=spec_number,
+                initial_version=version,
+                parent=self,
+                history_db=self.history_db,
+                specs_db=self.db,
+            )
+            dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error opening SpecVersionHistoryDialog: {e}", exc_info=True)
+
     def _open_clause_excerpt_dialog(self, combo: QComboBox):
         if sip.isdeleted(combo):
             return

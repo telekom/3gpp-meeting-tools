@@ -157,6 +157,11 @@ class DatabaseMaintenanceDialog(QDialog):
                 "name": "3GPP Specification Text",
                 "path": root / "db" / "3gpp_spec_search.db",
             },
+            {
+                "name": "3GPP Specification Change History (CRs, p-CRs, TDocs)",
+                "path": root / "db" / "3gpp_spec_history.db",
+                "can_wipe": True,
+            },
         ]
 
         for extra_db in root.glob("*.db"):
@@ -253,6 +258,29 @@ class DatabaseMaintenanceDialog(QDialog):
 
                 action_layout.addWidget(btn_inspect)
                 action_layout.addWidget(btn_compact)
+
+                if entry.get("can_wipe"):
+                    btn_wipe = QPushButton("Wipe")
+                    btn_wipe.setFixedHeight(22)
+                    btn_wipe.setStyleSheet("""
+                        QPushButton {
+                            background-color: #FEF2F2;
+                            border: 1px solid #FECACA;
+                            border-radius: 3px;
+                            padding: 1px 8px;
+                            font-size: 11px;
+                            font-weight: bold;
+                            color: #DC2626;
+                        }
+                        QPushButton:hover {
+                            background-color: #FEE2E2;
+                            border-color: #EF4444;
+                        }
+                    """)
+                    btn_wipe.setToolTip("Completely wipe and clear all indexed change history and TDoc cross-references.")
+                    btn_wipe.clicked.connect(lambda _, p=db_path, r=row_idx: self._wipe_database(p, r))
+                    action_layout.addWidget(btn_wipe)
+
                 self.table.setCellWidget(row_idx, 4, action_widget)
 
             else:
@@ -311,6 +339,29 @@ class DatabaseMaintenanceDialog(QDialog):
             return True, bytes_before, bytes_after, "Success"
         except Exception as e:
             return False, bytes_before, bytes_before, str(e)
+
+    def _wipe_database(self, db_path: Path, row_idx: int):
+        """Completely wipes and reinitializes a wipeable auxiliary database (e.g. Change History)."""
+        reply = QMessageBox.warning(
+            self,
+            "Confirm Database Wipe",
+            f"Are you sure you want to completely wipe:\n{db_path.name}?\n\n"
+            "All indexed specification change history and TDoc cross-references will be cleared.\n"
+            "This will NOT affect your specifications catalogue or meeting data.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        from modules.specifications.core.spec_history_db import SpecHistoryDatabase
+        success = SpecHistoryDatabase(db_path).wipe_database()
+        if success:
+            QMessageBox.information(self, "Wipe Complete", f"Successfully cleared and reinitialized {db_path.name}.")
+        else:
+            QMessageBox.critical(self, "Wipe Error", f"Failed to wipe {db_path.name}.")
+
+        self._refresh_databases()
 
     def _vacuum_single(self, db_path: Path, row_idx: int):
         """Compacts an individual database and updates table status."""

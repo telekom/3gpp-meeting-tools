@@ -72,6 +72,24 @@ def handle_document_action(tab, combo: QComboBox, doc_type: str, btn: QPushButto
             QMessageBox.warning(tab, "Not Found", "No Word documents found on disk or inside the zip archive.")
             return
 
+        # Trigger asynchronous Change History extraction for 3gpp_spec_history.db
+        try:
+            from modules.specifications.core.spec_history_db import SpecHistoryDatabase
+            from modules.specifications.core.spec_history_extractor import SpecHistoryExtractThread
+            from core.utils.paths import get_project_root
+            hist_db = getattr(tab, "history_db", None) or SpecHistoryDatabase(get_project_root() / "db" / "3gpp_spec_history.db")
+            spec_num = c_data.get("spec_num", "")
+            ver_num = c_data.get("version", "")
+            docx_target = next((p for p in extracted_docs if p.suffix.lower() == ".docx"), None)
+            if docx_target and spec_num:
+                th = SpecHistoryExtractThread(spec_num, hist_db, version=ver_num, docx_path=docx_target)
+                th.finished.connect(th.deleteLater)
+                th.start()
+                if hasattr(tab, "_download_threads"):
+                    tab._download_threads.append(th)
+        except Exception as hist_err:
+            logger.debug(f"Could not trigger background history extraction: {hist_err}")
+
         try:
             from modules.word_tools.core.word_converter import WordConverterThread
         except ImportError as e:
