@@ -6,7 +6,7 @@ from typing import Dict, List, Set, Optional, Tuple, Any
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
+    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QGroupBox,
     QRadioButton, QCheckBox, QPushButton, QLineEdit, QFileDialog,
     QTreeWidget, QTreeWidgetItem, QStackedWidget, QFrame, QScrollArea,
     QWidget, QButtonGroup, QMessageBox, QSizePolicy
@@ -24,7 +24,7 @@ STYLE_TOGGLE_ACTIVE = """
         font-weight: bold;
         border: 1px solid #1D4ED8;
         border-radius: 4px;
-        padding: 4px 10px;
+        padding: 3px 8px;
         font-size: 11px;
     }
 """
@@ -35,12 +35,31 @@ STYLE_TOGGLE_INACTIVE = """
         color: #475569;
         border: 1px solid #CBD5E1;
         border-radius: 4px;
-        padding: 4px 10px;
+        padding: 3px 8px;
         font-size: 11px;
     }
     QPushButton:hover {
         background-color: #F1F5F9;
         color: #1E293B;
+    }
+"""
+
+STYLE_COMPACT_BTN = """
+    QPushButton {
+        background-color: #F8FAFC;
+        color: #1E293B;
+        border: 1px solid #CBD5E1;
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 11px;
+        font-weight: 500;
+    }
+    QPushButton:hover {
+        background-color: #F1F5F9;
+        border-color: #94A3B8;
+    }
+    QPushButton:pressed {
+        background-color: #E2E8F0;
     }
 """
 
@@ -111,8 +130,8 @@ class PostMeetingExportDialog(QDialog):
         self.selected_wi_ais: Set[Tuple[str, str]] = set()
 
         self.setWindowTitle("📑 Post-Meeting Report & Markdown Dossier Export")
-        self.resize(660, 780)
-        self.setMinimumSize(580, 680)
+        self.resize(960, 650)
+        self.setMinimumSize(880, 560)
         self.setStyleSheet("""
             QDialog { background-color: #F8FAFC; }
             QGroupBox {
@@ -244,8 +263,8 @@ class PostMeetingExportDialog(QDialog):
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(10)
-        main_layout.setContentsMargins(14, 14, 14, 14)
+        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(12, 10, 12, 10)
 
         # --- Header Card ---
         header_frame = QFrame()
@@ -254,18 +273,18 @@ class PostMeetingExportDialog(QDialog):
                 background-color: #EFF6FF;
                 border: 1px solid #BFDBFE;
                 border-radius: 6px;
-                padding: 8px;
+                padding: 6px;
             }
         """)
         header_layout = QVBoxLayout(header_frame)
-        header_layout.setContentsMargins(8, 6, 8, 6)
-        header_layout.setSpacing(2)
+        header_layout.setContentsMargins(8, 4, 8, 4)
+        header_layout.setSpacing(1)
 
         wg = str(self.mtg_info.get("wg_name", "3GPP")).strip()
         mtg = str(self.mtg_info.get("meeting_number", "")).strip()
         title_text = f"<b>{wg} #{mtg} Post-Meeting Report</b>" if (wg or mtg) else "<b>Post-Meeting Report</b>"
         lbl_title = QLabel(title_text)
-        lbl_title.setStyleSheet("font-size: 14px; color: #1E40AF; font-weight: bold; border: none;")
+        lbl_title.setStyleSheet("font-size: 13px; color: #1E40AF; font-weight: bold; border: none;")
         lbl_sub = QLabel("Generates a structured, per-release and per-WI Markdown dossier with an executive summary cover page.")
         lbl_sub.setStyleSheet("font-size: 11px; color: #3B82F6; border: none;")
         lbl_sub.setWordWrap(True)
@@ -274,11 +293,16 @@ class PostMeetingExportDialog(QDialog):
         header_layout.addWidget(lbl_sub)
         main_layout.addWidget(header_frame)
 
-        # --- Group 1: Scope Selection ---
+        # --- 2-Column Split Body ---
+        body_layout = QHBoxLayout()
+        body_layout.setSpacing(10)
+
+        # --- Left Column: Group 1: Scope Selection ---
         scope_group = QGroupBox("1. Select Export Scope")
         scope_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         scope_layout = QVBoxLayout(scope_group)
         scope_layout.setSpacing(6)
+        scope_layout.setContentsMargins(10, 12, 10, 8)
 
         self.scope_btn_group = QButtonGroup(self)
 
@@ -289,19 +313,31 @@ class PostMeetingExportDialog(QDialog):
         n_total = len(self.all_rows)
         n_all_wis = len(self.meeting_wis)
 
-        self.rb_followed = QRadioButton(f"🎯 Followed Work Items only ({n_followed} WIs in meeting)")
-        self.rb_whole = QRadioButton(f"🌐 Whole Meeting ({n_all_wis} WIs, {n_total} TDocs total)")
-        self.rb_starred = QRadioButton(f"⭐ Starred Work Items only ({n_starred} WIs in meeting)")
-        self.rb_tracked = QRadioButton(f"🎯 Followed && ⭐ Starred Work Items ({n_tracked} WIs)")
-        self.rb_visible = QRadioButton(f"🔍 Current Filtered Table View ({n_visible} TDocs visible)")
-        self.rb_custom = QRadioButton("📋 Custom Selection (Work Items && Agenda Items)...")
+        self.rb_followed = QRadioButton(f"🎯 Followed WIs only ({n_followed} WIs)")
+        self.rb_whole = QRadioButton(f"🌐 Whole Meeting ({n_all_wis} WIs, {n_total} docs)")
+        self.rb_starred = QRadioButton(f"⭐ Starred WIs only ({n_starred} WIs)")
+        self.rb_visible = QRadioButton(f"🔍 Filtered View ({n_visible} docs)")
+        self.rb_tracked = QRadioButton(f"🎯 Followed && ⭐ Starred ({n_tracked} WIs)")
+        self.rb_custom = QRadioButton("📋 Custom Selection...")
 
         self.scope_btn_group.addButton(self.rb_followed)
         self.scope_btn_group.addButton(self.rb_whole)
         self.scope_btn_group.addButton(self.rb_starred)
-        self.scope_btn_group.addButton(self.rb_tracked)
         self.scope_btn_group.addButton(self.rb_visible)
+        self.scope_btn_group.addButton(self.rb_tracked)
         self.scope_btn_group.addButton(self.rb_custom)
+
+        # 2-column grid for radio buttons
+        rb_grid = QGridLayout()
+        rb_grid.setHorizontalSpacing(10)
+        rb_grid.setVerticalSpacing(4)
+        rb_grid.addWidget(self.rb_followed, 0, 0)
+        rb_grid.addWidget(self.rb_whole, 0, 1)
+        rb_grid.addWidget(self.rb_starred, 1, 0)
+        rb_grid.addWidget(self.rb_visible, 1, 1)
+        rb_grid.addWidget(self.rb_tracked, 2, 0)
+        rb_grid.addWidget(self.rb_custom, 2, 1)
+        scope_layout.addLayout(rb_grid)
 
         # Default selection: Followed if available, else Whole Meeting
         if n_followed > 0:
@@ -316,31 +352,30 @@ class PostMeetingExportDialog(QDialog):
         self.rb_visible.toggled.connect(self._on_scope_radio_toggled)
         self.rb_custom.toggled.connect(self._on_scope_radio_toggled)
 
-        scope_layout.addWidget(self.rb_followed)
-        scope_layout.addWidget(self.rb_whole)
-        scope_layout.addWidget(self.rb_starred)
-        scope_layout.addWidget(self.rb_tracked)
-        scope_layout.addWidget(self.rb_visible)
-        scope_layout.addWidget(self.rb_custom)
-
         # --- Custom Selection Widget (Expandable Tree with Dual Views) ---
         self.custom_wi_widget = QWidget()
-        self.custom_wi_widget.setMinimumHeight(260)
         self.custom_wi_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         custom_layout = QVBoxLayout(self.custom_wi_widget)
-        custom_layout.setContentsMargins(18, 4, 4, 4)
+        custom_layout.setContentsMargins(0, 4, 0, 0)
         custom_layout.setSpacing(6)
+
+        # Dynamic Status / Hint Label
+        self.lbl_custom_hint = QLabel()
+        self.lbl_custom_hint.setStyleSheet("font-size: 11px;")
+        custom_layout.addWidget(self.lbl_custom_hint)
 
         # Header bar: View switcher + Tree controls
         ctrl_layout = QHBoxLayout()
-        ctrl_layout.setSpacing(6)
+        ctrl_layout.setSpacing(4)
 
-        self.btn_view_wi = QPushButton("🗂️ By Work Item")
+        self.btn_view_wi = QPushButton("🗂️ Work Items")
+        self.btn_view_wi.setToolTip("Group by Work Item (WI ➔ Agenda Items)")
         self.btn_view_wi.setStyleSheet(STYLE_TOGGLE_ACTIVE)
         self.btn_view_wi.clicked.connect(lambda: self._switch_custom_view("wi"))
         ctrl_layout.addWidget(self.btn_view_wi)
 
-        self.btn_view_ai = QPushButton("📋 By Agenda Item")
+        self.btn_view_ai = QPushButton("📋 Agenda Items")
+        self.btn_view_ai.setToolTip("Group by Agenda Item (AI ➔ Work Items)")
         self.btn_view_ai.setStyleSheet(STYLE_TOGGLE_INACTIVE)
         self.btn_view_ai.clicked.connect(lambda: self._switch_custom_view("ai"))
         ctrl_layout.addWidget(self.btn_view_ai)
@@ -348,22 +383,22 @@ class PostMeetingExportDialog(QDialog):
         ctrl_layout.addStretch()
 
         self.btn_expand_all = QPushButton("⊞ Expand")
-        self.btn_expand_all.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_expand_all.setStyleSheet(STYLE_COMPACT_BTN)
         self.btn_expand_all.clicked.connect(self._expand_active_tree)
         ctrl_layout.addWidget(self.btn_expand_all)
 
         self.btn_collapse_all = QPushButton("⊟ Collapse")
-        self.btn_collapse_all.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_collapse_all.setStyleSheet(STYLE_COMPACT_BTN)
         self.btn_collapse_all.clicked.connect(self._collapse_active_tree)
         ctrl_layout.addWidget(self.btn_collapse_all)
 
         self.btn_select_all = QPushButton("☑ All")
-        self.btn_select_all.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_select_all.setStyleSheet(STYLE_COMPACT_BTN)
         self.btn_select_all.clicked.connect(self._select_all_custom)
         ctrl_layout.addWidget(self.btn_select_all)
 
         self.btn_clear_all = QPushButton("☐ None")
-        self.btn_clear_all.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_clear_all.setStyleSheet(STYLE_COMPACT_BTN)
         self.btn_clear_all.clicked.connect(self._clear_all_custom)
         ctrl_layout.addWidget(self.btn_clear_all)
 
@@ -378,36 +413,36 @@ class PostMeetingExportDialog(QDialog):
 
         # Stacked Trees: Page 0 = WI->AI, Page 1 = AI->WI
         self.tree_stack = QStackedWidget()
-        self.tree_stack.setMinimumHeight(200)
         self.tree_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.tree_wi = QTreeWidget()
         self.tree_wi.setHeaderHidden(True)
         self.tree_wi.setStyleSheet(STYLE_TREE)
-        self.tree_wi.setMinimumHeight(190)
         self.tree_wi.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._populate_tree_wi()
 
         self.tree_ai = QTreeWidget()
         self.tree_ai.setHeaderHidden(True)
         self.tree_ai.setStyleSheet(STYLE_TREE)
-        self.tree_ai.setMinimumHeight(190)
         self.tree_ai.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._populate_tree_ai()
 
         self.tree_stack.addWidget(self.tree_wi)
         self.tree_stack.addWidget(self.tree_ai)
-        custom_layout.addWidget(self.tree_stack)
+        custom_layout.addWidget(self.tree_stack, stretch=1)
 
-        self.custom_wi_widget.setVisible(False)
-        scope_layout.addWidget(self.custom_wi_widget)
+        scope_layout.addWidget(self.custom_wi_widget, stretch=1)
+        body_layout.addWidget(scope_group, stretch=12)
 
-        main_layout.addWidget(scope_group, stretch=1)
+        # --- Right Column: Sections 2 & 3 ---
+        right_column = QVBoxLayout()
+        right_column.setSpacing(8)
 
         # --- Group 2: Document Types & Statuses ---
         docs_group = QGroupBox("2. Target Document Types && Statuses")
         docs_layout = QVBoxLayout(docs_group)
         docs_layout.setSpacing(4)
+        docs_layout.setContentsMargins(10, 12, 10, 8)
 
         self.chk_ls_in = QCheckBox("📥 Incoming Liaison Statements (LS in)")
         self.chk_ls_in.setChecked(True)
@@ -447,17 +482,13 @@ class PostMeetingExportDialog(QDialog):
         docs_layout.addWidget(self.chk_disc)
         docs_layout.addWidget(self.chk_general_ls)
 
-        main_layout.addWidget(docs_group)
-
-        # --- Estimated Scope Banner ---
-        self.lbl_estimate = QLabel()
-        self.lbl_estimate.setWordWrap(True)
-        main_layout.addWidget(self.lbl_estimate)
+        right_column.addWidget(docs_group)
 
         # --- Group 3: Conversion & Output Options ---
         opts_group = QGroupBox("3. Organization && Conversion Options")
         opts_layout = QVBoxLayout(opts_group)
         opts_layout.setSpacing(4)
+        opts_layout.setContentsMargins(10, 12, 10, 8)
 
         self.chk_local_indices = QCheckBox("Generate local index.md cover inside each Work Item directory")
         self.chk_local_indices.setChecked(True)
@@ -477,8 +508,9 @@ class PostMeetingExportDialog(QDialog):
         opts_layout.addWidget(self.chk_auto_open)
 
         # Destination Folder row
+        opts_layout.addWidget(QLabel("Destination Directory:"))
         dest_layout = QHBoxLayout()
-        dest_layout.addWidget(QLabel("Destination:"))
+        dest_layout.setSpacing(6)
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
         clean_wg = re.sub(r'[^\w\-]', '_', wg)
         clean_mtg = re.sub(r'[^\w\-]', '_', mtg)
@@ -489,14 +521,20 @@ class PostMeetingExportDialog(QDialog):
         dest_layout.addWidget(self.dest_edit)
 
         btn_browse = QPushButton("📁 Browse...")
-        btn_browse.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        btn_browse.setStyleSheet(STYLE_COMPACT_BTN)
         btn_browse.clicked.connect(self._browse_destination)
         dest_layout.addWidget(btn_browse)
 
-        opts_layout.addSpacing(4)
         opts_layout.addLayout(dest_layout)
 
-        main_layout.addWidget(opts_group)
+        right_column.addWidget(opts_group)
+        body_layout.addLayout(right_column, stretch=9)
+        main_layout.addLayout(body_layout, stretch=1)
+
+        # --- Estimated Scope Banner ---
+        self.lbl_estimate = QLabel()
+        self.lbl_estimate.setWordWrap(True)
+        main_layout.addWidget(self.lbl_estimate)
 
         # --- Action Buttons ---
         btn_layout = QHBoxLayout()
@@ -529,6 +567,9 @@ class PostMeetingExportDialog(QDialog):
         btn_layout.addWidget(btn_start)
 
         main_layout.addLayout(btn_layout)
+
+        # Initial label hint state
+        self._sync_scope_ui_state()
 
         # Connect tree itemChanged after all widgets and estimation banners exist
         self.tree_wi.itemChanged.connect(lambda item, col: self._on_tree_item_changed(self.tree_wi, item, col))
@@ -604,6 +645,10 @@ class PostMeetingExportDialog(QDialog):
         """Synchronizes checks between parent and child nodes and updates the shared selection model."""
         if self._updating_tree:
             return
+
+        # Auto-activate Custom Selection mode when user modifies selection
+        if not self.rb_custom.isChecked():
+            self.rb_custom.setChecked(True)
 
         self._updating_tree = True
         try:
@@ -742,6 +787,8 @@ class PostMeetingExportDialog(QDialog):
             active_tree.collapseAll()
 
     def _select_all_custom(self):
+        if not self.rb_custom.isChecked():
+            self.rb_custom.setChecked(True)
         for wi in self.meeting_wis:
             for ai in self.wi_to_ais.get(wi, {}):
                 self.selected_wi_ais.add((wi, ai))
@@ -750,6 +797,8 @@ class PostMeetingExportDialog(QDialog):
         self._update_estimates()
 
     def _clear_all_custom(self):
+        if not self.rb_custom.isChecked():
+            self.rb_custom.setChecked(True)
         self.selected_wi_ais.clear()
         self._sync_tree_from_selection(self.tree_wi)
         self._sync_tree_from_selection(self.tree_ai)
@@ -759,15 +808,22 @@ class PostMeetingExportDialog(QDialog):
     # Live Scope & Document Counts Estimation
     # -------------------------------------------------------------------------
 
-    def _on_scope_radio_toggled(self, checked: bool):
+    def _sync_scope_ui_state(self):
+        """Updates hint label and visual style when scope mode changes."""
         is_custom = self.rb_custom.isChecked()
-        self.custom_wi_widget.setVisible(is_custom)
         if is_custom:
+            self.lbl_custom_hint.setText("⚡ <b>Custom Selection:</b> Choose specific Work Items and Agenda Items to export:")
+            self.lbl_custom_hint.setStyleSheet("font-size: 11px; color: #1D4ED8;")
+        else:
+            self.lbl_custom_hint.setText("💡 <i>Check any item below or select 'Custom Selection' to customize scope:</i>")
+            self.lbl_custom_hint.setStyleSheet("font-size: 11px; color: #64748B;")
+
+    def _on_scope_radio_toggled(self, checked: bool):
+        self._sync_scope_ui_state()
+        if self.rb_custom.isChecked():
             active_tree = self.tree_stack.currentWidget()
             if isinstance(active_tree, QTreeWidget):
                 self._sync_tree_from_selection(active_tree)
-            if self.height() < 800:
-                self.resize(self.width(), 800)
         self._update_estimates()
 
     def _update_estimates(self):
