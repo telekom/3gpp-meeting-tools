@@ -42,8 +42,8 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 | **F-14** | **Email Reflector** | Reflector `Attachment.txt` Redirect Fetcher | [F14: Attachment Link Fetcher](legacy_features/F14_reflector_attachment_link_fetcher.md) | ❌ IMAP/HTML sync only | Low | 🟡 Medium |
 | **F-15** | **Email Reflector** | Chairman Email Notes (`<<START>>...<<END>>`) | [F15: Chairman Notes Parser](legacy_features/F15_chairman_email_notes_parser.md) | ❌ Not implemented | Low | ⚪ Low |
 | **F-16** | **Email Reflector** | Email Approval Excel Export | [F16: Email Approval Excel](legacy_features/F16_email_approval_excel_export.md) | ❌ Not implemented | Medium | ⚪ Low |
-| **F-17** | **Web Links** | 3GPP Guru Web Viewer Integration | [F17: 3GPP Guru Integration](legacy_features/F17_3gpp_guru_web_viewer_integration.md) | ❌ Portal / FTP links only | Very Low | 🟢 High |
-| **F-18** | **Web Links** | 3GPP Forge APIs Direct Link | [F18: 3GPP Forge APIs](legacy_features/F18_3gpp_forge_apis_launcher.md) | ❌ Not in menu | Very Low | 🟢 High |
+| **F-17** | **Web Links** | 3GPP Guru Web Viewer Integration | [F17: 3GPP Guru Integration](legacy_features/F17_3gpp_guru_web_viewer_integration.md) | ✅ Implemented (Help & Resources Menu) | Very Low | 🟢 High |
+| **F-18** | **Web Links** | 3GPP Forge APIs Direct Link | [F18: 3GPP Forge APIs](legacy_features/F18_3gpp_forge_apis_launcher.md) | ✅ Implemented (Help & Resources Menu) | Very Low | 🟢 High |
 | **F-19** | **Meeting Notes** | Chairman\'s Notes Word Table Parser (WIP) | [F19: Chair Notes Word Parser](legacy_features/F19_chairmans_notes_word_table_parser.md) | ❌ File download only | High | 🟡 Medium |
 
 ---

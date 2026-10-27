@@ -10,10 +10,11 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QKeySequence, QTextCursor
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication,
-    QDialog, QTabWidget, QPushButton, QShortcut, QLabel, QMessageBox
+    QDialog, QTabWidget, QPushButton, QShortcut, QLabel, QMessageBox, QMenu
 )
 
 from core.config.config import HELP_URL
+from core.config.useful_links import populate_help_menu, get_useful_links_config_path
 from core.network.session import NetworkConfigDialog, NetworkSession, ProxyProfileManager
 from core.network.wifi_monitor import WifiMonitorThread
 from core.queue_manager import QueueManager
@@ -257,14 +258,42 @@ class DragDropUI(QMainWindow):
         # Connect tab activation for lazy loading
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
-        # Tab corner help link
-        self.help_btn = QPushButton("📖 Help (F1)")
+        # Tab corner help dropdown menu
+        self.help_btn = QPushButton("📖 Help ▾")
+        self.help_btn.setObjectName("helpDropdownBtn")
         self.help_btn.setStyleSheet("""
-            QPushButton { border: none; background: transparent; color: #395396; font-weight: bold; padding: 4px 15px; }
-            QPushButton:hover { color: #1E5C99; text-decoration: underline; }
+            QPushButton#helpDropdownBtn {
+                border: 1px solid #CBD5E1;
+                background-color: #F8FAFC;
+                color: #1E293B;
+                font-weight: bold;
+                font-size: 11px;
+                padding: 3px 12px;
+                border-radius: 4px;
+                margin-right: 6px;
+                margin-top: 2px;
+            }
+            QPushButton#helpDropdownBtn:hover {
+                background-color: #EEF2F6;
+                border-color: #94A3B8;
+                color: #0F172A;
+            }
+            QPushButton#helpDropdownBtn::menu-indicator {
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                padding-right: 2px;
+            }
         """)
         self.help_btn.setCursor(Qt.PointingHandCursor)
-        self.help_btn.clicked.connect(self.open_documentation)
+        self.help_btn.setToolTip("Useful 3GPP tools, external portals, and application documentation (F1 for Docs)")
+
+        # Create dynamic Help & Resources dropdown menu
+        self.help_menu = QMenu(self)
+        self.help_menu.setToolTipsVisible(True)
+        self.help_menu.aboutToShow.connect(self._rebuild_help_menu)
+        self.help_btn.setMenu(self.help_menu)
+        self._rebuild_help_menu()
+
         self.tabs.setCornerWidget(self.help_btn, Qt.TopRightCorner)
 
         self.help_shortcut = QShortcut(QKeySequence("F1"), self)
@@ -454,6 +483,31 @@ class DragDropUI(QMainWindow):
             pass
 
     # --- UI INTERACTION LOGIC ---
+    def _rebuild_help_menu(self):
+        populate_help_menu(
+            self.help_menu,
+            on_open_url=self.open_external_url,
+            on_edit_config=self.edit_useful_links_config,
+        )
+
+    def open_external_url(self, url: str, title: str = "Web Resource"):
+        try:
+            webbrowser.open(url)
+            self.log_message(f"🌐 Opened {title} in your web browser: {url}", logging.INFO)
+        except Exception as e:
+            self.log_message(f"❌ Failed to open URL '{url}': {e}", logging.ERROR)
+
+    def edit_useful_links_config(self):
+        config_path = get_useful_links_config_path()
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(str(config_path))
+            else:
+                webbrowser.open(f"file:///{config_path}")
+            self.log_message(f"📝 Opened useful links configuration: {config_path.name}", logging.INFO)
+        except Exception as e:
+            self.log_message(f"❌ Failed to open config file '{config_path}': {e}", logging.ERROR)
+
     def open_documentation(self):
         try:
             webbrowser.open(HELP_URL)

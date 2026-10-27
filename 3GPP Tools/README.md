@@ -202,6 +202,19 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ---
 
+### 📖 Help & Configurable Useful Links Menu
+* **Tab-Bar Dropdown Menu (`📖 Help ▾`):** Integrated directly into the top-right corner of the main tab bar, providing instant 1-click access to curated 3GPP developer tools, specification viewers, and official portals.
+* **Curated Community Tools & Portals:**
+  * **3GPP Guru Viewer (F-17):** Fast web-based 3GPP specification viewer with syntax highlighting and cross-clause hyperlinks (`https://3gpp.guru/`).
+  * **SpecViewer:** Release-by-release 3GPP specification browser with clause search and diffing (`https://specviewer.org/`).
+  * **TDocHamster:** 3GPP TDoc search, comparison, and meeting contribution visualizer (`https://tdochamster.com/`).
+  * **3GPP Forge OpenAPI Specs (F-18):** Direct launcher to official 3GPP OpenAPI 3.0 YAML definitions for 5G Core, NWDAF, and SBA on GitLab (`https://forge.3gpp.org/rep/all/apis`).
+  * **Official 3GPP Portals:** Instant access to 3GPP Portal (3GU) and 3GPP Work Plan / GANTT release schedules.
+  * **Application Documentation (<kbd>F1</kbd>):** Retains standard <kbd>F1</kbd> keyboard shortcut to immediately open local application documentation.
+* **100% Configurable via JSON (`config/useful_links.json`):** Add, remove, re-order, or customize categories, titles, URLs, and emoji visual cues (🌐, 🔍, 🐹, 🛠️, 🏛️, 📅) by simply editing `config/useful_links.json`. Updates are detected dynamically when opening the menu without restarting the application, with a 1-click **⚙️ Configure Useful Links (JSON)...** editor shortcut.
+
+---
+
 ### 📡 3GPP Meeting, Specification & Work Items Database
 * **Asynchronous Three-Phase Syncing Engine:** 
   * **Phase 1 (FTP Directory Mapping):** Scrapes the 3GPP FTP archives in parallel to instantly populate your database with all available meeting numbers, gracefully handling hidden RAN Ad-Hoc (`TSGR_AHs`) subdirectories.

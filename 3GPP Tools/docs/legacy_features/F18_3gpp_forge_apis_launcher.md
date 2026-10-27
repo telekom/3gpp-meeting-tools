@@ -1,5 +1,9 @@
 # F-18: 3GPP Forge APIs Direct Launcher
 
+> [!NOTE]
+> **Status: ✅ IMPLEMENTED**  
+> Integrated into the top-level **`📖 Help ▾`** dropdown menu in [`src/main_window.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/main_window.py#L260-L275) and configurable via [`src/config/useful_links.json`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/config/useful_links.json). Provides instant 1-click access to official 3GPP OpenAPI 3.0 specifications at `https://forge.3gpp.org/rep/all/apis` with visual cue `🛠️`.
+
 ## 1. Executive Summary & Objective
 
 Starting with 5G System (5GS) Release 15, 3GPP service-based architecture (SBA) specifications (TS 29.500 series, TS 29.518, TS 29.502, TS 29.571, etc.) define normative RESTful APIs using OpenAPI 3.0 YAML/JSON descriptions.
@@ -9,9 +13,7 @@ Rather than maintaining these complex schema definitions solely in Word document
 
 In the legacy application, `_3GPP_Delegate_Helper.py` provided a prominent launcher button **"3GPP APIs"** on the main dashboard, enabling telecommunications protocol architects and API designers to jump directly to official OpenAPI definitions with one click.
 
-In **3GPP Tools**, while the Protocol Matrix and Evolution tabs cover NAS, ASN.1 (RRC/NGAP), GTP-U, and PFCP, there is no direct link to 3GPP Forge APIs in the main interface.
-
-The objective of **F-18** is to restore quick launcher links to 3GPP Forge OpenAPI repositories within relevant protocol and specification menus.
+In **3GPP Tools**, F-18 is implemented as a core entry under *"Official 3GPP Portals & APIs"* in the top-level **`📖 Help ▾`** dropdown menu with visual cue `🛠️`, and is fully configurable via `src/config/useful_links.json`.
 
 ---
 

@@ -1,5 +1,9 @@
 # F-17: 3GPP Guru Web Viewer Integration
 
+> [!NOTE]
+> **Status: ✅ IMPLEMENTED**  
+> Integrated into the top-level **`📖 Help ▾`** dropdown menu in [`src/main_window.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/main_window.py#L260-L275) and configurable via [`src/config/useful_links.json`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/config/useful_links.json). Provides instant 1-click access to [3GPP Guru](https://3gpp.guru/) alongside other community viewers (SpecViewer, TDocHamster).
+
 ## 1. Executive Summary & Objective
 
 When reading or cross-referencing 3GPP specifications, delegates frequently need quick clause lookups in a browser without downloading, unzipping, and launching heavy Microsoft Word `.docx` documents. 
@@ -8,9 +12,7 @@ When reading or cross-referencing 3GPP specifications, delegates frequently need
 
 The legacy application included a 1-click integration in the Specifications table (`gui/specs_table.py`) that synthesized the exact URL structure for 3GPP Guru and launched the matching release in the user's default web browser.
 
-In **3GPP Tools**, the Specifications and Spec Search modules provide direct links to the official 3GPP Portal (`portal.3gpp.org`) and 3GPP FTP directories, but do **not** provide direct deep links to 3GPP Guru.
-
-The objective of **F-17** is to restore **"🌐 Open in 3GPP Guru"** deep links across the Specifications tab, Evolution Matrix, and Spec Search inspector.
+In **3GPP Tools**, F-17 is implemented as a core entry in the top-level **`📖 Help ▾`** dropdown menu with visual cue `🌐`, and is fully configurable via `src/config/useful_links.json`.
 
 ---
 
