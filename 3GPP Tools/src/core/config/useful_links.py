@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Optional
 
 from PyQt5.QtWidgets import QAction, QMenu
 
+from core.ui.ui_components import escape_qt_mnemonic
 from core.utils.paths import get_project_root
 
 logger = logging.getLogger(__name__)
@@ -137,8 +138,8 @@ def populate_help_menu(
         if not links:
             continue
 
-        # Add section header
-        menu.addSection(cat_name)
+        # Add section header with escaped mnemonic ampersands
+        menu.addSection(escape_qt_mnemonic(cat_name))
 
         for link in links:
             title = link.get("title", "Untitled Link")
@@ -150,8 +151,9 @@ def populate_help_menu(
             if not url:
                 continue
 
-            # Build label with icon/emoji and optional shortcut display
-            label = f"{icon}  {title}" if icon else title
+            # Build label with icon/emoji, escaped ampersands, and optional shortcut display
+            escaped_title = escape_qt_mnemonic(title)
+            label = f"{icon}  {escaped_title}" if icon else escaped_title
             if shortcut:
                 label = f"{label}\t{shortcut}"
 

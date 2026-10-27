@@ -266,12 +266,15 @@ class DragDropUI(QMainWindow):
                 border: 1px solid #CBD5E1;
                 background-color: #F8FAFC;
                 color: #1E293B;
-                font-weight: bold;
-                font-size: 11px;
-                padding: 3px 12px;
-                border-radius: 4px;
-                margin-right: 6px;
-                margin-top: 2px;
+                font-weight: 600;
+                font-size: 12px;
+                padding: 0px 14px;
+                min-height: 26px;
+                max-height: 26px;
+                border-radius: 5px;
+                margin-right: 8px;
+                margin-top: 3px;
+                margin-bottom: 4px;
             }
             QPushButton#helpDropdownBtn:hover {
                 background-color: #EEF2F6;
@@ -279,9 +282,8 @@ class DragDropUI(QMainWindow):
                 color: #0F172A;
             }
             QPushButton#helpDropdownBtn::menu-indicator {
-                subcontrol-origin: padding;
-                subcontrol-position: center right;
-                padding-right: 2px;
+                image: none;
+                width: 0px;
             }
         """)
         self.help_btn.setCursor(Qt.PointingHandCursor)

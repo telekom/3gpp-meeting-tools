@@ -212,6 +212,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Official 3GPP Portals:** Instant access to 3GPP Portal (3GU) and 3GPP Work Plan / GANTT release schedules.
   * **Application Documentation (<kbd>F1</kbd>):** Retains standard <kbd>F1</kbd> keyboard shortcut to immediately open local application documentation.
 * **100% Configurable via JSON (`config/useful_links.json`):** Add, remove, re-order, or customize categories, titles, URLs, and emoji visual cues (🌐, 🔍, 🐹, 🛠️, 🏛️, 📅) by simply editing `config/useful_links.json`. Updates are detected dynamically when opening the menu without restarting the application, with a 1-click **⚙️ Configure Useful Links (JSON)...** editor shortcut.
+* **Automatic Qt Mnemonic Escaping:** Literal ampersands (`&`) in link titles and categories are automatically escaped as `&&` when injected into Qt dropdown actions and menus, ensuring names like "3GPP Work Plan & Release Timelines" render cleanly without unwanted keyboard accelerator underscores.
 
 ---
 

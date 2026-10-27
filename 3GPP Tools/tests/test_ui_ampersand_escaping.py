@@ -1,8 +1,15 @@
 import ast
 import os
 import re
+import sys
 import unittest
 from pathlib import Path
+
+# Ensure 'src' is in sys.path for test execution
+project_root = Path(__file__).resolve().parent.parent
+src_dir = project_root / "src"
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
 
 
 class TestUiAmpersandEscaping(unittest.TestCase):
@@ -39,8 +46,6 @@ class TestUiAmpersandEscaping(unittest.TestCase):
     }
 
     def test_no_unescaped_ui_ampersands_in_src(self):
-        project_root = Path(__file__).resolve().parent.parent
-        src_dir = project_root / "src"
         self.assertTrue(src_dir.exists(), f"Source directory {src_dir} does not exist.")
 
         violations = []
@@ -87,6 +92,55 @@ class TestUiAmpersandEscaping(unittest.TestCase):
                 "To display a literal '&', use '&&'.\n\nViolations:\n" + "\n".join(violations)
             )
             self.fail(msg)
+
+    def test_escape_qt_mnemonic_helper(self):
+        """Verify that escape_qt_mnemonic converts '&' -> '&&' idempotently without double-escaping."""
+        from core.ui.ui_components import escape_qt_mnemonic
+
+        # Single ampersands must be doubled
+        self.assertEqual(escape_qt_mnemonic("3GPP Work Plan & Release Timelines"), "3GPP Work Plan && Release Timelines")
+        self.assertEqual(escape_qt_mnemonic("Documentation & Help"), "Documentation && Help")
+        self.assertEqual(escape_qt_mnemonic("&"), "&&")
+
+        # Already doubled ampersands must NOT become quadruple
+        self.assertEqual(escape_qt_mnemonic("Already && Escaped"), "Already && Escaped")
+        self.assertEqual(escape_qt_mnemonic("A & B && C & D"), "A && B && C && D")
+
+        # Non-ampersand and empty strings
+        self.assertEqual(escape_qt_mnemonic("Plain Text"), "Plain Text")
+        self.assertEqual(escape_qt_mnemonic(""), "")
+        self.assertEqual(escape_qt_mnemonic(None), "")
+
+    def test_useful_links_menu_ampersand_escaping(self):
+        """Verify that populate_help_menu escapes all dynamic category and link titles with '&&'."""
+        from PyQt5.QtWidgets import QApplication, QMenu
+        from core.config.useful_links import populate_help_menu
+
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+
+        menu = QMenu()
+        populate_help_menu(menu, on_open_url=lambda u, t: None)
+
+        ampersand_pattern = re.compile(r"(?<!&)&(?!&)")
+        violations = []
+        actions = menu.actions()
+        self.assertGreater(len(actions), 0, "Useful links menu should have actions.")
+
+        for act in actions:
+            text = act.text()
+            if not text:
+                continue
+            if ampersand_pattern.search(text):
+                violations.append(f"QAction with text {repr(text)} contains an unescaped single '&'!")
+
+        if violations:
+            self.fail(
+                "Dynamic actions in useful_links menu contain unescaped '&':\n"
+                + "\n".join(violations)
+                + "\nAll dynamic titles must be passed through escape_qt_mnemonic()."
+            )
 
 
 if __name__ == "__main__":
