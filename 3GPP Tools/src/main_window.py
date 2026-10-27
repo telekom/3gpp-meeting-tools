@@ -252,6 +252,7 @@ class DragDropUI(QMainWindow):
             spec_search_db_path=spec_search_db_path,
             protocol_db_path=nas_db_path,
         )
+        self.assistant_tab.open_ollama_settings_requested.connect(self.open_ollama_settings)
 
         self.tabs.addTab(self.code_tab, "📝 PlantUML")
         self.tabs.addTab(self.batch_tab, "🔄 Visio")
