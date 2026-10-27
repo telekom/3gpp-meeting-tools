@@ -123,6 +123,11 @@ class SpecTDocOpener:
     """Dispatches TDoc document opening requests across local cache, Meetings database, and FTP."""
 
     @staticmethod
+    def resolve_local_tdoc_file(tdoc_id: str, cache_root: Optional[Path] = None) -> Optional[Path]:
+        """Locates any existing cached document (.docx, .doc, or .zip) for the TDoc."""
+        return find_cached_tdoc_file(tdoc_id, cache_root=cache_root)
+
+    @staticmethod
     def open_tdoc(
         tdoc_id: str,
         meeting_hint: str = "",

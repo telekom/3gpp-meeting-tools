@@ -552,6 +552,7 @@ class SpecSearchTab(QWidget):
         self.inspector.show_in_specs_tab_requested.connect(self._handle_show_in_specs_tab)
         self.inspector.quick_diff_requested.connect(self._handle_quick_diff)
         self.inspector.version_changes_requested.connect(self._open_version_history_dialog)
+        self.inspector.identify_origin_tdoc_requested.connect(self._handle_identify_origin_tdoc)
         self.inspector.jump_to_version_requested.connect(self._handle_jump_to_version)
         self.inspector.extract_clause_requested.connect(self._handle_extract_clause_word)
         self.inspector.export_markdown_requested.connect(self._handle_export_clause_markdown)
@@ -1131,8 +1132,9 @@ class SpecSearchTab(QWidget):
         clause_num: str,
         clause_title: str,
         base_version: Optional[str] = None,
+        focus_attribution: bool = False,
     ):
-        """Opens the unified clause comparison & analysis dialog (Visual Diff, LLM prompt, Word Track Changes)."""
+        """Opens the unified clause comparison & analysis dialog (Visual Diff, LLM prompt, Word Track Changes, TDoc Attribution)."""
         dialog = SpecClauseDiffDialog(
             db=self.db,
             spec_number=spec_num,
@@ -1142,9 +1144,31 @@ class SpecSearchTab(QWidget):
             cache_dir=self.cache_dir,
             specs_db=self.specs_db,
             base_version=base_version,
+            focus_attribution=focus_attribution,
             parent=self,
         )
-        dialog.exec_()
+        self._diff_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _handle_identify_origin_tdoc(
+        self,
+        spec_num: str,
+        base_ver: str,
+        target_ver: str,
+        clause_num: str,
+        clause_title: str,
+    ):
+        """Opens SpecClauseDiffDialog directly focused on the Modifying TDoc Attribution tab."""
+        self._open_clause_diff_dialog(
+            spec_num=spec_num,
+            version=target_ver,
+            clause_num=clause_num,
+            clause_title=clause_title,
+            base_version=base_ver,
+            focus_attribution=True,
+        )
 
     def _handle_open_spec_document(self, spec_number: str, version: str, clause_number: str, doc_format: str = "word"):
         """Dispatches specification document opening via SpecDocResolver."""

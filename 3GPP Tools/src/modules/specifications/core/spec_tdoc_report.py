@@ -30,10 +30,23 @@ logger = logging.getLogger(__name__)
 class SpecTDocReportGenerator:
     """Extracts TDoc metadata from meeting spreadsheets and generates technical dossier reports."""
 
-    def __init__(self, data_db_path: Optional[Path] = None, cache_root: Optional[Path] = None):
+    def __init__(
+        self,
+        data_db_path: Optional[Path] = None,
+        cache_root: Optional[Path] = None,
+        history_db: Optional[Any] = None,
+    ):
         self.data_db_path = Path(data_db_path or (get_project_root() / "db" / "3gpp_data.db"))
         self.cache_root = Path(cache_root or get_cache_root())
         self.meetings_db = MeetingsDatabase(self.data_db_path)
+        if history_db is not None:
+            self.history_db = history_db
+        else:
+            try:
+                from modules.specifications.core.spec_history_db import SpecHistoryDatabase
+                self.history_db = SpecHistoryDatabase(get_project_root() / "db" / "3gpp_spec_history.db")
+            except Exception:
+                self.history_db = None
         self._meeting_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
     def _resolve_meeting_spreadsheet(self, meeting: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -129,14 +142,56 @@ class SpecTDocReportGenerator:
 
         total = len(unique_tdocs)
         logger.info(f"📑 [TDoc Report] Resolving metadata for {total} TDocs from meeting agendas...")
-        if progress_cb:
-            progress_cb(5, f"Grouping {total} TDocs by 3GPP meeting...")
 
-        # 1. Group TDocs by meeting using MeetingsDatabase
+        # 0. Check SQLite persistent cache first (instant O(1))
+        cached_map: Dict[str, Dict[str, Any]] = {}
+        if self.history_db and hasattr(self.history_db, "get_tdoc_metadata"):
+            try:
+                cached_map = self.history_db.get_tdoc_metadata(unique_tdocs)
+            except Exception as e:
+                logger.warning(f"Error reading tdoc_metadata_cache: {e}")
+
+        # Partition into already-cached vs. needing spreadsheet ingestion
+        resolved_records: List[Dict[str, Any]] = []
+        pending_tdocs: List[str] = []
+
+        for t in unique_tdocs:
+            c_row = cached_map.get(t.upper()) or cached_map.get(t.upper().split("R")[0])
+            if c_row and c_row.get("title"):
+                resolved_records.append({
+                    "tdoc": t,
+                    "title": c_row.get("title", ""),
+                    "source": c_row.get("source", ""),
+                    "type": c_row.get("tdoc_type", "") or ("pCR" if re.search(r"-[0-9]{5,7}", t) else "CR"),
+                    "status": c_row.get("status", "").lower(),
+                    "agenda_item": c_row.get("agenda_item", ""),
+                    "ai_desc": c_row.get("ai_desc", ""),
+                    "abstract": c_row.get("abstract", ""),
+                    "contact": "",
+                    "wi": c_row.get("work_item", ""),
+                    "release": "",
+                    "spec": "",
+                    "meeting": c_row.get("meeting", "") or default_meeting,
+                    "remarks": c_row.get("remarks", ""),
+                    "resolved": True,
+                })
+            else:
+                pending_tdocs.append(t)
+
+        if not pending_tdocs:
+            if progress_cb:
+                progress_cb(100, f"Loaded {len(resolved_records)} TDocs from cache.")
+            logger.info(f"⚡ [TDoc Report] Instant cache hit: All {len(resolved_records)} TDocs loaded from SQLite.")
+            return resolved_records
+
+        if progress_cb:
+            progress_cb(5, f"Grouping {len(pending_tdocs)} TDocs by 3GPP meeting...")
+
+        # 1. Group pending TDocs by meeting using MeetingsDatabase
         meeting_to_tdocs: Dict[str, Tuple[Dict[str, Any], List[str]]] = {}
         unmapped: List[str] = []
 
-        for idx, tdoc in enumerate(unique_tdocs):
+        for idx, tdoc in enumerate(pending_tdocs):
             mtg = self.meetings_db.find_meeting_by_tdoc(tdoc)
             if mtg:
                 m_key = mtg.get("folder_name") or mtg.get("meeting_number") or "unknown"
@@ -146,7 +201,7 @@ class SpecTDocReportGenerator:
             else:
                 unmapped.append(tdoc)
 
-        resolved_records: List[Dict[str, Any]] = []
+        newly_resolved_for_cache: List[Dict[str, Any]] = []
         step = 0
         total_groups = max(1, len(meeting_to_tdocs))
 
@@ -166,7 +221,7 @@ class SpecTDocReportGenerator:
                 m_row = tdoc_map.get(clean_up) or tdoc_map.get(base_up)
 
                 if m_row:
-                    resolved_records.append({
+                    rec = {
                         "tdoc": tdoc,
                         "title": m_row.get("Title", "").strip(),
                         "source": m_row.get("Source", "").strip(),
@@ -182,7 +237,9 @@ class SpecTDocReportGenerator:
                         "meeting": mtg.get("name") or mtg.get("meeting_number") or default_meeting,
                         "remarks": m_row.get("Secretary Remarks", "").strip(),
                         "resolved": True,
-                    })
+                    }
+                    resolved_records.append(rec)
+                    newly_resolved_for_cache.append(rec)
                 else:
                     resolved_records.append({
                         "tdoc": tdoc,
@@ -221,6 +278,13 @@ class SpecTDocReportGenerator:
                 "remarks": "",
                 "resolved": False,
             })
+
+        # 3. Store newly resolved metadata into SQLite cache
+        if newly_resolved_for_cache and self.history_db and hasattr(self.history_db, "upsert_tdoc_metadata"):
+            try:
+                self.history_db.upsert_tdoc_metadata(newly_resolved_for_cache)
+            except Exception as e:
+                logger.warning(f"Could not persist to tdoc_metadata_cache: {e}")
 
         if progress_cb:
             progress_cb(100, f"Completed resolving {len(resolved_records)} TDocs.")

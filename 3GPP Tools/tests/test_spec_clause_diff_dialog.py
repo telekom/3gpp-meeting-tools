@@ -39,9 +39,14 @@ class TestSpecClauseDiffDialog(unittest.TestCase):
 
         # Verify title & tabs
         self.assertIn("Compare Clause 4.2.6", dialog.windowTitle())
-        self.assertEqual(dialog.tab_widget.count(), 2)
+        self.assertEqual(dialog.tab_widget.count(), 3)
         self.assertEqual(dialog.tab_widget.tabText(0), "📊 Visual Diff")
         self.assertEqual(dialog.tab_widget.tabText(1), "🤖 AI Analysis Prompt")
+        self.assertEqual(dialog.tab_widget.tabText(2), "🎯 Modifying TDoc")
+
+        # Verify Attribution Button in Diff Bar
+        self.assertTrue(hasattr(dialog, "btn_find_tdoc"))
+        self.assertIn("Identify Modifying TDoc", dialog.btn_find_tdoc.text())
 
         # Verify combo selections
         self.assertEqual(dialog.target_ver_combo.currentData()["version"], "17.15.0")
