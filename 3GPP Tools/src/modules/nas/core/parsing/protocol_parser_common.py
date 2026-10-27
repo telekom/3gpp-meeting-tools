@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any, Union, Callable, Tuple
 
 from modules.nas.core.parsing.protocol_parser_constants import (
-    RE_PART_INDEX, RE_SPEC_NUMBER, RE_VERSION_STEM
+    RE_PART_INDEX, RE_SPEC_NUMBER, RE_VERSION_STEM, extract_part_index
 )
 from modules.specifications.utils.utils import file_version_to_version
 from modules.nas.core.parsing.rrc_asn1_parser import RRCAsn1Parser
@@ -27,9 +27,9 @@ class ProtocolDocxDispatcher:
         self.logger = logging.getLogger(__name__)
 
     @staticmethod
-    def _extract_part_index(path: Path) -> int:
-        match = RE_PART_INDEX.search(path.name)
-        return int(match.group(1)) if match else 0
+    def _extract_part_index(path: Any) -> int:
+        return extract_part_index(path)
+
 
     def extract_spec_number(self) -> str:
         if not self.docx_paths:
