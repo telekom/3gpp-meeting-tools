@@ -49,9 +49,9 @@ Each document provides a comprehensive analysis covering:
 flowchart TD
     subgraph Phase1["Phase 1: High-Impact Ergonomics & Quick Wins (Sprint 1)"]
         P1_1["F-01: Windows tdoc:// Protocol Handler"]
-        P1_2["F-17: 3GPP Guru Deep Links"]
-        P1_3["F-18: 3GPP Forge APIs Launcher"]
-        P1_4["F-05: Compare vs. Active Word Document"]
+        P1_2["✅ F-17: 3GPP Guru Deep Links"]
+        P1_3["✅ F-18: 3GPP Forge APIs Launcher"]
+        P1_4["✅ F-05: Compare vs. Active Word Document"]
     end
 
     subgraph Phase2["Phase 2: Office Batch Automation & Exporters (Sprint 2)"]
