@@ -2,6 +2,12 @@
 import sys
 import unittest
 from pathlib import Path
+
+# Ensure src is in sys.path
+_src_dir = Path(__file__).resolve().parent.parent / "src"
+if str(_src_dir) not in sys.path:
+    sys.path.insert(0, str(_src_dir))
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 

@@ -276,6 +276,7 @@ class PostMeetingExportDialog(QDialog):
 
         # --- Group 1: Scope Selection ---
         scope_group = QGroupBox("1. Select Export Scope")
+        scope_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         scope_layout = QVBoxLayout(scope_group)
         scope_layout.setSpacing(6)
 
@@ -324,6 +325,8 @@ class PostMeetingExportDialog(QDialog):
 
         # --- Custom Selection Widget (Expandable Tree with Dual Views) ---
         self.custom_wi_widget = QWidget()
+        self.custom_wi_widget.setMinimumHeight(260)
+        self.custom_wi_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         custom_layout = QVBoxLayout(self.custom_wi_widget)
         custom_layout.setContentsMargins(18, 4, 4, 4)
         custom_layout.setSpacing(6)
@@ -375,6 +378,8 @@ class PostMeetingExportDialog(QDialog):
 
         # Stacked Trees: Page 0 = WI->AI, Page 1 = AI->WI
         self.tree_stack = QStackedWidget()
+        self.tree_stack.setMinimumHeight(200)
+        self.tree_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.tree_wi = QTreeWidget()
         self.tree_wi.setHeaderHidden(True)
@@ -395,10 +400,9 @@ class PostMeetingExportDialog(QDialog):
         custom_layout.addWidget(self.tree_stack)
 
         self.custom_wi_widget.setVisible(False)
-        self.rb_custom.toggled.connect(self.custom_wi_widget.setVisible)
         scope_layout.addWidget(self.custom_wi_widget)
 
-        main_layout.addWidget(scope_group)
+        main_layout.addWidget(scope_group, stretch=1)
 
         # --- Group 2: Document Types & Statuses ---
         docs_group = QGroupBox("2. Target Document Types && Statuses")
@@ -756,13 +760,15 @@ class PostMeetingExportDialog(QDialog):
     # -------------------------------------------------------------------------
 
     def _on_scope_radio_toggled(self, checked: bool):
-        if checked:
-            if self.rb_custom.isChecked():
-                # Make sure active tree reflects current custom selection
-                active_tree = self.tree_stack.currentWidget()
-                if isinstance(active_tree, QTreeWidget):
-                    self._sync_tree_from_selection(active_tree)
-            self._update_estimates()
+        is_custom = self.rb_custom.isChecked()
+        self.custom_wi_widget.setVisible(is_custom)
+        if is_custom:
+            active_tree = self.tree_stack.currentWidget()
+            if isinstance(active_tree, QTreeWidget):
+                self._sync_tree_from_selection(active_tree)
+            if self.height() < 800:
+                self.resize(self.width(), 800)
+        self._update_estimates()
 
     def _update_estimates(self):
         """Calculates matching TDocs in real time and updates summary text and Section 2 counts."""
@@ -892,8 +898,8 @@ class PostMeetingExportDialog(QDialog):
         self.chk_pcr.setText(f"📝 Agreed / Approved Pseudo-CRs (pCR) — {scope_counts['pCR']} docs")
         self.chk_cr.setText(f"📄 Agreed / Approved Change Requests (CR) — {scope_counts['CR']} docs")
         self.chk_ls_out.setText(f"📤 Agreed / Approved Outgoing Liaison Statements (LS out) — {scope_counts['LS_OUT']} docs")
-        self.chk_disc.setText(f"💬 Agreed / Noted Discussion & Status Papers (Disc / WID) — {scope_counts['DISC']} docs")
-        self.chk_general_ls.setText(f"📦 Include unassigned & general LS in — {general_ls_count} docs")
+        self.chk_disc.setText(f"💬 Agreed / Noted Discussion && Status Papers (Disc / WID) — {scope_counts['DISC']} docs")
+        self.chk_general_ls.setText(f"📦 Include unassigned && general LS in — {general_ls_count} docs")
 
         # Update Estimated Scope status banner
         total = len(matching_tdocs)
