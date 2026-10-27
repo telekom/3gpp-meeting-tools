@@ -39,6 +39,7 @@ src/modules/assistant/
 │       ├── spec_search_tools.py       # FTS5 search & clause retrieval tools
 │       └── specification_tools.py     # Catalogue lookup tools
 └── ui/
+    ├── assistant_components.py        # Reusable UI components, prompt editor, and style presets
     ├── assistant_tab.py               # Assistant chat interface, evidence drawer, status view
     └── assistant_worker.py            # AgentResearchWorker (background QThread)
 ```

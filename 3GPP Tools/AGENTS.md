@@ -170,6 +170,7 @@ python -m main_tools
 - **Architecture:** Bounded, evidence-grounded agent architecture connecting a local LLM to application knowledge services.
 - **Authority Boundary:** Strictly **`KNOWLEDGE_READ`**. The model has no SQL access, shell execution, or database write permissions.
 - **Semantic Tool Set:** Model interaction is restricted to predefined semantic tools (`find_specifications`, `get_specification`, `search_spec_text`, `get_spec_clause`, `list_protocols`, `list_protocol_messages`, `find_protocol_message`, `find_protocol_ie`).
+- **Cockpit UI & Ergonomics (`AssistantTab`, `assistant_components.py`):** Features responsive dual-mode layout (`◫ Side Drawer` <-> `⬒ Bottom Split`), active Ollama model status pill with 1-click configuration launcher, session management (`➕ New Chat`, `📋 Copy Chat`, `💾 Export Markdown`), auto-wrapping multi-line prompt editor (`MultilinePromptEdit` with `Shift+Enter` for newlines), starter prompt suggestion chips (`StarterChipsWidget`), and clean card frame styling.
 
 ### 4.7. Work Items (`src/modules/work_items`)
 - **Parallel Scraper & Storage:** Concurrently synchronizes 3GPP Work Items across all TSGs/WGs from dynamic reports into `3gpp_data.db` (`work_items`, `wi_group_map`, `wi_remarks`).
