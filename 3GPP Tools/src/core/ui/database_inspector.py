@@ -38,7 +38,8 @@ class DatabaseInspectorDialog(QDialog):
         self._current_total = 0
 
         self.setWindowTitle(f"Database Inspector — {self.display_name}")
-        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.Window)
+        self.setWindowModality(Qt.NonModal)
         self.resize(1050, 700)
         self.setStyleSheet("background-color: #FAFAFA;")
 

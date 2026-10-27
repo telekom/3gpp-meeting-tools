@@ -491,9 +491,13 @@ class DragDropUI(QMainWindow):
 
     # --- DIALOG & THREAD MANAGEMENT ---
     def open_db_maintenance(self):
-        """Spawns the Database Maintenance & Compaction dialog."""
-        dialog = DatabaseMaintenanceDialog(self)
-        dialog.exec_()
+        """Spawns the Database Maintenance & Compaction dialog as a non-blocking modeless window."""
+        if not hasattr(self, 'db_maintenance_dialog') or not self.db_maintenance_dialog.isVisible():
+            self.db_maintenance_dialog = DatabaseMaintenanceDialog(self)
+            self.db_maintenance_dialog.show()
+        else:
+            self.db_maintenance_dialog.raise_()
+            self.db_maintenance_dialog.activateWindow()
 
     def open_task_manager(self):
         """Spawns the COM Process Manager dialog as a non-blocking floating window."""

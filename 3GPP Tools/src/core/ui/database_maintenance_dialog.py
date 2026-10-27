@@ -85,17 +85,25 @@ class DatabaseMaintenanceDialog(QDialog):
     """
     Executive database maintenance, storage KPI monitoring, and compaction hub
     for all SQLite databases managed by 3GPP Tools.
+
+    Configured as a non-blocking modeless floating window (Qt.Window, Qt.NonModal)
+    without Qt.WindowStaysOnTopHint so delegates can freely navigate the rest
+    of the application and switch between external desktop tools.
     """
     log_msg = pyqtSignal(str, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Database Maintenance & Compaction Hub")
-        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
-        self.resize(980, 540)
-        self.setMinimumSize(900, 480)
+        # Standard window without WindowStaysOnTopHint so it doesn't force itself over external apps
+        self.setWindowFlags(Qt.Window)
+        # Non-modal so it never blocks the main window or other dialogs
+        self.setWindowModality(Qt.NonModal)
+        self.resize(1020, 560)
+        self.setMinimumSize(940, 480)
         self.setStyleSheet("background-color: #FAFAFA;")
 
+        self._inspector_dialogs: Dict[str, DatabaseInspectorDialog] = {}
         self._setup_ui()
         self._refresh_databases()
 
@@ -196,7 +204,8 @@ class DatabaseMaintenanceDialog(QDialog):
         self.table.setColumnWidth(2, 85)
         self.table.setColumnWidth(3, 105)
         self.table.setColumnWidth(4, 90)
-        self.table.setColumnWidth(5, 230)
+        # Generous actions column width so Inspect, Compact, Wipe never truncate on high-DPI
+        self.table.setColumnWidth(5, 280)
 
         self.table.verticalHeader().setDefaultSectionSize(48)
         self.table.verticalHeader().setVisible(False)
@@ -320,25 +329,25 @@ class DatabaseMaintenanceDialog(QDialog):
         candidate_files = [
             {
                 "name": "3GPP Core Data (Specs, Meetings, Work Items)",
-                "subtitle": "Specifications, meetings, agendas, and work items",
+                "subtitle": "Specifications, meetings, and work items",
                 "icon": "📋",
                 "path": root / "db" / "3gpp_data.db",
             },
             {
                 "name": "3GPP Protocol Data (NAS, NGAP, RRC, etc.)",
-                "subtitle": "Protocol message definitions, IEs, and diff matrices",
+                "subtitle": "Protocol messages and IE definitions",
                 "icon": "📡",
                 "path": root / "db" / "3gpp_protocol_data.db",
             },
             {
                 "name": "3GPP Specification Text Search Index",
-                "subtitle": "FTS5 trigram full-text search index and clause contents",
+                "subtitle": "FTS5 trigram clause search index",
                 "icon": "🔍",
                 "path": root / "db" / "3gpp_spec_search.db",
             },
             {
                 "name": "3GPP Specification Change History",
-                "subtitle": "Historical CR/p-CR ledger and TDoc cross-reference matrix",
+                "subtitle": "CR/p-CR ledger & TDoc index",
                 "icon": "📜",
                 "path": root / "db" / "3gpp_spec_history.db",
                 "can_wipe": True,
@@ -530,16 +539,16 @@ class DatabaseMaintenanceDialog(QDialog):
 
             # ----------------------------------------------------
             # Col 5: Actions (Inspect, Compact, Wipe)
+            # Dynamic sizing with generous padding for high-DPI
             # ----------------------------------------------------
             if metrics["exists"]:
                 action_widget = QWidget()
                 action_layout = QHBoxLayout(action_widget)
-                action_layout.setContentsMargins(4, 2, 4, 2)
+                action_layout.setContentsMargins(4, 4, 4, 4)
                 action_layout.setSpacing(6)
 
                 btn_inspect = QPushButton("🔍 Inspect")
-                btn_inspect.setFixedHeight(26)
-                btn_inspect.setFixedWidth(72)
+                btn_inspect.setFixedHeight(28)
                 btn_inspect.setStyleSheet("""
                     QPushButton {
                         background-color: #F8FAFC;
@@ -548,6 +557,8 @@ class DatabaseMaintenanceDialog(QDialog):
                         font-size: 11px;
                         font-weight: bold;
                         color: #0369A1;
+                        padding: 2px 10px;
+                        min-width: 66px;
                     }
                     QPushButton:hover {
                         background-color: #E0F2FE;
@@ -561,8 +572,7 @@ class DatabaseMaintenanceDialog(QDialog):
                 action_layout.addWidget(btn_inspect)
 
                 btn_compact = QPushButton("⚡ Compact")
-                btn_compact.setFixedHeight(26)
-                btn_compact.setFixedWidth(76)
+                btn_compact.setFixedHeight(28)
                 btn_compact.setStyleSheet("""
                     QPushButton {
                         background-color: #F8FAFC;
@@ -571,6 +581,8 @@ class DatabaseMaintenanceDialog(QDialog):
                         font-size: 11px;
                         font-weight: bold;
                         color: #0F172A;
+                        padding: 2px 10px;
+                        min-width: 70px;
                     }
                     QPushButton:hover {
                         background-color: #E2E8F0;
@@ -583,8 +595,7 @@ class DatabaseMaintenanceDialog(QDialog):
 
                 if entry.get("can_wipe"):
                     btn_wipe = QPushButton("🗑️ Wipe")
-                    btn_wipe.setFixedHeight(26)
-                    btn_wipe.setFixedWidth(64)
+                    btn_wipe.setFixedHeight(28)
                     btn_wipe.setStyleSheet("""
                         QPushButton {
                             background-color: #FEF2F2;
@@ -593,6 +604,8 @@ class DatabaseMaintenanceDialog(QDialog):
                             font-size: 11px;
                             font-weight: bold;
                             color: #DC2626;
+                            padding: 2px 10px;
+                            min-width: 58px;
                         }
                         QPushButton:hover {
                             background-color: #FEE2E2;
@@ -656,13 +669,21 @@ class DatabaseMaintenanceDialog(QDialog):
         )
 
     def _inspect_database(self, db_path: Path, display_name: str):
-        """Open the reusable read-only SQLite inspector for a tracked database."""
+        """Open the reusable read-only SQLite inspector as a non-blocking modeless window."""
         if not db_path.exists():
             QMessageBox.warning(self, "Database Missing", f"Database does not exist:\n{db_path}")
             return
 
-        dialog = DatabaseInspectorDialog(db_path, display_name, self)
-        dialog.exec_()
+        key = str(db_path.resolve())
+        dialog = self._inspector_dialogs.get(key)
+        if dialog is None or not dialog.isVisible():
+            dialog = DatabaseInspectorDialog(db_path, display_name, self)
+            dialog.setWindowModality(Qt.NonModal)
+            self._inspector_dialogs[key] = dialog
+            dialog.show()
+        else:
+            dialog.raise_()
+            dialog.activateWindow()
 
     def _vacuum_database_file(self, db_path: Path) -> Tuple[bool, int, int, str]:
         """

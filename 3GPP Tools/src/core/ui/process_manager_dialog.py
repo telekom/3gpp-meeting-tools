@@ -32,7 +32,7 @@ class ProcessManagerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("COM Process Manager")
-        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.Window)
         self.resize(980, 600)
 
         self.apps = {

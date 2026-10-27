@@ -198,6 +198,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Automatic Freelist & WAL Compaction:** Inspects on-disk database sizes, reclaimable space (`⚡ X MB` vs `✓ Optimal`), and active Write-Ahead Logs (`-wal`), executing `PRAGMA wal_checkpoint(TRUNCATE)` and `VACUUM` to defragment pages and reclaim disk space.
 * **Batch & Single-Database Compaction:** One-click **🧹 Compact All Databases** with an animated progress bar and live status feedback to optimize `3gpp_data.db`, `3gpp_protocol_data.db`, `3gpp_spec_search.db`, `3gpp_spec_history.db`, and auxiliary databases.
 * **Safe Action Ergonomics:** Fixed-width actions column preventing button clipping (`🔍 Inspect`, `⚡ Compact`), distinct red warning treatment for destructive database wiping (`🗑️ Wipe`), and 1-click **📂 Open DB Folder** in Windows File Explorer.
+* **Non-Blocking Modeless Floating Window:** Operates strictly modeless (`Qt.NonModal`) without `Qt.WindowStaysOnTopHint`, enabling delegates to freely browse specifications, compare documents, and switch between external desktop tools without the dialog blocking access or floating pinned over other windows.
 
 ---
 
