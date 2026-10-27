@@ -65,10 +65,10 @@ quadrantChart
 | **13** | [**F-19**](F19_chairmans_notes_word_table_parser.md) | Chairman's Notes Word Table Parser (Live) | Live Notes | 2.0 – 3.0 hrs | **7.5** | 8.0h | 🟡 Moderate | **Evaluate in Sprint 3** |
 | **14** | [**F-15**](F15_chairman_email_notes_parser.md) | Chairman Email Discussion Notes Parser | Email Reflector | 0.5 – 1.0 hr | **6.5** | 2.0h | 🟡 Moderate | **Backlog (Low Priority)** |
 | **15** | [**F-16**](F16_email_approval_excel_export.md) | Email Approval Excel Summary | Email Reflector | 0.5 – 1.0 hr | **6.0** | 3.0h | 🟡 Moderate | **Backlog (Superseded by AI Stance)** |
-| **16** | [**F-09**](F09_word_meeting_contribution_report.md) | Word Meeting Contribution Summary Report (.docx) | Word Automation | Redundant | **4.0** | 4.0h | ⚪ Low | **Deprecate (HTML Dashboard is Superior)** |
-| **17** | [**F-11**](F11_excel_bidirectional_autofilter_sync.md) | Bi-directional Excel AutoFilter Synchronization | Excel Bridge | Redundant | **3.5** | 4.0h | ⚪ Low | **Deprecate (PyQt5 Table is Superior)** |
-| **18** | [**F-13**](F13_native_excel_pivot_tables_charts.md) | Native Excel COM Pivot Tables & Charts | Excel Analytics | Redundant | **3.0** | 3.5h | ⚪ Low | **Deprecate (Chart.js Dashboard is Superior)** |
-| **19** | [**F-08**](F08_word_process_watchdog_killer.md) | Word Process Watchdog & Force Killer | System Watchdog | Negligible | **3.0** | 1.5h | ⚪ Low | **Deprecate (Handle via COM Cleanup)** |
+| **16** | [**F-09**](F09_word_meeting_contribution_report.md) | Word Meeting Contribution Summary Report (.docx) | Word Automation | Redundant | **4.0** | 4.0h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Analytics & Markdown Dossiers)** |
+| **17** | [**F-11**](F11_excel_bidirectional_autofilter_sync.md) | Bi-directional Excel AutoFilter Synchronization | Excel Bridge | Redundant | **3.5** | 4.0h | ⚪ Low | 🔴 **Deprecated (Obsolete; PyQt5 In-App Filters at 60 FPS)** |
+| **18** | [**F-13**](F13_native_excel_pivot_tables_charts.md) | Native Excel COM Pivot Tables & Charts | Excel Analytics | Redundant | **3.0** | 3.5h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Dashboard Compiler)** |
+| **19** | [**F-08**](F08_word_process_watchdog_killer.md) | Word Process Watchdog & Force Killer | System Watchdog | Negligible | **3.0** | 1.5h | ⚪ Low | 🔴 **Deprecated (Superseded by COM Task Manager Dialog)** |
 
 ---
 
@@ -138,14 +138,16 @@ quadrantChart
 ---
 
 ### F-08: Word Process Watchdog & Force Killer
+* **Status:** 🔴 **DEPRECATED / SUPERSEDED**
 * **Core Value Proposition:** Detects and force-terminates orphan, frozen, or background `WINWORD.EXE` processes left behind by aborted COM calls.
-* **Assessment & Value:** **Low Value (Deprecate).** Modern 3GPP Tools already handles COM lifecycles reliably via `try ... finally: pythoncom.CoUninitialize()`. Indiscriminately killing Word processes risks destroying unsaved working documents from other open projects.
+* **Why Deprecated:** Modern **3GPP Tools** completely eliminates the need for this crude brute-force killer (`taskkill /F /IM WINWORD.EXE`). All COM operations utilize deterministic apartment cleanup (`pythoncom.CoUninitialize()`). Furthermore, the integrated **`🖥️ COM Task Manager` (`ProcessManagerDialog`)** allows safe, document-by-document COM closing, user-controlled exclusion sets, and PID-isolated termination without destroying delegates' unsaved work in other Word windows.
 
 ---
 
 ### F-09: Word Meeting Contribution Summary Report (.docx)
+* **Status:** 🔴 **DEPRECATED / SUPERSEDED**
 * **Core Value Proposition:** Generates a Microsoft Word document containing a static tabular summary of meeting contributions.
-* **Assessment & Value:** **Low Value (Deprecate).** Entirely superseded by modern 3GPP Tools HTML5 dashboards (`Statistics_Report.html`), Chart.js visualizations, and multi-tab Excel workbooks (`Statistics_Data.xlsx`), which are interactive, searchable, and far more expressive.
+* **Why Deprecated:** Static Word tables are rigid, slow to generate via COM, and break across non-German Word locales (`Überschrift 1` error). Modern **3GPP Tools** completely supersedes this with the **Interactive HTML5 Analytics Dashboard (`Statistics_Report.html`)**, responsive Chart.js visual metrics, multi-tab Excel workbooks (`Statistics_Data.xlsx`), and the AI-driven **Post-Meeting Export Dossier Generator**.
 
 ---
 
@@ -159,8 +161,9 @@ quadrantChart
 ---
 
 ### F-11: Bi-directional Excel AutoFilter Synchronization
+* **Status:** 🔴 **DEPRECATED / OBSOLETE**
 * **Core Value Proposition:** Syncs filter criteria between an external Excel sheet and the GUI table.
-* **Assessment & Value:** **Low Value (Obsolete).** Modern PyQt5 table models with multi-facet instant filtering (Working Group badges, date presets, followed WIs, format, nature) render at 60 FPS and make external Excel filter mirroring redundant.
+* **Why Deprecated:** Obsolete. In the legacy tool, this was a workaround for the limitations of Tkinter. Modern **3GPP Tools** features a high-performance in-app PyQt5 filter proxy model (`TDocsFilterProxyModel`) with instant multi-facet filtering (Working Group badges, date presets, followed WIs, format, nature) rendering at 60 FPS directly within the application, eliminating the need to keep external Excel workbooks open in parallel.
 
 ---
 
@@ -174,8 +177,9 @@ quadrantChart
 ---
 
 ### F-13: Native Excel COM Pivot Tables & Charts
+* **Status:** 🔴 **DEPRECATED / SUPERSEDED**
 * **Core Value Proposition:** Automates Excel COM to construct pivot tables and embedded charts inside generated workbooks.
-* **Assessment & Value:** **Low Value (Superseded).** Modern 3GPP Tools includes a dedicated HTML dashboard compiler (`html_dashboard_compiler.py`) producing responsive Chart.js visual analytics and KPI cards that render without requiring Microsoft Office desktop installations.
+* **Why Deprecated:** Automating Excel COM to generate pivot tables requires local Microsoft Office desktop installations, introduces fragile inter-process locks, and is completely superseded by the repository's **HTML Dashboard Compiler (`html_dashboard_compiler.py`)**, which renders interactive, cross-filtered charts, KPI cards, and alliance networks in any browser without Office dependencies. Clean `openpyxl` data workbooks allow delegates to create pivot tables manually in 2 clicks if desired.
 
 ---
 

@@ -1,17 +1,31 @@
 # F-11: Bi-directional Excel AutoFilter Synchronization
 
+> [!WARNING]
+> **Status: DEPRECATED / OBSOLETE**  
+> **Superseded by:** Modern in-app **PyQt5 Multi-Facet Filter Engine (`TDocsFilterProxyModel`)** in [`src/modules/meetings/ui/tdocs_window.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/ui/tdocs_window.py).
+> 
+> The legacy requirement to synchronize filter states into an external Microsoft Excel sheet was a workaround for the limitations of legacy Tkinter. In **3GPP Tools**, all filtering, document launching, AI triage, and status tracking occur directly within the 60 FPS desktop GUI without external Excel dependencies.
+
 ## 1. Executive Summary & Objective
 
-In 3GPP meetings, the 3GPP Secretariat provides the official meeting dynamic agenda and document registry as a multi-column Excel spreadsheet (commonly known as the 3GU Excel / TDocs list, e.g. `TDocs_By_Agenda_TSGS2_162_Athens.xlsx`). 
+In 3GPP meetings, the 3GPP Secretariat provides the official meeting dynamic agenda and document registry as a multi-column Excel spreadsheet.
 
-Many delegates, chairs, and rapporteurs keep this Excel workbook open throughout the entire meeting week, using custom formulas, internal company color-coding, and custom sorting. However, filtering complex multi-facet criteria in Microsoft Excel natively (e.g. *"Show all contributions for Work Item FS_eSBA that are CRs from Deutsche Telekom or Qualcomm with Status == Agreed"*) requires navigating multiple multi-level dropdowns in Excel's AutoFilter UI.
+The legacy application provided a bridge (`open_and_filter_excel()`): delegates filtered the TDoc table in the Tkinter UI, clicked a button, and the application automated the running Microsoft Excel window via COM to mirror the active filter criteria into Excel's native AutoFilter.
 
-In contrast, **3GPP Tools** provides instant, sub-millisecond filtering across TSG, WG, Work Items, Stance, Source, and Status using its high-speed PyQt5 filter proxy model.
+---
 
-The legacy application provided a unique bridge: `open_and_filter_excel()`:
-Delegates filtered the TDoc table in the application UI, clicked one button, and the application automated the running Microsoft Excel window via COM to **instantly apply the identical active filter criteria directly to Excel's native AutoFilter**.
+## 2. Deprecation Rationale & Architectural Replacement
 
-The objective of **F-11** is to restore this bi-directional synchronization between 3GPP Tools and running Microsoft Excel workbooks.
+### Why the Legacy Feature is Deprecated
+1. **Tkinter Workaround No Longer Necessary:** In the legacy application, the Tkinter table could not display rich badges, lacked inline action buttons, and could not render document diffs. Delegates had to keep Excel open to do real work. In modern 3GPP Tools, delegates perform their entire workflow directly in the desktop app.
+2. **Fragile Excel COM State Locks:** If a delegate is actively editing a cell in Excel when a COM AutoFilter script triggers, Microsoft Excel enters a blocking edit mode, raising `com_error 0x800AC472 (VBA_E_IGNORE / Application is busy)` and wedging the Python process.
+3. **Array Limit Restrictions:** Passing arrays of thousands of TDoc strings to Excel AutoFilter via COM is slow and hits Windows COM string marshaling buffer limits.
+
+### The Modern Replacement: High-Performance In-App Filter Proxy
+Modern **3GPP Tools** eliminates the need to mirror filters into an external Excel spreadsheet:
+* **Instant Multi-Facet Filtering:** Filter instantaneously across TSG, Working Group, Date Presets, Meeting Format, Nature, and Work Items directly in `MeetingsTab` and `TDocsWindow`.
+* **Tracked Work Item Chips:** 1-click toggles (`🎯 Followed WIs`, `⭐ Starred WIs`) instantly filter 2,000+ meeting rows in < 5ms.
+* **Direct Word & AI Integration:** Delegates can open redlines, run AI triage, track personal notes, and inspect revisions directly from the table without touching Excel.
 
 ---
 

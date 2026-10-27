@@ -28,12 +28,12 @@ Each document provides a comprehensive analysis covering:
 | **F-05** | [F05: "Active Word vs. TDoc" Direct Comparison](F05_active_word_vs_tdoc_comparison.md) | Word Automation | Low (1.5h) | 🌟 9.5 (Exceptional) | Deep-Dive Complete |
 | **F-06** | [F06: MIP / Purview Sensitivity Label Setter](F06_mip_sensitivity_label_setter.md) | Security & DLP | Med (3.0h) | 🟡 7.0 (Moderate) | Specification Ready |
 | **F-07** | [F07: Track Changes Revision Author Replacement](F07_track_changes_author_renamer.md) | Word Automation | Low (3.0h) | 🔥 8.5 (Very High) | Deep-Dive Complete |
-| **F-08** | [F08: Word Process Watchdog & Force Killer](F08_word_process_watchdog_killer.md) | System Watchdog | Low (1.5h) | ⚪ 3.0 (Low / Deprecate) | Specification Ready |
-| **F-09** | [F09: Word Meeting Contribution Summary Report (.docx)](F09_word_meeting_contribution_report.md) | Word Automation | High (4.0h) | ⚪ 4.0 (Superseded) | Specification Ready |
+| **F-08** | [F08: Word Process Watchdog & Force Killer](F08_word_process_watchdog_killer.md) | System Watchdog | Low (1.5h) | ⚪ 3.0 (Low ROI) | 🔴 Deprecated (Superseded by Task Manager) |
+| **F-09** | [F09: Word Meeting Contribution Summary Report (.docx)](F09_word_meeting_contribution_report.md) | Word Automation | High (4.0h) | ⚪ 4.0 (Low ROI) | 🔴 Deprecated (Superseded by HTML Dashboard) |
 | **F-10** | [F10: "Accept All Changes" Clean Word Export Option](F10_word_accept_all_changes_export.md) | Word Automation | Low (2.0h) | 🟢 7.5 (High) | Specification Ready |
-| **F-11** | [F11: Bi-directional Excel AutoFilter Synchronization](F11_excel_bidirectional_autofilter_sync.md) | Excel Bridge | Med (4.0h) | ⚪ 3.5 (Obsolete) | Specification Ready |
+| **F-11** | [F11: Bi-directional Excel AutoFilter Synchronization](F11_excel_bidirectional_autofilter_sync.md) | Excel Bridge | Med (4.0h) | ⚪ 3.5 (Low ROI) | 🔴 Deprecated (Obsolete; PyQt5 In-App Filters) |
 | **F-12** | [F12: Multi-Company Review Comments Matrix Importer](F12_company_comments_matrix_importer.md) | Review Collaboration | Med (4.5h) | 🟡 7.5 (Moderate) | Specification Ready |
-| **F-13** | [F13: Native Excel COM Pivot Tables & Charts](F13_native_excel_pivot_tables_charts.md) | Excel Analytics | Med (3.5h) | ⚪ 3.0 (Superseded) | Specification Ready |
+| **F-13** | [F13: Native Excel COM Pivot Tables & Charts](F13_native_excel_pivot_tables_charts.md) | Excel Analytics | Med (3.5h) | ⚪ 3.0 (Low ROI) | 🔴 Deprecated (Superseded by HTML Analytics) |
 | **F-14** | [F14: Reflector `Attachment.txt` Redirect Link Fetcher](F14_reflector_attachment_link_fetcher.md) | Email Reflector | Low (2.0h) | 🟢 7.0 (High) | Specification Ready |
 | **F-15** | [F15: Chairman Email Discussion Notes Parser (`<<START>>...<<END>>`)](F15_chairman_email_notes_parser.md) | Email Reflector | Low (2.0h) | 🟡 6.5 (Moderate) | Specification Ready |
 | **F-16** | [F16: Email Approval Excel Summary](F16_email_approval_excel_export.md) | Email Reflector | Med (3.0h) | 🟡 6.0 (Moderate) | Specification Ready |

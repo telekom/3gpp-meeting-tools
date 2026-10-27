@@ -1,17 +1,32 @@
 # F-13: Native Excel COM Pivot Tables & Charts
 
+> [!WARNING]
+> **Status: DEPRECATED / SUPERSEDED**  
+> **Superseded by:** Dedicated **HTML Analytics Dashboard Compiler (`html_dashboard_compiler.py`)** generating responsive Chart.js visual analytics, Louvain alliance networks, KPI strips, and clean multi-tab `openpyxl` workbooks (`src/modules/meetings/core/stats/html_dashboard_compiler.py`).
+> 
+> Generating Excel pivot tables via VBA COM automation requires local Microsoft Office desktop installations, introduces fragile inter-process locks, and is completely superseded by zero-dependency HTML5 dashboards and standard `openpyxl` tabular exports.
+
 ## 1. Executive Summary & Objective
 
-In standards delegate workflows, delegates frequently need statistical breakdowns of meeting activity, such as:
-* Document volume per Agenda Item (`TDocs per AI`).
-* Document distribution by category (`CR`, `Discussion`, `LS`, `Work Item Description`).
-* Most active companies and co-sponsorship matrices.
+In standards delegate workflows, delegates frequently need statistical breakdowns of meeting activity, such as document volume per Agenda Item, document distribution by category, and most active companies.
 
-In modern **3GPP Tools**, this need is addressed through responsive HTML dashboards (`Statistics_Report.html`) powered by Plotly and Chart.js, accompanied by static multi-tab Excel workbooks generated via `openpyxl`.
+In the legacy application, Microsoft Excel COM automation (`win32com.client`) was used to construct native Excel Pivot Tables and Pivot Charts directly within `.xlsx` files.
 
-However, the legacy application utilized Microsoft Excel COM automation (`win32com.client`) to construct **dynamic, interactive native Excel Pivot Tables and Pivot Charts** directly within exported `.xlsx` workbooks. These dynamic pivot tables allowed delegates working inside Excel to slice, filter, drill down, and reorganize meeting data using Excel's native PivotTable Field List.
+---
 
-The objective of **F-13** is to document this legacy COM pivot table automation, analyze its viability, and evaluate whether native Excel Pivot creation should be offered alongside modern HTML dashboards.
+## 2. Deprecation Rationale & Modern Replacements
+
+### Why the Legacy Feature is Deprecated
+1. **Office Desktop Installation Dependency:** Automating `PivotCaches().Create()` via COM strictly required Microsoft Excel to be installed and active on the Windows host. Delegates running on systems without Excel desktop could not view or generate analytics.
+2. **Fragile VBA COM Marshaling:** Pivot Table COM creation across different Excel versions (e.g. `xlPivotTableVersion15` vs `xlPivotTableVersion16`) frequently triggered version-incompatibility errors and corrupted workbook caches.
+3. **Excel Freeze on Active Edit:** If Excel was open in cell-edit mode, the COM automation thread froze indefinitely waiting for the user to press Enter.
+
+### The Modern Replacement: Interactive HTML5 Dashboards
+Modern **3GPP Tools** delivers superior analytics through the **HTML Dashboard Compiler (`html_dashboard_compiler.py`)**:
+* **Zero Office Dependency:** Runs 100% headlessly and opens in any web browser.
+* **Rich Visualizations:** Features interactive Chart.js bar and donut charts (Document Composition, Treatment Rate, Agreement Rate) and interactive Louvain community alliance graphs.
+* **Dual Chart / Data Toggle:** Every card features an instant toggle between visual interactive charts and detailed tabular numbers.
+* **Clean Data Export:** For delegates who still want pivot tables in Excel, the clean `.xlsx` workbook generated via `openpyxl` allows creating a native Excel pivot table with just 2 clicks (`Insert ➔ PivotTable`), without risking fragile COM script crashes.
 
 ---
 

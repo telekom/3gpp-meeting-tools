@@ -8,11 +8,12 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ## 📑 Table of Contents
 1. [✨ Features](#features)
-2. [🏗️ Architecture & Data Flow](#architecture)
-3. [⚙️ Prerequisites](#prerequisites)
-4. [🚀 Installation](#installation)
-5. [📖 How to Use the GUI](#usage)
-6. [🛠️ Known Quirks / Troubleshooting](#troubleshooting)
+2. [🏛️ Architectural Evolution & Deprecated Legacy Features](#deprecated-features)
+3. [🏗️ Architecture & Data Flow](#architecture)
+4. [⚙️ Prerequisites](#prerequisites)
+5. [🚀 Installation](#installation)
+6. [📖 How to Use the GUI](#usage)
+7. [🛠️ Known Quirks / Troubleshooting](#troubleshooting)
 
 ---
 
@@ -394,6 +395,41 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Selective Heading Excerpt Extractor:** Load one or multiple `.docx` files, scan their heading hierarchy, select arbitrary clauses/sections, and combine the selected excerpts into a single Word document. Multi-part specifications can be naturally ordered by filename or kept in drag-and-drop order; parent selections automatically include their complete subtree without duplicating explicitly selected child headings. The workflow preserves Word formatting and embedded content belonging to the retained sections while excluding unrelated document content.
 * **Background Word-to-PDF Converter:** A headless Word automation thread that silently converts generated files to PDFs or XPS without interrupting your workflow.
 * **Native Visio Extractor:** Parses the raw XML (`document.xml`) of a `.docx` file, identifies embedded `OLEObject` bins, and extracts raw `.vsdx` Visio diagrams straight out of the Word document to your local disk.
+
+---
+
+## <a id="deprecated-features"></a>🏛️ Architectural Evolution & Deprecated Legacy Features
+
+**3GPP Tools** represents a comprehensive, clean-sheet architectural rewrite of the legacy **3GPP Meeting Helper** desktop suite. Over years of 3GPP standards participation, several specialized desktop scripts were created. During the modernization to PyQt5, each legacy capability was audited for delegate value, performance, and stability.
+
+While high-value workflows (such as offline AI triage, specification FTS5 trigram search, protocol bit-level matrices, and PlantUML-to-Visio conversion) were modernized and expanded, **four legacy features were deliberately deprecated and retired**. They are not recommended for porting due to severe architectural shortcomings, data-loss risks, or complete obsolescence by superior modern subsystems:
+
+### 🔴 1. Word Process Watchdog & Brute-Force Killer (Legacy F-08: `taskkill /f /im WINWORD.EXE`)
+* **Legacy Behavior:** Provided an indiscriminate "Close Word" button that executed Windows shell `os.system("taskkill /f /im WINWORD.EXE")` to eliminate hung COM processes.
+* **Why Deprecated:** Executing a blind `taskkill` destroys active, unsaved drafting documents across all open Microsoft Word windows on the operating system, creating an unacceptable risk of data loss for delegates actively drafting Change Requests.
+* **Modern Replacement:** Fully superseded by the built-in **`🖥️ COM Task Manager` ([`ProcessManagerDialog`](src/core/ui/process_manager_dialog.py))** and strict COM apartment lifecycle management (`pythoncom.CoUninitialize()`). The modern task manager provides non-destructive, document-by-document COM closing, user-controlled exclusion sets (`Keep Open`), and PID-isolated emergency recovery without killing unrelated interactive user sessions.
+* **Reference:** Detailed technical audit in [`docs/legacy_features/F08_word_process_watchdog_killer.md`](docs/legacy_features/F08_word_process_watchdog_killer.md).
+
+### 🔴 2. Word Meeting Contribution Summary Report (.docx Table) (Legacy F-09)
+* **Legacy Behavior:** Automated Microsoft Word COM to build a static, unformatted 2,000-row Word table summarizing meeting contributions.
+* **Why Deprecated:** Static Word tables are rigid, unsearchable, provide no interactive data exploration, take minutes to build cell-by-cell over COM, and frequently crashed on non-German Windows systems due to hardcoded Word style names (`'Überschrift 1'`).
+* **Modern Replacement:** Fully superseded by the **Interactive HTML5 Analytics Dashboard (`Statistics_Report.html`)**, responsive Chart.js visual metrics (treatment rate, agreement rate, document composition, Louvain alliance networks), structured multi-tab Excel workbooks (`Statistics_Data.xlsx`), and the AI-driven **Post-Meeting Export Dossier Generator** (`post_meeting_export_dialog.py`) which compiles organized Markdown dossiers (`.md`) with embedded media.
+* **Reference:** Detailed technical audit in [`docs/legacy_features/F09_word_meeting_contribution_report.md`](docs/legacy_features/F09_word_meeting_contribution_report.md).
+
+### 🔴 3. Bi-directional Excel AutoFilter Synchronization (Legacy F-11)
+* **Legacy Behavior:** Mirrored active filter selections from the desktop GUI into an external, open Microsoft Excel spreadsheet via COM AutoFilter arrays (`ws.Range("A1").AutoFilter(...)`).
+* **Why Deprecated:** In the legacy tool, this was an awkward workaround for the limitations of Tkinter, which could not render badges, colors, or fast filtering. Automating Excel COM while a user is actively typing in a cell raises fatal COM errors (`0x800AC472 VBA_E_IGNORE`), and pushing thousands of strings over COM is slow and brittle.
+* **Modern Replacement:** Obsolete. Modern 3GPP Tools features an in-app, high-performance PyQt5 filter proxy engine (`TDocsFilterProxyModel`) with instant multi-facet filtering (TSG pills, Working Group multi-select combo, date presets, ad-hoc toggles, and followed/starred Work Item chips) rendering at 60 FPS directly within the application, eliminating the need to keep external Excel workbooks open in parallel.
+* **Reference:** Detailed technical audit in [`docs/legacy_features/F11_excel_bidirectional_autofilter_sync.md`](docs/legacy_features/F11_excel_bidirectional_autofilter_sync.md).
+
+### 🔴 4. Native Excel COM Pivot Tables & Charts (Legacy F-13)
+* **Legacy Behavior:** Automated Excel VBA COM (`PivotCaches().Create()`) to construct pivot tables and embedded charts directly inside `.xlsx` workbooks.
+* **Why Deprecated:** Strictly required Microsoft Office desktop to be installed and running, introduced fragile VBA COM version dependencies (`xlPivotTableVersion15`), and froze when Excel encountered modal dialogs.
+* **Modern Replacement:** Fully superseded by the **HTML Analytics Dashboard Compiler ([`html_dashboard_compiler.py`](src/modules/meetings/core/stats/html_dashboard_compiler.py))**. Generates rich, interactive Chart.js visualizations, KPI strips, and alliance network graphs that open instantly in any web browser without Office dependencies. For delegates who still desire Excel pivot tables, the clean data workbooks generated via `openpyxl` allow creating native pivot tables with just 2 clicks (`Insert ➔ PivotTable`) without risking script crashes.
+* **Reference:** Detailed technical audit in [`docs/legacy_features/F13_native_excel_pivot_tables_charts.md`](docs/legacy_features/F13_native_excel_pivot_tables_charts.md).
+
+> [!TIP]
+> For a complete roadmap of all 19 legacy functionalities, their modern equivalents, and business value ratings, see the [**Strategic Value & ROI Analysis (VALUE_ANALYSIS.md)**](docs/legacy_features/VALUE_ANALYSIS.md) and the [**Legacy Features Catalog (README.md)**](docs/legacy_features/README.md).
 
 ---
 
