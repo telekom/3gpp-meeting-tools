@@ -194,7 +194,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **System-Level Database Manager:** Integrated `🗄️ Database` tool accessible directly from the bottom Console Panel.
 * **Read-Only SQLite Schema & Data Inspector (`DatabaseInspectorDialog`):** Click **Inspect** on any tracked database to launch a dedicated browser displaying all tables and views, live row counts, SQL DDL creation schemas, column data types, PRAGMA diagnostics (page size, freelist page count, journal mode), and interactive paginated table data without needing external database tools.
 * **Automatic Freelist & WAL Compaction:** Inspects on-disk database sizes and active Write-Ahead Logs (`-wal`), executing `PRAGMA wal_checkpoint(TRUNCATE)` and `VACUUM` to defragment pages and reclaim megabytes of disk space after heavy scraping or database wiping.
-* **Batch Maintenance:** One-click **Compact All Databases** to optimize `3gpp_data.db`, `3gpp_protocol_data.db`, `3gpp_spec_search.db`, and auxiliary cache databases concurrently.
+* **Batch Maintenance:** One-click **Compact All Databases** to optimize `3gpp_data.db`, `3gpp_protocol_data.db`, `3gpp_spec_search.db`, `3gpp_spec_history.db`, and auxiliary cache databases concurrently.
 
 ---
 
@@ -258,6 +258,15 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Configurable Default Mode (`Ctrl+C`):** Select one or more rows in the table and press `Ctrl+C` to instantly copy complete citations. Delegates can configure the default link style (`Both Links`, `Web Link`, or `Direct ZIP`) in 1 click under **`⚙️ Default Link Mode (Ctrl+C)`**, persisting to `specs_config.json`.
   * **Batch Multi-Select Copying:** Select multiple rows to copy comma-separated numbers, multi-line title lists, full citations with working groups, bulleted Markdown lists (`- [TS 23.501](web) ([ZIP v20.2.0](zip)): Title (WG)`), or URL lists.
   * **Non-Blocking Tooltip Feedback:** Every copy action displays an instant floating cursor tooltip (`📋 Copied {label} to clipboard!`) without interrupting delegate workflow.
+
+* **📜 Specification Change History, p-CR Tracking & TDoc Cross-Referencing:**
+  * **Dedicated, Decoupled Storage (`3gpp_spec_history.db`):** Historical changes are decoupled from `3gpp_data.db` into an isolated database (`db/3gpp_spec_history.db`). Users can inspect, compact, or completely wipe it anytime in **`🗄️ Database`** with zero impact on personal notes or core specifications catalogs.
+  * **Two-Tier Relational Schema:**
+    * `spec_change_history`: Master chronological ledger storing `spec_number`, target `version`, `row_order`, `date`, `meeting`, explicit `source_tdoc`, `cr_number`, `revision`, `category`, full `subject` commentary / rapporteur notes, and `source_file`.
+    * `spec_tdoc_cross_ref`: Granular, normalized $O(1)$ index of every referenced TDoc and Working Group pseudo-CR (e.g., `S2-2606363`, `S2-2606265r01`) linking directly back to the specification release that integrated it.
+  * **High-Speed OpenXML Extraction (<0.35s):** Fast, headless streaming parser scanning Change History annex tables across modern and legacy templates, repairing multi-part documents (`_sAnnexes.docx`), and tokenizing 150+ concatenated p-CRs per row.
+  * **Interactive Modeless Desktop Window (`SpecVersionHistoryDialog`):** Opens independently without obscuring or locking the main window. Features inline clickable TDoc pill badges (`#E0F2FE` soft sky-blue): left-clicking instantly locates/downloads and opens the target Word/ZIP document, while right-clicking allows copying citations, jumping to the Meetings tab, or viewing on the 3GPP Portal.
+  * **On-Demand TDoc Technical Dossier (`SpecTDocReportDialog`):** Generates an on-demand technical report resolving authoring companies, agenda items, approval statuses, and technical abstracts directly from meeting agenda spreadsheets (`.xlsx`) without needing to download the actual TDoc documents.
 
 * **✂️ 3GPP Specification Clause & Excerpt Extractor:**
   * **Instant Excerpt Dialog from Version Menu:** Select any specification release in the Specifications tab and click **`✂️ Extract Clauses (Excerpt)...`** to launch a modeless clause extractor window.
@@ -701,7 +710,7 @@ python -m main_tools
 
 ### 🗄️ Database Maintenance, Inspection & Compaction
 1. Click the **🗄️ Database** button located in the bottom Console Panel next to Task Manager and Proxy.
-2. The dialog displays all SQLite database files (`3gpp_data.db`, `3gpp_protocol_data.db`, `3gpp_spec_search.db`), their current on-disk sizes, and Write-Ahead Log (`-wal`) statuses.
+2. The dialog displays all SQLite database files (`3gpp_data.db`, `3gpp_protocol_data.db`, `3gpp_spec_search.db`, `3gpp_spec_history.db`), their current on-disk sizes, and Write-Ahead Log (`-wal`) statuses.
 3. **Database Compaction:** Click **Compact** on an individual database or **🧹 Compact All Databases** to flush WAL logs, execute SQLite `VACUUM`, optimize indices, and instantly reclaim free disk space.
 4. **Read-Only Schema & Data Inspection:** Click **Inspect** on any database entry to open `DatabaseInspectorDialog`. Browse tables, check exact schema definitions and column types, inspect diagnostic PRAGMAs, and review paginated rows with real-time text searching without locking the database.
 
@@ -754,6 +763,12 @@ python -m main_tools
     * **Normal Search Integration:** Type your custom tag or note terms into the primary search bar (e.g., typing `data framework`); all tagged specifications will match immediately.
     * **Filtering by Tag:** Select any tag from the **`🏷️ Tag:`** dropdown on the filter bar to isolate only specifications matching that domain tag.
     * **Batch Tagging:** Select multiple specifications in the table, right-click $\to$ **`🏷️ Add Tag to selected (N)...`** to tag all of them simultaneously.
+13. **Inspecting Specification Change History & Integrated TDocs:**
+    * Click the **`📜 History ▾`** dropdown for any specification (or select **`📜 Change History & Integrated TDocs...`** from the `⋮` action menu, row context menu, or Spec Search clause inspector).
+    * **Independent Desktop Window:** Opens modelessly without obscuring or locking the main window, allowing side-by-side inspection while continuing other work.
+    * **Interactive TDoc Badges:** Click any highlighted TDoc or p-CR badge (e.g., `S2-2606363`, `S2-2606265r01`) to automatically locate, download, and open the original Word/ZIP document, or right-click to copy formal citations.
+    * **Technical Dossier Report:** Click **`📑 TDoc Dossier Report ▾`** to generate an on-demand technical summary (titles, authors, agenda items, approval statuses, abstracts) extracted directly from meeting spreadsheets without downloading the TDoc files.
+    * **Dedicated Storage (`3gpp_spec_history.db`):** Historical changes are stored in an isolated database file (`db/3gpp_spec_history.db`) that can be compacted or wiped anytime under **`🗄️ Database`** with zero impact on personal notes or specifications catalog.
 
 ---
 
