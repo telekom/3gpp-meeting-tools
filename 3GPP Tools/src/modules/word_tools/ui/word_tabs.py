@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -45,6 +46,7 @@ from core.ui.ui_components import (
 from modules.word_tools.core.document_opener import get_active_word_document
 from modules.word_tools.core.styles_3gpp import (
     OFFICIAL_CR_TEMPLATE_URL,
+    OFFICIAL_PCR_TEMPLATE_ZIP_URL,
     install_3gpp_dotx_template,
     is_3gpp_dotx_installed,
     uninstall_3gpp_dotx_template,
@@ -923,72 +925,146 @@ class WordExtractorTab(QWidget):
     def _create_cr_pcr_card(self) -> QWidget:
         card = QWidget()
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(12, 10, 12, 10)
+        card_layout.setContentsMargins(10, 10, 10, 10)
         card_layout.setSpacing(10)
 
-        info_frame = QFrame()
-        info_frame.setStyleSheet(CARD_FRAME_STYLE)
-        info_layout = QVBoxLayout(info_frame)
-        info_layout.setContentsMargins(16, 14, 16, 14)
-        info_layout.setSpacing(8)
+        # 1. 3GPP Contribution Builder Frame
+        builder_frame = QFrame()
+        builder_frame.setObjectName("cardFrame")
+        builder_frame.setStyleSheet(CARD_FRAME_STYLE)
+        bf_layout = QVBoxLayout(builder_frame)
+        bf_layout.setContentsMargins(14, 12, 14, 12)
+        bf_layout.setSpacing(10)
 
-        title = QLabel("<b>🏛️ 3GPP Contribution & Template Workbench</b>")
-        title.setStyleSheet("font-size: 14px; color: #1E293B;")
-        info_layout.addWidget(title)
+        title_row = QHBoxLayout()
+        bf_title = QLabel("<b>📝 3GPP Contribution Builder (CR & Pseudo-CR Generator)</b>")
+        bf_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        title_row.addWidget(bf_title)
+        title_row.addStretch()
 
-        desc = QLabel(
-            "Draft formal 3GPP Change Requests (CR) or Pseudo-CRs (pCR) with automated "
-            "meeting metadata pre-fill, contiguous change-block grouping, 3GPP style enforcement, "
-            "and enterprise sensitivity labeling."
+        self.cr_mode_combo = QComboBox()
+        self.cr_mode_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
+        self.cr_mode_combo.addItem("Formal Change Request (CR)", "cr")
+        self.cr_mode_combo.addItem("Pseudo-CR (pCR for Work Items/TRs)", "pcr")
+        title_row.addWidget(QLabel("Contribution Type:"))
+        title_row.addWidget(self.cr_mode_combo)
+        bf_layout.addLayout(title_row)
+
+        desc_lbl = QLabel(
+            "Rapidly assemble formal 3GPP Change Requests directly from specification documents. "
+            "Features automated meeting metadata pre-fill, change-block contiguous grouping, "
+            "authoritative 3GPP Word style enforcement, and corporate sensitivity labeling."
         )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("color: #475569; font-size: 12px;")
-        info_layout.addWidget(desc)
+        desc_lbl.setWordWrap(True)
+        desc_lbl.setStyleSheet("color: #475569; font-size: 11px;")
+        bf_layout.addWidget(desc_lbl)
 
-        card_layout.addWidget(info_frame)
+        # Document Selector Pane specifically for CR drafting
+        self.pane_cr = DocumentSelectorPane("📄 BASELINE SPECIFICATION DOCUMENT")
+        bf_layout.addWidget(self.pane_cr)
 
-        btn_row = QHBoxLayout()
-        self.btn_launch_cr = QPushButton("📝 Draft 3GPP Contribution (CR / pCR)...")
+        act_row = QHBoxLayout()
+        self.btn_launch_cr = QPushButton("🚀 Open Contribution Builder (CR / pCR)...")
         self.btn_launch_cr.setObjectName("primaryBtn")
         self.btn_launch_cr.setCursor(Qt.PointingHandCursor)
-        self.btn_launch_cr.clicked.connect(self._launch_cr_pcr_dialog)
-        btn_row.addWidget(self.btn_launch_cr)
+        self.btn_launch_cr.clicked.connect(self._launch_cr_pcr_from_pane)
+        act_row.addWidget(self.btn_launch_cr)
+        act_row.addStretch()
+        bf_layout.addLayout(act_row)
 
-        self.btn_open_tpl_hub = QPushButton("📂 Open Microsoft Templates Folder")
-        self.btn_open_tpl_hub.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_open_tpl_hub.setCursor(Qt.PointingHandCursor)
-        self.btn_open_tpl_hub.clicked.connect(self._open_word_templates_folder)
-        btn_row.addWidget(self.btn_open_tpl_hub)
+        card_layout.addWidget(builder_frame)
 
-        self.btn_dl_cr_tpl = QPushButton("🌐 Download Official Templates")
-        self.btn_dl_cr_tpl.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_dl_cr_tpl.setCursor(Qt.PointingHandCursor)
-        self.btn_dl_cr_tpl.clicked.connect(lambda: webbrowser.open(OFFICIAL_CR_TEMPLATE_URL))
-        btn_row.addWidget(self.btn_dl_cr_tpl)
-        btn_row.addStretch()
+        # 2. 3GPP Templates & Styles Reference Frame
+        tpl_frame = QFrame()
+        tpl_frame.setObjectName("cardFrame")
+        tpl_frame.setStyleSheet(CARD_FRAME_STYLE)
+        tf_layout = QVBoxLayout(tpl_frame)
+        tf_layout.setContentsMargins(14, 12, 14, 12)
+        tf_layout.setSpacing(8)
 
-        card_layout.addLayout(btn_row)
+        tf_title = QLabel("<b>🏛️ Official 3GPP Templates & Macro Ribbons</b>")
+        tf_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        tf_layout.addWidget(tf_title)
+
+        tpl_grid = QGridLayout()
+        tpl_grid.setSpacing(10)
+
+        # Box 1: 3gpp_70.dotx
+        box1 = QFrame()
+        box1.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px;")
+        b1_lay = QVBoxLayout(box1)
+        b1_lay.setSpacing(4)
+        b1_lay.addWidget(QLabel("<b>3GPP Macro Ribbon (3gpp_70.dotx)</b>"))
+        self.cr_card_dotx_lbl = QLabel()
+        b1_lay.addWidget(self.cr_card_dotx_lbl)
+        b1_btn_row = QHBoxLayout()
+        self.btn_cr_install_dotx = QPushButton("📥 Install")
+        self.btn_cr_install_dotx.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_cr_install_dotx.clicked.connect(self._on_toggle_dotx_clicked)
+        b1_btn_row.addWidget(self.btn_cr_install_dotx)
+        self.btn_cr_open_tpl = QPushButton("📂 Templates Folder")
+        self.btn_cr_open_tpl.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_cr_open_tpl.clicked.connect(self._open_word_templates_folder)
+        b1_btn_row.addWidget(self.btn_cr_open_tpl)
+        b1_lay.addLayout(b1_btn_row)
+        tpl_grid.addWidget(box1, 0, 0)
+
+        # Box 2: Official Templates Downloads
+        box2 = QFrame()
+        box2.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px;")
+        b2_lay = QVBoxLayout(box2)
+        b2_lay.setSpacing(4)
+        b2_lay.addWidget(QLabel("<b>Authoritative Forms (3GPP FTP)</b>"))
+        b2_lay.addWidget(QLabel("Standard CR and pCR blank cover templates:"))
+        b2_btn_row = QHBoxLayout()
+        btn_dl_cr = QPushButton("📥 CR Form (.docx)")
+        btn_dl_cr.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        btn_dl_cr.clicked.connect(lambda: webbrowser.open(OFFICIAL_CR_TEMPLATE_URL))
+        b2_btn_row.addWidget(btn_dl_cr)
+        btn_dl_pcr = QPushButton("📥 Pseudo-CR (.zip)")
+        btn_dl_pcr.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        btn_dl_pcr.clicked.connect(lambda: webbrowser.open(OFFICIAL_PCR_TEMPLATE_ZIP_URL))
+        b2_btn_row.addWidget(btn_dl_pcr)
+        b2_lay.addLayout(b2_btn_row)
+        tpl_grid.addWidget(box2, 0, 1)
+
+        tf_layout.addLayout(tpl_grid)
+        card_layout.addWidget(tpl_frame)
         card_layout.addStretch()
         return card
 
-    def _launch_cr_pcr_dialog(self):
+    def _launch_cr_pcr_from_pane(self):
         try:
             from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
-            active_doc = get_active_word_document(allow_unsaved_snapshot=False)
+            source_docs = self.pane_cr.get_inputs()
+            mode = self.cr_mode_combo.currentData() or "cr"
             ordered_paths = []
-            if active_doc and active_doc.get("full_name"):
-                doc_path = str(active_doc["full_name"])
+            spec_num = ""
+            version = ""
+
+            if source_docs:
+                doc_path = str(source_docs[0])
                 if Path(doc_path).exists():
                     ordered_paths = [doc_path]
+                    fname = Path(doc_path).name
+                    import re
+                    m = re.search(r'(\d{2})[\._-](\d{3})', fname)
+                    if m:
+                        spec_num = f"{m.group(1)}.{m.group(2)}"
+                    m_ver = re.search(r'[vV]?(\d+)[._](\d+)[._](\d+)', fname)
+                    if m_ver:
+                        version = f"{m_ver.group(1)}.{m_ver.group(2)}.{m_ver.group(3)}"
+
             dlg = CrPcrDialog(
-                spec_num="",
-                version="",
+                spec_num=spec_num,
+                version=version,
                 ordered_paths=ordered_paths,
+                initial_mode=mode,
                 parent=self,
             )
             dlg.exec_()
         except Exception as e:
-            QMessageBox.critical(self, "Error Launching CR Dialog", f"Could not open CR/pCR Generator:\n{e}")
+            QMessageBox.critical(self, "Error Launching Contribution Builder", f"Could not launch CR/pCR Generator:\n{e}")
 
     def _check_libreoffice_status(self):
         """
@@ -1075,6 +1151,10 @@ class WordExtractorTab(QWidget):
             self.dotx_badge.setToolTip("3gpp_70.dotx is installed in %APPDATA%\\Microsoft\\Templates")
             self.dotx_btn.setText("🗑️ Remove Template")
             self.dotx_btn.setToolTip("Remove 3gpp_70.dotx from your Microsoft Word templates folder")
+            if hasattr(self, "cr_card_dotx_lbl"):
+                self.cr_card_dotx_lbl.setText("🟢 Installed in Microsoft Templates")
+                self.cr_card_dotx_lbl.setStyleSheet("color: #065F46; font-weight: bold; font-size: 11px;")
+                self.btn_cr_install_dotx.setText("🗑️ Remove")
         else:
             self.dotx_badge.setText("⚪ Template Not Installed")
             self.dotx_badge.setStyleSheet("""
@@ -1090,6 +1170,10 @@ class WordExtractorTab(QWidget):
             self.dotx_badge.setToolTip("3gpp_70.dotx is not installed in %APPDATA%\\Microsoft\\Templates")
             self.dotx_btn.setText("📥 Install Template")
             self.dotx_btn.setToolTip("Download and install 3gpp_70.dotx into %APPDATA%\\Microsoft\\Templates")
+            if hasattr(self, "cr_card_dotx_lbl"):
+                self.cr_card_dotx_lbl.setText("⚪ Not installed in Word templates")
+                self.cr_card_dotx_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
+                self.btn_cr_install_dotx.setText("📥 Install")
 
     def _on_toggle_dotx_clicked(self):
         if is_3gpp_dotx_installed():
