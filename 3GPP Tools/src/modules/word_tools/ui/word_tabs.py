@@ -83,7 +83,7 @@ class WordExtractorTab(QWidget):
         self._check_libreoffice_status()
         self._check_dotx_status()
         self._poll_active_word()
-        # Default to Compare & Redline
+        # Default to Compare Documents
         self.set_active_operation(4)
 
     def _setup_ui(self):
@@ -161,12 +161,12 @@ class WordExtractorTab(QWidget):
         lbl_nav.setStyleSheet("color: #475569; font-size: 11px;")
         row2.addWidget(lbl_nav)
 
-        self.nav_btn_compare = QPushButton("⚖️ Compare & Redline")
+        self.nav_btn_compare = QPushButton("⚖️ Compare Documents")
         self.nav_btn_markdown = QPushButton("📝 Word → Markdown")
-        self.nav_btn_cr_pcr = QPushButton("🏛️ 3GPP CR & Templates")
-        self.nav_btn_slice = QPushButton("✂️ Slice & Excerpt")
+        self.nav_btn_cr_pcr = QPushButton("🏛️ 3GPP CR && Templates")
+        self.nav_btn_slice = QPushButton("✂️ Slice && Excerpt")
         self.nav_btn_convert = QPushButton("🔄 Format Converter")
-        self.nav_btn_visio = QPushButton("🖼️ Visio & Media Extractor")
+        self.nav_btn_visio = QPushButton("🖼️ Visio && Media Extractor")
 
         self._nav_buttons = [
             (self.nav_btn_compare, 4),
@@ -474,7 +474,7 @@ class WordExtractorTab(QWidget):
 
         # Compare Header / Quick Actions
         cmp_header = QHBoxLayout()
-        cmp_title = QLabel("<b>⚖️ Document Redline Comparison (Microsoft Word COM Diff)</b>")
+        cmp_title = QLabel("<b>⚖️ Document Comparison (Microsoft Word COM Diff)</b>")
         cmp_title.setStyleSheet("font-size: 13px; color: #1E293B;")
         cmp_header.addWidget(cmp_title)
         cmp_header.addStretch()
@@ -1053,7 +1053,7 @@ class WordExtractorTab(QWidget):
                 color: #1E5C99;
             }
         """)
-        act_pref = settings_menu.addAction("⚙️ Word Tools Preferences & Sensitivity Labels...")
+        act_pref = settings_menu.addAction("⚙️ Word Tools Preferences && Sensitivity Labels...")
         act_pref.triggered.connect(self._open_settings_dialog)
         settings_menu.addSeparator()
         act_tpl_folder = settings_menu.addAction("📂 Open Word Templates Folder")

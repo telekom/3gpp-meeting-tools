@@ -388,40 +388,5 @@ class CodeEditorTab(QWidget):
         super().closeEvent(event)
 
 
-class BatchConvertTab(QWidget):
-    files_dropped = pyqtSignal(list, str)
-
-    def __init__(self):
-        super().__init__()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(15, 15, 15, 15)
-
-        self.drop_label = InteractiveDropLabel(
-            "⏳ Initializing system checks... Please wait.",
-            ['.puml', '.txt', '.pptx', '.vsdx']
-        )
-        self.drop_label.setToolTip(
-            "<p><b>Visio Tools Batch Converter</b></p>"
-            "<p>Drag and drop files here to add them to the background processing queue:</p>"
-            "<ul>"
-            "<li>Drop <b>.puml</b> or <b>.txt</b> ➔ Generate Visio (<b>.vsdx</b>)</li>"
-            "<li>Drop <b>.pptx</b> (PowerPoint) ➔ Generate multi-page Visio (<b>.vsdx</b>)</li>"
-            "<li>Drop <b>.vsdx</b> (Visio) ➔ Generate editable PowerPoint (<b>.pptx</b>)</li>"
-            "</ul>"
-        )
-        self.drop_label.file_dropped.connect(self._handle_files_dropped)
-        layout.addWidget(self.drop_label)
-        self.setLayout(layout)
-
-    def _handle_files_dropped(self, paths):
-        for path in paths:
-            ext = str(path).lower()
-            if ext.endswith(".pptx"):
-                self.files_dropped.emit([path], "pptx_to_visio")
-            elif ext.endswith(".vsdx"):
-                self.files_dropped.emit([path], "vsdx_to_pptx")
-            else:
-                self.files_dropped.emit([path], "vsdx")
-
-    def set_state(self, state, text=None):
-        self.drop_label.set_state(state, text)
+# Re-export modernized BatchConvertTab for backward compatibility
+from modules.puml2visio.ui.batch_convert_tab import BatchConvertTab

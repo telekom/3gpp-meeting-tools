@@ -61,7 +61,7 @@ class WordSettingsDialog(QDialog):
         main_layout.setSpacing(14)
 
         # 1. 3GPP Templates & Environment
-        grp_templates = QGroupBox("🏛️ 3GPP Templates & Microsoft Word Integration")
+        grp_templates = QGroupBox("🏛️ 3GPP Templates && Microsoft Word Integration")
         grp_templates.setStyleSheet("QGroupBox { font-weight: bold; }")
         tpl_layout = QVBoxLayout(grp_templates)
         tpl_layout.setSpacing(8)
@@ -136,7 +136,7 @@ class WordSettingsDialog(QDialog):
         main_layout.addWidget(grp_sensitivity)
 
         # 4. LibreOffice Configuration (Headless / Legacy Fallback)
-        grp_lo = QGroupBox("📄 LibreOffice Runtime (Headless & Legacy .doc Conversion)")
+        grp_lo = QGroupBox("📄 LibreOffice Runtime (Headless && Legacy .doc Conversion)")
         grp_lo.setStyleSheet("QGroupBox { font-weight: bold; }")
         lo_layout = QVBoxLayout(grp_lo)
         lo_layout.setSpacing(8)

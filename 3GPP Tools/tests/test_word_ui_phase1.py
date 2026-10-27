@@ -22,19 +22,25 @@ class TestWordUiPhase1(unittest.TestCase):
         self.assertTrue(hasattr(tab, "lo_badge"))
         self.assertTrue(hasattr(tab, "settings_btn"))
 
-        # Verify navigation buttons exist
+        # Verify navigation buttons exist and have correct labels (no unescaped &, no 'Redline')
         self.assertTrue(hasattr(tab, "nav_btn_compare"))
+        self.assertEqual(tab.nav_btn_compare.text(), "⚖️ Compare Documents")
         self.assertTrue(hasattr(tab, "nav_btn_markdown"))
+        self.assertEqual(tab.nav_btn_markdown.text(), "📝 Word → Markdown")
         self.assertTrue(hasattr(tab, "nav_btn_cr_pcr"))
+        self.assertEqual(tab.nav_btn_cr_pcr.text(), "🏛️ 3GPP CR && Templates")
         self.assertTrue(hasattr(tab, "nav_btn_slice"))
+        self.assertEqual(tab.nav_btn_slice.text(), "✂️ Slice && Excerpt")
         self.assertTrue(hasattr(tab, "nav_btn_convert"))
+        self.assertEqual(tab.nav_btn_convert.text(), "🔄 Format Converter")
         self.assertTrue(hasattr(tab, "nav_btn_visio"))
+        self.assertEqual(tab.nav_btn_visio.text(), "🖼️ Visio && Media Extractor")
 
         # Verify new CR/pCR card exists in stack
         self.assertTrue(hasattr(tab, "card_cr_pcr"))
         self.assertEqual(tab.stack.count(), 8)
 
-        # Test switching to Compare & Redline
+        # Test switching to Compare Documents
         tab.set_active_operation(4)
         self.assertEqual(tab.stack.currentIndex(), 4)
         self.assertTrue(tab.nav_btn_compare.isChecked())
