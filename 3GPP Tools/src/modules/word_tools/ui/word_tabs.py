@@ -368,15 +368,45 @@ class WordExtractorTab(QWidget):
         compare_layout = QVBoxLayout(self.card_compare)
         compare_layout.setSpacing(10)
 
+        # Compare Header / Quick Actions
+        cmp_header = QHBoxLayout()
+        cmp_title = QLabel("<b>⚖️ Document Redline Comparison (Microsoft Word COM Diff)</b>")
+        cmp_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        cmp_header.addWidget(cmp_title)
+        cmp_header.addStretch()
+
+        self.btn_swap_slots = QPushButton("⇄ Swap A ↔ B")
+        self.btn_swap_slots.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_swap_slots.setCursor(Qt.PointingHandCursor)
+        self.btn_swap_slots.setToolTip("Swap Document A (Original) and Document B (Revised)")
+        self.btn_swap_slots.clicked.connect(self._swap_compare_slots)
+        cmp_header.addWidget(self.btn_swap_slots)
+        compare_layout.addLayout(cmp_header)
+
         panes_layout = QHBoxLayout()
-        self.pane_a = DocumentSelectorPane("📄 DOCUMENT A (Original)")
-        self.pane_b = DocumentSelectorPane("📄 DOCUMENT B (Revised)")
+        self.pane_a = DocumentSelectorPane("📄 DOCUMENT A (Original / Baseline)")
+        self.pane_b = DocumentSelectorPane("📄 DOCUMENT B (Revised / Draft)")
         panes_layout.addWidget(self.pane_a)
         panes_layout.addWidget(self.pane_b)
         compare_layout.addLayout(panes_layout)
+
+        # Comparison Options Frame
+        cmp_opts_frame = QFrame()
+        cmp_opts_frame.setStyleSheet(CARD_FRAME_STYLE)
+        opts_layout = QHBoxLayout(cmp_opts_frame)
+        opts_layout.setContentsMargins(12, 8, 12, 8)
+        opts_layout.setSpacing(16)
+
         self.keep_open_cb = QCheckBox("Keep source documents (A and B) open after comparison")
         self.keep_open_cb.setChecked(True)
-        compare_layout.addWidget(self.keep_open_cb)
+        opts_layout.addWidget(self.keep_open_cb)
+
+        self.chk_cmp_formatting = QCheckBox("Detect formatting changes")
+        self.chk_cmp_formatting.setChecked(True)
+        opts_layout.addWidget(self.chk_cmp_formatting)
+
+        opts_layout.addStretch()
+        compare_layout.addWidget(cmp_opts_frame)
 
         self.run_compare_btn = QPushButton("⚖️ Run Word Comparison")
         self.run_compare_btn.setObjectName("primaryBtn")
@@ -1123,6 +1153,20 @@ class WordExtractorTab(QWidget):
             if f:
                 self.convert_doc_requested.emit(f, "docx_libreoffice")
 
+    def _swap_compare_slots(self):
+        inputs_a = self.pane_a.get_inputs()
+        inputs_b = self.pane_b.get_inputs()
+        file_a = inputs_a[0] if inputs_a else ""
+        file_b = inputs_b[0] if inputs_b else ""
+
+        self.pane_a.clear_selection()
+        self.pane_b.clear_selection()
+
+        if file_b:
+            self.pane_a.set_file_path(file_b)
+        if file_a:
+            self.pane_b.set_file_path(file_a)
+
     def _trigger_comparison(self):
         val_a_list = self.pane_a.get_inputs()
         val_b_list = self.pane_b.get_inputs()
@@ -1130,8 +1174,15 @@ class WordExtractorTab(QWidget):
         val_b = val_b_list[0] if val_b_list else ""
         keep_open = self.keep_open_cb.isChecked()
 
-        if val_a and val_b:
-            self.compare_doc_requested.emit(val_a, val_b, keep_open)
+        if not val_a or not val_b:
+            QMessageBox.warning(
+                self,
+                "Missing Documents",
+                "Please select both Document A (Original) and Document B (Revised) for comparison.",
+            )
+            return
+
+        self.compare_doc_requested.emit(val_a, val_b, keep_open)
 
     def _trigger_conversion(self):
         source_docs = self.pane_convert.get_inputs()
