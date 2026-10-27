@@ -2,19 +2,16 @@
 
 from __future__ import annotations
 
-import html
-import json
 import logging
-import re
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, QUrl, pyqtSignal
 from PyQt5.QtWidgets import (
-    QApplication, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
-    QPushButton, QPlainTextEdit, QSplitter, QTextBrowser, QToolButton, QTreeWidget,
-    QTreeWidgetItem, QVBoxLayout, QWidget,
+    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox,
+    QPushButton, QSplitter, QTabWidget, QTextBrowser, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 from core.ui.ui_components import (
@@ -29,13 +26,19 @@ from modules.assistant.core.agent_models import (
 from modules.assistant.core.ollama_agent_adapter import OllamaAgentAdapter
 from modules.assistant.core.tools import build_read_only_tool_registry
 from modules.assistant.ui.assistant_components import (
+    ActivityTimelineWidget,
     CARD_FRAME_STYLE,
-    CARD_HEADER_STYLE,
+    DiagnosticsTraceWidget,
+    EvidenceInspectorWidget,
     MultilinePromptEdit,
     StarterChipsWidget,
     STATUS_PILL_OFFLINE,
     STATUS_PILL_ONLINE,
     STATUS_PILL_NEUTRAL,
+    render_assistant_message_card,
+    render_markdown_to_html,
+    render_system_message_card,
+    render_user_message_card,
 )
 from modules.assistant.ui.assistant_worker import AgentResearchWorker
 
@@ -177,6 +180,7 @@ class AssistantTab(QWidget):
 
         self.conversation_browser = QTextBrowser()
         self.conversation_browser.setOpenExternalLinks(False)
+        self.conversation_browser.anchorClicked.connect(self._on_anchor_clicked)
         self.conversation_browser.setStyleSheet("""
             QTextBrowser {
                 background-color: #FFFFFF;
@@ -240,77 +244,73 @@ class AssistantTab(QWidget):
         self.main_splitter.addWidget(chat_widget)
 
         # ---------------------------------------------------------------------
-        # Right / Research Cockpit Drawer
+        # Right / Research Cockpit Drawer (Tabbed Sources, Activity, Trace)
         # ---------------------------------------------------------------------
-        self.detail_widget = QWidget()
-        detail_layout = QVBoxLayout(self.detail_widget)
-        detail_layout.setContentsMargins(0, 0, 0, 0)
-        detail_layout.setSpacing(6)
+        self.cockpit_tabs = QTabWidget()
+        self.cockpit_tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #E2E8F0;
+                border-radius: 6px;
+                background-color: #FFFFFF;
+                top: -1px;
+            }
+            QTabBar::tab {
+                background-color: #F8FAFC;
+                border: 1px solid #E2E8F0;
+                padding: 6px 12px;
+                margin-right: 2px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                font-weight: 600;
+                font-size: 12px;
+                color: #64748B;
+            }
+            QTabBar::tab:selected {
+                background-color: #FFFFFF;
+                color: #1E5C99;
+                border-bottom: 1px solid #FFFFFF;
+            }
+        """)
 
-        # Research Activity Card
-        activity_group = QGroupBox()
-        activity_layout = QVBoxLayout(activity_group)
-        activity_header = QHBoxLayout()
-        self.activity_toggle = QToolButton()
-        self.activity_toggle.setText("▼ Research activity")
-        self.activity_toggle.setCheckable(True)
-        self.activity_toggle.setChecked(True)
-        self.activity_toggle.clicked.connect(self._toggle_activity)
-        activity_header.addWidget(self.activity_toggle)
-        activity_header.addStretch()
-        self.activity_count = QLabel("0 steps")
-        self.activity_count.setStyleSheet("color: #64748B;")
-        activity_header.addWidget(self.activity_count)
-        activity_layout.addLayout(activity_header)
-        self.activity_browser = QTextBrowser()
-        activity_layout.addWidget(self.activity_browser)
-        detail_layout.addWidget(activity_group, stretch=1)
+        # Tab 1: Sources & Evidence Inspector
+        sources_widget = QWidget()
+        sources_layout = QVBoxLayout(sources_widget)
+        sources_layout.setContentsMargins(6, 6, 6, 6)
+        sources_layout.setSpacing(6)
+
+        sources_splitter = QSplitter(Qt.Vertical)
+        sources_splitter.setChildrenCollapsible(False)
 
         # Sources Tree Card
-        sources_group = QGroupBox("Sources")
-        sources_layout = QVBoxLayout(sources_group)
         self.sources_tree = QTreeWidget()
         self.sources_tree.setStyleSheet(TREE_STYLE_CLEAN)
         self.sources_tree.setHeaderLabels(["ID", "Source", "Version / Clause"])
         self.sources_tree.setAlternatingRowColors(True)
         self.sources_tree.setRootIsDecorated(False)
-        self.sources_tree.itemDoubleClicked.connect(self._show_source_detail)
-        sources_layout.addWidget(self.sources_tree)
-        detail_layout.addWidget(sources_group, stretch=1)
+        self.sources_tree.itemClicked.connect(self._on_source_tree_item_clicked)
+        self.sources_tree.itemDoubleClicked.connect(self._on_source_tree_item_clicked)
+        sources_splitter.addWidget(self.sources_tree)
 
-        # Exchange Details Card
-        exchange_group = QGroupBox()
-        exchange_layout = QVBoxLayout(exchange_group)
-        exchange_header = QHBoxLayout()
-        self.exchange_toggle = QToolButton()
-        self.exchange_toggle.setText("▶ Ollama exchange details")
-        self.exchange_toggle.setCheckable(True)
-        self.exchange_toggle.setChecked(False)
-        self.exchange_toggle.clicked.connect(self._toggle_exchange)
-        exchange_header.addWidget(self.exchange_toggle)
-        exchange_header.addStretch()
-        self.copy_exchange_btn = QPushButton("Copy Trace")
-        self.copy_exchange_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.copy_exchange_btn.setVisible(False)
-        self.copy_exchange_btn.clicked.connect(self._copy_exchange_trace)
-        exchange_header.addWidget(self.copy_exchange_btn)
-        self.clear_exchange_btn = QPushButton("Clear")
-        self.clear_exchange_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.clear_exchange_btn.setVisible(False)
-        self.clear_exchange_btn.clicked.connect(self._clear_exchange_trace)
-        exchange_header.addWidget(self.clear_exchange_btn)
-        exchange_layout.addLayout(exchange_header)
-        self.exchange_browser = QPlainTextEdit()
-        self.exchange_browser.setReadOnly(True)
-        self.exchange_browser.setLineWrapMode(QPlainTextEdit.NoWrap)
-        self.exchange_browser.setPlaceholderText(
-            "Raw requests sent to Ollama and responses returned by Ollama appear here."
-        )
-        self.exchange_browser.setVisible(False)
-        exchange_layout.addWidget(self.exchange_browser)
-        detail_layout.addWidget(exchange_group)
+        # Embedded Evidence Inspector
+        self.evidence_inspector = EvidenceInspectorWidget()
+        self.evidence_inspector.open_spec_search_requested.connect(self.open_spec_search_requested)
+        self.evidence_inspector.open_specs_requested.connect(self.open_specs_requested)
+        self.evidence_inspector.open_protocol_requested.connect(self.open_protocol_requested)
+        sources_splitter.addWidget(self.evidence_inspector)
 
-        self.main_splitter.addWidget(self.detail_widget)
+        sources_splitter.setSizes([180, 240])
+        sources_layout.addWidget(sources_splitter)
+        self.cockpit_tabs.addTab(sources_widget, "📚 Sources (0)")
+
+        # Tab 2: Research Activity Timeline
+        self.activity_widget = ActivityTimelineWidget()
+        self.cockpit_tabs.addTab(self.activity_widget, "⚡ Activity (0)")
+
+        # Tab 3: Diagnostics & Ollama Trace
+        self.diagnostics_widget = DiagnosticsTraceWidget()
+        self.cockpit_tabs.addTab(self.diagnostics_widget, "🔬 Diagnostics")
+
+        self.main_splitter.addWidget(self.cockpit_tabs)
 
         # Default side-by-side sizes (65% Chat, 35% Drawer)
         self.main_splitter.setSizes([680, 420])
@@ -338,6 +338,44 @@ class AssistantTab(QWidget):
     def _on_starter_chip_selected(self, prompt: str) -> None:
         self.question_input.setPlainText(prompt)
         self._on_send()
+
+    def _on_anchor_clicked(self, url: QUrl) -> None:
+        raw_url = url.toString() if hasattr(url, "toString") else str(url)
+        if raw_url.startswith("evidence:"):
+            eid = raw_url.split(":", 1)[1].strip()
+            self._select_evidence_by_id(eid)
+        elif raw_url.startswith("copy_msg:"):
+            try:
+                idx = int(raw_url.split(":", 1)[1].strip())
+                if 0 <= idx < len(self._conversation):
+                    text = self._conversation[idx].get("content", "")
+                    QApplication.clipboard().setText(text)
+                    self.status_label.setText("Answer copied to clipboard!")
+                    QTimer.singleShot(
+                        2000,
+                        lambda: self.status_label.setText(
+                            "Ready" if not (self._worker and self._worker.isRunning()) else "Researching…"
+                        ),
+                    )
+            except Exception as exc:
+                logger.error("Failed to copy message: %s", exc)
+
+    def _select_evidence_by_id(self, eid: str) -> None:
+        """Highlights the evidence row in sources tree, displays it in inspector, and switches to Sources tab."""
+        self.cockpit_tabs.setCurrentIndex(0)  # Tab 0 is Sources
+        for i in range(self.sources_tree.topLevelItemCount()):
+            item = self.sources_tree.topLevelItem(i)
+            if item.data(0, Qt.UserRole) == eid:
+                self.sources_tree.setCurrentItem(item)
+                self.sources_tree.scrollToItem(item)
+                ev = self._evidence.get(eid)
+                self.evidence_inspector.set_evidence(ev)
+                break
+
+    def _on_source_tree_item_clicked(self, item: QTreeWidgetItem, column: int = 0) -> None:
+        evidence_id = str(item.data(0, Qt.UserRole) or "")
+        evidence = self._evidence.get(evidence_id)
+        self.evidence_inspector.set_evidence(evidence)
 
     def _refresh_ollama_status(self) -> None:
         try:
@@ -395,11 +433,13 @@ class AssistantTab(QWidget):
         self._last_result = None
         self._exchange_events.clear()
         self.conversation_browser.clear()
-        self.activity_browser.clear()
+        self.activity_widget.clear()
         self.sources_tree.clear()
-        if hasattr(self, "exchange_browser"):
-            self.exchange_browser.clear()
+        self.evidence_inspector.set_evidence(None)
+        self.diagnostics_widget.clear()
         self._update_activity_count()
+        self.cockpit_tabs.setTabText(0, "📚 Sources (0)")
+        self.cockpit_tabs.setTabText(1, "⚡ Activity (0)")
         self.status_label.setText("Ready")
         self.starter_chips.setVisible(True)
         self.question_input.clear()
@@ -479,15 +519,19 @@ class AssistantTab(QWidget):
         self._activities.clear()
         self._evidence.clear()
         self._last_result = None
-        self.activity_browser.clear()
+        self.activity_widget.clear()
         self.sources_tree.clear()
-        self._clear_exchange_trace()
+        self.evidence_inspector.set_evidence(None)
+        self.diagnostics_widget.clear()
+        self._exchange_events.clear()
         self._update_activity_count()
+        self.cockpit_tabs.setTabText(0, "📚 Sources (0)")
+        self.cockpit_tabs.setTabText(1, "⚡ Activity (0)")
 
         try:
             adapter = OllamaAgentAdapter()
         except Exception as exc:
-            self._append_system_message(f"Could not initialize the local model: {exc}")
+            self._append_system_message(f"Could not initialize the local model: {exc}", error=True)
             return
 
         worker = AgentResearchWorker(
@@ -508,6 +552,9 @@ class AssistantTab(QWidget):
         worker.research_failed.connect(self._on_failed)
         worker.finished.connect(self._on_worker_finished)
         self._set_running(True)
+        self.activity_widget.set_running(True)
+        # Switch to Research Activity tab during research so user sees live execution
+        self.cockpit_tabs.setCurrentIndex(1)
         worker.start()
 
     def _on_stop(self) -> None:
@@ -524,63 +571,23 @@ class AssistantTab(QWidget):
     def _on_activity(self, activity: ResearchActivity) -> None:
         self._activities.append(activity)
         self._update_activity_count()
-        self.activity_browser.append(
-            f"<div style='margin:2px 0;'>• {html.escape(activity.message)}</div>"
-        )
+        self.activity_widget.add_activity(activity)
 
     def _on_evidence(self, evidence: Evidence) -> None:
         self._evidence[evidence.id] = evidence
         self._add_source_row(evidence)
+        self.cockpit_tabs.setTabText(0, f"📚 Sources ({len(self._evidence)})")
+        # Automatically display the first retrieved evidence in the inspector
+        if len(self._evidence) == 1:
+            self.evidence_inspector.set_evidence(evidence)
 
     def _on_exchange(self, event: object) -> None:
         if not isinstance(event, dict):
             return
         event = dict(event)
+        event["timestamp"] = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         self._exchange_events.append(event)
-        stamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        direction = str(event.get("direction") or "event")
-        labels = {
-            "request": "APP -> OLLAMA",
-            "response_headers": "OLLAMA -> APP [HEADERS]",
-            "response": "OLLAMA -> APP",
-            "response_chunk": "OLLAMA -> APP [STREAM CHUNK]",
-        }
-        label = labels.get(direction, direction.upper())
-        if direction == "request":
-            body = {k: event.get(k) for k in ("method", "endpoint", "payload") if k in event}
-        elif direction == "response_headers":
-            body = {k: event.get(k) for k in ("status_code", "reason", "headers") if k in event}
-        elif direction == "response_chunk":
-            raw = event.get("raw", "")
-            try:
-                body = json.loads(raw)
-            except Exception:
-                body = raw
-        else:
-            body = event.get("payload", event)
-        if isinstance(body, (dict, list)):
-            rendered = json.dumps(body, indent=2, ensure_ascii=False, default=str)
-        else:
-            rendered = str(body)
-        self.exchange_browser.appendPlainText(f"[{stamp}] {label}\n{rendered}\n")
-
-    def _toggle_exchange(self, checked: bool) -> None:
-        self.exchange_browser.setVisible(checked)
-        self.copy_exchange_btn.setVisible(checked)
-        self.clear_exchange_btn.setVisible(checked)
-        self.exchange_toggle.setText(
-            ("▼" if checked else "▶") + " Ollama exchange details"
-        )
-
-    def _copy_exchange_trace(self) -> None:
-        text = self.exchange_browser.toPlainText()
-        if text:
-            QApplication.clipboard().setText(text)
-
-    def _clear_exchange_trace(self) -> None:
-        self._exchange_events.clear()
-        if hasattr(self, "exchange_browser"):
-            self.exchange_browser.clear()
+        self.diagnostics_widget.add_exchange_event(event)
 
     def _on_result(self, result: AgentResult) -> None:
         self._last_result = result
@@ -590,24 +597,79 @@ class AssistantTab(QWidget):
                 self._evidence[evidence.id] = evidence
                 self._add_source_row(evidence)
 
-        rendered = self._render_answer(result.answer)
-        self.conversation_browser.append(
-            "<div style='margin:10px 0 4px 0;'><b>Assistant</b></div>" + rendered
+        self.cockpit_tabs.setTabText(0, f"📚 Sources ({len(self._evidence)})")
+        self.activity_widget.set_running(False)
+
+        # Switch to Sources tab so user can explore evidence citations immediately
+        if self._evidence:
+            self.cockpit_tabs.setCurrentIndex(0)
+            if self.sources_tree.topLevelItemCount() > 0:
+                first_item = self.sources_tree.topLevelItem(0)
+                self.sources_tree.setCurrentItem(first_item)
+                self._on_source_tree_item_clicked(first_item)
+
+        # Compute KPI badge and update Diagnostics metrics
+        stamp = datetime.now().strftime("%H:%M")
+        msg_idx = len(self._conversation)
+
+        total_duration = 0.0
+        prompt_tokens = 0
+        eval_tokens = 0
+        eval_duration = 0.0
+
+        if result.trace and result.trace.events:
+            for ev in result.trace.events:
+                if ev.get("type") == "model_call_finished":
+                    total_duration += float(ev.get("duration_seconds", 0.0))
+                    metrics = ev.get("metrics") or {}
+                    prompt_tokens += int(metrics.get("prompt_eval_count") or 0)
+                    eval_tokens += int(metrics.get("eval_count") or 0)
+                    eval_duration += float(metrics.get("eval_duration") or 0) / 1e9
+
+        self.diagnostics_widget.update_metrics(
+            total_seconds=total_duration,
+            prompt_tokens=prompt_tokens,
+            eval_tokens=eval_tokens,
+            eval_seconds=eval_duration,
         )
-        self._conversation.append({"role": "assistant", "content": result.answer})
+
+        kpi_parts = []
+        if total_duration > 0:
+            kpi_parts.append(f"⏱️ {total_duration:.1f}s")
+        if self._activities:
+            kpi_parts.append(f"{len(self._activities)} steps")
+        if self._evidence:
+            kpi_parts.append(f"{len(self._evidence)} sources")
+        kpi_str = " · ".join(kpi_parts)
+
+        card_html = render_assistant_message_card(
+            result.answer,
+            timestamp=stamp,
+            valid_evidence_ids=set(self._evidence),
+            msg_index=msg_idx,
+            kpi_badge=kpi_str,
+        )
+        self.conversation_browser.append(card_html)
+        self._conversation.append({
+            "role": "assistant",
+            "content": result.answer,
+            "timestamp": stamp,
+            "kpi": kpi_str,
+        })
+
         if result.warnings:
-            self.conversation_browser.append(
-                "<div style='color:#B45309; margin-bottom:8px;'>"
-                + "<br>".join(html.escape(w) for w in result.warnings)
-                + "</div>"
-            )
+            for w in result.warnings:
+                self.conversation_browser.append(render_system_message_card(w, error=False))
+
         self.status_label.setText("Ready")
 
     def _on_cancelled(self, result) -> None:
+        self.activity_widget.set_running(False)
         self._append_system_message("Research stopped.")
         self.status_label.setText("Stopped")
 
     def _on_failed(self, message: str, result) -> None:
+        self.activity_widget.set_running(False)
         logger.error("Assistant research failed: %s", message)
         self._append_system_message(message, error=True)
         self.status_label.setText("Failed")
@@ -620,6 +682,7 @@ class AssistantTab(QWidget):
         if worker is None:
             return
         self._set_running(False)
+        self.activity_widget.set_running(False)
         worker.deleteLater()
         self._worker = None
         if self.status_label.text() == "Cancelling…":
@@ -645,42 +708,18 @@ class AssistantTab(QWidget):
             self.question_input.setFocus()
 
     def _append_conversation(self, role: str, content: str) -> None:
-        label = "You" if role == "user" else "Assistant"
-        self.conversation_browser.append(
-            f"<div style='margin:10px 0 4px 0;'><b>{label}</b></div>"
-            f"<div style='white-space:pre-wrap;'>{html.escape(content)}</div>"
-        )
-        self._conversation.append({"role": role, "content": content})
+        stamp = datetime.now().strftime("%H:%M")
+        if role == "user":
+            card_html = render_user_message_card(content, timestamp=stamp)
+            self.conversation_browser.append(card_html)
+            self._conversation.append({"role": role, "content": content, "timestamp": stamp})
 
     def _append_system_message(self, message: str, error: bool = False) -> None:
-        color = "#B91C1C" if error else "#64748B"
-        self.conversation_browser.append(
-            f"<div style='color:{color}; margin:8px 0;'>{html.escape(message)}</div>"
-        )
+        card_html = render_system_message_card(message, error=error)
+        self.conversation_browser.append(card_html)
 
     def _render_answer(self, answer: str) -> str:
-        escaped = html.escape(answer).replace("\n", "<br>")
-        # Only IDs present in the application evidence store are made visually
-        # citation-like. Unknown IDs remain ordinary escaped text.
-        valid_ids = set(self._evidence)
-
-        def _highlight_bracket(match: re.Match) -> str:
-            inner = match.group(1)
-            if not any(eid in valid_ids for eid in re.findall(r"\bE\d+\b", inner)):
-                return match.group(0)
-            highlighted = re.sub(
-                r"\b(E\d+)\b",
-                lambda m: (
-                    f"<span style='color:#0369A1; font-weight:bold;'>{m.group(1)}</span>"
-                    if m.group(1) in valid_ids
-                    else m.group(1)
-                ),
-                inner,
-            )
-            return f"<span style='color:#0369A1; font-weight:bold;'>[</span>{highlighted}<span style='color:#0369A1; font-weight:bold;'>]</span>"
-
-        escaped = re.sub(r"\[([^\[\]]*?\bE\d+\b[^\[\]]*?)\]", _highlight_bracket, escaped)
-        return f"<div style='white-space:pre-wrap;'>{escaped}</div>"
+        return render_markdown_to_html(answer, set(self._evidence))
 
     def _add_source_row(self, evidence: Evidence) -> None:
         source = self._source_label(evidence)
@@ -711,30 +750,7 @@ class AssistantTab(QWidget):
             return evidence.title or "Structured protocol knowledge"
         return evidence.source_name
 
-    def _show_source_detail(self, item: QTreeWidgetItem, column: int) -> None:
-        evidence_id = item.data(0, Qt.UserRole)
-        evidence = self._evidence.get(str(evidence_id))
-        if evidence is None:
-            return
-        content = evidence.content
-        if isinstance(content, dict):
-            import json
-            text = json.dumps(content, indent=2, ensure_ascii=False, default=str)
-        else:
-            text = str(content or "")
-        header = self._source_label(evidence)
-        QMessageBox.information(
-            self,
-            f"{evidence.id} — {header}",
-            (text[:12000] + ("\n\n[Content shortened for display]" if len(text) > 12000 else "")),
-        )
-
-    def _toggle_activity(self, checked: bool) -> None:
-        self.activity_browser.setVisible(checked)
-        self.activity_toggle.setText(
-            ("▼" if checked else "▶") + " Research activity"
-        )
-
     def _update_activity_count(self) -> None:
         count = len(self._activities)
-        self.activity_count.setText(f"{count} step" + ("" if count == 1 else "s"))
+        self.cockpit_tabs.setTabText(1, f"⚡ Activity ({count})")
+        self.activity_widget.update_count(count)
