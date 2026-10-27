@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from modules.nas.core.parsing.protocol_parser_constants import (
-    RE_PART_INDEX, TAG_BODY, TAG_P, TAG_TBL, TAG_TC, TAG_TR
+    RE_PART_INDEX, extract_part_index, TAG_BODY, TAG_P, TAG_TBL, TAG_TC, TAG_TR
 )
 from modules.nas.core.parsing.protocol_parser_utils import (
     extract_document_root, _extract_p_text, _extract_tc_text, _convert_table_to_html
@@ -48,9 +48,9 @@ class PDUSessionUPDocxParser:
         self.logger = logging.getLogger(__name__)
 
     @staticmethod
-    def _extract_part_index(path: Path) -> int:
-        match = RE_PART_INDEX.search(path.name)
-        return int(match.group(1)) if match else 0
+    def _extract_part_index(path: Any) -> int:
+        return extract_part_index(path)
+
 
     @staticmethod
     def _normalize_key(name: str) -> str:

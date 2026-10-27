@@ -126,11 +126,9 @@ class SpecSearchImportThread(QThread):
                             )
                             target_docs = [
                                 p for p in set(siblings)
-                                if not is_change_mark_file(p.name)
+                                if not is_change_mark_file(p.name) and not p.name.startswith("~$")
                             ]
-                            target_docs.sort(
-                                key=lambda p: ProtocolDocxDispatcher._extract_part_index(p.name)
-                            )
+                            target_docs.sort(key=ProtocolDocxDispatcher._extract_part_index)
                     else:
                         zip_path = spec_cache_dir / filename
                         emit_task_progress(f"Downloading {filename} from 3GPP FTP...", 20)
@@ -158,8 +156,12 @@ class SpecSearchImportThread(QThread):
                 if self.isInterruptionRequested():
                     break
 
-                # Final guard against revision mark files
-                target_docs = [p for p in target_docs if not is_change_mark_file(p.name)]
+                # Final guard against revision mark files and lock files
+                target_docs = [
+                    p for p in target_docs
+                    if not is_change_mark_file(p.name) and not p.name.startswith("~$")
+                ]
+                target_docs.sort(key=ProtocolDocxDispatcher._extract_part_index)
 
                 # Convert legacy .doc to .docx if necessary
                 converted_docs: List[Path] = []

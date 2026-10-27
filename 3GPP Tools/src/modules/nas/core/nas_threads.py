@@ -182,8 +182,11 @@ class NASFetchAndImportThread(QThread):
                     elif cached_hit and cached_hit.suffix.lower() in [".docx", ".doc"]:
                         # Look for potential split sibling parts cached locally
                         base_prefix = re.sub(r"_\d+_.*$", "", cached_hit.stem)
-                        siblings = list(cached_hit.parent.glob(f"{base_prefix}*.docx")) + list(cached_hit.parent.glob(f"{base_prefix}*.doc"))
-                        target_docs = sorted(list(set(siblings)), key=lambda p: ProtocolDocxDispatcher._extract_part_index(p.name))
+                        siblings = [
+                            p for p in list(cached_hit.parent.glob(f"{base_prefix}*.docx")) + list(cached_hit.parent.glob(f"{base_prefix}*.doc"))
+                            if not p.name.startswith("~$")
+                        ]
+                        target_docs = sorted(list(set(siblings)), key=ProtocolDocxDispatcher._extract_part_index)
                         emit_task_progress(f"Found cached document(s): {len(target_docs)} part(s)", 20)
                     else:
                         zip_path = spec_cache_dir / filename
@@ -202,6 +205,10 @@ class NASFetchAndImportThread(QThread):
                                 ):
                                     zf.extract(member, to_extended_path(spec_cache_dir))
                                     target_docs.append(spec_cache_dir / member)
+
+                if target_docs:
+                    target_docs = [p for p in target_docs if not p.name.startswith("~$")]
+                    target_docs.sort(key=ProtocolDocxDispatcher._extract_part_index)
 
                 if not target_docs:
                     self.progress.emit(f"⚠️ Could not locate Word doc(s) for {filename}. Skipping...", base_progress)

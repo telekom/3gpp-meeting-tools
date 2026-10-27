@@ -6,7 +6,7 @@ from typing import List, Optional, Callable, Tuple, Dict, Any
 
 from modules.nas.core.parsing.protocol_parser_constants import (
     TAG_BODY, TAG_P, TAG_TBL, TAG_TR, TAG_TC,
-    RE_PART_INDEX, RE_CLAUSE_HEADER, RE_DESC_TABLE,
+    RE_PART_INDEX, extract_part_index, RE_CLAUSE_HEADER, RE_DESC_TABLE,
     RE_TYPE_DECL, RE_TYPE_KIND, RE_FIELD_LINE, RE_STRIP_KEYWORDS,
     RE_COND_NEED, RE_MAJOR_BOUNDARY
 )
@@ -24,9 +24,9 @@ class BaseAsn1DocxParser:
         self.logger = logging.getLogger(__name__)
 
     @staticmethod
-    def _extract_part_index(path: Path) -> int:
-        match = RE_PART_INDEX.search(path.name)
-        return int(match.group(1)) if match else 0
+    def _extract_part_index(path: Any) -> int:
+        return extract_part_index(path)
+
 
     @staticmethod
     def _normalize_key(name: str) -> str:

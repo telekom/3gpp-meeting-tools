@@ -421,7 +421,7 @@ class PostMeetingExportDialog(QDialog):
         self.chk_ls_out.setChecked(True)
         self.chk_ls_out.stateChanged.connect(self._update_estimates)
 
-        self.chk_disc = QCheckBox("💬 Agreed / Noted Discussion & Status Papers (Disc / WID)")
+        self.chk_disc = QCheckBox("💬 Agreed / Noted Discussion && Status Papers (Disc / WID)")
         self.chk_disc.setChecked(False)
         self.chk_disc.setToolTip(
             "Include discussion papers, study reports, and Work Item Descriptions (WID) noted or agreed by the meeting."

@@ -419,10 +419,11 @@ class DragDropUI(QMainWindow):
                     if f.is_file()
                     and f.stem.lower().startswith(stem.lower())
                     and f.suffix.lower() in [".docx", ".doc"]
+                    and not f.name.startswith("~$")
                     and not is_change_mark_file(f.name)
                 ]
                 if local_docs:
-                    local_docs.sort(key=lambda p: ProtocolDocxDispatcher._extract_part_index(p.name))
+                    local_docs.sort(key=ProtocolDocxDispatcher._extract_part_index)
                     task["local_docx_paths"] = local_docs
 
             tasks.append(task)

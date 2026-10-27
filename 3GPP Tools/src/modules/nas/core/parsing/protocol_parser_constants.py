@@ -1,4 +1,6 @@
 import re
+from pathlib import Path
+from typing import Any
 
 # WordprocessingML XML Namespaces & Tags
 W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -19,9 +21,23 @@ TAG_PPR = f"{W_NS}pPr"
 TAG_JC = f"{W_NS}jc"
 
 # Path & Specification Number Regular Expressions
-RE_PART_INDEX = re.compile(r"_(\d+)_")
+RE_PART_INDEX = re.compile(r"_s(\d+)(?:_s\d+)?|_part(\d+)|_(\d+)_|_(\d+)\.(?:docx|doc)$", re.IGNORECASE)
 RE_SPEC_NUMBER = re.compile(r"(24|25|29|36|37|38)[._]?(301|501|331|413|423|412|473|463|244|281|415)")
 RE_VERSION_STEM = re.compile(r"-([a-zA-Z0-9]{3})(?:_\d+.*)?$")
+
+
+def extract_part_index(path_or_name: Any) -> int:
+    """Extract numeric sort index from a multi-part specification filename or path."""
+    if not path_or_name:
+        return 0
+    name = path_or_name.name if hasattr(path_or_name, "name") else Path(str(path_or_name)).name
+    match = RE_PART_INDEX.search(name)
+    if not match:
+        return 0
+    for g in match.groups():
+        if g is not None:
+            return int(g)
+    return 0
 
 # Headings & Captions
 RE_CLAUSE_HEADER = re.compile(r"^((?:6|7|8|9|D\.6)(?:\.[0-9A-Za-z]+)+)\s*(.*)$")

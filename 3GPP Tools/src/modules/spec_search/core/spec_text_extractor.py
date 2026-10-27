@@ -20,6 +20,7 @@ from modules.nas.core.parsing.protocol_parser_constants import (
     TAG_TBL,
     TAG_TC,
     TAG_TR,
+    extract_part_index,
 )
 from modules.nas.core.parsing.protocol_parser_utils import (
     _extract_p_text,
@@ -128,6 +129,7 @@ class SpecDocxExtractor:
 
     def __init__(self, docx_paths: List[Path]):
         self.docx_paths = [Path(p) for p in docx_paths if Path(p).exists()]
+        self.docx_paths.sort(key=extract_part_index)
         self.logger = logging.getLogger(__name__)
 
     def extract_clauses(
