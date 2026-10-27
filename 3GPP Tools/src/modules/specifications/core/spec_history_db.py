@@ -85,12 +85,35 @@ class SpecHistoryDatabase:
                 );
             """)
 
+            # 3. Persistent Meeting Agenda TDoc Metadata Cache
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tdoc_metadata_cache (
+                    tdoc TEXT PRIMARY KEY,                      -- Uppercase token, e.g. "S2-2606363"
+                    base_tdoc TEXT NOT NULL,                    -- Base token without revision
+                    meeting TEXT NOT NULL DEFAULT '',
+                    title TEXT NOT NULL DEFAULT '',
+                    source TEXT NOT NULL DEFAULT '',
+                    tdoc_type TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT '',
+                    agenda_item TEXT NOT NULL DEFAULT '',
+                    ai_desc TEXT NOT NULL DEFAULT '',
+                    abstract TEXT NOT NULL DEFAULT '',
+                    work_item TEXT NOT NULL DEFAULT '',
+                    revision_of TEXT NOT NULL DEFAULT '',
+                    revised_to TEXT NOT NULL DEFAULT '',
+                    remarks TEXT NOT NULL DEFAULT '',
+                    cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+
             # Indexes for ultra-fast lookup
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_hist_spec_ver ON spec_change_history(spec_number, version);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_hist_spec ON spec_change_history(spec_number);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tdoc_lookup ON spec_tdoc_cross_ref(tdoc);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_raw_tdoc_lookup ON spec_tdoc_cross_ref(raw_tdoc);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tdoc_spec_ver ON spec_tdoc_cross_ref(spec_number, version);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tdoc_meta_base ON tdoc_metadata_cache(base_tdoc);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tdoc_meta_meeting ON tdoc_metadata_cache(meeting);")
 
     def upsert_history_records(self, records: List[Dict[str, Any]]) -> int:
         """
@@ -384,10 +407,110 @@ class SpecHistoryDatabase:
                 "unique_versions": row_vers[0] if row_vers else 0,
             }
 
+    def upsert_tdoc_metadata(self, entries: Sequence[Dict[str, Any]]) -> int:
+        """
+        Caches resolved meeting agenda metadata for TDocs in SQLite.
+        Returns the number of rows inserted or updated.
+        """
+        if not entries:
+            return 0
+
+        inserted = 0
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for r in entries:
+                raw_tdoc = str(r.get("tdoc") or r.get("TDoc") or "").strip().upper()
+                if not raw_tdoc or raw_tdoc == "-":
+                    continue
+                base_tdoc = raw_tdoc.split("R")[0]
+                cursor.execute("""
+                    INSERT INTO tdoc_metadata_cache (
+                        tdoc, base_tdoc, meeting, title, source, tdoc_type, status,
+                        agenda_item, ai_desc, abstract, work_item, revision_of, revised_to, remarks
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(tdoc) DO UPDATE SET
+                        meeting = excluded.meeting,
+                        title = excluded.title,
+                        source = excluded.source,
+                        tdoc_type = excluded.tdoc_type,
+                        status = excluded.status,
+                        agenda_item = excluded.agenda_item,
+                        ai_desc = excluded.ai_desc,
+                        abstract = excluded.abstract,
+                        work_item = excluded.work_item,
+                        revision_of = excluded.revision_of,
+                        revised_to = excluded.revised_to,
+                        remarks = excluded.remarks,
+                        cached_at = CURRENT_TIMESTAMP;
+                """, (
+                    raw_tdoc,
+                    base_tdoc,
+                    str(r.get("meeting", "")).strip(),
+                    str(r.get("title") or r.get("Title") or "").strip(),
+                    str(r.get("source") or r.get("Source") or "").strip(),
+                    str(r.get("type") or r.get("Type") or "").strip(),
+                    str(r.get("status") or r.get("TDoc Status") or "").strip().lower(),
+                    str(r.get("agenda_item") or r.get("Agenda Item") or "").strip(),
+                    str(r.get("ai_desc") or r.get("Agenda item description") or "").strip(),
+                    str(r.get("abstract") or r.get("Abstract") or "").strip(),
+                    str(r.get("wi") or r.get("Related WIs") or "").strip(),
+                    str(r.get("revision_of") or r.get("Revision of") or "").strip(),
+                    str(r.get("revised_to") or r.get("Revised to") or "").strip(),
+                    str(r.get("remarks") or r.get("Secretary Remarks") or "").strip(),
+                ))
+                inserted += 1
+
+        return inserted
+
+    def get_tdoc_metadata(self, tdocs: Sequence[str]) -> Dict[str, Dict[str, Any]]:
+        """
+        Fast O(1) retrieval of cached TDoc metadata.
+        Returns a dict mapping uppercase TDoc token to its metadata dict.
+        """
+        if not tdocs:
+            return {}
+
+        clean_tokens = [t.strip().upper() for t in tdocs if t and t.strip() != "-"]
+        if not clean_tokens:
+            return {}
+
+        results: Dict[str, Dict[str, Any]] = {}
+        with self._get_connection() as conn:
+            # Chunk lookups in batches of 500 for SQLite parameter limits
+            chunk_size = 500
+            for i in range(0, len(clean_tokens), chunk_size):
+                batch = clean_tokens[i:i + chunk_size]
+                placeholders = ",".join("?" for _ in batch)
+                rows = conn.execute(
+                    f"SELECT * FROM tdoc_metadata_cache WHERE tdoc IN ({placeholders}) OR base_tdoc IN ({placeholders})",
+                    batch + batch
+                ).fetchall()
+                for row in rows:
+                    d = dict(row)
+                    results[d["tdoc"]] = d
+                    if d["base_tdoc"] not in results:
+                        results[d["base_tdoc"]] = d
+
+        return results
+
+    def get_meeting_tdoc_metadata(self, meeting_name: str) -> List[Dict[str, Any]]:
+        """Retrieves all cached TDoc metadata records for a given meeting."""
+        clean_mtg = meeting_name.strip()
+        if not clean_mtg:
+            return []
+
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM tdoc_metadata_cache WHERE meeting = ? ORDER BY tdoc ASC",
+                (clean_mtg,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def wipe_database(self) -> bool:
         """Completely drops tables and clears the history database."""
         try:
             with self._get_connection() as conn:
+                conn.execute("DROP TABLE IF EXISTS tdoc_metadata_cache;")
                 conn.execute("DROP TABLE IF EXISTS spec_tdoc_cross_ref;")
                 conn.execute("DROP TABLE IF EXISTS spec_change_history;")
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")

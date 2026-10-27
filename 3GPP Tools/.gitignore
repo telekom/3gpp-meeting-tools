@@ -13,3 +13,6 @@ src/3gpp_tools.log
 __pycache__/
 *.pyc
 src/db/3gpp_spec_history.db*
+src/db/*.db*
+.idea/
+.ipynb_checkpoints/

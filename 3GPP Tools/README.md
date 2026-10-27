@@ -149,6 +149,16 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Programmatic Word Comparison (Track Changes):** Generate a native Microsoft Word comparison (`CompareDocuments` legal compare with tracked revisions) between any two clause versions directly from within the unified dialog or UI.
   * **Targeted Excerpting & Security Labeling:** Scans document headings with `WordHeadingScanner`, extracts only the targeted clause excerpts via `WordExcerptEngine`, applies corporate sensitivity labels, and executes Word COM comparison to produce a clean, focused Word document with native Track Changes.
   * **Universal Access:** Launch the unified comparison directly from the matrix cell right-click menu (**`🔍 Compare Clause (Diff & AI Analysis)...`**), or click **`📝 Open in Word (Track Changes)`** from inside the comparison dialog.
+* **🎯 3GPP Clause-to-TDoc Attribution (CR & p-CR Pinpointing):**
+  * **Pinpoint Originating Contributions:** Instantly answers *"Which specific CR or p-CR introduced or modified this clause, who authored it, and what was the technical rationale?"* across normative Technical Specifications (TS) and study-phase Technical Reports (TR).
+  * **Dual Mode Engine (TS Plenary CRs vs WG p-CRs):**
+    * *Mode A (Normative TS):* Inspects row-per-CR ledgers in `spec_change_history`, routing multi-file Plenary CR packs (`SP-xxxxxx.zip`) directly to the target `*CR<num>*.docx` without unzipping unrelated files.
+    * *Mode B (Study TRs & WG Drafts):* Resolves omnibus p-CR lists in draft releases where contributions originally used placeholder numbering (`6.x`, `Solution #X`) before final solution/clause numbers were assigned post-meeting by rapporteurs.
+  * **Ancestor Context Inheritance & The Key Issue Bridge:** Generic leaf clauses (`6.20.2.1 General`) automatically inherit full architectural titles by traversing `parent_clause` in `3gpp_spec_search.db` (`6.20 Solution #20: Protocol Architecture for Ambient IoT`). For new solutions, the Key Issue Bridge links TR text declarations (`"addresses Key Issue #4"`) to candidate p-CRs via meeting agenda items (`AI 20.6.4`) and title citations (`KI #4`).
+  * **Multi-Stage Progressive Attribution Pipeline:**
+    * *Stage 1 (Zero-Download Metadata & Structural Ranking, <50ms):* Scans rapporteur notes, matches structural patterns, computes cleaned semantic title overlap, and scores salient diff keywords against persistent SQLite agenda metadata (`tdoc_metadata_cache` in `3gpp_spec_history.db`).
+    * *Stage 2 (Track-Changes & Placeholder-Agnostic Content Fingerprinting):* Inspects candidate Word OpenXML documents (`word/document.xml`), excludes deleted `<w:del>` subtrees when matching added (`+`) diff lines, normalizes numbers (`6.x` / `6.20` $\to$ `<NUM>`), and computes exact long-sentence and 6-word shingle containment for deterministic ground truth (`✅ Verified in DOCX (98% Text Match)`).
+  * **Universal Access & Modeless UI:** Access directly via the **`🎯 Origin TDoc`** button in the Clause Content Inspector Tier 2 toolbar, the **`🎯 Identify Modifying TDoc`** button in the Visual Diff view, or Tab 3 (**`🎯 Modifying TDoc`**) inside `SpecClauseDiffDialog`. Features a top-candidate hero banner with 1-click **`📄 Open TDoc`**, **`🚀 Jump to Meetings`**, and **`📋 Copy Citation`**, a ranked candidate table with confidence pills, and a **`🔬 Deep Verify Top 3 (DOCX)`** background worker. Modeless window execution (`Qt.Window`) lets delegates freely navigate the main window and compare specifications simultaneously.
 * **Two-Way Cross-Tab Synergy with Specifications Tab:**
   * **Deep Link to Specifications Tab:** Click the **`🔍 Specs Tab`** button in the Inspector or select **`Show in Specifications Tab`** from the matrix context menu to switch to the **📚 Specifications** tab with the exact document and release selected.
   * **Deep Link to Spec Search:** From the **📚 Specifications** tab, right-click any specification or version to select **`🔎 Track Evolution in Spec Search`** (instantly filtering the search matrix to that spec and focusing the active version).
@@ -879,6 +889,12 @@ python -m main_tools
    * Choose your preferred Track Changes revision mode: **Inline Markup** (`[INSERTED: ...]` / `[DELETED: ...]`), **Accept All Changes** (clean final view), or **Reject All Changes** (original baseline).
    * Figures and diagrams are automatically extracted to a `{doc_name}_media/` companion folder with vector EMF/WMF drawings converted to PNG and embedded Visio diagrams linked.
    * Upon completion, use the 1-click action buttons to **Open Folder**, **Open .md File**, **Copy Markdown** to clipboard, or expand the in-app **Preview**.
+5. **Consolidate & Anonymize Track Changes Authors:** In **Word Tools**, switch to **👥 Revision Authors** (or select **Consolidate / Anonymize Track Changes Authors** in the Jump dropdown):
+   * Select a local `.docx` or click **🪟 Use Active Word** to load the document currently active in Microsoft Word.
+   * Review the discovered reviewers table detailing per-author metrics (insertions, deletions, format changes, comments, and initials).
+   * Enter a target author name or pick a 1-click preset (**🏢 My Company**, **✍️ Editor**, **👤 Rapporteur**, **🔒 Anonymous**). Initials are automatically derived or customized.
+   * Toggle options to update comment initials (`w:initials`), synchronize document core properties (`<dc:creator>`, `<cp:lastModifiedBy>`), and create `.bak` backups.
+   * Click **💾 Update File In-Place** (with automatic Word COM detection & safe close/reopen) or **📑 Save As New Copy...**.
 
 ---
 

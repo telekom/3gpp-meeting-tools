@@ -565,6 +565,7 @@ class SpecClauseInspector(QGroupBox):
     layout_orientation_toggle_requested = pyqtSignal(bool)      # True = side-by-side (horizontal), False = bottom (vertical)
     maximize_toggle_requested = pyqtSignal(bool)                # True = maximized, False = restored
     version_changes_requested = pyqtSignal(str, str)            # spec_number, version
+    identify_origin_tdoc_requested = pyqtSignal(str, str, str, str, str)  # spec_number, base_ver, target_ver, clause_number, clause_title
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__("Clause Content Inspector", parent)
@@ -780,6 +781,14 @@ class SpecClauseInspector(QGroupBox):
         self.btn_version_changes.setEnabled(False)
         tier2_bar.addWidget(self.btn_version_changes)
 
+        self.btn_origin_tdoc = QPushButton("🎯 Origin TDoc")
+        self.btn_origin_tdoc.setToolTip("Identify which specific CR or p-CR introduced or modified this clause across releases.")
+        self.btn_origin_tdoc.setCursor(Qt.PointingHandCursor)
+        self.btn_origin_tdoc.setStyleSheet(INSPECTOR_BTN_SUCCESS)
+        self.btn_origin_tdoc.clicked.connect(self._on_origin_tdoc_clicked)
+        self.btn_origin_tdoc.setEnabled(False)
+        tier2_bar.addWidget(self.btn_origin_tdoc)
+
         tier2_bar.addStretch()
         layout.addLayout(tier2_bar)
 
@@ -871,6 +880,8 @@ class SpecClauseInspector(QGroupBox):
         self.btn_version_changes.setEnabled(True)
         self.btn_version_changes.setText(f"📜 v{version} Changes")
         self.btn_version_changes.setToolTip(f"View all CRs, p-CRs, and TDocs integrated in TS {spec_number} v{version}, and directly open the actual TDoc documents.")
+        self.btn_origin_tdoc.setEnabled(True)
+        self.btn_origin_tdoc.setToolTip(f"Identify which CR or p-CR added or modified Clause {clause_number} in v{version}")
 
         # Update Quick Diff button
         if self._prev_ver:
@@ -1101,6 +1112,16 @@ class SpecClauseInspector(QGroupBox):
         if self._current_spec and self._current_version:
             self.version_changes_requested.emit(self._current_spec, self._current_version)
 
+    def _on_origin_tdoc_clicked(self):
+        if self._current_spec and self._current_version and self._current_clause_num:
+            self.identify_origin_tdoc_requested.emit(
+                self._current_spec,
+                self._prev_ver or "",
+                self._current_version,
+                self._current_clause_num,
+                self._current_clause_title,
+            )
+
     def clear_display(self):
         self.title_lbl.setText("No clause selected")
         self.match_badge.setVisible(False)
@@ -1115,6 +1136,7 @@ class SpecClauseInspector(QGroupBox):
         self.btn_llm_diff.setEnabled(False)
         self.btn_version_changes.setEnabled(False)
         self.btn_version_changes.setText("📜 Version Changes")
+        self.btn_origin_tdoc.setEnabled(False)
         self.browser.clear()
         self._current_search_query = ""
         self._last_citation_text = ""
