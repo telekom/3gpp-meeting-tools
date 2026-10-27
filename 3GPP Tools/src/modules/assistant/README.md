@@ -1039,55 +1039,45 @@ The actual Assistant conversation UI remains Stage 6.
 
 ## Stage 6: research-oriented Assistant UI
 
-Stage 6 adds `ui/assistant_tab.py` and integrates the tab into `main_window.py`.
+Stage 6 adds `ui/assistant_tab.py` and `ui/assistant_components.py`, integrating the tab into `main_window.py`.
 
-The initial UI deliberately focuses on the core research workflow:
-
-```text
-Conversation
-Research activity
-Sources
-Question input + Send / Stop
-```
-
-### Conversation
-
-Only user messages and final Assistant answers are retained as long-lived
-conversation context. Detailed tool traffic remains scoped to the research run.
-
-When a new question starts, the current conversation (excluding the just-added
-question) is passed to `AgentResearchWorker`. The controller applies its own
-recent-message bound before sending context to the model.
-
-### Research activity
-
-The activity pane displays objective application actions emitted by the
-controller, not hidden model reasoning.
-
-Examples include:
+The modernized UI is structured around a high-performance, card-framed cockpit:
 
 ```text
-Searching specification text...
-Reading a selected specification clause...
-Looking up a protocol message...
+┌────────────────────────────────────────────────────────────────────────┐
+│ Top Ribbon: Model Pill (🟢 Ollama: model) | [➕ New] [📋 Copy] [💾 Export] [◫ Layout] │
+├───────────────────────────────────┬────────────────────────────────────┤
+│ Left Column: Chat Stream & Prompt │ Right Column: Research Cockpit     │
+│  - Starter Prompt Suggestion Chips│  - Tab 1: 📚 Sources & Inspector   │
+│  - Styled Card Bubbles (User/AI)  │    (Tree + Embedded Viewer + Jumps)│
+│  - Formatted Technical Markdown   │  - Tab 2: ⚡ Activity Timeline     │
+│  - Clickable Citations ([E#])     │    (Semantic Icons, Step Pulse)    │
+│  - Auto-Wrapping Multiline Input  │  - Tab 3: 🔬 Diagnostics Trace     │
+│    (Shift+Enter newline, Send/Stop)│    (Latency, Speed tok/s, REST)   │
+└───────────────────────────────────┴────────────────────────────────────┘
 ```
 
-The pane can be collapsed after research completes.
+### Top Ribbon & Layout Switcher
 
-### Sources
+The header ribbon provides direct feedback on the local Ollama connection, one-click access to the Ollama Configuration dialog, session reset (`➕ New Chat`), export options (`📋 Copy Chat`, `💾 Export...`), and a layout toggle between Side-by-Side (`◫ Side Drawer`) and Stacked (`⬒ Bottom Split`).
 
-The Sources tree is populated from application-owned `Evidence` objects, not by
-parsing model-generated citation text.
+### Conversation & Clickable Citations
 
-A source row displays:
+Only user messages and final Assistant answers are retained as long-lived conversation context. Messages are formatted in visual cards with timestamps and execution KPI badges.
 
-- evidence ID;
-- source/specification;
-- version and clause where available.
+Citations such as `[E1]` are rendered as interactive links (`evidence:E1`). Clicking any citation switches the right-hand drawer to the Sources tab, highlights the referenced source, and displays its complete extracted content in the embedded inspector.
 
-Double-clicking a source currently opens a simple content preview. Navigation
-into the existing Specification Search and Protocol tabs is intentionally
-deferred until the core Assistant workflow has been validated.
+### Embedded Evidence Inspector & Cross-Tab Deep Linking
+
+The embedded inspector (`EvidenceInspectorWidget`) displays retrieved clause or protocol content without disruptive modal dialogs. It provides 1-click cross-tab deep linking:
+- `🔎 Spec Search`: switches to Spec Search and focuses the cited spec and clause.
+- `🔬 In Protocols`: switches to Protocols and jumps to the message definition.
+- `📚 In Specs`: switches to Specifications and selects the specification.
+- `📋 Copy Excerpt`: copies evidence text to clipboard.
+
+### Activity Timeline & Diagnostics Trace
+
+The activity pane (`ActivityTimelineWidget`) displays semantic icons for each tool category, step counts, and an active progress pulse bar. The diagnostics pane (`DiagnosticsTraceWidget`) aggregates request latency, token consumption, and generation speed (tok/s).
 
 ### Send / Stop state
 

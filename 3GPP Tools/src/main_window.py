@@ -153,6 +153,10 @@ class DragDropUI(QMainWindow):
         self.batch_tab.files_dropped.connect(
             lambda paths, fmt: self.queue_manager.add_batch(paths, target_format=fmt)
         )
+        self.batch_tab.send_to_editor_requested.connect(self._on_send_code_to_editor)
+        self.batch_tab.insert_snippet_requested.connect(self._on_insert_snippet_from_visio)
+        self.batch_tab.java_maintenance_requested.connect(self.open_java_maintenance)
+        self.batch_tab.open_folder_requested.connect(self.open_export_folder)
 
         logging.info("🏁 [STARTUP:UI:TAB] 3/8 Initializing WordExtractorTab...")
         self.word_tab = WordExtractorTab()
@@ -253,9 +257,12 @@ class DragDropUI(QMainWindow):
             protocol_db_path=nas_db_path,
         )
         self.assistant_tab.open_ollama_settings_requested.connect(self.open_ollama_settings)
+        self.assistant_tab.open_spec_search_requested.connect(self._navigate_from_assistant_to_spec_search)
+        self.assistant_tab.open_specs_requested.connect(self._navigate_from_assistant_to_specs)
+        self.assistant_tab.open_protocol_requested.connect(self._navigate_from_assistant_to_protocols)
 
         self.tabs.addTab(self.code_tab, "📝 PlantUML")
-        self.tabs.addTab(self.batch_tab, "🔄 Visio")
+        self.tabs.addTab(self.batch_tab, "🔄 Visio && Office")
         self.tabs.addTab(self.word_tab, "📘 Word")
         self.tabs.addTab(self.specs_tab, "📚 Specifications")
         self.tabs.addTab(self.spec_search_tab, "🔎 Spec Search")
@@ -361,6 +368,25 @@ class DragDropUI(QMainWindow):
         """Switches to Spec Search tab and focuses on the requested spec and version."""
         self.tabs.setCurrentWidget(self.spec_search_tab)
         self.spec_search_tab.focus_spec(spec_number, version)
+
+    def _navigate_from_assistant_to_spec_search(self, spec_number: str, version: str, clause: str):
+        """Switches to Spec Search tab and loads the requested spec, version, and clause."""
+        self.tabs.setCurrentWidget(self.spec_search_tab)
+        if spec_number:
+            self.spec_search_tab.focus_spec(spec_number, version)
+        if clause and hasattr(self.spec_search_tab, "clause_filter_input"):
+            self.spec_search_tab.clause_filter_input.setText(clause)
+
+    def _navigate_from_assistant_to_specs(self, spec_number: str, version: str):
+        """Switches to Specifications tab and selects the requested spec and version."""
+        self.tabs.setCurrentWidget(self.specs_tab)
+        self.specs_tab.select_and_show_spec(spec_number, version)
+
+    def _navigate_from_assistant_to_protocols(self, protocol: str, message: str):
+        """Switches to Protocols tab and selects the requested message."""
+        self.tabs.setCurrentWidget(self.nas_tab)
+        if message and hasattr(self.nas_tab, "_jump_to_message"):
+            self.nas_tab._jump_to_message(message)
 
     def _index_spec_from_specs_tab(self, spec_number: str, version: str):
         """Directly indexes a single specification version from Specifications tab into Spec Search."""
@@ -544,6 +570,18 @@ class DragDropUI(QMainWindow):
                 self.batch_tab.set_state(
                     "ready", "📥 Drag & Drop your .puml, .txt, .pptx, or .vsdx file(s) here\n\n(Batch converts between Visio & PowerPoint)"
                 )
+
+    def _on_send_code_to_editor(self, code: str):
+        self.tabs.setCurrentWidget(self.code_tab)
+        self._set_editor_text(code)
+        self.log_message("📝 Loaded extracted PlantUML code into Editor tab.", logging.INFO)
+
+    def _on_insert_snippet_from_visio(self, snippet):
+        self.tabs.setCurrentWidget(self.code_tab)
+        if hasattr(self.code_tab, "text_input"):
+            self.code_tab.text_input.insert_snippet(snippet)
+        label = getattr(snippet, 'label', 'snippet')
+        self.log_message(f"🧩 Inserted '{label}' into PlantUML editor.", logging.INFO)
 
     def _set_editor_text(self, text):
         cursor = self.code_tab.text_input.textCursor()
@@ -734,6 +772,9 @@ class DragDropUI(QMainWindow):
 
             if hasattr(self, 'word_tab') and hasattr(self.word_tab, 'on_conversion_success'):
                 self.word_tab.on_conversion_success(out_path)
+
+            if hasattr(self, 'batch_tab') and hasattr(self.batch_tab, 'on_conversion_success'):
+                self.batch_tab.on_conversion_success(out_path)
 
             if out_path.lower().endswith(('.svg', '.txt')):
                 try:

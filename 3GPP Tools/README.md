@@ -47,10 +47,15 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
     * *Specification Catalogue:* `find_specifications` (search catalogue by number/keyword), `get_specification` (retrieve known versions and metadata).
     * *Specification Text Index:* `search_spec_text` (FTS5 trigram substring matching across indexed clauses), `get_spec_clause` (retrieve exact extracted clause text).
     * *Structured Protocol Knowledge:* `list_protocols` (enumerate parsed protocols), `list_protocol_messages` (list messages/SIBs in a release), `find_protocol_message` (retrieve field/IE structures), `find_protocol_ie` (retrieve Clause 9 bit layouts and coding tables).
-  * **Progressive Multi-Pane Research UI (`AssistantTab`):**
-    * **Conversation Pane:** Streams grounded markdown answers with bracketed citations (e.g., `[E1, E2]`).
-    * **Research Activity Pane:** Real-time log of tool calls displaying invoked tool names, input arguments, durations, and output statuses.
-    * **Application-Owned Evidence Cards:** Displays concrete evidence items with clear provenance (source type, specification, version, clause/message, and preview), distinguishing local application coverage from model hallucinations.
+  * **Modern Cockpit Research UI (`AssistantTab`):**
+    * **Top Control Ribbon:** Features active Ollama model status pill (`🟢 Ollama: {model}`) with 1-click configuration launcher, session management (`➕ New Chat`, `📋 Copy Chat`, `💾 Export Markdown`), and layout switcher (`◫ Side Drawer` <-> `⬒ Bottom Split`).
+    * **Rich Conversation Stream:** Styled message cards with timestamps, KPI metadata (`⏱️ Latency · Steps · Sources`), formatted technical Markdown rendering (bold, lists, code blocks, tables), interactive citations (`<a href="evidence:E#">E#</a>`) that auto-focus cited evidence in the Sources tree and preview pane, and per-message `📋 Copy Answer` links.
+    * **Starter Prompt Suggestions:** Instant clickable query chips (`StarterChipsWidget`) for quick engineering questions (Registration in TS 23.501, NGAP PDU Session Setup, PFCP Messages, RRCReconfiguration).
+    * **Auto-Expanding Prompt Editor:** Multi-line prompt editor (`MultilinePromptEdit`) with `Enter` to submit, `Shift+Enter` for newlines, clear button, and character counter.
+    * **Tabbed Research Drawer & Embedded Inspector:**
+      * *📚 Sources & Inspector:* Tree list of application-owned evidence items with embedded excerpt viewer (`EvidenceInspectorWidget`) providing source badges (`[Spec Text]`, `[Protocol]`, `[Catalogue]`) and 1-click cross-tab deep linking (`🔎 In Spec Search`, `🔬 In Protocols`, `📚 In Specs`, `📋 Copy Excerpt`).
+      * *⚡ Activity Timeline:* Real-time step timeline (`ActivityTimelineWidget`) with semantic tool icons, step counter, live progress bar, and evidence tags.
+      * *🔬 Diagnostics Cockpit:* Raw REST trace inspector (`DiagnosticsTraceWidget`) with performance KPIs (latency, prompt tokens, eval tokens, speed in tok/s) and 1-click trace copy.
   * **Hot-Reloadable System Prompt:** System instructions are externalized to `config/prompts/assistant_system.txt`, enabling real-time prompt tuning with automatic timestamp detection without application restarts.
 * **3GPP Call Flow Sequence Generation:**
   * Directly transforms textual procedure steps (e.g., from TS 23.502 or TS 38.300) into standard PlantUML sequence diagrams.
@@ -558,23 +563,29 @@ python -m main_tools
 
 ### 🤖 3GPP Research Assistant (Evidence-Grounded Question Answering)
 1. Navigate to the **🤖 Assistant** tab.
-2. **Connectivity Check:** Observe the Assistant header status (`Ready`) and ensure your local Ollama instance is active via the bottom status bar pill (🟢 `🦙 <model_name>`).
+2. **Connectivity & Model Status:** Check the header pill (e.g. `🟢 Ollama: qwen2.5:7b`). Click the pill to launch the Ollama Configuration dialog to switch models or manage daemon lifecycle.
 3. **Posing 3GPP Engineering Queries:**
-   * Enter your technical question into the prompt input at the bottom (e.g., *"What information elements are contained in the Registration Request message in TS 24.501?"*, *"Explain ATSSS steering functionality and rules in TS 23.501"*, or *"Find all protocol messages related to PDU Session Establishment"*).
-   * Press **Enter** or click **🚀 Ask**.
+   * Click any of the **Starter Prompt Chips** (e.g. *TS 23.501 Registration*, *NGAP PDU Session Setup*, *TS 29.244 Messages*, *TS 38.331 RRCReconfiguration*) or type a question into the multi-line prompt box.
+   * Press **Enter** to submit, or **Shift+Enter** to add newlines.
 4. **Inspecting Live Research Activities:**
-   * The **Research Activity** pane displays the bounded agent's tool-calling progress step-by-step in real time.
-   * Inspect each semantic tool invoked (e.g., `find_specifications`, `search_spec_text`, `get_spec_clause`, `find_protocol_message`), the input arguments passed, the elapsed duration, and the execution status (`SUCCESS` / `ERROR`).
-5. **Evaluating Application-Owned Evidence:**
-   * The **Evidence** pane populates with concrete evidence items retrieved strictly from local SQLite databases.
-   * Each item displays its assigned evidence tag (`[E1]`, `[E2]`, etc.), source domain (*Specification Catalogue*, *Spec Search*, or *Protocol Knowledge*), specification number, version, clause or message name, and a text snippet.
+   * During research, the right-hand cockpit drawer displays the **⚡ Activity** timeline with semantic tool icons (`🔍`, `📖`, `🔬`, `📚`), step progress, and captured evidence chips.
+5. **Evaluating Evidence & Cross-Tab Deep Linking:**
+   * The **📚 Sources** tab displays application-owned evidence items (`[E1]`, `[E2]`, etc.) with clear domain badges (`[Spec Text]`, `[Protocol]`, `[Catalogue]`).
+   * Clicking any citation tag (`[E1]`) in the chat immediately reveals the exact retrieved clause or protocol excerpt in the embedded **Evidence Inspector**.
+   * Use the inspector action buttons to navigate directly across tabs:
+     * **`🔎 Spec Search`**: Opens Spec Search and focuses the cited spec, version, and clause.
+     * **`🔬 In Protocols`**: Opens the Protocols tab and selects the message.
+     * **`📚 In Specs`**: Opens the Specifications tab and selects the specification.
+     * **`📋 Copy Excerpt`**: Copies the retrieved source text to the clipboard.
 6. **Reviewing Grounded Answers & Citations:**
-   * The model streams its synthesized technical analysis into the **Conversation** pane, citing exact supporting sources with bracketed identifiers (e.g., `[E1]`, `[E2]`).
-   * The assistant explicitly distinguishes locally covered knowledge from model knowledge and refuses to hallucinate specifications or protocol fields absent from your databases.
-7. **Control & Customization:**
-   * Click **⏹️ Stop** at any time to abort an in-flight tool call or token streaming sequence.
-   * Click **🗑️ Clear** to wipe the conversation history and start a fresh research session.
-   * Custom instructions can be tuned without restarting the application by editing `config/prompts/assistant_system.txt`.
+   * The assistant formats its technical analysis with clean Markdown headings, bullet lists, tables, and code snippets.
+   * Click **📋 Copy Answer** on any message bubble to export that answer's markdown.
+7. **Session & Layout Controls:**
+   * Click **`◫ Side Drawer` / `⬒ Bottom Split`** to toggle between side-by-side cockpit and stacked modes.
+   * Click **`➕ New Chat`** to reset the conversation and start a new session.
+   * Click **`📋 Copy Chat`** to copy the full transcript and source citations to the clipboard, or **`💾 Export...`** to save to Markdown.
+   * Click **`■ Stop`** at any time to cooperatively cancel an in-flight research run.
+   * Custom instructions can be tuned without restarting by editing `config/prompts/assistant_system.txt`.
 
 ---
 
