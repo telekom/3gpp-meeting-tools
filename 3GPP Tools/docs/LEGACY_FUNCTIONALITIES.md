@@ -32,7 +32,7 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 | **F-04** | **PDF & AI Tools** | Bookmarked PDF Dossier & LLM Prompt | [F04: Bookmarked PDF & Prompt](legacy_features/F04_bookmarked_pdf_dossier_llm_prompt.md) | ❌ Merges Excel / Markdown | Medium | 🟡 Medium |
 | **F-05** | **Word Automation** | Active Word vs. TDoc Direct Compare | [F05: Active Word vs. TDoc](legacy_features/F05_active_word_vs_tdoc_comparison.md) | ✅ Implemented (Multi-Surface + Live Cart) | Low | 🟢 High |
 | **F-06** | **Security / Compliance** | MIP / Purview Sensitivity Label Setter | [F06: MIP Sensitivity Setter](legacy_features/F06_mip_sensitivity_label_setter.md) | ❌ Not implemented | Medium | 🟡 Medium |
-| **F-07** | **Word Automation** | Track Changes Revision Author Renamer | [F07: Author Renamer](legacy_features/F07_track_changes_author_renamer.md) | ❌ Not implemented | Low | ⚪ Low |
+| **F-07** | **Word Automation** | Track Changes Revision Author Renamer | [F07: Author Renamer](legacy_features/F07_track_changes_author_renamer.md) | ✅ Implemented (Word Tools Tab) | Low | ⚪ Low |
 | **F-08** | **Word Automation** | Word Process Watchdog / Force Killer | [F08: Word Process Watchdog](legacy_features/F08_word_process_watchdog_killer.md) | 🔴 Deprecated (Superseded by COM Task Manager Dialog) | Low | ⚪ Low |
 | **F-09** | **Word Automation** | Word Meeting Contribution Report (.docx) | [F09: Word Contribution Report](legacy_features/F09_word_meeting_contribution_report.md) | 🔴 Deprecated (Superseded by HTML Dashboard & Dossiers) | High | ⚪ Low |
 | **F-10** | **Word Automation** | "Accept All Changes" Clean Export | [F10: Accept All Changes Export](legacy_features/F10_word_accept_all_changes_export.md) | ❌ Not implemented | Low | ⚪ Low |
@@ -288,8 +288,8 @@ flowchart LR
     5. Re-compressed into `.docx` and re-opened in Word.
 
 #### Proposed Integration into 3GPP Tools
-1. **Location:** `src/modules/word_tools/` -> Add a tab or dialog: `"Author Anonymizer / Track Changes Consolidator"`.
-2. **Implementation:** Pure Python `zipfile` operation, completely independent of Word COM. Fast, reliable, and operates cross-platform.
+1. **Location:** `src/modules/word_tools/` -> Integrated into `WordExtractorTab` as the `👥 Revision Authors` card (`card_author_renamer`) and ribbon navigation pill.
+2. **Implementation:** Pure Python `zipfile` and `xml.etree.ElementTree` operation with dynamic namespace preservation. Handles all XML parts (`document.xml`, `comments.xml`, headers/footers, etc.), comment initials updates, and Dublin Core metadata. Features automatic active Word COM detection, safe close & in-place update, and `.bak` backups.
 
 ---
 
