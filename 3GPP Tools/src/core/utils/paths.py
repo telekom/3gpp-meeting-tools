@@ -54,3 +54,13 @@ def to_extended_path(p) -> str:
         return "\\\\?\\" + p_str
     return p_str
 
+
+
+def strip_extended_path(p) -> str:
+    """Remove Windows \\\\?\\ or \\\\?\\UNC\\\\ prefix for clean relative paths, display, and external tools."""
+    s = str(p)
+    if s.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + s[8:]
+    if s.startswith("\\\\?\\"):
+        return s[4:]
+    return s

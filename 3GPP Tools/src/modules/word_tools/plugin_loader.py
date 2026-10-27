@@ -25,5 +25,26 @@ def register_word_plugin():
     register_task(
         target_format="word_convert",
         display_name="Format Conversion",
-        thread_factory=lambda file_path, params, ctx: WordConverterThread(str(file_path), params.get("fmt", "pdf"))
+        thread_factory=lambda file_path, params, ctx: WordConverterThread(
+            str(file_path),
+            params.get("fmt", "pdf"),
+            engine=params.get("engine", "auto"),
+            revisions=params.get("revisions", "markup"),
+            extract_media=params.get("extract_media", True),
+            output_dir=params.get("output_dir"),
+            include_header=params.get("include_header", True),
+        )
+    )
+    register_task(
+        target_format="word_to_markdown",
+        display_name="WORD → MARKDOWN",
+        thread_factory=lambda file_path, params, ctx: WordConverterThread(
+            str(file_path),
+            "md",
+            engine=params.get("engine", "auto"),
+            revisions=params.get("revisions", "markup"),
+            extract_media=params.get("extract_media", True),
+            output_dir=params.get("output_dir"),
+            include_header=params.get("include_header", True),
+        )
     )

@@ -410,6 +410,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Intelligent DocxSplitter:** Safely slices massive 3GPP TS/TR specifications into individual Word documents based on Heading 1 or Heading 2 boundaries, perfectly preserving styles, images, and Visio objects.
 * **Selective Heading Excerpt Extractor:** Load one or multiple `.docx` files, scan their heading hierarchy, select arbitrary clauses/sections, and combine the selected excerpts into a single Word document. Multi-part specifications can be naturally ordered by filename or kept in drag-and-drop order; parent selections automatically include their complete subtree without duplicating explicitly selected child headings. The workflow preserves Word formatting and embedded content belonging to the retained sections while excluding unrelated document content.
 * **Background Word-to-PDF Converter:** A headless Word automation thread that silently converts generated files to PDFs or XPS without interrupting your workflow.
+* **High-Fidelity Word-to-Markdown Converter:** Converts arbitrary Word documents (`.docx`, `.docm`, legacy `.doc`) into clean GitHub-flavored Markdown headlessly via OpenXML parsing. Features selective Track Changes rendering (`Inline Markup`, `Accept All Changes`, `Reject All Changes`), automatic extraction of figures and diagrams into companion media folders (`{doc_name}_media/`), rasterization of vector EMF/WMF drawings to PNG, and native Visio (`.vsdx`) extraction. Supports 1-click **"🪟 Use Active Word"** live drafting snapshots, post-conversion file/folder launching, 1-click clipboard copying, and collapsible in-app Markdown preview.
 * **Native Visio Extractor:** Parses the raw XML (`document.xml`) of a `.docx` file, identifies embedded `OLEObject` bins, and extracts raw `.vsdx` Visio diagrams straight out of the Word document to your local disk.
 
 ---
@@ -843,6 +844,11 @@ python -m main_tools
    * Scan/browse the combined hierarchical heading tree, use the heading filter plus **Expand All / Collapse All** for large documents, and check the sections to retain. Selecting a parent heading includes its complete subtree; selecting both a parent and one of its children does not duplicate the child content.
    * Non-contiguous selections are combined directly into **one output `.docx`** in document order. For example, selecting `4.2` and `7.3` produces an excerpt containing those two complete sections one after another. The original Table of Contents is not added automatically.
    * Extraction operates on copies of the source documents and uses native Word processing where required for multi-file assembly, with the goal of retaining styles, tables, figures, equations, and embedded/OLE content used by the selected sections without carrying unrelated excerpt content into the result. Original source files are not modified.
+4. **Convert Word Documents to Markdown:** In **Word Tools**, switch to **Convert Word to Markdown (.md)** (or select `Target Format: MD` under **Convert Document Format**):
+   * Select a local `.docx`, `.docm`, or `.doc` file, choose an open Word document, or click **🪟 Use Active Word** to snapshot the document currently active in Microsoft Word.
+   * Choose your preferred Track Changes revision mode: **Inline Markup** (`[INSERTED: ...]` / `[DELETED: ...]`), **Accept All Changes** (clean final view), or **Reject All Changes** (original baseline).
+   * Figures and diagrams are automatically extracted to a `{doc_name}_media/` companion folder with vector EMF/WMF drawings converted to PNG and embedded Visio diagrams linked.
+   * Upon completion, use the 1-click action buttons to **Open Folder**, **Open .md File**, **Copy Markdown** to clipboard, or expand the in-app **Preview**.
 
 ---
 
