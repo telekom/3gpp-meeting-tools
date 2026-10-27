@@ -31,6 +31,7 @@ from core.ui.ui_components import (
     TABLE_STYLE_CLEAN,
 )
 from modules.specifications.ui.spec_annotations_dialog import EditSpecAnnotationsDialog
+from modules.specifications.ui.spec_history_dialog import SpecVersionHistoryDialog
 from modules.specifications.ui.spec_menu import populate_spec_copy_menu
 from modules.specifications.utils.utils import normalize_dynareport_spec_number, build_dynareport_url
 
@@ -207,6 +208,13 @@ class SpecInfoDialog(QDialog):
         copy_btn.setMenu(copy_menu)
         btn_layout.addWidget(copy_btn)
 
+        hist_btn = QPushButton("📜 Change History && TDocs")
+        hist_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        hist_btn.setCursor(Qt.PointingHandCursor)
+        hist_btn.setToolTip("View all formal CRs, pre-release p-CRs, and integrated TDocs for this specification.")
+        hist_btn.clicked.connect(self._open_history_dialog)
+        btn_layout.addWidget(hist_btn)
+
         btn_layout.addStretch()
 
         close_btn = QPushButton("Close")
@@ -216,6 +224,13 @@ class SpecInfoDialog(QDialog):
         btn_layout.addWidget(close_btn)
 
         layout.addLayout(btn_layout)
+
+    def _open_history_dialog(self):
+        """Opens the Change History dialog for this specification."""
+        spec_num = self.details.get("number", "")
+        if spec_num:
+            dlg = SpecVersionHistoryDialog(spec_number=spec_num, parent=self, specs_db=self.db)
+            dlg.exec_()
 
     def _build_annotations_card(self) -> QFrame:
         """Constructs the personal tags and comments card with live edit trigger."""

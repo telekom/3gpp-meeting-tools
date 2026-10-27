@@ -551,6 +551,7 @@ class SpecSearchTab(QWidget):
         self.inspector.open_document_requested.connect(self._handle_open_spec_document)
         self.inspector.show_in_specs_tab_requested.connect(self._handle_show_in_specs_tab)
         self.inspector.quick_diff_requested.connect(self._handle_quick_diff)
+        self.inspector.version_changes_requested.connect(self._open_version_history_dialog)
         self.inspector.jump_to_version_requested.connect(self._handle_jump_to_version)
         self.inspector.extract_clause_requested.connect(self._handle_extract_clause_word)
         self.inspector.export_markdown_requested.connect(self._handle_export_clause_markdown)
@@ -1098,6 +1099,17 @@ class SpecSearchTab(QWidget):
         QMessageBox.critical(self, "Wipe Error", f"Failed to wipe search database: {err}")
         logger.log(logging.ERROR, f"❌ Wipe error: {err}")
 
+    def _open_version_history_dialog(self, spec_num: str, version: Optional[str] = None):
+        """Opens the Change History & Integrated TDocs dialog directly from Spec Search."""
+        from modules.specifications.ui.spec_history_dialog import SpecVersionHistoryDialog
+        dlg = SpecVersionHistoryDialog(
+            spec_number=spec_num,
+            initial_version=version,
+            parent=self,
+            specs_db=getattr(self, "specs_db", None)
+        )
+        dlg.exec_()
+
     def _open_clause_diff_dialog(
         self,
         spec_num: str,
@@ -1454,6 +1466,9 @@ class SpecSearchTab(QWidget):
 
         act_specs = menu.addAction(f"🔍 Show TS {spec_num} v{version} in Specifications Tab")
         act_specs.triggered.connect(lambda: self._handle_show_in_specs_tab(spec_num, version))
+
+        act_changes = menu.addAction(f"📜 View Changes & TDocs for TS {spec_num} v{version}...")
+        act_changes.triggered.connect(lambda: self._open_version_history_dialog(spec_num, version))
 
         menu.addSeparator()
 

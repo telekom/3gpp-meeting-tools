@@ -809,11 +809,12 @@ def show_spec_context_menu(tab, position):
         info_action = menu.addAction("ℹ️ View Details")
         info_action.triggered.connect(lambda _, s=spec_num: tab._show_spec_info(s))
 
-        web_action = menu.addAction("🌐 Open 3GPP Web Report")
-        web_action.triggered.connect(lambda _, s=spec_num: tab._open_web_report(s))
-
         ver_str = v_info.get("version", "") if v_info else ""
         clean_ver = ver_str.lstrip("vV").strip() if ver_str else ""
+
+        hist_action = menu.addAction(f"📜 View Change History & TDocs{ver_badge}")
+        hist_action.setToolTip("Browse all formal CRs, p-CRs, and integrated TDocs.")
+        hist_action.triggered.connect(lambda _, s=spec_num, v=clean_ver: tab._open_version_history_dialog(s, v))
 
         search_action = menu.addAction("🔎 Track Evolution in Spec Search")
         search_action.triggered.connect(

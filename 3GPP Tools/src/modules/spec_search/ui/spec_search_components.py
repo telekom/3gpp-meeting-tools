@@ -564,6 +564,7 @@ class SpecClauseInspector(QGroupBox):
     export_markdown_requested = pyqtSignal(str, str, str, str, str)       # spec_number, version, clause_number, clause_title, content
     layout_orientation_toggle_requested = pyqtSignal(bool)      # True = side-by-side (horizontal), False = bottom (vertical)
     maximize_toggle_requested = pyqtSignal(bool)                # True = maximized, False = restored
+    version_changes_requested = pyqtSignal(str, str)            # spec_number, version
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__("Clause Content Inspector", parent)
@@ -771,6 +772,14 @@ class SpecClauseInspector(QGroupBox):
         self.btn_llm_diff.setEnabled(False)
         tier2_bar.addWidget(self.btn_llm_diff)
 
+        self.btn_version_changes = QPushButton("📜 Version Changes")
+        self.btn_version_changes.setToolTip("View all integrated CRs, p-CRs, and TDocs for this version, and directly open the source contribution documents.")
+        self.btn_version_changes.setCursor(Qt.PointingHandCursor)
+        self.btn_version_changes.setStyleSheet(INSPECTOR_BTN_BASE)
+        self.btn_version_changes.clicked.connect(self._on_version_changes_clicked)
+        self.btn_version_changes.setEnabled(False)
+        tier2_bar.addWidget(self.btn_version_changes)
+
         tier2_bar.addStretch()
         layout.addLayout(tier2_bar)
 
@@ -859,6 +868,9 @@ class SpecClauseInspector(QGroupBox):
         self.btn_llm_diff.setEnabled(True)
         self.btn_open_doc.setEnabled(True)
         self.btn_show_in_specs.setEnabled(True)
+        self.btn_version_changes.setEnabled(True)
+        self.btn_version_changes.setText(f"📜 v{version} Changes")
+        self.btn_version_changes.setToolTip(f"View all CRs, p-CRs, and TDocs integrated in TS {spec_number} v{version}, and directly open the actual TDoc documents.")
 
         # Update Quick Diff button
         if self._prev_ver:
@@ -1085,6 +1097,10 @@ class SpecClauseInspector(QGroupBox):
     def _copy_citation(self):
         self._copy_formatted("citation")
 
+    def _on_version_changes_clicked(self):
+        if self._current_spec and self._current_version:
+            self.version_changes_requested.emit(self._current_spec, self._current_version)
+
     def clear_display(self):
         self.title_lbl.setText("No clause selected")
         self.match_badge.setVisible(False)
@@ -1097,6 +1113,8 @@ class SpecClauseInspector(QGroupBox):
         self.btn_show_in_specs.setEnabled(False)
         self.btn_quick_diff.setEnabled(False)
         self.btn_llm_diff.setEnabled(False)
+        self.btn_version_changes.setEnabled(False)
+        self.btn_version_changes.setText("📜 Version Changes")
         self.browser.clear()
         self._current_search_query = ""
         self._last_citation_text = ""

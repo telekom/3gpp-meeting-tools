@@ -194,6 +194,20 @@ class SpecSearchImportThread(QThread):
                     successful_specs += 1
                     total_clauses_indexed += len(clauses)
 
+                    # Also extract Change History & integrated TDocs into 3gpp_spec_history.db
+                    try:
+                        from modules.specifications.core.spec_history_db import SpecHistoryDatabase
+                        from modules.specifications.core.spec_history_extractor import SpecHistoryExtractor
+                        from core.utils.paths import get_project_root
+                        hist_db = SpecHistoryDatabase(get_project_root() / "db" / "3gpp_spec_history.db")
+                        terminal_doc = converted_docs[-1] if converted_docs else None
+                        if terminal_doc and terminal_doc.exists():
+                            hist_recs = SpecHistoryExtractor.extract_from_docx(terminal_doc, spec_number, version_hint=version)
+                            if hist_recs:
+                                hist_db.upsert_history_records(hist_recs)
+                    except Exception as hist_err:
+                        logger.debug(f"Could not index change history for {spec_number} v{version}: {hist_err}")
+
             except Exception as e:
                 self.progress.emit(f"⚠️ Ingestion error on {filename}: {e}", base_progress)
 
