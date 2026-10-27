@@ -24,6 +24,7 @@ from modules.specifications.core.spec_history_extractor import (
     normalize_version_token,
 )
 from modules.specifications.core.spec_tdoc_opener import SpecTDocOpener
+from modules.specifications.core.spec_tdoc_report import SpecTDocReportGenerator
 
 
 class TestSpecHistoryExtractor(unittest.TestCase):
@@ -150,6 +151,63 @@ class TestSpecTDocOpener(unittest.TestCase):
         self.assertIn("v19.1.0", plain)
         self.assertIn("SA WG2#175", plain)
         self.assertIn("https://portal.3gpp.org", html)
+
+
+class TestSpecTDocReport(unittest.TestCase):
+    """Tests for on-demand TDoc report and dossier generation."""
+
+    def setUp(self):
+        self.mock_entries = [
+            {
+                "tdoc": "S2-2606363",
+                "title": "Forbidden area provision for UE and 6G-RAN",
+                "source": "China Telecom Corporation Ltd.",
+                "type": "pCR",
+                "status": "approved",
+                "agenda_item": "20.6.1",
+                "ai_desc": "Study on Architecture for 6G System",
+                "abstract": "Proposes forbidden area provision for mobility management.",
+                "wi": "FS_6G_ARC",
+                "meeting": "SA WG2#175-AHE",
+                "remarks": "r00 agreed. Approved",
+                "resolved": True,
+            },
+            {
+                "tdoc": "S2-2606365",
+                "title": "UE provided information about energy",
+                "source": "Rakuten Mobile, Inc",
+                "type": "pCR",
+                "status": "approved",
+                "agenda_item": "20.6.1",
+                "ai_desc": "Study on Architecture for 6G System",
+                "abstract": "Energy saving indicators.",
+                "wi": "FS_6G_ARC",
+                "meeting": "SA WG2#175-AHE",
+                "remarks": "Approved",
+                "resolved": True,
+            },
+        ]
+
+    def test_markdown_report_generation(self):
+        md = SpecTDocReportGenerator.generate_markdown_report(
+            spec_number="23.801-01",
+            version="0.8.0",
+            tdoc_entries=self.mock_entries,
+            spec_title="Study on Architecture for 6G System; Stage 2",
+        )
+        self.assertIn("TS 23.801-01 v0.8.0", md)
+        self.assertIn("China Telecom Corporation Ltd.", md)
+        self.assertIn("Rakuten Mobile, Inc", md)
+        self.assertIn("Forbidden area provision", md)
+        self.assertIn("Energy saving indicators", md)
+        self.assertIn("| **S2-2606363** |", md)
+
+    def test_csv_report_generation(self):
+        csv_str = SpecTDocReportGenerator.generate_csv_report(self.mock_entries)
+        self.assertIn("TDoc,Title,Source", csv_str)
+        self.assertIn("S2-2606363", csv_str)
+        self.assertIn("China Telecom Corporation Ltd.", csv_str)
+        self.assertIn("FS_6G_ARC", csv_str)
 
 
 if __name__ == "__main__":

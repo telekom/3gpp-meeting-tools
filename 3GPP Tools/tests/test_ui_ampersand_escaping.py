@@ -49,7 +49,7 @@ class TestUiAmpersandEscaping(unittest.TestCase):
         self.assertTrue(src_dir.exists(), f"Source directory {src_dir} does not exist.")
 
         violations = []
-        ampersand_pattern = re.compile(r"(?<!&)&(?!&)(?!amp;)(?!lt;)(?!gt;)")
+        ampersand_pattern = re.compile(r"(?<!&)&(?!&)(?!amp;)(?!lt;)(?!gt;)(?!nbsp;)")
 
         for root, _, files in os.walk(src_dir):
             for file_name in files:
@@ -76,8 +76,15 @@ class TestUiAmpersandEscaping(unittest.TestCase):
 
                     if func_name in self.TARGET_CLASSES or func_name in self.TARGET_METHODS:
                         for arg_idx, arg in enumerate(node.args):
+                            strings_to_check = []
                             if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                                val = arg.value
+                                strings_to_check.append(arg.value)
+                            elif isinstance(arg, ast.JoinedStr):
+                                for part in arg.values:
+                                    if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                                        strings_to_check.append(part.value)
+
+                            for val in strings_to_check:
                                 if ampersand_pattern.search(val):
                                     rel_path = py_path.relative_to(project_root)
                                     violations.append(

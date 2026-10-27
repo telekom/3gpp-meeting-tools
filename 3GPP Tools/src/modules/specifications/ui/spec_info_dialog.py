@@ -226,11 +226,15 @@ class SpecInfoDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def _open_history_dialog(self):
-        """Opens the Change History dialog for this specification."""
+        """Opens the Change History dialog modelessly for this specification."""
         spec_num = self.details.get("number", "")
         if spec_num:
-            dlg = SpecVersionHistoryDialog(spec_number=spec_num, parent=self, specs_db=self.db)
-            dlg.exec_()
+            logger.info(f"📜 [Change History] Opening Change History for TS {spec_num}...")
+            dlg = SpecVersionHistoryDialog(spec_number=spec_num, parent=self.parent() or self, specs_db=self.db)
+            self._history_dialog = dlg
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
 
     def _build_annotations_card(self) -> QFrame:
         """Constructs the personal tags and comments card with live edit trigger."""

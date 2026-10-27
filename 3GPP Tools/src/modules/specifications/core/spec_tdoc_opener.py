@@ -142,7 +142,7 @@ class SpecTDocOpener:
         local_hit = find_cached_tdoc_file(clean_tdoc)
         if local_hit and local_hit.exists():
             if local_hit.suffix.lower() in (".docx", ".doc"):
-                logger.info(f"Opening cached TDoc document: {local_hit}")
+                logger.info(f"📂 [TDoc Opener] Opening cached contribution: {local_hit.name}")
                 open_document(local_hit)
                 return True
             elif local_hit.suffix.lower() == ".zip":
@@ -150,13 +150,16 @@ class SpecTDocOpener:
                 parent_dir = local_hit.parent
                 candidates = list(parent_dir.glob(f"*{clean_tdoc}*.doc*"))
                 if candidates:
+                    logger.info(f"📂 [TDoc Opener] Opening extracted contribution: {candidates[0].name}")
                     open_document(candidates[0])
                     return True
                 else:
+                    logger.info(f"📂 [TDoc Opener] Opening archive: {local_hit.name}")
                     open_document(local_hit)
                     return True
 
         # 2. Resolve download URL via Meetings database
+        logger.info(f"🔍 [TDoc Opener] Resolving download URL for TDoc {clean_tdoc}...")
         data_db_path = Path(db_path or (get_project_root() / "db" / "3gpp_data.db"))
         meetings_db = MeetingsDatabase(data_db_path)
 
@@ -204,6 +207,7 @@ class SpecTDocOpener:
 
         def _on_success(doc_path: Path):
             progress_dlg.close()
+            logger.info(f"✅ [TDoc Opener] Successfully downloaded and opening {clean_tdoc}: {doc_path.name}")
             try:
                 open_document(doc_path)
             except Exception as e:
@@ -238,6 +242,15 @@ class SpecTDocOpener:
         return True
 
     @staticmethod
+    def open_tdoc_in_portal(tdoc_id: str) -> bool:
+        """Opens the official 3GU web portal view for a TDoc in default browser."""
+        clean_tdoc = tdoc_id.strip()
+        base_id = clean_tdoc.split("r")[0].split("R")[0]
+        portal_url = f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={base_id}"
+        logger.info(f"🌐 [TDoc Opener] Opening 3GU portal: {portal_url}")
+        return webbrowser.open(portal_url)
+
+    @staticmethod
     def jump_to_meetings_tab(tdoc_id: str, main_window: Optional[QWidget] = None) -> bool:
         """
         Navigates to the Meetings tab in the main window and populates the Quick TDoc Jump box.
@@ -255,6 +268,7 @@ class SpecTDocOpener:
             return False
 
         try:
+            logger.info(f"🚀 [Meetings] Jumping to Meetings tab for TDoc {clean_tdoc}...")
             # Switch tab if QTabWidget exists
             if hasattr(main_window, "tab_widget"):
                 idx = main_window.tab_widget.indexOf(main_window.meetings_tab)
@@ -319,3 +333,4 @@ class SpecTDocOpener:
             subject=subject,
         )
         _copy_to_clipboard(plain, html, label=f"TDoc {tdoc_id.strip()}", parent=parent)
+        logger.info(f"📋 [Clipboard] Copied citation for TDoc {clean_tdoc}")
