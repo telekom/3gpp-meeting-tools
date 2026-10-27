@@ -40,6 +40,7 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     CARD_FRAME_STYLE,
     COMBOBOX_STYLE_TOOLBAR,
+    SEARCH_INPUT_STYLE,
     TOGGLE_PILL_STYLE,
     InteractiveDropLabel,
 )
@@ -234,17 +235,95 @@ class WordExtractorTab(QWidget):
 
         self.card_visio = QWidget()
         visio_layout = QVBoxLayout(self.card_visio)
+        visio_layout.setContentsMargins(12, 10, 12, 10)
+        visio_layout.setSpacing(10)
+
+        # Visio Header Frame
+        visio_hdr = QFrame()
+        visio_hdr.setObjectName("cardFrame")
+        visio_hdr.setStyleSheet(CARD_FRAME_STYLE)
+        vh_layout = QVBoxLayout(visio_hdr)
+        vh_layout.setContentsMargins(14, 12, 14, 12)
+        vh_layout.setSpacing(6)
+
+        vh_title = QLabel("<b>🖼️ Visio & OLE Media Extractor</b>")
+        vh_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        vh_layout.addWidget(vh_title)
+
+        vh_desc = QLabel(
+            "Extracts embedded native Visio drawings (.vsdx) and legacy OLE binary objects from "
+            "Word documents (.docx, .docm). Extracted files are saved to the source document's directory "
+            "and can be opened directly in Microsoft Visio or imported into the PlantUML/Visio tab."
+        )
+        vh_desc.setWordWrap(True)
+        vh_desc.setStyleSheet("color: #475569; font-size: 11px;")
+        vh_layout.addWidget(vh_desc)
+        visio_layout.addWidget(visio_hdr)
+
+        self.pane_visio = DocumentSelectorPane("📄 WORD DOCUMENT TO EXTRACT")
+        visio_layout.addWidget(self.pane_visio)
+
+        # Hidden drop zone for backward compatibility
         self.visio_drop = InteractiveDropLabel(
             "📥 Drag & Drop a .docx file here to extract its Visio components", [".docx"]
         )
         self.visio_drop.file_dropped.connect(
             lambda files: [self.extract_visio_requested.emit(f) for f in files]
         )
-        visio_layout.addWidget(self.visio_drop)
+        self.visio_drop.setVisible(False)
+
+        visio_act_row = QHBoxLayout()
+        self.run_visio_btn = QPushButton("🚀 Extract Visio Components (.vsdx)")
+        self.run_visio_btn.setObjectName("primaryBtn")
+        self.run_visio_btn.setCursor(Qt.PointingHandCursor)
+        self.run_visio_btn.clicked.connect(self._trigger_visio_extraction)
+        visio_act_row.addWidget(self.run_visio_btn)
+        visio_act_row.addStretch()
+        visio_layout.addLayout(visio_act_row)
+
+        self.visio_result_frame = QFrame()
+        self.visio_result_frame.setStyleSheet(CARD_FRAME_STYLE)
+        self.visio_result_frame.setVisible(False)
+        vr_layout = QHBoxLayout(self.visio_result_frame)
+        vr_layout.setContentsMargins(12, 8, 12, 8)
+        self.visio_result_icon = QLabel("⏳")
+        self.visio_result_lbl = QLabel()
+        self.visio_result_lbl.setStyleSheet("font-weight: bold; color: #1E5C99;")
+        vr_layout.addWidget(self.visio_result_icon)
+        vr_layout.addWidget(self.visio_result_lbl, 1)
+
+        self.visio_open_folder_btn = QPushButton("📂 Open Output Folder")
+        self.visio_open_folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.visio_open_folder_btn.clicked.connect(self._open_visio_folder)
+        vr_layout.addWidget(self.visio_open_folder_btn)
+        visio_layout.addWidget(self.visio_result_frame)
+
+        visio_layout.addStretch()
         self.stack.addWidget(self.card_visio)
+        self._last_visio_folder = None
 
         self.card_split = QWidget()
         split_layout = QVBoxLayout(self.card_split)
+        split_layout.setContentsMargins(12, 10, 12, 10)
+        split_layout.setSpacing(10)
+
+        split_hdr = QFrame()
+        split_hdr.setObjectName("cardFrame")
+        split_hdr.setStyleSheet(CARD_FRAME_STYLE)
+        sh_layout = QVBoxLayout(split_hdr)
+        sh_layout.setContentsMargins(14, 12, 14, 12)
+        sh_layout.setSpacing(6)
+        sh_title = QLabel("<b>✂️ Subtractive Clause Slicer (Split by Chapter)</b>")
+        sh_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        sh_layout.addWidget(sh_title)
+        sh_desc = QLabel(
+            "Slices monolithic 3GPP specifications into isolated clause files based on numbering prefix "
+            "(e.g. '5.', '6.') and heading depth, preserving original styles, margins, and headers."
+        )
+        sh_desc.setWordWrap(True)
+        sh_desc.setStyleSheet("color: #475569; font-size: 11px;")
+        sh_layout.addWidget(sh_desc)
+        split_layout.addWidget(split_hdr)
 
         form = QFormLayout()
         self.prefix_input = QLineEdit("6.")
@@ -267,12 +346,13 @@ class WordExtractorTab(QWidget):
             ]
         )
         split_layout.addWidget(self.split_drop)
+        split_layout.addStretch()
         self.stack.addWidget(self.card_split)
 
-        # Interactive heading browser / excerpt extractor. This card is self-contained
-        # so adding it does not require another main-window signal/worker integration.
+        # Interactive heading browser / excerpt extractor.
         self.card_excerpt = QWidget()
         excerpt_layout = QVBoxLayout(self.card_excerpt)
+        excerpt_layout.setContentsMargins(12, 10, 12, 10)
         excerpt_layout.setSpacing(8)
 
         excerpt_top = QHBoxLayout()
@@ -299,9 +379,11 @@ class WordExtractorTab(QWidget):
 
         source_buttons = QVBoxLayout()
         self.excerpt_remove_btn = QPushButton("Remove Selected")
+        self.excerpt_remove_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.excerpt_remove_btn.setEnabled(False)
         self.excerpt_remove_btn.clicked.connect(self._remove_excerpt_sources)
         self.excerpt_clear_sources_btn = QPushButton("Clear All")
+        self.excerpt_clear_sources_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.excerpt_clear_sources_btn.setEnabled(False)
         self.excerpt_clear_sources_btn.clicked.connect(self._clear_excerpt_sources)
         source_buttons.addWidget(self.excerpt_remove_btn)
@@ -329,11 +411,19 @@ class WordExtractorTab(QWidget):
 
         filter_row = QHBoxLayout()
         self.excerpt_filter = QLineEdit()
+        self.excerpt_filter.setStyleSheet(SEARCH_INPUT_STYLE)
         self.excerpt_filter.setPlaceholderText("Filter headings (e.g. registration, NWDAF, 6.3.2)...")
         self.excerpt_filter.textChanged.connect(self._filter_excerpt_tree)
         filter_row.addWidget(self.excerpt_filter, 1)
+
+        self.lbl_excerpt_match_count = QLabel()
+        self.lbl_excerpt_match_count.setStyleSheet("font-size: 11px; color: #475569; padding-right: 4px;")
+        filter_row.addWidget(self.lbl_excerpt_match_count)
+
         self.excerpt_expand_btn = QPushButton("Expand All")
+        self.excerpt_expand_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.excerpt_collapse_btn = QPushButton("Collapse All")
+        self.excerpt_collapse_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.excerpt_expand_btn.clicked.connect(lambda: self.excerpt_tree.expandAll())
         self.excerpt_collapse_btn.clicked.connect(lambda: self.excerpt_tree.collapseAll())
         filter_row.addWidget(self.excerpt_expand_btn)
@@ -346,14 +436,26 @@ class WordExtractorTab(QWidget):
         excerpt_layout.addWidget(self.excerpt_tree, 1)
 
         action_row = QHBoxLayout()
+        self.excerpt_select_all_btn = QPushButton("Select All")
+        self.excerpt_select_all_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.excerpt_select_all_btn.clicked.connect(self._select_all_excerpt_headings)
+        action_row.addWidget(self.excerpt_select_all_btn)
+
+        self.excerpt_select_l1_btn = QPushButton("Select Level 1 Only")
+        self.excerpt_select_l1_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.excerpt_select_l1_btn.clicked.connect(self._select_level1_excerpt_headings)
+        action_row.addWidget(self.excerpt_select_l1_btn)
+
         self.excerpt_clear_btn = QPushButton("Clear Selection")
+        self.excerpt_clear_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.excerpt_clear_btn.clicked.connect(self._clear_excerpt_selection)
+        action_row.addWidget(self.excerpt_clear_btn)
+
+        action_row.addStretch()
         self.excerpt_extract_btn = QPushButton("✂️ Extract Selected Sections")
         self.excerpt_extract_btn.setObjectName("primaryBtn")
         self.excerpt_extract_btn.setEnabled(False)
         self.excerpt_extract_btn.clicked.connect(self._extract_selected_sections)
-        action_row.addWidget(self.excerpt_clear_btn)
-        action_row.addStretch()
         action_row.addWidget(self.excerpt_extract_btn)
         excerpt_layout.addLayout(action_row)
         self.stack.addWidget(self.card_excerpt)
@@ -418,20 +520,77 @@ class WordExtractorTab(QWidget):
 
         self.card_convert = QWidget()
         convert_layout = QVBoxLayout(self.card_convert)
+        convert_layout.setContentsMargins(12, 10, 12, 10)
         convert_layout.setSpacing(10)
+
+        conv_hdr = QFrame()
+        conv_hdr.setObjectName("cardFrame")
+        conv_hdr.setStyleSheet(CARD_FRAME_STYLE)
+        ch_layout = QVBoxLayout(conv_hdr)
+        ch_layout.setContentsMargins(14, 12, 14, 12)
+        ch_layout.setSpacing(6)
+        ch_title = QLabel("<b>🔄 Multi-Format Document Converter</b>")
+        ch_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        ch_layout.addWidget(ch_title)
+        ch_desc = QLabel(
+            "Converts Word documents between formats (PDF, DOCX, Markdown, HTML, XPS, RTF, TXT). "
+            "Native Microsoft Word COM engine ensures pristine formatting, table borders, and vector graphics."
+        )
+        ch_desc.setWordWrap(True)
+        ch_desc.setStyleSheet("color: #475569; font-size: 11px;")
+        ch_layout.addWidget(ch_desc)
+        convert_layout.addWidget(conv_hdr)
 
         self.pane_convert = DocumentSelectorPane("📄 DOCUMENT TO CONVERT")
         convert_layout.addWidget(self.pane_convert)
-        conv_form = QFormLayout()
+
+        conv_opts_frame = QFrame()
+        conv_opts_frame.setStyleSheet(CARD_FRAME_STYLE)
+        co_layout = QHBoxLayout(conv_opts_frame)
+        co_layout.setContentsMargins(12, 8, 12, 8)
+        co_layout.setSpacing(14)
+
+        co_layout.addWidget(QLabel("<b>Target Format:</b>"))
         self.format_combo = QComboBox()
+        self.format_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
         self.format_combo.addItems(["PDF", "DOCX", "MD", "HTML", "XPS", "RTF", "TXT"])
-        conv_form.addRow("Target Format:", self.format_combo)
-        convert_layout.addLayout(conv_form)
+        self.format_combo.currentIndexChanged.connect(self._on_format_changed)
+        co_layout.addWidget(self.format_combo)
+
+        self.conv_engine_lbl = QLabel("Engine: 🟢 Microsoft Word COM")
+        self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #065F46; font-weight: 500;")
+        co_layout.addWidget(self.conv_engine_lbl)
+        co_layout.addStretch()
+        convert_layout.addWidget(conv_opts_frame)
+
+        conv_act_row = QHBoxLayout()
         self.run_convert_btn = QPushButton("🔄 Convert Document")
         self.run_convert_btn.setObjectName("primaryBtn")
+        self.run_convert_btn.setCursor(Qt.PointingHandCursor)
         self.run_convert_btn.clicked.connect(self._trigger_conversion)
-        convert_layout.addWidget(self.run_convert_btn)
+        conv_act_row.addWidget(self.run_convert_btn)
+        conv_act_row.addStretch()
+        convert_layout.addLayout(conv_act_row)
+
+        self.conv_result_frame = QFrame()
+        self.conv_result_frame.setStyleSheet(CARD_FRAME_STYLE)
+        self.conv_result_frame.setVisible(False)
+        cr_layout = QHBoxLayout(self.conv_result_frame)
+        cr_layout.setContentsMargins(12, 8, 12, 8)
+        self.conv_result_icon = QLabel("⏳")
+        self.conv_result_lbl = QLabel()
+        self.conv_result_lbl.setStyleSheet("font-weight: bold; color: #1E5C99;")
+        cr_layout.addWidget(self.conv_result_icon)
+        cr_layout.addWidget(self.conv_result_lbl, 1)
+        self.conv_open_folder_btn = QPushButton("📂 Open Output Folder")
+        self.conv_open_folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.conv_open_folder_btn.clicked.connect(self._open_conv_folder)
+        cr_layout.addWidget(self.conv_open_folder_btn)
+        convert_layout.addWidget(self.conv_result_frame)
+
+        convert_layout.addStretch()
         self.stack.addWidget(self.card_convert)
+        self._last_conv_folder = None
 
         # Dedicated Markdown Card
         self.card_markdown = QWidget()
@@ -700,12 +859,12 @@ class WordExtractorTab(QWidget):
             by_source.setdefault(h.source_path, []).append(h)
 
         for source_path in self._excerpt_paths:
-            source_item = QTreeWidgetItem([Path(source_path).name, Path(source_path).name])
+            source_item = QTreeWidgetItem([f"📄 {Path(source_path).name}", Path(source_path).name])
             source_item.setFlags(source_item.flags() & ~Qt.ItemIsUserCheckable)
             self.excerpt_tree.addTopLevelItem(source_item)
             parents = {}
             for h in by_source.get(source_path, []):
-                item = QTreeWidgetItem([h.text, Path(source_path).name])
+                item = QTreeWidgetItem([f"[H{h.level}] {h.text}", Path(source_path).name])
                 item.setData(0, Qt.UserRole, h.id)
                 item.setCheckState(0, Qt.Unchecked)
                 parent = None
@@ -722,9 +881,14 @@ class WordExtractorTab(QWidget):
 
     def _filter_excerpt_tree(self, text):
         needle = text.strip().lower()
+        matches = 0
 
         def visit(item):
+            nonlocal matches
+            is_heading = bool(item.data(0, Qt.UserRole))
             own_match = not needle or needle in item.text(0).lower()
+            if needle and is_heading and own_match:
+                matches += 1
             child_match = False
             for i in range(item.childCount()):
                 child_match = visit(item.child(i)) or child_match
@@ -736,6 +900,30 @@ class WordExtractorTab(QWidget):
 
         for i in range(self.excerpt_tree.topLevelItemCount()):
             visit(self.excerpt_tree.topLevelItem(i))
+
+        if hasattr(self, "lbl_excerpt_match_count"):
+            if needle:
+                self.lbl_excerpt_match_count.setText(f"{matches} match(es)")
+            else:
+                self.lbl_excerpt_match_count.setText("")
+
+    def _select_all_excerpt_headings(self):
+        def select(item):
+            if item.data(0, Qt.UserRole) and not item.isHidden():
+                item.setCheckState(0, Qt.Checked)
+            for i in range(item.childCount()):
+                select(item.child(i))
+        for i in range(self.excerpt_tree.topLevelItemCount()):
+            select(self.excerpt_tree.topLevelItem(i))
+
+    def _select_level1_excerpt_headings(self):
+        self._clear_excerpt_selection()
+        for i in range(self.excerpt_tree.topLevelItemCount()):
+            src_item = self.excerpt_tree.topLevelItem(i)
+            for c in range(src_item.childCount()):
+                item = src_item.child(c)
+                if item.data(0, Qt.UserRole) and not item.isHidden():
+                    item.setCheckState(0, Qt.Checked)
 
     def _clear_excerpt_selection(self):
         def clear(item):
@@ -1268,12 +1456,62 @@ class WordExtractorTab(QWidget):
 
         self.compare_doc_requested.emit(val_a, val_b, keep_open)
 
+    def _trigger_visio_extraction(self):
+        source_docs = self.pane_visio.get_inputs()
+        if not source_docs:
+            QMessageBox.warning(self, "No Document Selected", "Please select, drop, or open a Word document to extract Visio from.")
+            return
+
+        self._last_visio_folder = str(Path(source_docs[0]).parent)
+        for doc in source_docs:
+            if doc:
+                self.extract_visio_requested.emit(doc)
+
+        self.visio_result_icon.setText("⏳")
+        self.visio_result_lbl.setStyleSheet("font-weight: bold; color: #1E5C99;")
+        self.visio_result_lbl.setText(f"Extracting Visio components from {len(source_docs)} document(s)...")
+        self.visio_result_frame.setVisible(True)
+
+    def _open_visio_folder(self):
+        folder = getattr(self, "_last_visio_folder", None)
+        if folder and Path(folder).exists():
+            import os
+            os.startfile(folder)
+
+    def _on_format_changed(self):
+        fmt = self.format_combo.currentText().upper()
+        if fmt == "DOCX":
+            self.conv_engine_lbl.setText("Engine: 🟠 LibreOffice (for legacy .doc) / Word COM")
+            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #B45309; font-weight: 500;")
+        elif fmt == "MD":
+            self.conv_engine_lbl.setText("Engine: 🟢 Native High-Fidelity Markdown (with Media)")
+            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #0F766E; font-weight: 500;")
+        else:
+            self.conv_engine_lbl.setText("Engine: 🟢 Microsoft Word COM")
+            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #065F46; font-weight: 500;")
+
+    def _open_conv_folder(self):
+        folder = getattr(self, "_last_conv_folder", None)
+        if folder and Path(folder).exists():
+            import os
+            os.startfile(folder)
+
     def _trigger_conversion(self):
         source_docs = self.pane_convert.get_inputs()
         target_fmt = self.format_combo.currentText().lower()
+        if not source_docs:
+            QMessageBox.warning(self, "No Document Selected", "Please select, drop, or open a Word document to convert.")
+            return
+
+        self._last_conv_folder = str(Path(source_docs[0]).parent)
         for doc in source_docs:
             if doc:
                 self.convert_doc_requested.emit(doc, target_fmt)
+
+        self.conv_result_icon.setText("⏳")
+        self.conv_result_lbl.setStyleSheet("font-weight: bold; color: #1E5C99;")
+        self.conv_result_lbl.setText(f"Conversion to {target_fmt.upper()} queued for {len(source_docs)} document(s)...")
+        self.conv_result_frame.setVisible(True)
 
     def _trigger_markdown_conversion(self):
         source_docs = self.pane_markdown.get_inputs()
