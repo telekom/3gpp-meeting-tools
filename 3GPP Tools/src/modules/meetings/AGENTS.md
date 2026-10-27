@@ -94,10 +94,19 @@ src/modules/meetings/
   - Re-evaluates on window focus (`showEvent`) to instantly pick up tracking changes from the Work Items tab without window reload.
 
 ### 3.5. Post-Meeting Report & Dossier Markdown Generator
-- **UI Dialog (`PostMeetingExportDialog`):** Modeless configuration dialog accessible from `TDocsWindow`'s Export menu (`📑 Export Post-Meeting Report (.md)...`). Allows selecting export scopes (`🎯 Followed Work Items`, `⭐ Starred Work Items`, `🎯+⭐ All Tracked`, `🌐 Whole Meeting`, `👁️ Currently Visible`, or `📋 Custom Work Items Selection...`), contribution categories (`LS in`, `pCR`, `CR`, `LS out`, `General LS`), and conversion options (auto-open, force reconversion, local index generation).
+- **UI Dialog (`PostMeetingExportDialog`):** Modeless configuration dialog accessible from `TDocsWindow`'s Export menu (`📑 Export Post-Meeting Report (.md)...`). Allows selecting export scopes (`🎯 Followed Work Items`, `⭐ Starred Work Items`, `🎯+⭐ All Tracked`, `🌐 Whole Meeting`, `👁️ Currently Visible`, or `📋 Custom Selection (Work Items & Agenda Items)...`), contribution categories (`LS in`, `pCR`, `CR`, `LS out`, `Discussion / WID`, `General LS`), and conversion options (auto-open, force reconversion, local index generation).
+  - **Dual-Mode Custom Selection Tree:** Replaces flat list selection with a synchronized dual-view tree switcher:
+    - `🗂️ By Work Item (WI ➔ AIs)`: Work Items as parents, expanding to show child Agenda Items with document count badges.
+    - `📋 By Agenda Item (AI ➔ WIs)`: Agenda Items as parents with natural numerical sorting (e.g. `5.1` before `5.10`), expanding to show child Work Items.
+    - **Automatic Pre-Selection:** Automatically pre-checks followed and starred Work Items (and their child Agenda Items) upon opening, requiring 0 manual clicks to start fine-tuning.
+    - **Synchronized Tri-State Selection:** Both views share a single atomic selection model (`(wi, ai)` pairs); checking or unchecking in either view updates the other view seamlessly.
+    - **Inline Search Filtering:** Instant multi-token search filtering across Work Item names, AI numbers, and topic descriptions.
+    - **Quick Actions:** Toolbar buttons for `[⊞ Expand]`, `[⊟ Collapse]`, `[☑ All]`, and `[☐ None]`.
+  - **Live "Estimated Scope" Banner & Dynamic Badges:** Real-time KPI banner (`📊 Estimated Scope: X TDocs across Y Work Items and Z Agenda Items (A CRs, B pCRs, C LSs, D Disc)`) and live document count badges on all Section 2 checkboxes updated on every toggle.
 - **Exporter Worker (`PostMeetingExporterThread`):**
-  - **Structure:** Hierarchical dossier tree under `Export/PostMeeting_<WG>_<Meeting>_<timestamp>/` arranged chronologically by Release (`Rel-XX/`) and then by Work Item (`<WI>/`), containing type subfolders (`LS_IN/`, `pCR/`, `CR/`, `LS_OUT/`).
-  - **Contribution Filtering:** Strictly captures received incoming liaison statements (`LS in`) and approved/agreed normative outputs (`pCR`, `CR`, `LS out`). Filters out discussion papers, working papers, and unapproved/withdrawn contributions.
+  - **Structure:** Hierarchical dossier tree under `Export/PostMeeting_<WG>_<Meeting>_<timestamp>/` arranged chronologically by Release (`Rel-XX/`) and then by Work Item (`<WI>/`), containing type subfolders (`LS_IN/`, `pCR/`, `CR/`, `LS_OUT/`, and `Discussion/`).
+  - **Contribution Filtering:** Strictly captures received incoming liaison statements (`LS in`), approved/agreed normative outputs (`pCR`, `CR`, `LS out`), and optionally noted/agreed discussion papers & work item status reports (`Disc`, `WID`) when `include_disc` is enabled. Filters out unapproved, postponed, or withdrawn contributions.
+  - **Fine-Grained WI + AI Scoping:** When custom WI/AI scoping is active, filters contributions to only export TDocs matching the selected Work Item and allowed Agenda Items (e.g. exporting only AI 5.1 architecture for `TEI18` while excluding AI 6.2 protocols).
   - **Cross-WI Contributions:** Replicates documents associated with multiple Work Items into every relevant WI folder while embedding a bidirectional callout notice (`> [!NOTE] Cross-WI Contribution: ...`).
   - **Multi-Agenda Item Tracking:** Aggregates and lists all Agenda Items associated with a Work Item (e.g., SA2's `FS_6G_ARC` spanning AI 5.2.1, 5.2.2, etc.).
   - **Media Isolation:** Preserves collision-free media by copying `{tdoc_id}_*` assets into local `media/` subdirectories.
