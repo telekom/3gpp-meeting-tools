@@ -64,7 +64,8 @@ class SpecTDocReportDialog(QDialog):
         spec_title: str = "",
         parent: Optional[QWidget] = None,
     ):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER (prevents dialog from being forced always-on-top)
+        self._parent_ref = parent
         self.spec_number = spec_number.strip()
         self.version = version.lstrip("vV").strip()
         self.all_entries = list(tdoc_entries)
@@ -72,10 +73,15 @@ class SpecTDocReportDialog(QDialog):
         self.markdown_report = markdown_report
         self.spec_title = spec_title
 
-        # Top-level modeless window configuration
-        self.setWindowFlags(self.windowFlags() | Qt.Window)
+        # Top-level modeless independent window configuration
+        self.setWindowFlags(Qt.Window)
         self.setWindowModality(Qt.NonModal)
         self.setAttribute(Qt.WA_DeleteOnClose, False)
+        if parent:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
 
         self.setWindowTitle(f"📑 TDoc Technical Dossier — TS {self.spec_number} v{self.version}")
         self.resize(1120, 740)
@@ -598,7 +604,7 @@ class SpecTDocReportDialog(QDialog):
         act_portal.triggered.connect(lambda: SpecTDocOpener.open_tdoc_in_portal(base_id))
 
         act_jump = menu.addAction(f"🚀 Jump to {tdoc} in Meetings Tab")
-        act_jump.triggered.connect(lambda: SpecTDocOpener.jump_to_meetings_tab(tdoc, main_window=self.parent()))
+        act_jump.triggered.connect(lambda: SpecTDocOpener.jump_to_meetings_tab(tdoc, main_window=self._parent_ref))
 
         menu.addSeparator()
 

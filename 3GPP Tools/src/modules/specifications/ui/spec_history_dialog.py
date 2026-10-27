@@ -86,16 +86,22 @@ class SpecVersionHistoryDialog(QDialog):
         history_db: Optional[SpecHistoryDatabase] = None,
         specs_db: Optional[Any] = None,
     ):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER (prevents dialog from being forced always-on-top)
+        self._parent_ref = parent
         self.spec_number = spec_number.strip()
         self.initial_version = initial_version.lstrip("vV").strip() if initial_version else ""
         self.history_db = history_db or SpecHistoryDatabase(get_project_root() / "db" / "3gpp_spec_history.db")
         self.specs_db = specs_db
 
-        # Modeless top-level window configuration
-        self.setWindowFlags(self.windowFlags() | Qt.Window)
+        # Modeless top-level independent window configuration
+        self.setWindowFlags(Qt.Window)
         self.setWindowModality(Qt.NonModal)
         self.setAttribute(Qt.WA_DeleteOnClose, False)
+        if parent:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
 
         self.setWindowTitle(f"Change History & Integrated TDocs — {self.spec_number}")
         self.resize(1060, 680)
@@ -956,7 +962,7 @@ class SpecVersionHistoryDialog(QDialog):
                 tdoc_entries=results,
                 markdown_report=md_report,
                 spec_title=self.title_lbl.text(),
-                parent=self.parent() or self
+                parent=self._parent_ref or self
             )
             self._report_dialog = report_dlg
             report_dlg.show()
