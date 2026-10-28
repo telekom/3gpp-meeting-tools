@@ -27,7 +27,7 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 | ID | Feature Domain | Legacy Feature | Detailed Specification | Current Status in 3GPP Tools | Complexity | Priority |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **F-01** | **OS Integration** | Windows `tdoc://` URL Protocol Handler | [F01: Windows URL Handler](legacy_features/F01_windows_tdoc_url_handler.md) | 🔴 Deprecated (Abandoned; admin rights & Teams URI sanitization) | Low | ⚪ Low |
-| **F-02** | **Word Automation** | Batch CR Cover Sheet Parser to Excel | [F02: Batch CR Cover Parser](legacy_features/F02_batch_cr_cover_sheet_parser.md) | ❌ Only 1-by-1 AI triage | Medium | 🟢 High |
+| **F-02** | **Word Automation** | Batch CR Cover Sheet Parser to Excel | [F02: Batch CR Cover Parser](legacy_features/F02_batch_cr_cover_sheet_parser.md) | 🟡 Backlog / Niche (Superseded by AI Triage & In-App Filters) | Medium | ⚪ Low |
 | **F-03** | **Office Automation** | PowerPoint Presentation Merger | [F03: PowerPoint Merger](legacy_features/F03_powerpoint_presentation_merger.md) | 🔴 Deprecated (Abandoned; no practical workflow need, template corruption) | Low | ⚪ Low |
 | **F-04** | **PDF & AI Tools** | Bookmarked PDF Dossier & LLM Prompt | [F04: Bookmarked PDF & Prompt](legacy_features/F04_bookmarked_pdf_dossier_llm_prompt.md) | ❌ Merges Excel / Markdown | Medium | 🟡 Medium |
 | **F-05** | **Word Automation** | Active Word vs. TDoc Direct Compare | [F05: Active Word vs. TDoc](legacy_features/F05_active_word_vs_tdoc_comparison.md) | ✅ Implemented (Multi-Surface + Live Cart) | Low | 🟢 High |
@@ -66,10 +66,17 @@ In 3GPP communications (meeting chat, emails, Word contribution references, intr
 
 ---
 
-### F-02: Batch CR Cover Sheet Parser & Tabular Excel Exporter
+### F-02: Batch CR Cover Sheet Parser & Tabular Excel Exporter (🟡 Backlog / Niche)
 
 #### Overview & Delegate Workflow
-When reviewing hundreds of Change Requests (CRs) assigned to a meeting or Work Item, delegates need to quickly see **what is being changed and why** across all proposals in a structured spreadsheet, without opening every Word file manually.
+When reviewing hundreds of Change Requests (CRs) assigned to a meeting or Work Item, delegates historically wanted to see **what is being changed and why** across all proposals in a structured spreadsheet, without opening every Word file manually.
+
+> [!NOTE] Strategic Evaluation & Reality Check
+> While useful for sharing review matrices with colleagues outside 3GPP Tools or detecting clause collisions across competing company CRs, this feature has been **deprioritized to Backlog / Optional**:
+> 1. **Network Download Bottleneck:** Batch-parsing 500–1,500 CRs requires downloading gigabytes of ZIP archives over congested meeting/hotel Wi-Fi just to inspect page 1.
+> 2. **Superseded by Local AI TDoc Triage:** The model-agnostic local AI TDoc Triage (`tdoc_triage_worker.py`) directly ingests CR cover tables and tracked redlines, delivering instant on-demand summaries, technical critiques, and voting recommendations in seconds.
+> 3. **Existing OpenXML Parser:** `spec_history_extractor.py` already parses `affected_clauses`, `category`, `cr_number`, and `work_item` headless via `lxml` for clause attribution in the Specification History dialog.
+> 4. **Modern Scoping:** If implemented in the future, it should strictly be scoped as a lightweight context-menu action (`Export Selected CRs to Excel`) operating exclusively on *locally downloaded* `.docx` files.
 
 ```mermaid
 flowchart TD

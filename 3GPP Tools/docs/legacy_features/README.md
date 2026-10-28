@@ -22,7 +22,7 @@ Each document provides a comprehensive analysis covering:
 | ID | Specification Document | Feature Domain | Complexity | Value / ROI | Status |
 | :---: | :--- | :--- | :---: | :---: | :---: |
 | **F-01** | [F01: Windows `tdoc://` URL Protocol Handler](F01_windows_tdoc_url_handler.md) | OS Integration | Low (2.5h) | ⚪ 2.0 (Low ROI) | 🔴 Deprecated (Abandoned; admin barrier & Teams URI sanitization) |
-| **F-02** | [F02: Batch CR Cover Sheet Parser to Excel](F02_batch_cr_cover_sheet_parser.md) | Word Automation | Med (5.0h) | 🔥 8.5 (Very High) | Specification Ready |
+| **F-02** | [F02: Batch CR Cover Sheet Parser to Excel](F02_batch_cr_cover_sheet_parser.md) | Word Automation | Med (5.0h) | 🟡 4.5 (Low ROI) | 🟡 Backlog (Niche; superseded by AI Triage & In-App Filters) |
 | **F-03** | [F03: PowerPoint Status Report & Presentation Merger](F03_powerpoint_presentation_merger.md) | Office Automation | Low (3.0h) | ⚪ 2.5 (Low ROI) | 🔴 Deprecated (No practical need; template corruption) |
 | **F-04** | [F04: Bookmarked Multi-TDoc PDF Dossier & LLM Prompt](F04_bookmarked_pdf_dossier_llm_prompt.md) | PDF & AI Tools | Med (4.0h) | 🟢 8.0 (High) | Specification Ready |
 | **F-05** | [F05: "Active Word vs. TDoc" Direct Comparison](F05_active_word_vs_tdoc_comparison.md) | Word Automation | Low (1.5h) | 🌟 9.5 (Exceptional) | ✅ Implemented (Multi-Surface + Live Cart) |
@@ -55,7 +55,6 @@ flowchart TD
     end
 
     subgraph Phase2["Phase 2: Office Batch Automation & Exporters (Sprint 2)"]
-        P2_1["F-02: Batch CR Cover Sheet Parser to Excel"]
         P2_2["F-04: Bookmarked PDF Dossier & LLM Prompt"]
         P2_3["F-10: Accept All Changes Clean PDF Export"]
     end
