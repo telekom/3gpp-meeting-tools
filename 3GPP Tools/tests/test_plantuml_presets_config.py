@@ -222,6 +222,18 @@ class TestPlantUMLPresetsConfig(unittest.TestCase):
         self.assertIn('participant "gNB" as gNB', template_text)
         self.assertIn('participant "AMF" as AMF', template_text)
 
+    def test_batch_convert_tab_stencils_ui(self):
+        """Verify BatchConvertTab initializes without errors and Card 4 stencils search edit is configured."""
+        import sys
+        from PyQt5.QtWidgets import QApplication, QLineEdit
+        app = QApplication.instance() or QApplication(sys.argv)
+        from modules.puml2visio.ui.batch_convert_tab import BatchConvertTab
+        tab = BatchConvertTab()
+        self.assertIsNotNone(tab)
+        self.assertTrue(hasattr(tab, "stencils_search_edit"))
+        self.assertIsInstance(tab.stencils_search_edit, QLineEdit)
+
+
 
 if __name__ == "__main__":
     unittest.main()

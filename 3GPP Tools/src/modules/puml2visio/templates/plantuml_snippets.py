@@ -1228,6 +1228,11 @@ def reload_snippets() -> List[PlantUMLSnippet]:
     for cb in list(_RELOAD_CALLBACKS):
         try:
             cb()
+        except RuntimeError as e:
+            if "deleted" in str(e).lower() and cb in _RELOAD_CALLBACKS:
+                _RELOAD_CALLBACKS.remove(cb)
+            else:
+                logging.error(f"Error in snippets reload callback: {e}")
         except Exception as e:
             logging.error(f"Error in snippets reload callback: {e}")
 
