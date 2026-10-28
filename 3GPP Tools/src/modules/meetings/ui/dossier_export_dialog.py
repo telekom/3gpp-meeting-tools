@@ -119,7 +119,7 @@ class DossierExportDialog(QDialog):
 
         self.btn_group_fmt = QButtonGroup(self)
 
-        self.radio_both = QRadioButton("Both Interactive HTML & Bookmarked PDF (Recommended)")
+        self.radio_both = QRadioButton("Both Interactive HTML && Bookmarked PDF (Recommended)")
         self.radio_both.setToolTip(
             "Produces a self-contained responsive HTML dossier for fast laptop reading, "
             "and a vector PDF with hierarchical bookmarks for offline review and NotebookLM/Claude."
@@ -145,7 +145,7 @@ class DossierExportDialog(QDialog):
         opts_layout = QVBoxLayout(opts_group)
         opts_layout.setSpacing(8)
 
-        self.chk_prompt = QCheckBox("Generate Companion AI Prompt & Page Citation Map (for NotebookLM / Claude)")
+        self.chk_prompt = QCheckBox("Generate Companion AI Prompt && Page Citation Map (for NotebookLM / Claude)")
         self.chk_prompt.setToolTip(
             "Creates dossier_prompt.txt detailing exact 1-indexed page boundaries for every TDoc, "
             "with tailored technical evaluation directives."

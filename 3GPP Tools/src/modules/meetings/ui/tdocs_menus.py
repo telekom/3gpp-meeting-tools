@@ -367,7 +367,7 @@ def build_row_context_menu(
     # --- 4. MARKDOWN & DOSSIER EXPORT ---
     if export_dossier_callback or export_llm_callback:
         if export_dossier_callback:
-            act_dossier = menu.addAction("📑 Export to Navigable Dossier (HTML & PDF)...")
+            act_dossier = menu.addAction("📑 Export to Navigable Dossier (HTML && PDF)...")
             act_dossier.setToolTip("Compile this TDoc into an interactive HTML dossier and bookmarked vector PDF with companion AI citation prompt.")
             act_dossier.triggered.connect(lambda: export_dossier_callback([row_data]))
         if export_llm_callback:

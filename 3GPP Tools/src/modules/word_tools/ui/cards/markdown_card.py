@@ -39,7 +39,9 @@ class WordMarkdownCard(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._last_md_output_path: Optional[str] = None
+        self._last_converted_md: Optional[str] = None
         self._setup_ui()
+        self.pane_md = self.pane_markdown
 
     def _setup_ui(self):
         md_layout = QVBoxLayout(self)
@@ -185,11 +187,18 @@ class WordMarkdownCard(QWidget):
         self.convert_markdown_requested.emit(source_file, options)
 
     def on_conversion_success(self, out_path: str):
-        self._last_md_output_path = out_path
+        p = Path(out_path).resolve()
+        self._last_md_output_path = str(p)
+        self._last_converted_md = str(p)
         self.md_progress.setVisible(False)
         self.run_markdown_btn.setEnabled(True)
-        p = Path(out_path)
+        self.md_result_icon.setText("✅")
+        self.md_result_lbl.setStyleSheet("font-weight: bold; color: #166534;")
         self.md_result_lbl.setText(f"Successfully converted to Markdown: {p.name}")
+        self.md_open_folder_btn.setEnabled(True)
+        self.md_open_file_btn.setEnabled(True)
+        self.md_copy_btn.setEnabled(True)
+        self.md_preview_toggle_btn.setEnabled(True)
         self.md_result_frame.setVisible(True)
 
         if p.is_file():
@@ -203,6 +212,15 @@ class WordMarkdownCard(QWidget):
     def on_conversion_failed(self, error_msg: str):
         self.md_progress.setVisible(False)
         self.run_markdown_btn.setEnabled(True)
+        self.md_result_icon.setText("❌")
+        self.md_result_lbl.setStyleSheet("font-weight: bold; color: #DC2626;")
+        self.md_result_lbl.setText(f"Conversion failed: {error_msg}")
+        self.md_open_folder_btn.setEnabled(False)
+        self.md_open_file_btn.setEnabled(False)
+        self.md_copy_btn.setEnabled(False)
+        self.md_preview_toggle_btn.setEnabled(False)
+        self.md_preview_edit.setVisible(False)
+        self.md_result_frame.setVisible(True)
 
     def on_processing_state_changed(self, is_processing: bool):
         self.run_markdown_btn.setEnabled(not is_processing)

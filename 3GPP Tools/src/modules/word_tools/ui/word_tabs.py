@@ -272,6 +272,79 @@ class WordExtractorTab(QWidget):
         self.card_author_renamer = WordSanitizerCard()
         self.stack.addWidget(self.card_author_renamer)
 
+        # Backward-compatible card aliases
+        self.card_sanitizer = self.card_author_renamer
+
+        # Compare Card aliases
+        self.btn_swap_slots = self.card_compare.btn_swap_slots
+        self.chk_cmp_formatting = self.card_compare.chk_cmp_formatting
+        self.pane_a = self.card_compare.pane_a
+        self.pane_b = self.card_compare.pane_b
+
+        # CR / pCR Card aliases
+        self.pane_cr = self.card_cr_pcr.pane_cr
+        self.cr_mode_combo = self.card_cr_pcr.cr_mode_combo
+        self.btn_launch_cr = self.card_cr_pcr.btn_launch_cr
+        self.cr_card_dotx_lbl = self.card_cr_pcr.cr_card_dotx_lbl
+        self.btn_cr_install_dotx = self.card_cr_pcr.btn_cr_install_dotx
+        self.btn_cr_open_tpl = self.card_cr_pcr.btn_cr_open_tpl
+        self.btn_cr_install_dotx.clicked.connect(self._on_toggle_dotx_clicked)
+
+        # Visio Card aliases
+        self.pane_visio = self.card_visio.pane_visio
+        self.run_visio_btn = self.card_visio.run_visio_btn
+        self.visio_result_frame = self.card_visio.visio_result_frame
+        self.visio_open_folder_btn = self.card_visio.visio_open_folder_btn
+
+        # Converter Card aliases
+        self.pane_convert = self.card_convert.pane_convert
+        self.conv_engine_lbl = self.card_convert.conv_engine_lbl
+        self.conv_result_frame = self.card_convert.conv_result_frame
+        self.conv_open_folder_btn = self.card_convert.conv_open_folder_btn
+        self.format_combo = self.card_convert.format_combo
+
+        # Excerpt Card aliases
+        self.lbl_excerpt_match_count = self.card_excerpt.lbl_excerpt_match_count
+        self.excerpt_select_all_btn = self.card_excerpt.excerpt_select_all_btn
+        self.excerpt_select_l1_btn = self.card_excerpt.excerpt_select_l1_btn
+        self.excerpt_clear_btn = self.card_excerpt.excerpt_clear_btn
+        self.excerpt_clear_sel_btn = self.card_excerpt.excerpt_clear_btn
+        self.excerpt_tree = self.card_excerpt.excerpt_tree
+        self.excerpt_drop = self.card_excerpt.excerpt_drop
+
+        # Markdown Card aliases
+        self.pane_md = self.card_markdown.pane_markdown
+        self.pane_markdown = self.card_markdown.pane_markdown
+        self.md_revisions_combo = self.card_markdown.md_revisions_combo
+        self.md_media_cb = self.card_markdown.md_media_cb
+        self.md_header_cb = self.card_markdown.md_header_cb
+        self.run_markdown_btn = self.card_markdown.run_markdown_btn
+        self.md_progress = self.card_markdown.md_progress
+        self.md_result_frame = self.card_markdown.md_result_frame
+        self.md_result_lbl = self.card_markdown.md_result_lbl
+        self.md_result_icon = self.card_markdown.md_result_icon
+        self.md_open_folder_btn = self.card_markdown.md_open_folder_btn
+        self.md_open_file_btn = self.card_markdown.md_open_file_btn
+        self.md_copy_btn = self.card_markdown.md_copy_btn
+        self.md_preview_toggle_btn = self.card_markdown.md_preview_toggle_btn
+        self.md_preview_edit = self.card_markdown.md_preview_edit
+
+        # Sanitizer / Author Card aliases
+        self.lbl_kpi_lang = self.card_sanitizer.lbl_kpi_lang
+        self.lbl_kpi_authors = self.card_sanitizer.lbl_kpi_authors
+        self.lbl_kpi_lang_rev = self.card_sanitizer.lbl_kpi_lang_rev
+        self.lbl_kpi_comments = self.card_sanitizer.lbl_kpi_comments
+        self.chk_sec_lang = self.card_sanitizer.chk_sec_lang
+        self.combo_target_lang = self.card_sanitizer.combo_target_lang
+        self.chk_sec_authors = self.card_sanitizer.chk_sec_authors
+        self.author_table = self.card_sanitizer.author_table
+        self.pane_sanitizer = self.card_sanitizer.pane_sanitizer
+        self.pane_author = self.card_sanitizer.pane_sanitizer
+        self.edit_target_author = self.card_sanitizer.edit_target_author
+        self.edit_target_initials = self.card_sanitizer.edit_target_initials
+        self.chk_sec_cleanup = self.card_sanitizer.chk_sec_cleanup
+        self.chk_remove_comments = self.card_sanitizer.chk_remove_comments
+
         layout.addWidget(self.stack)
 
         # Default to Compare Documents (Index 4)
@@ -341,7 +414,7 @@ class WordExtractorTab(QWidget):
     def _setup_settings_menu(self):
         menu = QMenu(self)
 
-        act_settings = QAction("⚙️ Preferences & Sensitivity Labels...", self)
+        act_settings = QAction("⚙️ Preferences && Sensitivity Labels...", self)
         act_settings.triggered.connect(self._open_settings_dialog)
         menu.addAction(act_settings)
 
@@ -397,11 +470,19 @@ class WordExtractorTab(QWidget):
             self.dotx_badge.setStyleSheet("color: #166534; font-weight: 600; font-size: 11px;")
             self.dotx_btn.setText("Uninstall Template")
             self.dotx_btn.setStyleSheet("font-size: 10px; padding: 2px 6px; color: #991B1B;")
+            if hasattr(self, "cr_card_dotx_lbl"):
+                self.cr_card_dotx_lbl.setText("🟢 Installed in Microsoft Templates")
+                self.cr_card_dotx_lbl.setStyleSheet("color: #065F46; font-weight: bold; font-size: 11px;")
+                self.btn_cr_install_dotx.setText("🗑️ Remove")
         else:
             self.dotx_badge.setText("⚪ 3GPP Macro Template: Not Installed")
             self.dotx_badge.setStyleSheet("color: #475569; font-size: 11px;")
             self.dotx_btn.setText("Install Template")
             self.dotx_btn.setStyleSheet("font-size: 10px; padding: 2px 6px; color: #1E40AF;")
+            if hasattr(self, "cr_card_dotx_lbl"):
+                self.cr_card_dotx_lbl.setText("⚪ Not installed in Word templates")
+                self.cr_card_dotx_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
+                self.btn_cr_install_dotx.setText("📥 Install")
 
     def _on_toggle_dotx_clicked(self):
         if is_3gpp_dotx_installed():
@@ -434,6 +515,55 @@ class WordExtractorTab(QWidget):
             self.split_doc_requested.emit(files[0])
 
     # -------------------------------------------------------------------------
+    # Backward-Compatible Properties & Delegation Methods
+    # -------------------------------------------------------------------------
+    @property
+    def _last_converted_md(self):
+        return getattr(self.card_markdown, "_last_converted_md", None)
+
+    @_last_converted_md.setter
+    def _last_converted_md(self, val):
+        self.card_markdown._last_converted_md = val
+        self.card_markdown._last_md_output_path = val
+
+    @property
+    def _excerpt_scan_thread(self):
+        return getattr(self.card_excerpt, "_excerpt_scan_thread", None)
+
+    @property
+    def _excerpt_extract_thread(self):
+        return getattr(self.card_excerpt, "_excerpt_extract_thread", None)
+
+    def _inspect_selected_author_document(self, file_path: str):
+        if hasattr(self.card_author_renamer, "_inspect_selected_author_document"):
+            return self.card_author_renamer._inspect_selected_author_document(file_path)
+
+    def _apply_preset_3gpp(self):
+        if hasattr(self.card_author_renamer, "_apply_preset_3gpp"):
+            return self.card_author_renamer._apply_preset_3gpp()
+
+    def _apply_preset_lang_only(self):
+        if hasattr(self.card_author_renamer, "_apply_preset_lang_only"):
+            return self.card_author_renamer._apply_preset_lang_only()
+
+    def _apply_preset_anonymize(self):
+        if hasattr(self.card_author_renamer, "_apply_preset_anonymize"):
+            return self.card_author_renamer._apply_preset_anonymize()
+
+    def _select_all_authors(self, select: bool):
+        if hasattr(self.card_author_renamer, "_select_all_authors"):
+            return self.card_author_renamer._select_all_authors(select)
+
+    def _apply_author_preset(self, author_name: str, initials: Optional[str] = None):
+        if hasattr(self.card_author_renamer, "_apply_author_preset"):
+            return self.card_author_renamer._apply_author_preset(author_name, initials)
+
+    def _derive_initials(self, name: str) -> str:
+        if hasattr(self.card_author_renamer, "_derive_initials"):
+            return self.card_author_renamer._derive_initials(name)
+        return ""
+
+    # -------------------------------------------------------------------------
     # External Worker Lifecycle Hooks (Invoked by MainWindow)
     # -------------------------------------------------------------------------
     def on_conversion_success(self, out_path: str):
@@ -447,7 +577,6 @@ class WordExtractorTab(QWidget):
     def on_conversion_failed(self, error_msg: str):
         if hasattr(self.card_markdown, "on_conversion_failed"):
             self.card_markdown.on_conversion_failed(error_msg)
-        QMessageBox.critical(self, "Conversion Error", f"Operation failed:\n{error_msg}")
 
     def on_processing_state_changed(self, is_processing: bool):
         if hasattr(self.card_markdown, "on_processing_state_changed"):

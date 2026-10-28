@@ -195,7 +195,7 @@ class WordSanitizerCard(QWidget):
         self.chk_lang_all_stories.setChecked(True)
         sl_layout.addWidget(self.chk_lang_all_stories)
 
-        self.chk_lang_styles = QCheckBox("Normalize styles.xml & docDefaults (prevents newly typed text from reverting)")
+        self.chk_lang_styles = QCheckBox("Normalize styles.xml && docDefaults (prevents newly typed text from reverting)")
         self.chk_lang_styles.setChecked(True)
         sl_layout.addWidget(self.chk_lang_styles)
 
@@ -315,7 +315,7 @@ class WordSanitizerCard(QWidget):
         act_box = QHBoxLayout()
         act_box.setSpacing(8)
 
-        self.btn_run_in_place = QPushButton("⚡ Sanitize & Update In-Place")
+        self.btn_run_in_place = QPushButton("⚡ Sanitize && Update In-Place")
         self.btn_run_in_place.setObjectName("primaryBtn")
         self.btn_run_in_place.setToolTip("Applies selected sanitizations directly to the source document (creates .bak backup).")
         self.btn_run_in_place.clicked.connect(lambda: self._trigger_sanitizer(in_place=True))
