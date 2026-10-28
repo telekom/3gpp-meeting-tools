@@ -39,6 +39,7 @@ from core.ui.ui_components import (
 from core.utils.paths import get_project_root, get_specs_root
 from modules.meetings.core.settings import MeetingsSettings
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
+from modules.nas.core.nas_exporter import copy_matrix_to_clipboard
 from modules.nas.core.nas_threads import NASFetchAndImportThread
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.nas.ui.nas_components import (
@@ -577,9 +578,9 @@ class NASTab(QWidget):
         self.open_spec_btn.clicked.connect(self._on_open_spec_btn_clicked)
         matrix_header_layout.addWidget(self.open_spec_btn)
 
-        self.copy_matrix_btn = QPushButton("📋 Copy TSV")
+        self.copy_matrix_btn = QPushButton("📋 Copy Table ▾")
         self.copy_matrix_btn.setCursor(Qt.PointingHandCursor)
-        self.copy_matrix_btn.setToolTip("Copy entire evolution matrix to clipboard as tab-separated values (for Excel / Word)")
+        self.copy_matrix_btn.setToolTip("Copy entire evolution matrix to clipboard (Word-compatible table, Markdown table, or TSV)")
         self.copy_matrix_btn.setStyleSheet("""
             QPushButton {
                 font-size: 11px;
@@ -602,7 +603,33 @@ class NASTab(QWidget):
             }
         """)
         self.copy_matrix_btn.setEnabled(False)
-        self.copy_matrix_btn.clicked.connect(self._copy_matrix_tsv)
+
+        copy_matrix_menu = QMenu(self)
+        copy_matrix_menu.setStyleSheet("""
+            QMenu {
+                font-size: 11px;
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 5px 18px 5px 10px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #EBF3FC;
+                color: #1E5C99;
+            }
+        """)
+        act_cp_word = copy_matrix_menu.addAction("📋 Copy for Word / Outlook (Rich Table)")
+        act_cp_word.triggered.connect(lambda: self._copy_matrix_formatted(mode="word"))
+        act_cp_md = copy_matrix_menu.addAction("📝 Copy as Markdown Table")
+        act_cp_md.triggered.connect(lambda: self._copy_matrix_formatted(mode="markdown"))
+        copy_matrix_menu.addSeparator()
+        act_cp_tsv = copy_matrix_menu.addAction("📊 Copy as TSV (Excel / Plain Text)")
+        act_cp_tsv.triggered.connect(lambda: self._copy_matrix_formatted(mode="tsv"))
+
+        self.copy_matrix_btn.setMenu(copy_matrix_menu)
         matrix_header_layout.addWidget(self.copy_matrix_btn)
 
         matrix_card_layout.addWidget(matrix_header_frame)
@@ -707,30 +734,60 @@ class NASTab(QWidget):
     def _on_select_none_specs(self):
         self.version_tree.select_none()
 
-    def _copy_matrix_tsv(self):
-        """Exports the active evolution matrix to the system clipboard as tab-separated values."""
+    def _copy_matrix_formatted(self, mode: str = "word"):
+        """Exports the active evolution matrix to the clipboard in Word, Markdown, or TSV format."""
         model = self.matrix_table.model()
         if not model or model.rowCount() == 0:
             return
 
         headers = [
-            str(model.headerData(c, Qt.Horizontal, Qt.DisplayRole) or "").replace("\n", " ")
+            str(model.headerData(c, Qt.Horizontal, Qt.DisplayRole) or "")
             for c in range(model.columnCount())
         ]
-        lines = ["\t".join(headers)]
-
-        for r in range(model.rowCount()):
-            row_vals = [
+        rows = [
+            [
                 str(model.data(model.index(r, c), Qt.DisplayRole) or "")
                 for c in range(model.columnCount())
             ]
-            lines.append("\t".join(row_vals))
+            for r in range(model.rowCount())
+        ]
 
-        tsv_content = "\n".join(lines)
-        QApplication.clipboard().setText(tsv_content)
+        # Extract diff colors if available
+        diff_colors = []
+        if hasattr(model, "_bg_brush_matrix"):
+            for r in range(model.rowCount()):
+                row_colors = []
+                for c in range(model.columnCount()):
+                    brush = (
+                        model._bg_brush_matrix[r][c]
+                        if r < len(model._bg_brush_matrix) and c < len(model._bg_brush_matrix[r])
+                        else None
+                    )
+                    if brush and hasattr(brush, "color"):
+                        row_colors.append(brush.color().name())
+                    else:
+                        row_colors.append(None)
+                diff_colors.append(row_colors)
+
+        title = self.matrix_title_lbl.text().strip() if hasattr(self, "matrix_title_lbl") else ""
+        if not title:
+            title = self.current_selected_message_name or self.current_selected_ie_key or "Protocol Evolution Matrix"
+
+        copy_matrix_to_clipboard(
+            title=title,
+            headers=headers,
+            rows=rows,
+            diff_colors=diff_colors,
+            mode=mode,
+        )
+
         prev_text = self.copy_matrix_btn.text()
         self.copy_matrix_btn.setText("✓ Copied!")
-        QTimer.singleShot(1500, lambda: self.copy_matrix_btn.setText(prev_text))
+        QTimer.singleShot(1500, lambda: self.copy_matrix_btn.setText("📋 Copy Table ▾"))
+
+    def _copy_matrix_tsv(self):
+        """Legacy fallback calling TSV clipboard copy."""
+        self._copy_matrix_formatted(mode="tsv")
 
     def _update_stats_ribbon(self):
         """Updates live KPI stats badges in the toolbar ribbon."""

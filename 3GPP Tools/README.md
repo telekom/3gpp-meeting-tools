@@ -729,14 +729,20 @@ python -m main_tools
    * **Search by Acronym, Spec or Name:** Type acronyms (`"PFCP"`, `"NAS"`, `"RRC"`, `"NGAP"`), spec numbers (`"24.501"`, `"38.331"`), or message names into the search bar. The library live-updates with an active match counter (`Showing X of Y items`).
    * Click the **`📖 Desc`** button to toggle extended description search, matching keywords located deep inside Clause 8/9 IE definitions and ASN.1 field description tables.
    * For PFCP messages, use the **Interface Selector Dropdown** (`All Interfaces`, `N4`, `N4mb`, `Sxa`, `Sxb`, `Sxc`) positioned above the matrix table to filter parameters by target reference point.
-5. **Evolution Matrix & 1-Click TSV Export:**
+5. **Evolution Matrix & Multi-Format Export:**
    * When no message is selected, an illustrated empty state (`🔀`) guides delegates.
    * When populated, the matrix header displays the source specification clue and an inline diff legend: `🟢 Added`, `🟡 Modified`, `🔴 Removed`.
    * Column headers are tagged with 3GPP release numbers (e.g. `Rel-20\nv20.0.0`).
-   * Click **📋 Copy TSV** to export the entire multi-release comparison matrix directly to the system clipboard for immediate pasting into Microsoft Excel, Word, or emails.
-6. **Inspecting Structure, Syntax & Reverse Lookup:**
+   * Click **📋 Copy Table ▾** (or right-click any matrix row) to export:
+     * **📋 Copy for Word / Outlook (Rich Table):** Dual-format rich HTML with styled cell borders, padding, and diff highlights (green for added, yellow for modified, red for removed) that pastes as an authentic, native editable Microsoft Word table.
+     * **📝 Copy as Markdown Table:** Clean GitHub-Flavored Markdown table with hierarchy indentation.
+     * **📊 Copy as TSV (Excel / Plain Text):** Tab-separated values for spreadsheets.
+6. **Inspecting Structure, Syntax & Definition Export:**
    * Click any row in the matrix to inspect its bit-level octet layout diagram or ASN.1 syntax block and field description callout in the **Inspector** card below.
-   * Click **📋 Copy Definition** to copy the formatted ASN.1 syntax or parameter definition.
+   * Click **📋 Copy Definition ▾** (or right-click anywhere in the definition pane) to export:
+     * **📋 Copy for Word / Outlook (Rich Text):** Word-optimized document excerpt with 3GPP release citation header, shaded monospace ASN.1 code box, and formatted tables.
+     * **📝 Copy as Markdown:** GitHub-Flavored Markdown with `###` citation headers, ````asn1 ```` code blocks, and Markdown tables.
+     * **📄 Copy Plain Text & 🔖 Copy Citation Only:** Clean text representations for quick drafting.
    * Click the **Used in: N msgs ▾** badge in the inspector header (or right-click any row in the matrix) to find all other messages referencing that parameter across active releases.
 7. **Opening Specification Documents & Cross-Tab Deep Linking:**
    * **Open Spec from Matrix Header:** Click **`📖 Open TS {spec} ▾`** above the Evolution Matrix to immediately launch the active specification in Microsoft Word at the current message/IE clause (pre-copying the clause to your clipboard for instant `Ctrl+F` jumping). Use the dropdown menu to choose specific active releases, open PDF or Explorer folders, or jump to **📚 Specifications** or **🔎 Spec Search**.

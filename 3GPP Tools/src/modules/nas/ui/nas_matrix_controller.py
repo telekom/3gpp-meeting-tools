@@ -234,4 +234,14 @@ def show_matrix_context_menu(tab: Any, pos: QPoint) -> None:
             )
             menu.addAction(act_search)
 
+    if hasattr(tab, "_copy_matrix_formatted"):
+        menu.addSeparator()
+        copy_menu = menu.addMenu("📋 Copy Matrix...")
+        act_cp_word = copy_menu.addAction("📋 Copy for Word / Outlook (Rich Table)")
+        act_cp_word.triggered.connect(lambda: tab._copy_matrix_formatted(mode="word"))
+        act_cp_md = copy_menu.addAction("📝 Copy as Markdown Table")
+        act_cp_md.triggered.connect(lambda: tab._copy_matrix_formatted(mode="markdown"))
+        act_cp_tsv = copy_menu.addAction("📊 Copy as TSV (Excel)")
+        act_cp_tsv.triggered.connect(lambda: tab._copy_matrix_formatted(mode="tsv"))
+
     menu.exec_(tab.matrix_table.viewport().mapToGlobal(pos))
