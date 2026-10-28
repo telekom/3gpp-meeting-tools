@@ -1813,7 +1813,7 @@ class WordExtractorTab(QWidget):
         self.chk_lang_all_stories.setChecked(True)
         lang_opts_row.addWidget(self.chk_lang_all_stories)
 
-        self.chk_lang_styles = QCheckBox("Update document styles & defaults (styles.xml) so new text stays in target language")
+        self.chk_lang_styles = QCheckBox("Update document styles && defaults (styles.xml) so new text stays in target language")
         self.chk_lang_styles.setChecked(True)
         lang_opts_row.addWidget(self.chk_lang_styles)
 
@@ -1916,7 +1916,7 @@ class WordExtractorTab(QWidget):
         self.chk_author_initials.setChecked(True)
         author_opts_row.addWidget(self.chk_author_initials)
 
-        self.chk_author_metadata = QCheckBox("Synchronize doc metadata (Creator & Last Modified)")
+        self.chk_author_metadata = QCheckBox("Synchronize doc metadata (Creator && Last Modified)")
         self.chk_author_metadata.setChecked(True)
         author_opts_row.addWidget(self.chk_author_metadata)
         author_opts_row.addStretch()
@@ -1943,7 +1943,7 @@ class WordExtractorTab(QWidget):
         cleanup_opts = QVBoxLayout()
         cleanup_opts.setSpacing(4)
         self.chk_purge_all_fmt = QCheckBox(
-            "Purge ALL formatting-only revisions (w:rPrChange / w:pPrChange) — strictly keeps text Insertions & Deletions"
+            "Purge ALL formatting-only revisions (w:rPrChange / w:pPrChange) — strictly keeps text Insertions && Deletions"
         )
         self.chk_purge_all_fmt.setChecked(False)
         cleanup_opts.addWidget(self.chk_purge_all_fmt)

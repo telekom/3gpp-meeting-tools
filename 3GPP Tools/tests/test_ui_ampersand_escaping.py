@@ -45,6 +45,35 @@ class TestUiAmpersandEscaping(unittest.TestCase):
         "insertTab",
     }
 
+    NON_MNEMONIC_CLASSES = {
+        "QLabel",
+        "QLineEdit",
+        "QTextEdit",
+        "QTextBrowser",
+        "QToolTip",
+        "QStatusBar",
+        "QMessageBox",
+    }
+
+    NON_MNEMONIC_METHODS = {
+        "setToolTip",
+        "setStatusTip",
+        "setWindowTitle",
+        "setPlaceholderText",
+    }
+
+    NON_MNEMONIC_CALLER_PATTERNS = (
+        "lbl",
+        "label",
+        "title",
+        "drop_label",
+        "stats",
+        "text_area",
+        "text_browser",
+        "edit",
+        "browser",
+    )
+
     def test_no_unescaped_ui_ampersands_in_src(self):
         self.assertTrue(src_dir.exists(), f"Source directory {src_dir} does not exist.")
 
@@ -69,10 +98,19 @@ class TestUiAmpersandEscaping(unittest.TestCase):
 
                     # Extract call name
                     func_name = ""
+                    caller_name = ""
                     if isinstance(node.func, ast.Name):
                         func_name = node.func.id
                     elif isinstance(node.func, ast.Attribute):
                         func_name = node.func.attr
+                        try:
+                            caller_name = ast.unparse(node.func.value).lower()
+                        except Exception:
+                            pass
+
+                    # setText on non-mnemonic controls (labels, line edits) must not be forced to &&
+                    if func_name == "setText" and any(pat in caller_name for pat in self.NON_MNEMONIC_CALLER_PATTERNS):
+                        continue
 
                     if func_name in self.TARGET_CLASSES or func_name in self.TARGET_METHODS:
                         for arg_idx, arg in enumerate(node.args):
@@ -97,6 +135,78 @@ class TestUiAmpersandEscaping(unittest.TestCase):
                 f"Found {len(violations)} unescaped UI ampersand(s) in PyQt widgets/actions.\n"
                 "In Qt, a single '&' acts as a keyboard accelerator mnemonic prefix and renders as an underscore.\n"
                 "To display a literal '&', use '&&'.\n\nViolations:\n" + "\n".join(violations)
+            )
+            self.fail(msg)
+
+    def test_no_double_ampersands_in_non_mnemonic_widgets(self):
+        """
+        Verify that non-mnemonic Qt widgets (QLabel, setWindowTitle, tooltips,
+        placeholders, and non-button setText targets) NEVER contain '&&'.
+
+        In Qt, QLabel, QLineEdit, setWindowTitle, etc. do NOT process accelerator
+        mnemonics. If '&&' is passed to them, Qt literally displays '&&' in the UI.
+        Literal ampersands in these controls must always be a single '&' (or '&amp;' in HTML).
+        """
+        self.assertTrue(src_dir.exists(), f"Source directory {src_dir} does not exist.")
+
+        violations = []
+        for root, _, files in os.walk(src_dir):
+            for file_name in files:
+                if not file_name.endswith(".py"):
+                    continue
+
+                py_path = Path(root) / file_name
+                try:
+                    tree = ast.parse(py_path.read_text(encoding="utf-8"), filename=str(py_path))
+                except Exception as e:
+                    violations.append(f"{py_path}: Could not parse AST: {e}")
+                    continue
+
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+
+                    func_name = ""
+                    caller_name = ""
+                    if isinstance(node.func, ast.Name):
+                        func_name = node.func.id
+                    elif isinstance(node.func, ast.Attribute):
+                        func_name = node.func.attr
+                        try:
+                            caller_name = ast.unparse(node.func.value).lower()
+                        except Exception:
+                            pass
+
+                    is_non_mnemonic = False
+                    if func_name in self.NON_MNEMONIC_CLASSES or func_name in self.NON_MNEMONIC_METHODS:
+                        is_non_mnemonic = True
+                    elif func_name == "setText" and any(pat in caller_name for pat in self.NON_MNEMONIC_CALLER_PATTERNS):
+                        is_non_mnemonic = True
+
+                    if is_non_mnemonic:
+                        for arg_idx, arg in enumerate(node.args):
+                            strings_to_check = []
+                            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                                strings_to_check.append(arg.value)
+                            elif isinstance(arg, ast.JoinedStr):
+                                for part in arg.values:
+                                    if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                                        strings_to_check.append(part.value)
+
+                            for val in strings_to_check:
+                                if "&&" in val:
+                                    rel_path = py_path.relative_to(project_root)
+                                    violations.append(
+                                        f"{rel_path}:{node.lineno} {func_name}(arg {arg_idx}): {repr(val)} "
+                                        f"contains literal '&&'. Non-mnemonic widgets do not parse accelerator keys; "
+                                        f"'&&' will be rendered literally on screen. Use a single '&' (or '&amp;' in HTML)."
+                                    )
+
+        if violations:
+            msg = (
+                f"Found {len(violations)} illegal '&&' in non-mnemonic PyQt widgets/actions.\n"
+                "In Qt, QLabel, setWindowTitle, and tooltips do not parse mnemonics and will display '&&' literally.\n"
+                "Use a single '&' (or '&amp;' for HTML text) instead.\n\nViolations:\n" + "\n".join(violations)
             )
             self.fail(msg)
 

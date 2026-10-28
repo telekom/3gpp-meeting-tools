@@ -1116,9 +1116,9 @@ class SpecSearchTab(QWidget):
         clause_num: Optional[str] = None,
         sort_by_origin_relevance: bool = False,
     ):
-        """Opens the Change History && Integrated TDocs dialog modelessly directly from Spec Search."""
+        """Opens the Change History & Integrated TDocs dialog modelessly directly from Spec Search."""
         from modules.specifications.ui.spec_history_dialog import SpecVersionHistoryDialog
-        logger.info(f"📜 [Change History] Opening Change History && TDocs browser for TS {spec_num}{f' (v{version})' if version else ''}...")
+        logger.info(f"📜 [Change History] Opening Change History & TDocs browser for TS {spec_num}{f' (v{version})' if version else ''}...")
 
         term = search_term if search_term is not None else self.search_input.text().strip()
         clause = clause_num if clause_num is not None else getattr(self.inspector, "_current_clause_num", "")

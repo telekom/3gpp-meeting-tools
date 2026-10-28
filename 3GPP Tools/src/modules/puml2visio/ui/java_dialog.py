@@ -91,7 +91,7 @@ class JavaMaintenanceDialog(QDialog):
         self.jar_path = jar_path
         self._update_worker: Optional[UpdateJarWorker] = None
 
-        self.setWindowTitle("Java Runtime && PlantUML Maintenance")
+        self.setWindowTitle("Java Runtime & PlantUML Maintenance")
         self.setModal(True)
         self.resize(680, 520)
         self.setStyleSheet("background-color: #FAFAFA;")
@@ -105,7 +105,7 @@ class JavaMaintenanceDialog(QDialog):
         layout.setSpacing(12)
 
         # Header
-        title = QLabel("☕ Java Runtime && PlantUML Engine Maintenance")
+        title = QLabel("☕ Java Runtime & PlantUML Engine Maintenance")
         title.setStyleSheet("font-size: 15px; font-weight: bold; color: #1E293B;")
         layout.addWidget(title)
 

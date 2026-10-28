@@ -525,7 +525,7 @@ class SpecClauseDiffDialog(QDialog):
     def _open_version_changes(self):
         """Opens Change History dialog modelessly pre-filtered to version B with directly openable TDocs."""
         from modules.specifications.ui.spec_history_dialog import SpecVersionHistoryDialog
-        logger.info(f"📜 [Change History] Opening Change History && TDocs for TS {self.spec_number} v{self.version_b}...")
+        logger.info(f"📜 [Change History] Opening Change History & TDocs for TS {self.spec_number} v{self.version_b}...")
         dlg = SpecVersionHistoryDialog(
             spec_number=self.spec_number,
             initial_version=self.version_b,
