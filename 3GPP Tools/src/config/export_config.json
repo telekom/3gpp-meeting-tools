@@ -1,0 +1,32 @@
+{
+    "excel_export": {
+        "column_order": [
+            "TDoc",
+            "Title",
+            "Source",
+            "Type",
+            "Agenda Item",
+            "TDoc Status",
+            "For",
+            "Secretary Remarks",
+            "My Status",
+            "My Notes",
+            "Abstract",
+            "Related TDocs"
+        ],
+        "checked_columns": [
+            "TDoc",
+            "Title",
+            "Source",
+            "Type",
+            "Agenda Item",
+            "TDoc Status",
+            "For",
+            "Secretary Remarks",
+            "Abstract"
+        ],
+        "auto_open": true,
+        "company_attribution_enabled": true,
+        "company_name": "Deutsche Telekom"
+    }
+}

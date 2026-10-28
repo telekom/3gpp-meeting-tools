@@ -9,6 +9,8 @@ from PyQt5.QtWidgets import (
     QDialog,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -45,12 +47,35 @@ DEFAULT_SELECTED_COLUMNS = [
     "TDoc Status"
 ]
 
+REVIEW_MATRIX_COLUMNS = [
+    "TDoc",
+    "Title",
+    "Source",
+    "Type",
+    "Agenda Item",
+    "TDoc Status",
+    "My Status",
+    "My Notes"
+]
+
+
+def get_default_company_name() -> str:
+    """Attempts to retrieve the user's default company profile from WordConfig."""
+    try:
+        from modules.word_tools.core.word_config import WordConfig
+        comp = WordConfig.load().get("default_source_company", "")
+        if comp:
+            return comp.strip()
+    except Exception:
+        pass
+    return "Deutsche Telekom"
+
 
 class ExcelExportDialog(QDialog):
     def __init__(self, parent, visible_count: int, total_count: int):
         super().__init__(parent)
         self.setWindowTitle("📊 Export TDocs to Excel")
-        self.resize(520, 600)
+        self.resize(540, 680)
         self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 12px; color: #333; }")
 
         self.visible_count = visible_count
@@ -101,6 +126,7 @@ class ExcelExportDialog(QDialog):
         btn_box.setSpacing(6)
 
         btn_style = "QPushButton { padding: 5px 10px; font-size: 11px; background: white; border: 1px solid #CCC; border-radius: 4px; } QPushButton:hover { background: #EAEAEA; }"
+        btn_preset_style = "QPushButton { padding: 5px 8px; font-size: 11px; font-weight: bold; background: #FDF5F8; color: #E20074; border: 1px solid #E20074; border-radius: 4px; } QPushButton:hover { background: #FCE8F0; }"
 
         btn_up = QPushButton("▲ Move Up")
         btn_up.setToolTip('Move the selected export column one position upward.')
@@ -122,21 +148,67 @@ class ExcelExportDialog(QDialog):
         btn_none.setStyleSheet(btn_style)
         btn_none.clicked.connect(lambda: self._set_all_checked(False))
 
-        btn_reset = QPushButton("🔄 Reset")
-        btn_reset.setToolTip('Restore the default export column selection and order.')
-        btn_reset.setStyleSheet(btn_style)
-        btn_reset.clicked.connect(self._reset_defaults)
+        btn_review_preset = QPushButton("📋 Review Matrix")
+        btn_review_preset.setToolTip('Preset: Select standard agenda columns plus My Status & My Notes with company attribution.')
+        btn_review_preset.setStyleSheet(btn_preset_style)
+        btn_review_preset.clicked.connect(self._apply_review_preset)
+
+        btn_standard_preset = QPushButton("📑 Standard")
+        btn_standard_preset.setToolTip('Restore the standard default meeting agenda column selection.')
+        btn_standard_preset.setStyleSheet(btn_style)
+        btn_standard_preset.clicked.connect(self._apply_standard_preset)
 
         btn_box.addWidget(btn_up)
         btn_box.addWidget(btn_down)
-        btn_box.addSpacing(10)
+        btn_box.addSpacing(6)
         btn_box.addWidget(btn_all)
         btn_box.addWidget(btn_none)
-        btn_box.addWidget(btn_reset)
+        btn_box.addSpacing(6)
+        btn_box.addWidget(btn_review_preset)
+        btn_box.addWidget(btn_standard_preset)
         btn_box.addStretch()
         col_main_layout.addLayout(btn_box)
 
         layout.addWidget(col_group)
+
+        # --- Delegation & Review Options ---
+        review_group = QGroupBox("3. Delegation && Review Matrix Options")
+        review_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        review_layout = QVBoxLayout(review_group)
+        review_layout.setSpacing(6)
+
+        self.chk_company_attribution = QCheckBox("Format review columns with company attribution")
+        self.chk_company_attribution.setToolTip(
+            "When checked, 'My Status' and 'My Notes' will be exported as company review columns,\n"
+            "e.g. 'Status (Deutsche Telekom)' and 'Comments (Deutsche Telekom)'."
+        )
+        self.chk_company_attribution.setStyleSheet("font-size: 12px; font-weight: normal;")
+
+        comp_row = QHBoxLayout()
+        comp_label = QLabel("Company Name:")
+        comp_label.setStyleSheet("font-weight: normal; font-size: 12px;")
+
+        default_company = self.saved_config.get("company_name") or get_default_company_name()
+        self.edit_company = QLineEdit(default_company)
+        self.edit_company.setPlaceholderText("e.g. Deutsche Telekom, Qualcomm, Ericsson")
+        self.edit_company.setStyleSheet("padding: 4px 8px; border: 1px solid #CCC; border-radius: 4px; font-size: 12px;")
+
+        comp_row.addWidget(comp_label)
+        comp_row.addWidget(self.edit_company)
+        review_layout.addWidget(self.chk_company_attribution)
+        review_layout.addLayout(comp_row)
+
+        self.lbl_preview = QLabel()
+        self.lbl_preview.setStyleSheet("font-size: 11px; color: #666; font-style: italic; margin-left: 20px;")
+        review_layout.addWidget(self.lbl_preview)
+
+        layout.addWidget(review_group)
+
+        is_attr_enabled = self.saved_config.get("company_attribution_enabled", True)
+        self.chk_company_attribution.setChecked(is_attr_enabled)
+        self.chk_company_attribution.toggled.connect(self._update_company_ui)
+        self.edit_company.textChanged.connect(self._update_company_ui)
+        self._update_company_ui()
 
         # --- Options ---
         self.chk_auto_open = QCheckBox("Automatically open spreadsheet after export")
@@ -160,6 +232,38 @@ class ExcelExportDialog(QDialog):
         btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(export_btn)
         layout.addLayout(btn_layout)
+
+    def _update_company_ui(self):
+        enabled = self.chk_company_attribution.isChecked()
+        self.edit_company.setEnabled(enabled)
+        company = self.edit_company.text().strip() or "Company"
+        if enabled:
+            self.lbl_preview.setText(f"Export headers: 'Status ({company})' and 'Comments ({company})'")
+            self.lbl_preview.setStyleSheet("font-size: 11px; color: #E20074; font-style: italic; margin-left: 20px;")
+        else:
+            self.lbl_preview.setText("Export headers: 'My Status' and 'My Notes' (no company attribution)")
+            self.lbl_preview.setStyleSheet("font-size: 11px; color: #666; font-style: italic; margin-left: 20px;")
+
+    def _reorder_and_check(self, target_cols: list):
+        new_order = list(target_cols)
+        for c in ALL_AVAILABLE_COLUMNS:
+            if c not in new_order:
+                new_order.append(c)
+
+        self.col_list.clear()
+        for col_name in new_order:
+            item = QListWidgetItem(col_name)
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled)
+            item.setCheckState(Qt.Checked if col_name in target_cols else Qt.Unchecked)
+            self.col_list.addItem(item)
+
+    def _apply_review_preset(self):
+        self._reorder_and_check(REVIEW_MATRIX_COLUMNS)
+        self.chk_company_attribution.setChecked(True)
+        self._update_company_ui()
+
+    def _apply_standard_preset(self):
+        self._reorder_and_check(DEFAULT_SELECTED_COLUMNS)
 
     def _populate_column_list(self):
         self.col_list.clear()
@@ -199,8 +303,16 @@ class ExcelExportDialog(QDialog):
             self.col_list.item(i).setCheckState(state)
 
     def _reset_defaults(self):
-        self.saved_config = {"column_order": ALL_AVAILABLE_COLUMNS, "checked_columns": DEFAULT_SELECTED_COLUMNS}
+        self.saved_config = {
+            "column_order": ALL_AVAILABLE_COLUMNS,
+            "checked_columns": DEFAULT_SELECTED_COLUMNS,
+            "company_attribution_enabled": True,
+            "company_name": get_default_company_name()
+        }
         self._populate_column_list()
+        self.chk_company_attribution.setChecked(True)
+        self.edit_company.setText(get_default_company_name())
+        self._update_company_ui()
 
     def _load_saved_config(self):
         if self.config_path.exists():
@@ -231,7 +343,9 @@ class ExcelExportDialog(QDialog):
         full_config["excel_export"] = {
             "column_order": order,
             "checked_columns": checked,
-            "auto_open": self.chk_auto_open.isChecked()
+            "auto_open": self.chk_auto_open.isChecked(),
+            "company_attribution_enabled": self.chk_company_attribution.isChecked(),
+            "company_name": self.get_company_name(),
         }
 
         try:
@@ -239,6 +353,23 @@ class ExcelExportDialog(QDialog):
                 json.dump(full_config, f, indent=4)
         except Exception as e:
             logging.error(f"Failed to persist export configuration: {e}")
+
+    def is_company_attribution_enabled(self) -> bool:
+        return self.chk_company_attribution.isChecked()
+
+    def get_company_name(self) -> str:
+        return self.edit_company.text().strip()
+
+    def get_column_headers(self) -> dict:
+        headers = {}
+        if self.chk_company_attribution.isChecked():
+            company = self.get_company_name() or "Company"
+            headers["My Status"] = f"Status ({company})"
+            headers["My Notes"] = f"Comments ({company})"
+        else:
+            headers["My Status"] = "My Status"
+            headers["My Notes"] = "My Notes"
+        return headers
 
     def get_selected_columns(self):
         selected = []

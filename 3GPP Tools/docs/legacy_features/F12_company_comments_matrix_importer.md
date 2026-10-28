@@ -1,155 +1,68 @@
-# F-12: Multi-Company Review Comments Matrix Importer
+# F-12: Company Review Comments Matrix & Delegation Exporter
 
-## 1. Executive Summary & Objective
+## 1. Executive Summary & Evolution
 
-During 3GPP meeting preparation, electronic review periods (e-meetings), and drafting sessions, companies frequently exchange review comment spreadsheets. 
+During 3GPP meeting preparation, electronic review periods (e-meetings), and drafting sessions, delegates review contributions and establish their company's positions and feedback.
 
-These workbooks are named with conventions like:
-* `Comments_Qualcomm.xlsx`
-* `Comments_Ericsson_v2.xlsx`
-* `Session_Comments_Rel18_Day3.xlsx`
-* `Comments_Merge_All.xlsx`
+In the legacy application (`3GPP Meeting Helper`), an ingestion engine (`parsing/excel.py`) was originally written to scan for external comment workbooks (`Comments_Qualcomm.xlsx`, `Comments_Ericsson.xlsx`, etc.) that were historically circulated over email reflectors.
 
-Within these workbooks, companies populate standardized review columns alongside each TDoc row:
-* `Comments (Qualcomm)`
-* `Comments (Nokia)`
-* `Comments (Deutsche Telekom)`
-* `Session comments`
+### Modern 3GPP Workflow Reality
+* In modern 3GPP working groups, delegates **no longer exchange raw comment spreadsheets via email attachments**.
+* Instead, the primary operational requirement is **producing standardized company review matrices** from in-app notes and stances to share with corporate delegations, national coordination bodies, or to submit directly to the session chair/rapporteur.
+* Within these workbooks, standardized review headers and visual stance highlighting are expected:
+  * `Status (Deutsche Telekom)`
+  * `Comments (Deutsche Telekom)`
 
-Delegates reviewing a proposal need to see what **all major industry players** have commented on a given TDoc in one place. Manually opening 5 to 10 company comment files and searching across sheets is time-consuming and error-prone.
-
-The legacy application provided an automated review comments ingestion engine (`parsing/excel.py`) that scanned the meeting or agenda directory for comment files, extracted each company's comment column, and consolidated them into formatted `[Company]: <comment>` blocks mapped to each TDoc.
-
-In **3GPP Tools**, delegates currently have access to personal notes and stance tags (`user_tdocs.db`), but there is no mechanism to auto-discover, parse, and aggregate external multi-company Excel comment matrices.
-
-The objective of **F-12** is to implement a multi-company comments ingestion engine in modern 3GPP Tools.
+In **3GPP Tools**, F-12 is implemented as a first-class **Company Review Matrix & Delegation Export Engine** integrated directly into the Excel export pipeline.
 
 ---
 
-## 2. Legacy Codebase Analysis
-
-### Files & Locations
-* `3GPP Meeting Helper/parsing/excel.py` (functions: `read_comments_file`, `get_comments_from_dir`, `get_comments_files_in_dir`, `get_comment_full_text`, `comments_regex`)
-* `3GPP Meeting Helper/gui/tools_overview.py` (`ToolsDialog.export_tdocs_by_agenda_to_excel`)
-
-### Mechanism & Implementation Details
-
-#### 1. File Discovery Pattern
-```python
-comments_filename_regex = re.compile(r'.*[Cc]omments.*\.xlsx')
-
-def get_comments_files_in_dir(directory):
-    all_files = os.listdir(directory)
-    return [f for f in all_files if comments_filename_regex.match(f) and not f.startswith('~$')]
-```
-
-#### 2. Column Parsing & Company Attribution
-The script parsed Excel sheets using `pandas` and detected comment columns via regular expressions:
-```python
-comments_regex = re.compile(r'Comment[s]? [\(]?([\w]+)[\)]?|(.*Session) [cC]omments')
-session_comments_column = 'Session comments'
-
-def read_comments_file(filename):
-    xl = pd.ExcelFile(filename)
-    df = xl.parse(xl.sheet_names[0], index_col=0) # Index by TDoc ID (TD#)
-    
-    column_matches = []
-    for col in df.columns:
-        match = comments_regex.match(str(col))
-        if match:
-            # Group 1 = Company name (e.g. 'Qualcomm'), Group 2 = 'Session'
-            company = match.group(1) or match.group(2)
-            column_matches.append((col, company))
-            
-    # Iterate TDocs and construct formatted strings
-    for tdoc_id in df.index:
-        comments_list = []
-        for col_name, company in column_matches:
-            val = df.at[tdoc_id, col_name]
-            if pd.notna(val) and str(val).strip():
-                comments_list.append(f'[{company}]: {str(val).strip()}')
-        df.at[tdoc_id, 'Formatted_Comments'] = '\n\n'.join(comments_list)
-    return df
-```
-
-#### 3. Multi-File Merging
-When multiple files were present (e.g. separate files from Qualcomm, Ericsson, and the Chair), `get_comments_from_dir(merge_comments=True)` merged all dataframes by TDoc ID, concatenating comments with double newlines.
-
----
-
-## 3. Current State in 3GPP Tools
-
-* `user_tdocs.db` persists user notes (`notes` column) and stance (`stance` column).
-* `TDocsWindow` displays `My Notes` and `Stance`.
-* **Missing Feature:** No background scanner or import dialog to ingest and display external company comment matrices.
-
----
-
-## 4. Modern Architecture & Design Specification
-
-### Architectural Flow
+## 2. Modern Architecture & Implementation
 
 ```mermaid
 flowchart TD
-    Trigger["Meeting Opened or User clicks: '📥 Import Company Comments'"] --> Scanner["Scan Meeting/Agenda Folder for *[Cc]omments*.xlsx"]
-    Scanner --> Detect{"Found Comments Files?"}
+    User["Delegate Reviews TDocs<br/>(Sets Stance & Notes in TDocsWindow)"] --> Export["Click: 📤 Export ▾ -> Export to Excel (.xlsx)..."]
+    Export --> Dialog["ExcelExportDialog"]
     
-    Detect -- None --> Prompt["Optionally prompt user to select custom file / folder"]
-    Detect -- Found --> Parser["Headless openpyxl / pandas Parser"]
+    Dialog --> Preset["1-Click Preset: 📋 Review Matrix"]
+    Preset --> Config["Auto-Configures:<br/>• Selects standard agenda columns + My Status & My Notes<br/>• Enables Company Attribution: 'Deutsche Telekom'<br/>• Live header preview: Status (DT), Comments (DT)"]
     
-    Parser --> Extract["For Each File:
-    1. Match TDoc ID Column (Row Index)
-    2. Regex match comment headers -> Extract Company Tag
-    3. Aggregate multi-company comments"]
+    Config --> Filename["Dynamic Filename:<br/>Comments_Deutsche_Telekom_SA2_168_Filtered.xlsx"]
     
-    Extract --> SQLite["Store in user_tdocs.db:
-    Table: company_comments
-    (tdoc_id, company, comment_text, source_file, updated_at)"]
+    Filename --> Engine["ExcelExporterThread Engine"]
     
-    SQLite --> UI["TDocs Window:
-    - Display dedicated 'Company Comments' Column
-    - Expandable multi-company pill chips in TDoc Inspector panel
-    - Text search includes company comments"]
+    Engine --> Excel["Generated Excel Workbook:<br/>• Standardized 3GPP Review Headers<br/>• Soft Visual Stance Tints (Green/Red/Amber/Blue)<br/>• Optimized column widths (Notes: 42, Status: 18)<br/>• Magenta Corporate Palette &amp; AutoFilter"]
 ```
-
-### Database Schema Extension (`user_tdocs.db`)
-
-Add a dedicated table to isolate imported company comments from personal notes:
-
-```sql
-CREATE TABLE IF NOT EXISTS company_comments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    meeting_id TEXT NOT NULL,
-    tdoc_id TEXT NOT NULL,
-    company TEXT NOT NULL,
-    comment_text TEXT NOT NULL,
-    source_file TEXT NOT NULL,
-    imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(meeting_id, tdoc_id, company, source_file)
-);
-
-CREATE INDEX IF NOT EXISTS idx_comp_comments ON company_comments(meeting_id, tdoc_id);
-```
-
-### UI Integration in `TDocsWindow`
-1. **Column in Table:** Optional toggleable column `"🏢 Review Comments"` displaying badge counts (e.g. `💬 3 comments`).
-2. **TDoc Inspector Pane:** Add a tab or collapsible card `"Company Reviews"` rendering styled blocks:
-   * `[Qualcomm]` (Blue badge): *"Agree in principle. Clause 5.2 needs editorial revision."*
-   * `[Ericsson]` (Green badge): *"We support this CR. Addresses offline discussion #4."*
-3. **Import Action:** `📥 Import ▾` -> `"Import Review Comments Spreadsheet..."`.
 
 ---
 
-## 5. Implementation Roadmap & Acceptance Criteria
+## 3. Component Details
 
-### Step-by-Step Implementation Tasks
-1. [ ] Implement `CompanyCommentsParser` in `src/modules/meetings/core/comments_importer.py`.
-2. [ ] Add `company_comments` table migration in `src/modules/meetings/core/meetings_db.py`.
-3. [ ] Add `CompanyCommentsDelegate` to display clean pills in the TDoc table.
-4. [ ] Surface review blocks in `tdoc_info_dialog.py` and the side inspector.
+### 3.1. `ExcelExportDialog` (`src/modules/meetings/ui/excel_export_dialog.py`)
+* **1-Click Review Matrix Preset (`_apply_review_preset`):** Instantly selects `TDoc`, `Title`, `Source`, `Type`, `Agenda Item`, `TDoc Status`, `My Status`, and `My Notes`.
+* **Company Attribution Section (`3. Delegation && Review Matrix Options`):**
+  * Checkbox: `[x] Format review columns with company attribution`.
+  * Line edit: Configurable corporate name, auto-populated from `WordConfig` (`default_source_company`) or persisted in `export_config.json` (defaults to `"Deutsche Telekom"`).
+  * Live Preview: Interactively displays `"Export headers: 'Status (Deutsche Telekom)' and 'Comments (Deutsche Telekom)'"`.
+* **Standard Agenda Preset (`_apply_standard_preset`):** 1-click fallback to the standard clean meeting agenda columns without personal review notes.
 
-### Acceptance Criteria
-* [x] Automatically detects and parses `Comments*.xlsx` files in the meeting folder in under 2 seconds.
-* [x] Correctly attributes comments to distinct companies (`Qualcomm`, `Ericsson`, `Huawei`, etc.).
-* [x] Preserves separation between external company comments and private user notes.
-* [x] Filter box matches text inside company review comments.
+### 3.2. `ExcelExporterThread` (`src/modules/meetings/core/excel_exporter.py`)
+* **Dynamic Header Aliasing:** Replaces internal data keys (`My Status`, `My Notes`) with the attributed corporate headers (`Status (<Company>)`, `Comments (<Company>)`).
+* **Visual Stance Highlight Palette:** Soft corporate fills and bold colored text matching standard telecommunications review conventions:
+  * **Support (`🟢 Support`):** Soft green fill (`#E6F4EA`), dark green text (`#137333`).
+  * **Object (`🔴 Object`):** Soft red fill (`#FCE8E6`), dark red text (`#C5221F`).
+  * **Monitor / Discuss (`🟡 Monitor`):** Soft amber fill (`#FEF7E0`), dark amber text (`#B06000`).
+  * **My TDoc (`🔵 My TDoc`):** Soft blue fill (`#E8F0FE`), dark blue text (`#1A73E8`).
+  * **Neutral (`⚪ Neutral`):** Sanitized to an empty cell with standard zebra fill.
+* **Ergonomic Column Widths:** Automatically expands the comments column to `42` characters with multi-line text wrapping enabled, and status column to `18` characters with centered alignment.
+
+### 3.3. `TDocsExportController` (`src/modules/meetings/ui/tdocs_export_controller.py`)
+* **Smart Filename Heuristics:** When review columns are included with company attribution, defaults the save dialog filename to `Comments_<Company>_<WG>_<Meeting>_<Scope>.xlsx` (e.g. `Comments_Deutsche_Telekom_SA2_168_Filtered.xlsx`).
+
+---
+
+## 4. Verification & Testing
+
+Automated test suite: [`tests/test_excel_company_review_export.py`](file:///tests/test_excel_company_review_export.py)
+* **Preset & Header Verification:** Tests Review Matrix preset selection, Standard Agenda preset reset, dynamic company attribution renaming, and disabling attribution.
+* **Workbook Generation & Cell Styling:** Inspects generated `.xlsx` package using `openpyxl`, validating header text, soft color fills, font weights, status sanitization, and column dimensions.

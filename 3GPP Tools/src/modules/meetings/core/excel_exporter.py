@@ -23,7 +23,9 @@ class ExcelExporterThread(QThread):
         selected_columns: list,
         mtg_info: dict,
         docs_ftp_url: str = "",
-        auto_open: bool = True
+        auto_open: bool = True,
+        column_headers: dict = None,
+        company_name: str = ""
     ):
         super().__init__()
         self.output_path = Path(output_path)
@@ -32,6 +34,8 @@ class ExcelExporterThread(QThread):
         self.mtg_info = mtg_info or {}
         self.docs_ftp_url = docs_ftp_url
         self.auto_open = auto_open
+        self.column_headers = column_headers or {}
+        self.company_name = company_name or ""
 
     def _normalize_docs_url(self) -> str:
         """Ensures the public 3GPP meeting documents URL is fully qualified."""
@@ -79,6 +83,26 @@ class ExcelExporterThread(QThread):
                 bottom=Side(style='medium', color=magenta_dark_hex)
             )
 
+            # --- Stance / Status Visual Highlight Palette (Soft Tints) ---
+            status_styles = {
+                "support": {
+                    "fill": PatternFill(start_color="E6F4EA", end_color="E6F4EA", fill_type="solid"),
+                    "font": Font(name="Segoe UI", size=9, bold=True, color="137333")
+                },
+                "object": {
+                    "fill": PatternFill(start_color="FCE8E6", end_color="FCE8E6", fill_type="solid"),
+                    "font": Font(name="Segoe UI", size=9, bold=True, color="C5221F")
+                },
+                "monitor": {
+                    "fill": PatternFill(start_color="FEF7E0", end_color="FEF7E0", fill_type="solid"),
+                    "font": Font(name="Segoe UI", size=9, bold=True, color="B06000")
+                },
+                "my_tdoc": {
+                    "fill": PatternFill(start_color="E8F0FE", end_color="E8F0FE", fill_type="solid"),
+                    "font": Font(name="Segoe UI", size=9, bold=True, color="1A73E8")
+                }
+            }
+
             # --- Alignments & Fonts ---
             center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
             left_align = Alignment(horizontal="left", vertical="center", wrap_text=True)
@@ -94,7 +118,8 @@ class ExcelExporterThread(QThread):
             ws.row_dimensions[1].height = 28
 
             for col_idx, col_name in enumerate(self.selected_columns, start=1):
-                cell = ws.cell(row=1, column=col_idx, value=col_name)
+                header_title = self.column_headers.get(col_name, col_name)
+                cell = ws.cell(row=1, column=col_idx, value=header_title)
                 cell.fill = header_fill
                 cell.font = header_font
                 cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -116,6 +141,11 @@ class ExcelExporterThread(QThread):
                     cell.fill = current_fill
                     cell.border = thin_border
 
+                    header_title = self.column_headers.get(col_name, col_name)
+                    header_lower = str(header_title).lower()
+                    col_lower = str(col_name).lower()
+                    is_status_col = (col_name == "My Status" or "status" in header_lower or "status" in col_lower)
+
                     # Hyperlink formatting for TDoc column
                     if col_name == "TDoc" and raw_val:
                         tdoc_id = str(raw_val).strip()
@@ -127,14 +157,35 @@ class ExcelExporterThread(QThread):
                             cell.hyperlink = f"{target_url}/{tdoc_id}.zip"
                         cell.font = hyperlink_font
                         cell.alignment = center_align
+                    elif is_status_col and raw_val:
+                        val_lower = str(raw_val).lower()
+                        matched_style = None
+                        if "support" in val_lower:
+                            matched_style = status_styles["support"]
+                        elif "object" in val_lower:
+                            matched_style = status_styles["object"]
+                        elif "monitor" in val_lower or "discuss" in val_lower:
+                            matched_style = status_styles["monitor"]
+                        elif "my tdoc" in val_lower or "own" in val_lower:
+                            matched_style = status_styles["my_tdoc"]
+
+                        if matched_style:
+                            cell.fill = matched_style["fill"]
+                            cell.font = matched_style["font"]
+                        else:
+                            cell.font = regular_font
+                        cell.alignment = center_align
                     else:
                         cell.font = regular_font
-                        cell.alignment = center_align if col_name in center_cols else left_align
+                        cell.alignment = center_align if (col_name in center_cols or is_status_col) else left_align
 
             # --- 3. Optimized Column Widths ---
             self.progress.emit("Formatting column layout...")
             for col_idx, col_name in enumerate(self.selected_columns, start=1):
                 col_letter = get_column_letter(col_idx)
+                header_title = self.column_headers.get(col_name, col_name)
+                header_lower = str(header_title).lower()
+                col_lower = str(col_name).lower()
 
                 if col_name == "Source":
                     # Fixed compact width with text wrapping enabled
@@ -143,14 +194,14 @@ class ExcelExporterThread(QThread):
                     ws.column_dimensions[col_letter].width = 16
                 elif col_name == "Title":
                     ws.column_dimensions[col_letter].width = 45
-                elif col_name in ["Secretary Remarks", "My Notes", "Abstract"]:
-                    ws.column_dimensions[col_letter].width = 40
+                elif col_name in ["Secretary Remarks", "My Notes", "Abstract"] or "comment" in header_lower or "comment" in col_lower or "notes" in header_lower:
+                    ws.column_dimensions[col_letter].width = 42
                 elif col_name == "Related TDocs":
                     ws.column_dimensions[col_letter].width = 24
-                elif col_name in ["Type", "For", "Agenda Item", "TDoc Status", "My Status"]:
-                    ws.column_dimensions[col_letter].width = 14
+                elif col_name in ["Type", "For", "Agenda Item", "TDoc Status", "My Status"] or "status" in header_lower or "status" in col_lower:
+                    ws.column_dimensions[col_letter].width = 18
                 else:
-                    max_len = len(str(col_name))
+                    max_len = len(str(header_title))
                     for row_idx in range(2, min(total_rows + 2, 50)):
                         val = ws.cell(row=row_idx, column=col_idx).value
                         if val:
@@ -189,12 +240,19 @@ class ExcelExporterThread(QThread):
             if r_re := row.get("Reply in"): parts.append(f"Reply: {r_re}")
             return "\n".join(parts)
 
-        val = row.get(col_name, "")
+        col_lower = col_name.lower()
+        if col_name == "My Notes" or "comment" in col_lower or "notes" in col_lower:
+            val = row.get("My Notes") or row.get(col_name, "")
+        elif col_name == "My Status" or "status" in col_lower:
+            val = row.get("My Status") or row.get(col_name, "")
+        else:
+            val = row.get(col_name, "")
+
         if val is None:
             return ""
 
         val_str = str(val).strip()
-        if col_name == "My Status" and val_str == "⚪ Neutral":
+        if (col_name == "My Status" or "status" in col_lower) and val_str == "⚪ Neutral":
             return ""
 
         return val_str
