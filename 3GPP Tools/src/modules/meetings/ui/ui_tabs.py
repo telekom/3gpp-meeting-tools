@@ -930,13 +930,25 @@ class MeetingsTab(QWidget):
         self.tdoc_windows[mtg_id] = window
         window.show()
 
-    def closeEvent(self, event):
+    def shutdown(self):
+        """Cleanly shuts down all child windows, dialogs, and background threads."""
         if hasattr(self, 'contribution_dialog') and self.contribution_dialog:
-            self.contribution_dialog.close()
+            try:
+                self.contribution_dialog.close()
+            except Exception:
+                pass
 
         for win in list(self.tdoc_windows.values()):
             if win:
-                win.close()
+                if getattr(win, '_session_plan_window', None):
+                    try:
+                        win._session_plan_window.close()
+                    except Exception:
+                        pass
+                try:
+                    win.close()
+                except Exception:
+                    pass
         self.tdoc_windows.clear()
 
         tab_threads = [
@@ -956,6 +968,8 @@ class MeetingsTab(QWidget):
                 th.quit()
                 th.wait(150)
 
+    def closeEvent(self, event):
+        self.shutdown()
         super().closeEvent(event)
 
     def _on_inline_download_finished(self, success: bool, result: str, mtg_id: str, row_data: dict, row_idx: int):
