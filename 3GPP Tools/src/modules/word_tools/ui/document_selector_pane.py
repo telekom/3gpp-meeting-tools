@@ -191,8 +191,18 @@ class DocumentSelectorPane(QWidget):
             if p.exists():
                 size_kb = p.stat().st_size / 1024
                 size_str = f" ({size_kb:.1f} KB)" if size_kb < 1024 else f" ({size_kb/1024:.2f} MB)"
-            self.drop_zone.set_state("ready", f"Ready:\n{p.name}{size_str}")
-            self.lbl_meta.setText(f"Selected: {p.name}")
+
+            label_str = ""
+            try:
+                from modules.word_tools.core.sensitivity_label import get_document_sensitivity_label
+                sl = get_document_sensitivity_label(p)
+                if sl and sl.get("name"):
+                    label_str = f" | 🛡️ {sl['name']}"
+            except Exception:
+                pass
+
+            self.drop_zone.set_state("ready", f"Ready:\n{p.name}{size_str}{label_str}")
+            self.lbl_meta.setText(f"Selected: {p.name}{label_str}")
         else:
             self.drop_zone.set_state("ready", f"Ready:\n{len(files)} files queued for batch")
             self.lbl_meta.setText(f"{len(files)} files selected")

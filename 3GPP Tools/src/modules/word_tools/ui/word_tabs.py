@@ -1072,6 +1072,8 @@ class WordExtractorTab(QWidget):
         """)
         act_pref = settings_menu.addAction("⚙️ Word Tools Preferences && Sensitivity Labels...")
         act_pref.triggered.connect(self._open_settings_dialog)
+        act_batch_label = settings_menu.addAction("🛡️ Batch Apply Sensitivity Label (Documents / Folder)...")
+        act_batch_label.triggered.connect(self._open_batch_label_dialog)
         settings_menu.addSeparator()
         act_tpl_folder = settings_menu.addAction("📂 Open Word Templates Folder")
         act_tpl_folder.triggered.connect(self._open_word_templates_folder)
@@ -1089,6 +1091,11 @@ class WordExtractorTab(QWidget):
         if dlg.exec_() == QDialog.Accepted:
             self._check_libreoffice_status()
             self._check_dotx_status()
+
+    def _open_batch_label_dialog(self):
+        from modules.word_tools.ui.batch_label_dialog import BatchSensitivityLabelDialog
+        dlg = BatchSensitivityLabelDialog(self)
+        dlg.exec_()
 
     def _open_word_templates_folder(self):
         appdata = os.environ.get("APPDATA", "")
