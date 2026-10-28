@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread
 from PyQt5.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 from modules.nas.core.nas_db import parse_version_tuple
@@ -69,9 +69,30 @@ def import_local_file_clicked(tab):
     start_batch_ingestion(tab, tasks)
 
 
+def is_ingestion_running(tab) -> bool:
+    """Safely checks if a background specification ingestion thread is currently active.
+
+    Guards against QObject.thread() bound method collision where hasattr(tab, 'thread')
+    evaluates to True on uninitialized QWidget instances.
+    """
+    th = getattr(tab, "thread", None)
+    if th is None or not hasattr(th, "isRunning"):
+        if "_ingest_thread" in getattr(tab, "__dict__", {}):
+            th = tab.__dict__["_ingest_thread"]
+        else:
+            return False
+
+    if th is not None and hasattr(th, "isRunning") and callable(getattr(th, "isRunning", None)):
+        try:
+            return bool(th.isRunning())
+        except Exception:
+            return False
+    return False
+
+
 def start_batch_ingestion(tab, tasks: List[Dict[str, Any]]):
     """Spawns background worker thread to parse and ingest specifications."""
-    if hasattr(tab, "thread") and tab.thread and tab.thread.isRunning():
+    if is_ingestion_running(tab):
         QMessageBox.warning(
             tab,
             "Ingestion In Progress",
@@ -89,15 +110,17 @@ def start_batch_ingestion(tab, tasks: List[Dict[str, Any]]):
     if hasattr(tab, "manage_btn"):
         tab.manage_btn.setEnabled(False)
 
-    tab.thread = NASFetchAndImportThread(
+    worker = NASFetchAndImportThread(
         nas_db_path=tab.nas_db_path,
         tasks=tasks,
         cache_dir=tab.cache_dir,
     )
-    tab.thread.progress.connect(lambda msg, val: on_import_progress(tab, msg, val))
-    tab.thread.finished_success.connect(lambda s_cnt, m_cnt: on_import_success(tab, s_cnt, m_cnt))
-    tab.thread.error.connect(lambda err: on_import_error(tab, err))
-    tab.thread.start()
+    tab.thread = worker
+    tab._ingest_thread = worker
+    worker.progress.connect(lambda msg, val: on_import_progress(tab, msg, val))
+    worker.finished_success.connect(lambda s_cnt, m_cnt: on_import_success(tab, s_cnt, m_cnt))
+    worker.error.connect(lambda err: on_import_error(tab, err))
+    worker.start()
 
 
 def on_import_error(tab, err_msg: str):
@@ -342,7 +365,7 @@ def build_spec_reload_task(
 
 def reload_single_version(tab, spec_number: str, version: str):
     """Re-parses and re-ingests a single specification version into the database."""
-    if hasattr(tab, "thread") and tab.thread and tab.thread.isRunning():
+    if is_ingestion_running(tab):
         QMessageBox.warning(
             tab,
             "Ingestion In Progress",
@@ -374,7 +397,7 @@ def reload_single_version(tab, spec_number: str, version: str):
 
 def reload_spec_group(tab, spec_number: str, child_count: int):
     """Re-parses and re-ingests all stored versions of a specification group."""
-    if hasattr(tab, "thread") and tab.thread and tab.thread.isRunning():
+    if is_ingestion_running(tab):
         QMessageBox.warning(
             tab,
             "Ingestion In Progress",
@@ -423,7 +446,7 @@ def reload_spec_group(tab, spec_number: str, child_count: int):
 
 def reload_checked_versions(tab):
     """Re-parses and re-ingests all currently checked specification versions."""
-    if hasattr(tab, "thread") and tab.thread and tab.thread.isRunning():
+    if is_ingestion_running(tab):
         QMessageBox.warning(
             tab,
             "Ingestion In Progress",

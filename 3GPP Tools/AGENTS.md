@@ -221,7 +221,7 @@ python -m main_tools
   - **Batch Specification Group Reload:** Right-click context menu on a specification group node (`🔄 Reload all versions of TS {spec} ({child_count} versions)`) re-parses all ingested releases in a single sequential batch.
   - **Bulk Checked Reload:** Maintenance dropdown action (`⚙️ Manage ▾` $\to$ `🔄 Reload Checked Version(s)...`) gathers all currently checked specifications and versions for bulk refresh.
   - **Automatic Document Resolution & Fallback:** Seamlessly resolves cached Word documents and 3GPP FTP archives via `SpecDocResolver` and `SpecsDatabase`, automatically sorting split multi-part files and falling back to a file picker if custom un-indexed documents require relocation.
-  - **Thread-Safe Ingestion Guards:** Disables maintenance controls and prevents concurrent worker thread execution while ingestion is active.
+  - **Thread-Safe Ingestion Guards & QObject Collision Protection:** Disables maintenance controls and prevents concurrent worker thread execution while ingestion is active. Uses `is_ingestion_running` to safely guard against `QObject.thread()` bound method collision where uninitialized `QWidget` instances resolve `tab.thread` to the built-in affinity method lacking `.isRunning()`.
 
 ### 4.5. Meetings & TDocs (`src/modules/meetings`)
 - **Subsystem Guide:** For complete module architecture, conversion pipeline details, and filter proxy design, consult [`src/modules/meetings/AGENTS.md`](file:///src/modules/meetings/AGENTS.md).

@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import QDate, Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QDate, QThread, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -99,6 +99,8 @@ class SpecSearchTab(QWidget):
         self._active_query_workers: Dict[int, SpecSearchQueryWorker] = {}
         self._current_req_id: int = 0
         self.selected_version_ids: List[int] = []
+        self.thread: Optional[SpecSearchImportThread] = None
+        self._import_thread: Optional[SpecSearchImportThread] = None
 
         # Debounce timer for search execution
         self._search_timer = QTimer(self)
@@ -969,6 +971,15 @@ class SpecSearchTab(QWidget):
         self._start_batch_ingestion(tasks)
 
     def _start_batch_ingestion(self, tasks: List[Dict[str, Any]]):
+        active_th = getattr(self, "_import_thread", None) or getattr(self, "thread", None)
+        if isinstance(active_th, QThread) and active_th.isRunning():
+            QMessageBox.warning(
+                self,
+                "Ingestion In Progress",
+                "A specification indexing task is currently running. Please wait for it to finish.",
+            )
+            return
+
         self._current_ingesting_tasks = tasks
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -980,6 +991,7 @@ class SpecSearchTab(QWidget):
             tasks=tasks,
             cache_dir=self.cache_dir,
         )
+        self._import_thread = self.thread
         self.thread.progress.connect(self._on_import_progress)
         self.thread.finished_success.connect(self._on_import_success)
         self.thread.error.connect(self._on_import_error)
@@ -1755,8 +1767,9 @@ class SpecSearchTab(QWidget):
         self._save_config_timer.stop()
 
         workers = list(self._active_query_workers.values())
-        if hasattr(self, "thread") and self.thread and self.thread.isRunning():
-            workers.append(self.thread)
+        import_thread = getattr(self, "_import_thread", None) or getattr(self, "thread", None)
+        if isinstance(import_thread, QThread) and import_thread.isRunning():
+            workers.append(import_thread)
         if hasattr(self, "_wipe_worker") and self._wipe_worker and self._wipe_worker.isRunning():
             workers.append(self._wipe_worker)
 
