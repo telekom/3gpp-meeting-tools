@@ -25,7 +25,7 @@ TAG_VERTALIGN = f"{W_NS}vertAlign"
 
 # Path & Specification Number Regular Expressions
 RE_PART_INDEX = re.compile(r"_s(\d+)(?:_s\d+)?|_part(\d+)|_(\d+)_|_(\d+)\.(?:docx|doc)$", re.IGNORECASE)
-RE_SPEC_NUMBER = re.compile(r"(24|25|29|36|37|38)[._]?(301|501|331|413|423|412|473|463|244|281|415)")
+RE_SPEC_NUMBER = re.compile(r"(24|25|29|36|37|38)[._]?(301|501|502|514|526|554|555|577|578|587|588|008|331|413|423|412|473|463|244|281|415)")
 RE_VERSION_STEM = re.compile(r"-([a-zA-Z0-9]{3})(?:_\d+.*)?$")
 
 

@@ -19,15 +19,18 @@ TAG_INSTR = f"{W_NS}instrText"
 ATTR_VAL = f"{W_NS}val"
 
 RE_CAPTION = re.compile(
-    r"^Table\s+([8D]\.\d+(?:[\.\-/][0-9A-Za-z]+)*)\s*[:\.]\s*(.+?)(?:\s+message\s+content)?$",
+    r"^Table\s+((?:8|D\.5)\.\d+(?:[\.\-/][0-9A-Za-z]+)*)\s*[:\.]\s*(.+?)(?:\s+message\s+content)?$",
     re.IGNORECASE,
 )
-RE_IE_HEADING = re.compile(r"^((?:9\.[2-9]|9\.1[0-9]|D\.6)(?:\.[0-9A-Za-z]+)*)\s+(.+)$")
-RE_MAJOR_BOUNDARY = re.compile(r"^(?:[1-8]|10|11|12|Annex\s+[A-Z])\b")
-RE_TRAILING_PAGE_NUM = re.compile(r"\s+\d{3,4}$")
+RE_IE_HEADING_NAS = re.compile(r"^((?:9\.[2-9]|9\.1[0-9]|D\.6)(?:\.[0-9A-Za-z]+)*)\s+(.+)$")
+RE_IE_HEADING_POLICY = re.compile(r"^((?:5\.[2-9])(?:\.[0-9A-Za-z]+)*)\s+(.+)$")
+RE_MAJOR_BOUNDARY_NAS = re.compile(r"^(?:[1-8]|10|11|12|Annex\s+[A-CE-Z])\b")
+RE_MAJOR_BOUNDARY_POLICY = re.compile(r"^(?:[1-4]|[6-9]|10|Annex\s+[A-Z])\b")
+RE_TRAILING_PAGE_NUM = re.compile(r"\s+\d{1,4}$")
 
-# Structural umbrella headings in TS 24.501 / TS 24.301 that group subclauses rather than defining a single IE
+# Structural umbrella headings in TS 24.501 / TS 24.301 / TS 24.526 that group subclauses rather than defining a single IE
 STRUCTURAL_SECTION_CLAUSES = {
+    "5.1", "5.3", "5.3.3",
     "9.9", "9.9.1", "9.9.2", "9.9.3", "9.9.4",
     "9.11", "9.11.1", "9.11.2", "9.11.3", "9.11.4",
     "9.12", "D.6",
@@ -40,6 +43,83 @@ PAYLOAD_CONTAINER_SUB_IES = [
     ("0110", "UE parameters update transparent container", "9.11.3.53A", "C", "TLV-E", "20-n"),
     ("1000", "CIoT small data container", "9.11.3.18B", "C", "TLV-E", "5-n"),
     ("1001", "Service-level-AA container", "9.11.2.10", "C", "TLV-E", "4-65538"),
+]
+
+# UE policy part types carried inside TS 24.501 UE policy section management list (D.6.2 / Table D.6.2.1)
+UE_POLICY_PART_SUB_IES = [
+    ("0001", "URSP (UE route selection policy)", "TS 24.526 5.2", "C", "LV-E", "3-65535"),
+    ("0010", "ANDSP (Access network discovery and selection policy)", "TS 24.526 5.3.1", "C", "LV-E", "3-65535"),
+    ("0011", "V2XP (V2X policy)", "TS 24.588 5.2", "C", "LV-E", "3-65535"),
+    ("0100", "ProSeP (5G ProSe policy)", "TS 24.555 5.2", "C", "LV-E", "3-65535"),
+    ("0101", "A2XP (A2X policy)", "TS 24.578 5.2", "C", "LV-E", "3-65535"),
+    ("0110", "RSLPP (Ranging/sidelink positioning policy)", "TS 24.514 5.2", "C", "LV-E", "3-65535"),
+]
+
+# Sub-parameters carried inside TS 24.526 UE policy rules (Clause 5.2 URSP & Clause 5.3 ANDSP)
+TS24526_POLICY_MESSAGES = [
+    {
+        "clause": "5.2",
+        "message_name": "URSP rule (UE route selection policy)",
+        "table_caption": "Table 5.2.1: UE policy part contents including a URSP rule",
+        "ies": [
+            {"iei": "-", "information_element": "Length of UE policy part contents", "field_path": "Length of UE policy part contents", "depth": 0, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "M", "format": "V", "length": "2"},
+            {"iei": "-", "information_element": "Length of URSP rule", "field_path": "Length of URSP rule", "depth": 0, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "M", "format": "V", "length": "2"},
+            {"iei": "-", "information_element": "Precedence value of URSP rule", "field_path": "Precedence value of URSP rule", "depth": 0, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "M", "format": "V", "length": "1"},
+            {"iei": "-", "information_element": "Traffic descriptor", "field_path": "Traffic descriptor", "depth": 0, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "M", "format": "LV-E", "length": "2-65535"},
+            {"iei": "00000001", "information_element": "Match-all type", "field_path": "Traffic descriptor > Match-all type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "T", "length": "1"},
+            {"iei": "00001000", "information_element": "OS Id + OS App Id type", "field_path": "Traffic descriptor > OS Id + OS App Id type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TLV", "length": "19-n"},
+            {"iei": "00010000", "information_element": "IPv4 remote address type", "field_path": "Traffic descriptor > IPv4 remote address type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "9"},
+            {"iei": "00100001", "information_element": "IPv6 remote address/prefix length type", "field_path": "Traffic descriptor > IPv6 remote address/prefix length type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "18"},
+            {"iei": "00110000", "information_element": "Protocol identifier/next header type", "field_path": "Traffic descriptor > Protocol identifier/next header type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "2"},
+            {"iei": "01010000", "information_element": "Single remote port type", "field_path": "Traffic descriptor > Single remote port type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "3"},
+            {"iei": "01010001", "information_element": "Remote port range type", "field_path": "Traffic descriptor > Remote port range type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "5"},
+            {"iei": "01100000", "information_element": "Security parameter index type", "field_path": "Traffic descriptor > Security parameter index type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "5"},
+            {"iei": "01110000", "information_element": "Type of service/traffic class type", "field_path": "Traffic descriptor > Type of service/traffic class type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "3"},
+            {"iei": "10000000", "information_element": "Flow label type", "field_path": "Traffic descriptor > Flow label type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "4"},
+            {"iei": "10000001", "information_element": "Destination MAC address type", "field_path": "Traffic descriptor > Destination MAC address type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "7"},
+            {"iei": "10000011", "information_element": "802.1Q C-TAG VID type", "field_path": "Traffic descriptor > 802.1Q C-TAG VID type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "3"},
+            {"iei": "10000100", "information_element": "802.1Q S-TAG VID type", "field_path": "Traffic descriptor > 802.1Q S-TAG VID type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "3"},
+            {"iei": "10000101", "information_element": "802.1Q C-TAG PCP/DEI type", "field_path": "Traffic descriptor > 802.1Q C-TAG PCP/DEI type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "2"},
+            {"iei": "10000110", "information_element": "802.1Q S-TAG PCP/DEI type", "field_path": "Traffic descriptor > 802.1Q S-TAG PCP/DEI type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "2"},
+            {"iei": "10000111", "information_element": "Ethertype type", "field_path": "Traffic descriptor > Ethertype type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "3"},
+            {"iei": "10001000", "information_element": "DNN type", "field_path": "Traffic descriptor > DNN type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TLV", "length": "3-102"},
+            {"iei": "10010000", "information_element": "Connection capabilities type", "field_path": "Traffic descriptor > Connection capabilities type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TLV", "length": "3-n"},
+            {"iei": "10100001", "information_element": "Destination FQDN", "field_path": "Traffic descriptor > Destination FQDN", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TLV", "length": "5-256"},
+            {"iei": "10100010", "information_element": "Regular expression", "field_path": "Traffic descriptor > Regular expression", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TLV-E", "length": "4-65535"},
+            {"iei": "10110000", "information_element": "OS App Id type", "field_path": "Traffic descriptor > OS App Id type", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TLV", "length": "3-257"},
+            {"iei": "-", "information_element": "Route selection descriptor list", "field_path": "Route selection descriptor list", "depth": 0, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "M", "format": "LV-E", "length": "2-65535"},
+            {"iei": "-", "information_element": "Route selection descriptor", "field_path": "Route selection descriptor list > Route selection descriptor", "depth": 1, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "M", "format": "LV-E", "length": "5-65535"},
+            {"iei": "00000001", "information_element": "SSC mode type", "field_path": "Route selection descriptor list > Route selection descriptor > SSC mode type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "2"},
+            {"iei": "00000010", "information_element": "S-NSSAI type", "field_path": "Route selection descriptor list > Route selection descriptor > S-NSSAI type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TLV", "length": "3-10"},
+            {"iei": "00000100", "information_element": "DNN type", "field_path": "Route selection descriptor list > Route selection descriptor > DNN type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TLV", "length": "3-102"},
+            {"iei": "00001000", "information_element": "PDU session type type", "field_path": "Route selection descriptor list > Route selection descriptor > PDU session type type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "2"},
+            {"iei": "00010000", "information_element": "Preferred access type type", "field_path": "Route selection descriptor list > Route selection descriptor > Preferred access type type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "2"},
+            {"iei": "00010001", "information_element": "Multi-access preference type", "field_path": "Route selection descriptor list > Route selection descriptor > Multi-access preference type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "T", "length": "1"},
+            {"iei": "00100000", "information_element": "Non-seamless non-3GPP offload indication type", "field_path": "Route selection descriptor list > Route selection descriptor > Non-seamless non-3GPP offload indication type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "T", "length": "1"},
+            {"iei": "01000000", "information_element": "Location criteria type", "field_path": "Route selection descriptor list > Route selection descriptor > Location criteria type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TLV-E", "length": "7-65535"},
+            {"iei": "10000000", "information_element": "Time window type", "field_path": "Route selection descriptor list > Route selection descriptor > Time window type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "17"},
+            {"iei": "00100001", "information_element": "Route selection validation criteria type", "field_path": "Route selection descriptor list > Route selection descriptor > Route selection validation criteria type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TLV", "length": "5-21"},
+            {"iei": "00100010", "information_element": "PDU session pair ID type", "field_path": "Route selection descriptor list > Route selection descriptor > PDU session pair ID type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "2"},
+            {"iei": "00100011", "information_element": "RSN type", "field_path": "Route selection descriptor list > Route selection descriptor > RSN type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "TV", "length": "2"},
+            {"iei": "00100100", "information_element": "ProSe layer-3 UE-to-network relay offload indication type", "field_path": "Route selection descriptor list > Route selection descriptor > ProSe layer-3 UE-to-network relay offload indication type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "T", "length": "1"},
+            {"iei": "00100101", "information_element": "5G ProSe multi-path preference type", "field_path": "Route selection descriptor list > Route selection descriptor > 5G ProSe multi-path preference type", "depth": 2, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "T", "length": "1"},
+            {"iei": "-", "information_element": "Additional indications (URERI)", "field_path": "Additional indications (URERI)", "depth": 0, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "O", "format": "V", "length": "1"},
+        ],
+    },
+    {
+        "clause": "5.3",
+        "message_name": "ANDSP (Access network discovery and selection policy)",
+        "table_caption": "Table 5.3.1.1: ANDSP information format",
+        "ies": [
+            {"iei": "0001", "information_element": "WLANSP (WLAN selection policy)", "field_path": "WLANSP (WLAN selection policy)", "depth": 0, "type_reference": "Encoding of WLANSP 5.3.2", "presence": "C", "format": "LV-E", "length": "3-65535"},
+            {"iei": "0010", "information_element": "N3AN node configuration information", "field_path": "N3AN node configuration information", "depth": 0, "type_reference": "Encoding of N3AN node configuration information — General 5.3.3.1", "presence": "C", "format": "LV-E", "length": "3-65535"},
+            {"iei": "01", "information_element": "N3AN node selection information", "field_path": "N3AN node configuration information > N3AN node selection information", "depth": 1, "type_reference": "N3AN node selection information 5.3.3.2", "presence": "O", "format": "TLV-E", "length": "9-65535"},
+            {"iei": "02", "information_element": "Home N3IWF identifier configuration", "field_path": "N3AN node configuration information > Home N3IWF identifier configuration", "depth": 1, "type_reference": "Home N3IWF identifier configuration 5.3.3.3", "presence": "O", "format": "TLV-E", "length": "10-65535"},
+            {"iei": "03", "information_element": "Home ePDG identifier configuration", "field_path": "N3AN node configuration information > Home ePDG identifier configuration", "depth": 1, "type_reference": "Home ePDG identifier configuration 5.3.3.4", "presence": "O", "format": "TLV-E", "length": "10-65535"},
+            {"iei": "04", "information_element": "Extended home N3IWF identifier configuration", "field_path": "N3AN node configuration information > Extended home N3IWF identifier configuration", "depth": 1, "type_reference": "Extended home N3IWF identifier configuration 5.3.3.5", "presence": "O", "format": "TLV-E", "length": "11-65535"},
+            {"iei": "05", "information_element": "Slice-specific N3IWF prefix configuration", "field_path": "N3AN node configuration information > Slice-specific N3IWF prefix configuration", "depth": 1, "type_reference": "Slice-specific N3IWF prefix configuration 5.3.3.6", "presence": "O", "format": "TLV-E", "length": "13-65535"},
+        ],
+    },
 ]
 
 # Sub-parameters carried inside TS 24.501 Service-level-AA container (9.11.2.10 / Table 9.11.2.10.1)
@@ -60,10 +140,11 @@ EPCO_SUB_IES = [
 
 
 class NASDocxParser:
-    """Dedicated parser for standard 3GPP NAS specifications (Clause 8 & 9 tables and IE definitions)."""
+    """Dedicated parser for standard 3GPP NAS & UE Policy specifications (TS 24.501, TS 24.301, TS 24.526)."""
 
-    def __init__(self, docx_paths: List[Path]):
+    def __init__(self, docx_paths: List[Path], spec_number: str = "24.501"):
         self.docx_paths = docx_paths
+        self.spec_number = str(spec_number or "24.501").replace("TS", "").strip()
         self.logger = logging.getLogger(__name__)
 
     @staticmethod
@@ -92,6 +173,10 @@ class NASDocxParser:
         ie_definitions: List[Dict[str, Any]] = []
         total_files = len(valid_paths)
 
+        is_policy_spec = self.spec_number in ("24.526", "24.588", "24.555", "24.578", "24.514")
+        re_ie_heading = RE_IE_HEADING_POLICY if is_policy_spec else RE_IE_HEADING_NAS
+        re_major_boundary = RE_MAJOR_BOUNDARY_POLICY if is_policy_spec else RE_MAJOR_BOUNDARY_NAS
+
         for file_idx, docx_path in enumerate(valid_paths):
             if progress_callback:
                 base_progress = 10 + int((file_idx / total_files) * 80)
@@ -119,22 +204,32 @@ class NASDocxParser:
                         continue
                     last_paragraph_text = p_text
 
-                    if p_text.startswith(("Table 8.", "Table D.")):
+                    if p_text.startswith(("Table 8.", "Table D.5.")):
                         match_cap = RE_CAPTION.search(p_text)
                         if match_cap:
                             clause = match_cap.group(1).strip()
                             name = re.sub(r"(?i)\s+message\s+content", "", match_cap.group(2)).strip()
                             last_caption_info = (clause, name, p_text)
+                        else:
+                            last_caption_info = None
                     else:
                         last_caption_info = None
 
-                    match_ie = RE_IE_HEADING.match(p_text)
+                    match_ie = re_ie_heading.match(p_text)
                     if match_ie:
                         if current_ie_def:
                             self._finalize_ie_def(current_ie_def, ie_definitions)
 
                         cl = match_ie.group(1).strip()
                         ie_name = RE_TRAILING_PAGE_NUM.sub("", match_ie.group(2).strip()).strip()
+                        if is_policy_spec and ie_name.lower() in ("general", "overview"):
+                            if cl == "5.3.1":
+                                ie_name = "Encoding of UE policy part type ANDSP — General"
+                            elif cl == "5.3.3.1":
+                                ie_name = "Encoding of N3AN node configuration information — General"
+                            else:
+                                ie_name = f"Clause {cl} — {ie_name}"
+
                         current_ie_def = {
                             "clause": cl,
                             "ie_name": ie_name,
@@ -143,16 +238,16 @@ class NASDocxParser:
                                 f'font-family: Segoe UI, sans-serif;">{html.escape(ie_name)} (Clause {html.escape(cl)})</h2>'
                             ],
                         }
-                    elif RE_MAJOR_BOUNDARY.match(p_text) and not p_text.startswith("9."):
+                    elif re_major_boundary.match(p_text) and not p_text.startswith(("9.", "D.6", "5.2", "5.3")):
                         if current_ie_def:
                             self._finalize_ie_def(current_ie_def, ie_definitions)
                             current_ie_def = None
                     elif current_ie_def:
-                        if p_text.startswith(("Figure 9.", "Figure D.")):
+                        if p_text.startswith(("Figure 9.", "Figure D.", "Figure 5.")):
                             current_ie_def["html_content"].append(
                                 f'<p style="font-weight: bold; color: #37474F; margin-top: 10px; margin-bottom: 4px;">{html.escape(p_text)}</p>'
                             )
-                        elif p_text.startswith(("Table 9.", "Table D.")):
+                        elif p_text.startswith(("Table 9.", "Table D.", "Table 5.")):
                             current_ie_def["html_content"].append(
                                 f'<p style="font-weight: bold; color: #1A237E; margin-top: 12px; margin-bottom: 4px;">{html.escape(p_text)}</p>'
                             )
@@ -167,6 +262,7 @@ class NASDocxParser:
                             )
 
                 elif elem.tag == TAG_TBL:
+                    handled_as_message = False
                     if last_caption_info:
                         clause, name, full_caption = last_caption_info
                         ies = self._parse_clause_8_table(elem)
@@ -177,9 +273,10 @@ class NASDocxParser:
                                 "table_caption": full_caption,
                                 "ies": ies,
                             })
+                            handled_as_message = True
                         last_caption_info = None
 
-                    elif current_ie_def:
+                    if not handled_as_message and current_ie_def:
                         is_diagram = "figure" in last_paragraph_text.lower() or any(
                             "octet" in _extract_tc_text(c).lower() for c in elem.iter(TAG_TC)
                         )
@@ -189,6 +286,9 @@ class NASDocxParser:
 
             if current_ie_def:
                 self._finalize_ie_def(current_ie_def, ie_definitions)
+
+        if self.spec_number == "24.526" and ie_definitions and not messages:
+            messages.extend(TS24526_POLICY_MESSAGES)
 
         self._unroll_container_sub_ies(messages, ie_definitions)
         return messages, ie_definitions
@@ -255,6 +355,21 @@ class NASDocxParser:
                     })
             return children
 
+        def _build_ue_policy_children(parent_path: str, base_depth: int) -> List[Dict[str, Any]]:
+            children = []
+            for sub_iei, part_name, sub_ref, pres, fmt, length in UE_POLICY_PART_SUB_IES:
+                children.append({
+                    "iei": sub_iei,
+                    "information_element": part_name,
+                    "field_path": f"{parent_path} > {part_name}",
+                    "depth": base_depth,
+                    "type_reference": sub_ref,
+                    "presence": pres,
+                    "format": fmt,
+                    "length": length,
+                })
+            return children
+
         for msg in messages:
             # Skip unrolling inside the helper table itself
             if msg.get("clause", "").startswith("8.2.7.54"):
@@ -284,12 +399,18 @@ class NASDocxParser:
                             })
                             if sub_clause == "9.11.2.10":
                                 expanded_ies.extend(_build_slaa_children(sub_path, base_depth=2))
+                            elif sub_clause == "D.6.2":
+                                expanded_ies.extend(_build_ue_policy_children(sub_path, base_depth=2))
 
                 # 2. Top-level Service-level-AA container (Clause 9.11.2.10)
                 elif "9.11.2.10" in type_ref:
                     expanded_ies.extend(_build_slaa_children(parent_name, base_depth=1))
 
-                # 3. Registration accept type 6 IE container (Clause 9.11.3.98)
+                # 3. Top-level UE policy section management list (Clause D.6.2)
+                elif "D.6.2" in type_ref and "D.6.2" in defs_by_clause:
+                    expanded_ies.extend(_build_ue_policy_children(parent_name, base_depth=1))
+
+                # 4. Registration accept type 6 IE container (Clause 9.11.3.98)
                 elif "9.11.3.98" in type_ref and type6_sub_ies:
                     for sub in type6_sub_ies:
                         sub_name = sub.get("information_element", "")
@@ -304,7 +425,7 @@ class NASDocxParser:
                             "length": sub.get("length", ""),
                         })
 
-                # 4. Extended protocol configuration options (Clause 9.11.4.6)
+                # 5. Extended protocol configuration options (Clause 9.11.4.6)
                 elif "9.11.4.6" in type_ref:
                     for sub_iei, fallback_name, sub_clause, pres, fmt, length in EPCO_SUB_IES:
                         if sub_clause in defs_by_clause:
@@ -329,9 +450,12 @@ class NASDocxParser:
 
         header_row_idx = -1
         for r_idx in range(min(3, len(rows))):
-            cells_text = [_extract_tc_text(tc).lower() for tc in rows[r_idx].findall(TAG_TC)]
-            joined_header = " ".join(cells_text)
-            if "information element" in joined_header or "iei" in cells_text:
+            cells_text = [_extract_tc_text(tc).lower().strip() for tc in rows[r_idx].findall(TAG_TC)]
+            if len(cells_text) < 4:
+                continue
+            has_ie_col = any(c in ("information element", "information elements", "iei") for c in cells_text)
+            has_meta_col = any("reference" in c or "presence" in c or "format" in c for c in cells_text)
+            if has_ie_col and has_meta_col:
                 header_row_idx = r_idx
                 break
 
@@ -348,6 +472,8 @@ class NASDocxParser:
             clean_name = ie_name.lower().replace(" ", "")
             if not clean_name or "informationelement" in clean_name:
                 continue
+
+            type_ref = type_ref.strip().rstrip(".")
 
             ies.append({
                 "iei": iei,

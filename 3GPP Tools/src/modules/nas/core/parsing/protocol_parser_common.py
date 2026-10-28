@@ -79,7 +79,7 @@ class ProtocolDocxDispatcher:
             return parser.parse(progress_callback=progress_callback)
 
         # 6. Route standard NAS specifications (24.501, 24.301, 24.008)
-        parser = NASDocxParser(self.docx_paths)
+        parser = NASDocxParser(self.docx_paths, spec_number=spec_num)
         messages, ie_definitions = parser.parse(progress_callback=progress_callback)
 
         if progress_callback:

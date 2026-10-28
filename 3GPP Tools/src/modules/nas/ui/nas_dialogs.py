@@ -31,6 +31,14 @@ PROTOCOL_SPEC_CATALOG: Dict[str, Dict[str, str]] = {
         "tech": "5G",
         "description": "Core Network signaling between UE and AMF/SMF for 5G registration, connection, mobility, and PDU sessions.",
     },
+    "24.526": {
+        "acronym": "5GS UE Policies (URSP)",
+        "wg": "CT1",
+        "title": "UE Policies for 5G System (URSP & ANDSP); Stage 3",
+        "full_title": "User Equipment (UE) policies for 5G System (5GS); Stage 3",
+        "tech": "5G",
+        "description": "Stage 3 bit-level encoding of UE Route Selection Policy (URSP) rules, Traffic Descriptors, Route Selection Descriptors, and ANDSP/WLANSP.",
+    },
     "24.301": {
         "acronym": "EPS NAS",
         "wg": "CT1",
@@ -257,6 +265,7 @@ class NASVersionSelectDialog(QDialog):
             "29.244",
             "29.281",
             "24.501",
+            "24.526",
             "24.301",
             "24.008",
         ]:
