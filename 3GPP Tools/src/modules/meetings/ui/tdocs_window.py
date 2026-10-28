@@ -1634,7 +1634,9 @@ class TDocsWindow(QWidget):
         """Launches the dedicated Meeting Session Plan viewer."""
         if not hasattr(self, "_session_plan_window") or self._session_plan_window is None:
             from modules.meetings.ui.session_plan_window import SessionPlanWindow
-            tracked_tokens = getattr(self.proxy, "_tracked_tokens", set()) if hasattr(self, "proxy") else set()
+            followed = getattr(self.proxy, "followed_wi_tokens", set()) if hasattr(self, "proxy") else set()
+            starred = getattr(self.proxy, "starred_wi_tokens", set()) if hasattr(self, "proxy") else set()
+            tracked_tokens = set(followed) | set(starred)
             self._session_plan_window = SessionPlanWindow(
                 meeting_dir=self.meeting_dir,
                 mtg_info=self.mtg_info,

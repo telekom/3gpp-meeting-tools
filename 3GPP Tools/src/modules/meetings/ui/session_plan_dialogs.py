@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -431,3 +432,177 @@ class SessionPlanNoteDialog(QDialog):
             self.colleague_input.text().strip(),
             self.comment_edit.toPlainText().strip(),
         )
+
+
+class SessionPlanTrackedTopicsDialog(QDialog):
+    """Allows selecting which Agenda Items and Work Items to follow/track in My Topics."""
+
+    def __init__(
+        self,
+        agenda_map: dict,
+        currently_tracked: Dict[str, str],
+        followed_wi_tokens: Optional[Set[str]] = None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.agenda_map = agenda_map or {}
+        self.currently_tracked = {k.lower(): v for k, v in currently_tracked.items()}
+        self.followed_wi_tokens = {t.lower() for t in (followed_wi_tokens or set())}
+
+        self.setWindowTitle("🎯 Manage My Tracked Topics & Agenda Items")
+        self.resize(680, 520)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        # Header info
+        hdr_frame = QFrame()
+        hdr_frame.setStyleSheet("background: #F5F3FF; border: 1px solid #DDD6FE; border-radius: 8px; padding: 10px;")
+        hdr_layout = QVBoxLayout(hdr_frame)
+        hdr_layout.setSpacing(4)
+        t_lbl = QLabel("<b>Tracked Topics & Followed Agenda Items</b>")
+        t_lbl.setStyleSheet("color: #5B21B6; font-size: 13px;")
+        hdr_layout.addWidget(t_lbl)
+        desc_lbl = QLabel("Tracked topics are highlighted in purple across the Overview Grid and populate your personal <b>'My Topics'</b> schedule and parallel conflict detector.")
+        desc_lbl.setStyleSheet("color: #6D28D9; font-size: 11px;")
+        desc_lbl.setWordWrap(True)
+        hdr_layout.addWidget(desc_lbl)
+        layout.addWidget(hdr_frame)
+
+        # Filter bar & quick action buttons
+        filter_layout = QHBoxLayout()
+        self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText("🔍 Filter by AI #, acronym, or topic title...")
+        self.search_box.setClearButtonEnabled(True)
+        self.search_box.textChanged.connect(self._filter_list)
+        filter_layout.addWidget(self.search_box)
+
+        btn_auto = QPushButton("⭐ Track Followed WIs")
+        btn_auto.setToolTip("Automatically check all Agenda Items matching your tracked Work Items watchlist.")
+        btn_auto.setStyleSheet("background: #EDE9FE; color: #6D28D9; font-weight: 600; padding: 4px 10px; border-radius: 6px; border: 1px solid #DDD6FE;")
+        btn_auto.clicked.connect(self._check_followed_wis)
+        filter_layout.addWidget(btn_auto)
+
+        btn_all = QPushButton("☑ All Visible")
+        btn_all.clicked.connect(self._check_all_visible)
+        filter_layout.addWidget(btn_all)
+
+        btn_none = QPushButton("☐ Clear All")
+        btn_none.clicked.connect(self._clear_all)
+        filter_layout.addWidget(btn_none)
+
+        layout.addLayout(filter_layout)
+
+        # Checklist
+        self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet("QListWidget::item { padding: 4px; border-bottom: 1px solid #F1F5F9; }")
+
+        # Populate with agenda items
+        import re
+        def sort_key(s):
+            return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", s)]
+
+        sorted_ais = sorted(self.agenda_map.keys(), key=sort_key)
+        for ai_num in sorted_ais:
+            item_data = self.agenda_map[ai_num]
+            desc = item_data.description
+            acronym = getattr(item_data, "acronym", None)
+
+            disp_text = f"AI {ai_num}: {desc}"
+            item = QListWidgetItem(disp_text)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+
+            # Check if currently tracked
+            ai_lower = ai_num.lower()
+            is_checked = (ai_lower in self.currently_tracked) or (acronym and acronym.lower() in self.currently_tracked)
+            item.setCheckState(Qt.Checked if is_checked else Qt.Unchecked)
+
+            # Store payload
+            item.setData(Qt.UserRole, {
+                "ai_number": ai_num,
+                "acronym": acronym or "",
+                "description": desc,
+            })
+            self.list_widget.addItem(item)
+
+        layout.addWidget(self.list_widget)
+
+        # Counter & Buttons
+        bottom_bar = QHBoxLayout()
+        self.count_lbl = QLabel()
+        self._update_count()
+        self.list_widget.itemChanged.connect(lambda: self._update_count())
+        bottom_bar.addWidget(self.count_lbl)
+
+        bottom_bar.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        bottom_bar.addWidget(cancel_btn)
+
+        save_btn = QPushButton("💾 Save Tracked Topics")
+        save_btn.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
+        save_btn.clicked.connect(self.accept)
+        bottom_bar.addWidget(save_btn)
+
+        layout.addLayout(bottom_bar)
+
+    def _filter_list(self, query: str):
+        q = query.lower().strip()
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            txt = item.text().lower()
+            item.setHidden(bool(q and q not in txt))
+
+    def _check_followed_wis(self):
+        count = 0
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            data = item.data(Qt.UserRole)
+            ai_num = data["ai_number"].lower()
+            acronym = data["acronym"].lower()
+            desc = data["description"].lower()
+
+            matches = (
+                ai_num in self.followed_wi_tokens
+                or (acronym and acronym in self.followed_wi_tokens)
+                or any(t in desc for t in self.followed_wi_tokens)
+            )
+            if matches:
+                item.setCheckState(Qt.Checked)
+                count += 1
+        self._update_count()
+        QMessageBox.information(self, "Followed WIs Checked", f"Matched and checked {count} Agenda Item(s) against your Work Items watchlist.")
+
+    def _check_all_visible(self):
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if not item.isHidden():
+                item.setCheckState(Qt.Checked)
+        self._update_count()
+
+    def _clear_all(self):
+        for i in range(self.list_widget.count()):
+            self.list_widget.item(i).setCheckState(Qt.Unchecked)
+        self._update_count()
+
+    def _update_count(self):
+        checked = sum(1 for i in range(self.list_widget.count()) if self.list_widget.item(i).checkState() == Qt.Checked)
+        self.count_lbl.setText(f"<b>{checked}</b> topic(s) selected")
+
+    def get_selected_topics(self) -> Dict[str, str]:
+        """Returns dict of topic_token -> topic_label."""
+        res = {}
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item.checkState() == Qt.Checked:
+                data = item.data(Qt.UserRole)
+                ai_num = data["ai_number"]
+                acronym = data["acronym"]
+                label = f"AI {ai_num}" + (f" ({acronym})" if acronym else "")
+                res[ai_num.lower()] = label
+                if acronym:
+                    res[acronym.lower()] = label
+        return res

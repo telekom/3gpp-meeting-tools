@@ -25,6 +25,19 @@ logger = logging.getLogger(__name__)
 class SessionPlanExporter:
     """Generates mobile HTML, .ics calendar, and email summaries."""
 
+    @staticmethod
+    def _is_slot_tracked(slot: SessionSlot, tracked_tokens: Set[str]) -> bool:
+        """Determines whether a slot matches any user-tracked topic or agenda item."""
+        if not tracked_tokens:
+            return False
+        raw_lower = slot.raw_text.lower()
+        if any(tk in raw_lower for tk in tracked_tokens if tk):
+            return True
+        for it in slot.items:
+            if it.ai_number.lower() in tracked_tokens or any(tk in it.topic_label.lower() for tk in tracked_tokens if tk):
+                return True
+        return False
+
     @classmethod
     def export_mobile_html(
         cls,
@@ -225,11 +238,7 @@ class SessionPlanExporter:
                     convener = s_info.convener if s_info else ""
 
                     # Check if tracked
-                    is_tracked = False
-                    for it in s.items:
-                        if it.ai_number.lower() in tracked_tokens or any(tk in it.topic_label.lower() for tk in tracked_tokens):
-                            is_tracked = True
-                            break
+                    is_tracked = cls._is_slot_tracked(s, tracked_tokens)
 
                     classes = ["slot-row"]
                     if s.is_drafting:
@@ -372,11 +381,7 @@ class SessionPlanExporter:
                 continue
 
             # Check if tracked
-            is_tracked = False
-            for it in s.items:
-                if it.ai_number.lower() in tracked_tokens or any(tk in it.topic_label.lower() for tk in tracked_tokens):
-                    is_tracked = True
-                    break
+            is_tracked = cls._is_slot_tracked(s, tracked_tokens)
 
             if only_tracked and not is_tracked and not s.is_drafting:
                 continue
@@ -496,12 +501,7 @@ class SessionPlanExporter:
         """ if drafting_slots else ""
 
         # 3. Tracked topics
-        tracked_slots = []
-        for s in snapshot.slots:
-            for it in s.items:
-                if it.ai_number.lower() in tracked_tokens or any(tk in it.topic_label.lower() for tk in tracked_tokens):
-                    tracked_slots.append(s)
-                    break
+        tracked_slots = [s for s in snapshot.slots if cls._is_slot_tracked(s, tracked_tokens)]
 
         tracked_rows = ""
         for s in tracked_slots:
