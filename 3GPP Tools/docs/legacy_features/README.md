@@ -23,7 +23,7 @@ Each document provides a comprehensive analysis covering:
 | :---: | :--- | :--- | :---: | :---: | :---: |
 | **F-01** | [F01: Windows `tdoc://` URL Protocol Handler](F01_windows_tdoc_url_handler.md) | OS Integration | Low (2.5h) | ⚪ 2.0 (Low ROI) | 🔴 Deprecated (Abandoned; admin barrier & Teams URI sanitization) |
 | **F-02** | [F02: Batch CR Cover Sheet Parser to Excel](F02_batch_cr_cover_sheet_parser.md) | Word Automation | Med (5.0h) | 🔥 8.5 (Very High) | Specification Ready |
-| **F-03** | [F03: PowerPoint Status Report & Presentation Merger](F03_powerpoint_presentation_merger.md) | Office Automation | Low (3.0h) | 🟢 7.5 (High) | Specification Ready |
+| **F-03** | [F03: PowerPoint Status Report & Presentation Merger](F03_powerpoint_presentation_merger.md) | Office Automation | Low (3.0h) | ⚪ 2.5 (Low ROI) | 🔴 Deprecated (No practical need; template corruption) |
 | **F-04** | [F04: Bookmarked Multi-TDoc PDF Dossier & LLM Prompt](F04_bookmarked_pdf_dossier_llm_prompt.md) | PDF & AI Tools | Med (4.0h) | 🟢 8.0 (High) | Specification Ready |
 | **F-05** | [F05: "Active Word vs. TDoc" Direct Comparison](F05_active_word_vs_tdoc_comparison.md) | Word Automation | Low (1.5h) | 🌟 9.5 (Exceptional) | ✅ Implemented (Multi-Surface + Live Cart) |
 | **F-06** | [F06: MIP / Purview Sensitivity Label Setter](F06_mip_sensitivity_label_setter.md) | Security & DLP | Med (3.0h) | 🟡 7.0 (Moderate) | Specification Ready |
@@ -56,10 +56,8 @@ flowchart TD
 
     subgraph Phase2["Phase 2: Office Batch Automation & Exporters (Sprint 2)"]
         P2_1["F-02: Batch CR Cover Sheet Parser to Excel"]
-        P2_2["F-03: PowerPoint Presentation Merger"]
-        P2_3["F-04: Bookmarked PDF Dossier & LLM Prompt"]
-        P2_4["F-07: Track Changes Author Consolidator"]
-        P2_5["F-10: Accept All Changes Clean PDF Export"]
+        P2_2["F-04: Bookmarked PDF Dossier & LLM Prompt"]
+        P2_3["F-10: Accept All Changes Clean PDF Export"]
     end
 
     subgraph Phase3["Phase 3: Specialized Workflows & Enterprise Compliance (Sprint 3)"]

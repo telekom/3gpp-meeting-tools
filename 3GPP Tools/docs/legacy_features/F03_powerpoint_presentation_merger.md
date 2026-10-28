@@ -1,4 +1,15 @@
-# F-03: PowerPoint Status Report & Presentation Merger
+# F-03: PowerPoint Status Report & Presentation Merger (🔴 Deprecated & Abandoned)
+
+> [!CAUTION] Status: Deprecated & Abandoned (No Practical Workflow Need)
+> Following technical evaluation and standards delegate workflow review, this feature has been formally **abandoned and deprecated**.
+>
+> **Key Reasons for Deprecation:**
+> 1. **Standards Contribution Reality (>98% Word Documents):** In 3GPP technical Working Groups (SA2, SA3, RAN1, RAN2, CT1, etc.), contributions are virtually 100% Word (`.docx`) Change Requests and Discussion Papers. PowerPoint TDocs are practically non-existent.
+> 2. **Plenary Workflow Mismatch & Monolithic Bloat:** Even in TSG Plenaries (SA, RAN, CT), delegates follow presentations item-by-item as each WG chair speaks on their assigned agenda item. Merging 12–15 slide decks creates an unwieldy 500-to-1,000 slide monolith that is clunky to navigate, slow to render, and prone to PowerPoint hangs compared to opening target presentations on demand in ~1s via the in-app `⚡ TDoc:` jump box.
+> 3. **Template, Aspect Ratio & Visual Corruption:** Different Working Group chairs and MCC officials use conflicting slide master templates, custom color palettes, and aspect ratios (16:9 widescreen vs. legacy 4:3). When merged via PowerPoint COM `InsertFromFile`, slides get distorted or black-barred, and conflicting master slides overwrite each other, corrupting logos, headers, and bullet formatting.
+> 4. **Arbitrary "Skip First Slide" Data Loss:** The legacy script hardcoded `SlideStart=2` assuming slide 1 is always an uninformative title slide. In actual practice, many 3GPP status decks include critical approval recommendations or executive summaries on slide 1 or 2, causing silent loss of crucial information.
+> 5. **Corporate Debrief Workflow Mismatch:** When delegates assemble internal company debriefs (e.g. for T-Mobile or Deutsche Telekom), they cherry-pick 1 or 2 summary slides or figures into their own corporate-branded presentation template; dumping 500 raw external slides into an unbranded deck provides zero value.
+> 6. **Superior Modern Alternatives:** For reading/annotating offline or on tablets (iPad / reMarkable / flights), [F-04 (Bookmarked PDF Dossier)](F04_bookmarked_pdf_dossier_llm_prompt.md) provides 100% visual fidelity, table of contents bookmarks, and cross-platform reading without COM corruption. For sequence diagrams in presentations, 3GPP Tools already provides `powerpoint_converter.py` to append PlantUML call-flow diagrams directly as native Office vector shapes into open decks.
 
 ## 1. Executive Summary & Objective
 
@@ -187,19 +198,8 @@ class PPTXMergerThread(QThread):
 
 ---
 
-## 5. Implementation Roadmap & Acceptance Criteria
+## 5. Architectural Verdict & Deprecation Status
 
-### Step-by-Step Implementation Tasks
-1. [ ] Implement `PPTXMergerThread` in `src/modules/meetings/core/pptx_merger.py` with `pythoncom` initialization and error handling.
-2. [ ] Add options dialog `PPTXMergeDialog` allowing delegates to choose:
-   - Skip cover slides (`SlideStart=2`)
-   - Generate Table of Contents slide
-   - Destination file path
-3. [ ] Hook action into `tdocs_menus.py` and `tdocs_window.py`.
-4. [ ] Handle legacy `.ppt` archives by auto-converting or logging clean warnings.
-
-### Acceptance Criteria
-* [x] Merges 20+ presentations into a single master deck with zero corruption.
-* [x] Correctly adds PowerPoint section dividers labeled with TDoc ID and title.
-* [x] Runs asynchronously in a background thread without freezing the PyQt5 UI.
-* [x] Automatically opens the merged presentation in Microsoft PowerPoint upon completion.
+* **Status:** 🔴 **Deprecated & Abandoned (Not Recommended for Porting)**
+* **Decision Rationale:** The combination of near-zero occurrence of PowerPoint documents in Working Groups (<2%), layout and master-slide corruption during COM imports, meeting workflow friction from 600+ slide decks, and the availability of superior solutions (F-04 PDF Dossiers for reading, native PowerPoint "Reuse Slides" for debriefs, and `powerpoint_converter.py` for call-flow diagrams) makes F-03 unnecessary.
+* **Archival Notice:** The reference code above is preserved solely for historical documentation of the legacy `3GPP Meeting Helper` feature set. No engineering resources will be allocated to porting this feature.

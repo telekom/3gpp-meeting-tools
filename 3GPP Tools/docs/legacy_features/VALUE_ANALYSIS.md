@@ -29,7 +29,6 @@ quadrantChart
     
     "F-02 Batch CR Cover Sheet Parser": [0.55, 0.88]
     "F-04 Bookmarked PDF Dossier": [0.45, 0.82]
-    "F-03 PowerPoint Merger": [0.35, 0.78]
     "F-12 Multi-Company Comment Matrix": [0.50, 0.76]
     "F-19 Chairman Notes Word Parser": [0.85, 0.74]
     "F-06 MIP Sensitivity Label Setter": [0.35, 0.70]
@@ -40,6 +39,7 @@ quadrantChart
     "F-09 Word Contribution Report": [0.45, 0.35]
     "F-11 Excel AutoFilter Sync": [0.45, 0.30]
     "F-13 Excel Pivot Charts": [0.40, 0.28]
+    "F-03 PowerPoint Merger": [0.35, 0.22]
     "F-08 Word Process Killer": [0.18, 0.25]
     "F-01 tdoc:// Protocol Handler": [0.25, 0.15]
 ```
@@ -57,16 +57,16 @@ quadrantChart
 | **5** | [**F-18**](F18_3gpp_forge_apis_launcher.md) | 3GPP Forge APIs Direct Launcher | Web Services | 0.5 – 1.0 hr | **7.0** | 0.5h | 🌟 Exceptional | ✅ **Implemented (Help & Resources Menu)** |
 | **6** | [**F-10**](F10_word_accept_all_changes_export.md) | "Accept All Changes" Clean Word/PDF Export | Word Automation | 1.0 – 2.0 hrs | **7.5** | 2.0h | 🟢 High | **Implement in Sprint 2** |
 | **7** | [**F-04**](F04_bookmarked_pdf_dossier_llm_prompt.md) | Bookmarked Multi-TDoc PDF Dossier & LLM Context | PDF & AI Tools | 2.0 – 4.0 hrs | **8.0** | 4.0h | 🟢 High | **Implement in Sprint 2** |
-| **8** | [**F-03**](F03_powerpoint_presentation_merger.md) | PowerPoint Status Report Presentation Merger | Office Automation | 1.0 – 2.5 hrs | **7.5** | 3.0h | 🟢 High | **Implement in Sprint 2** |
-| **9** | [**F-14**](F14_reflector_attachment_link_fetcher.md) | Reflector `Attachment.txt` Redirect Link Fetcher | Email Reflector | 0.5 – 1.0 hr | **7.0** | 2.0h | 🟢 High | **Implement in Sprint 2** |
-| **10** | [**F-12**](F12_company_comments_matrix_importer.md) | Multi-Company Review Comments Matrix Importer | Collaboration | 4.0 – 6.0 hrs (Rapporteurs) | **7.5** | 4.5h | 🟡 Moderate | **Implement in Sprint 3 (Rapporteurs)** |
-| **11** | [**F-06**](F06_mip_sensitivity_label_setter.md) | MIP / Purview Sensitivity Label Setter | Security & DLP | Compliance | **7.0** | 3.0h | 🟡 Moderate | **Implement in Sprint 3** |
-| **12** | [**F-19**](F19_chairmans_notes_word_table_parser.md) | Chairman's Notes Word Table Parser (Live) | Live Notes | 2.0 – 3.0 hrs | **8.5** | 8.0h | 🟢 High | ✅ **Implemented & Operational (Drag & Drop / Multi-WG)** |
-| **13** | [**F-15**](F15_chairman_email_notes_parser.md) | Chairman Email Discussion Notes Parser | Email Reflector | 0.5 – 1.0 hr | **6.5** | 2.0h | 🟡 Moderate | **Backlog (Low Priority)** |
-| **14** | [**F-16**](F16_email_approval_excel_export.md) | Email Approval Excel Summary | Email Reflector | 0.5 – 1.0 hr | **6.0** | 3.0h | 🟡 Moderate | **Backlog (Superseded by AI Stance)** |
-| **15** | [**F-09**](F09_word_meeting_contribution_report.md) | Word Meeting Contribution Summary Report (.docx) | Word Automation | Redundant | **4.0** | 4.0h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Analytics & Markdown Dossiers)** |
-| **16** | [**F-11**](F11_excel_bidirectional_autofilter_sync.md) | Bi-directional Excel AutoFilter Synchronization | Excel Bridge | Redundant | **3.5** | 4.0h | ⚪ Low | 🔴 **Deprecated (Obsolete; PyQt5 In-App Filters at 60 FPS)** |
-| **17** | [**F-13**](F13_native_excel_pivot_tables_charts.md) | Native Excel COM Pivot Tables & Charts | Excel Analytics | Redundant | **3.0** | 3.5h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Dashboard Compiler)** |
+| **8** | [**F-14**](F14_reflector_attachment_link_fetcher.md) | Reflector `Attachment.txt` Redirect Link Fetcher | Email Reflector | 0.5 – 1.0 hr | **7.0** | 2.0h | 🟢 High | **Implement in Sprint 2** |
+| **9** | [**F-12**](F12_company_comments_matrix_importer.md) | Multi-Company Review Comments Matrix Importer | Collaboration | 4.0 – 6.0 hrs (Rapporteurs) | **7.5** | 4.5h | 🟡 Moderate | **Implement in Sprint 3 (Rapporteurs)** |
+| **10** | [**F-06**](F06_mip_sensitivity_label_setter.md) | MIP / Purview Sensitivity Label Setter | Security & DLP | Compliance | **7.0** | 3.0h | 🟡 Moderate | **Implement in Sprint 3** |
+| **11** | [**F-19**](F19_chairmans_notes_word_table_parser.md) | Chairman's Notes Word Table Parser (Live) | Live Notes | 2.0 – 3.0 hrs | **8.5** | 8.0h | 🟢 High | ✅ **Implemented & Operational (Drag & Drop / Multi-WG)** |
+| **12** | [**F-15**](F15_chairman_email_notes_parser.md) | Chairman Email Discussion Notes Parser | Email Reflector | 0.5 – 1.0 hr | **6.5** | 2.0h | 🟡 Moderate | **Backlog (Low Priority)** |
+| **13** | [**F-16**](F16_email_approval_excel_export.md) | Email Approval Excel Summary | Email Reflector | 0.5 – 1.0 hr | **6.0** | 3.0h | 🟡 Moderate | **Backlog (Superseded by AI Stance)** |
+| **14** | [**F-09**](F09_word_meeting_contribution_report.md) | Word Meeting Contribution Summary Report (.docx) | Word Automation | Redundant | **4.0** | 4.0h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Analytics & Markdown Dossiers)** |
+| **15** | [**F-11**](F11_excel_bidirectional_autofilter_sync.md) | Bi-directional Excel AutoFilter Synchronization | Excel Bridge | Redundant | **3.5** | 4.0h | ⚪ Low | 🔴 **Deprecated (Obsolete; PyQt5 In-App Filters at 60 FPS)** |
+| **16** | [**F-13**](F13_native_excel_pivot_tables_charts.md) | Native Excel COM Pivot Tables & Charts | Excel Analytics | Redundant | **3.0** | 3.5h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Dashboard Compiler)** |
+| **17** | [**F-03**](F03_powerpoint_presentation_merger.md) | PowerPoint Status Report Presentation Merger | Office Automation | Negligible | **2.5** | 3.0h | ⚪ Low | 🔴 **Deprecated (Abandoned; no practical need, template corruption)** |
 | **18** | [**F-08**](F08_word_process_watchdog_killer.md) | Word Process Watchdog & Force Killer | System Watchdog | Negligible | **3.0** | 1.5h | ⚪ Low | 🔴 **Deprecated (Superseded by COM Task Manager Dialog)** |
 | **19** | [**F-01**](F01_windows_tdoc_url_handler.md) | Windows `tdoc://` URL Protocol Handler | OS Integration | Infeasible | **2.0** | 2.5h | ⚪ Low | 🔴 **Deprecated (Abandoned; admin rights barrier & Teams URI sanitization)** |
 
@@ -94,12 +94,15 @@ quadrantChart
 
 ---
 
-### F-03: PowerPoint Status Report Presentation Merger
-* **Core Value Proposition:** Automatically extracts slides from all presentation TDocs (`.pptx`) submitted to a meeting and compiles them into a single unified presentation with standardized divider slides.
-* **Target Personas:** Working Group Chairmen, delegation leaders, corporate spokespersons.
-* **Quantitative Savings:** Eliminates 30–60 minutes of repetitive manual PowerPoint slide copying per meeting cycle.
-* **Qualitative Impact:** Provides an instant, presentation-ready briefing deck for executive management debriefs.
-* **Cost of Not Implementing:** Manual slide assembly before internal company reporting calls.
+### F-03: PowerPoint Status Report Presentation Merger (🔴 Deprecated & Abandoned)
+* **Status:** 🔴 **Deprecated / Abandoned (No Practical Workflow Need)**
+* **Technical Audit & Findings:**
+  * **Standards Contribution Reality (>98% Word Documents):** In technical Working Groups (SA2, SA3, RAN1, RAN2, CT1, etc.), contributions are virtually 100% Word (`.docx`) Change Requests and Discussion Papers. PowerPoint TDocs are practically non-existent.
+  * **Plenary Workflow Mismatch & Monolithic Bloat:** Even in TSG Plenaries, delegates follow presentations item-by-item as each WG chair speaks on their assigned agenda item. Merging 12–15 slide decks creates an unwieldy 500-to-1,000 slide monolith that is clunky to navigate, slow to render, and prone to PowerPoint hangs compared to opening target presentations on demand in ~1s via the in-app `⚡ TDoc:` jump box.
+  * **Template, Aspect Ratio & Visual Corruption:** Different Working Group chairs and MCC officials use conflicting slide master templates, custom color palettes, and aspect ratios (16:9 widescreen vs. legacy 4:3). When merged via PowerPoint COM `InsertFromFile`, slides get distorted or black-barred, and conflicting master slides overwrite each other, corrupting logos, headers, and bullet formatting.
+  * **Arbitrary "Skip First Slide" Data Loss:** The legacy script hardcoded `SlideStart=2` assuming slide 1 is always an uninformative title slide. In actual practice, many 3GPP status decks include critical approval recommendations or executive summaries on slide 1 or 2, causing silent loss of crucial information.
+  * **Corporate Debrief Workflow Mismatch:** When delegates assemble internal company debriefs (e.g. for T-Mobile or Deutsche Telekom), they cherry-pick 1 or 2 summary slides or figures into their own corporate-branded presentation template; dumping 500 raw external slides into an unbranded deck provides zero value.
+* **Modern Replacement:** For offline/tablet reading, [F-04 (Bookmarked PDF Dossier)](F04_bookmarked_pdf_dossier_llm_prompt.md) provides 100% visual fidelity, table of contents bookmarks, and cross-platform reading without COM corruption. For sequence diagrams in presentations, 3GPP Tools already provides `powerpoint_converter.py` to append PlantUML call-flow diagrams directly as native Office vector shapes into open decks. Native PowerPoint "Reuse Slides" satisfies ad-hoc slide insertion.
 
 ---
 
@@ -245,11 +248,10 @@ flowchart TD
         S1_4["F-17 & F-18: 3GPP Guru & Forge Launchers (1.0h)"]
     end
 
-    subgraph S2["Sprint 2: Office Batch Automation & Exporters (14 Hours Total)"]
+    subgraph S2["Sprint 2: Office Batch Automation & Exporters (11 Hours Total)"]
         S2_1["F-02: Batch CR Cover Sheet Parser (5.0h)"]
         S2_2["F-04: Bookmarked PDF Dossier & LLM Context (4.0h)"]
-        S2_3["F-03: PowerPoint Status Presentation Merger (3.0h)"]
-        S2_4["F-10: Accept All Changes Clean Export (2.0h)"]
+        S2_3["F-10: Accept All Changes Clean Export (2.0h)"]
     end
 
     subgraph S3["Sprint 3: Collaboration & Compliance Workflows (12 Hours Total)"]
