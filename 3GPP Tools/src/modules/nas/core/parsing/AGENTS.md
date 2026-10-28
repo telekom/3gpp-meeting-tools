@@ -19,12 +19,16 @@ progress callback.
 ## Files
 
 - `nas_parser.py` — NAS & UE Policy message definitions and IE coding tables
-  (TS 24.501, TS 24.301, TS 24.526, TS 24.008); the dispatcher's fallback parser.
-  Supports Clause 8 / Annex D.5 message content tables, Clause 9 / Annex D.6 IE
-  coding definitions, container unrolling (`Payload container`, `UE policy section
-  management list`, `Service-level-AA container`, `Type 6 IE container`, `ePCO`),
-  and TS 24.526 Clause 5.2 (URSP rules) / Clause 5.3 (ANDSP / WLANSP / N3AN)
-  policy rule hierarchies.
+  (TS 24.501, TS 24.301, TS 24.526, TS 24.588, TS 24.555, TS 24.514, TS 24.578, TS 24.008);
+  the dispatcher's fallback parser. Supports Clause 8 / Annex D.5 message content tables,
+  Clause 9 / Annex D.6 IE coding definitions, container unrolling (`Payload container`,
+  `UE policy section management list`, `Service-level-AA container`, `Type 6 IE container`, `ePCO`),
+  and complete UE Policy protocol rule hierarchies:
+  - **TS 24.526 (URSP & ANDSP):** Clause 5.2 (URSP rules, Traffic & Route Selection Descriptors, Location criteria) & Clause 5.3 (ANDSP / WLANSP / N3AN).
+  - **TS 24.588 (V2XP):** Clause 5.2 (V2XP policy part), Clause 5.3 (PC5 communication), and Clause 5.4 (Uu communication).
+  - **TS 24.555 (ProSeP):** Clause 5.2 (ProSeP policy part), Clause 5.3 (direct discovery), Clause 5.4 (direct communications), Clause 5.5 (relay), and Clauses 5.6–5.14 (remote UE, multi-hop).
+  - **TS 24.514 (RSLPP):** Clause 12.2 (RSLPP coding, ProSe & V2X QoS mapping, SLPKMF address) and Clause 5 procedures.
+  - **TS 24.578 (A2XP):** Clause 5.2 (A2XP policy part), Clause 5.3 (PC5), Clause 5.4 (Broadcast Remote ID), Clause 5.5 (DDAA), Clause 5.6 (C2), and Clause 5.7 (Uu).
 - `pfcp_parser.py` — PFCP message tables, type registry, grouped IEs, and field
   expansion (TS 29.244).
 - `gtpu_parser.py` — GTP-U message tables and type/extension-header registries
