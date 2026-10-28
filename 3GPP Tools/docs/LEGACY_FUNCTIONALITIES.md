@@ -28,7 +28,7 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **F-01** | **OS Integration** | Windows `tdoc://` URL Protocol Handler | [F01: Windows URL Handler](legacy_features/F01_windows_tdoc_url_handler.md) | 🔴 Deprecated (Abandoned; admin rights & Teams URI sanitization) | Low | ⚪ Low |
 | **F-02** | **Word Automation** | Batch CR Cover Sheet Parser to Excel | [F02: Batch CR Cover Parser](legacy_features/F02_batch_cr_cover_sheet_parser.md) | ❌ Only 1-by-1 AI triage | Medium | 🟢 High |
-| **F-03** | **Office Automation** | PowerPoint Presentation Merger | [F03: PowerPoint Merger](legacy_features/F03_powerpoint_presentation_merger.md) | ❌ Not implemented | Low | 🟡 Medium |
+| **F-03** | **Office Automation** | PowerPoint Presentation Merger | [F03: PowerPoint Merger](legacy_features/F03_powerpoint_presentation_merger.md) | 🔴 Deprecated (Abandoned; no practical workflow need, template corruption) | Low | ⚪ Low |
 | **F-04** | **PDF & AI Tools** | Bookmarked PDF Dossier & LLM Prompt | [F04: Bookmarked PDF & Prompt](legacy_features/F04_bookmarked_pdf_dossier_llm_prompt.md) | ❌ Merges Excel / Markdown | Medium | 🟡 Medium |
 | **F-05** | **Word Automation** | Active Word vs. TDoc Direct Compare | [F05: Active Word vs. TDoc](legacy_features/F05_active_word_vs_tdoc_comparison.md) | ✅ Implemented (Multi-Surface + Live Cart) | Low | 🟢 High |
 | **F-06** | **Security / Compliance** | MIP / Purview Sensitivity Label Setter | [F06: MIP Sensitivity Setter](legacy_features/F06_mip_sensitivity_label_setter.md) | ✅ Implemented (Multi-Level + Batch Tool) | Low | 🟢 High |
@@ -108,34 +108,19 @@ flowchart TD
 
 ---
 
-### F-03: PowerPoint Status Report & Presentation Merger
+### F-03: PowerPoint Status Report & Presentation Merger (🔴 Deprecated & Abandoned)
 
-#### Overview & Delegate Workflow
-In 3GPP TSG Plenaries (SA, RAN, CT) and Working Groups, dozens of Working Group Status Reports, Liaison Statements, and Study Item progress decks are submitted as `.pptx` presentations. Delegates must review them sequentially during marathon sessions.
+#### Overview & Audit Findings
+In 3GPP TSG Plenaries (SA, RAN, CT), delegates occasionally receive Working Group Status Reports as `.pptx` presentations. Legacy Meeting Helper included a `[Merge PPTs]` button to concatenate these presentations into a single deck using PowerPoint COM `InsertFromFile(..., SlideStart=2)`.
 
-```mermaid
-flowchart LR
-    Filter["Filter TDocs by Type == PPT / PPTX"] --> Fetch["Download Presentations"]
-    Fetch --> PPTCOM["PowerPoint Application COM"]
-    PPTCOM --> NewDeck["Create Blank Master Presentation"]
-    NewDeck --> Loop["For Each Presentation:
-    1. Insert slides starting from Slide 2 (skipping duplicate cover)
-    2. Add PowerPoint Section titled [TDoc ID, Title]"]
-    Loop --> Save["Open / Save Merged Status_Report.pptx"]
-```
-
-#### Legacy Implementation
-* **Files:**
-  * `3GPP Meeting Helper/application/powerpoint.py` (`merge_presentations`)
-  * `3GPP Meeting Helper/gui/tdocs_table.py` (`merge_pptx_files`)
-* **Mechanism:**
-  * Leveraged `win32com.client.Dispatch("PowerPoint.Application")`.
-  * Called `slides.InsertFromFile(slideset_path, insert_position, SlideStart=2)` to automatically strip the cover slide.
-  * Called `new_slideset.SectionProperties.AddBeforeSlide(insert_position + 1, section_name)` to create native PowerPoint sections named after the TDoc ID and title for easy navigation in Slide Sorter view.
-
-#### Proposed Integration into 3GPP Tools
-1. **Location:** `src/modules/meetings/ui/tdocs_menus.py` -> `📊 Reports ▾` -> `"Merge Filtered PowerPoint Presentations..."`.
-2. **Worker:** `PowerPointMergerThread` in `src/modules/meetings/core/` executing PowerPoint COM automation in a background QThread with progress reporting.
+> [!CAUTION] Status: Deprecated & Abandoned (No Practical Workflow Need)
+> Following technical double-checking and delegate workflow evaluation, this feature has been formally **abandoned**:
+> 1. **Standards Contribution Reality (>98% Word Documents):** In technical Working Groups (SA2, SA3, RAN1, RAN2, CT1, etc.), contributions are virtually 100% Word (`.docx`) Change Requests and Discussion Papers. PowerPoint TDocs are practically non-existent.
+> 2. **Plenary Workflow Mismatch & Monolithic Bloat:** Even in TSG Plenaries, delegates follow presentations item-by-item as each WG chair speaks on their assigned agenda item. Merging 12–15 slide decks creates an unwieldy 500-to-1,000 slide monolith that is clunky to navigate, slow to render, and prone to PowerPoint hangs compared to opening target presentations on demand in ~1s via the in-app `⚡ TDoc:` jump box.
+> 3. **Template, Aspect Ratio & Visual Corruption:** Different Working Group chairs and MCC officials use conflicting slide master templates, custom color palettes, and aspect ratios (16:9 widescreen vs. legacy 4:3). When merged via PowerPoint COM `InsertFromFile`, slides get distorted or black-barred, and conflicting master slides overwrite each other, corrupting logos, headers, and bullet formatting.
+> 4. **Arbitrary "Skip First Slide" Data Loss:** The legacy script hardcoded `SlideStart=2` assuming slide 1 is always an uninformative title slide. In actual practice, many 3GPP status decks include critical approval recommendations or executive summaries on slide 1 or 2, causing silent loss of crucial information.
+> 5. **Corporate Debrief Workflow Mismatch:** When delegates assemble internal company debriefs (e.g. for T-Mobile or Deutsche Telekom), they cherry-pick 1 or 2 summary slides or figures into their own corporate-branded presentation template; dumping 500 raw external slides into an unbranded deck provides zero value.
+> 6. **Superior Modern Alternatives:** For reading/annotating offline or on tablets (iPad / reMarkable / flights), [F-04 (Bookmarked PDF Dossier)](legacy_features/F04_bookmarked_pdf_dossier_llm_prompt.md) provides 100% visual fidelity, table of contents bookmarks, and cross-platform reading without COM corruption. For sequence diagrams in presentations, 3GPP Tools already provides `powerpoint_converter.py` to append PlantUML call-flow diagrams directly as native Office vector shapes into open decks.
 
 ---
 
@@ -512,9 +497,9 @@ flowchart TD
 
     subgraph Phase2["Phase 2: Office Automation & Exporters"]
         P2_1["F-02: Batch CR Cover Sheet Parser to Excel"]
-        P2_2["F-03: PowerPoint Status Report Merger"]
-        P2_3["F-04: Bookmarked PDF Dossier & LLM Prompt"]
-        P2_4["F-07: Track Changes Author Renamer (OpenXML)"]
+        P2_2["F-04: Bookmarked PDF Dossier & LLM Prompt"]
+        P2_3["F-07: Track Changes Author Renamer (OpenXML)"]
+        P2_4["F-10: Accept All Changes Clean Word Export"]
     end
 
     subgraph Phase3["Phase 3: Specialized Workflows & Enterprise Compliance"]
@@ -534,7 +519,7 @@ flowchart TD
 
 ### Phase 2: Office Batch Automation (Estimated Effort: Medium)
 1. **Batch CR Cover Sheet Parser:** Extract Reason for Change / Summary of Change across all CRs to Excel using headless `python-docx` / `lxml`.
-2. **PowerPoint Presentation Merger:** Combine plenary slide decks into a single presentation with section labels.
+2. **"Accept All Changes" Clean Export:** Generate clean revision-free Word and PDF documents from approved CRs without manual review steps.
 3. **Bookmarked PDF Dossier & AI Prompt Generator:** Compile unified PDF packages with outline bookmarks and prompt instructions.
 4. **Track Changes Author Consolidator:** OpenXML ZIP-level tool to standardize revision author names before submission.
 

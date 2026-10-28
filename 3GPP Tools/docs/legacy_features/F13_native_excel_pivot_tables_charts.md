@@ -131,7 +131,7 @@ def generate_pivot_chart_from_tdocs_by_agenda(wb):
 ## 5. Implementation Roadmap & Acceptance Criteria
 
 ### Priority Rating
-* **Priority:** ⚪ Low (Deprioritized relative to F-02, F-03, F-04, and F-12, because HTML dashboards satisfy the primary use case).
+* **Priority:** ⚪ Low (Deprioritized relative to F-02, F-04, and F-12, because HTML dashboards satisfy the primary use case).
 
 ### Future Implementation Tasks
 1. [ ] If requested by delegates, add an optional COM post-step to `src/modules/meetings/core/excel_exporter.py` that injects native PivotCaches.
