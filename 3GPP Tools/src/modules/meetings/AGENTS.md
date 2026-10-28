@@ -171,15 +171,16 @@ src/modules/meetings/
   - Copies documents safely to `{meeting_dir}/Agenda/ChairNotes/`.
   - Strips NTFS `Zone.Identifier` stream metadata via `_unblock_file`.
   - Headless LibreOffice sanitizes legacy Word 97–2003 `.doc` files (which often embed VBA macros) to `.docx` without executing macros or freezing the GUI via Word COM.
-- **Multi-Working Group Word Table Parser (`TDocsParser.parse_tdocs_from_docx`):**
-  - **Multi-Row Header Scanning (Rows 0–4):** Robustly locates table headers even when session chairs place meeting banners, track titles, or date/time headers on rows 0–1.
-  - **Comprehensive Column Synonyms:** Resolves heterogeneous Working Group secretary labels across SA2, RAN1/2/3, SA1/3, and CT:
-    - *TDoc:* `td#`, `tdoc`, `tdoc #`, `td no.`, `t-doc`, `doc #`, `document`.
-    - *Discussion:* `comments`, `secretary remarks`, `discussion`, `discussions`, `chair notes`, `session remarks`, `notes`, `minutes`.
-    - *Status:* `result`, `status`, `decision`, `outcome`, `conclusion`, `action taken`.
-    - *Metadata:* `title`/`subject`, `source`/`company`/`proposer`, `ai`/`agenda item`.
-  - **Section Banners & TDoc Tokens:** Handles merged full-row Agenda Item section banners lacking TDoc IDs and tolerates decorated TDoc numbers (e.g. `[C1-2409999]`, `R2-2405678r01 (rev of ...)`).
-  - **Sequential Deliberation Merging:** Combines sequential discussion notes (`\n---\n`) for documents revisited across morning/afternoon sessions.
+- **Dual-Mode Word Document Parser (`TDocsParser.parse_tdocs_from_docx`):**
+  - **Mode 1: Table-Based Parser (SA2, CT):**
+    - **Multi-Row Header Scanning (Rows 0–4):** Robustly locates table headers even when session chairs place meeting banners, track titles, or date/time headers on rows 0–1.
+    - **Comprehensive Column Synonyms:** Resolves heterogeneous Working Group secretary labels across SA2, SA1/3, and CT (`comments`/`discussion`/`remarks`, `result`/`status`/`decision`/`outcome`, `td#`/`tdoc`/`doc#`, `source`/`company`/`proposer`, `ai`/`agenda item`).
+    - **Section Banners & TDoc Tokens:** Handles merged full-row Agenda Item section banners lacking TDoc IDs and tolerates decorated TDoc numbers (e.g. `[C1-2409999]`, `R2-2405678r01 (rev of ...)`).
+    - **Sequential Deliberation Merging:** Combines sequential discussion notes (`\n---\n`) for documents revisited across morning/afternoon sessions.
+  - **Mode 2: Tab-Delimited Paragraph Parser (RAN1, RAN2):**
+    - Automatically falls back when documents contain no tables (RAN1 and RAN2 chairmen write notes as tab-separated contribution lines `<TDoc>\t<Title>\t<Source>\t<Type>` followed by agreement/decision and discussion paragraphs).
+    - Maps headings (`Heading 1`, `Heading 2`) to `Agenda Item`, extracts decisions/statuses (`Approved`, `Agreed`, `Noted`, `Withdrawn`), and captures multi-paragraph discussion notes per TDoc.
+  - **FTP Presence Reality:** Verified across live 3GPP FTP servers that `/INBOX/Chair_Notes/` is primarily maintained by SA2, RAN1, and RAN2; other groups (SA1, SA3, CT1, CT4, RAN3) rely instead on email reflector rulings (Feature F-15: `<<START>>...<<END>>`), server-side `agenda.csv` files, or formal end-of-meeting summary TDocs in `/Docs/`.
 - **Live Model Synchronization (`TDocsTableModel.merge_agenda_data`):**
   - Populates in-room discussions directly into the `Secretary Remarks` column (with clickable TDoc hyperlinks).
   - Updates real-time `TDoc Status` (`Agreed`, `Revised to...`, `Postponed`) hours before official agenda publication.

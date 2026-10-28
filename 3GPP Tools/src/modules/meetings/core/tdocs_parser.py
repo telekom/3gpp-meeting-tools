@@ -403,5 +403,88 @@ class TDocsParser:
                     'e-mail_Discussion': ''
                 }
 
+        # Fallback for Working Groups that format Chairman's Notes as tab-delimited text paragraphs rather than Word tables (e.g. RAN1, RAN2)
+        if not agenda_data and doc.paragraphs:
+            agenda_data = TDocsParser._parse_tdocs_from_paragraphs(doc)
+
         logging.info(f"[TDocsParser] Successfully parsed {len(agenda_data)} TDocs from {path.name}")
+        return agenda_data
+
+    @staticmethod
+    def _parse_tdocs_from_paragraphs(doc: docx.Document) -> dict:
+        """
+        Parses Chairman's Notes formatted as structured tab-delimited text paragraphs
+        (used by RAN1, RAN2, and other Working Groups that do not use Word tables).
+        """
+        agenda_data = {}
+        current_ai = 'N/A'
+        current_tdoc = None
+
+        tdoc_line_re = re.compile(
+            r'^([A-Z][A-Z0-9]{1,4}-\d{4,8}(?:[rR]\d{1,2}[a-zA-Z]?)?)\s*\t+(.*)$'
+        )
+        heading_ai_re = re.compile(
+            r'^(?:agenda\s*item\s*)?([0-9]+(?:\.[0-9]+)*)\s*(.*)$', re.IGNORECASE
+        )
+
+        for p in doc.paragraphs:
+            text = p.text.strip()
+            if not text:
+                continue
+
+            style = p.style.name.lower() if p.style else ''
+
+            # Track Agenda Item from headings (e.g. "Heading 1", "Heading 2") or explicit AI lines
+            if 'heading' in style or text.lower().startswith(('agenda item', 'ai ')):
+                hm = heading_ai_re.match(text)
+                if hm:
+                    current_ai = hm.group(1).strip()
+                current_tdoc = None
+                continue
+
+            # Check if line starts with a TDoc ID followed by tab-delimited fields
+            tm = tdoc_line_re.match(text)
+            if tm:
+                tdoc_id = tm.group(1).upper()
+                rest = tm.group(2).split('\t')
+                parts = [part.strip() for part in rest if part.strip()]
+                title = parts[0] if len(parts) > 0 else ''
+                source = parts[1] if len(parts) > 1 else ''
+                doc_type = parts[2] if len(parts) > 2 else ''
+
+                agenda_data[tdoc_id] = {
+                    'Title': title,
+                    'Source': source,
+                    'Type': doc_type,
+                    'For': '',
+                    'Comments': '',
+                    'Result': '',
+                    'Agenda Item': current_ai,
+                    'e-mail_Discussion': ''
+                }
+                current_tdoc = tdoc_id
+                continue
+
+            # Capture subsequent paragraphs as Agreement/Status or Comments for the current contribution
+            if current_tdoc and current_tdoc in agenda_data:
+                lower_text = text.lower()
+                is_status = (
+                    'agreement' in style or 'decision' in style or 'status' in style
+                    or lower_text.startswith((
+                        'agreed', 'approved', 'noted', 'revised to', 'revised into',
+                        'postponed', 'withdrawn', 'endorsed', 'decision:', 'status:', 'result:'
+                    ))
+                )
+                if is_status:
+                    if not agenda_data[current_tdoc]['Result']:
+                        agenda_data[current_tdoc]['Result'] = text
+                    else:
+                        agenda_data[current_tdoc]['Result'] += f" | {text}"
+                else:
+                    existing_comm = agenda_data[current_tdoc]['Comments']
+                    if existing_comm:
+                        agenda_data[current_tdoc]['Comments'] = f"{existing_comm}\n{text}"
+                    else:
+                        agenda_data[current_tdoc]['Comments'] = text
+
         return agenda_data

@@ -144,6 +144,41 @@ class TestChairNotesWordParser(unittest.TestCase):
         self.assertIn('Afternoon: Offline consensus reached', parsed['S2-2408888']['Comments'])
         self.assertEqual(parsed['S2-2408888']['Result'], 'Agreed')
 
+    def test_parse_ran_tab_delimited_paragraphs(self):
+        """Tests paragraph-based format used by RAN1 and RAN2 (no Word tables)."""
+        doc = docx.Document()
+
+        doc.add_heading("2.1 Approval of the agenda", level=2)
+        doc.add_paragraph("R2-2604501\tAgenda for RAN2#135\tChairman\tagenda")
+        p_res = doc.add_paragraph("Approved")
+        p_res.style = "Normal"
+
+        doc.add_paragraph("R2-2604502\tRAN2#134 Meeting Report\tMCC\treport")
+        doc.add_paragraph("Approved")
+
+        doc.add_heading("4.2 NR Sidelink Enhancements", level=2)
+        doc.add_paragraph("R2-2605890\tSidelink relay discovery procedure\tQualcomm\tDiscussion")
+        doc.add_paragraph("Room discussion: companies supported Option 2.")
+        doc.add_paragraph("Revised to R2-2606500")
+
+        file_path = self.test_dir / "ran_paragraphs.docx"
+        doc.save(str(file_path))
+
+        parsed = TDocsParser.parse_tdocs_from_docx(str(file_path))
+        self.assertEqual(len(parsed), 3)
+
+        self.assertIn("R2-2604501", parsed)
+        self.assertEqual(parsed["R2-2604501"]["Agenda Item"], "2.1")
+        self.assertEqual(parsed["R2-2604501"]["Title"], "Agenda for RAN2#135")
+        self.assertEqual(parsed["R2-2604501"]["Source"], "Chairman")
+        self.assertEqual(parsed["R2-2604501"]["Result"], "Approved")
+
+        self.assertIn("R2-2605890", parsed)
+        self.assertEqual(parsed["R2-2605890"]["Agenda Item"], "4.2")
+        self.assertEqual(parsed["R2-2605890"]["Title"], "Sidelink relay discovery procedure")
+        self.assertIn("Room discussion: companies supported Option 2.", parsed["R2-2605890"]["Comments"])
+        self.assertIn("Revised to R2-2606500", parsed["R2-2605890"]["Result"])
+
 
 if __name__ == '__main__':
     unittest.main()
