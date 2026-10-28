@@ -1,5 +1,6 @@
 # --- File: src/modules/meetings/ui/tdocs_export_controller.py ---
 import logging
+import re
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -157,6 +158,8 @@ def open_excel_export_dialog(window: Any) -> None:
     selected_columns = dialog.get_selected_columns()
     is_visible_only = dialog.is_visible_only()
     auto_open = dialog.should_auto_open()
+    column_headers = dialog.get_column_headers()
+    company_name = dialog.get_company_name()
 
     if is_visible_only:
         rows_to_export = []
@@ -173,7 +176,14 @@ def open_excel_export_dialog(window: Any) -> None:
     wg = str(window.mtg_info.get("wg_name", "3GPP")).strip().replace(" ", "_")
     mtg = str(window.mtg_info.get("meeting_number", "")).strip()
     scope_str = "Filtered" if is_visible_only else "All"
-    default_filename = f"TDocs_{wg}_{mtg}_{scope_str}.xlsx"
+
+    is_review_sheet = "My Notes" in selected_columns or "My Status" in selected_columns
+    if is_review_sheet and dialog.is_company_attribution_enabled() and company_name:
+        comp_clean = re.sub(r'[^\w\-]', '_', company_name).strip('_')
+        default_filename = f"Comments_{comp_clean}_{wg}_{mtg}_{scope_str}.xlsx"
+    else:
+        default_filename = f"TDocs_{wg}_{mtg}_{scope_str}.xlsx"
+
     default_target = window.meeting_dir / "Export" / default_filename
 
     save_path, _ = QFileDialog.getSaveFileName(
@@ -195,6 +205,8 @@ def open_excel_export_dialog(window: Any) -> None:
         window.mtg_info,
         docs_ftp_url=window.docs_ftp_url,
         auto_open=auto_open,
+        column_headers=column_headers,
+        company_name=company_name,
     )
     window.excel_exporter_thread.progress.connect(window._on_excel_export_progress)
     window.excel_exporter_thread.finished.connect(

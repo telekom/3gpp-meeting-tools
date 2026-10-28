@@ -37,7 +37,7 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 | **F-09** | **Word Automation** | Word Meeting Contribution Report (.docx) | [F09: Word Contribution Report](legacy_features/F09_word_meeting_contribution_report.md) | 🔴 Deprecated (Superseded by HTML Dashboard & Dossiers) | High | ⚪ Low |
 | **F-10** | **Word Automation** | "Accept All Changes" Clean Export | [F10: Accept All Changes Export](legacy_features/F10_word_accept_all_changes_export.md) | ❌ Not implemented | Low | ⚪ Low |
 | **F-11** | **Excel Sync** | Bi-directional Excel AutoFilter Sync | [F11: Excel AutoFilter Sync](legacy_features/F11_excel_bidirectional_autofilter_sync.md) | 🔴 Deprecated (Obsolete; PyQt5 In-App Filters) | Medium | ⚪ Low |
-| **F-12** | **Excel Sync** | Company Comments Matrix Importer | [F12: Comments Matrix Importer](legacy_features/F12_company_comments_matrix_importer.md) | ❌ Personal notes only | Medium | 🟡 Medium |
+| **F-12** | **Excel Sync** | Company Review Matrix & Comments Exporter | [F12: Review Matrix Exporter](legacy_features/F12_company_comments_matrix_importer.md) | ✅ Implemented (Review Matrix Preset, Company Attribution & Status Styling) | Medium | 🟢 High |
 | **F-13** | **Excel Sync** | Native Excel Pivot Tables & Charts | [F13: Excel Pivot Tables](legacy_features/F13_native_excel_pivot_tables_charts.md) | 🔴 Deprecated (Superseded by HTML Dashboard Compiler) | Medium | ⚪ Low |
 | **F-14** | **Email Reflector** | Reflector `Attachment.txt` Redirect Fetcher | [F14: Attachment Link Fetcher](legacy_features/F14_reflector_attachment_link_fetcher.md) | ❌ IMAP/HTML sync only | Low | 🟡 Medium |
 | **F-15** | **Email Reflector** | Chairman Email Notes (`<<START>>...<<END>>`) | [F15: Chairman Notes Parser](legacy_features/F15_chairman_email_notes_parser.md) | ❌ Not implemented | Low | ⚪ Low |
@@ -330,33 +330,18 @@ Allows delegates who prefer navigating in Microsoft Excel to filter the 3GPP Too
 
 ---
 
-### F-12: Multi-Company Review Comments Matrix Importer
+### F-12: Company Review Comments Matrix & Delegation Exporter
 
 #### Overview & Delegate Workflow
-During 3GPP meeting preparation and electronic review phases, companies exchange comment sheets (e.g. `Comments_Qualcomm.xlsx`, `Comments_Ericsson.xlsx`, or `Session Comments.xlsx`). The importer scans the meeting folder, extracts each company's comments, and aggregates them into unified `[Company]: comment` entries per TDoc in the main table.
+In modern 3GPP practice, delegates no longer exchange comment workbooks via email reflector attachments. Instead, delegates review contributions in 3GPP Tools, record stances and comments, and export standardized **Company Review Matrices** to share with corporate delegations or session chairs.
 
-```mermaid
-flowchart TD
-    Folder["Meeting Folder / Agenda Folder"] --> Scan["Scan for *[Cc]omments*.xlsx"]
-    Scan --> Parse["Parse Columns:
-    - 'Comments (Company A)'
-    - 'Comments (Company B)'
-    - 'Session comments'"]
-    Parse --> Aggregate["Synthesize [Company]: Comment blocks"]
-    Aggregate --> Table["Display in Meeting TDocs Table"]
-```
-
-#### Legacy Implementation
-* **Files:**
-  * `3GPP Meeting Helper/parsing/excel.py` (`read_comments_file`, `get_comments_from_dir`)
-* **Mechanism:**
-  * Scanned local agenda folder with regex `.*[Cc]omments.*\.xlsx`.
-  * Extracted company names from column headers via regex `Comment[s]? [\(]?([\w]+)[\)]?`.
-  * Merged comment strings into the DataFrame indexed by TDoc ID.
-
-#### Proposed Integration into 3GPP Tools
-1. **Location:** `src/modules/meetings/core/` (add comment scanner in `tdocs_parser.py` or a dedicated review manager).
-2. **UI Surface:** Add a `"Review Comments"` toggle or column in `TDocsWindow`.
+#### Implementation in 3GPP Tools
+* **Location:** `src/modules/meetings/ui/excel_export_dialog.py`, `src/modules/meetings/core/excel_exporter.py`
+* **1-Click Review Matrix Preset:** Instantly selects standard agenda columns plus `My Status` and `My Notes`.
+* **Standardized Company Attribution:** Formats exported review columns with company identity (e.g. `Status (Deutsche Telekom)`, `Comments (Deutsche Telekom)`).
+* **Visual Stance Tints:** Soft corporate color coding in Excel (Support = `#E6F4EA`, Object = `#FCE8E6`, Monitor = `#FEF7E0`, My TDoc = `#E8F0FE`).
+* **Optimized Column Dimensions:** Wide multiline comments (width 42) and centered status column (width 18).
+* **Smart Filenames:** Generates `Comments_<Company>_<WG>_<Meeting>_<Scope>.xlsx`.
 
 ---
 
