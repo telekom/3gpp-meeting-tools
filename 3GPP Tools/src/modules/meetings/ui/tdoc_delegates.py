@@ -151,7 +151,6 @@ class AgendaItemDelegate(QStyledItemDelegate):
             )
             font = painter.font()
             font.setBold(True)
-            font.setPointSize(font.pointSize())
             painter.setFont(font)
             painter.drawText(ai_rect, Qt.AlignCenter, ai_text)
 
@@ -171,7 +170,12 @@ class AgendaItemDelegate(QStyledItemDelegate):
 
                 pill_font = painter.font()
                 pill_font.setBold(False)
-                pill_font.setPointSize(max(7, font.pointSize() - 2))
+                if pill_font.pointSize() > 8:
+                    pill_font.setPointSize(pill_font.pointSize() - 2)
+                elif pill_font.pixelSize() > 10:
+                    pill_font.setPixelSize(pill_font.pixelSize() - 2)
+                else:
+                    pill_font.setPointSize(8)
                 painter.setFont(pill_font)
                 painter.setPen(text_color)
 
