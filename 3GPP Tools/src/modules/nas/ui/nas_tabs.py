@@ -64,6 +64,9 @@ from modules.nas.ui.nas_ingest_controller import (
     on_import_error,
     on_import_progress,
     on_import_success,
+    reload_checked_versions,
+    reload_single_version,
+    reload_spec_group,
     start_batch_ingestion,
     wipe_db_clicked,
 )
@@ -261,6 +264,10 @@ class NASTab(QWidget):
             }
         """)
 
+        act_reload_checked = QAction("🔄 Reload Checked Version(s)...", self)
+        act_reload_checked.triggered.connect(self._on_reload_checked_clicked)
+        manage_menu.addAction(act_reload_checked)
+
         act_clear = QAction("🗑️ Clear Selected Version / Spec...", self)
         act_clear.triggered.connect(self._on_clear_version_clicked)
         manage_menu.addAction(act_clear)
@@ -347,6 +354,8 @@ class NASTab(QWidget):
         self.version_tree = NASVersionTreeWidget()
         self.version_tree.selection_changed.connect(self._on_version_selection_changed)
         self.version_tree.structure_changed.connect(self._save_config)
+        self.version_tree.reload_version_requested.connect(self._reload_single_version)
+        self.version_tree.reload_spec_requested.connect(self._reload_spec_group)
         self.version_tree.delete_version_requested.connect(self._delete_single_version)
         self.version_tree.delete_spec_requested.connect(self._delete_spec_group)
         self.version_tree.open_spec_requested.connect(
@@ -947,6 +956,15 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
+
+    def _reload_single_version(self, spec_number: str, version: str):
+        reload_single_version(self, spec_number, version)
+
+    def _reload_spec_group(self, spec_number: str, child_count: int):
+        reload_spec_group(self, spec_number, child_count)
+
+    def _on_reload_checked_clicked(self):
+        reload_checked_versions(self)
 
     def _delete_single_version(self, spec_number: str, version: str):
         delete_single_version(self, spec_number, version)

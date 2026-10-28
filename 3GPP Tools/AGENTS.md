@@ -213,6 +213,12 @@ python -m main_tools
   - **Specification Releases Tree:** Right-click context menus and double-click actions on version and specification nodes to launch Word, PDF, Explorer, or jump to Specifications / Spec Search tabs.
   - **Protocol Library List:** Right-click context menu on messages and Information Elements with clause-targeted Word opening and clipboard copy actions.
   - **Clipboard Search Assistance & Multi-Part Split Routing:** Automatically copies the targeted clause (`Clause X.Y.Z`) to the Windows clipboard for instant `Ctrl+F` navigation in Microsoft Word, and routes multi-part split specifications (e.g. `_s06_s08.docx` for messages, `_s09_s10.docx` for IEs, `_sA_sHistory.docx` for Annexes) with subclause tuple matching.
+- **Specification Reload & Re-indexing (`nas_ingest_controller.py`, `nas_components.py`, `nas_tabs.py`):** Eliminates cumbersome deletion and manual re-importing when refreshing or re-parsing specifications (e.g. following protocol parser improvements, bugfixes, or document cache updates). Features:
+  - **1-Click Version Reload:** Right-click context menu on any release tree node (`🔄 Reload TS {spec} v{version}`) re-parses the specification in the background using `build_spec_reload_task` and updates the database via atomic cascade overwrite (`insert_parsed_spec`).
+  - **Batch Specification Group Reload:** Right-click context menu on a specification group node (`🔄 Reload all versions of TS {spec} ({child_count} versions)`) re-parses all ingested releases in a single sequential batch.
+  - **Bulk Checked Reload:** Maintenance dropdown action (`⚙️ Manage ▾` $\to$ `🔄 Reload Checked Version(s)...`) gathers all currently checked specifications and versions for bulk refresh.
+  - **Automatic Document Resolution & Fallback:** Seamlessly resolves cached Word documents and 3GPP FTP archives via `SpecDocResolver` and `SpecsDatabase`, automatically sorting split multi-part files and falling back to a file picker if custom un-indexed documents require relocation.
+  - **Thread-Safe Ingestion Guards:** Disables maintenance controls and prevents concurrent worker thread execution while ingestion is active.
 
 ### 4.5. Meetings & TDocs (`src/modules/meetings`)
 - **Subsystem Guide:** For complete module architecture, conversion pipeline details, and filter proxy design, consult [`src/modules/meetings/AGENTS.md`](file:///src/modules/meetings/AGENTS.md).

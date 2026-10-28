@@ -718,6 +718,10 @@ python -m main_tools
    * Review local database capacity at a glance via the top metrics ribbon: `📦 X Specs`, `🏷️ Y Releases`, `📨 Z Messages · W IEs`.
    * Click **📥 Import from Specs DB** to select specification releases across **TS 38.331 (NR RRC)**, **TS 36.331 (LTE RRC)**, **TS 38.413 (NGAP)**, **TS 29.244 (PFCP)**, **TS 24.501 (5GS NAS)**, or **TS 24.301 (EPS NAS)**. The dialog includes a descriptive summary banner explaining the domain and role of each specification. Missing versions download and convert automatically from the 3GPP FTP archive.
    * Click **📁 Import Local .docx** to ingest local single-file or multi-part split specification documents directly.
+   * **1-Click Specification Reload & Re-indexing:** Refresh or re-parse specifications without cumbersome manual deletion and re-importing:
+     * Right-click any specification release in the tree $\to$ **`🔄 Reload TS {spec} v{version}`** to immediately re-parse and refresh that version.
+     * Right-click any specification group header $\to$ **`🔄 Reload all versions of TS {spec}`** to re-parse all releases in a batch.
+     * Click **`⚙️ Manage ▾`** $\to$ **`🔄 Reload Checked Version(s)...`** to re-parse all currently checked specifications.
    * Administrative and maintenance operations (`Clear Selected Version`, `Wipe Database`) are safely accessible via the **⚙️ Manage ▾** dropdown menu.
 3. **Selecting Releases with Built-In Specification Clues:**
    * Specifications in the tree are annotated with their responsible Working Group badges (`[CT1]`, `[RAN2]`, `[CT4]`) and friendly acronyms (`5GS NAS`, `PFCP`, `NR RRC`), while versions clearly denote their 3GPP generation (`Rel-20 · v20.0.0`, `Rel-19 · v19.7.0`).
