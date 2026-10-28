@@ -130,6 +130,17 @@ def show_matrix_context_menu(tab: Any, pos: QPoint) -> None:
     clause = match.group(1).strip() if match else ie_name
     spec_num = getattr(tab, "_current_message_spec", None)
 
+    col = index.column()
+    target_version = None
+    if col >= 3 and hasattr(model, "_get_visible_column_name"):
+        col_name = str(model._get_visible_column_name(col))
+        match_spec = RE_SPEC_FROM_COL.search(col_name)
+        if match_spec:
+            spec_num = match_spec.group(0)
+        m_ver = re.search(r"v?([0-9]+\.[0-9]+\.[0-9]+)", col_name)
+        if m_ver:
+            target_version = m_ver.group(1)
+
     menu = QMenu(tab)
     menu.setStyleSheet("""
         QMenu {
@@ -139,7 +150,8 @@ def show_matrix_context_menu(tab: Any, pos: QPoint) -> None:
             padding: 4px;
         }
         QMenu::item {
-            padding: 4px 15px;
+            padding: 5px 18px 5px 10px;
+            border-radius: 3px;
         }
         QMenu::item:selected {
             background-color: #EBF3FC;
@@ -163,13 +175,63 @@ def show_matrix_context_menu(tab: Any, pos: QPoint) -> None:
             spec_number=spec_num,
             version_ids=tab.selected_version_ids,
         )
-        sub_menu = menu.addMenu(f"📂 Open message using this IE ({len(containing_msgs)} found)...")
-        for m in containing_msgs:
-            mn = m["message_name"]
-            m_spec = m.get("spec_number", "")
-            spec_tag = f" [TS {m_spec}]" if m_spec and not spec_num else ""
-            sub_act = QAction(f"{mn} ({m['clause']}){spec_tag}", tab)
-            sub_act.triggered.connect(lambda checked, target=mn: tab._jump_to_message(target))
-            sub_menu.addAction(sub_act)
+        if containing_msgs:
+            sub_menu = menu.addMenu(f"📂 Open message using this IE ({len(containing_msgs)} found)...")
+            for m in containing_msgs:
+                mn = m["message_name"]
+                m_spec = m.get("spec_number", "")
+                spec_tag = f" [TS {m_spec}]" if m_spec and not spec_num else ""
+                sub_act = QAction(f"{mn} ({m['clause']}){spec_tag}", tab)
+                sub_act.triggered.connect(lambda checked, target=mn: tab._jump_to_message(target))
+                sub_menu.addAction(sub_act)
+
+    if spec_num and hasattr(tab, "open_specification"):
+        menu.addSeparator()
+        ver_tag = f" v{target_version}" if target_version else ""
+        act_open_word = QAction(f"📝 Open TS {spec_num}{ver_tag} in Word (Clause {clause})", tab)
+        act_open_word.triggered.connect(
+            lambda: tab.open_specification(
+                spec_number=spec_num,
+                version=target_version,
+                clause_number=clause,
+                doc_format="word",
+            )
+        )
+        menu.addAction(act_open_word)
+
+        act_open_pdf = QAction(f"📕 Open TS {spec_num}{ver_tag} in PDF", tab)
+        act_open_pdf.triggered.connect(
+            lambda: tab.open_specification(
+                spec_number=spec_num,
+                version=target_version,
+                clause_number=clause,
+                doc_format="pdf",
+            )
+        )
+        menu.addAction(act_open_pdf)
+
+        act_open_folder = QAction("📂 Open Containing Folder in Explorer", tab)
+        act_open_folder.triggered.connect(
+            lambda: tab.open_specification(
+                spec_number=spec_num,
+                version=target_version,
+                doc_format="folder",
+            )
+        )
+        menu.addAction(act_open_folder)
+
+        if hasattr(tab, "navigate_to_specs_tab_requested"):
+            menu.addSeparator()
+            act_specs = QAction(f"📚 Show TS {spec_num}{ver_tag} in Specifications Tab", tab)
+            act_specs.triggered.connect(
+                lambda: tab.navigate_to_specs_tab_requested.emit(spec_num, target_version or "")
+            )
+            menu.addAction(act_specs)
+
+            act_search = QAction(f"🔎 Search TS {spec_num} in Spec Search Tab", tab)
+            act_search.triggered.connect(
+                lambda: tab.search_in_spec_search_requested.emit(spec_num, target_version or "")
+            )
+            menu.addAction(act_search)
 
     menu.exec_(tab.matrix_table.viewport().mapToGlobal(pos))

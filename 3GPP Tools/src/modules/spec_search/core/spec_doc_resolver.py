@@ -26,7 +26,7 @@ def version_to_letter_code(version: str) -> str:
     """
     Converts a standard 3GPP version (e.g. '16.20.0') to its 3-character filename code ('gk0').
     """
-    parts = str(version).lstrip("v").strip().split(".")
+    parts = str(version).lstrip("vV").strip().split(".")
     if len(parts) != 3:
         return ""
 
@@ -41,29 +41,88 @@ def version_to_letter_code(version: str) -> str:
         return ""
 
 
+def letter_code_to_version(code: str) -> str:
+    """
+    Converts a 3-character filename code (e.g. 'gk0' -> '16.20.0', 'k00' -> '20.0.0') back to version.
+    """
+    clean = str(code or "").strip()
+    if len(clean) != 3:
+        return ""
+
+    def char_to_num(c: str) -> int:
+        if c.isdigit():
+            return int(c)
+        return ord(c.lower()) - ord("a") + 10
+
+    try:
+        return f"{char_to_num(clean[0])}.{char_to_num(clean[1])}.{char_to_num(clean[2])}"
+    except Exception:
+        return ""
+
+
+def parse_clause_token(t: str) -> Optional[Tuple[int, ...]]:
+    """Parses a multi-part filename clause token like 's00', 's04', 's0504', 's0506' into a numeric tuple."""
+    clean = t.lstrip("sS_").strip()
+    if clean.isdigit():
+        if len(clean) == 2:
+            return (int(clean),)
+        if len(clean) == 4:
+            return (int(clean[:2]), int(clean[2:]))
+        if len(clean) == 6:
+            return (int(clean[:2]), int(clean[2:4]), int(clean[4:]))
+        return (int(clean),)
+    parts = [int(p) for p in re.findall(r"\d+", clean)]
+    return tuple(parts) if parts else None
+
+
 def match_multipart_document_for_clause(docs: List[Path], clause_number: Optional[str]) -> Optional[Path]:
     """
     If multiple split documents exist (e.g., '_s00_s04.docx', '_s05_s08.docx'),
-    picks the document corresponding to the specified top-level clause number.
+    picks the document corresponding to the specified clause or Annex.
     """
     if not docs:
         return None
     if len(docs) == 1 or not clause_number:
         return docs[0]
 
-    match = re.match(r"^(\d+)", clause_number.strip())
-    if not match:
-        return docs[0]
+    c_str = str(clause_number).strip()
 
-    top_clause = int(match.group(1))
-
-    for doc in docs:
-        part_match = re.search(r"_s(\d+)_s(\d+)", doc.stem, re.IGNORECASE)
-        if part_match:
-            start_clause = int(part_match.group(1))
-            end_clause = int(part_match.group(2))
-            if start_clause <= top_clause <= end_clause:
+    # Check annexes (e.g. "Annex A", "A.1", "D.6")
+    annex_m = re.match(r"^(?:annex\s+)?([A-Za-z])", c_str, re.IGNORECASE)
+    if annex_m and annex_m.group(1).upper() not in ("C", "V"):  # avoid false match on Cl. / v.
+        letter = annex_m.group(1).upper()
+        for doc in docs:
+            stem_l = doc.stem.lower()
+            if "annex" in stem_l or f"_s{letter.lower()}" in stem_l or f"s{letter.lower()}_" in stem_l:
                 return doc
+
+    nums = [int(p) for p in re.findall(r"\d+", c_str)]
+    if not nums:
+        return docs[0]
+    target_tup = tuple(nums[:4]) + (0,) * max(0, 4 - len(nums))
+
+    # Match clause ranges, e.g. _s00_s04, _s05_s0504, _s06_s08, _s09_s10
+    for doc in docs:
+        m = re.search(r"_(?:cover_)?s([0-9A-Za-z]+)_s([0-9A-Za-z]+)", doc.stem, re.IGNORECASE)
+        if m:
+            st = parse_clause_token(m.group(1))
+            et = parse_clause_token(m.group(2))
+            if st and et:
+                st_pad = st + (0,) * (4 - len(st))
+                et_pad = et + (999999,) * (4 - len(et))
+                if st_pad <= target_tup <= et_pad:
+                    return doc
+
+    # Match single split files, e.g. _s06_17
+    for doc in docs:
+        m = re.search(r"_s([0-9A-Za-z]+)(?:_([0-9A-Za-z]+))?", doc.stem, re.IGNORECASE)
+        if m:
+            t1 = parse_clause_token(m.group(1))
+            t2 = parse_clause_token(m.group(2)) if m.group(2) else None
+            t_full = (t1 + t2) if (t1 and t2) else t1
+            if t_full:
+                if target_tup[:len(t_full)] == t_full:
+                    return doc
 
     return docs[0]
 
@@ -101,15 +160,37 @@ class SpecDocResolver:
         """
         Locates the specification directory and files for the given spec and version.
         """
-        clean_spec = str(spec_number or "").strip()
-        clean_ver = str(version or "").lstrip("v").strip()
+        clean_spec = re.sub(r"^(?:TS|TR)\s*", "", str(spec_number or "").strip(), flags=re.IGNORECASE)
+        clean_ver = str(version or "").lstrip("vV").strip()
 
         base_cache = Path(cache_dir) if cache_dir else get_specs_root()
         spec_dir = base_cache / clean_spec
 
+        local_files: List[Path] = []
+        if spec_dir.exists():
+            try:
+                local_files = [p for p in spec_dir.iterdir() if p.is_file()]
+            except OSError:
+                local_files = []
+
+        # If version was not specified, discover latest available version from local files
+        if not clean_ver and local_files:
+            discovered_versions = []
+            for f in local_files:
+                if f.name.lower().endswith((".docx", ".doc", ".zip")) and not is_change_mark_file(f.name):
+                    m = re.search(r"[-_\s]([a-z0-9]{3})(?:[-_.]|$)", f.name.lower())
+                    if m:
+                        v_str = letter_code_to_version(m.group(1))
+                        if v_str:
+                            discovered_versions.append(v_str)
+            if discovered_versions:
+                from modules.nas.core.nas_db import parse_version_tuple
+                discovered_versions.sort(key=parse_version_tuple, reverse=True)
+                clean_ver = discovered_versions[0]
+
         db_filename = None
         db_url = None
-        if specs_db:
+        if specs_db and clean_ver:
             try:
                 rows = specs_db.search_files(spec_number=clean_spec, release_version=clean_ver)
                 if rows:
@@ -125,13 +206,6 @@ class SpecDocResolver:
             code = version_to_letter_code(clean_ver)
             num_clean = clean_spec.replace(".", "").replace("-", "")
             stem = f"{num_clean}-{code}".lower() if code else clean_spec.lower()
-
-        local_files: List[Path] = []
-        if spec_dir.exists():
-            try:
-                local_files = [p for p in spec_dir.iterdir() if p.is_file()]
-            except OSError:
-                local_files = []
 
         word_docs: List[Path] = []
         pdf_docs: List[Path] = []
@@ -273,7 +347,7 @@ class SpecDocResolver:
                     msg += f" — '{clause_number}' copied to clipboard (press Ctrl+F in Word to jump directly)."
                 logger.info(f"✅ {msg}")
 
-                if parent_widget and hasattr(parent_widget, "matrix_title"):
+                if parent_widget and hasattr(parent_widget, "matrix_title") and not hasattr(parent_widget, "current_selected_message_name"):
                     parent_widget.matrix_title.setText(f"📖 {msg}")
 
                 if on_opened_callback:

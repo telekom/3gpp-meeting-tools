@@ -200,6 +200,12 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Bit-Level Structure Rendering:** Renders bit-level octet diagrams (Figure 8.x/9.x) and value coding tables (Table 8.x/9.x) with full OpenXML `gridSpan` (colspan) and `vMerge` (rowspan) support.
   * **ASN.1 Syntax & Descriptions View:** Renders syntax-highlighted ASN.1 definition blocks accompanied by formatted 3GPP Field Description tables.
   * **Reverse Field/IE Lookup:** Interactive header badge (`Used in: N messages ▾`) and right-click matrix context menu to trace and jump to all messages referencing a given IE or ASN.1 type across active releases.
+* **Direct Specification Document Resolution & Multi-Surface Opening:**
+  * **1-Click Specification Opening:** Directly opens the underlying 3GPP Word document (`.docx`), PDF, or local Explorer folder for the specification release you are currently working with.
+  * **Evolution Matrix Ribbon (`📖 Open Spec ▾`):** Scopes dynamically to the active specification (e.g. `📖 Open TS 24.501 ▾`), providing instant 1-click Word launching for the latest active release, an active releases picker submenu, PDF/Explorer shortcuts, and deep-linking to the Specifications (`navigate_to_specs_tab_requested`) and Spec Search tabs (`search_in_spec_search_requested`).
+  * **Field & Structure Inspector (`📖 Open Spec ▾`):** Dynamically bound to the release selected in the inspector's version dropdown, with 1-click Word launch for that definition's clause, and clickable Word launch hyperlinks on 4G <-> 5G cross-specification references.
+  * **Table & Tree Context Menus and Double-Click Shortcuts:** Double-clicking any cell in the Evolution Matrix or any version item in the Specification Releases tree immediately launches Word. Right-clicking rows in the matrix, items in the tree, or entries in the Protocol Library opens dedicated document launching menus.
+  * **Automated Multi-Part Split Routing & Clipboard Search Assistance:** Automatically copies the targeted clause (`Clause X.Y.Z`) to the Windows clipboard for instant `Ctrl+F` jumping upon opening Word, and intelligently routes multi-part split specifications (e.g. `_s06_s08.docx` for messages, `_s09_s10.docx` for Information Elements, `_sA_sHistory.docx` for Annexes) via subclause range parsing.
 
 ---
 
@@ -732,6 +738,12 @@ python -m main_tools
    * Click any row in the matrix to inspect its bit-level octet layout diagram or ASN.1 syntax block and field description callout in the **Inspector** card below.
    * Click **📋 Copy Definition** to copy the formatted ASN.1 syntax or parameter definition.
    * Click the **Used in: N msgs ▾** badge in the inspector header (or right-click any row in the matrix) to find all other messages referencing that parameter across active releases.
+7. **Opening Specification Documents & Cross-Tab Deep Linking:**
+   * **Open Spec from Matrix Header:** Click **`📖 Open TS {spec} ▾`** above the Evolution Matrix to immediately launch the active specification in Microsoft Word at the current message/IE clause (pre-copying the clause to your clipboard for instant `Ctrl+F` jumping). Use the dropdown menu to choose specific active releases, open PDF or Explorer folders, or jump to **📚 Specifications** or **🔎 Spec Search**.
+   * **Open Spec from Inspector:** Click **`📖 Open Spec ▾`** next to the inspector's release selector to open the exact version and clause being inspected in Word.
+   * **Double-Click Shortcuts:** Double-click any cell in the Evolution Matrix to open that column's exact specification version and row's clause in Word. Double-click any version node in the Specification Releases tree to launch Word for that release.
+   * **Context Menus:** Right-click any row in the Evolution Matrix, any message in the Protocol Library, or any node in the Specification Releases tree for full document launch and cross-tab navigation options.
+   * **Cross-Specification Reference Hyperlinks:** In the Inspector, when a 5GS NAS IE references EPS NAS (e.g., TS 24.501 referencing TS 24.301), click the `[Open Word]` hyperlink on the cross-reference banner to directly open the cross-referenced specification at that clause.
 
 ---
 
