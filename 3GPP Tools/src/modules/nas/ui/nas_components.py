@@ -1088,7 +1088,7 @@ class NASInspectorWidget(QFrame):
         current_ver_str = definition.get("version", "")
         current_clause = definition.get("clause", "")
 
-        # Check for 4G <-> 5G and UE Policy (24.501 -> 24.526) cross-specification references
+        # Check for 4G <-> 5G and UE Policy (24.501 -> 24.526, 24.588, 24.555, 24.514, 24.578) cross-specification references
         if self.db and current_spec in ("24.501", "24.301"):
             cross_targets: List[Tuple[str, str]] = []
             match = RE_NAS_CROSS_REF.search(base_html)
@@ -1097,8 +1097,18 @@ class NASInspectorWidget(QFrame):
                 target_spec = match.group(2).strip()
                 if target_spec != current_spec:
                     cross_targets.append((target_spec, target_clause))
-            elif current_spec == "24.501" and current_clause in ("D.6.2", "D.6.8") and "24.526" in base_html:
-                cross_targets.append(("24.526", "5.2"))
+
+            if current_spec == "24.501" and current_clause in ("D.6.2", "D.6.8"):
+                policy_clause_map = {
+                    "24.526": "5.2",
+                    "24.588": "5.2",
+                    "24.555": "5.2",
+                    "24.514": "12.2",
+                    "24.578": "5.2",
+                }
+                for p_spec, p_clause in policy_clause_map.items():
+                    if p_spec in base_html and not any(t[0] == p_spec for t in cross_targets):
+                        cross_targets.append((p_spec, p_clause))
 
             ver_tuple = parse_version_tuple(current_ver_str)
             major_ver = (ver_tuple[0][1] if isinstance(ver_tuple[0], tuple) else ver_tuple[0]) if ver_tuple else 15

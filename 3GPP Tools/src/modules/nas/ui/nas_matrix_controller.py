@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import QAction, QMenu
 
 RE_SPEC_FROM_COL = re.compile(r"(?:24|25|29|36|37|38)\.[0-9]{3}")
 RE_EXPLICIT_SPEC_REF = re.compile(r"^TS\s+((?:24|25|29|36|37|38)\.[0-9]{3})\s+([0-9A-Za-z\.]+)$", re.IGNORECASE)
-RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|5|4|D\.6)(?:\.[0-9A-Za-z]+)+)")
+RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|5|4|12|D\.6)(?:\.[0-9A-Za-z]+)+)")
 
 
 def handle_table_cell_click(tab: Any, index: QModelIndex) -> None:

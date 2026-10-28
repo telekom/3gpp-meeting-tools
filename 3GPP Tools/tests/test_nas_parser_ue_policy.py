@@ -4,9 +4,17 @@ try:
 except ImportError:
     import xml.etree.ElementTree as ET
 
-from modules.nas.core.parsing.nas_parser import NASDocxParser, TS24526_POLICY_MESSAGES
+from modules.nas.core.parsing.nas_parser import (
+    NASDocxParser,
+    TS24526_POLICY_MESSAGES,
+    TS24588_POLICY_MESSAGES,
+    TS24555_POLICY_MESSAGES,
+    TS24514_POLICY_MESSAGES,
+    TS24578_POLICY_MESSAGES,
+)
 from modules.nas.core.parsing.protocol_parser_constants import RE_SPEC_NUMBER, W_NS
 from modules.nas.core.parsing.protocol_parser_utils import _convert_table_to_html, _extract_tc_text
+from modules.nas.ui.nas_dialogs import PROTOCOL_SPEC_CATALOG
 
 
 def _make_tc(text: str = "", grid_span: int = 1, v_merge: str = "") -> ET.Element:
@@ -27,10 +35,17 @@ def _make_tc(text: str = "", grid_span: int = 1, v_merge: str = "") -> ET.Elemen
 
 
 class TestNASParserUEPolicy(unittest.TestCase):
-    def test_spec_number_regex_recognizes_24526(self):
-        m = RE_SPEC_NUMBER.search("24526-j40")
-        self.assertIsNotNone(m)
-        self.assertEqual(f"{m.group(1)}.{m.group(2)}", "24.526")
+    def test_spec_number_regex_recognizes_all_policy_specs(self):
+        for stem, expected in [
+            ("24526-j40", "24.526"),
+            ("24588-j00", "24.588"),
+            ("24555-j50", "24.555"),
+            ("24514-j30", "24.514"),
+            ("24578-j00", "24.578"),
+        ]:
+            m = RE_SPEC_NUMBER.search(stem)
+            self.assertIsNotNone(m, f"Failed to match spec number from {stem}")
+            self.assertEqual(f"{m.group(1)}.{m.group(2)}", expected)
 
     def test_collapse_word_half_octet_spare_row(self):
         """
@@ -158,9 +173,17 @@ class TestNASParserUEPolicy(unittest.TestCase):
         self.assertEqual(ies[1]["depth"], 1)
         self.assertEqual(ies[2]["information_element"], "ANDSP (Access network discovery and selection policy)")
         self.assertEqual(ies[2]["type_reference"], "TS 24.526 5.3.1")
+        self.assertEqual(ies[3]["information_element"], "V2XP (V2X policy)")
+        self.assertEqual(ies[3]["type_reference"], "TS 24.588 5.2")
+        self.assertEqual(ies[4]["information_element"], "ProSeP (5G ProSe policy)")
+        self.assertEqual(ies[4]["type_reference"], "TS 24.555 5.2")
+        self.assertEqual(ies[5]["information_element"], "A2XP (A2X policy)")
+        self.assertEqual(ies[5]["type_reference"], "TS 24.578 5.2")
+        self.assertEqual(ies[6]["information_element"], "RSLPP (Ranging/sidelink positioning policy)")
+        self.assertEqual(ies[6]["type_reference"], "TS 24.514 12.2")
 
     def test_ts24526_policy_messages_structure(self):
-        self.assertEqual(len(TS24526_POLICY_MESSAGES), 2)
+        self.assertGreaterEqual(len(TS24526_POLICY_MESSAGES), 2)
         ursp_msg = TS24526_POLICY_MESSAGES[0]
         self.assertEqual(ursp_msg["clause"], "5.2")
         ie_names = [ie["information_element"] for ie in ursp_msg["ies"]]
@@ -169,6 +192,41 @@ class TestNASParserUEPolicy(unittest.TestCase):
         self.assertIn("Route selection descriptor list", ie_names)
         self.assertIn("S-NSSAI type", ie_names)
         self.assertIn("DNN type", ie_names)
+
+    def test_ts24588_policy_messages_structure(self):
+        self.assertEqual(len(TS24588_POLICY_MESSAGES), 3)
+        clauses = [m["clause"] for m in TS24588_POLICY_MESSAGES]
+        self.assertIn("5.2", clauses)
+        self.assertIn("5.3", clauses)
+        self.assertIn("5.4", clauses)
+
+    def test_ts24555_policy_messages_structure(self):
+        self.assertEqual(len(TS24555_POLICY_MESSAGES), 3)
+        clauses = [m["clause"] for m in TS24555_POLICY_MESSAGES]
+        self.assertIn("5.2", clauses)
+        self.assertIn("5.3", clauses)
+        self.assertIn("5.4", clauses)
+
+    def test_ts24514_policy_messages_structure(self):
+        self.assertEqual(len(TS24514_POLICY_MESSAGES), 2)
+        clauses = [m["clause"] for m in TS24514_POLICY_MESSAGES]
+        self.assertIn("12.2", clauses)
+        self.assertIn("12.2.2", clauses)
+
+    def test_ts24578_policy_messages_structure(self):
+        self.assertEqual(len(TS24578_POLICY_MESSAGES), 3)
+        clauses = [m["clause"] for m in TS24578_POLICY_MESSAGES]
+        self.assertIn("5.2", clauses)
+        self.assertIn("5.3", clauses)
+        self.assertIn("5.7", clauses)
+
+    def test_protocol_spec_catalog_covers_all_policy_protocols(self):
+        for s_num in ["24.526", "24.588", "24.555", "24.514", "24.578"]:
+            self.assertIn(s_num, PROTOCOL_SPEC_CATALOG)
+            meta = PROTOCOL_SPEC_CATALOG[s_num]
+            self.assertEqual(meta["wg"], "CT1")
+            self.assertTrue(len(meta["title"]) > 5)
+            self.assertTrue(len(meta["acronym"]) > 2)
 
 
 if __name__ == "__main__":
