@@ -743,13 +743,16 @@ class DragDropUI(QMainWindow):
                 dialog = SelectPresentationDialog(open_presentations, parent=self)
                 if dialog.exec_() != QDialog.Accepted:
                     return
-                chosen = dialog.get_selected_presentation()
-                if not chosen:
-                    return
-                params = {
-                    "target_presentation": chosen["name"],
-                    "insert_at": "end"
-                }
+                if getattr(dialog, "is_new_presentation_requested", lambda: False)():
+                    target_format = "pptx"
+                else:
+                    chosen = dialog.get_selected_presentation()
+                    if not chosen:
+                        return
+                    params = {
+                        "target_presentation": chosen["name"],
+                        "insert_at": chosen.get("insert_at", "end")
+                    }
 
         out_dir = get_project_root().parent / "output"
         out_dir.mkdir(parents=True, exist_ok=True)
