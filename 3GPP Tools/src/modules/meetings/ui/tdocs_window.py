@@ -281,7 +281,7 @@ class TDocsWindow(QWidget):
         act_export_post_meeting.setStatusTip(act_export_post_meeting.toolTip())
 
         act_export_dossier = export_menu.addAction(
-            "📑 Export Navigable Dossier (HTML & PDF)...", self._export_dossier
+            "📑 Export Navigable Dossier (HTML && PDF)...", self._export_dossier
         )
         act_export_dossier.setToolTip(
             "Compile selected or visible TDocs into an interactive HTML dossier and a bookmarked vector PDF with companion AI citation prompt."

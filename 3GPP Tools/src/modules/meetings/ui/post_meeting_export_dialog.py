@@ -499,7 +499,7 @@ class PostMeetingExportDialog(QDialog):
         self.chk_force = QCheckBox("Force reconvert (overwrite existing local markdown caches)")
         self.chk_force.setChecked(False)
 
-        self.chk_compile_dossier = QCheckBox("Also compile consolidated Navigable Dossier (HTML & PDF)")
+        self.chk_compile_dossier = QCheckBox("Also compile consolidated Navigable Dossier (HTML && PDF)")
         self.chk_compile_dossier.setChecked(True)
         self.chk_compile_dossier.setToolTip(
             "Synthesizes an interactive HTML dossier and bookmarked vector PDF containing all exported deliverables."

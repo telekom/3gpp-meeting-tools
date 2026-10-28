@@ -106,6 +106,28 @@ class WordCrPcrCard(QWidget):
         tf_desc.setStyleSheet("color: #475569; font-size: 11px;")
         tf_layout.addWidget(tf_desc)
 
+        # Macro Ribbon & Templates Row
+        macro_row = QHBoxLayout()
+        macro_lbl = QLabel("<b>3GPP Macro Ribbon (3gpp_70.dotx):</b>")
+        macro_lbl.setStyleSheet("font-size: 11px; color: #1E293B;")
+        macro_row.addWidget(macro_lbl)
+
+        self.cr_card_dotx_lbl = QLabel("⚪ Not installed in Word templates")
+        self.cr_card_dotx_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
+        macro_row.addWidget(self.cr_card_dotx_lbl)
+
+        self.btn_cr_install_dotx = QPushButton("📥 Install")
+        self.btn_cr_install_dotx.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        macro_row.addWidget(self.btn_cr_install_dotx)
+
+        self.btn_cr_open_tpl = QPushButton("📂 Templates Folder")
+        self.btn_cr_open_tpl.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_cr_open_tpl.clicked.connect(self._open_word_templates_folder)
+        macro_row.addWidget(self.btn_cr_open_tpl)
+
+        macro_row.addStretch()
+        tf_layout.addLayout(macro_row)
+
         forms_row = QHBoxLayout()
         forms_row.setSpacing(8)
 

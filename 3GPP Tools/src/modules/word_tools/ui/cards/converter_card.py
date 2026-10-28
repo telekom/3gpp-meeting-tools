@@ -166,16 +166,13 @@ class WordConverterCard(QWidget):
         co_layout.addWidget(QLabel("<b>Target Format:</b>"))
         self.format_combo = QComboBox()
         self.format_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
-        self.format_combo.addItem("DOCX (Modern Word)", "docx")
-        self.format_combo.addItem("PDF (Portable Document Format)", "pdf")
-        self.format_combo.addItem("HTML (Web Page)", "html")
-        self.format_combo.addItem("TXT (Plain Text)", "txt")
-        self.format_combo.addItem("MD (Markdown)", "md")
+        for fmt in ["PDF", "DOCX", "MD", "HTML", "XPS", "RTF", "TXT"]:
+            self.format_combo.addItem(fmt, fmt.lower())
         self.format_combo.currentIndexChanged.connect(self._on_format_changed)
         co_layout.addWidget(self.format_combo)
 
-        self.conv_engine_lbl = QLabel("Engine: Microsoft Word COM")
-        self.conv_engine_lbl.setStyleSheet("color: #166534; font-size: 11px; font-weight: 500;")
+        self.conv_engine_lbl = QLabel("Engine: 🟢 Microsoft Word COM")
+        self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #065F46; font-weight: 500;")
         co_layout.addWidget(self.conv_engine_lbl)
         co_layout.addStretch()
         convert_layout.addWidget(conv_opts_frame)
@@ -216,12 +213,17 @@ class WordConverterCard(QWidget):
         convert_layout.addWidget(self.conv_result_frame)
         convert_layout.addStretch()
 
-    def _on_format_changed(self, index: int):
-        target_fmt = self.format_combo.currentData()
-        if target_fmt == "md":
-            self.conv_engine_lbl.setText("Engine: Pure Python OpenXML (Fast Headless)")
+    def _on_format_changed(self, index: int = 0):
+        fmt = self.format_combo.currentText().upper()
+        if fmt == "DOCX":
+            self.conv_engine_lbl.setText("Engine: 🟠 LibreOffice (for legacy .doc) / Word COM")
+            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #B45309; font-weight: 500;")
+        elif fmt == "MD":
+            self.conv_engine_lbl.setText("Engine: 🟢 Native High-Fidelity Markdown (with Media)")
+            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #0F766E; font-weight: 500;")
         else:
-            self.conv_engine_lbl.setText("Engine: Microsoft Word COM")
+            self.conv_engine_lbl.setText("Engine: 🟢 Microsoft Word COM")
+            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #065F46; font-weight: 500;")
 
     def _trigger_conversion(self):
         inputs = self.pane_convert.get_inputs()

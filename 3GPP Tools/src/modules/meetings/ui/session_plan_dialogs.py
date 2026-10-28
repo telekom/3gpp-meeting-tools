@@ -224,7 +224,7 @@ class SessionPlanImportDialog(QDialog):
         vbox_url.addWidget(hint)
         vbox_url.addStretch()
 
-        btn_url = QPushButton("⬇️ Download & Import")
+        btn_url = QPushButton("⬇️ Download && Import")
         btn_url.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
         btn_url.clicked.connect(self._on_import_url)
         vbox_url.addWidget(btn_url)
