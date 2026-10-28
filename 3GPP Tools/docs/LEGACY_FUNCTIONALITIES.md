@@ -185,7 +185,7 @@ During active drafting sessions at 3GPP meetings, delegates often have a local d
 
 #### Modern Implementation in 3GPP Tools
 1. **Core Word COM & Archive Helpers (`src/modules/word_tools/core/document_opener.py`):**
-   * `get_active_word_document(allow_unsaved_snapshot=True)` inspects the foreground Microsoft Word document and automatically writes a non-destructive temporary copy (`SaveCopyAs`) when the document is unsaved (`Document1`), has unsaved edits, or is cloud-backed.
+   * `get_active_word_document(allow_unsaved_snapshot=True)` inspects the foreground Microsoft Word document and automatically writes a non-destructive temporary copy (`SaveCopyAs` with robust `shutil.copy2` direct disk copy fallback when Word throws OLE error `0x800a1704`) when the document is unsaved (`Document1`), has unsaved edits, or is cloud-backed. Routine background UI status polling specifies `allow_unsaved_snapshot=False` to avoid unnecessary disk I/O.
    * `select_best_word_document(extracted_paths, target_tdoc)` prioritizes the matching contribution `.docx`/`.doc` inside multi-file ZIP archives.
 2. **Synchronized Comparison Cart (`src/modules/meetings/core/compare_manager.py`, `src/modules/meetings/ui/tdocs_components.py`):**
    * Shared `ComparisonCartWidget` embedded in the bottom status bar of both `MeetingsTab` and `TDocsWindow`, featuring interactive `[Slot A ▾]` and `[Slot B ▾]` pill menus, a `⇄` 1-click slot swap button, a `🪟 Active Word` quick-stage button, a compact `⚖️ Stage Active Word ▾` launcher when empty, and automatic live snapshot refresh (`resolve_comparison_paths()`) right before comparison.

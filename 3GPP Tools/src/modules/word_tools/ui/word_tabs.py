@@ -36,6 +36,7 @@ from core.ui.ui_components import (
     InteractiveDropLabel,
     TOGGLE_PILL_STYLE,
 )
+from core.utils.folder_opener import open_folder
 from modules.word_tools.core.word_config import WordConfig
 from modules.word_tools.core.document_opener import get_active_word_document
 from modules.word_tools.core.styles_3gpp import (
@@ -123,7 +124,7 @@ class WordExtractorTab(QWidget):
             }
         """)
         self.btn_active_word.setToolTip("Refreshes automatically. Click to open the active document folder.")
-        self.btn_active_word.clicked.connect(self._poll_active_word)
+        self.btn_active_word.clicked.connect(self._on_active_word_clicked)
         row1.addWidget(self.btn_active_word)
 
         sep1 = QFrame()
@@ -375,12 +376,29 @@ class WordExtractorTab(QWidget):
             else:
                 btn.setStyleSheet(TOGGLE_PILL_STYLE)
 
-    def _poll_active_word(self):
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._poll_active_word(force=True)
+
+    def _on_active_word_clicked(self):
+        self._poll_active_word(force=True)
+        if self._active_word_file and self._active_word_file.is_file():
+            open_folder(self._active_word_file.parent)
+
+    def _poll_active_word(self, force: bool = False):
+        if not force and not self.isVisible():
+            return
         try:
-            active_path = get_active_word_document()
-            if active_path and active_path.is_file():
-                self._active_word_file = active_path
-                self.btn_active_word.setText(f"🪟 Active Word: {active_path.name}")
+            # Periodic UI status polling: query active Word document metadata without
+            # creating disk snapshots (allow_unsaved_snapshot=False) to avoid wasteful I/O.
+            doc_info = get_active_word_document(allow_unsaved_snapshot=False)
+            if doc_info and doc_info.get("name"):
+                doc_name = doc_info["name"]
+                raw_path = doc_info.get("path")
+                file_path = Path(raw_path) if raw_path and Path(raw_path).is_file() else None
+                self._active_word_file = file_path
+                mod_suffix = "*" if doc_info.get("modified") else ""
+                self.btn_active_word.setText(f"🪟 Active Word: {doc_name}{mod_suffix}")
                 self.btn_active_word.setStyleSheet("""
                     QPushButton {
                         background-color: #ECFDF5;
@@ -392,7 +410,10 @@ class WordExtractorTab(QWidget):
                         font-size: 11px;
                     }
                 """)
-                self.btn_active_word.setToolTip(f"Active in Microsoft Word:\n{active_path.resolve()}\n\nClick to reveal in folder.")
+                if file_path:
+                    self.btn_active_word.setToolTip(f"Active in Microsoft Word:\n{file_path.resolve()}\n\nClick to reveal in folder.")
+                else:
+                    self.btn_active_word.setToolTip(f"Active in Microsoft Word:\n{doc_name} (Unsaved / Cloud-backed)")
             else:
                 self._active_word_file = None
                 self.btn_active_word.setText("🪟 Active Word: None Detected")
