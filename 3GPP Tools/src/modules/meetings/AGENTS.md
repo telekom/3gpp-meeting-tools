@@ -185,6 +185,38 @@ src/modules/meetings/
   - Populates in-room discussions directly into the `Secretary Remarks` column (with clickable TDoc hyperlinks).
   - Updates real-time `TDoc Status` (`Agreed`, `Revised to...`, `Postponed`) hours before official agenda publication.
   - Dynamically injects newly announced late revisions with predecessor linking (`Is revision of`, base TDoc resolution).
+
+### 3.11. SA2 Meeting Session Plan Management, Version Diffing & Mobile Export
+- **Problem Solved:** SA2 meeting session plans ("Draft time allocation") are published as living TDocs with frequent revisions (often reusing the same TDoc number `S2-2610195` across intra-day updates), 3 parallel streams, 45-minute half-quarter Time Units (TUs), and ad-hoc drafting sessions (08:00 morning, lunch, and 18:00 evening).
+- **Timezone & Corporate Laptop Synchronization (`SessionPlanTimezone`):**
+  - Solves the Austrian corporate laptop clock lock (`Europe/Vienna`, CET `UTC+1` / CEST `UTC+2`) by strictly anchoring internal timestamps in true UTC.
+  - 3-tier meeting timezone resolution: (1) Auto-parsing from Agenda Deadlines table (`0900 Local time | 0700 UTC` $\rightarrow$ `UTC+02:00`); (2) City/Country lookup from meeting location; (3) Interactive `SessionPlanTimezoneDialog` confirmation prompt.
+  - Dual-time display in UI and tooltips (`09:00 Venue (02:00 Vienna)`).
+  - Live clock strip in toolbar updating Venue time and laptop time every second.
+- **100% Manual Ingestion & Collision-Safe Caching (`SessionPlanParser`):**
+  - Staged files cached in `<meeting_dir>/Agenda/SessionPlans/` (never overwrites earlier snapshots sharing the same TDoc ID, using content-hash naming `S2-2610195_snap2_...docx`).
+  - Persistent SQLite database at `<meeting_dir>/Agenda/session_plans.db`.
+  - Ingestion entry points:
+    1. **Toolbar Button:** `🗓️ Session Plan` in `TDocsWindow` launches the viewer.
+    2. **URL or TDoc#:** `SessionPlanImportDialog` downloads via `URLRouter` candidate routes.
+    3. **File Browser:** OpenXML `.docx`, `.doc` (via LibreOffice), `.zip`, or HTML.
+    4. **Drag & Drop:** Dropping files onto `TDocsWindow` automatically inspects whether the table is a Session Plan (`Monday..Friday`, `Q0..Q5`, `Stream 1..3`) and routes it to `Agenda/SessionPlans/`.
+    5. **Row Context Menu:** Right-clicking any session plan TDoc row offers **`🗓️ Load {tdoc_id} into Session Plan...`**.
+- **Parsing Heuristics & Data Modeling (`SessionPlanParser`, `SessionPlanDatabase`):**
+  - Sub-slot detection: Preserves `TU 1` (first 45 mins), `TU 2` (second 45 mins), or full quarter (`colspan=2`).
+  - Stream topology: Extracts Main Room (`B2 [300]`), Breakout 1 (`B3 [100]`), Breakout 2 (`D11/D12 [120]`), Conveners (*Mike*, *Wanqiang*), and TOHRU channels (`SA2_Main`, `SA2_Brk1`, `SA2_Brk2`).
+  - Lunch drafting: Captures ad-hoc lunchtime drafting sessions in Main Room (e.g. 13:00 SoH questions).
+  - AI range expansion: Automatically expands shorthand ranges like `KI#12 – KI#16 (20.6.12 - 16) [5,0,2,0,1]` and `Pre-Rel-19 maintenance (5.x, 6.x, 7.x) [9]`.
+  - Typo resilience: Handles chair typos like `K#1.2` and unclosed parentheses.
+- **Version Diffing (`SessionPlanDiffEngine`, `SessionPlanDiffDialog`):**
+  - Compares any two plan snapshots slot-by-slot, detecting **🟢 Added**, **🔴 Removed**, **🟡 Rescheduled/Moved** (from origin to destination), and **🔵 Volume Changes** (`[15]` $\rightarrow$ `[5+15]`).
+  - Synthesizes an executive bulleted changelog.
+- **Persistent User Annotations (`user_session_annotations`):**
+  - User notes, priority tags (`⭐ Must Attend`, `👥 Colleague Covering`, `👀 Monitor on TOHRU`, `✅ Done`), and comments are keyed by `(meeting, day, quarter, sub_slot, stream)`, persisting seamlessly across session plan updates.
+- **Multi-Format Export Engine (`SessionPlanExporter`):**
+  - **📱 Responsive Offline Mobile HTML (`SA2_{mtg}_Session_Plan_Mobile.html`):** Self-contained (<80 KB, zero CDN dependencies). Features sticky Day tabs (`[Mon] [Tue] [Wed] [Thu] [Fri]`), Quarter cards, TU 1 / TU 2 half-quarter indicators, room/convener chips, embedded user notes, live search bar, and a 1-tap `"⭐ My Topics"` toggle.
+  - **📅 Strict UTC iCalendar (`.ics`):** Exports sessions to Outlook / Apple / Google Calendar with strict UTC `DTSTART`/`DTEND` timestamps, room/floor in Location, and convener/topics/notes in Description.
+  - **✉️ Colleague Email Composer:** Formats rich HTML & plain text summaries ready to paste into Outlook summarizing what changed since the previous plan, today's drafting sessions, and tracked topics.
   - Enriches TDoc rows with live `Sub-Item` topic separators, `_agenda_order`, and `_sub_item_order` extracted from `TdocsByAgenda.htm` and Word Chairman's Notes.
 - **Agenda & Sub-Item Ordering Engine (`tdocs_parser.py`, `tdocs_models.py`, `tdoc_delegates.py`, `tdocs_window.py`):**
   - **Live HTML Superseding Precedence:** In Working Groups like SA2 where delegates rely on session agenda order, the live order in `TdocsByAgenda.htm` strictly supersedes the static Excel list order (`"TDoc sort order within agenda item"`), as Excel lists omit late revisions or late arrivals submitted during the meeting.

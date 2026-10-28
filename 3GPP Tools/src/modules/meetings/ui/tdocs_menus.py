@@ -208,6 +208,7 @@ def build_row_context_menu(
     draft_cr_callback=None,
     compare_active_word_callback=None,
     export_dossier_callback=None,
+    load_session_plan_callback=None,
 ):
     """Complete command center menu for row-level operations."""
     menu = QMenu(parent)
@@ -229,6 +230,14 @@ def build_row_context_menu(
         act_draft_cr = menu.addAction(f"📝 Draft CR / pCR from Spec...")
         act_draft_cr.setToolTip("Compose a Change Request (CR) or Pseudo-CR (pCR) pre-populated from this TDoc.")
         act_draft_cr.triggered.connect(lambda: draft_cr_callback(row_data))
+
+    # --- 1b. SESSION PLAN INGESTION SHORTCUT ---
+    title_lower = str(row_data.get("Title", "")).lower()
+    if "session plan" in title_lower or "time allocation" in title_lower:
+        act_sp = menu.addAction(f"🗓️ Load {tdoc_id} into Session Plan...")
+        act_sp.setToolTip("Parse and load this TDoc into the Meeting Session Plan viewer.")
+        if load_session_plan_callback:
+            act_sp.triggered.connect(lambda: load_session_plan_callback(tdoc_id))
 
     menu.addSeparator()
 

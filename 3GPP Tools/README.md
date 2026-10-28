@@ -766,7 +766,21 @@ python -m main_tools
    * **Drag & Drop:** Drag any `.docx`, `.doc`, or `.htm` session document anywhere onto the TDocs window. A visual frosted drop overlay will highlight the window.
    * **Menu Import:** Alternatively, click the **🔄 Refresh** menu and select **📝 Import Word Document (.docx / .doc)...**.
    * The file is automatically copied to `{meeting_dir}/Agenda/`, converted in the background via LibreOffice (if `.doc`), parsed, and merged into the table without freezing the UI.
-7. Click the Action column to automatically download, unzip, and open documents, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
+7. **SA2 Meeting Session Plan Management, Version Diffing & Mobile Export:**
+   * **Opening the Session Plan Viewer:** In the TDocs window, click the **`🗓️ Session Plan`** button in the top ribbon (or right-click any session plan TDoc in the table and select **`🗓️ Load {tdoc_id} into Session Plan...`**).
+   * **Manual Ingestion & Collision-Safe Caching:** Drag & drop session plan `.docx`/`.doc`/`.zip` files onto the window, enter a 3GPP URL / TDoc# (e.g. `S2-2610195`), browse local files, or paste markdown/text tables directly. Files are safely cached under `<meeting_dir>/Agenda/SessionPlans/` and stored in SQLite (`<meeting_dir>/Agenda/session_plans.db`) with content-hash snapshot versioning so intra-day revisions of the same TDoc number never overwrite earlier files on disk.
+   * **Timezone Synchronization & Austrian Laptop Clock:** Overcomes corporate laptop clock locks (`Europe/Vienna`) by anchoring calculations in true UTC. Automatically detects meeting timezone from Agenda deadlines tables (`0900 Local | 0700 UTC` $\to$ `UTC+02:00`) or city lookup, with full manual override in **`🌍 Venue Timezone`**. Displays dual times (`Venue Local` vs `Vienna Laptop Time`) and real-time live clock.
+   * **4 Tailored Navigation Views:**
+     * **`🗓️ Overview Grid`:** 5-day matrix across Streams 1, 2, and 3 with room headers, convener badges, half-quarter Time Units (TU 1 / TU 2), color-coded drafting/tracked cards, and parallel conflict warnings (`⚠️ Conflict`). Double-click any cell to assign priority badges (`⭐ Must Attend`, `👥 Colleague Covering`) or notes.
+     * **`📋 Agenda Mode (Gap Check)`:** Lists all Agenda Items to highlight which items are scheduled vs. unscheduled (Gap Analysis) and real-time up next sessions.
+     * **`🛠️ Drafting Radar`:** Chronological tracking of early morning (Q0: 08:00), lunch (13:00), and evening (Q5: 18:00) drafting sessions.
+     * **`🎯 My Topics`:** Timeline showing only your tracked Work Items / AIs.
+   * **Version Diffing (`⇄ Compare`):** Semantic comparison between any two plan snapshots detecting Added, Removed, Rescheduled/Moved, and TDoc Volume updates with bulleted changelog generation.
+   * **Mobile-First & Colleague Sharing (No More Painful A3 PDFs):**
+     * **`📱 Mobile HTML`:** Exports a self-contained, responsive, 100% offline HTML view (<80 KB) with Day switcher tabs, Quarter cards, TU 1 / TU 2 breakdown, search bar, and `"⭐ My Topics"` toggle for smartphones.
+     * **`📅 iCalendar (.ics)`:** Exports strict UTC-anchored calendar events with room/floor in Location and AIs/notes in Description.
+     * **`✉️ Email Summary`:** 1-click rich HTML email body ready to paste into Outlook summarizing changes from the previous plan and today's schedule for your delegation colleagues.
+8. Click the Action column to automatically download, unzip, and open documents, or use the **⚖️ Add to Comparison Cart** submenu to select base versions or revisions for diffing.
 8. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
 9. **Extracting Clauses (Word Excerpt):**
    * In the **Specifications** tab, click the **Documents** dropdown for any specification release and choose **`✂️ Extract Clauses (Excerpt)...`**.
