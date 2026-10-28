@@ -44,7 +44,7 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 | **F-16** | **Email Reflector** | Email Approval Excel Export | [F16: Email Approval Excel](legacy_features/F16_email_approval_excel_export.md) | ❌ Not implemented | Medium | ⚪ Low |
 | **F-17** | **Web Links** | 3GPP Guru Web Viewer Integration | [F17: 3GPP Guru Integration](legacy_features/F17_3gpp_guru_web_viewer_integration.md) | ✅ Implemented (Help & Resources Menu) | Very Low | 🟢 High |
 | **F-18** | **Web Links** | 3GPP Forge APIs Direct Link | [F18: 3GPP Forge APIs](legacy_features/F18_3gpp_forge_apis_launcher.md) | ✅ Implemented (Help & Resources Menu) | Very Low | 🟢 High |
-| **F-19** | **Meeting Notes** | Chairman\'s Notes Word Table Parser (WIP) | [F19: Chair Notes Word Parser](legacy_features/F19_chairmans_notes_word_table_parser.md) | ❌ File download only | High | 🟡 Medium |
+| **F-19** | **Meeting Notes** | Chairman\'s Notes Word Table Parser | [F19: Chair Notes Word Parser](legacy_features/F19_chairmans_notes_word_table_parser.md) | ✅ Implemented (Drag-Drop / Menu / Download & Merge; Multi-WG formats supported) | High | 🟢 High |
 
 ---
 
@@ -468,7 +468,7 @@ One-click access to the official 3GPP Forge OpenAPI repository (`https://forge.3
 
 ---
 
-### F-19: Chairman's Notes Word Table Parser (Experimental / WIP)
+### F-19: Chairman's Notes Word Table Parser (Live Meeting Tracking)
 
 #### Overview & Delegate Workflow
 In 3GPP meetings, Chairmen and Session Chairs periodically upload interim notes files (`ChairNotes_<chair>_<timestamp>.doc`) containing tables of active discussions, straw polls, and interim statuses. Parsing these tables directly from Word documents allows delegates to view up-to-the-minute meeting progress before the official agenda is published.
@@ -483,9 +483,17 @@ In 3GPP meetings, Chairmen and Session Chairs periodically upload interim notes 
   * Scanned table rows for `['TD#', 'AI', 'Subject', 'Source', 'Discussion', 'Result']`.
   * Extracted latest discussion entry per TDoc (`df.groupby('TD#').tail(1)`).
 
-#### Proposed Integration into 3GPP Tools
-1. **Location:** `src/modules/meetings/core/chair_notes_downloader.py`.
-2. **Enhancement:** After downloading Chairman's Notes, add an optional background parser to extract and display session notes alongside TDoc rows in `TDocsWindow`.
+#### Implementation in 3GPP Tools (Operational)
+1. **Multi-Surface Ingestion:**
+   * **Drag & Drop:** Dragging any `.docx`, `.doc`, `.htm`, or `.html` session document onto the `TDocsWindow` activates a visual frosted drop overlay and triggers non-blocking background parsing.
+   * **Menu Import:** **🔄 Refresh ▾ $\rightarrow$ 📝 Import Word Document (.docx / .doc)...** provides a manual file browser.
+   * **Download & 1-Click Merge:** **📥 Notes** (`ChairNotesDownloaderThread`) downloads interim files from `/Inbox/Chair_Notes` and immediately prompts with 1-click parsing and merging.
+2. **Headless Conversion & Parsing Pipeline:**
+   * `WordAgendaImporterThread` stages files to `{meeting_dir}/Agenda/ChairNotes/` and unblocks NTFS Zone Identifiers.
+   * Headless LibreOffice sanitizes legacy `.doc` files to `.docx` without Word COM macro warnings.
+   * `TDocsParser.parse_tdocs_from_docx()` features multi-row header scanning (rows 0–4) and broad column alias matching, robustly supporting diverse secretary formatting styles across SA2, RAN1/2/3, SA1/3, and CT.
+3. **Live Table Merging:**
+   * `TDocsTableModel.merge_agenda_data()` populates discussion notes into `Secretary Remarks` (with clickable TDoc hyperlinks), updates real-time `TDoc Status`, enriches metadata, and injects newly announced late revisions with predecessor resolution.
 
 ---
 
