@@ -5,6 +5,7 @@ Provides Overview Grid with Time Labels, Agenda Mode (Gap Analysis with 1-Click 
 Drafting Radar, My Topics, Timezone Synchronization, Diffing, and Exporting.
 Includes direct drag & drop quick import on the GUI and rich tooltips.
 """
+import html
 import logging
 import re
 import webbrowser
@@ -18,6 +19,7 @@ from PyQt5.QtWidgets import (
     QAction,
     QApplication,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -64,18 +66,25 @@ from modules.meetings.ui.tdocs_drop_overlay import DropOverlayWidget
 
 logger = logging.getLogger(__name__)
 
-DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-QUARTER_ORDER = ["Q0", "Q1", "Q2", "Lunch", "Q3", "Q4", "Q5"]
+from dataclasses import dataclass
+from modules.meetings.core.session_plan_parser import (
+    PERIOD_ORDER,
+    PERIOD_TIMES,
+    SessionPlanParser,
+)
 
-QUARTER_DISPLAY_LABELS = {
-    "Q0": "Q0\n08:00 – 08:50",
-    "Q1": "Q1\n09:00 – 10:30",
-    "Q2": "Q2\n11:00 – 12:30",
-    "Lunch": "Lunch\n13:00 – 14:00",
-    "Q3": "Q3\n14:00 – 15:30",
-    "Q4": "Q4\n16:00 – 17:30",
-    "Q5": "Q5\n18:00 – 19:30",
-}
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+QUARTER_ORDER = PERIOD_ORDER
+QUARTER_TIMES = PERIOD_TIMES
+
+
+@dataclass
+class GridRowDescriptor:
+    period: str                  # "Q0", "Break 1", "Q1", ...
+    stream_number: int           # 1, 2, 3 (or 0 for break)
+    row_type: str                # "stream" or "break"
+    display_label: str           # Vertical header string
+    time_range: Tuple[str, str]  # ("09:00", "10:30")
 
 
 class SessionPlanWindow(QWidget):
@@ -112,6 +121,8 @@ class SessionPlanWindow(QWidget):
 
         self.active_snapshot: Optional[SessionPlanSnapshot] = None
         self.annotations: Dict[str, UserSessionAnnotation] = {}
+        self.grid_rows: List[GridRowDescriptor] = []
+        self.empty_break_periods: Set[str] = set()
 
         self.setWindowTitle(f"🗓️ Session Plan — SA2 #{self.meeting_number} ({self.location})")
         self.resize(1380, 840)
@@ -359,39 +370,64 @@ class SessionPlanWindow(QWidget):
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.setSpacing(6)
 
-        # Room & Convener Guide Strip
+        # Room & Convener Guide & Stream Toggle Strip
         self.room_strip = QFrame()
-        self.room_strip.setStyleSheet("background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 6px 10px;")
+        self.room_strip.setStyleSheet("background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 4px 10px;")
         self.room_strip_layout = QHBoxLayout(self.room_strip)
-        self.room_strip_layout.setContentsMargins(0, 0, 0, 0)
+        self.room_strip_layout.setContentsMargins(4, 2, 4, 2)
         self.room_strip_layout.setSpacing(12)
 
-        self.r1_lbl = QLabel("🏢 <b>Stream 1:</b> Main Room (B2, Fl. 2) [300] · MCC / Chair · SA2_Main")
-        self.r1_lbl.setStyleSheet("color: #4338CA; font-size: 11px;")
-        self.r1_lbl.setToolTip("Stream 1 (Main Room): Chaired by SA2 Chair, notes taken by MCC. Hosts Plenary and Single Stream approvals.")
-        self.room_strip_layout.addWidget(self.r1_lbl)
+        self.btn_toggle_s1 = QCheckBox("🏢 Stream 1: Main Room (B2) [300]")
+        self.btn_toggle_s1.setChecked(True)
+        self.btn_toggle_s1.setStyleSheet("QCheckBox { color: #4338CA; font-weight: 600; font-size: 11px; padding: 2px 4px; }")
+        self.btn_toggle_s1.setToolTip("Toggle visibility of Stream 1 (Main Room / Plenary / Single Stream).")
+        self.btn_toggle_s1.toggled.connect(self._update_row_visibility)
+        self.room_strip_layout.addWidget(self.btn_toggle_s1)
 
-        self.r2_lbl = QLabel("🏢 <b>Stream 2:</b> Breakout 1 (B3, Fl. 2) [100] · Mike · SA2_Brk1")
-        self.r2_lbl.setStyleSheet("color: #047857; font-size: 11px;")
-        self.r2_lbl.setToolTip("Stream 2 (Breakout 1): Chaired by Convener 1 (Mike). TOHRU channel: SA2_Brk1.")
-        self.room_strip_layout.addWidget(self.r2_lbl)
+        self.btn_toggle_s2 = QCheckBox("🏢 Stream 2: Breakout 1 (B3) [100]")
+        self.btn_toggle_s2.setChecked(True)
+        self.btn_toggle_s2.setStyleSheet("QCheckBox { color: #047857; font-weight: 600; font-size: 11px; padding: 2px 4px; }")
+        self.btn_toggle_s2.setToolTip("Toggle visibility of Stream 2 (Breakout 1 / Mike).")
+        self.btn_toggle_s2.toggled.connect(self._update_row_visibility)
+        self.room_strip_layout.addWidget(self.btn_toggle_s2)
 
-        self.r3_lbl = QLabel("🏢 <b>Stream 3:</b> Breakout 2 (D11/D12, Fl. 3) [120] · Wanqiang · SA2_Brk2")
-        self.r3_lbl.setStyleSheet("color: #B45309; font-size: 11px;")
-        self.r3_lbl.setToolTip("Stream 3 (Breakout 2): Chaired by Convener 2 (Wanqiang). TOHRU channel: SA2_Brk2.")
-        self.room_strip_layout.addWidget(self.r3_lbl)
+        self.btn_toggle_s3 = QCheckBox("🏢 Stream 3: Breakout 2 (D11/D12) [120]")
+        self.btn_toggle_s3.setChecked(True)
+        self.btn_toggle_s3.setStyleSheet("QCheckBox { color: #B45309; font-weight: 600; font-size: 11px; padding: 2px 4px; }")
+        self.btn_toggle_s3.setToolTip("Toggle visibility of Stream 3 (Breakout 2 / Wanqiang).")
+        self.btn_toggle_s3.toggled.connect(self._update_row_visibility)
+        self.room_strip_layout.addWidget(self.btn_toggle_s3)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setStyleSheet("color: #CBD5E1;")
+        self.room_strip_layout.addWidget(sep)
+
+        self.chk_breaks = QCheckBox("☕ Show Breaks")
+        self.chk_breaks.setChecked(True)
+        self.chk_breaks.setStyleSheet("QCheckBox { color: #475569; font-weight: 600; font-size: 11px; padding: 2px 4px; }")
+        self.chk_breaks.setToolTip("Toggle visibility of Coffee Breaks, Lunch Breaks, and Short Breaks.")
+        self.chk_breaks.toggled.connect(self._update_row_visibility)
+        self.room_strip_layout.addWidget(self.chk_breaks)
+
+        self.chk_hide_empty_breaks = QCheckBox("⚡ Hide Empty Breaks")
+        self.chk_hide_empty_breaks.setChecked(True)
+        self.chk_hide_empty_breaks.setStyleSheet("QCheckBox { color: #64748B; font-size: 11px; padding: 2px 4px; }")
+        self.chk_hide_empty_breaks.setToolTip("When checked, automatically hides break rows that have no scheduled drafting sessions or notes.")
+        self.chk_hide_empty_breaks.toggled.connect(self._update_row_visibility)
+        self.room_strip_layout.addWidget(self.chk_hide_empty_breaks)
 
         self.room_strip_layout.addStretch()
         page_layout.addWidget(self.room_strip)
 
-        # Overview Table
+        # Overview Table (10 columns: 2 per day)
         self.grid_table = QTableWidget()
-        self.grid_table.setColumnCount(5)
-        self.grid_table.setHorizontalHeaderLabels(DAY_NAMES)
+        self.grid_table.setColumnCount(10)
         self.grid_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.grid_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.grid_table.verticalHeader().setDefaultSectionSize(95)
-        self.grid_table.setAlternatingRowColors(True)
+        self.grid_table.verticalHeader().setDefaultSectionSize(60)
+        self.grid_table.setAlternatingRowColors(False)
+        self.grid_table.setStyleSheet("QTableWidget { gridline-color: #E2E8F0; selection-background-color: #E0E7FF; }")
         self.grid_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.grid_table.customContextMenuRequested.connect(self._on_grid_context_menu)
         self.grid_table.cellDoubleClicked.connect(self._on_grid_cell_double_clicked)
@@ -510,19 +546,19 @@ class SessionPlanWindow(QWidget):
         self._render_tracked_topics()
 
     def _update_room_guide_strip(self):
-        """Updates room guide labels with active snapshot metadata."""
+        """Updates room guide labels and toggle checkboxes with active snapshot metadata."""
         if not self.active_snapshot:
             return
         streams = self.active_snapshot.streams
         if 1 in streams:
             s1 = streams[1]
-            self.r1_lbl.setText(f"🏢 <b>Stream 1:</b> {s1.room_name} [{s1.capacity}] · {s1.convener or 'MCC / Chair'} · {s1.tohru_room}")
+            self.btn_toggle_s1.setText(f"🏢 Stream 1: {s1.room_name} [{s1.capacity}] · {s1.convener or 'MCC / Chair'} · {s1.tohru_room}")
         if 2 in streams:
             s2 = streams[2]
-            self.r2_lbl.setText(f"🏢 <b>Stream 2:</b> {s2.room_name} [{s2.capacity}] · {s2.convener or 'Convener 1'} · {s2.tohru_room}")
+            self.btn_toggle_s2.setText(f"🏢 Stream 2: {s2.room_name} [{s2.capacity}] · {s2.convener or 'Convener 1'} · {s2.tohru_room}")
         if 3 in streams:
             s3 = streams[3]
-            self.r3_lbl.setText(f"🏢 <b>Stream 3:</b> {s3.room_name} [{s3.capacity}] · {s3.convener or 'Convener 2'} · {s3.tohru_room}")
+            self.btn_toggle_s3.setText(f"🏢 Stream 3: {s3.room_name} [{s3.capacity}] · {s3.convener or 'Convener 2'} · {s3.tohru_room}")
 
     def _render_empty_views(self):
         self.grid_table.setRowCount(0)
@@ -542,15 +578,203 @@ class SessionPlanWindow(QWidget):
                 return True
         return False
 
-    def _render_overview_grid(self):
-        """Populates the 5-day Overview Grid with full Quarter Times and Sub-Slot timings."""
-        self.grid_table.setRowCount(len(QUARTER_ORDER))
+    def _build_grid_rows(self) -> List[GridRowDescriptor]:
+        """Constructs the 23-row spatial grid descriptors covering quarters and breaks."""
+        rows = []
+        streams = self.active_snapshot.streams if self.active_snapshot else {}
+        for p in PERIOD_ORDER:
+            times = PERIOD_TIMES[p]
+            if any(b in p.lower() for b in ["break", "coffee", "lunch"]):
+                clean_name = (
+                    p.replace(" 1", "")
+                    .replace(" 2", "")
+                    .replace("Coffee", "☕ Coffee Break")
+                    .replace("Break", "☕ Short Break")
+                    .replace("Lunch", "🍱 Lunch Break")
+                )
+                lbl = f"{clean_name}\n{times[0]} – {times[1]}"
+                rows.append(GridRowDescriptor(p, 0, "break", lbl, (times[0], times[1])))
+            else:
+                for s_num in [1, 2, 3]:
+                    s_info = streams.get(s_num)
+                    r_name = s_info.room_name if s_info else ("Main" if s_num == 1 else f"Brk {s_num-1}")
+                    short_r = r_name.split("(")[0].strip()
+                    lbl = f"{p} · Str {s_num} ({short_r})\n{times[0]} – {times[1]}"
+                    rows.append(GridRowDescriptor(p, s_num, "stream", lbl, (times[0], times[1])))
+        return rows
 
-        # 1. Vertical Headers with Full Quarter Times
-        v_headers = [QUARTER_DISPLAY_LABELS.get(q, q) for q in QUARTER_ORDER]
+    def _update_row_visibility(self):
+        """Hides/shows rows according to interactive stream and break toggle checkboxes."""
+        show_s1 = self.btn_toggle_s1.isChecked()
+        show_s2 = self.btn_toggle_s2.isChecked()
+        show_s3 = self.btn_toggle_s3.isChecked()
+        show_breaks = self.chk_breaks.isChecked()
+        hide_empty = self.chk_hide_empty_breaks.isChecked()
+
+        for row_idx, r_desc in enumerate(self.grid_rows):
+            if r_desc.row_type == "stream":
+                if r_desc.stream_number == 1:
+                    self.grid_table.setRowHidden(row_idx, not show_s1)
+                elif r_desc.stream_number == 2:
+                    self.grid_table.setRowHidden(row_idx, not show_s2)
+                elif r_desc.stream_number == 3:
+                    self.grid_table.setRowHidden(row_idx, not show_s3)
+            elif r_desc.row_type == "break":
+                if not show_breaks:
+                    self.grid_table.setRowHidden(row_idx, True)
+                elif hide_empty and r_desc.period in self.empty_break_periods:
+                    self.grid_table.setRowHidden(row_idx, True)
+                else:
+                    self.grid_table.setRowHidden(row_idx, False)
+
+    def _build_rich_slot_tooltip(
+        self, slot: SessionSlot, day_idx: int, period: str, stream_num: int, tu: int
+    ) -> str:
+        """Builds rich formatted HTML tooltip with timing, stream, AI details, notes, and conflicts."""
+        day_name = DAY_NAMES[day_idx]
+        date_str = ""
+        try:
+            base_date = datetime.strptime(self.start_date_str, "%Y-%m-%d").date()
+            cur_date = base_date + timedelta(days=day_idx)
+            date_str = cur_date.strftime("%d %b")
+        except Exception:
+            pass
+
+        times = PERIOD_TIMES.get(period, ("09:00", "10:30"))
+        if tu == 1:
+            s_t, e_t = times[2], times[3]
+            half_lbl = "1st Half (TU 1)"
+        elif tu == 2:
+            s_t, e_t = times[4], times[5]
+            half_lbl = "2nd Half (TU 2)"
+        else:
+            s_t, e_t = times[0], times[1]
+            half_lbl = "Full Quarter"
+
+        time_dual = SessionPlanTimezone.format_dual_time_range(s_t, e_t, self.tz_offset_min)
+
+        s_info = self.active_snapshot.streams.get(stream_num) if self.active_snapshot else None
+        r_name = s_info.room_name if s_info else f"Stream {stream_num}"
+        cap = f" [{s_info.capacity}]" if s_info and s_info.capacity else ""
+        convener = s_info.convener if s_info else ("SA2 Chair / MCC" if stream_num == 1 else "")
+        tohru = s_info.tohru_room if s_info else ""
+
+        ai_bullets = []
+        for it in slot.items:
+            if it.ai_number:
+                ai_info = self.agenda_map.get(it.ai_number)
+                desc = ai_info.description if ai_info else it.topic_label
+                ai_bullets.append(f"• <b>AI {it.ai_number}:</b> {html.escape(desc)}{' [' + it.tdoc_count_str + ']' if it.tdoc_count_str else ''}")
+
+        ann = self.annotations.get(slot.slot_key)
+
+        tt = f"""<div style='font-family:Segoe UI, sans-serif; font-size:12px; min-width:240px; padding:4px;'>
+            <div style='font-weight:bold; font-size:13px; color:#1E293B; margin-bottom:4px;'>
+                📅 {day_name} ({date_str}) · {period} · {half_lbl}
+            </div>
+            <div style='color:#475569; margin-bottom:6px;'>
+                🕒 <b>Time:</b> {time_dual}
+            </div>
+            <div style='color:#475569; margin-bottom:6px;'>
+                🏢 <b>Stream {stream_num}:</b> {r_name}{cap} &nbsp;|&nbsp; 👤 <b>Chair:</b> {convener} &nbsp;|&nbsp; 📡 <b>TOHRU:</b> {tohru}
+            </div>
+            <hr style='border:none; border-top:1px solid #CBD5E1; margin:6px 0;'>
+            <div style='font-weight:bold; color:#0F172A; margin-bottom:4px;'>
+                📋 {html.escape(slot.raw_text)}
+            </div>"""
+
+        if ai_bullets:
+            tt += f"<div style='color:#64748B; font-size:11px; margin-left:4px; margin-top:4px;'>{'<br>'.join(ai_bullets)}</div>"
+
+        if self._is_slot_tracked(slot):
+            tt += "<div style='margin-top:6px; padding:3px 6px; background:#F5F3FF; color:#5B21B6; border-radius:4px; font-weight:600;'>🎯 Tracked in My Topics</div>"
+
+        if ann and (ann.comment or ann.assigned_colleague):
+            c_str = f" ({ann.assigned_colleague})" if ann.assigned_colleague else ""
+            tt += f"<div style='margin-top:4px; padding:3px 6px; background:#F1F5F9; color:#334155; border-radius:4px;'>📝 <b>Note:</b> {html.escape(ann.comment)}{c_str}</div>"
+
+        tt += "</div>"
+        return tt
+
+    def _create_slot_cell_widget(
+        self, slot: SessionSlot, day_idx: int, period: str, stream_num: int, is_half: bool = False, tu: int = 0
+    ) -> QWidget:
+        """Creates clean visual card for a session slot with zero inline timestamps."""
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(4, 3, 4, 3)
+        lay.setSpacing(2)
+
+        lbl = QLabel(slot.raw_text)
+        lbl.setWordWrap(True)
+        lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+        is_tracked = self._is_slot_tracked(slot)
+
+        if slot.is_drafting:
+            lbl.setStyleSheet("background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; border-radius: 4px; padding: 4px; font-weight: 500;")
+        elif is_tracked:
+            lbl.setStyleSheet("background: #F5F3FF; color: #5B21B6; border: 1px solid #DDD6FE; border-radius: 4px; padding: 4px; font-weight: 500;")
+        else:
+            border_c = "#4338CA" if stream_num == 1 else ("#047857" if stream_num == 2 else "#B45309")
+            lbl.setStyleSheet(f"background: #FFFFFF; color: #1E293B; border: 1px solid #E2E8F0; border-left: 3px solid {border_c}; border-radius: 4px; padding: 4px;")
+
+        lay.addWidget(lbl)
+
+        tooltip_html = self._build_rich_slot_tooltip(slot, day_idx, period, stream_num, tu)
+        w.setToolTip(tooltip_html)
+        lbl.setToolTip(tooltip_html)
+        return w
+
+    def _create_break_cell_widget(self, slot: SessionSlot, day_idx: int, period: str) -> QWidget:
+        """Creates cell widget for break drafting sessions or boundary schedules."""
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(4, 2, 4, 2)
+
+        lbl = QLabel(slot.raw_text)
+        lbl.setWordWrap(True)
+        lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+        if slot.is_drafting:
+            lbl.setStyleSheet("background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; border-radius: 4px; padding: 4px; font-weight: 600;")
+        elif slot.is_plenary:
+            lbl.setStyleSheet("background: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 4px; font-weight: 600;")
+        else:
+            lbl.setStyleSheet("background: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 4px; padding: 4px;")
+
+        lay.addWidget(lbl)
+
+        day_name = DAY_NAMES[day_idx]
+        times = PERIOD_TIMES.get(period, ("12:30", "14:00"))
+        time_dual = SessionPlanTimezone.format_dual_time_range(times[0], times[1], self.tz_offset_min)
+        tt = f"""<div style='font-family:Segoe UI, sans-serif; font-size:12px; min-width:220px; padding:4px;'>
+            <div style='font-weight:bold; font-size:13px; color:#1E293B; margin-bottom:4px;'>
+                ☕ {day_name} · {period}
+            </div>
+            <div style='color:#475569; margin-bottom:6px;'>
+                🕒 <b>Time:</b> {time_dual}
+            </div>
+            <hr style='border:none; border-top:1px solid #CBD5E1; margin:6px 0;'>
+            <div style='font-weight:bold; color:#0F172A;'>
+                {html.escape(slot.raw_text)}
+            </div>
+        </div>"""
+        w.setToolTip(tt)
+        lbl.setToolTip(tt)
+        return w
+
+    def _render_overview_grid(self):
+        """Populates the 10-column spatial Overview Grid with separated stream rows, graphical half-quarters, and breaks."""
+        self.grid_table.clearSpans()
+        self.grid_rows = self._build_grid_rows()
+        self.grid_table.setRowCount(len(self.grid_rows))
+
+        # 1. Vertical Headers with Period and Stream/Break
+        v_headers = [r.display_label for r in self.grid_rows]
         self.grid_table.setVerticalHeaderLabels(v_headers)
 
-        # 2. Horizontal Headers with Day and Date
+        # 2. Horizontal Headers with Day and Half-Quarter Columns (10 columns)
         h_headers = []
         try:
             base_date = datetime.strptime(self.start_date_str, "%Y-%m-%d").date()
@@ -562,59 +786,94 @@ class SessionPlanWindow(QWidget):
         for idx, d_name in enumerate(DAY_NAMES):
             if base_date:
                 cur_date = base_date + timedelta(days=idx)
-                d_str = f"{d_name} ({cur_date.strftime('%d %b')})"
+                d_str = f"{d_name[:3]} ({cur_date.strftime('%d %b')})"
                 if cur_date == venue_today:
                     d_str += " 🟢 Today"
-                h_headers.append(d_str)
             else:
-                h_headers.append(d_name)
+                d_str = d_name
+
+            h_headers.append(f"{d_str} · 1st Half")
+            h_headers.append(f"{d_str} · 2nd Half")
 
         self.grid_table.setHorizontalHeaderLabels(h_headers)
 
-        # Group slots by (day_index, quarter)
-        slot_map: Dict[Tuple[int, str], List[SessionSlot]] = {}
+        # Determine which break periods have content
+        active_break_periods = set()
         for s in self.active_snapshot.slots:
-            slot_map.setdefault((s.day_index, s.quarter), []).append(s)
+            if any(b in s.quarter.lower() for b in ["break", "coffee", "lunch"]):
+                if s.raw_text.strip() and s.raw_text.strip() != "-":
+                    active_break_periods.add(s.quarter)
+        self.empty_break_periods = {r.period for r in self.grid_rows if r.row_type == "break" and r.period not in active_break_periods}
 
-        for r_idx, q in enumerate(QUARTER_ORDER):
-            for c_idx in range(5):
-                slots_in_cell = slot_map.get((c_idx, q), [])
-                if not slots_in_cell:
-                    item = QTableWidgetItem("—")
-                    item.setTextAlignment(Qt.AlignCenter)
-                    item.setForeground(QColor("#94A3B8"))
-                    self.grid_table.setItem(r_idx, c_idx, item)
-                    continue
+        # Group slots
+        slot_map: Dict[Tuple[int, str, int], List[SessionSlot]] = {}
+        for s in self.active_snapshot.slots:
+            slot_map.setdefault((s.day_index, s.quarter, s.stream_number), []).append(s)
 
-                # Build multi-stream cell text with exact sub-slot times
-                cell_lines = []
-                is_cell_drafting = False
-                is_cell_tracked = False
+        break_slot_map: Dict[Tuple[int, str], List[SessionSlot]] = {}
+        for s in self.active_snapshot.slots:
+            if any(b in s.quarter.lower() for b in ["break", "coffee", "lunch"]):
+                break_slot_map.setdefault((s.day_index, s.quarter), []).append(s)
 
-                for s in sorted(slots_in_cell, key=lambda x: (x.sub_slot, x.stream_number)):
-                    if s.sub_slot > 0:
-                        time_tag = f"({s.start_time_local}–{s.end_time_local})"
-                        cell_lines.append(f"<b>Str {s.stream_number} [TU {s.sub_slot} {time_tag}]:</b> {s.raw_text}")
+        for row_idx, r_desc in enumerate(self.grid_rows):
+            if r_desc.row_type == "stream":
+                for day_idx in range(5):
+                    tu1_col = day_idx * 2
+                    tu2_col = day_idx * 2 + 1
+                    matching = slot_map.get((day_idx, r_desc.period, r_desc.stream_number), [])
+
+                    full_slot = next((s for s in matching if s.sub_slot == 0), None)
+                    tu1_slot = next((s for s in matching if s.sub_slot == 1), None)
+                    tu2_slot = next((s for s in matching if s.sub_slot == 2), None)
+
+                    if full_slot:
+                        self.grid_table.setSpan(row_idx, tu1_col, 1, 2)
+                        w = self._create_slot_cell_widget(full_slot, day_idx, r_desc.period, r_desc.stream_number, is_half=False, tu=0)
+                        self.grid_table.setCellWidget(row_idx, tu1_col, w)
+                    elif tu1_slot or tu2_slot:
+                        if tu1_slot:
+                            w1 = self._create_slot_cell_widget(tu1_slot, day_idx, r_desc.period, r_desc.stream_number, is_half=True, tu=1)
+                            self.grid_table.setCellWidget(row_idx, tu1_col, w1)
+                        else:
+                            item_e = QTableWidgetItem("—")
+                            item_e.setTextAlignment(Qt.AlignCenter)
+                            item_e.setForeground(QColor("#CBD5E1"))
+                            self.grid_table.setItem(row_idx, tu1_col, item_e)
+
+                        if tu2_slot:
+                            w2 = self._create_slot_cell_widget(tu2_slot, day_idx, r_desc.period, r_desc.stream_number, is_half=True, tu=2)
+                            self.grid_table.setCellWidget(row_idx, tu2_col, w2)
+                        else:
+                            item_e = QTableWidgetItem("—")
+                            item_e.setTextAlignment(Qt.AlignCenter)
+                            item_e.setForeground(QColor("#CBD5E1"))
+                            self.grid_table.setItem(row_idx, tu2_col, item_e)
                     else:
-                        cell_lines.append(f"<b>Str {s.stream_number}:</b> {s.raw_text}")
+                        self.grid_table.setSpan(row_idx, tu1_col, 1, 2)
+                        item_e = QTableWidgetItem("—")
+                        item_e.setTextAlignment(Qt.AlignCenter)
+                        item_e.setForeground(QColor("#E2E8F0"))
+                        self.grid_table.setItem(row_idx, tu1_col, item_e)
 
-                    if s.is_drafting:
-                        is_cell_drafting = True
-                    if self._is_slot_tracked(s):
-                        is_cell_tracked = True
+            elif r_desc.row_type == "break":
+                for day_idx in range(5):
+                    tu1_col = day_idx * 2
+                    self.grid_table.setSpan(row_idx, tu1_col, 1, 2)
+                    matching_b = break_slot_map.get((day_idx, r_desc.period), [])
+                    valid_b = [s for s in matching_b if s.raw_text.strip() and s.raw_text.strip() != "-"]
+                    if valid_b:
+                        w = self._create_break_cell_widget(valid_b[0], day_idx, r_desc.period)
+                        self.grid_table.setCellWidget(row_idx, tu1_col, w)
+                    else:
+                        item_b = QTableWidgetItem("—")
+                        item_b.setTextAlignment(Qt.AlignCenter)
+                        item_b.setForeground(QColor("#CBD5E1"))
+                        item_b.setBackground(QColor("#F8FAFC"))
+                        times = PERIOD_TIMES[r_desc.period]
+                        item_b.setToolTip(f"{r_desc.period}: {times[0]} – {times[1]} (Break)")
+                        self.grid_table.setItem(row_idx, tu1_col, item_b)
 
-                cell_widget = QLabel("<br>".join(cell_lines))
-                cell_widget.setWordWrap(True)
-                cell_widget.setContentsMargins(6, 6, 6, 6)
-
-                if is_cell_drafting:
-                    cell_widget.setStyleSheet("background: #FEF2F2; color: #991B1B; border-radius: 4px; padding: 4px;")
-                elif is_cell_tracked:
-                    cell_widget.setStyleSheet("background: #F5F3FF; color: #5B21B6; border-radius: 4px; padding: 4px;")
-                else:
-                    cell_widget.setStyleSheet("padding: 4px;")
-
-                self.grid_table.setCellWidget(r_idx, c_idx, cell_widget)
+        self._update_row_visibility()
 
     def _render_agenda_mode(self):
         """Cross-references Agenda document items against allocated slots with 1-click ⭐ Track."""
@@ -846,11 +1105,21 @@ class SessionPlanWindow(QWidget):
         self.search_input.setText(ai_num)
 
     def _on_grid_cell_double_clicked(self, row: int, col: int):
-        q = QUARTER_ORDER[row]
-        day = DAY_NAMES[col]
-        slot_key = f"{day}|{q}|0|1"
+        if row < 0 or row >= len(self.grid_rows):
+            return
+        r_desc = self.grid_rows[row]
+        day_idx = col // 2
+        if day_idx < 0 or day_idx >= len(DAY_NAMES):
+            return
+        day = DAY_NAMES[day_idx]
+        span = self.grid_table.columnSpan(row, col)
+        tu = 1 if col % 2 == 0 else 2
+        sub_slot = 0 if span == 2 else tu
+
+        slot_key = f"{day}|{r_desc.period}|{sub_slot}|{r_desc.stream_number}"
         ann = self.annotations.get(slot_key)
-        dlg = SessionPlanNoteDialog(f"{day} {q}", ann, self)
+        label = f"{day} {r_desc.period} (Str {r_desc.stream_number})" if r_desc.stream_number > 0 else f"{day} {r_desc.period}"
+        dlg = SessionPlanNoteDialog(label, ann, self)
         if dlg.exec_() == QDialog.Accepted:
             badge, colleague, comment = dlg.get_data()
             self.db.set_annotation(
@@ -867,30 +1136,50 @@ class SessionPlanWindow(QWidget):
     def _on_drafting_cell_double_clicked(self, row: int, col: int):
         d_item = self.drafting_table.item(row, 0)
         q_item = self.drafting_table.item(row, 1)
+        s_item = self.drafting_table.item(row, 3)
         if not d_item or not q_item:
             return
         d_name = d_item.text().strip()
         q_name = q_item.text().strip()
-        if d_name in DAY_NAMES and q_name in QUARTER_ORDER:
-            c = DAY_NAMES.index(d_name)
-            r = QUARTER_ORDER.index(q_name)
-            self.btn_grid.setChecked(True)
-            self.view_stack.setCurrentIndex(0)
-            self.grid_table.setCurrentCell(r, c)
+        m_s = re.search(r"Str\s*(\d+)", s_item.text() if s_item else "")
+        stream_num = int(m_s.group(1)) if m_s else 1
+
+        if d_name in DAY_NAMES:
+            day_idx = DAY_NAMES.index(d_name)
+            target_row = None
+            for r_i, r_d in enumerate(self.grid_rows):
+                if r_d.period == q_name and (r_d.stream_number == stream_num or r_d.row_type == "break"):
+                    target_row = r_i
+                    break
+
+            if target_row is not None:
+                self.btn_grid.setChecked(True)
+                self.view_stack.setCurrentIndex(0)
+                self.grid_table.setCurrentCell(target_row, day_idx * 2)
 
     def _on_tracked_cell_double_clicked(self, row: int, col: int):
         d_item = self.tracked_table.item(row, 0)
         q_item = self.tracked_table.item(row, 1)
+        s_item = self.tracked_table.item(row, 3)
         if not d_item or not q_item:
             return
         d_name = d_item.text().strip()
         q_name = q_item.text().strip()
-        if d_name in DAY_NAMES and q_name in QUARTER_ORDER:
-            c = DAY_NAMES.index(d_name)
-            r = QUARTER_ORDER.index(q_name)
-            self.btn_grid.setChecked(True)
-            self.view_stack.setCurrentIndex(0)
-            self.grid_table.setCurrentCell(r, c)
+        m_s = re.search(r"Str\s*(\d+)", s_item.text() if s_item else "")
+        stream_num = int(m_s.group(1)) if m_s else 1
+
+        if d_name in DAY_NAMES:
+            day_idx = DAY_NAMES.index(d_name)
+            target_row = None
+            for r_i, r_d in enumerate(self.grid_rows):
+                if r_d.period == q_name and (r_d.stream_number == stream_num or r_d.row_type == "break"):
+                    target_row = r_i
+                    break
+
+            if target_row is not None:
+                self.btn_grid.setChecked(True)
+                self.view_stack.setCurrentIndex(0)
+                self.grid_table.setCurrentCell(target_row, day_idx * 2)
 
     def _on_tracked_context_menu(self, pos: QPoint):
         r = self.tracked_table.rowAt(pos.y())
@@ -934,27 +1223,41 @@ class SessionPlanWindow(QWidget):
         QApplication.clipboard().setText(" | ".join(parts))
 
     def _on_grid_context_menu(self, pos: QPoint):
-        item = self.grid_table.itemAt(pos)
         r = self.grid_table.rowAt(pos.y())
         c = self.grid_table.columnAt(pos.x())
-        if r < 0 or c < 0:
+        if r < 0 or c < 0 or r >= len(self.grid_rows):
             return
 
-        q = QUARTER_ORDER[r]
-        day = DAY_NAMES[c]
+        r_desc = self.grid_rows[r]
+        day_idx = c // 2
+        if day_idx < 0 or day_idx >= len(DAY_NAMES):
+            return
+        day = DAY_NAMES[day_idx]
+        span = self.grid_table.columnSpan(r, c)
+        tu = 1 if c % 2 == 0 else 2
+        sub_slot = 0 if span == 2 else tu
 
         # Find slots in this cell
-        slots_here = [s for s in self.active_snapshot.slots if s.day_index == c and s.quarter == q] if self.active_snapshot else []
+        if r_desc.row_type == "stream":
+            slots_here = [
+                s for s in (self.active_snapshot.slots if self.active_snapshot else [])
+                if s.day_index == day_idx and s.quarter == r_desc.period and s.stream_number == r_desc.stream_number and (s.sub_slot == sub_slot or s.sub_slot == 0)
+            ]
+        else:
+            slots_here = [
+                s for s in (self.active_snapshot.slots if self.active_snapshot else [])
+                if s.day_index == day_idx and s.quarter == r_desc.period
+            ]
 
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
 
-        act_note = menu.addAction(f"📝 Edit Note / Priority for {day} {q}...")
+        lbl_target = f"{day} {r_desc.period} (Str {r_desc.stream_number})" if r_desc.stream_number > 0 else f"{day} {r_desc.period}"
+        act_note = menu.addAction(f"📝 Edit Note / Priority for {lbl_target}...")
         act_note.triggered.connect(lambda: self._on_grid_cell_double_clicked(r, c))
 
         if slots_here:
             menu.addSeparator()
-            # Add track options for extracted topics
             for s in slots_here:
                 for it in s.items:
                     label = it.topic_label or f"AI {it.ai_number}"
@@ -965,7 +1268,15 @@ class SessionPlanWindow(QWidget):
                     act_tr = menu.addAction(f"{'⭐ Untrack' if is_tr else '⭐ Track'}: {label[:40]}")
                     act_tr.triggered.connect(lambda _, tok=token, lbl=label: self._toggle_track_ai(tok, lbl))
 
+            menu.addSeparator()
+            act_copy = menu.addAction("📋 Copy Slot Details")
+            act_copy.triggered.connect(lambda: self._copy_slot_text(slots_here[0].raw_text))
+
         menu.exec_(self.grid_table.viewport().mapToGlobal(pos))
+
+    def _copy_slot_text(self, text: str):
+        from PyQt5.QtWidgets import QApplication
+        QApplication.clipboard().setText(text)
 
     def _on_snapshot_changed(self, idx: int):
         snap_id = self.snap_combo.itemData(idx)

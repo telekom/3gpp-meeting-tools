@@ -208,9 +208,9 @@ class SessionPlanExporter:
             html_parts.append(f'<div id="day-{d_name}" class="day-section"{day_display}>\n')
 
             q_map = slots_by_day_q.get(d_name, {})
-            # Standard quarter order
-            q_order = ["Q0", "Q1", "Q2", "Lunch", "Q3", "Q4", "Q5"]
-            for q in q_order:
+            # Standard period order including breaks
+            from modules.meetings.core.session_plan_parser import PERIOD_ORDER
+            for q in PERIOD_ORDER:
                 if q not in q_map:
                     continue
                 slots_in_q = q_map[q]
