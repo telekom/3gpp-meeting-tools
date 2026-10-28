@@ -554,7 +554,11 @@ class NASVersionTreeWidget(QTreeWidget):
 
 
 RE_NAS_CROSS_REF = re.compile(
-    r"(?:see\s+)?(?:subclause|clause|sub-clause)\s+([0-9A-Za-z\.]+)\s+in\s+(?:3GPP\s+)?TS\s+(24\.(?:301|501))",
+    r"(?:see\s+)?(?:subclause|clause|sub-clause)\s+([0-9A-Za-z\.]+)\s+in\s+(?:3GPP\s+)?TS\s+(24\.(?:301|501|526|588|555|578|514))",
+    re.IGNORECASE,
+)
+RE_EXPLICIT_SPEC_REF = re.compile(
+    r"^TS\s+((?:24|25|29|36|37|38)\.[0-9]{3})\s+([0-9A-Za-z\.]+)$",
     re.IGNORECASE,
 )
 
@@ -1030,7 +1034,35 @@ class NASInspectorWidget(QFrame):
             for kw in ("ENUMERATED", "INTEGER", "BOOLEAN", "BIT STRING", "OCTET STRING", "NULL", "CHOICE", "SEQUENCE")
         )
 
-        if is_inline_type or fallback_type_ref:
+        match_explicit = RE_EXPLICIT_SPEC_REF.match(fallback_type_ref.strip())
+        if match_explicit:
+            ext_spec = match_explicit.group(1)
+            ext_clause = match_explicit.group(2)
+            ext_meta = get_spec_metadata(ext_spec)
+            html_output = (
+                f'<h2 style="color: #0369A1; margin-top: 2px; margin-bottom: 8px; '
+                f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
+                f'{html.escape(ie_name)} (TS {html.escape(ext_spec)} Clause {html.escape(ext_clause)})</h2>'
+                f'<div style="margin-top: 10px; border: 1px solid #FCD34D; background-color: #FFFBEB; border-radius: 6px; padding: 12px; border-left: 4px solid #F59E0B; font-family: Segoe UI, sans-serif;">'
+                f'<div style="font-weight: bold; color: #92400E; font-size: 12px; margin-bottom: 4px;">'
+                f'ℹ️ Cross-Specification Reference: TS {html.escape(ext_spec)} — {html.escape(ext_meta.get("title", ""))} (Clause {html.escape(ext_clause)})'
+                f'</div>'
+                f'<div style="color: #78350F; font-size: 11px; line-height: 1.5;">'
+                f'This UE policy structure is defined in <b>3GPP TS {html.escape(ext_spec)} Clause {html.escape(ext_clause)}</b>, which is not currently present in your local database.<br/>'
+                f'<p style="margin-top: 8px; margin-bottom: 2px;">'
+                f'<a href="action:import:{ext_spec}:0" style="display: inline-block; background-color: #0284C7; color: #FFFFFF; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 11px;">'
+                f'📥 Import TS {html.escape(ext_spec)} from 3GPP Archive'
+                f'</a>'
+                f'</p>'
+                f'</div>'
+                f'</div>'
+            )
+            self._current_html_content = html_output
+            self.text_area.setHtml(html_output)
+            self._update_open_spec_menu()
+            self.stack.setCurrentIndex(1)
+            self.copy_btn.setEnabled(True)
+        elif is_inline_type or fallback_type_ref:
             html_output = self._render_inline_type_html(
                 ie_name=ie_name,
                 type_ref=fallback_type_ref,
@@ -1054,64 +1086,77 @@ class NASInspectorWidget(QFrame):
         base_html = definition.get("raw_description", "")
         current_spec = definition.get("spec_number", "")
         current_ver_str = definition.get("version", "")
+        current_clause = definition.get("clause", "")
 
-        # Check for 4G <-> 5G cross-specification references
+        # Check for 4G <-> 5G and UE Policy (24.501 -> 24.526) cross-specification references
         if self.db and current_spec in ("24.501", "24.301"):
+            cross_targets: List[Tuple[str, str]] = []
             match = RE_NAS_CROSS_REF.search(base_html)
             if match:
                 target_clause = match.group(1).rstrip(".[] ")
                 target_spec = match.group(2).strip()
-
                 if target_spec != current_spec:
-                    ver_tuple = parse_version_tuple(current_ver_str)
-                    major_ver = (ver_tuple[0][1] if isinstance(ver_tuple[0], tuple) else ver_tuple[0]) if ver_tuple else 15
+                    cross_targets.append((target_spec, target_clause))
+            elif current_spec == "24.501" and current_clause in ("D.6.2", "D.6.8") and "24.526" in base_html:
+                cross_targets.append(("24.526", "5.2"))
 
+            ver_tuple = parse_version_tuple(current_ver_str)
+            major_ver = (ver_tuple[0][1] if isinstance(ver_tuple[0], tuple) else ver_tuple[0]) if ver_tuple else 15
+
+            for target_spec, target_clause in cross_targets:
+                cross_def = self.db.get_cross_referenced_ie_definition(
+                    target_spec=target_spec,
+                    target_clause=target_clause,
+                    alt_name=definition.get("ie_name", ""),
+                    major_version=major_ver,
+                )
+                if not cross_def:
                     cross_def = self.db.get_cross_referenced_ie_definition(
                         target_spec=target_spec,
                         target_clause=target_clause,
-                        alt_name=definition.get("ie_name", ""),
-                        major_version=major_ver,
+                        alt_name="",
+                        major_version=None,
                     )
 
-                    if cross_def and cross_def.get("raw_description"):
-                        cross_body = cross_def.get("raw_description", "").strip()
-                        c_ver = cross_def.get("version", "")
-                        c_cl = cross_def.get("clause", target_clause)
-                        cross_html = (
-                            f'<div style="margin-top: 14px; border: 1.5px solid #0284C7; background-color: #F0F9FF; border-radius: 6px; padding: 12px;">'
-                            f'<div style="margin-bottom: 10px; border-bottom: 1px solid #BAE6FD; padding-bottom: 6px;">'
-                            f'<span style="font-size: 12px; font-weight: bold; color: #0369A1;">'
-                            f'<a href="action:open_spec:{target_spec}:{c_ver}:{c_cl}" style="color: #0369A1; text-decoration: underline;" title="Click to open TS {target_spec} v{c_ver} in Word">'
-                            f'🔗 Cross-Referenced from TS {target_spec} v{c_ver} (Clause {c_cl}) [Open Word]'
-                            f'</a>'
-                            f'</span>'
-                            f'<span style="font-size: 10px; color: #0284C7; margin-left: 8px; background-color: #E0F2FE; padding: 2px 6px; border-radius: 3px; border: 1px solid #7DD3FC;">'
-                            f'Rel-{major_ver} latest'
-                            f'</span>'
-                            f'</div>'
-                            f'<div style="background-color: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 4px; padding: 10px;">'
-                            f'{cross_body}'
-                            f'</div>'
-                            f'</div>'
-                        )
-                        base_html += cross_html
-                    else:
-                        missing_html = (
-                            f'<div style="margin-top: 14px; border: 1px solid #FCD34D; background-color: #FFFBEB; border-radius: 6px; padding: 10px; border-left: 4px solid #F59E0B; font-family: Segoe UI, sans-serif;">'
-                            f'<div style="font-weight: bold; color: #92400E; font-size: 12px; margin-bottom: 4px;">'
-                            f'ℹ️ Cross-Specification Reference: TS {target_spec} (Clause {target_clause})'
-                            f'</div>'
-                            f'<div style="color: #78350F; font-size: 11px; line-height: 1.5;">'
-                            f'This Information Element references <b>TS {target_spec} (Release {major_ver})</b>, which is not currently present in your local database.<br/>'
-                            f'<p style="margin-top: 6px; margin-bottom: 2px;">'
-                            f'<a href="action:import:{target_spec}:{major_ver}" style="display: inline-block; background-color: #0284C7; color: #FFFFFF; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 11px;">'
-                            f'📥 Import TS {target_spec} (Rel-{major_ver}) from 3GPP Archive'
-                            f'</a>'
-                            f'</p>'
-                            f'</div>'
-                            f'</div>'
-                        )
-                        base_html += missing_html
+                if cross_def and cross_def.get("raw_description"):
+                    cross_body = cross_def.get("raw_description", "").strip()
+                    c_ver = cross_def.get("version", "")
+                    c_cl = cross_def.get("clause", target_clause)
+                    cross_html = (
+                        f'<div style="margin-top: 14px; border: 1.5px solid #0284C7; background-color: #F0F9FF; border-radius: 6px; padding: 12px;">'
+                        f'<div style="margin-bottom: 10px; border-bottom: 1px solid #BAE6FD; padding-bottom: 6px;">'
+                        f'<span style="font-size: 12px; font-weight: bold; color: #0369A1;">'
+                        f'<a href="action:open_spec:{target_spec}:{c_ver}:{c_cl}" style="color: #0369A1; text-decoration: underline;" title="Click to open TS {target_spec} v{c_ver} in Word">'
+                        f'🔗 Cross-Referenced from TS {target_spec} v{c_ver} (Clause {c_cl}) [Open Word]'
+                        f'</a>'
+                        f'</span>'
+                        f'<span style="font-size: 10px; color: #0284C7; margin-left: 8px; background-color: #E0F2FE; padding: 2px 6px; border-radius: 3px; border: 1px solid #7DD3FC;">'
+                        f'v{c_ver}'
+                        f'</span>'
+                        f'</div>'
+                        f'<div style="background-color: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 4px; padding: 10px;">'
+                        f'{cross_body}'
+                        f'</div>'
+                        f'</div>'
+                    )
+                    base_html += cross_html
+                else:
+                    missing_html = (
+                        f'<div style="margin-top: 14px; border: 1px solid #FCD34D; background-color: #FFFBEB; border-radius: 6px; padding: 10px; border-left: 4px solid #F59E0B; font-family: Segoe UI, sans-serif;">'
+                        f'<div style="font-weight: bold; color: #92400E; font-size: 12px; margin-bottom: 4px;">'
+                        f'ℹ️ Cross-Specification Reference: TS {target_spec} (Clause {target_clause})'
+                        f'</div>'
+                        f'<div style="color: #78350F; font-size: 11px; line-height: 1.5;">'
+                        f'This Information Element references <b>TS {target_spec} (Release {major_ver})</b>, which is not currently present in your local database.<br/>'
+                        f'<p style="margin-top: 6px; margin-bottom: 2px;">'
+                        f'<a href="action:import:{target_spec}:{major_ver}" style="display: inline-block; background-color: #0284C7; color: #FFFFFF; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 11px;">'
+                        f'📥 Import TS {target_spec} (Rel-{major_ver}) from 3GPP Archive'
+                        f'</a>'
+                        f'</p>'
+                        f'</div>'
+                        f'</div>'
+                    )
+                    base_html += missing_html
 
         self._current_html_content = base_html
         self.text_area.setHtml(base_html)

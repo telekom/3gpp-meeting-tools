@@ -18,8 +18,13 @@ progress callback.
 
 ## Files
 
-- `nas_parser.py` — NAS message definitions and IE coding tables (for example,
-  TS 24.501/24.301/24.008); the dispatcher's fallback parser.
+- `nas_parser.py` — NAS & UE Policy message definitions and IE coding tables
+  (TS 24.501, TS 24.301, TS 24.526, TS 24.008); the dispatcher's fallback parser.
+  Supports Clause 8 / Annex D.5 message content tables, Clause 9 / Annex D.6 IE
+  coding definitions, container unrolling (`Payload container`, `UE policy section
+  management list`, `Service-level-AA container`, `Type 6 IE container`, `ePCO`),
+  and TS 24.526 Clause 5.2 (URSP rules) / Clause 5.3 (ANDSP / WLANSP / N3AN)
+  policy rule hierarchies.
 - `pfcp_parser.py` — PFCP message tables, type registry, grouped IEs, and field
   expansion (TS 29.244).
 - `gtpu_parser.py` — GTP-U message tables and type/extension-header registries
@@ -37,7 +42,9 @@ progress callback.
   (supported specs are listed in the dispatcher).
 - `protocol_parser_utils.py` — shared DOCX archive/XML loading, Word paragraph
   and table-cell text extraction with Unicode superscript/subscript preservation
-  (e.g., preserving `2⁴⁰ - 1`), and conversion of Word tables to HTML.
+  (e.g., preserving `2⁴⁰ - 1`), multi-line `<w:br/>` and paragraph break
+  preservation inside coding tables, half-octet `<w:vMerge>` split-row collapsing
+  (`_collapse_word_half_octet_layout_rows`), and conversion of Word tables to HTML.
 - `protocol_parser_constants.py` — WordprocessingML namespace/tag constants
   and shared regular expressions for filenames, clauses, captions, and ASN.1.
 - `__init__.py` — package marker.

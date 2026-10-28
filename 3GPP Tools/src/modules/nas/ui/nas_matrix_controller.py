@@ -6,6 +6,7 @@ from PyQt5.QtCore import QModelIndex, QPoint, Qt
 from PyQt5.QtWidgets import QAction, QMenu
 
 RE_SPEC_FROM_COL = re.compile(r"(?:24|25|29|36|37|38)\.[0-9]{3}")
+RE_EXPLICIT_SPEC_REF = re.compile(r"^TS\s+((?:24|25|29|36|37|38)\.[0-9]{3})\s+([0-9A-Za-z\.]+)$", re.IGNORECASE)
 RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|5|4|D\.6)(?:\.[0-9A-Za-z]+)+)")
 
 
@@ -63,11 +64,28 @@ def handle_table_cell_click(tab: Any, index: QModelIndex) -> None:
             spec_num = match_spec.group(0)
         target_version_hint = col_name
 
+    match_explicit_spec = RE_EXPLICIT_SPEC_REF.match(type_ref.strip())
+    explicit_target_spec = match_explicit_spec.group(1) if match_explicit_spec else None
+
     match_clause = RE_CLAUSE_FROM_REF.search(type_ref)
-    clause = match_clause.group(1).strip() if match_clause else ie_name
+    clause = (
+        match_explicit_spec.group(2).strip()
+        if match_explicit_spec
+        else (match_clause.group(1).strip() if match_clause else ie_name)
+    )
 
     defs = []
-    if clean_type:
+    if explicit_target_spec:
+        spec_num = explicit_target_spec
+        clean_type = ""
+        defs = tab.db.get_ie_definitions_by_clause(
+            clause=clause,
+            alt_name=ie_name,
+            spec_number=explicit_target_spec,
+            version_ids=None,
+        )
+
+    if not defs and clean_type:
         defs = tab.db.get_ie_definitions_by_clause(
             clause=clean_type,
             alt_name=ie_name,
@@ -83,7 +101,7 @@ def handle_table_cell_click(tab: Any, index: QModelIndex) -> None:
             clause=clause,
             alt_name=ie_name,
             spec_number=spec_num,
-            version_ids=tab.selected_version_ids,
+            version_ids=None if explicit_target_spec else tab.selected_version_ids,
         )
 
     tab.inspector.display_definitions(

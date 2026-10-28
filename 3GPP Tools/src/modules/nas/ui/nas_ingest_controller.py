@@ -188,6 +188,9 @@ def import_cross_ref_spec_requested(tab, spec_number: str, major_version: int):
                     dialog.table.selectRow(row)
                     dialog.table.scrollToItem(item)
                     break
+    elif dialog.table.rowCount() > 0:
+        dialog.table.selectRow(0)
+        dialog.table.scrollToItem(dialog.table.item(0, 0))
 
     if dialog.exec_() == QDialog.Accepted and dialog.selected_files_info:
         start_batch_ingestion(tab, dialog.selected_files_info)
