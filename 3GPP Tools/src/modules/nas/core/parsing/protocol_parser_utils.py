@@ -8,8 +8,14 @@ from xml.etree import ElementTree as ET
 
 from lxml import etree as ET
 
-from modules.nas.core.parsing.protocol_parser_constants import TAG_T, TAG_TAB, TAG_BR, TAG_CR, TAG_HYPHEN, TAG_P, \
-    TAG_TR, TAG_TC, TAG_TCPR, TAG_GRIDSPAN, W_NS, TAG_VMERGE
+from modules.nas.core.parsing.protocol_parser_constants import (
+    TAG_T, TAG_TAB, TAG_BR, TAG_CR, TAG_HYPHEN, TAG_P,
+    TAG_TR, TAG_TC, TAG_TCPR, TAG_GRIDSPAN, W_NS, TAG_VMERGE,
+    TAG_R, TAG_RPR, TAG_VERTALIGN
+)
+
+_SUPERSCRIPT_TRANS = str.maketrans("0123456789+-=()", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾")
+_SUBSCRIPT_TRANS = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎")
 
 
 def extract_document_root(docx_path: Path) -> Optional[ET.Element]:
@@ -28,12 +34,26 @@ def extract_document_root(docx_path: Path) -> Optional[ET.Element]:
 
 
 def _extract_p_text(p_elem: ET.Element) -> str:
-    """Extracts clean text from a <w:p> node, preserving spaces, tabs, and line breaks."""
+    """Extracts clean text from a <w:p> node, preserving spaces, tabs, line breaks, and numeric superscripts."""
     text_pieces: List[str] = []
+    current_valign: Optional[str] = None
+
     for node in p_elem.iter():
         tag = node.tag
-        if tag == TAG_T and node.text:
-            text_pieces.append(node.text)
+        if tag == TAG_R:
+            current_valign = None
+            rpr = node.find(TAG_RPR)
+            if rpr is not None:
+                va = rpr.find(TAG_VERTALIGN)
+                if va is not None:
+                    current_valign = va.get(f"{W_NS}val")
+        elif tag == TAG_T and node.text:
+            txt = node.text
+            if current_valign == "superscript" and any(ch.isdigit() for ch in txt):
+                txt = txt.translate(_SUPERSCRIPT_TRANS)
+            elif current_valign == "subscript" and any(ch.isdigit() for ch in txt):
+                txt = txt.translate(_SUBSCRIPT_TRANS)
+            text_pieces.append(txt)
         elif tag == TAG_TAB:
             text_pieces.append(" ")
         elif tag in (TAG_BR, TAG_CR):

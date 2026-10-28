@@ -27,14 +27,17 @@ progress callback.
 - `pdu_session_up_parser.py` — PDU Session User Plane frame tables and field
   definitions (TS 38.415).
 - `asn1_base_parser.py` — shared ASN.1 DOCX scanning, extraction of type
-  definitions and field descriptions, ASN.1 token/field parsing, and inspector
-  HTML construction.
+  definitions and field descriptions, ASN.1 token/field parsing, trailing comma
+  sanitization, and inspector HTML construction.
 - `rrc_asn1_parser.py` — RRC ASN.1 message selection and field unrolling, built
   on `BaseAsn1DocxParser` (TS 36.331/38.331).
-- `ran3_asn1_parser.py` — RAN3 ASN.1 object-set and protocol IE extraction,
-  built on `BaseAsn1DocxParser` (supported specs are listed in the dispatcher).
+- `ran3_asn1_parser.py` — RAN3 ASN.1 object-set, `SEQUENCE OF` list unrolling,
+  `ProtocolExtensionContainer` resolution, `MessageType` synthesis, and protocol
+  IE extraction with Assigned Criticality tracking, built on `BaseAsn1DocxParser`
+  (supported specs are listed in the dispatcher).
 - `protocol_parser_utils.py` — shared DOCX archive/XML loading, Word paragraph
-  and table-cell text extraction, and conversion of Word tables to HTML.
+  and table-cell text extraction with Unicode superscript/subscript preservation
+  (e.g., preserving `2⁴⁰ - 1`), and conversion of Word tables to HTML.
 - `protocol_parser_constants.py` — WordprocessingML namespace/tag constants
   and shared regular expressions for filenames, clauses, captions, and ASN.1.
 - `__init__.py` — package marker.

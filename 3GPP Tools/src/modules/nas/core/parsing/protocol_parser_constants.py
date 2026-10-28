@@ -19,6 +19,9 @@ TAG_GRIDSPAN = f"{W_NS}gridSpan"
 TAG_VMERGE = f"{W_NS}vMerge"
 TAG_PPR = f"{W_NS}pPr"
 TAG_JC = f"{W_NS}jc"
+TAG_R = f"{W_NS}r"
+TAG_RPR = f"{W_NS}rPr"
+TAG_VERTALIGN = f"{W_NS}vertAlign"
 
 # Path & Specification Number Regular Expressions
 RE_PART_INDEX = re.compile(r"_s(\d+)(?:_s\d+)?|_part(\d+)|_(\d+)_|_(\d+)\.(?:docx|doc)$", re.IGNORECASE)
@@ -39,6 +42,7 @@ def extract_part_index(path_or_name: Any) -> int:
             return int(g)
     return 0
 
+
 # Headings & Captions
 RE_CLAUSE_HEADER = re.compile(r"^((?:6|7|8|9|D\.6)(?:\.[0-9A-Za-z]+)+)\s*(.*)$")
 RE_DESC_TABLE = re.compile(r"([A-Za-z0-9\-_]+)\s+field\s+descriptions", re.IGNORECASE)
@@ -57,13 +61,13 @@ RE_STRIP_KEYWORDS = re.compile(r"\s+(?:OPTIONAL|MANDATORY|DEFAULT\s+[^,\s]+).*",
 RE_COND_NEED = re.compile(r"--\s*(Cond\s+[A-Za-z0-9\-]+|Need\s+[MNRS])", re.IGNORECASE)
 
 # RAN3 Information Object Sets
-RE_IE_ID_CONST = re.compile(r"^(id-[A-Za-z0-9\-]+)\s+(?:ProtocolIE-ID|INTEGER)\s*::=\s*(\d+)", re.MULTILINE)
+RE_IE_ID_CONST = re.compile(r"^(id-[A-Za-z0-9\-]+)\s+(?:ProtocolIE-ID|ProcedureCode|INTEGER)\s*::=\s*(\d+)", re.MULTILINE)
 RE_OBJECT_SET_ITEM = re.compile(
     r"\{\s*ID\s+([A-Za-z0-9\-]+)\s+CRITICALITY\s+([A-Za-z0-9\-]+)\s+(?:TYPE|EXTENSION)\s+([A-Za-z0-9\-]+(?:\s*\{[^}]*\})?)\s+PRESENCE\s+([A-Za-z0-9\-]+)\s*\}",
     re.DOTALL
 )
 RE_CONTAINER_REF = re.compile(
-    r"Protocol(?:IE|Extension)-(?:Container|SingleContainer|ContainerList|ContainerPair)\s*\{[^}]*\{\s*([A-Za-z0-9\-]+)\s*\}\s*\}",
+    r"Protocol(?:IE|Extension)-?(?:Container|SingleContainer|ContainerList|ContainerPair)\s*\{[^}]*\{\s*([A-Za-z0-9\-]+)\s*\}\s*\}",
     re.IGNORECASE
 )
 RE_ELEM_PROC_MSG = re.compile(
