@@ -16,3 +16,8 @@ src/db/3gpp_spec_history.db*
 src/db/*.db*
 .idea/
 .ipynb_checkpoints/
+
+# User-defined presets & local configurations (not committed to git)
+src/config/*_user.json
+src/config/plantuml_presets_user.json
+

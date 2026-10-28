@@ -439,10 +439,28 @@ class CodeDropTextEdit(QPlainTextEdit):
                 act.triggered.connect(lambda checked, s=snip: self.insert_snippet(s))
                 cat_menu.addAction(act)
 
+        insert_menu.addSeparator()
+        add_preset_act = QAction("➕ Add Custom Preset...", self)
+        add_preset_act.triggered.connect(self._open_add_preset_dialog)
+        insert_menu.addAction(add_preset_act)
+
+        reload_act = QAction("🔄 Reload Presets from Disk", self)
+        reload_act.triggered.connect(self._reload_presets)
+        insert_menu.addAction(reload_act)
+
         menu.addMenu(insert_menu)
         menu.exec_(event.globalPos())
 
     # -------------------------------------------------------------------------
+    def _open_add_preset_dialog(self):
+        from modules.puml2visio.ui.preset_dialog import UserPresetDialog
+        dialog = UserPresetDialog(parent=self)
+        dialog.exec_()
+
+    def _reload_presets(self):
+        from modules.puml2visio.templates.plantuml_snippets import reload_snippets
+        reload_snippets()
+
     # Drag & Drop for .vsdx file extraction
     # -------------------------------------------------------------------------
     def dragEnterEvent(self, event):

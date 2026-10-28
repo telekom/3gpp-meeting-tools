@@ -1,12 +1,19 @@
 # --- File: src/modules/puml2visio/templates/plantuml_snippets.py ---
-"""Declarative catalog of PlantUML syntax elements, snippets, and 3GPP presets
+"""Declarative catalog of PlantUML syntax elements, snippets, and 3GPP presets.
 
-with dynamic placeholder resolution (participants, selection wrapping, cursor placement).
+Supports dynamic placeholder resolution (participants, selection wrapping, cursor placement),
+JSON configuration persistence (`src/config/plantuml_presets.json`), and git-ignored
+user-defined presets (`src/config/plantuml_presets_user.json`).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import json
+import logging
+from pathlib import Path
 import re
-from typing import List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
+
+import core.utils.paths
 
 
 @dataclass(frozen=True)
@@ -19,6 +26,40 @@ class PlantUMLSnippet:
     description: str
     code: str
     is_block_wrapper: bool = False
+    is_user_defined: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "label": self.label,
+            "category": self.category,
+            "diagram_scope": list(self.diagram_scope),
+            "description": self.description,
+            "code": self.code,
+            "is_block_wrapper": self.is_block_wrapper,
+            "is_user_defined": self.is_user_defined,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, is_user_defined: bool = False) -> "PlantUMLSnippet":
+        scope_raw = data.get("diagram_scope", ["All"])
+        if isinstance(scope_raw, list):
+            scope = tuple(str(s) for s in scope_raw)
+        elif isinstance(scope_raw, str):
+            scope = (scope_raw,)
+        else:
+            scope = tuple(scope_raw)
+
+        return cls(
+            id=str(data.get("id", "")),
+            label=str(data.get("label", "")),
+            category=str(data.get("category", "General")),
+            diagram_scope=scope,
+            description=str(data.get("description", "")),
+            code=str(data.get("code", "")),
+            is_block_wrapper=bool(data.get("is_block_wrapper", False)),
+            is_user_defined=bool(data.get("is_user_defined", is_user_defined)),
+        )
 
 
 # Regex to detect declared sequence participants/actors/entities/etc.
@@ -46,7 +87,6 @@ def extract_participants(puml_text: str) -> List[str]:
     def add(alias: str):
         if not alias:
             return
-        # Ignore common keywords that might be accidentally caught
         if alias.lower() in {"start", "stop", "end", "return", "note", "activate", "deactivate", "alt", "opt"}:
             return
         if alias not in seen:
@@ -95,7 +135,6 @@ def resolve_snippet_text(
     # Handle {selection} placeholder
     if "{selection}" in raw_code:
         if selected_text and snippet.is_block_wrapper:
-            # Indent each line of the selection by 2 spaces relative to block
             lines = selected_text.splitlines()
             indented_lines = ["  " + line if line.strip() else line for line in lines]
             inner_content = "\n".join(indented_lines)
@@ -110,8 +149,6 @@ def resolve_snippet_text(
     if base_indent:
         lines = resolved.splitlines()
         if lines:
-            # First line is placed at cursor (already at base_indent)
-            # Subsequent lines get base_indent prefixed
             indented = [lines[0]] + [base_indent + l if l.strip() else l for l in lines[1:]]
             resolved = "\n".join(indented)
 
@@ -120,7 +157,6 @@ def resolve_snippet_text(
     if cursor_marker in resolved:
         start_idx = resolved.find(cursor_marker)
         resolved = resolved.replace(cursor_marker, "", 1)
-        # Check if there is an end marker or selected token
         end_marker = "{/cursor}"
         if end_marker in resolved:
             end_idx = resolved.find(end_marker)
@@ -132,12 +168,228 @@ def resolve_snippet_text(
 
 
 # =========================================================================
-# --- COMPREHENSIVE PLANTUML SNIPPET CATALOG ---
+# --- CANONICAL BUILT-IN PRESETS (SHIPPED DEFAULTS) ---
 # =========================================================================
 
-PLANTUML_SNIPPETS: List[PlantUMLSnippet] = [
+BUILTIN_SNIPPETS: List[PlantUMLSnippet] = [
     # ---------------------------------------------------------------------
-    # 1. 3GPP ARCHITECTURE PRESETS (Sequence)
+    # 1. 3GPP NETWORK ENTITIES & NFS (Individual Nodes & Stencils)
+    # ---------------------------------------------------------------------
+    PlantUMLSnippet(
+        id="part_3gpp_ue",
+        label="UE (User Equipment)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="Standard 3GPP User Equipment participant",
+        code="""participant "UE" as UE
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_ue_actor",
+        label="UE as Actor (Human / Mobile Device)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence", "Use Case"),
+        description="User Equipment declared as a stick-figure actor",
+        code="""actor "UE" as UE
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_ue_dual",
+        label="Dual UEs (UE-A & UE-B for Sidelink / ProSe / P2P)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="Two distinct UEs for sidelink (PC5), ProSe, or peer-to-peer call flows",
+        code="""participant "UE A" as UEA
+participant "UE B" as UEB
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_ue_split",
+        label="UE Subcomponents (App/TE, MT, USIM)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="UE split into Application (TE), Mobile Termination (MT), and USIM",
+        code="""box "User Equipment (UE)" #F8FAFC
+  participant "App / TE" as TE
+  participant "UE / MT" as UE
+  participant "USIM" as USIM
+end box
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_gnb",
+        label="gNB / (R)AN (5G Radio Access Network)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G NR Next Generation NodeB / Radio Access Network node",
+        code="""participant "gNB" as gNB
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_amf",
+        label="AMF (Access and Mobility Management Function)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Core Access and Mobility Management Function",
+        code="""participant "AMF" as AMF
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_smf",
+        label="SMF (Session Management Function)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Core Session Management Function",
+        code="""participant "SMF" as SMF
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_upf",
+        label="UPF (User Plane Function)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Core User Plane Function (GTP-U termination)",
+        code="""participant "UPF" as UPF
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_udm",
+        label="UDM (Unified Data Management)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Core Unified Data Management node",
+        code="""participant "UDM" as UDM
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_ausf",
+        label="AUSF (Authentication Server Function)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Core Authentication Server Function (5G AKA)",
+        code="""participant "AUSF" as AUSF
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_pcf",
+        label="PCF (Policy Control Function)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Core Policy Control Function",
+        code="""participant "PCF" as PCF
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_nrf",
+        label="NRF (Network Repository Function)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Core Network Repository Function (NF discovery)",
+        code="""participant "NRF" as NRF
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_nssf",
+        label="NSSF (Network Slice Selection Function)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Core Network Slice Selection Function",
+        code="""participant "NSSF" as NSSF
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_nef",
+        label="NEF (Network Exposure Function)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Core Network Exposure Function",
+        code="""participant "NEF" as NEF
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_udr",
+        label="UDR (Unified Data Repository)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Core Unified Data Repository database",
+        code="""database "UDR" as UDR
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_af",
+        label="AF (Application Function)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Application Function (external or internal)",
+        code="""participant "AF" as AF
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_sepp",
+        label="SEPP (Security Edge Protection Proxy)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="5G Roaming Security Edge Protection Proxy (N32 interface)",
+        code="""boundary "SEPP" as SEPP
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_dn",
+        label="DN (Data Network / Internet)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="External Data Network (Internet / IMS / Corporate)",
+        code="""participant "DN" as DN
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_enb",
+        label="eNB (E-UTRAN Node B / 4G LTE RAN)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="4G LTE Evolved NodeB base station",
+        code="""participant "eNB" as eNB
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_mme",
+        label="MME (Mobility Management Entity)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="4G EPC Mobility Management Entity",
+        code="""participant "MME" as MME
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_sgw",
+        label="S-GW (Serving Gateway)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="4G EPC Serving Gateway",
+        code="""participant "S-GW" as SGW
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_pgw",
+        label="P-GW (PDN Gateway)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="4G EPC Packet Data Network Gateway",
+        code="""participant "P-GW" as PGW
+{cursor}""",
+    ),
+    PlantUMLSnippet(
+        id="part_3gpp_hss",
+        label="HSS (Home Subscriber Server)",
+        category="3GPP Network Entities & NFs",
+        diagram_scope=("Sequence",),
+        description="4G EPC Home Subscriber Server database",
+        code="""database "HSS" as HSS
+{cursor}""",
+    ),
+
+    # ---------------------------------------------------------------------
+    # 2. 3GPP ARCHITECTURE PRESETS (Multi-Node Composite Skeletons)
     # ---------------------------------------------------------------------
     PlantUMLSnippet(
         id="3gpp_5gs_skeleton",
@@ -259,7 +511,7 @@ end box
     ),
 
     # ---------------------------------------------------------------------
-    # 2. PARTICIPANTS & BOXES (Sequence)
+    # 3. PARTICIPANTS & GROUPING (Generic UML)
     # ---------------------------------------------------------------------
     PlantUMLSnippet(
         id="part_standard",
@@ -324,7 +576,7 @@ autonumber resume""",
     ),
 
     # ---------------------------------------------------------------------
-    # 3. MESSAGES & ARROWS (Sequence)
+    # 4. MESSAGES & ARROWS (Sequence)
     # ---------------------------------------------------------------------
     PlantUMLSnippet(
         id="msg_sync_req",
@@ -401,7 +653,7 @@ autonumber resume""",
     ),
 
     # ---------------------------------------------------------------------
-    # 4. LOGIC & GROUPING FRAGMENTS (Sequence)
+    # 5. LOGIC & GROUPING FRAGMENTS (Sequence)
     # ---------------------------------------------------------------------
     PlantUMLSnippet(
         id="frag_alt",
@@ -493,7 +745,7 @@ end""",
     ),
 
     # ---------------------------------------------------------------------
-    # 5. NOTES, LIFELINES & STATE (Sequence)
+    # 6. NOTES, LIFELINES & STATE (Sequence)
     # ---------------------------------------------------------------------
     PlantUMLSnippet(
         id="note_over",
@@ -617,7 +869,7 @@ deactivate {p1}""",
     ),
 
     # ---------------------------------------------------------------------
-    # 6. MULTI-DIAGRAM ELEMENTS (State, Activity, Timing, Packet, Common)
+    # 7. MULTI-DIAGRAM ELEMENTS (State, Activity, Timing, Packet, Common)
     # ---------------------------------------------------------------------
     PlantUMLSnippet(
         id="state_trans",
@@ -730,7 +982,7 @@ CLK is high""",
     ),
 
     # ---------------------------------------------------------------------
-    # 7. FORMATTING & DIRECTIVES (All Diagrams)
+    # 8. FORMATTING & DIRECTIVES (All Diagrams)
     # ---------------------------------------------------------------------
     PlantUMLSnippet(
         id="dir_title_header",
@@ -768,6 +1020,7 @@ skinparam ParticipantPadding 10
 !pragma teoz true""",
     ),
 ]
+
 
 # =========================================================================
 # --- SAMPLE 3GPP PROCEDURE SPECIFICATION TEXTS ---
@@ -827,3 +1080,211 @@ SAMPLE_3GPP_PROCEDURES = {
 10. AMF sends Nsmf_PDUSession_UpdateSMContext Request to SMF with AN Tunnel Info.
 11. SMF modifies UPF with AN Tunnel Info. Uplink and Downlink data path are active."""
 }
+
+
+# =========================================================================
+# --- CONFIGURATION FILE PATH RESOLUTION ---
+# =========================================================================
+
+def get_default_presets_path() -> Path:
+    """Returns path to the base, shipped presets configuration file (tracked in Git)."""
+    return core.utils.paths.get_project_root() / "config" / "plantuml_presets.json"
+
+
+def get_user_presets_path() -> Path:
+    """Returns path to local workspace user presets file (strictly untracked in Git via .gitignore)."""
+    return core.utils.paths.get_project_root() / "config" / "plantuml_presets_user.json"
+
+
+def get_app_data_presets_path() -> Path:
+    """Returns path to machine-level user presets file in user home app data root."""
+    return core.utils.paths.get_app_data_root() / "plantuml_presets_user.json"
+
+
+# =========================================================================
+# --- PERSISTENCE & DYNAMIC HOT-RELOAD LOGIC ---
+# =========================================================================
+
+_RELOAD_CALLBACKS: List[Callable[[], None]] = []
+
+
+def register_snippets_reloaded_callback(callback: Callable[[], None]):
+    """Register a callback invoked whenever presets are reloaded or modified."""
+    if callback not in _RELOAD_CALLBACKS:
+        _RELOAD_CALLBACKS.append(callback)
+
+
+def unregister_snippets_reloaded_callback(callback: Callable[[], None]):
+    """Unregister a reload callback."""
+    if callback in _RELOAD_CALLBACKS:
+        _RELOAD_CALLBACKS.remove(callback)
+
+
+def save_snippets_to_file(path: Path, snippets: List[PlantUMLSnippet]) -> None:
+    """Writes a list of PlantUMLSnippet objects to a formatted JSON file."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "version": 1,
+            "snippets": [s.to_dict() for s in snippets],
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logging.error(f"Failed saving PlantUML snippets to {path}: {e}")
+
+
+def load_snippets_from_file(path: Path, is_user_defined: bool = False) -> List[PlantUMLSnippet]:
+    """Reads PlantUMLSnippet objects from a JSON file."""
+    if not path.exists():
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            raw_list = data.get("snippets", [])
+            return [PlantUMLSnippet.from_dict(d, is_user_defined=is_user_defined) for d in raw_list]
+    except Exception as e:
+        logging.error(f"Failed reading PlantUML snippets from {path}: {e}")
+        return []
+
+
+def load_user_snippets_from_file(path: Path) -> List[PlantUMLSnippet]:
+    """Reads user-defined snippets from a JSON file, flagging them as user defined."""
+    return load_snippets_from_file(path, is_user_defined=True)
+
+
+def save_user_snippets_to_file(path: Path, snippets: List[PlantUMLSnippet]) -> None:
+    """Saves user-defined snippets to a JSON file."""
+    save_snippets_to_file(path, snippets)
+
+
+def _load_and_merge_user_file(
+    path: Path,
+    snippets_by_id: Dict[str, PlantUMLSnippet],
+    ordered_list: List[PlantUMLSnippet]
+):
+    """Loads snippets from path and merges or appends them into ordered_list."""
+    if not path.exists():
+        return
+    user_snips = load_user_snippets_from_file(path)
+    for snip in user_snips:
+        if snip.id in snippets_by_id:
+            # Override existing built-in or previous snippet with user version
+            idx = ordered_list.index(snippets_by_id[snip.id])
+            ordered_list[idx] = snip
+            snippets_by_id[snip.id] = snip
+        else:
+            snippets_by_id[snip.id] = snip
+            ordered_list.append(snip)
+
+
+def reload_snippets() -> List[PlantUMLSnippet]:
+    """Loads default and user presets from disk, updating PLANTUML_SNIPPETS in-place.
+
+    Loading Order:
+      1. Default presets (`src/config/plantuml_presets.json`). If missing, creates it
+         with all built-in 3GPP and UML presets.
+      2. Workspace user presets (`src/config/plantuml_presets_user.json`, Git-ignored).
+      3. AppData user presets (`~/3GPP_Delegate_Helper/plantuml_presets_user.json`).
+    """
+    default_path = get_default_presets_path()
+    ordered_list: List[PlantUMLSnippet] = []
+    snippets_by_id: Dict[str, PlantUMLSnippet] = {}
+
+    if default_path.exists():
+        loaded = load_snippets_from_file(default_path, is_user_defined=False)
+        for s in loaded:
+            snippets_by_id[s.id] = s
+            ordered_list.append(s)
+
+    # If default file is missing or empty, initialize with BUILTIN_SNIPPETS
+    if not ordered_list:
+        ordered_list = list(BUILTIN_SNIPPETS)
+        for s in ordered_list:
+            snippets_by_id[s.id] = s
+        save_snippets_to_file(default_path, ordered_list)
+    else:
+        # Guarantee any newly added built-in presets (e.g. part_3gpp_ue) are present
+        missing_builtins = [b for b in BUILTIN_SNIPPETS if b.id not in snippets_by_id]
+        if missing_builtins:
+            for b in missing_builtins:
+                snippets_by_id[b.id] = b
+                ordered_list.append(b)
+            save_snippets_to_file(default_path, ordered_list)
+
+    # Merge Workspace User Presets (plantuml_presets_user.json)
+    user_path = get_user_presets_path()
+    _load_and_merge_user_file(user_path, snippets_by_id, ordered_list)
+
+    # Merge AppData User Presets
+    app_data_path = get_app_data_presets_path()
+    if app_data_path != user_path:
+        _load_and_merge_user_file(app_data_path, snippets_by_id, ordered_list)
+
+    # Update in-place so all imported references stay current
+    PLANTUML_SNIPPETS[:] = ordered_list
+
+    # Notify all registered GUI listeners to refresh their trees / tables / menus
+    for cb in list(_RELOAD_CALLBACKS):
+        try:
+            cb()
+        except Exception as e:
+            logging.error(f"Error in snippets reload callback: {e}")
+
+    return PLANTUML_SNIPPETS
+
+
+def add_user_snippet(snippet: PlantUMLSnippet) -> None:
+    """Adds or updates a user snippet in plantuml_presets_user.json and reloads."""
+    user_path = get_user_presets_path()
+    user_snippets = load_user_snippets_from_file(user_path)
+
+    # Guarantee is_user_defined is True
+    if not snippet.is_user_defined:
+        snippet = PlantUMLSnippet(
+            id=snippet.id,
+            label=snippet.label,
+            category=snippet.category,
+            diagram_scope=snippet.diagram_scope,
+            description=snippet.description,
+            code=snippet.code,
+            is_block_wrapper=snippet.is_block_wrapper,
+            is_user_defined=True,
+        )
+
+    updated = False
+    for i, s in enumerate(user_snippets):
+        if s.id == snippet.id:
+            user_snippets[i] = snippet
+            updated = True
+            break
+    if not updated:
+        user_snippets.append(snippet)
+
+    save_user_snippets_to_file(user_path, user_snippets)
+    reload_snippets()
+
+
+def delete_user_snippet(snippet_id: str) -> bool:
+    """Removes a user snippet from plantuml_presets_user.json and reloads."""
+    user_path = get_user_presets_path()
+    user_snippets = load_user_snippets_from_file(user_path)
+    count_before = len(user_snippets)
+    user_snippets = [s for s in user_snippets if s.id != snippet_id]
+    if len(user_snippets) != count_before:
+        save_user_snippets_to_file(user_path, user_snippets)
+        reload_snippets()
+        return True
+    return False
+
+
+# =========================================================================
+# --- MODULE INITIALIZATION ---
+# =========================================================================
+
+# Global list of snippets imported by external modules:
+# `from modules.puml2visio.templates.plantuml_snippets import PLANTUML_SNIPPETS`
+PLANTUML_SNIPPETS: List[PlantUMLSnippet] = []
+
+# Populate immediately on module load
+reload_snippets()
