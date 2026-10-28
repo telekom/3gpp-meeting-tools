@@ -27,7 +27,6 @@ class BaseAsn1DocxParser:
     def _extract_part_index(path: Any) -> int:
         return extract_part_index(path)
 
-
     @staticmethod
     def _normalize_key(name: str) -> str:
         """Strips non-alphanumeric characters and converts to lowercase for resilient matching."""
@@ -238,23 +237,38 @@ class BaseAsn1DocxParser:
         matches = list(RE_TYPE_DECL.finditer(asn1_text))
 
         for i, match in enumerate(matches):
-            # Ensure ::= is not inside an ASN.1 comment
+            # Ensure ::= is not inside an ASN.1 comment or preceded by a value / object-set identifier
             line_start = asn1_text.rfind("\n", 0, match.start())
             line_start = 0 if line_start == -1 else line_start + 1
             prefix_line = asn1_text[line_start:match.start()]
-            if "--" in prefix_line:
+            if "--" in prefix_line or prefix_line.strip():
                 continue
 
             type_name = match.group(1).strip()
             start_pos = match.end()
-            end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(asn1_text)
+            if i + 1 < len(matches):
+                next_line_start = asn1_text.rfind("\n", 0, matches[i + 1].start())
+                end_pos = next_line_start if next_line_start != -1 and next_line_start >= start_pos else matches[i + 1].start()
+            else:
+                end_pos = len(asn1_text)
 
             raw_block = asn1_text[match.start():end_pos].strip()
-            end_kw_idx = raw_block.find("\nEND")
-            if end_kw_idx != -1:
-                raw_block = raw_block[:end_kw_idx].strip()
+            for kw in ("\nEND", "\nDEFINITIONS"):
+                kw_idx = raw_block.find(kw)
+                if kw_idx != -1:
+                    raw_block = raw_block[:kw_idx].strip()
+
+            raw_lines = raw_block.splitlines()
+            while raw_lines and raw_lines[-1].strip().startswith("--"):
+                raw_lines.pop()
+            raw_block = "\n".join(raw_lines).strip()
 
             def_body = asn1_text[start_pos:end_pos].strip()
+            def_lines = def_body.splitlines()
+            while def_lines and def_lines[-1].strip().startswith("--"):
+                def_lines.pop()
+            def_body = "\n".join(def_lines).strip()
+
             kind_match = RE_TYPE_KIND.match(def_body)
             type_kind = kind_match.group(1).upper() if kind_match else "TYPE"
             fields: List[Dict[str, Any]] = []
@@ -393,8 +407,8 @@ class BaseAsn1DocxParser:
             else:
                 presence = "M" if parent_kind == "SEQUENCE" else "O"
 
-            # Strip outer keywords from simple type
-            clean_type_candidate = RE_STRIP_KEYWORDS.sub("", rest.split("--")[0]).strip()
+            # Strip outer keywords and trailing comma from simple type
+            clean_type_candidate = RE_STRIP_KEYWORDS.sub("", rest.split("--")[0]).strip().rstrip(",").strip()
 
             fields.append({
                 "name": fname,

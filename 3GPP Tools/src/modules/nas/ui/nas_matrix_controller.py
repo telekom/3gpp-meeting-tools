@@ -41,7 +41,7 @@ def handle_table_cell_click(tab: Any, index: QModelIndex) -> None:
         r"\1",
         clean_type,
     )
-    clean_type = re.sub(r"[\(\{\[].*$", "", clean_type).strip()
+    clean_type = re.sub(r"[\(\{\[].*$", "", clean_type).strip().rstrip(",").strip()
 
     if clean_type.upper() in (
         "ENUMERATED",
