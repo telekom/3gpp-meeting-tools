@@ -23,16 +23,35 @@ from modules.meetings.core.session_plan_models import (
 
 logger = logging.getLogger(__name__)
 
-# Standard SA2 Quarter times (start, end, tu1_start, tu1_end, tu2_start, tu2_end)
-QUARTER_TIMES = {
+# Standard SA2 Period times (start, end, tu1_start, tu1_end, tu2_start, tu2_end)
+PERIOD_ORDER = [
+    "Q0",
+    "Break 1",
+    "Q1",
+    "Coffee 1",
+    "Q2",
+    "Lunch",
+    "Q3",
+    "Coffee 2",
+    "Q4",
+    "Break 2",
+    "Q5",
+]
+
+PERIOD_TIMES = {
     "Q0": ("08:00", "08:50", "08:00", "08:25", "08:25", "08:50"),
+    "Break 1": ("08:50", "09:00", "08:50", "09:00", "08:50", "09:00"),
     "Q1": ("09:00", "10:30", "09:00", "09:45", "09:45", "10:30"),
+    "Coffee 1": ("10:30", "11:00", "10:30", "11:00", "10:30", "11:00"),
     "Q2": ("11:00", "12:30", "11:00", "11:45", "11:45", "12:30"),
-    "Lunch": ("13:00", "14:00", "13:00", "13:30", "13:30", "14:00"),
+    "Lunch": ("12:30", "14:00", "12:30", "13:15", "13:15", "14:00"),
     "Q3": ("14:00", "15:30", "14:00", "14:45", "14:45", "15:30"),
+    "Coffee 2": ("15:30", "16:00", "15:30", "16:00", "15:30", "16:00"),
     "Q4": ("16:00", "17:30", "16:00", "16:45", "16:45", "17:30"),
+    "Break 2": ("17:30", "18:00", "17:30", "18:00", "17:30", "18:00"),
     "Q5": ("18:00", "19:30", "18:00", "18:45", "18:45", "19:30"),
 }
+QUARTER_TIMES = PERIOD_TIMES
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
@@ -105,21 +124,17 @@ class SessionPlanParser:
                 e_t = f"{m_time.group(2)[:2]}:{m_time.group(2)[2:]}"
                 current_times = (s_t, e_t)
 
+            # Check for Break / Coffee / Lunch rows
+            break_period = cls._detect_break_period(first_cell, second_cell, third_cell, current_quarter)
+            if break_period:
+                cls._process_break_row(row, break_period, slots)
+                continue
+
             # Check stream in 3rd cell
-            stream_num = 1
             m_str = re.search(r"Stream\s*(\d+)", third_cell, re.I)
-            if m_str:
-                stream_num = int(m_str.group(1))
-            elif "lunch" in first_cell.lower() or "lunch" in second_cell.lower() or "lunch" in third_cell.lower():
-                # Check for Lunchtime drafting in Main Room
-                cls._parse_lunch_drafting_row(row, slots)
+            if not m_str:
                 continue
-            elif "break" in third_cell.lower() or "coffee" in third_cell.lower() or "break" in first_cell.lower() or "coffee" in first_cell.lower():
-                continue
-            else:
-                # If first cell is empty, check if 3rd cell has Stream
-                if not m_str:
-                    continue
+            stream_num = int(m_str.group(1))
 
             # Process Day Cells
             day_cells = row[3:]
@@ -236,10 +251,14 @@ class SessionPlanParser:
                 e_t = f"{m_time.group(2)[:2]}:{m_time.group(2)[2:]}"
                 current_times = (s_t, e_t)
 
+            # Check for Break / Coffee / Lunch rows
+            break_period = cls._detect_break_period(first_cell, second_cell, third_cell, current_quarter)
+            if break_period:
+                cls._process_break_row(cells, break_period, slots)
+                continue
+
             m_str = re.search(r"Stream\s*(\d+)", third_cell, re.I)
             if not m_str:
-                if "lunch" in first_cell.lower() or "lunch" in second_cell.lower() or "lunch" in third_cell.lower():
-                    cls._parse_lunch_drafting_row(cells, slots)
                 continue
 
             stream_num = int(m_str.group(1))
@@ -348,25 +367,72 @@ class SessionPlanParser:
                 slots.append(slot)
 
     @classmethod
-    def _parse_lunch_drafting_row(cls, cells: List[str], slots: List[SessionSlot]):
-        """Detects ad-hoc drafting scheduled during lunch breaks (e.g. 13:00 Main Room)."""
+    def _detect_break_period(cls, c0: str, c1: str, c2: str, current_quarter: str) -> Optional[str]:
+        combo = (c0 + " " + c1 + " " + c2).lower()
+        if "lunch" in combo:
+            return "Lunch"
+        if "coffee" in combo:
+            return "Coffee 1" if current_quarter in ["Q0", "Q1"] else "Coffee 2"
+        if "break" in combo and not re.search(r"Stream\s*\d", c2, re.I):
+            return "Break 1" if current_quarter in ["Q0", "Q1"] else "Break 2"
+        return None
+
+    @classmethod
+    def _process_break_row(cls, cells: List[str], period_name: str, slots: List[SessionSlot]):
+        """Processes break and coffee rows across Monday..Friday (both 10-subcolumn and 5-column formats)."""
         day_cells = cells[3:]
-        for day_idx, c in enumerate(day_cells[:5]):
-            txt = re.sub(r"<[^>]+>", " ", c).strip()
-            if not txt or txt == "-":
-                continue
-            if "drafting" in txt.lower() or "13:00" in txt or "main room" in txt.lower():
-                slot = cls._create_slot(
-                    day_idx=day_idx,
-                    day_name=DAY_NAMES[day_idx],
-                    quarter="Lunch",
-                    sub_slot=0,
-                    start_t="13:00",
-                    end_t="14:00",
-                    stream_num=1,  # Lunch drafting is typically in Main Room
-                    raw_text=txt,
-                )
-                slots.append(slot)
+        if len(day_cells) >= 10:
+            for day_idx in range(5):
+                tu1 = day_cells[day_idx * 2].strip()
+                tu2 = day_cells[day_idx * 2 + 1].strip()
+                if tu1 or tu2:
+                    if tu1 == tu2 or not tu2:
+                        cls._create_break_slot(day_idx, period_name, 0, tu1 or tu2, slots)
+                    elif not tu1:
+                        cls._create_break_slot(day_idx, period_name, 2, tu2, slots)
+                    else:
+                        cls._create_break_slot(day_idx, period_name, 1, tu1, slots)
+                        cls._create_break_slot(day_idx, period_name, 2, tu2, slots)
+        else:
+            for day_idx in range(min(5, len(day_cells))):
+                txt = day_cells[day_idx].strip()
+                if txt:
+                    cls._create_break_slot(day_idx, period_name, 0, txt, slots)
+
+    @classmethod
+    def _create_break_slot(
+        cls,
+        day_idx: int,
+        period_name: str,
+        sub_slot: int,
+        raw_text: str,
+        slots: List[SessionSlot],
+    ):
+        """Creates a SessionSlot for drafting sessions or plenary schedules inside breaks."""
+        txt_clean = re.sub(r"<[^>]+>", " ", raw_text).strip()
+        if not txt_clean or txt_clean == "-":
+            return
+
+        times = PERIOD_TIMES.get(period_name, ("12:30", "14:00", "12:30", "13:15", "13:15", "14:00"))
+        start_t, end_t = times[0], times[1]
+
+        m_t = re.search(r"(\d{2}):(\d{2})", txt_clean)
+        if m_t:
+            start_t = f"{m_t.group(1)}:{m_t.group(2)}"
+
+        stream_num = 1 if ("main room" in txt_clean.lower() or "stream 1" in txt_clean.lower()) else 0
+
+        slot = cls._create_slot(
+            day_idx=day_idx,
+            day_name=DAY_NAMES[day_idx],
+            quarter=period_name,
+            sub_slot=sub_slot,
+            start_t=start_t,
+            end_t=end_t,
+            stream_num=stream_num,
+            raw_text=txt_clean,
+        )
+        slots.append(slot)
 
     @classmethod
     def _create_slot(
