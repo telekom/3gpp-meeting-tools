@@ -229,6 +229,11 @@ class TDocsWindow(QWidget):
             "Export meeting TDoc metadata, document packages, LLM-ready content, or Markdown reports."
         )
 
+        self.session_plan_btn = QPushButton("🗓️ Session Plan")
+        self.session_plan_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.session_plan_btn.setToolTip("Open the interactive Meeting Session Plan (Time allocation, rooms, drafting radar, mobile view).")
+        self.session_plan_btn.clicked.connect(self._open_session_plan_window)
+
         export_menu = QMenu(self)
         export_menu.setToolTipsVisible(True)
 
@@ -369,6 +374,7 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.folder_btn)
         header_layout.addWidget(self.excel_btn)
         header_layout.addWidget(self.export_btn)
+        header_layout.addWidget(self.session_plan_btn)
         header_layout.addWidget(self.draft_cr_btn)
         header_layout.addWidget(self.stats_btn)
         header_layout.addWidget(self.stats_cfg_btn)
@@ -393,6 +399,9 @@ class TDocsWindow(QWidget):
         local_agenda_csv = self.agenda_dir / "agenda.csv"
         if local_agenda_csv.exists():
             self.folder_menu.addAction("📋 Local: agenda.csv", lambda: _open_folder(local_agenda_csv))
+        session_plans_dir = self.meeting_dir / "Agenda" / "SessionPlans"
+        if session_plans_dir.is_dir():
+            self.folder_menu.addAction("🗓️ Local: Session Plans Folder", lambda: _open_folder(session_plans_dir))
         if self.is_sa2:
             self.folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
 
@@ -1621,6 +1630,72 @@ class TDocsWindow(QWidget):
     def _open_excel(self):
         _open_folder(Path(self.filepath))
 
+    def _open_session_plan_window(self):
+        """Launches the dedicated Meeting Session Plan viewer."""
+        if not hasattr(self, "_session_plan_window") or self._session_plan_window is None:
+            from modules.meetings.ui.session_plan_window import SessionPlanWindow
+            tracked_tokens = getattr(self.proxy, "_tracked_tokens", set()) if hasattr(self, "proxy") else set()
+            self._session_plan_window = SessionPlanWindow(
+                meeting_dir=self.meeting_dir,
+                mtg_info=self.mtg_info,
+                agenda_map=self.agenda_map,
+                tracked_tokens=tracked_tokens,
+            )
+        self._session_plan_window.show()
+        self._session_plan_window.raise_()
+        self._session_plan_window.activateWindow()
+
+    def _load_tdoc_as_session_plan(self, tdoc_id: str):
+        """Fetches the target TDoc, stages it to Agenda/SessionPlans, and launches SessionPlanWindow."""
+        from modules.meetings.core.session_plan_parser import SessionPlanParser
+        from modules.meetings.core.session_plan_db import SessionPlanDatabase
+        from modules.meetings.core.tdoc_file_handler import TDocFileHandler
+        from modules.meetings.core.url_router import URLRouter
+        from core.network.network_state import NetworkState
+
+        wg_name = self.mtg_info.get("wg_name", "").upper()
+        candidate_urls = []
+        if NetworkState.get_instance().is_local_active():
+            candidate_urls.append(URLRouter._get_local_server_base(wg_name) + "/Docs")
+        if self.docs_ftp_url:
+            candidate_urls.append(self.docs_ftp_url)
+
+        tdoc_dir = self.meeting_dir / tdoc_id
+        extracted_docs = []
+        try:
+            for url in candidate_urls:
+                extracted_docs = TDocFileHandler.download_and_extract_tdoc(tdoc_id, url, tdoc_dir, timeout=10)
+                if extracted_docs:
+                    break
+        except Exception as e:
+            logging.warning(f"Failed to fetch {tdoc_id}: {e}")
+
+        if not extracted_docs and tdoc_dir.exists():
+            extracted_docs = list(tdoc_dir.glob("*.docx")) + list(tdoc_dir.glob("*.doc"))
+
+        if not extracted_docs:
+            QMessageBox.warning(self, "Download Failed", f"Could not acquire document files for {tdoc_id}.")
+            return
+
+        doc_file = extracted_docs[0]
+        staged_file = SessionPlanParser.stage_session_plan_file(doc_file, self.meeting_dir, tdoc_id)
+        db = SessionPlanDatabase(self.meeting_dir / "Agenda" / "session_plans.db")
+
+        if staged_file.suffix.lower() == ".docx":
+            snap = SessionPlanParser.parse_docx(staged_file, meeting_number=str(self.mtg_info.get("meeting_number", "")))
+        else:
+            snap = SessionPlanParser.parse_text_or_markdown(
+                staged_file.read_text(encoding="utf-8", errors="replace"),
+                meeting_number=str(self.mtg_info.get("meeting_number", "")),
+                cached_file_path=str(staged_file),
+            )
+
+        db.save_snapshot(snap)
+        self._open_session_plan_window()
+        if hasattr(self, "_session_plan_window") and self._session_plan_window:
+            self._session_plan_window._load_data()
+        QMessageBox.information(self, "Session Plan Loaded", f"Successfully loaded {tdoc_id} into Session Plan viewer!")
+
     def _open_draft_cr_dialog(self, tdoc_row_data: dict = None):
         from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
 
@@ -1852,7 +1927,37 @@ class TDocsWindow(QWidget):
 
         if valid_files:
             event.acceptProposedAction()
-            self._process_imported_agenda_files(valid_files)
+            # Smart routing: check if dropped file is a session plan
+            session_plan_files = []
+            agenda_files = []
+            for vf in valid_files:
+                name_lower = vf.name.lower()
+                if "session" in name_lower or "time_allocation" in name_lower or "time allocation" in name_lower:
+                    session_plan_files.append(vf)
+                else:
+                    agenda_files.append(vf)
+
+            if session_plan_files:
+                for spf in session_plan_files:
+                    from modules.meetings.core.session_plan_parser import SessionPlanParser
+                    from modules.meetings.core.session_plan_db import SessionPlanDatabase
+                    staged = SessionPlanParser.stage_session_plan_file(spf, self.meeting_dir)
+                    db = SessionPlanDatabase(self.meeting_dir / "Agenda" / "session_plans.db")
+                    if staged.suffix.lower() == ".docx":
+                        snap = SessionPlanParser.parse_docx(staged, meeting_number=str(self.mtg_info.get("meeting_number", "")))
+                    else:
+                        snap = SessionPlanParser.parse_text_or_markdown(
+                            staged.read_text(encoding="utf-8", errors="replace"),
+                            meeting_number=str(self.mtg_info.get("meeting_number", "")),
+                            cached_file_path=str(staged),
+                        )
+                    db.save_snapshot(snap)
+                self._open_session_plan_window()
+                if hasattr(self, "_session_plan_window") and self._session_plan_window:
+                    self._session_plan_window._load_data()
+
+            if agenda_files:
+                self._process_imported_agenda_files(agenda_files)
         else:
             event.ignore()
 

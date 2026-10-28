@@ -69,4 +69,5 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
         draft_cr_callback=window._open_draft_cr_dialog,
         compare_active_word_callback=getattr(window, "_compare_tdoc_with_active_word", None),
         export_dossier_callback=window._export_dossier,
+        load_session_plan_callback=getattr(window, "_load_tdoc_as_session_plan", None),
     )
