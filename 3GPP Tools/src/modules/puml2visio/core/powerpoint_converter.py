@@ -186,8 +186,23 @@ class PptxConverterThread(QThread):
                 pres = ppt.Presentations.Add()
                 slide = pres.Slides.Add(1, 12)  # 12 = ppLayoutBlank
             else:
-                # Append as a new blank slide at the very end of the presentation
+                # Append as a new blank slide at the very end of the presentation or after active slide
                 new_slide_idx = pres.Slides.Count + 1
+                if self.insert_at == "after_active":
+                    try:
+                        active_win = None
+                        try:
+                            active_win = ppt.ActiveWindow
+                        except Exception:
+                            if pres.Windows.Count > 0:
+                                active_win = pres.Windows(1)
+                        if active_win is not None and hasattr(active_win, "View"):
+                            curr_slide = getattr(active_win.View, "Slide", None)
+                            if curr_slide is not None:
+                                new_slide_idx = int(curr_slide.SlideIndex) + 1
+                    except Exception as e:
+                        logger.debug(f"Could not determine active slide index: {e}")
+
                 slide = pres.Slides.Add(new_slide_idx, 12)  # 12 = ppLayoutBlank
 
             # Import either the Visio EMF or the raw SVG if Visio failed
