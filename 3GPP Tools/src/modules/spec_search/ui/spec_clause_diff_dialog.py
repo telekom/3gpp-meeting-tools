@@ -530,7 +530,8 @@ class SpecClauseDiffDialog(QDialog):
             spec_number=self.spec_number,
             initial_version=self.version_b,
             parent=self.window() or self,
-            specs_db=self.specs_db
+            specs_db=self.specs_db,
+            initial_clause=self.clause_number,
         )
         self._history_dialog = dlg
         dlg.show()

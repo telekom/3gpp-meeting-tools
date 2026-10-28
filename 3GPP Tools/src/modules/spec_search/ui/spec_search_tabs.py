@@ -501,6 +501,14 @@ class SpecSearchTab(QWidget):
         cutoff_date_bar.addWidget(self.chk_post_date_only)
 
         cutoff_date_bar.addStretch()
+
+        self.btn_find_origin_cr = QPushButton("🎯 Find Origin CR")
+        self.btn_find_origin_cr.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_find_origin_cr.setCursor(Qt.PointingHandCursor)
+        self.btn_find_origin_cr.setToolTip("Ranks candidate Change Requests (CRs) across all releases to identify the origin CR that introduced the searched feature.")
+        self.btn_find_origin_cr.clicked.connect(self._on_find_origin_cr_clicked)
+        cutoff_date_bar.addWidget(self.btn_find_origin_cr)
+
         search_card_layout.addLayout(cutoff_date_bar)
 
         matrix_layout.addWidget(search_card)
@@ -1100,13 +1108,30 @@ class SpecSearchTab(QWidget):
         QMessageBox.critical(self, "Wipe Error", f"Failed to wipe search database: {err}")
         logger.log(logging.ERROR, f"❌ Wipe error: {err}")
 
-    def _open_version_history_dialog(self, spec_num: str, version: Optional[str] = None):
+    def _open_version_history_dialog(
+        self,
+        spec_num: str,
+        version: Optional[str] = None,
+        search_term: Optional[str] = None,
+        clause_num: Optional[str] = None,
+        sort_by_origin_relevance: bool = False,
+    ):
         """Opens the Change History && Integrated TDocs dialog modelessly directly from Spec Search."""
         from modules.specifications.ui.spec_history_dialog import SpecVersionHistoryDialog
         logger.info(f"📜 [Change History] Opening Change History && TDocs browser for TS {spec_num}{f' (v{version})' if version else ''}...")
+
+        term = search_term if search_term is not None else self.search_input.text().strip()
+        clause = clause_num if clause_num is not None else getattr(self.inspector, "_current_clause_num", "")
+
         if hasattr(self, "_history_dialog") and self._history_dialog:
             try:
-                self._history_dialog.load_spec(spec_num, version)
+                self._history_dialog.load_spec(
+                    spec_num,
+                    version,
+                    initial_search=term,
+                    initial_clause=clause,
+                    sort_by_origin_relevance=sort_by_origin_relevance,
+                )
                 self._history_dialog.show()
                 self._history_dialog.raise_()
                 self._history_dialog.activateWindow()
@@ -1118,12 +1143,54 @@ class SpecSearchTab(QWidget):
             spec_number=spec_num,
             initial_version=version,
             parent=self.window() or self,
-            specs_db=getattr(self, "specs_db", None)
+            specs_db=getattr(self, "specs_db", None),
+            initial_search=term,
+            initial_clause=clause,
+            sort_by_origin_relevance=sort_by_origin_relevance,
         )
         self._history_dialog = dlg
         dlg.show()
         dlg.raise_()
         dlg.activateWindow()
+
+    def _on_find_origin_cr_clicked(self):
+        """Launches Origin CR ranking for the active specification and search query."""
+        import re as _re
+        active_spec = ""
+        curr_tab = self.spec_results_tabs.currentWidget()
+        if curr_tab and hasattr(curr_tab, "_spec_number") and curr_tab._spec_number:
+            active_spec = curr_tab._spec_number
+        elif hasattr(self, "_selected_spec_numbers") and self._selected_spec_numbers:
+            active_spec = self._selected_spec_numbers[0]
+        elif hasattr(self.inspector, "_current_spec") and self.inspector._current_spec:
+            active_spec = self.inspector._current_spec
+
+        if not active_spec:
+            idx = self.spec_results_tabs.currentIndex()
+            if idx >= 0:
+                tab_txt = self.spec_results_tabs.tabText(idx)
+                m = _re.search(r"\b(\d{2}\.\d{3}(?:-\d{2})?)\b", tab_txt)
+                if m:
+                    active_spec = m.group(1)
+
+        if not active_spec:
+            QMessageBox.information(
+                self,
+                "Select Specification",
+                "Please select or search within a specification matrix tab first to find its origin CR."
+            )
+            return
+
+        query = self.search_input.text().strip()
+        clause = getattr(self.inspector, "_current_clause_num", "")
+
+        self._open_version_history_dialog(
+            spec_num=active_spec,
+            version=None,
+            search_term=query,
+            clause_num=clause,
+            sort_by_origin_relevance=True,
+        )
 
     def _open_clause_diff_dialog(
         self,
