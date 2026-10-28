@@ -1,17 +1,21 @@
-# F-01: Windows `tdoc://` URL Protocol Handler
+# F-01: Windows `tdoc://` URL Protocol Handler (🔴 Deprecated & Abandoned)
+
+> [!CAUTION] Status: Deprecated & Abandoned (Non-Viable in Enterprise Environments)
+> Following technical double-checking, code audit, and git history inspection (Commit `23ffa2f`: *"Initial (unsuccessful) try to automatically open TDocs from the browser"*), this feature has been formally **abandoned and deprecated**.
+>
+> **Key Reasons for Abandonment:**
+> 1. **Administrator Rights & Registry Execution:** The legacy prototype attempted to import `tdoc.reg` using `os.startfile()`, which launches Windows `regedit.exe`. In corporate enterprise environments (e.g. non-admin corporate laptops), `regedit.exe` immediately prompts for elevated UAC administrator credentials or is blocked by Group Policy. The registry key was never successfully registered on the user's machine.
+> 2. **Corporate Application Protocol Sanitization:** Target collaboration tools (notably Microsoft Teams Desktop/Web) strictly whitelist protocols (`http:`, `https:`, `mailto:`). Custom protocols such as `tdoc://` are stripped and rendered as inert, unclickable plain text in chat and channels. Microsoft Outlook and Word display severe security alerts (*"Microsoft Office has identified a potential security concern..."*) or block non-standard schemes under Defender for Office 365 / SafeLinks policies.
+> 3. **The "Chicken-and-Egg" Standards Reality:** No standards delegates, 3GPP agendas, portal pages, email reflectors, or CRs ever write `tdoc://S2-2401234`—they use plain text IDs or official HTTPS FTP URLs. Thus, clickable `tdoc://` links do not naturally occur in real-world workflows.
+> 4. **Superseded by Superior Zero-Privilege Alternatives:** The modern in-app `⚡ TDoc:` jump box in the **Meetings** tab and **TDocs Window** (backed by `tdoc_url_resolver.py`) resolves, unzips, and launches TDocs in ~1s with zero administrative privileges or OS registry modifications. An optional clipboard-aware quick open or global hotkey provides a frictionless, permissionless alternative without OS protocol risks.
 
 ## 1. Executive Summary & Objective
 
 In 3GPP standards workflows, delegates and engineers continuously exchange TDoc identifiers (e.g., `S2-2401234`, `SP-230890`, `R2-2405678`) across various communication channels, including Microsoft Teams, Outlook emails, Word review comments, meeting agendas, and intranet portals. 
 
-In the current **3GPP Tools** application, opening a TDoc mentioned in an external application requires manual, multi-step friction:
-1. Copy the TDoc ID string.
-2. Switch to 3GPP Tools.
-3. Navigate to the Meetings tab or TDocs window.
-4. Paste the ID into the `⚡ TDoc:` jump box.
-5. Click `📄 Doc` to fetch and unpack the file.
+The original objective of **F-01** was to explore registering a native Windows Shell URL protocol handler (`tdoc://` and `tdoc:`) so that clicking any hyperlinked TDoc in external applications would immediately trigger 3GPP Tools to resolve, download, unzip, and launch the document in Microsoft Word.
 
-The objective of **F-01** is to register a native Windows Shell URL protocol handler (`tdoc://` and `tdoc:`) so that clicking any hyperlinked TDoc in Teams, Outlook, Word, Slack, or a web browser immediately triggers 3GPP Tools to resolve, download, unzip, and launch the document in Microsoft Word (or bring an existing application instance to the foreground).
+However, as audited below, this approach is fundamentally incompatible with locked-down corporate IT environments and modern enterprise messaging security.
 
 ---
 
@@ -201,17 +205,14 @@ In `MeetingsConfigDialog`:
 
 ---
 
-## 5. Implementation Roadmap & Acceptance Criteria
+## 5. Architectural Verdict & Replacement Strategy
 
-### Step-by-Step Implementation Tasks
-1. [ ] Implement `src/core/utils/win_registry.py` with `register_tdoc_protocol`, `unregister_tdoc_protocol`, and `is_tdoc_protocol_registered`.
-2. [ ] Implement `SingleInstanceApp` with `QLocalServer`/`QLocalSocket` in `src/main_tools.py`.
-3. [ ] Add command-line argument parsing for `--open-tdoc <tdoc_id>` in `src/main_tools.py`.
-4. [ ] Connect incoming IPC messages in `main_window.py` to `tdoc_url_resolver` to fetch and unpack the target TDoc, switching tab focus to Meetings.
-5. [ ] Add UI controls and feedback in `MeetingsConfigDialog`.
+### Final Verdict: Abandoned & Deprecated
+* **Status:** 🔴 **Deprecated (Do Not Implement)**
+* **Reason:** The feature was never successfully registered or operational due to UAC administrator restrictions on `.reg` imports. In modern corporate environments, Microsoft Teams, Outlook, and Edge actively sanitize or block custom URI schemes (`tdoc://`). Furthermore, real-world 3GPP collaboration does not produce `tdoc://` links.
 
-### Acceptance Criteria
-* [x] Clicking `tdoc://S2-2401234` in Teams or a browser launches 3GPP Tools if closed, or focuses the running window if open.
-* [x] The targeted TDoc is fetched, unpacked, and opened in Microsoft Word without manual user intervention.
-* [x] Protocol registration requires zero administrator privileges (operates inside `HKCU`).
-* [x] Malformed or invalid TDoc IDs (e.g. `tdoc://invalid-string`) show a non-blocking toast warning without crashing.
+### Recommended Zero-Privilege Alternatives
+1. **Existing In-App Jump Box (Fully Implemented):**
+   * Use the `⚡ TDoc:` entry box in the **Meetings** tab or **TDocs Window** (powered by `src/modules/meetings/core/tdoc_url_resolver.py`). Delegates paste any standard TDoc identifier (`S2-2401234`) and press `[Enter]` to instantly resolve and open the Word document in ~1s.
+2. **Clipboard-Aware Quick Open (Optional Future Enhancement):**
+   * Instead of registering OS URL protocols, 3GPP Tools can inspect the system clipboard upon receiving application focus or via an optional user-triggered global hotkey (e.g. `Ctrl+Alt+T`). If a valid TDoc string pattern is detected in the clipboard, it presents a subtle 1-click toast notification to fetch and unpack the document. This requires zero administrator rights, zero registry modifications, and works universally across all applications.

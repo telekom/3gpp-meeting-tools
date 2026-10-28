@@ -26,7 +26,7 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 
 | ID | Feature Domain | Legacy Feature | Detailed Specification | Current Status in 3GPP Tools | Complexity | Priority |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **F-01** | **OS Integration** | Windows `tdoc://` URL Protocol Handler | [F01: Windows URL Handler](legacy_features/F01_windows_tdoc_url_handler.md) | ❌ Not implemented | Low | 🟢 High |
+| **F-01** | **OS Integration** | Windows `tdoc://` URL Protocol Handler | [F01: Windows URL Handler](legacy_features/F01_windows_tdoc_url_handler.md) | 🔴 Deprecated (Abandoned; admin rights & Teams URI sanitization) | Low | ⚪ Low |
 | **F-02** | **Word Automation** | Batch CR Cover Sheet Parser to Excel | [F02: Batch CR Cover Parser](legacy_features/F02_batch_cr_cover_sheet_parser.md) | ❌ Only 1-by-1 AI triage | Medium | 🟢 High |
 | **F-03** | **Office Automation** | PowerPoint Presentation Merger | [F03: PowerPoint Merger](legacy_features/F03_powerpoint_presentation_merger.md) | ❌ Not implemented | Low | 🟡 Medium |
 | **F-04** | **PDF & AI Tools** | Bookmarked PDF Dossier & LLM Prompt | [F04: Bookmarked PDF & Prompt](legacy_features/F04_bookmarked_pdf_dossier_llm_prompt.md) | ❌ Merges Excel / Markdown | Medium | 🟡 Medium |
@@ -52,41 +52,17 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 
 ---
 
-### F-01: Windows `tdoc://` URL Protocol Handler
+### F-01: Windows `tdoc://` URL Protocol Handler (🔴 Deprecated & Abandoned)
 
-#### Overview & Delegate Workflow
-In 3GPP communications (meeting chat, emails, Word contribution references, intranet pages), delegates constantly exchange TDoc identifiers (e.g. `S2-2401234`, `SP-230890`). 
-With this handler registered, clicking any `tdoc://S2-2401234` or `tdoc:S2-2401234` link in Microsoft Teams, Outlook, Word, Slack, or web browsers automatically triggers the desktop tool to search, fetch, unpack, and launch the document without manual copying and searching.
+#### Overview & Audit Findings
+In 3GPP communications (meeting chat, emails, Word contribution references, intranet pages), delegates constantly exchange TDoc identifiers (e.g. `S2-2401234`, `SP-230890`). F-01 originally explored registering a custom Windows URL protocol (`tdoc://`) to trigger opening documents directly from external applications.
 
-```mermaid
-flowchart LR
-    Link["User clicks tdoc://S2-2401234 in Teams/Outlook/Browser"] --> Reg["Windows Shell checks HKCU\SOFTWARE\Classes\tdoc"]
-    Reg --> CLI["Launch 3GPP Tools CLI with argument %1"]
-    CLI --> Resolver["TDoc URL Resolver / Meeting Index"]
-    Resolver --> Download["Download & Unpack Archive"]
-    Download --> Word["Launch Microsoft Word"]
-```
-
-#### Legacy Implementation
-* **Files:**
-  * `3GPP Meeting Helper/search_and_open_tdoc.py`
-  * `3GPP Meeting Helper/tdoc.reg`
-* **Mechanism:**
-  * Created a Windows Registry key in `HKEY_CURRENT_USER\SOFTWARE\Classes\tdoc`:
-    ```ini
-    [HKEY_CURRENT_USER\SOFTWARE\Classes\tdoc]
-    "URL Protocol"=""
-    @="3GPP Delegate Helper"
-
-    [HKEY_CURRENT_USER\SOFTWARE\Classes\tdoc\shell\open\command]
-    @="python \"C:\\path\\to\\search_and_open_tdoc.py\" %1"
-    ```
-  * `search_and_open_tdoc.py` parsed `%1` (stripping `tdoc://` or `tdoc:` prefix), resolved the meeting via `server.tdoc_search.search_download_and_open_tdoc`, unzipped the package, and called `os.startfile(doc_path)`.
-
-#### Proposed Integration into 3GPP Tools
-1. **CLI Argument Support:** Add an argument `--open-tdoc <tdoc_id>` to `src/main_tools.py` or `src/main_window.py`. If an instance is already running, utilize a single-instance local TCP/IPC socket or Windows message to bring the window to the front and open the TDoc.
-2. **Settings UI Registration:** Add a 1-click button in `MeetingsConfigDialog` or `GeneralSettings`: `"Register tdoc:// protocol in Windows"`.
-3. **Execution:** Automatically writes the Registry key pointing to `python.exe -m main_tools --open-tdoc %1` or `Launch.cmd %1`.
+> [!CAUTION] Status: Deprecated & Abandoned (Non-Viable)
+> Following technical evaluation and git history verification (Commit `23ffa2f`: *"Initial (unsuccessful) try to automatically open TDocs from the browser"*), this feature has been formally **abandoned**:
+> 1. **Administrator Rights Barrier:** The legacy script invoked `os.startfile('tdoc.reg')`, which triggers `regedit.exe`. In enterprise corporate IT environments without administrator privileges, this immediately triggers a UAC elevation prompt or is blocked by policy, meaning the handler was never registered.
+> 2. **Application Protocol Sanitization:** Modern Microsoft Teams (Desktop & Web) strips non-whitelisted protocols (`http:`, `https:`, `mailto:`), rendering `tdoc://` as unclickable plain text. Microsoft Outlook and Word display severe security alerts or block custom protocols via Defender SafeLinks policies.
+> 3. **Absence of `tdoc://` Links in the Wild:** 3GPP documents, agendas, portals, and emails exclusively use plain text IDs or official HTTPS URLs—nobody authoritatively creates or shares `tdoc://` links.
+> 4. **Superseded by Frictionless Alternatives:** The in-app `⚡ TDoc:` jump box in the **Meetings** tab and **TDocs Window** (backed by `tdoc_url_resolver.py`) already opens any TDoc in ~1s with zero administrator privileges. A zero-privilege clipboard-aware detection or global hotkey serves this workflow without registry interference.
 
 ---
 
