@@ -21,7 +21,6 @@ quadrantChart
     quadrant-4 Maintenance Burden (Low ROI)
     
     "F-05 Active Word vs TDoc": [0.15, 0.95]
-    "F-01 tdoc:// Protocol Handler": [0.25, 0.90]
     "F-07 Track Changes Renamer": [0.28, 0.85]
     "F-17 3GPP Guru Web Viewer": [0.08, 0.75]
     "F-18 3GPP Forge APIs": [0.08, 0.70]
@@ -42,6 +41,7 @@ quadrantChart
     "F-11 Excel AutoFilter Sync": [0.45, 0.30]
     "F-13 Excel Pivot Charts": [0.40, 0.28]
     "F-08 Word Process Killer": [0.18, 0.25]
+    "F-01 tdoc:// Protocol Handler": [0.25, 0.15]
 ```
 
 ---
@@ -51,35 +51,37 @@ quadrantChart
 | Rank | ID | Feature Name | Domain | Time Saved / Meeting | Value (1-10) | Effort (h) | ROI Rating | Recommended Action |
 | :---: | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | **1** | [**F-05**](F05_active_word_vs_tdoc_comparison.md) | "Active Word vs. TDoc" Direct Comparison | Word Automation | 1.5 – 3.5 hrs | **9.5** | 1.5h | 🌟 Exceptional | ✅ **Implemented (Multi-Surface + Live Cart)** |
-| **2** | [**F-01**](F01_windows_tdoc_url_handler.md) | Windows `tdoc://` URL Protocol Handler | OS Integration | 1.0 – 2.0 hrs | **9.0** | 2.5h | 🌟 Exceptional | **Implement Immediately (Sprint 1)** |
-| **3** | [**F-07**](F07_track_changes_author_renamer.md) | Track Changes Author Replacement & Anonymizer | Word Automation | 3.0 – 8.0 hrs | **8.5** | 3.0h | 🔥 Very High | **Implement Immediately (Sprint 1)** |
-| **4** | [**F-02**](F02_batch_cr_cover_sheet_parser.md) | Batch CR Cover Sheet Parser to Excel | Word Automation | 4.0 – 8.0 hrs | **8.5** | 5.0h | 🔥 Very High | **Implement in Sprint 2** |
-| **5** | [**F-17**](F17_3gpp_guru_web_viewer_integration.md) | 3GPP Guru Web Viewer Integration | Web Services | 0.5 – 1.0 hr | **7.5** | 0.5h | 🌟 Exceptional | ✅ **Implemented (Help & Resources Menu)** |
-| **6** | [**F-18**](F18_3gpp_forge_apis_launcher.md) | 3GPP Forge APIs Direct Launcher | Web Services | 0.5 – 1.0 hr | **7.0** | 0.5h | 🌟 Exceptional | ✅ **Implemented (Help & Resources Menu)** |
-| **7** | [**F-10**](F10_word_accept_all_changes_export.md) | "Accept All Changes" Clean Word/PDF Export | Word Automation | 1.0 – 2.0 hrs | **7.5** | 2.0h | 🟢 High | **Implement in Sprint 2** |
-| **8** | [**F-04**](F04_bookmarked_pdf_dossier_llm_prompt.md) | Bookmarked Multi-TDoc PDF Dossier & LLM Context | PDF & AI Tools | 2.0 – 4.0 hrs | **8.0** | 4.0h | 🟢 High | **Implement in Sprint 2** |
-| **9** | [**F-03**](F03_powerpoint_presentation_merger.md) | PowerPoint Status Report Presentation Merger | Office Automation | 1.0 – 2.5 hrs | **7.5** | 3.0h | 🟢 High | **Implement in Sprint 2** |
-| **10** | [**F-14**](F14_reflector_attachment_link_fetcher.md) | Reflector `Attachment.txt` Redirect Link Fetcher | Email Reflector | 0.5 – 1.0 hr | **7.0** | 2.0h | 🟢 High | **Implement in Sprint 2** |
-| **11** | [**F-12**](F12_company_comments_matrix_importer.md) | Multi-Company Review Comments Matrix Importer | Collaboration | 4.0 – 6.0 hrs (Rapporteurs) | **7.5** | 4.5h | 🟡 Moderate | **Implement in Sprint 3 (Rapporteurs)** |
-| **12** | [**F-06**](F06_mip_sensitivity_label_setter.md) | MIP / Purview Sensitivity Label Setter | Security & DLP | Compliance | **7.0** | 3.0h | 🟡 Moderate | **Implement in Sprint 3** |
-| **13** | [**F-19**](F19_chairmans_notes_word_table_parser.md) | Chairman's Notes Word Table Parser (Live) | Live Notes | 2.0 – 3.0 hrs | **7.5** | 8.0h | 🟡 Moderate | **Evaluate in Sprint 3** |
-| **14** | [**F-15**](F15_chairman_email_notes_parser.md) | Chairman Email Discussion Notes Parser | Email Reflector | 0.5 – 1.0 hr | **6.5** | 2.0h | 🟡 Moderate | **Backlog (Low Priority)** |
-| **15** | [**F-16**](F16_email_approval_excel_export.md) | Email Approval Excel Summary | Email Reflector | 0.5 – 1.0 hr | **6.0** | 3.0h | 🟡 Moderate | **Backlog (Superseded by AI Stance)** |
-| **16** | [**F-09**](F09_word_meeting_contribution_report.md) | Word Meeting Contribution Summary Report (.docx) | Word Automation | Redundant | **4.0** | 4.0h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Analytics & Markdown Dossiers)** |
-| **17** | [**F-11**](F11_excel_bidirectional_autofilter_sync.md) | Bi-directional Excel AutoFilter Synchronization | Excel Bridge | Redundant | **3.5** | 4.0h | ⚪ Low | 🔴 **Deprecated (Obsolete; PyQt5 In-App Filters at 60 FPS)** |
-| **18** | [**F-13**](F13_native_excel_pivot_tables_charts.md) | Native Excel COM Pivot Tables & Charts | Excel Analytics | Redundant | **3.0** | 3.5h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Dashboard Compiler)** |
-| **19** | [**F-08**](F08_word_process_watchdog_killer.md) | Word Process Watchdog & Force Killer | System Watchdog | Negligible | **3.0** | 1.5h | ⚪ Low | 🔴 **Deprecated (Superseded by COM Task Manager Dialog)** |
+| **2** | [**F-07**](F07_track_changes_author_renamer.md) | Track Changes Author Replacement & Anonymizer | Word Automation | 3.0 – 8.0 hrs | **8.5** | 3.0h | 🔥 Very High | **Implement Immediately (Sprint 1)** |
+| **3** | [**F-02**](F02_batch_cr_cover_sheet_parser.md) | Batch CR Cover Sheet Parser to Excel | Word Automation | 4.0 – 8.0 hrs | **8.5** | 5.0h | 🔥 Very High | **Implement in Sprint 2** |
+| **4** | [**F-17**](F17_3gpp_guru_web_viewer_integration.md) | 3GPP Guru Web Viewer Integration | Web Services | 0.5 – 1.0 hr | **7.5** | 0.5h | 🌟 Exceptional | ✅ **Implemented (Help & Resources Menu)** |
+| **5** | [**F-18**](F18_3gpp_forge_apis_launcher.md) | 3GPP Forge APIs Direct Launcher | Web Services | 0.5 – 1.0 hr | **7.0** | 0.5h | 🌟 Exceptional | ✅ **Implemented (Help & Resources Menu)** |
+| **6** | [**F-10**](F10_word_accept_all_changes_export.md) | "Accept All Changes" Clean Word/PDF Export | Word Automation | 1.0 – 2.0 hrs | **7.5** | 2.0h | 🟢 High | **Implement in Sprint 2** |
+| **7** | [**F-04**](F04_bookmarked_pdf_dossier_llm_prompt.md) | Bookmarked Multi-TDoc PDF Dossier & LLM Context | PDF & AI Tools | 2.0 – 4.0 hrs | **8.0** | 4.0h | 🟢 High | **Implement in Sprint 2** |
+| **8** | [**F-03**](F03_powerpoint_presentation_merger.md) | PowerPoint Status Report Presentation Merger | Office Automation | 1.0 – 2.5 hrs | **7.5** | 3.0h | 🟢 High | **Implement in Sprint 2** |
+| **9** | [**F-14**](F14_reflector_attachment_link_fetcher.md) | Reflector `Attachment.txt` Redirect Link Fetcher | Email Reflector | 0.5 – 1.0 hr | **7.0** | 2.0h | 🟢 High | **Implement in Sprint 2** |
+| **10** | [**F-12**](F12_company_comments_matrix_importer.md) | Multi-Company Review Comments Matrix Importer | Collaboration | 4.0 – 6.0 hrs (Rapporteurs) | **7.5** | 4.5h | 🟡 Moderate | **Implement in Sprint 3 (Rapporteurs)** |
+| **11** | [**F-06**](F06_mip_sensitivity_label_setter.md) | MIP / Purview Sensitivity Label Setter | Security & DLP | Compliance | **7.0** | 3.0h | 🟡 Moderate | **Implement in Sprint 3** |
+| **12** | [**F-19**](F19_chairmans_notes_word_table_parser.md) | Chairman's Notes Word Table Parser (Live) | Live Notes | 2.0 – 3.0 hrs | **7.5** | 8.0h | 🟡 Moderate | **Evaluate in Sprint 3** |
+| **13** | [**F-15**](F15_chairman_email_notes_parser.md) | Chairman Email Discussion Notes Parser | Email Reflector | 0.5 – 1.0 hr | **6.5** | 2.0h | 🟡 Moderate | **Backlog (Low Priority)** |
+| **14** | [**F-16**](F16_email_approval_excel_export.md) | Email Approval Excel Summary | Email Reflector | 0.5 – 1.0 hr | **6.0** | 3.0h | 🟡 Moderate | **Backlog (Superseded by AI Stance)** |
+| **15** | [**F-09**](F09_word_meeting_contribution_report.md) | Word Meeting Contribution Summary Report (.docx) | Word Automation | Redundant | **4.0** | 4.0h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Analytics & Markdown Dossiers)** |
+| **16** | [**F-11**](F11_excel_bidirectional_autofilter_sync.md) | Bi-directional Excel AutoFilter Synchronization | Excel Bridge | Redundant | **3.5** | 4.0h | ⚪ Low | 🔴 **Deprecated (Obsolete; PyQt5 In-App Filters at 60 FPS)** |
+| **17** | [**F-13**](F13_native_excel_pivot_tables_charts.md) | Native Excel COM Pivot Tables & Charts | Excel Analytics | Redundant | **3.0** | 3.5h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Dashboard Compiler)** |
+| **18** | [**F-08**](F08_word_process_watchdog_killer.md) | Word Process Watchdog & Force Killer | System Watchdog | Negligible | **3.0** | 1.5h | ⚪ Low | 🔴 **Deprecated (Superseded by COM Task Manager Dialog)** |
+| **19** | [**F-01**](F01_windows_tdoc_url_handler.md) | Windows `tdoc://` URL Protocol Handler | OS Integration | Infeasible | **2.0** | 2.5h | ⚪ Low | 🔴 **Deprecated (Abandoned; admin rights barrier & Teams URI sanitization)** |
 
 ---
 
 ## 3. Deep-Dive Value Analysis by Feature
 
-### F-01: Windows `tdoc://` URL Protocol Handler
-* **Core Value Proposition:** Turns every TDoc identifier in Teams, Outlook, Word comments, and web pages into an actionable, 1-click hyperlink that directly opens the document in 3GPP Tools.
-* **Target Personas:** All delegates, review engineers, and technical managers.
-* **Quantitative Savings:** Delegates open 30–100 TDocs per week. Eliminating manual copying, app-switching, pasting, and searching saves ~20 seconds per interaction (**1–2 hours saved per week**).
-* **Qualitative Impact:** Eliminates context switching during meetings. Speeds up cross-team collaboration in corporate chat channels.
-* **Cost of Not Implementing:** Delegates remain tethered to manual search boxes and copy-paste friction.
+### F-01: Windows `tdoc://` URL Protocol Handler (🔴 Deprecated & Abandoned)
+* **Status:** 🔴 **Deprecated / Abandoned (Non-Viable in Enterprise Environments)**
+* **Technical Audit & Findings:**
+  * Git history (Commit `23ffa2f`: *"Initial (unsuccessful) try to automatically open TDocs from the browser"*) proves this was an abandoned prototype that never operated.
+  * Attempting to import `.reg` files triggers `regedit.exe`, which requires UAC administrator rights unavailable on corporate-managed laptops.
+  * Enterprise messaging applications (Microsoft Teams Desktop & Web) sanitize URL schemes and completely ignore `tdoc://`, rendering it unclickable plain text. Microsoft Outlook and Word display corporate security warnings or block custom URI schemes via Defender SafeLinks.
+  * In actual 3GPP practice, delegates and official agendas never write `tdoc://S2-2401234`—only plain IDs or HTTPS FTP links exist.
+* **Modern Replacement:** Fully superseded by the zero-privilege in-app `⚡ TDoc:` jump box in the **Meetings** tab and **TDocs Window** (using `tdoc_url_resolver.py`), which resolves and opens files in ~1s. An optional clipboard-aware detection provides a universal, permissionless alternative.
 
 ---
 
