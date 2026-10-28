@@ -229,14 +229,24 @@ def download_chair_notes(window):
 
 
 def on_chair_notes_finished(window, success: bool, count: int, files: list, msg: str):
-    """Handles completion of Chairman's Notes download."""
+    """Handles completion of Chairman's Notes download and offers instant ingestion."""
     window.refresh_btn.setEnabled(True)
     window.refresh_btn.setText("🔄 Refresh")
 
     if success and count > 0:
         window.refresh_btn.setText(f"✅ {count} Notes")
         QTimer.singleShot(4000, lambda: window.refresh_btn.setText("🔄 Refresh"))
-        QMessageBox.information(window, "Chairman's Notes Downloaded", msg)
+        chair_notes_dir = window.meeting_dir / "Agenda" / "ChairNotes"
+        reply = QMessageBox.question(
+            window,
+            "Chairman's Notes Downloaded",
+            f"{msg}\n\nWould you like to parse and merge these {count} Chairman's Notes file(s) into your meeting table now?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if reply == QMessageBox.Yes:
+            source_paths = [chair_notes_dir / f for f in files]
+            process_imported_agenda_files(window, source_paths)
     elif success and count == 0:
         QMessageBox.information(window, "Chairman's Notes", msg)
     else:

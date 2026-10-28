@@ -61,7 +61,7 @@ quadrantChart
 | **9** | [**F-14**](F14_reflector_attachment_link_fetcher.md) | Reflector `Attachment.txt` Redirect Link Fetcher | Email Reflector | 0.5 – 1.0 hr | **7.0** | 2.0h | 🟢 High | **Implement in Sprint 2** |
 | **10** | [**F-12**](F12_company_comments_matrix_importer.md) | Multi-Company Review Comments Matrix Importer | Collaboration | 4.0 – 6.0 hrs (Rapporteurs) | **7.5** | 4.5h | 🟡 Moderate | **Implement in Sprint 3 (Rapporteurs)** |
 | **11** | [**F-06**](F06_mip_sensitivity_label_setter.md) | MIP / Purview Sensitivity Label Setter | Security & DLP | Compliance | **7.0** | 3.0h | 🟡 Moderate | **Implement in Sprint 3** |
-| **12** | [**F-19**](F19_chairmans_notes_word_table_parser.md) | Chairman's Notes Word Table Parser (Live) | Live Notes | 2.0 – 3.0 hrs | **7.5** | 8.0h | 🟡 Moderate | **Evaluate in Sprint 3** |
+| **12** | [**F-19**](F19_chairmans_notes_word_table_parser.md) | Chairman's Notes Word Table Parser (Live) | Live Notes | 2.0 – 3.0 hrs | **8.5** | 8.0h | 🟢 High | ✅ **Implemented & Operational (Drag & Drop / Multi-WG)** |
 | **13** | [**F-15**](F15_chairman_email_notes_parser.md) | Chairman Email Discussion Notes Parser | Email Reflector | 0.5 – 1.0 hr | **6.5** | 2.0h | 🟡 Moderate | **Backlog (Low Priority)** |
 | **14** | [**F-16**](F16_email_approval_excel_export.md) | Email Approval Excel Summary | Email Reflector | 0.5 – 1.0 hr | **6.0** | 3.0h | 🟡 Moderate | **Backlog (Superseded by AI Stance)** |
 | **15** | [**F-09**](F09_word_meeting_contribution_report.md) | Word Meeting Contribution Summary Report (.docx) | Word Automation | Redundant | **4.0** | 4.0h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Analytics & Markdown Dossiers)** |
@@ -225,10 +225,10 @@ quadrantChart
 ---
 
 ### F-19: Chairman's Notes Word Table Parser (Live Meeting Tracking)
-* **Core Value Proposition:** Scrapes unformatted draft Word tables updated live by the Working Group Chairman during meeting sessions, extracting agreed/revised TDoc statuses days before official publication.
+* **Core Value Proposition:** Ingests unformatted draft Word tables (`.docx` / `.doc`) updated live by Working Group Chairmen and Session Chairs during meeting sessions, extracting agreed/revised TDoc statuses days before official agenda publication.
 * **Target Personas:** Delegation leaders and competitive intelligence specialists.
 * **Quantitative Savings:** Saves 2–3 hours of manual note inspection during meeting weeks.
-* **Implementation Caveat:** High engineering effort (~8 hours) due to inconsistent chairman formatting styles and erratic Word table layouts.
+* **Status:** **✅ Implemented & Operational**. Operates seamlessly via Drag & Drop (`TDocsDropOverlay`), manual menu import, or post-download 1-click merge prompt, featuring multi-row header scanning (rows 0–4) and broad column alias detection supporting diverse Working Group (SA2, RAN1/2/3, SA1/3, CT) secretary formats.
 
 ---
 
