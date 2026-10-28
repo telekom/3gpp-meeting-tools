@@ -27,7 +27,6 @@ quadrantChart
     "F-10 Accept All Changes Export": [0.20, 0.75]
     "F-14 Reflector Attachment Links": [0.22, 0.70]
     
-    "F-02 Batch CR Cover Sheet Parser": [0.55, 0.88]
     "F-04 Bookmarked PDF Dossier": [0.45, 0.82]
     "F-12 Multi-Company Comment Matrix": [0.50, 0.76]
     "F-19 Chairman Notes Word Parser": [0.85, 0.74]
@@ -35,6 +34,7 @@ quadrantChart
     
     "F-15 Chairman Email Notes Parser": [0.22, 0.55]
     "F-16 Email Approval Summary": [0.32, 0.52]
+    "F-02 Batch CR Cover Parser": [0.55, 0.45]
     
     "F-09 Word Contribution Report": [0.45, 0.35]
     "F-11 Excel AutoFilter Sync": [0.45, 0.30]
@@ -52,17 +52,17 @@ quadrantChart
 | :---: | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | **1** | [**F-05**](F05_active_word_vs_tdoc_comparison.md) | "Active Word vs. TDoc" Direct Comparison | Word Automation | 1.5 – 3.5 hrs | **9.5** | 1.5h | 🌟 Exceptional | ✅ **Implemented (Multi-Surface + Live Cart)** |
 | **2** | [**F-07**](F07_track_changes_author_renamer.md) | Track Changes Author Replacement & Anonymizer | Word Automation | 3.0 – 8.0 hrs | **8.5** | 3.0h | 🔥 Very High | **Implement Immediately (Sprint 1)** |
-| **3** | [**F-02**](F02_batch_cr_cover_sheet_parser.md) | Batch CR Cover Sheet Parser to Excel | Word Automation | 4.0 – 8.0 hrs | **8.5** | 5.0h | 🔥 Very High | **Implement in Sprint 2** |
-| **4** | [**F-17**](F17_3gpp_guru_web_viewer_integration.md) | 3GPP Guru Web Viewer Integration | Web Services | 0.5 – 1.0 hr | **7.5** | 0.5h | 🌟 Exceptional | ✅ **Implemented (Help & Resources Menu)** |
-| **5** | [**F-18**](F18_3gpp_forge_apis_launcher.md) | 3GPP Forge APIs Direct Launcher | Web Services | 0.5 – 1.0 hr | **7.0** | 0.5h | 🌟 Exceptional | ✅ **Implemented (Help & Resources Menu)** |
-| **6** | [**F-10**](F10_word_accept_all_changes_export.md) | "Accept All Changes" Clean Word/PDF Export | Word Automation | 1.0 – 2.0 hrs | **7.5** | 2.0h | 🟢 High | **Implement in Sprint 2** |
-| **7** | [**F-04**](F04_bookmarked_pdf_dossier_llm_prompt.md) | Bookmarked Multi-TDoc PDF Dossier & LLM Context | PDF & AI Tools | 2.0 – 4.0 hrs | **8.0** | 4.0h | 🟢 High | **Implement in Sprint 2** |
-| **8** | [**F-14**](F14_reflector_attachment_link_fetcher.md) | Reflector `Attachment.txt` Redirect Link Fetcher | Email Reflector | 0.5 – 1.0 hr | **7.0** | 2.0h | 🟢 High | **Implement in Sprint 2** |
-| **9** | [**F-12**](F12_company_comments_matrix_importer.md) | Multi-Company Review Comments Matrix Importer | Collaboration | 4.0 – 6.0 hrs (Rapporteurs) | **7.5** | 4.5h | 🟡 Moderate | **Implement in Sprint 3 (Rapporteurs)** |
-| **10** | [**F-06**](F06_mip_sensitivity_label_setter.md) | MIP / Purview Sensitivity Label Setter | Security & DLP | Compliance | **7.0** | 3.0h | 🟡 Moderate | **Implement in Sprint 3** |
-| **11** | [**F-19**](F19_chairmans_notes_word_table_parser.md) | Chairman's Notes Word Table Parser (Live) | Live Notes | 2.0 – 3.0 hrs | **8.5** | 8.0h | 🟢 High | ✅ **Implemented & Operational (Drag & Drop / Multi-WG)** |
-| **12** | [**F-15**](F15_chairman_email_notes_parser.md) | Chairman Email Discussion Notes Parser | Email Reflector | 0.5 – 1.0 hr | **6.5** | 2.0h | 🟡 Moderate | **Backlog (Low Priority)** |
-| **13** | [**F-16**](F16_email_approval_excel_export.md) | Email Approval Excel Summary | Email Reflector | 0.5 – 1.0 hr | **6.0** | 3.0h | 🟡 Moderate | **Backlog (Superseded by AI Stance)** |
+| **3** | [**F-17**](F17_3gpp_guru_web_viewer_integration.md) | 3GPP Guru Web Viewer Integration | Web Services | 0.5 – 1.0 hr | **7.5** | 0.5h | 🌟 Exceptional | ✅ **Implemented (Help & Resources Menu)** |
+| **4** | [**F-18**](F18_3gpp_forge_apis_launcher.md) | 3GPP Forge APIs Direct Launcher | Web Services | 0.5 – 1.0 hr | **7.0** | 0.5h | 🌟 Exceptional | ✅ **Implemented (Help & Resources Menu)** |
+| **5** | [**F-10**](F10_word_accept_all_changes_export.md) | "Accept All Changes" Clean Word/PDF Export | Word Automation | 1.0 – 2.0 hrs | **7.5** | 2.0h | 🟢 High | **Implement in Sprint 2** |
+| **6** | [**F-04**](F04_bookmarked_pdf_dossier_llm_prompt.md) | Bookmarked Multi-TDoc PDF Dossier & LLM Context | PDF & AI Tools | 2.0 – 4.0 hrs | **8.0** | 4.0h | 🟢 High | **Implement in Sprint 2** |
+| **7** | [**F-14**](F14_reflector_attachment_link_fetcher.md) | Reflector `Attachment.txt` Redirect Link Fetcher | Email Reflector | 0.5 – 1.0 hr | **7.0** | 2.0h | 🟢 High | **Implement in Sprint 2** |
+| **8** | [**F-12**](F12_company_comments_matrix_importer.md) | Multi-Company Review Comments Matrix Importer | Collaboration | 4.0 – 6.0 hrs (Rapporteurs) | **7.5** | 4.5h | 🟡 Moderate | **Implement in Sprint 3 (Rapporteurs)** |
+| **9** | [**F-06**](F06_mip_sensitivity_label_setter.md) | MIP / Purview Sensitivity Label Setter | Security & DLP | Compliance | **7.0** | 3.0h | 🟡 Moderate | **Implement in Sprint 3** |
+| **10** | [**F-19**](F19_chairmans_notes_word_table_parser.md) | Chairman's Notes Word Table Parser (Live) | Live Notes | 2.0 – 3.0 hrs | **8.5** | 8.0h | 🟢 High | ✅ **Implemented & Operational (Drag & Drop / Multi-WG)** |
+| **11** | [**F-15**](F15_chairman_email_notes_parser.md) | Chairman Email Discussion Notes Parser | Email Reflector | 0.5 – 1.0 hr | **6.5** | 2.0h | 🟡 Moderate | **Backlog (Low Priority)** |
+| **12** | [**F-16**](F16_email_approval_excel_export.md) | Email Approval Excel Summary | Email Reflector | 0.5 – 1.0 hr | **6.0** | 3.0h | 🟡 Moderate | **Backlog (Superseded by AI Stance)** |
+| **13** | [**F-02**](F02_batch_cr_cover_sheet_parser.md) | Batch CR Cover Sheet Parser to Excel | Word Automation | Niche / Rare | **4.5** | 5.0h | 🟡 Low | **Backlog / Optional (Superseded by AI Triage & In-App Filters)** |
 | **14** | [**F-09**](F09_word_meeting_contribution_report.md) | Word Meeting Contribution Summary Report (.docx) | Word Automation | Redundant | **4.0** | 4.0h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Analytics & Markdown Dossiers)** |
 | **15** | [**F-11**](F11_excel_bidirectional_autofilter_sync.md) | Bi-directional Excel AutoFilter Synchronization | Excel Bridge | Redundant | **3.5** | 4.0h | ⚪ Low | 🔴 **Deprecated (Obsolete; PyQt5 In-App Filters at 60 FPS)** |
 | **16** | [**F-13**](F13_native_excel_pivot_tables_charts.md) | Native Excel COM Pivot Tables & Charts | Excel Analytics | Redundant | **3.0** | 3.5h | ⚪ Low | 🔴 **Deprecated (Superseded by HTML Dashboard Compiler)** |
@@ -85,12 +85,17 @@ quadrantChart
 
 ---
 
-### F-02: Batch CR Cover Sheet Parser to Excel
-* **Core Value Proposition:** Headless batch extraction of formal 3GPP Change Request metadata (Spec, Release, CR Number, Revision, Work Item, Category, Affected Clauses, Reason for Change) from hundreds of `.docx` files into a consolidated, structured Excel matrix.
-* **Target Personas:** Work Item Rapporteurs, delegation leads, technical project managers.
-* **Quantitative Savings:** Manually inspecting and typing metadata for 100 CRs takes **4–5 hours**. Batch parsing completes in **< 10 seconds**.
-* **Qualitative Impact:** Enables instant auditing of meeting progress, verification of affected releases, and identification of conflicting CRs targeting identical specification clauses.
-* **Cost of Not Implementing:** Rapporteurs must manually compile CR tracking tables or rely on delayed plenary minutes.
+### F-02: Batch CR Cover Sheet Parser to Excel (🟡 Backlog / Low Priority)
+* **Status:** 🟡 **Backlog / Optional (Niche Use Case & Largely Superseded)**
+* **Technical Audit & Findings:**
+  * **Origin & Historical Context:** Originally implemented in Nov 2022 (`c2c9e97`) in the legacy Tkinter helper to parse CR cover sheet tables (`Reason for change`, `Summary of change`, `Clauses affected`) across filtered TDocs to avoid manually opening dozens of Word documents.
+  * **Valid Use Cases:** (1) Sharing structured review matrices with back-office engineering managers, patent attorneys, and colleagues who do not run 3GPP Tools; (2) Detecting clause collision conflicts across competing company CRs targeting the same specification; (3) Assisting Work Item Rapporteurs preparing formal Plenary approval packs.
+  * **Practical Limitations & Bottlenecks:**
+    * *Network Bottleneck:* Parsing 500–1,500 CRs requires downloading gigabytes of ZIP archives over congested meeting/hotel Wi-Fi just to inspect page 1.
+    * *Superseded by Local AI TDoc Triage:* In modern 3GPP Tools, [`tdoc_triage_worker.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/core/tdoc_triage_worker.py) automatically ingests CR cover tables and tracked redlines to synthesize instant technical critiques, problem summaries, and voting stances on demand.
+    * *Existing OpenXML Engine:* [`spec_history_extractor.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/specifications/core/spec_history_extractor.py#L136-L267) already extracts `affected_clauses`, `category`, `cr_number`, and `work_item` headless via `lxml` for clause attribution.
+    * *Incomplete Formats:* Pre-CRs (pCRs) and Discussion Papers frequently lack standardized cover tables.
+* **Modern Scoping:** Reclassified from a Sprint 2 core feature to Backlog/Optional. If ever implemented, it will be scoped strictly as an on-demand context-menu action (`Export Selected CRs to Excel`) operating exclusively on locally downloaded `.docx` files via `spec_history_extractor.py`.
 
 ---
 
@@ -248,8 +253,7 @@ flowchart TD
         S1_4["F-17 & F-18: 3GPP Guru & Forge Launchers (1.0h)"]
     end
 
-    subgraph S2["Sprint 2: Office Batch Automation & Exporters (11 Hours Total)"]
-        S2_1["F-02: Batch CR Cover Sheet Parser (5.0h)"]
+    subgraph S2["Sprint 2: Office Batch Automation & Exporters (6 Hours Total)"]
         S2_2["F-04: Bookmarked PDF Dossier & LLM Context (4.0h)"]
         S2_3["F-10: Accept All Changes Clean Export (2.0h)"]
     end

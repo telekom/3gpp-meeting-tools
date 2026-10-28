@@ -1,5 +1,11 @@
 # F-02: Batch CR Cover Sheet Parser & Tabular Excel Exporter
 
+> [!NOTE]
+> **Status:** 🟡 **Low Priority / Backlog (Niche & Largely Superseded)**  
+> **Evaluation Outcome:** While conceptually attractive, a full batch CR cover sheet parser has severe practical limitations (network download bottlenecks on meeting Wi-Fi, template variations in pCRs) and has been largely superseded by in-app 60 FPS filtering, local **AI TDoc Triage** (`tdoc_triage_worker.py`), and headless OpenXML clause attribution in [`spec_history_extractor.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/specifications/core/spec_history_extractor.py). If implemented in the future, it should strictly be scoped as a lightweight context-menu export for *locally downloaded* selected CRs.
+
+---
+
 ## 1. Executive Summary & Objective
 
 In 3GPP Working Groups and Plenaries, a single meeting frequently handles between 500 and 2,500 Change Requests (CRs). A Change Request is submitted as a Microsoft Word document (`.docx` or legacy `.doc`) structured with a standardized front cover sheet followed by revision-marked text.
@@ -15,9 +21,47 @@ The cover sheet contains critical normative metadata:
 * **Consequences if not approved:** Operational risks and specification ambiguities.
 * **Clauses affected:** (e.g. `5.2.3, 6.4.1, Table 8.2-1`)
 
-Currently, in **3GPP Tools**, delegates can use the AI TDoc Triage dialog to analyze one CR at a time. However, there is **no mechanism to batch-parse all CRs in a meeting or Work Item** into a consolidated, filterable Microsoft Excel spreadsheet.
+Historically, in the legacy **3GPP Meeting Helper** (commit `c2c9e97`), an `Export CRs` button was added to batch-extract these fields into an Excel workbook (`CR_export.xlsx`) to avoid manually opening dozens of Word documents.
 
-The objective of **F-02** is to implement a high-speed, headless cover sheet extraction engine and batch exporter that compiles hundreds of CR cover sheets into a structured Excel workbook (`CR_export.xlsx`) with automated styling, column widths, and autofilters.
+---
+
+## 2. Strategic Use Cases & Reality Check: Do We Even Need This?
+
+A thorough workflow and business value re-evaluation reveals that while there are legitimate theoretical use cases, they represent niche requirements rather than daily necessities for active 3GPP delegates.
+
+### 2.1. Valid Use Cases (When is this actually useful?)
+1. **Delegation Coordination & Sharing with Non-Delegates (Offline Review Matrix):**
+   * *Scenario:* A corporate delegation (e.g. T-Mobile / Deutsche Telekom) needs to review all 30–50 CRs submitted under a specific Agenda Item or Work Item with subject-matter experts, patent/IP attorneys, or engineering managers back home who **do not use 3GPP Tools**.
+   * *Utility:* An exported Excel spreadsheet containing `Reason for Change`, `Summary of Change`, and `Clauses Affected` allows external colleagues to read the core issues quickly and add review columns (*"Company Stance: Support / Object"*, *"Assigned Reviewer"*, *"Internal Comments"*).
+2. **Clause Collision Detection (Rapporteurs & Delegates):**
+   * *Scenario:* Ten competing companies submit CRs targeting the same specification (e.g. `TS 23.501`).
+   * *Utility:* Seeing a consolidated column of `Clauses Affected` allows a delegate or session chair to quickly spot if Company A and Company B both attempt to rewrite clause `5.2.8.2`, forecasting a drafting clash before the agenda item is called.
+3. **Plenary Package Verification (Work Item Rapporteurs):**
+   * *Scenario:* Rapporteurs compiling formal CR packs for TSG Plenary approval must verify that all agreed CRs have valid categories, releases, and non-empty reasons for change.
+
+### 2.2. Critical Counterarguments & Practical Limitations (Why you probably do NOT need it)
+1. **The Massive Download & Bandwidth Bottleneck:**
+   * In order to parse the cover sheets of 200–1,000 CRs, the application **must first download every single `.zip` file from the 3GPP FTP server**.
+   * On hotel or convention center Wi-Fi (where 3GPP meetings take place), downloading 1–2 GB of ZIP archives just to scrape page 1 of each document is sluggish, prone to network drops/throttling, and clutters local disk storage.
+2. **Superseded by Local AI TDoc Triage:**
+   * In 2022, LLMs were not integrated into 3GPP tools. In modern **3GPP Tools**, the model-agnostic **AI TDoc Triage dialog** ([`tdoc_triage_worker.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/core/tdoc_triage_worker.py)) directly ingests the document preamble (cover table) and tracked revisions, providing instant on-demand technical critiques, problem summaries, and voting stance suggestions without needing static spreadsheets.
+3. **Existing Headless OpenXML Parsing in Core:**
+   * The codebase already contains high-speed OpenXML cover-sheet extraction in [`spec_history_extractor.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/specifications/core/spec_history_extractor.py#L136-L267) (`extract_cr_cover_sheet_metadata`), extracting `affected_clauses`, `category`, `cr_number`, `spec_number`, and `work_item` headless via `lxml` for the **Specification History** dialog and clause attribution.
+4. **In-App 60 FPS Search & Filtering:**
+   * Modern PyQt5 filter models allow instant multi-faceted filtering (by Agenda Item, Work Item, Status, Type, and text) directly in the UI, eliminating the need to leave the application to browse in Microsoft Excel.
+5. **Incomplete Coverage on Discussion Papers & pCRs:**
+   * In early study item phases or ad-hoc drafting sessions, contributions are frequently submitted as Discussion Papers with embedded pseudo-CRs (pCRs) or changes to Technical Reports (TRs) that lack formal standardized cover sheet tables, producing blank or corrupted rows.
+
+---
+
+## 3. Recommended Architectural Scoping (If Ever Implemented)
+
+If this functionality is retained for future implementation, it should **NOT** be built as an ambitious, meeting-wide batch downloader. Instead, it should be strictly scoped as:
+
+> **Lightweight On-Demand Export for Selected Documents:**
+> * Surface via Context Menu: `Right-Click Selected TDoc(s) > 📊 Export Selected CR Cover Sheets to Excel`
+> * Operate **only on locally downloaded / cached `.docx` files** (typically 5 to 25 documents).
+> * Reuse the existing [`spec_history_extractor.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/specifications/core/spec_history_extractor.py) OpenXML engine, extending it with text extraction for Reason, Summary, and Consequences.
 
 ---
 
@@ -89,34 +133,99 @@ set_column_width('I', wb, 50)  # Reason for Change
 
 ---
 
-## 3. Current State in 3GPP Tools
+## 4. Legacy Codebase Analysis
 
-* **AI TDoc Triage:** `src/modules/meetings/core/tdoc_triage_worker.py` extracts text from `.docx` files via `python-docx` for Ollama prompting.
-* **Document Resolution:** `src/modules/meetings/core/tdoc_file_handler.py` provides high-speed, parallel pre-download and unzipping of meeting contributions.
-* **Missing Capability:** There is no batch cover-sheet parser that aggregates structured CR metadata across multiple files directly into Excel without LLM intervention.
+### Files & Locations
+* `3GPP Meeting Helper/parsing/word/pywin32.py` (functions: `parse_cr`, `parse_list_of_crs`, `CrMetadata`, `CrCategory`)
+* `3GPP Meeting Helper/gui/tdocs_table.py` (function: `export_crs`)
+
+### Data Structures & Legacy Extraction Logic
+
+#### Legacy Data Model (`parsing/word/pywin32.py`)
+```python
+class CrCategory(Enum):
+    F = 1  # Correction
+    A = 2  # Corresponds to a correction in an earlier release
+    B = 3  # Addition of feature
+    C = 4  # Functional modification of feature
+    D = 5  # Editorial modification
+
+class CrMetadata(NamedTuple):
+    spec: str
+    cr: str
+    rev: str
+    current_version: str
+    new_version: str
+    category: CrCategory
+    release: str
+    work_item: str
+    clauses_affected: str
+    reason_for_change: str
+    summary_of_change: str
+    consequences_if_not_approved: str
+    path: str
+    ai: str
+    tdoc: str
+```
+
+#### Table Cell Matrix Parsing (`parse_cr`)
+The legacy implementation used Word COM (`win32com.client.Dispatch("Word.Application")`) to inspect the first table in the CR document:
+1. **Spec Number:** Cell `(1, 1)` -> Text like `"23.501"` (stripped of `"TS"` / `"TR"` prefixes).
+2. **CR Number:** Cell `(1, 3)` -> e.g. `"1420"`.
+3. **Revision:** Cell `(1, 5)` -> e.g. `"1"` or `"-"`.
+4. **Category Checkboxes:** Cell `(5, 1)` contained checkboxes `F | A | B | C | D`. It checked for `'X'` characters inside the respective box cells.
+5. **Release Checkboxes:** Checked row 6 for `'X'` in release columns (Rel-15 through Rel-20).
+6. **Descriptive Text Blocks:** Scanned succeeding rows for cell labels matching `"Reason for change:"`, `"Summary of change:"`, `"Consequences if not approved:"`, and `"Clauses affected:"`, extracting the adjacent or nested text blocks.
+
+#### Excel Generation & Formatting (`gui/tdocs_table.py`)
+```python
+crs_df = parse_list_of_crs(file_path_list)
+crs_df = crs_df.set_index('TDoc')
+crs_df.to_excel(excel_export_filename, sheet_name="CRs", engine='xlsxwriter')
+
+wb = open_excel_document(excel_export_filename)
+set_first_row_as_filter(wb)
+vertically_center_all_text(wb)
+set_wrap_text(wb)
+set_column_width('A', wb, 11)  # TDoc
+set_column_width('B', wb, 9)   # Spec
+set_column_width('C', wb, 9)   # CR#
+set_column_width('F', wb, 20)  # WI
+set_column_width('I', wb, 50)  # Reason for Change
+```
+
+### Bottlenecks of Legacy Implementation
+* **Heavy Word COM Dependency:** Required launching Microsoft Word in the background for every single file. Parsing 50 CRs took 2–3 minutes and occasionally hung if Word displayed a security alert or macro prompt.
+* **Single-Threaded COM Apartment:** Word COM could not be easily multi-threaded without complex COM marshaling (`pythoncom.CoInitialize()`).
+* **Table Coordinate Fragility:** Relied on fixed row/column indices which occasionally failed on non-standard rapporteur CR templates or older meeting files.
 
 ---
 
-## 4. Modern Architecture & Design Specification
+## 5. Current State & Existing Infrastructure in 3GPP Tools
 
-### Architectural Pipeline
+* **AI TDoc Triage:** [`tdoc_triage_worker.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/core/tdoc_triage_worker.py) extracts preamble cover sheet text and tracked revisions from `.docx` files via `python-docx` for Ollama prompting.
+* **Existing Headless Cover Sheet Parser:** [`spec_history_extractor.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/specifications/core/spec_history_extractor.py#L136-L267) (`extract_cr_cover_sheet_metadata`) already implements ultra-fast, headless OpenXML (`lxml`) extraction of `affected_clauses`, `category`, `cr_number`, `spec_number`, and `work_item` (<0.05s per document).
+* **Document Resolution:** [`tdoc_file_handler.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding%20Projects/3gpp-meeting-tools/3GPP%20Tools/src/modules/meetings/core/tdoc_file_handler.py) provides high-speed, parallel pre-download and unzipping of meeting contributions.
+
+---
+
+## 6. Lightweight Architecture Specification (For Future / Optional Implementation)
+
+Instead of a heavy meeting-wide downloader, any future implementation should be scoped as a lightweight, on-demand context-menu action operating exclusively on **locally downloaded** CRs:
 
 ```mermaid
 flowchart TD
-    UI["TDocs Window: Select CRs or Filter by WI / Status"] --> Trigger["Menu: Reports > Export CR Cover Sheets to Excel"]
-    Trigger --> Worker["CRCoverSheetExportWorker (QThread)"]
-    Worker --> Pool["ThreadPoolExecutor (5-8 Workers)"]
+    UI["TDocs Window: Select 5-25 CRs in Table"] --> Trigger["Context Menu: 📊 Export Selected CR Cover Sheets to Excel"]
+    Trigger --> FilterLocal{"Are files downloaded locally?"}
+    FilterLocal -- "No" --> PromptDownload["Prompt: 'Download selected N documents first'"]
+    FilterLocal -- "Yes" --> Worker["CRCoverSheetExportWorker (QThread)"]
     
-    subgraph HeadlessParsing["Headless OpenXML / python-docx Engine"]
-        Pool --> Unzip["Unzip .zip -> Locate .docx/.doc"]
-        Unzip --> FastDocx{"Is .docx or .doc?"}
-        FastDocx -- ".docx" --> OpenXML["Direct lxml / python-docx Table Parser (0.05s / file)"]
-        FastDocx -- ".doc" --> COMBridge["Fallback: Word COM / LibreOffice doc2docx"]
-        OpenXML --> Extractor["Extract Normalized Metadata (Regex & Cell Anchors)"]
-        COMBridge --> Extractor
+    subgraph HeadlessParsing["Headless OpenXML (lxml / python-docx)"]
+        Worker --> OpenXML["spec_history_extractor.extract_cr_cover_sheet_metadata()
+        + Scraped 'Reason', 'Summary', 'Consequences'"]
     end
 
-    Extractor --> Aggregator["Pandas DataFrame Assembly"]
+    OpenXML --> Aggregator["Pandas DataFrame Assembly"]
     Aggregator --> OpenPyXL["openpyxl Workbook Generator"]
     OpenPyXL --> Styling["Apply 3GPP Executive Theme:
     - Bold Frozen Header
@@ -126,71 +235,9 @@ flowchart TD
     Styling --> Output["Save to Meeting/Agenda/CR_export.xlsx & Auto-Launch"]
 ```
 
-### Extraction Algorithm: Anchor-Based Flexible Parsing
-
-Instead of rigid row/column coordinates (which break across TSG templates), the modern extractor will use **label-anchor detection**:
-
-```python
-def extract_cr_metadata_from_docx(doc_path: Path) -> dict:
-    doc = Document(doc_path)
-    tables = doc.tables
-    if not tables:
-        return {}
-
-    cover_table = tables[0]
-    metadata = {
-        "spec": "", "cr_num": "", "rev": "", "cat": "", "release": "",
-        "work_item": "", "clauses": "", "reason": "", "summary": "", "consequences": ""
-    }
-
-    full_text = []
-    for row in cover_table.rows:
-        row_text = [cell.text.strip() for cell in row.cells]
-        for idx, text in enumerate(row_text):
-            t_lower = text.lower()
-            if "spec" in t_lower and "ts" in t_lower and idx + 1 < len(row_text):
-                metadata["spec"] = sanitize_spec(row_text[idx+1])
-            elif "cr num" in t_lower or "cr" == t_lower:
-                metadata["cr_num"] = extract_digits(row_text[idx+1])
-            elif "rev" in t_lower:
-                metadata["rev"] = extract_rev(row_text[idx+1])
-            elif "work item" in t_lower:
-                metadata["work_item"] = row_text[idx+1]
-            elif "reason for change" in t_lower:
-                metadata["reason"] = row_text[idx+1]
-            elif "summary of change" in t_lower:
-                metadata["summary"] = row_text[idx+1]
-            elif "consequences if not approved" in t_lower:
-                metadata["consequences"] = row_text[idx+1]
-            elif "clauses affected" in t_lower:
-                metadata["clauses"] = row_text[idx+1]
-                
-    return metadata
-```
-
-### Excel Workbook Design (`openpyxl`)
-The output spreadsheet will match the professional formatting used in 3GPP Tools meeting statistics:
-* **Header Fill:** Slate Navy `#1E293B` with bold white text `#FFFFFF`.
-* **Row Striping:** Alternating `#FFFFFF` and `#F8FAFC`.
-* **Category Pill Colors:** 
-  * `Cat B` (Feature addition): Soft Emerald `#DEF7EC` / `#03543F`.
-  * `Cat F` (Correction): Soft Blue `#E1EFFE` / `#1E429F`.
-  * `Cat C` (Functional modification): Soft Amber `#FEF08A` / `#713F12`.
-* **Auto-Filter & Freeze Panes:** Frozen top row, enabled AutoFilter on columns A through N.
-* **Column Widths & Auto-Fit:** Explicit column widths with text wrap enabled for Reason, Summary, and Consequences.
-
 ---
 
-## 5. Implementation Roadmap & Acceptance Criteria
+## 7. Status & Implementation Decision
 
-### Step-by-Step Implementation Tasks
-1. [ ] Create `src/modules/meetings/core/cr_cover_sheet_parser.py` implementing anchor-based `python-docx` extraction.
-2. [ ] Add `CRCoverSheetExportWorker(QThread)` in `src/modules/meetings/core/exporter_thread.py` with multi-threaded pre-scan and progress reporting.
-3. [ ] Add `"Export CR Cover Sheets to Excel..."` action in `src/modules/meetings/ui/tdocs_menus.py` under the `📊 Reports ▾` menu and context menu.
-4. [ ] Build `openpyxl` styling helper in `src/modules/meetings/core/excel_exporter.py` for professional formatting.
-
-### Acceptance Criteria
-* [x] Capable of parsing 100 CR documents in under 5 seconds (headless OpenXML without Word COM).
-* [x] Accurate extraction of Spec, CR#, Rev, Category, Release, Work Item, Reason, Summary, and Consequences.
-* [x] Supports both single selection, multi-selection, and "All CRs in current filtered view".
-* [x] Resulting Excel workbook opens cleanly in Excel, LibreOffice, and Google Sheets with auto-filters and wrapped text.
+* **Priority:** 🟡 **Low / Backlog (Optional)**.
+* **Decision:** Deferred indefinitely unless delegate feedback specifically requests structured Excel matrices for corporate sharing. Daily triage and specification clause correlation needs are already fully satisfied by the in-app AI triage and Spec Search subsystems.
