@@ -144,6 +144,23 @@ class SessionPlanWindow(QWidget):
         if hasattr(self, "drop_overlay") and self.drop_overlay:
             self.drop_overlay.setGeometry(self.rect())
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, "clock_timer") and self.clock_timer is not None and not self.clock_timer.isActive():
+            self.clock_timer.start(1000)
+            self._update_live_clock()
+
+    def closeEvent(self, event):
+        if hasattr(self, "clock_timer") and self.clock_timer is not None:
+            self.clock_timer.stop()
+        for dlg in self.findChildren(QDialog):
+            try:
+                dlg.close()
+            except Exception:
+                pass
+        super().closeEvent(event)
+        event.accept()
+
     # --- Drag & Drop Direct Ingestion ---
 
     def dragEnterEvent(self, event):

@@ -208,6 +208,7 @@ src/modules/meetings/
     - **Parallel Conflict Detection:** Automatically flags when two tracked topics are scheduled in parallel rooms during the same quarter (`⚠️ CONFLICT with Str 2`), highlighting rows in soft amber (`#FEF3C7`) and warning in the tab button.
     - **Bidirectional Double-Click Navigation:** Double-clicking any session in "My Topics" or "Drafting Radar" immediately switches to the 5-day Overview Grid, focusing and selecting that exact cell.
   - **Comprehensive Tooltips:** Rich contextual tooltips on all buttons, tabs, room guide strips, table headers, and status badges.
+  - **Window Lifecycle & Application Shutdown:** Implements explicit `closeEvent` and `showEvent` handlers managing `self.clock_timer` and auto-dismissing child modal dialogs (`findChildren(QDialog)`). Synchronized with `TDocsWindow.closeEvent`, `MeetingsTab.shutdown()`, and `DragDropUI.closeEvent` (`QApplication.topLevelWidgets()` sweep) to guarantee all session plan windows terminate cleanly upon closing the parent meeting or the main application.
 - **100% Manual Ingestion & Collision-Safe Caching (`SessionPlanParser`):**
   - Staged files cached in `<meeting_dir>/Agenda/SessionPlans/` (never overwrites earlier snapshots sharing the same TDoc ID, using content-hash naming `S2-2610195_snap2_...docx`).
   - Persistent SQLite database at `<meeting_dir>/Agenda/session_plans.db`.

@@ -955,6 +955,17 @@ class DragDropUI(QMainWindow):
                 except Exception as e:
                     logging.warning(f"⚠️ [SHUTDOWN] Could not stop {tab_name} cleanly: {e}")
 
+        # 9. Clean up any remaining top-level windows (e.g. SessionPlanWindow, standalone dialogs)
+        try:
+            for widget in QApplication.topLevelWidgets():
+                if widget is not self and widget.isVisible():
+                    try:
+                        widget.close()
+                    except Exception:
+                        pass
+        except Exception as e:
+            logging.warning(f"⚠️ [SHUTDOWN] Could not close top-level windows cleanly: {e}")
+
         logging.info("🏁 [SHUTDOWN] Window closing. Releasing Qt window handle...")
         super().closeEvent(event)
         event.accept()

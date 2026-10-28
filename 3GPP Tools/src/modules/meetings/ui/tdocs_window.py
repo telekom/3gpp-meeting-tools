@@ -2173,6 +2173,13 @@ class TDocsWindow(QWidget):
             except Exception:
                 pass
 
+        if getattr(self, '_session_plan_window', None):
+            try:
+                self._session_plan_window.close()
+            except Exception:
+                pass
+            self._session_plan_window = None
+
         for dlg in list(getattr(self, '_email_dialogs', {}).values()):
             if dlg:
                 try:
