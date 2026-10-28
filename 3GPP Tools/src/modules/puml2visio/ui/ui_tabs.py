@@ -256,12 +256,19 @@ class CodeEditorTab(QWidget):
         visio_action.triggered.connect(lambda: self.export_requested.emit("vsdx"))
         export_menu.addAction(visio_action)
 
-        pptx_action = QAction("To PowerPoint (.pptx)", self)
+        pptx_action = QAction("To PowerPoint (.pptx) (New Presentation)", self)
         pptx_action.setToolTip(
-            "Generates Office shapes and leaves PowerPoint open (UNSAVED) so you can instantly copy the slide."
+            "Generates Office shapes and opens a new unsaved PowerPoint presentation."
         )
         pptx_action.triggered.connect(lambda: self.export_requested.emit("pptx"))
         export_menu.addAction(pptx_action)
+
+        pptx_append_action = QAction("Add to Open PowerPoint Presentation...", self)
+        pptx_append_action.setToolTip(
+            "Appends the diagram as a new slide at the end of an open presentation."
+        )
+        pptx_append_action.triggered.connect(lambda: self.export_requested.emit("pptx_append"))
+        export_menu.addAction(pptx_append_action)
 
         svg_action = QAction("To Vector Graphic (.svg)", self)
         svg_action.setToolTip(
