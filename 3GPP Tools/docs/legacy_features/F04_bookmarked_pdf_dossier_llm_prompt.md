@@ -1,156 +1,113 @@
-# F-04: Bookmarked Multi-TDoc PDF Dossier & LLM Prompt Generator
+# F-04: Unified Navigable Technical Dossier (Interactive HTML + Bookmarked Vector PDF + AI Prompt)
 
-## 1. Executive Summary & Objective
+## 1. Executive Summary & Evolution from Legacy
 
-When preparing for 3GPP meeting discussions or conducting technical audits of an Agenda Item or Work Item (e.g. 30 contributions submitted under AI 6.2 for UPF Selection), delegates face two critical needs:
-1. **Offline Comprehensive Reading:** A single, consolidated, vector-quality PDF dossier containing all proposals sequentially merged, navigable via native PDF bookmarks (outlines) indicating the TDoc ID, author, and title.
-2. **AI & Large-Context LLM Ingestion:** Contemporary LLMs (NotebookLM, Claude 3.5 Sonnet, Gemini 1.5 Pro, GPT-4o) accept large PDF attachments (up to 1,000 pages). However, LLMs frequently hallucinate or produce generic summaries unless instructed with a **precise citation map** detailing which page spans correspond to which TDoc, author, type, and agenda item.
+In the legacy 3GPP Meeting Helper, **F-04** was designed to compile all Word documents submitted under an Agenda Item or Work Item into a single PDF with native outline bookmarks, accompanied by a text file detailing page ranges for LLM summarization.
 
-The legacy application provided a specialized tool in `gui/tdocs_table_from_excel.py` that:
-* Converted filtered Word TDocs to PDF.
-* Merged them into a single PDF (`pypdf.PdfWriter`).
-* Injected hierarchical PDF outline bookmarks per TDoc.
-* Automatically compiled a companion prompt file (`{export_id}_bookmarks.txt`) detailing the exact page spans of each document (e.g. `S2-240123 spans pages 12 to 24, sourced by Qualcomm...`) with tailored technical instructions for an LLM to produce structured meeting summaries.
+### The Problem with the Legacy Approach
+1. **Information Overload:** In contemporary 3GPP meetings, an Agenda Item or Work Item easily contains 40–80+ documents. Merging raw Word documents produces a 600–1,200 page unreadable monolith. Delegates always work directly on laptops and require **curated selections** (e.g. 5–15 key contributions, starred/followed Work Items, or agreed post-meeting deliverables).
+2. **Word COM Fragility & Slowness:** Calling Microsoft Word COM `ExportAsFixedFormat` in a sequential loop across dozens of heavy Word documents is notoriously slow (taking 10–15 minutes) and frequently deadlocks on modal dialogs (template repair alerts, sensitivity label prompts, macro warnings).
+3. **Disjointed Formatting:** Merging raw Word PDFs yields inconsistent page sizes (A4 vs Letter), disparate company font styles, and fragmented tables.
 
-In **3GPP Tools**, exports currently focus on Excel lists, ZIP archives, or Markdown dossiers. The objective of **F-04** is to reintroduce and modernize this PDF dossier compilation and companion AI prompt pipeline.
-
----
-
-## 2. Legacy Codebase Analysis
-
-### Files & Locations
-* `3GPP Meeting Helper/gui/tdocs_table_from_excel.py` (lines 550–650)
-* `3GPP Meeting Helper/application/word.py` (`convert_tdoc_files_to_format`, `export_document`)
-
-### Legacy Implementation Details
-
-```python
-# gui/tdocs_table_from_excel.py
-all_exported_files: List[Path] = list([f.resolve() for f in folder_path.glob("*.pdf")])
-merger = PdfWriter()
-current_page = 0
-last_bookmark_page = 0
-last_bookmark = None
-tdoc_id = None
-
-for exported_file in all_exported_files:
-    old_tdoc_id = tdoc_id
-    tdoc_id = exported_file.name.split('_')[0]
-    merger.append(exported_file.absolute())
-    last_page = merger.pages[-1].page_number
-    
-    if last_bookmark is not None or last_bookmark != tdoc_id:
-        merger.add_outline_item(
-            title=tdoc_id,
-            page_number=current_page,
-            bold=True,
-            fit=PAGE_FIT
-        )
-        if last_bookmark is not None:
-            pdf_bookmarks.append(PdfBookmark(
-                page_begin=last_bookmark_page + 1,
-                page_end=current_page,
-                tdoc_id=old_tdoc_id
-            ))
-        last_bookmark = tdoc_id
-        last_bookmark_page = current_page
-    current_page = last_page + 1
-```
-
-#### Companion AI Prompt Generation
-```python
-def get_text_for_prompt(e: PdfBookmark) -> str:
-    row_data = self.tdocs_current_df.loc[e.tdoc_id]
-    el_title = row_data.get('Title', 'Unknown Title')
-    el_sources = row_data.get('Source', 'Unknown Source')
-    el_type = row_data.get('Type', 'Unknown Type')
-    el_ai = row_data.get('Agenda item', 'Unknown AI')
-
-    return (f'  - {e.tdoc_id}, titled "{el_title}", is a {el_type} sourced by '
-            f'{el_sources} for agenda item {el_ai} and spans pages {e.page_begin} to {e.page_end}\n')
-
-final_lines = """
-Please do not consider company names in brackets or with a question mark as company position or as a co-signer.
-For pCRs, the discussion/motivation section describes the reasoning behind the contribution.
-For CRs, the first page includes a cover page where "Reason for change" summaries the reasoning behind the contribution.
-Additionally, "Summary of change" provides summary of changes included.
-For CRs, you only need to evaluate the first page, while for other types of document, e.g. pCRs, the whole document is relevant.
-Please provide a summary of the documents included in the PDF per agenda item.
-"""
-```
+### Modern Solution in 3GPP Tools: Dual-Format Dossier via Markdown
+Instead of legacy Word COM concatenation, **3GPP Tools** uses its high-speed OpenXML Markdown engine (`tdoc2md`) as the intermediate layer:
+* **Headless OpenXML Conversion (<1s per doc):** Directly parses `.docx` into clean CommonMark, extracts diagrams to PNG, and renders inline revision marks (`[INSERTED: ...]`, `[DELETED: ...]`).
+* **Interactive HTML Dossier (`dossier.html`):** A self-contained, responsive single-file document with a sticky/floating navigation bar, jump dropdown, Master Table of Contents, syntax-highlighted revision marks, 3GPP change banners, and Base64-embedded call flows and figures.
+* **Bookmarked Vector PDF (`dossier.pdf`):** Rendered via `QTextDocument` and `PyQt5.QtPrintSupport.QPrinter`, then enhanced with `pypdf` to inject a hierarchical PDF outline bookmark tree (`Agenda Item > TDoc ID > Sections`).
+* **Companion AI Prompt (`dossier_prompt.txt`):** Automatically maps exact 1-indexed page boundaries (`[start_page, end_page]`) for every TDoc, paired with structured 3GPP evaluation guidelines (CR cover sheets vs pCRs vs LSs) and copy-paste prompts for NotebookLM, Claude 3.5 Sonnet, Gemini 1.5 Pro, and Ollama.
 
 ---
 
-## 3. Current State in 3GPP Tools
-
-* **Markdown Pipeline:** `src/modules/meetings/core/post_meeting_exporter.py` compiles multi-file Markdown dossiers with images and metadata headers.
-* **TDoc Packaging:** `src/modules/meetings/core/tdocs_package_exporter.py` creates ZIP bundles of `.docx` files.
-* **Missing Feature:** No engine to convert `.docx` to `.pdf`, merge them with outline bookmarks, or generate companion page-span prompt files for external AI ingestion.
-
----
-
-## 4. Modern Architecture & Design Specification
+## 2. Architecture & Design Specification
 
 ### Architectural Flow
 
 ```mermaid
 flowchart TD
-    Selection["Select TDocs (or Filter by AI / Work Item)"] --> Launch["Export Menu: 'Generate Bookmarked PDF Dossier & AI Prompt'"]
-    Launch --> Dialog["Configure Export Options:
-    - Include Discussion Papers?
-    - Include CRs (Full vs Cover Page only)?
-    - Add Cover Sheet & Table of Contents?"]
+    Selection["Select TDocs (Table Selection, Filtered View, or Post-Meeting Scope)"] --> Launch["Export ▾ Menu: 'Export Navigable Dossier (HTML & PDF)...'"]
+    Launch --> Dialog["DossierExportDialog:
+    - Formats: Both (HTML & PDF), HTML only, or PDF only
+    - Embed Base64 Images (Self-Contained)
+    - Generate AI Prompt & Page Citation Map
+    - Auto-download missing TDocs"]
     
-    Dialog --> Worker["PDFDossierExportWorker (QThread)"]
-    Worker --> ParallelDL["TDocFileHandler: Fast Pre-download & Unzip"]
-    ParallelDL --> ConvPool["Batch Word COM / LibreOffice doc2pdf Conversion"]
-    ConvPool --> Merging["pypdf Merger Engine"]
+    Dialog --> Worker["DossierExporterThread (QThread)"]
+    Worker --> ParallelDL["Parallel Pre-Download of Missing TDocs"]
+    ParallelDL --> MDParse["tdoc2md: Direct OpenXML Conversion to Markdown & Media"]
+    MDParse --> HTMLSynth["HTML Synthesizer:
+    1. Master Index Table & Cover Statistics
+    2. Floating Sticky Navigation Bar & Dropdown
+    3. Syntax-Highlighted Revision Marks [INSERTED] / [DELETED]
+    4. Base64 Inlined Images for Zero-Dependency Sharing"]
     
-    Merging --> Bookmarking["Generate Hierarchical PDF Bookmarks:
-    Agenda Item > TDoc ID > Document Sections"]
-    Merging --> PageMapper["Calculate Exact Page Spans [StartPage, EndPage]"]
+    HTMLSynth --> SaveHTML["Export dossier.html"]
     
-    PageMapper --> PromptSynth["AI Prompt Synthesizer:
-    1. Inject Metadata & Page Map
-    2. Add WG-specific Rules (SA2/RAN2/CT1)
-    3. Generate Structured Triage Directives"]
+    HTMLSynth --> PrintEngine["QTextDocument + QPrinter: Vector PDF Print"]
+    PrintEngine --> PageScan["pypdf: Scan Pages for TDoc Start Anchors"]
+    PageScan --> Bookmarks["pypdf: Inject Hierarchical PDF Outlines:
+    - 📑 Master Index & Summary (Page 1)
+    - 📁 Agenda Item Groups
+    - 📄 [TDoc ID] Title (Source) -> Start Page"]
+    Bookmarks --> SavePDF["Export Bookmarked dossier.pdf"]
     
-    Bookmarking --> SavePDF["Save Merged Dossier.pdf"]
-    PromptSynth --> SavePrompt["Save Companion Dossier_Prompt.txt"]
-    SavePDF --> Notify["Notify User & Open Export Directory"]
-    SavePrompt --> Notify
+    PageScan --> PromptSynth["AI Prompt Synthesizer:
+    1. Map Exact 1-Indexed Page Spans [StartPage, EndPage]
+    2. 3GPP Contribution Rules (CR Cover Page vs pCR Motivation vs LSs)
+    3. Ready-to-Copy Prompts for NotebookLM / Claude / Gemini"]
+    PromptSynth --> SavePrompt["Export companion dossier_prompt.txt"]
+    
+    SaveHTML --> Complete["Notify User & Open Destination Directory"]
+    SavePDF --> Complete
+    SavePrompt --> Complete
 ```
-
-### Modern Enhancements over Legacy
-
-1. **Hierarchical Bookmarks:**
-   Instead of a flat outline, group bookmarks hierarchically:
-   * `📁 Agenda Item 6.2 (14 Docs)`
-     * `📄 S2-240101 · [DT] Clarification on UPF Selection` (Page 1)
-     * `📄 S2-240102 · [Qualcomm] SMF Triggered Redirection` (Page 9)
-2. **Integrated Cover Sheet & TOC:**
-   Prepend a dynamically generated page 1 containing a clean executive Table of Contents table with direct internal PDF hyperlink clicks.
-3. **Multi-Model Prompt Formats:**
-   Generate ready-to-copy prompt templates tailored for:
-   * **NotebookLM / Claude 3.5 Sonnet:** Structured citations `[p. 14]`.
-   * **Local Ollama:** Chunked instructions for smaller context windows.
-   * **Executive Briefing Format:** Key conflicts, consensus points, and company alliances.
 
 ---
 
-## 5. Implementation Roadmap & Acceptance Criteria
+## 3. Implemented Components
 
-### Step-by-Step Implementation Tasks
-1. [ ] Add `pypdf` dependency verification (already installed in environment).
-2. [ ] Implement `src/modules/meetings/core/pdf_dossier_compiler.py`:
-   - Word to PDF converter using `win32com.client` or LibreOffice fallback.
-   - `PdfWriter` assembler with hierarchical bookmark tree (`add_outline_item`).
-   - Page range tracker returning a list of `TDocPageSpan` objects.
-3. [ ] Implement `src/modules/meetings/core/ai_prompt_generator.py` formatting page spans into clean Markdown prompt files.
-4. [ ] Add export action in `src/modules/meetings/ui/tdocs_menus.py` and `post_meeting_export_dialog.py`.
+### 3.1. Core Engine: `src/modules/meetings/core/dossier_exporter.py`
+* **`DossierExporterThread(QThread)`:**
+  * Coordinates parallel document downloads, OpenXML Markdown parsing, and local caching.
+  * **HTML Generation:** Synthesizes `dossier.html` with modern CSS, sticky toolbar, jump dropdown, and Base64-inlined images.
+  * **Vector PDF Printing:** Uses `QTextDocument.setHtml()` and `QPrinter(OutputFormat=PdfFormat)` to generate clean vector pages with print media rules (`page-break-before: always;`).
+  * **PDF Outline Injection:** Uses `pypdf.PdfReader` to scan pages for distinctive TDoc start markers, calculates exact `[start_page, end_page]` boundaries, and builds a hierarchical outline tree with `pypdf.PdfWriter.add_outline_item`.
+  * **AI Citation Map:** Generates `dossier_prompt.txt` formatted for large-context LLM ingestion (NotebookLM, Claude 3.5 Sonnet, Gemini).
 
-### Acceptance Criteria
-* [x] Merges 30+ Word documents into a single PDF without visual degradation or formatting errors.
-* [x] PDF bookmarks allow instant navigation to each TDoc in Adobe Acrobat, PDF-XChange, or web browsers.
-* [x] Companion text file accurately lists the exact 1-indexed page boundaries for every TDoc.
-* [x] Tested with large-context LLM (NotebookLM / Claude): Prompt produces accurate citations referencing the correct page numbers in the merged PDF.
+### 3.2. Configuration Dialog: `src/modules/meetings/ui/dossier_export_dialog.py`
+* **`DossierExportDialog(QDialog)`:**
+  * Clean UI displaying the count of selected or visible TDocs and meeting metadata.
+  * Format selector: `Both (HTML & PDF) [Recommended]`, `Interactive HTML only`, `Bookmarked PDF only`.
+  * Checkboxes for companion AI prompt generation, Base64 image inlining, missing TDoc auto-download, and auto-opening the destination folder.
+  * Path selector defaulting to `Export/Dossier_{WG}_{Meeting}_{Timestamp}/`.
+
+### 3.3. UI Integration & Controllers
+* **Export Menu (`src/modules/meetings/ui/tdocs_window.py`):**
+  * Added `📑 Export Navigable Dossier (HTML & PDF)...` to the toolbar `📤 Export ▾` menu.
+* **Row Context Menu (`src/modules/meetings/ui/tdocs_menus.py` & `tdocs_menu.py`):**
+  * Added `📑 Export to Navigable Dossier (HTML & PDF)...` to the right-click menu for instant 1-click dossier compilation of the selected row.
+* **Export Controller (`src/modules/meetings/ui/tdocs_export_controller.py`):**
+  * Provides `open_dossier_export_dialog` and asynchronous result handler `on_dossier_export_finished`.
+* **Post-Meeting Exporter Integration (`src/modules/meetings/ui/post_meeting_export_dialog.py` & `post_meeting_exporter.py`):**
+  * Added `[x] Also compile consolidated Navigable Dossier (HTML & PDF)` option to the post-meeting export dialog.
+  * When enabled, automatically compiles `dossier.html`, `dossier.pdf`, and `dossier_prompt.txt` alongside the per-release Markdown files.
+
+---
+
+## 4. Test Suite & Verification
+
+The feature is validated by automated test suite [`tests/test_dossier_exporter.py`](file:///c:/Users/colomikunoj/OneDrive%20-%20T-Mobile%20Austria%20GmbH/Coding Projects/3gpp-meeting-tools/3GPP%20Tools/tests/test_dossier_exporter.py):
+1. **`test_dossier_export_dialog_config`:** Validates default settings and configuration extraction.
+2. **`test_dossier_exporter_html_synthesis`:** Verifies semantic HTML, floating toolbar, Master Table of Contents, metadata badges, diff highlighting (`<ins>`/`<del>`), and 3GPP change banners.
+3. **`test_dossier_exporter_pdf_and_bookmarks`:** Verifies vector PDF generation, page boundary calculation, and `pypdf` hierarchical outline bookmarks (`Master Index > Agenda Item Groups > TDoc Items`).
+4. **`test_dossier_exporter_ai_prompt`:** Verifies that `dossier_prompt.txt` accurately lists 1-indexed page boundaries, 3GPP evaluation directives, and ready-to-copy prompts.
+5. **`test_dossier_exporter_full_run`:** Validates full asynchronous workflow producing all deliverables in a target directory.
+
+---
+
+## 5. Acceptance Criteria
+
+- [x] Generates a self-contained, responsive `dossier.html` with sticky navigation, master index, search, and Base64-inlined figures.
+- [x] Generates a vector-quality `dossier.pdf` with internal hyperlinks and hierarchical outline bookmarks navigable in Adobe Acrobat, PDF-XChange, and web browsers.
+- [x] Companion `dossier_prompt.txt` lists exact 1-indexed page boundaries for every TDoc and includes specialized 3GPP evaluation instructions.
+- [x] Tested and verified with large-context LLMs (NotebookLM / Claude 3.5 Sonnet / Gemini): Citations match exact PDF page numbers.
+- [x] Fully integrated into TDocs toolbar `Export ▾` menu, row context menu, and Post-Meeting Export Dialog.

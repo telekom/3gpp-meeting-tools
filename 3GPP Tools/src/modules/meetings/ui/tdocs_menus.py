@@ -207,6 +207,7 @@ def build_row_context_menu(
     triage_callback=None,  # <--- Added parameter
     draft_cr_callback=None,
     compare_active_word_callback=None,
+    export_dossier_callback=None,
 ):
     """Complete command center menu for row-level operations."""
     menu = QMenu(parent)
@@ -354,11 +355,16 @@ def build_row_context_menu(
     word_slot_b_sub.setToolTipsVisible(True)
     populate_slot_word_menu(word_slot_b_sub, "B", parent)
 
-    # --- 4. MARKDOWN EXPORT ---
-    if export_llm_callback:
-        act_md = menu.addAction("📄 Export to Markdown (.md)")
-        act_md.setToolTip("Export this TDoc as an individual Markdown document with metadata and extracted figures.")
-        act_md.triggered.connect(lambda: export_llm_callback(tdoc_id))
+    # --- 4. MARKDOWN & DOSSIER EXPORT ---
+    if export_dossier_callback or export_llm_callback:
+        if export_dossier_callback:
+            act_dossier = menu.addAction("📑 Export to Navigable Dossier (HTML & PDF)...")
+            act_dossier.setToolTip("Compile this TDoc into an interactive HTML dossier and bookmarked vector PDF with companion AI citation prompt.")
+            act_dossier.triggered.connect(lambda: export_dossier_callback([row_data]))
+        if export_llm_callback:
+            act_md = menu.addAction("📄 Export to Markdown (.md)")
+            act_md.setToolTip("Export this TDoc as an individual Markdown document with metadata and extracted figures.")
+            act_md.triggered.connect(lambda: export_llm_callback(tdoc_id))
         menu.addSeparator()
 
     # --- 5. EMAILS SUBMENU ---

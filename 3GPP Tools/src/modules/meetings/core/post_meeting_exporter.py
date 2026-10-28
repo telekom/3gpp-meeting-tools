@@ -121,6 +121,7 @@ class PostMeetingExporterThread(QThread):
         generate_local_indices: bool = True,
         download_missing: bool = True,
         force_reconvert: bool = False,
+        compile_dossier: bool = True,
         output_dir: Optional[Path] = None,
         parent=None,
     ):
@@ -150,6 +151,7 @@ class PostMeetingExporterThread(QThread):
         self.generate_local_indices = generate_local_indices
         self.download_missing = download_missing
         self.force_reconvert = force_reconvert
+        self.compile_dossier = compile_dossier
 
         # Resolve output directory
         if output_dir:
@@ -192,12 +194,50 @@ class PostMeetingExporterThread(QThread):
 
             self._generate_master_index(filtered_entries)
 
+            # Compile consolidated Navigable Dossier (HTML & PDF)
+            if self.compile_dossier and not self.isInterruptionRequested():
+                try:
+                    self.progress.emit("Compiling consolidated Navigable Dossier (HTML & PDF)...")
+                    self._compile_consolidated_dossier(filtered_entries)
+                except Exception as doss_err:
+                    logger.warning(f"[PostMeetingExporter] Consolidated dossier generation warning: {doss_err}")
+
             msg = f"Successfully generated Post-Meeting Dossier in:\n{self.export_dir}"
             self.finished.emit(True, msg)
 
         except Exception as e:
             logger.error(f"[PostMeetingExporter] Critical failure during export: {e}", exc_info=True)
             self.finished.emit(False, str(e))
+
+    def _compile_consolidated_dossier(self, filtered_entries: dict):
+        """Compiles all exported deliverables into a master navigable HTML and PDF dossier."""
+        unique_docs = {}
+        for rel in filtered_entries.values():
+            for wi in rel.values():
+                for cat_docs in wi["categories"].values():
+                    for doc in cat_docs:
+                        tid = doc["tdoc_id"]
+                        if tid not in unique_docs:
+                            unique_docs[tid] = doc["row_data"]
+
+        if not unique_docs:
+            return
+
+        from modules.meetings.core.dossier_exporter import DossierExporterThread
+        dossier_worker = DossierExporterThread(
+            meeting_dir=self.meeting_dir,
+            tdocs_list=list(unique_docs.values()),
+            docs_ftp_url=self.docs_ftp_url,
+            revisions_url=self.revisions_url,
+            mtg_info=self.mtg_info,
+            export_format="both",
+            include_prompt=True,
+            embed_base64_images=True,
+            download_missing=False,
+            force_reconvert=False,
+            output_dir=self.export_dir,
+        )
+        dossier_worker.run()
 
     def _build_ls_reply_map(self) -> tuple:
         """

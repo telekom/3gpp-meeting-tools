@@ -29,7 +29,7 @@ However, the legacy codebase contained several **specialized desktop ergonomics,
 | **F-01** | **OS Integration** | Windows `tdoc://` URL Protocol Handler | [F01: Windows URL Handler](legacy_features/F01_windows_tdoc_url_handler.md) | 🔴 Deprecated (Abandoned; admin rights & Teams URI sanitization) | Low | ⚪ Low |
 | **F-02** | **Word Automation** | Batch CR Cover Sheet Parser to Excel | [F02: Batch CR Cover Parser](legacy_features/F02_batch_cr_cover_sheet_parser.md) | 🟡 Backlog / Niche (Superseded by AI Triage & In-App Filters) | Medium | ⚪ Low |
 | **F-03** | **Office Automation** | PowerPoint Presentation Merger | [F03: PowerPoint Merger](legacy_features/F03_powerpoint_presentation_merger.md) | 🔴 Deprecated (Abandoned; no practical workflow need, template corruption) | Low | ⚪ Low |
-| **F-04** | **PDF & AI Tools** | Bookmarked PDF Dossier & LLM Prompt | [F04: Bookmarked PDF & Prompt](legacy_features/F04_bookmarked_pdf_dossier_llm_prompt.md) | ❌ Merges Excel / Markdown | Medium | 🟡 Medium |
+| **F-04** | **PDF & AI Tools** | Bookmarked PDF Dossier & LLM Prompt | [F04: Bookmarked PDF & Prompt](legacy_features/F04_bookmarked_pdf_dossier_llm_prompt.md) | ✅ Implemented (Navigable HTML + Bookmarked PDF + AI Prompt) | Medium | 🟢 High |
 | **F-05** | **Word Automation** | Active Word vs. TDoc Direct Compare | [F05: Active Word vs. TDoc](legacy_features/F05_active_word_vs_tdoc_comparison.md) | ✅ Implemented (Multi-Surface + Live Cart) | Low | 🟢 High |
 | **F-06** | **Security / Compliance** | MIP / Purview Sensitivity Label Setter | [F06: MIP Sensitivity Setter](legacy_features/F06_mip_sensitivity_label_setter.md) | ✅ Implemented (Multi-Level + Batch Tool) | Low | 🟢 High |
 | **F-07** | **Word Automation** | Track Changes Revision Author Renamer | [F07: Author Renamer](legacy_features/F07_track_changes_author_renamer.md) | ✅ Implemented (Word Tools Tab) | Low | ⚪ Low |
@@ -131,44 +131,41 @@ In 3GPP TSG Plenaries (SA, RAN, CT), delegates occasionally receive Working Grou
 
 ---
 
-### F-04: Bookmarked Multi-TDoc PDF Dossier & LLM Prompt Generator
+### F-04: Bookmarked Multi-TDoc PDF Dossier & LLM Prompt Generator (✅ Implemented)
 
 #### Overview & Delegate Workflow
-While Markdown conversion is ideal for local text processing, delegates often require a single, unified, searchable PDF compilation of all contributions under an Agenda Item or Work Item for offline reading on tablets/iPads or sharing with executives. In addition, pairing the PDF with a structured prompt file detailing the exact page boundaries of each contribution allows large-context LLMs (NotebookLM, Claude, Gemini, GPT-4) to reference specific page ranges with 100% citation accuracy.
+While Markdown conversion is ideal for local text processing, delegates often require a single, unified, searchable compilation of all contributions under an Agenda Item or Work Item for offline reading on tablets/iPads or sharing with executives. In addition, pairing the document package with a structured prompt file detailing the exact page boundaries of each contribution allows large-context LLMs (NotebookLM, Claude, Gemini, GPT-4) to reference specific page ranges with 100% citation accuracy.
+
+Rather than relying on legacy, fragile Word COM batch document-to-PDF loops (which take 10–15 minutes and frequently freeze on modal dialogs), 3GPP Tools modernizes this pipeline using a **headless OpenXML Markdown intermediate representation**:
+1. Converts selected or post-meeting TDocs into clean Markdown and extracts figures in fractions of a second.
+2. Synthesizes a self-contained, responsive **`dossier.html`** with sticky navigation, master index, search, and syntax-highlighted revision marks.
+3. Renders a vector-quality **`dossier.pdf`** via `QTextDocument` and injects hierarchical PDF outline bookmarks via `pypdf` (`Agenda Item > TDoc ID > Sections`).
+4. Compiles a companion **`dossier_prompt.txt`** citation map with exact 1-indexed page boundaries and tailored evaluation directives.
 
 ```mermaid
 flowchart TD
-    Input["Selected TDocs (e.g. AI 6.2 Dossier)"] --> WordPDF["Word COM: Batch Convert .doc/.docx -> .pdf"]
-    WordPDF --> PDFWriter["pypdf.PdfWriter: Concatenate PDFs"]
-    PDFWriter --> Bookmarks["Inject PDF Outlines / Bookmarks:
-    - Bookmark Title: TDoc ID & Title
-    - Page Target: Start page of document"]
-    Bookmarks --> FinalPDF["Export Unified Dossier.pdf"]
-    FinalPDF --> PromptGen["Generate Companion Prompt File (.txt):
-    - Page spans per TDoc (e.g. 'S2-240123: pages 14-26')
-    - Title, Source, Category, Agenda Item
-    - Multi-AI executive summary instructions"]
+    Input["Selected TDocs (e.g. AI 6.2 Dossier or Post-Meeting Scope)"] --> MDExport["tdoc2md: Direct OpenXML Parse to Markdown & Media"]
+    MDExport --> HTMLSynth["HTML Synthesizer: Responsive Dossier with Sticky Nav & Embedded Images"]
+    HTMLSynth --> SaveHTML["Export dossier.html (Single-File Self-Contained)"]
+    HTMLSynth --> PDFEngine["QtPrintSupport (QPrinter): Vector PDF Print"]
+    PDFEngine --> Bookmarks["pypdf: Scan Pages & Inject Hierarchical Bookmarks:
+    - Master Index & Summary (Page 1)
+    - Agenda Item Groups
+    - TDoc Items: [TDoc ID] Title (Source) -> Start Page"]
+    Bookmarks --> FinalPDF["Export Bookmarked dossier.pdf"]
+    Bookmarks --> PromptGen["Generate Companion dossier_prompt.txt:
+    - Exact 1-indexed page spans per TDoc
+    - 3GPP contribution evaluation rules (CR cover sheet vs pCRs vs LSs)
+    - Ready-to-copy prompts for NotebookLM / Claude / Gemini"]
 ```
 
-#### Legacy Implementation
-* **Files:**
-  * `3GPP Meeting Helper/gui/tdocs_table_from_excel.py` (lines 550–650)
-* **Mechanism:**
-  * Converted Word files to PDF via `application.word.convert_tdoc_files_to_format`.
-  * Utilized `pypdf.PdfWriter` to assemble pages while tracking cumulative page offsets.
-  * Injected native PDF outline items (`merger.add_outline_item(title=tdoc_id, page_number=current_page, bold=True, fit=PAGE_FIT)`).
-  * Synthesized a structured prompt file (`{export_id}_bookmarks.txt`):
-    ```text
-    The attached PDF contains a collection of 3GPP documents:
-      - S2-240101, titled "Clarification on UPF Selection", is a pCR sourced by Deutsche Telekom for agenda item 6.2 and spans pages 1 to 8.
-      - S2-240102, titled "SMF Triggered Redirection", is a Discussion paper sourced by Qualcomm for agenda item 6.2 and spans pages 9 to 15.
-    
-    Please provide a summary of the documents included in the PDF per agenda item...
-    ```
-
-#### Proposed Integration into 3GPP Tools
-1. **Location:** `src/modules/meetings/ui/tdocs_menus.py` -> `📥 Export ▾` -> `"Export Merged PDF Dossier with Bookmarks & LLM Prompt..."`.
-2. **Integration:** Combine Word COM headless export with `pypdf` bookmark stitching. Export directly into the meeting export folder.
+#### Implementation in 3GPP Tools
+* **Core Modules:** `src/modules/meetings/core/dossier_exporter.py` (`DossierExporterThread`), `src/modules/meetings/ui/dossier_export_dialog.py` (`DossierExportDialog`).
+* **UI Surfaces:**
+  1. `src/modules/meetings/ui/tdocs_window.py` -> `📤 Export ▾` -> `📑 Export Navigable Dossier (HTML & PDF)...`.
+  2. `src/modules/meetings/ui/tdocs_menus.py` -> Row Context Menu -> `📑 Export to Navigable Dossier (HTML & PDF)...`.
+  3. `src/modules/meetings/ui/post_meeting_export_dialog.py` -> `[x] Also compile consolidated Navigable Dossier (HTML & PDF)`.
+* **Deliverables Generated:** `dossier.html`, `dossier.pdf`, `dossier_prompt.txt`, and raw image assets in `media/`.
 
 ---
 

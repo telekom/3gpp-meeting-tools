@@ -9,7 +9,9 @@ from PyQt5.QtWidgets import QDialog, QFileDialog, QMessageBox
 from modules.meetings.core.excel_exporter import ExcelExporterThread
 from modules.meetings.core.tdocs_package_exporter import TDocsPackageExporterThread
 from modules.meetings.core.llm_exporter import TDocMarkdownExporterThread
+from modules.meetings.core.dossier_exporter import DossierExporterThread
 from modules.meetings.ui.excel_export_dialog import ALL_AVAILABLE_COLUMNS, ExcelExportDialog
+from modules.meetings.ui.dossier_export_dialog import DossierExportDialog
 from core.utils.folder_opener import open_folder as _open_folder
 
 logger = logging.getLogger(__name__)
@@ -343,6 +345,7 @@ def open_post_meeting_export_dialog(window: Any) -> None:
         generate_local_indices=cfg["generate_local_indices"],
         download_missing=cfg["download_missing"],
         force_reconvert=cfg["force_reconvert"],
+        compile_dossier=cfg.get("compile_dossier", True),
         output_dir=cfg["output_dir"],
         parent=window,
     )
@@ -366,4 +369,80 @@ def on_post_meeting_export_finished(window: Any, success: bool, msg: str, auto_o
             _open_folder(target)
     else:
         QMessageBox.warning(window, "Post-Meeting Export Failed", msg)
+
+
+def open_dossier_export_dialog(window: Any, target_rows: Optional[List[dict]] = None) -> None:
+    """
+    Opens DossierExportDialog and triggers DossierExporterThread to generate
+    an interactive HTML dossier and bookmarked vector PDF (F-04).
+    """
+    if target_rows is not None:
+        rows_to_export = target_rows
+        scope_text = "selected"
+    else:
+        rows_to_export = get_package_export_rows(window)
+        selected_count = (
+            len(window.table.selectionModel().selectedIndexes())
+            if window.table.selectionModel()
+            else 0
+        )
+        scope_text = "selected" if selected_count else "visible"
+
+    if not rows_to_export:
+        QMessageBox.warning(window, "No TDocs", "There are no selected or visible TDocs to export to dossier.")
+        return
+
+    dialog = DossierExportDialog(
+        parent=window,
+        meeting_dir=window.meeting_dir,
+        tdocs_count=len(rows_to_export),
+        mtg_info=window.mtg_info,
+        scope_label=scope_text,
+    )
+
+    if dialog.exec_() != QDialog.Accepted:
+        return
+
+    cfg = dialog.get_config()
+
+    window.export_btn.setText("⏳ Compiling Dossier...")
+    window.export_btn.setEnabled(False)
+
+    thread = DossierExporterThread(
+        meeting_dir=window.meeting_dir,
+        tdocs_list=rows_to_export,
+        docs_ftp_url=window.docs_ftp_url,
+        revisions_url=window.revisions_url,
+        mtg_info=window.mtg_info,
+        export_format=cfg["export_format"],
+        include_prompt=cfg["include_prompt"],
+        embed_base64_images=cfg["embed_base64_images"],
+        download_missing=cfg["download_missing"],
+        force_reconvert=cfg["force_reconvert"],
+        compile_dossier=cfg.get("compile_dossier", True),
+        output_dir=cfg["output_dir"],
+        parent=window,
+    )
+    window.dossier_thread = thread
+    thread.progress.connect(window._on_md_progress)
+    thread.finished.connect(
+        lambda success, msg, files, auto_open=cfg["auto_open"]: on_dossier_export_finished(
+            window, success, msg, files, auto_open
+        )
+    )
+    thread.start()
+
+
+def on_dossier_export_finished(
+    window: Any, success: bool, msg: str, files: dict, auto_open: bool = True
+) -> None:
+    window.export_btn.setText("📤 Export ▾")
+    window.export_btn.setEnabled(True)
+    if success:
+        target_dir = getattr(window.dossier_thread, "export_dir", None)
+        QMessageBox.information(window, "Navigable Dossier Complete", msg)
+        if auto_open and target_dir and target_dir.is_dir():
+            _open_folder(target_dir)
+    else:
+        QMessageBox.warning(window, "Dossier Export Failed", msg)
 

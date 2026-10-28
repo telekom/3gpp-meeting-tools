@@ -68,4 +68,5 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
         triage_callback=window._open_tdoc_triage,
         draft_cr_callback=window._open_draft_cr_dialog,
         compare_active_word_callback=getattr(window, "_compare_tdoc_with_active_word", None),
+        export_dossier_callback=window._export_dossier,
     )
