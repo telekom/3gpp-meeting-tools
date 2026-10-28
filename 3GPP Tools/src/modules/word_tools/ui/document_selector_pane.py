@@ -126,6 +126,7 @@ class DocumentSelectorPane(QWidget):
         open_layout.setContentsMargins(8, 8, 8, 8)
         open_layout.setSpacing(6)
         self.open_combo = QComboBox()
+        self.open_combo.currentIndexChanged.connect(self._on_open_combo_changed)
 
         open_btn_row = QHBoxLayout()
         self.select_active_btn = QPushButton("🪟 Select Active Document")
@@ -253,6 +254,15 @@ class DocumentSelectorPane(QWidget):
                 "No active Microsoft Word document could be detected.\n\n"
                 "Please ensure Microsoft Word is running and a document is open.",
             )
+            return
+        if active_doc.get("path"):
+            self.file_selected.emit([active_doc["path"]])
+
+    def _on_open_combo_changed(self, index: int):
+        if self.tabs.currentIndex() == 1:
+            inputs = self.get_inputs()
+            if inputs:
+                self.file_selected.emit(inputs)
 
     def get_inputs(self) -> list:
         idx = self.tabs.currentIndex()
@@ -277,3 +287,6 @@ class DocumentSelectorPane(QWidget):
     def _on_tab_changed(self, index):
         if index == 1:
             self.poll_open_documents()
+            inputs = self.get_inputs()
+            if inputs:
+                self.file_selected.emit(inputs)

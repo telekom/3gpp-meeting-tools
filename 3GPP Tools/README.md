@@ -894,11 +894,13 @@ python -m main_tools
    * Choose your preferred Track Changes revision mode: **Inline Markup** (`[INSERTED: ...]` / `[DELETED: ...]`), **Accept All Changes** (clean final view), or **Reject All Changes** (original baseline).
    * Figures and diagrams are automatically extracted to a `{doc_name}_media/` companion folder with vector EMF/WMF drawings converted to PNG and embedded Visio diagrams linked.
    * Upon completion, use the 1-click action buttons to **Open Folder**, **Open .md File**, **Copy Markdown** to clipboard, or expand the in-app **Preview**.
-5. **Consolidate & Anonymize Track Changes Authors:** In **Word Tools**, switch to **👥 Revision Authors** (or select **Consolidate / Anonymize Track Changes Authors** in the Jump dropdown):
+5. **Document Sanitizer, Proofing Language & Revision Hub:** In **Word Tools**, switch to **🛠️ Sanitizer && Revisions**:
    * Select a local `.docx` or click **🪟 Use Active Word** to load the document currently active in Microsoft Word.
-   * Review the discovered reviewers table detailing per-author metrics (insertions, deletions, format changes, comments, and initials).
-   * Enter a target author name or pick a 1-click preset (**🏢 My Company**, **✍️ Editor**, **👤 Rapporteur**, **🔒 Anonymous**). Initials are automatically derived or customized.
-   * Toggle options to update comment initials (`w:initials`), synchronize document core properties (`<dc:creator>`, `<cp:lastModifiedBy>`), and create `.bak` backups.
+   * **Executive Health Audit:** Instant (<150ms) single-pass inspection displaying detected language breakdown, language revision count, total insertions/deletions, formatting changes, and comments.
+   * **Proofing Language Unification:** Unify language across body, tables, headers, footers, footnotes, endnotes, comments, DrawingML shapes, and document defaults (`styles.xml`) so newly typed text never reverts back.
+   * **Surgical Language Revision Purging:** Automatically detects and purges trivial Track Changes language formatting balloons (`Formatted: Language:...`), while synchronizing compound revisions so technical insertions and deletions remain intact.
+   * **Consolidate & Anonymize Authors:** Map disparate reviewers to a unified corporate signature (**🏢 My Company**, **✍️ Editor**, **👤 Rapporteur**, **🔒 Anonymous**), update comment initials, and synchronize Dublin Core metadata (`<dc:creator>`, `<cp:lastModifiedBy>`).
+   * **1-Click Action Presets:** Use **✨ 3GPP Contribution Prep**, **🌐 Fix Language Only**, or **🕶️ Full Anonymize** for rapid pre-flight sanitation.
    * Click **💾 Update File In-Place** (with automatic Word COM detection & safe close/reopen) or **📑 Save As New Copy...**.
 
 ---

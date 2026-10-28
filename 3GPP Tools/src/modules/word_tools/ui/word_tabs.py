@@ -35,6 +35,7 @@ from PyQt5.QtWidgets import (
     QTreeWidgetItem,
     QStackedWidget,
     QTabWidget,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -73,6 +74,14 @@ from modules.word_tools.core.author_renamer import (
     inspect_authors,
     is_file_open_in_word,
     replace_authors,
+)
+from modules.word_tools.core.document_sanitizer import (
+    DocumentHygieneAudit,
+    LanguageStats,
+    LANGUAGE_PRESETS,
+    SanitizeConfig,
+    inspect_document,
+    sanitize_document,
 )
 
 # Subcomponents extracted to dedicated modules (re-exported for backward compatibility)
@@ -175,7 +184,8 @@ class WordExtractorTab(QWidget):
         self.nav_btn_compare = QPushButton("⚖️ Compare Documents")
         self.nav_btn_markdown = QPushButton("📝 Word → Markdown")
         self.nav_btn_cr_pcr = QPushButton("🏛️ 3GPP CR && Templates")
-        self.nav_btn_author = QPushButton("👥 Revision Authors")
+        self.nav_btn_author = QPushButton("🛠️ Sanitizer && Revisions")
+        self.nav_btn_author.setToolTip("Unify proofing language, purge language Track Changes clutter, consolidate revision authors, and sanitize metadata.")
         self.nav_btn_slice = QPushButton("✂️ Slice && Excerpt")
         self.nav_btn_convert = QPushButton("🔄 Format Converter")
         self.nav_btn_visio = QPushButton("🖼️ Visio && Media Extractor")
@@ -1643,11 +1653,25 @@ class WordExtractorTab(QWidget):
             self.md_dest_edit.setText(folder)
 
     # -------------------------------------------------------------
-    # F-07: Track Changes Author Renamer Card & Handlers
+    # F-07: Document Sanitizer & Revision Hygiene Card & Handlers
     # -------------------------------------------------------------
     def _create_author_renamer_card(self) -> QWidget:
+        """Alias for _create_document_sanitizer_card for backward compatibility."""
+        return self._create_document_sanitizer_card()
+
+    def _create_document_sanitizer_card(self) -> QWidget:
         card = QWidget()
-        card_layout = QVBoxLayout(card)
+        outer_layout = QVBoxLayout(card)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+
+        container = QWidget()
+        card_layout = QVBoxLayout(container)
         card_layout.setContentsMargins(10, 10, 10, 10)
         card_layout.setSpacing(10)
 
@@ -1659,14 +1683,14 @@ class WordExtractorTab(QWidget):
         hf_layout.setContentsMargins(14, 12, 14, 12)
         hf_layout.setSpacing(6)
 
-        hf_title = QLabel("<b>👥 Consolidate &amp; Anonymize Track Changes Authors</b>")
+        hf_title = QLabel("<b>🛠️ Document Sanitizer &amp; Revision Hygiene Hub</b>")
         hf_title.setStyleSheet("font-size: 13px; color: #1E293B;")
         hf_layout.addWidget(hf_title)
 
         hf_desc = QLabel(
-            "Replace disparate reviewer identities with a unified corporate signature (e.g. 'Deutsche Telekom'), "
-            "anonymize internal contractor/team tags, harmonize rapporteur edits, and scrub comment initials "
-            "before circulating contributions or submitting to 3GPP."
+            "Comprehensive pre-flight sanitation for 3GPP Word contributions: unify proofing language across all "
+            "stories and styles, surgically purge Track Changes language marks ('Formatted: Language...'), "
+            "consolidate reviewer identities under a single corporate signature, and clean private metadata."
         )
         hf_desc.setWordWrap(True)
         hf_desc.setStyleSheet("color: #475569; font-size: 11px;")
@@ -1674,23 +1698,153 @@ class WordExtractorTab(QWidget):
         card_layout.addWidget(hdr_frame)
 
         # 2. Document Selector Pane
-        self.pane_author = DocumentSelectorPane("📄 WORD CONTRIBUTION (.DOCX)", accepted_extensions=[".docx", ".docm"])
-        self.pane_author.file_selected.connect(self._on_author_file_selected)
-        card_layout.addWidget(self.pane_author)
+        self.pane_sanitizer = DocumentSelectorPane("📄 WORD CONTRIBUTION (.DOCX / .DOCM)", accepted_extensions=[".docx", ".docm"])
+        self.pane_sanitizer.file_selected.connect(self._on_sanitizer_file_selected)
+        self.pane_author = self.pane_sanitizer  # Backward-compatible alias
+        card_layout.addWidget(self.pane_sanitizer)
 
-        # 3. Discovered Authors Frame
-        authors_frame = QFrame()
-        authors_frame.setObjectName("cardFrame")
-        authors_frame.setStyleSheet(CARD_FRAME_STYLE)
-        af_layout = QVBoxLayout(authors_frame)
-        af_layout.setContentsMargins(14, 12, 14, 12)
-        af_layout.setSpacing(8)
+        # 3. Executive Audit Summary Frame
+        self.audit_frame = QFrame()
+        self.audit_frame.setObjectName("cardFrame")
+        self.audit_frame.setStyleSheet(CARD_FRAME_STYLE)
+        audit_layout = QVBoxLayout(self.audit_frame)
+        audit_layout.setContentsMargins(14, 10, 14, 10)
+        audit_layout.setSpacing(8)
 
-        af_header = QHBoxLayout()
-        af_title = QLabel("<b>👥 Discovered Revision &amp; Comment Authors</b>")
-        af_title.setStyleSheet("font-size: 12px; color: #1E293B;")
-        af_header.addWidget(af_title)
-        af_header.addStretch()
+        self.lbl_audit_summary = QLabel("No document selected. Drop or select a .docx file above to audit.")
+        self.lbl_audit_summary.setStyleSheet("color: #64748B; font-size: 11px; font-style: italic;")
+        audit_layout.addWidget(self.lbl_audit_summary)
+
+        # KPI Badges Row
+        kpi_row = QHBoxLayout()
+        kpi_row.setSpacing(6)
+        chip_style = (
+            "background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 4px; "
+            "padding: 4px 8px; font-size: 11px; color: #334155;"
+        )
+
+        self.lbl_kpi_lang = QLabel("🌐 Languages: —")
+        self.lbl_kpi_lang.setStyleSheet(chip_style)
+        kpi_row.addWidget(self.lbl_kpi_lang)
+
+        self.lbl_kpi_lang_rev = QLabel("🏷️ Lang Changes: —")
+        self.lbl_kpi_lang_rev.setStyleSheet(chip_style)
+        kpi_row.addWidget(self.lbl_kpi_lang_rev)
+
+        self.lbl_kpi_authors = QLabel("👥 Authors: —")
+        self.lbl_kpi_authors.setStyleSheet(chip_style)
+        kpi_row.addWidget(self.lbl_kpi_authors)
+
+        self.lbl_kpi_text_rev = QLabel("📝 Ins/Del: —")
+        self.lbl_kpi_text_rev.setStyleSheet(chip_style)
+        kpi_row.addWidget(self.lbl_kpi_text_rev)
+
+        self.lbl_kpi_fmt = QLabel("🎨 Formatting: —")
+        self.lbl_kpi_fmt.setStyleSheet(chip_style)
+        kpi_row.addWidget(self.lbl_kpi_fmt)
+
+        self.lbl_kpi_comments = QLabel("💬 Comments: —")
+        self.lbl_kpi_comments.setStyleSheet(chip_style)
+        kpi_row.addWidget(self.lbl_kpi_comments)
+
+        kpi_row.addStretch()
+        audit_layout.addLayout(kpi_row)
+        card_layout.addWidget(self.audit_frame)
+
+        # 4. Quick Action Presets
+        preset_bar = QHBoxLayout()
+        preset_bar.addWidget(QLabel("<b>✨ Quick Presets:</b>"))
+
+        btn_preset_3gpp = QPushButton("✨ 3GPP Contribution Prep (en-GB + My Company + Clean Language)")
+        btn_preset_3gpp.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        btn_preset_3gpp.setCursor(Qt.PointingHandCursor)
+        btn_preset_3gpp.clicked.connect(self._apply_preset_3gpp)
+        preset_bar.addWidget(btn_preset_3gpp)
+
+        btn_preset_lang_only = QPushButton("🌐 Fix Language Only (en-GB)")
+        btn_preset_lang_only.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        btn_preset_lang_only.setCursor(Qt.PointingHandCursor)
+        btn_preset_lang_only.clicked.connect(self._apply_preset_lang_only)
+        preset_bar.addWidget(btn_preset_lang_only)
+
+        btn_preset_anonymize = QPushButton("🕶️ Full Anonymize (Contributor + Strip Comments)")
+        btn_preset_anonymize.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        btn_preset_anonymize.setCursor(Qt.PointingHandCursor)
+        btn_preset_anonymize.clicked.connect(self._apply_preset_anonymize)
+        preset_bar.addWidget(btn_preset_anonymize)
+
+        preset_bar.addStretch()
+        card_layout.addLayout(preset_bar)
+
+        # 5. Section 1: Proofing Language & Revision Purge
+        sec1_frame = QFrame()
+        sec1_frame.setObjectName("cardFrame")
+        sec1_frame.setStyleSheet(CARD_FRAME_STYLE)
+        s1_layout = QVBoxLayout(sec1_frame)
+        s1_layout.setContentsMargins(14, 12, 14, 12)
+        s1_layout.setSpacing(8)
+
+        self.chk_sec_lang = QCheckBox("<b>🌐 Proofing Language Unification &amp; Language Revision Purge</b>")
+        self.chk_sec_lang.setStyleSheet("font-size: 12px; color: #1E293B;")
+        self.chk_sec_lang.setChecked(True)
+        s1_layout.addWidget(self.chk_sec_lang)
+
+        lang_row = QHBoxLayout()
+        lang_row.addWidget(QLabel("Target Language:"))
+        self.combo_target_lang = QComboBox()
+        self.combo_target_lang.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
+        for code, label in LANGUAGE_PRESETS:
+            self.combo_target_lang.addItem(label, code)
+        self.combo_target_lang.addItem("Custom BCP 47 code...", "custom")
+        self.combo_target_lang.currentIndexChanged.connect(self._on_target_lang_combo_changed)
+        lang_row.addWidget(self.combo_target_lang, 1)
+
+        self.edit_custom_lang = QLineEdit()
+        self.edit_custom_lang.setStyleSheet(SEARCH_INPUT_STYLE)
+        self.edit_custom_lang.setPlaceholderText("e.g. de-AT")
+        self.edit_custom_lang.setMaximumWidth(90)
+        self.edit_custom_lang.setVisible(False)
+        lang_row.addWidget(self.edit_custom_lang)
+        s1_layout.addLayout(lang_row)
+
+        lang_opts_row = QVBoxLayout()
+        lang_opts_row.setSpacing(4)
+        self.chk_lang_all_stories = QCheckBox("Apply across all document stories (body, tables, headers, footers, footnotes, comments, shapes)")
+        self.chk_lang_all_stories.setChecked(True)
+        lang_opts_row.addWidget(self.chk_lang_all_stories)
+
+        self.chk_lang_styles = QCheckBox("Update document styles & defaults (styles.xml) so new text stays in target language")
+        self.chk_lang_styles.setChecked(True)
+        lang_opts_row.addWidget(self.chk_lang_styles)
+
+        self.chk_lang_purge_revisions = QCheckBox("Surgically purge Track Changes marks related to language (clears 'Formatted: Language...' balloons)")
+        self.chk_lang_purge_revisions.setChecked(True)
+        lang_opts_row.addWidget(self.chk_lang_purge_revisions)
+
+        self.chk_clear_no_proof = QCheckBox("Clear 'Do not check spelling or grammar' (w:noProof) overrides")
+        self.chk_clear_no_proof.setChecked(False)
+        lang_opts_row.addWidget(self.chk_clear_no_proof)
+        s1_layout.addLayout(lang_opts_row)
+
+        self.chk_sec_lang.toggled.connect(lambda chk: self._set_layout_enabled(lang_opts_row, chk))
+        self.chk_sec_lang.toggled.connect(self.combo_target_lang.setEnabled)
+
+        card_layout.addWidget(sec1_frame)
+
+        # 6. Section 2: Consolidate & Anonymize Revision Authors
+        sec2_frame = QFrame()
+        sec2_frame.setObjectName("cardFrame")
+        sec2_frame.setStyleSheet(CARD_FRAME_STYLE)
+        s2_layout = QVBoxLayout(sec2_frame)
+        s2_layout.setContentsMargins(14, 12, 14, 12)
+        s2_layout.setSpacing(8)
+
+        s2_header = QHBoxLayout()
+        self.chk_sec_authors = QCheckBox("<b>👥 Consolidate &amp; Anonymize Revision Authors</b>")
+        self.chk_sec_authors.setStyleSheet("font-size: 12px; color: #1E293B;")
+        self.chk_sec_authors.setChecked(True)
+        s2_header.addWidget(self.chk_sec_authors)
+        s2_header.addStretch()
 
         self.btn_select_all_authors = QPushButton("Select All")
         self.btn_select_all_authors.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -1699,9 +1853,9 @@ class WordExtractorTab(QWidget):
         self.btn_deselect_all_authors.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_deselect_all_authors.clicked.connect(lambda: self._select_all_authors(False))
 
-        af_header.addWidget(self.btn_select_all_authors)
-        af_header.addWidget(self.btn_deselect_all_authors)
-        af_layout.addLayout(af_header)
+        s2_header.addWidget(self.btn_select_all_authors)
+        s2_header.addWidget(self.btn_deselect_all_authors)
+        s2_layout.addLayout(s2_header)
 
         self.author_table = QTableWidget()
         self.author_table.setColumnCount(7)
@@ -1712,112 +1866,121 @@ class WordExtractorTab(QWidget):
         self.author_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.author_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.author_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.author_table.setMaximumHeight(160)
-        af_layout.addWidget(self.author_table)
+        self.author_table.setMaximumHeight(140)
+        s2_layout.addWidget(self.author_table)
 
-        self.lbl_author_summary = QLabel("No document selected. Drop or select a .docx file above to inspect authors.")
-        self.lbl_author_summary.setStyleSheet("color: #64748B; font-size: 11px; font-style: italic;")
-        af_layout.addWidget(self.lbl_author_summary)
-        card_layout.addWidget(authors_frame)
-
-        # 4. Replacement Configuration Frame
-        cfg_frame = QFrame()
-        cfg_frame.setObjectName("cardFrame")
-        cfg_frame.setStyleSheet(CARD_FRAME_STYLE)
-        cf_layout = QVBoxLayout(cfg_frame)
-        cf_layout.setContentsMargins(14, 12, 14, 12)
-        cf_layout.setSpacing(8)
-
-        cf_title = QLabel("<b>🎯 Replacement Configuration</b>")
-        cf_title.setStyleSheet("font-size: 12px; color: #1E293B;")
-        cf_layout.addWidget(cf_title)
-
-        author_row = QHBoxLayout()
-        author_row.addWidget(QLabel("<b>Target Author:</b>"))
+        # Target Author Controls
+        author_cfg_row = QHBoxLayout()
+        author_cfg_row.addWidget(QLabel("Target Author:"))
         self.edit_target_author = QLineEdit()
         self.edit_target_author.setStyleSheet(SEARCH_INPUT_STYLE)
         default_company = WordConfig.load().get("default_source_company", "Deutsche Telekom")
         self.edit_target_author.setText(default_company)
         self.edit_target_author.textChanged.connect(self._on_target_author_changed)
-        author_row.addWidget(self.edit_target_author, 1)
+        author_cfg_row.addWidget(self.edit_target_author, 1)
 
-        author_row.addWidget(QLabel("<b>Target Initials:</b>"))
+        author_cfg_row.addWidget(QLabel("Initials:"))
         self.edit_target_initials = QLineEdit()
         self.edit_target_initials.setStyleSheet(SEARCH_INPUT_STYLE)
-        self.edit_target_initials.setMaximumWidth(80)
+        self.edit_target_initials.setMaximumWidth(70)
         self.edit_target_initials.setText(self._derive_initials(default_company))
-        author_row.addWidget(self.edit_target_initials)
+        author_cfg_row.addWidget(self.edit_target_initials)
 
-        cf_layout.addLayout(author_row)
-
-        # Quick preset buttons
-        preset_row = QHBoxLayout()
-        preset_row.addWidget(QLabel("Presets:"))
-
+        # Preset buttons for author
         btn_preset_comp = QPushButton("🏢 My Company")
         btn_preset_comp.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         btn_preset_comp.clicked.connect(lambda: self._apply_author_preset(
             WordConfig.load().get("default_source_company", "Deutsche Telekom")
         ))
-        preset_row.addWidget(btn_preset_comp)
+        author_cfg_row.addWidget(btn_preset_comp)
 
         btn_preset_ed = QPushButton("✍️ Editor")
         btn_preset_ed.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         btn_preset_ed.clicked.connect(lambda: self._apply_author_preset("Editor", "Ed"))
-        preset_row.addWidget(btn_preset_ed)
+        author_cfg_row.addWidget(btn_preset_ed)
 
         btn_preset_rapp = QPushButton("👤 Rapporteur")
         btn_preset_rapp.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         btn_preset_rapp.clicked.connect(lambda: self._apply_author_preset("Rapporteur", "Rapp"))
-        preset_row.addWidget(btn_preset_rapp)
+        author_cfg_row.addWidget(btn_preset_rapp)
 
         btn_preset_anon = QPushButton("🔒 Anonymous")
         btn_preset_anon.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         btn_preset_anon.clicked.connect(lambda: self._apply_author_preset("Contributor", ""))
-        preset_row.addWidget(btn_preset_anon)
+        author_cfg_row.addWidget(btn_preset_anon)
 
-        preset_row.addStretch()
-        cf_layout.addLayout(preset_row)
+        s2_layout.addLayout(author_cfg_row)
 
-        # Options row
-        opts_row = QHBoxLayout()
+        author_opts_row = QHBoxLayout()
         self.chk_author_initials = QCheckBox("Update comment initials (w:initials)")
         self.chk_author_initials.setChecked(True)
-        self.chk_author_initials.setToolTip("Sets initials to Target Initials in comment balloons, or clears initials if blank.")
-        opts_row.addWidget(self.chk_author_initials)
+        author_opts_row.addWidget(self.chk_author_initials)
 
-        self.chk_author_metadata = QCheckBox("Update doc metadata (Creator && Last Modified)")
+        self.chk_author_metadata = QCheckBox("Synchronize doc metadata (Creator & Last Modified)")
         self.chk_author_metadata.setChecked(True)
-        self.chk_author_metadata.setToolTip("Synchronizes dc:creator and cp:lastModifiedBy in docProps/core.xml.")
-        opts_row.addWidget(self.chk_author_metadata)
+        author_opts_row.addWidget(self.chk_author_metadata)
+        author_opts_row.addStretch()
+        s2_layout.addLayout(author_opts_row)
 
-        self.chk_author_backup = QCheckBox("Create .bak backup before updating in-place")
-        self.chk_author_backup.setChecked(True)
-        self.chk_author_backup.setToolTip("Saves an original copy (e.g. document.docx.bak) before modifying in-place.")
-        opts_row.addWidget(self.chk_author_backup)
+        self.chk_sec_authors.toggled.connect(self.author_table.setEnabled)
+        self.chk_sec_authors.toggled.connect(self.edit_target_author.setEnabled)
+        self.chk_sec_authors.toggled.connect(self.edit_target_initials.setEnabled)
+        card_layout.addWidget(sec2_frame)
 
-        opts_row.addStretch()
-        cf_layout.addLayout(opts_row)
-        card_layout.addWidget(cfg_frame)
+        # 7. Section 3: Optional Formatting & Comment Sanitation
+        sec3_frame = QFrame()
+        sec3_frame.setObjectName("cardFrame")
+        sec3_frame.setStyleSheet(CARD_FRAME_STYLE)
+        s3_layout = QVBoxLayout(sec3_frame)
+        s3_layout.setContentsMargins(14, 12, 14, 12)
+        s3_layout.setSpacing(6)
 
-        # 5. Action Buttons Row
+        self.chk_sec_cleanup = QCheckBox("<b>🧹 Optional Formatting &amp; Comment Hygiene</b>")
+        self.chk_sec_cleanup.setStyleSheet("font-size: 12px; color: #1E293B;")
+        self.chk_sec_cleanup.setChecked(False)
+        s3_layout.addWidget(self.chk_sec_cleanup)
+
+        cleanup_opts = QVBoxLayout()
+        cleanup_opts.setSpacing(4)
+        self.chk_purge_all_fmt = QCheckBox(
+            "Purge ALL formatting-only revisions (w:rPrChange / w:pPrChange) — strictly keeps text Insertions & Deletions"
+        )
+        self.chk_purge_all_fmt.setChecked(False)
+        cleanup_opts.addWidget(self.chk_purge_all_fmt)
+
+        self.chk_remove_comments = QCheckBox("Strip all review comments from document")
+        self.chk_remove_comments.setChecked(False)
+        cleanup_opts.addWidget(self.chk_remove_comments)
+        s3_layout.addLayout(cleanup_opts)
+
+        self.chk_sec_cleanup.toggled.connect(lambda chk: self._set_layout_enabled(cleanup_opts, chk))
+        card_layout.addWidget(sec3_frame)
+
+        # 8. Action Buttons & Backup
         act_row = QHBoxLayout()
-        self.btn_author_update_inplace = QPushButton("💾 Update File In-Place")
-        self.btn_author_update_inplace.setObjectName("primaryBtn")
-        self.btn_author_update_inplace.setCursor(Qt.PointingHandCursor)
-        self.btn_author_update_inplace.clicked.connect(lambda: self._trigger_author_replacement(in_place=True))
-        act_row.addWidget(self.btn_author_update_inplace)
+        self.btn_sanitizer_update_inplace = QPushButton("💾 Update File In-Place")
+        self.btn_sanitizer_update_inplace.setObjectName("primaryBtn")
+        self.btn_sanitizer_update_inplace.setCursor(Qt.PointingHandCursor)
+        self.btn_sanitizer_update_inplace.clicked.connect(lambda: self._trigger_sanitizer(in_place=True))
+        self.btn_author_update_inplace = self.btn_sanitizer_update_inplace  # Alias
+        act_row.addWidget(self.btn_sanitizer_update_inplace)
 
-        self.btn_author_save_as = QPushButton("📑 Save As New Copy...")
-        self.btn_author_save_as.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_author_save_as.setCursor(Qt.PointingHandCursor)
-        self.btn_author_save_as.clicked.connect(lambda: self._trigger_author_replacement(in_place=False))
-        act_row.addWidget(self.btn_author_save_as)
+        self.btn_sanitizer_save_as = QPushButton("📑 Save As New Copy...")
+        self.btn_sanitizer_save_as.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_sanitizer_save_as.setCursor(Qt.PointingHandCursor)
+        self.btn_sanitizer_save_as.clicked.connect(lambda: self._trigger_sanitizer(in_place=False))
+        self.btn_author_save_as = self.btn_sanitizer_save_as  # Alias
+        act_row.addWidget(self.btn_sanitizer_save_as)
+
+        self.chk_sanitizer_backup = QCheckBox("Create .bak backup before updating in-place")
+        self.chk_sanitizer_backup.setChecked(True)
+        self.chk_author_backup = self.chk_sanitizer_backup  # Alias
+        act_row.addWidget(self.chk_sanitizer_backup)
 
         act_row.addStretch()
         card_layout.addLayout(act_row)
 
-        # 6. Result Frame
+        # 9. Result Frame
         self.author_result_frame = QFrame()
         self.author_result_frame.setStyleSheet(CARD_FRAME_STYLE)
         self.author_result_frame.setVisible(False)
@@ -1846,51 +2009,106 @@ class WordExtractorTab(QWidget):
         self._last_author_file = None
         self._last_modified_author_file = None
 
+        scroll.setWidget(container)
+        outer_layout.addWidget(scroll)
         return card
 
-    def _derive_initials(self, name: str) -> str:
-        words = re.findall(r"[A-Za-z0-9]+", name or "")
-        if not words:
-            return ""
-        if len(words) >= 2:
-            return "".join(w[0].upper() for w in words[:3])
-        return words[0][:3].title()
+    def _set_layout_enabled(self, layout, enabled: bool):
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            w = item.widget()
+            if w:
+                w.setEnabled(enabled)
 
-    def _on_author_file_selected(self, files: list):
+    def _on_target_lang_combo_changed(self, index: int):
+        data = self.combo_target_lang.currentData()
+        self.edit_custom_lang.setVisible(data == "custom")
+
+    def _apply_preset_3gpp(self):
+        self.chk_sec_lang.setChecked(True)
+        idx = self.combo_target_lang.findData("en-GB")
+        if idx >= 0:
+            self.combo_target_lang.setCurrentIndex(idx)
+        self.chk_lang_all_stories.setChecked(True)
+        self.chk_lang_styles.setChecked(True)
+        self.chk_lang_purge_revisions.setChecked(True)
+        self.chk_sec_authors.setChecked(True)
+        self._apply_author_preset(WordConfig.load().get("default_source_company", "Deutsche Telekom"))
+        self.chk_sec_cleanup.setChecked(False)
+
+    def _apply_preset_lang_only(self):
+        self.chk_sec_lang.setChecked(True)
+        idx = self.combo_target_lang.findData("en-GB")
+        if idx >= 0:
+            self.combo_target_lang.setCurrentIndex(idx)
+        self.chk_lang_all_stories.setChecked(True)
+        self.chk_lang_styles.setChecked(True)
+        self.chk_lang_purge_revisions.setChecked(True)
+        self.chk_sec_authors.setChecked(False)
+        self.chk_sec_cleanup.setChecked(False)
+
+    def _apply_preset_anonymize(self):
+        self.chk_sec_lang.setChecked(True)
+        idx = self.combo_target_lang.findData("en-GB")
+        if idx >= 0:
+            self.combo_target_lang.setCurrentIndex(idx)
+        self.chk_sec_authors.setChecked(True)
+        self._apply_author_preset("Contributor", "")
+        self.chk_sec_cleanup.setChecked(True)
+        self.chk_remove_comments.setChecked(True)
+
+    def _on_sanitizer_file_selected(self, files: list):
         if not files:
             return
-        target = files[0]
-        self._inspect_selected_author_document(target)
+        self._inspect_selected_author_document(files[0])
+
+    def _on_author_file_selected(self, files: list):
+        self._on_sanitizer_file_selected(files)
 
     def _inspect_selected_author_document(self, file_path: str):
         path = Path(file_path)
         if not path.is_file():
             return
         if path.suffix.lower() not in (".docx", ".docm"):
-            self.lbl_author_summary.setText("⚠️ Please select a modern Word document (.docx or .docm). Legacy .doc is not supported.")
+            self.lbl_audit_summary.setText("⚠️ Please select a modern Word document (.docx or .docm). Legacy .doc is not supported.")
             return
 
         self._last_author_file = str(path.resolve())
         self.author_result_frame.setVisible(False)
 
         try:
-            stats = inspect_authors(path)
-            self._current_author_stats = stats
-            self._populate_author_table(stats)
+            audit = inspect_document(path)
+            self._current_author_stats = audit.authors
+            self._populate_author_table(audit.authors)
+
+            # Update KPI Badges
+            self.lbl_kpi_lang.setText(f"🌐 Languages: {audit.language_stats.summary_text}")
+            self.lbl_kpi_lang_rev.setText(f"🏷️ Lang Changes: {audit.language_stats.language_change_marks}")
+            self.lbl_kpi_authors.setText(f"👥 Authors: {audit.total_authors}")
+            self.lbl_kpi_text_rev.setText(f"📝 Ins: {audit.total_insertions} · Del: {audit.total_deletions}")
+            self.lbl_kpi_fmt.setText(f"🎨 Formatting: {audit.total_formatting}")
+            self.lbl_kpi_comments.setText(f"💬 Comments: {audit.total_comments}")
+
+            # Auto-tune section checkboxes based on audit
+            if audit.total_authors > 0:
+                self.chk_sec_authors.setChecked(True)
+            else:
+                self.chk_sec_authors.setChecked(False)
+
+            self.lbl_audit_summary.setText(
+                f"✅ Analyzed {path.name} ({audit.file_size_kb:.1f} KB): "
+                f"{audit.language_stats.summary_text} · {audit.language_stats.language_change_marks} lang revision marks · "
+                f"{audit.total_authors} author(s) · {audit.total_changes} total changes."
+            )
+
         except Exception as exc:
-            logger.error("Failed to inspect authors in %s: %s", path.name, exc)
-            self.lbl_author_summary.setText(f"❌ Failed to inspect document: {exc}")
+            logger.error("Failed to inspect document %s: %s", path.name, exc)
+            self.lbl_audit_summary.setText(f"❌ Failed to inspect document: {exc}")
 
     def _populate_author_table(self, stats: list):
         self.author_table.setRowCount(len(stats))
         if not stats:
-            self.lbl_author_summary.setText("ℹ️ No Track Changes revisions or comments found in this document.")
             return
-
-        total_changes = sum(s.total for s in stats)
-        self.lbl_author_summary.setText(
-            f"✅ Discovered {len(stats)} author(s) across {total_changes} total revisions and comments."
-        )
 
         for row, s in enumerate(stats):
             chk_item = QTableWidgetItem()
@@ -1924,6 +2142,14 @@ class WordExtractorTab(QWidget):
         if suggested:
             self.edit_target_initials.setText(suggested)
 
+    def _derive_initials(self, name: str) -> str:
+        words = re.findall(r"[A-Za-z0-9]+", name or "")
+        if not words:
+            return ""
+        if len(words) >= 2:
+            return "".join(w[0].upper() for w in words[:3])
+        return words[0][:3].title()
+
     def _apply_author_preset(self, author_name: str, initials: str = None):
         self.edit_target_author.setText(author_name)
         if initials is not None:
@@ -1932,7 +2158,10 @@ class WordExtractorTab(QWidget):
             self.edit_target_initials.setText(self._derive_initials(author_name))
 
     def _trigger_author_replacement(self, in_place: bool):
-        source_inputs = self.pane_author.get_inputs()
+        self._trigger_sanitizer(in_place=in_place)
+
+    def _trigger_sanitizer(self, in_place: bool):
+        source_inputs = self.pane_sanitizer.get_inputs()
         source_file = source_inputs[0] if source_inputs else self._last_author_file
         if not source_file or not Path(source_file).is_file():
             QMessageBox.warning(self, "No Document Selected", "Please select or drop a valid .docx file first.")
@@ -1940,27 +2169,47 @@ class WordExtractorTab(QWidget):
 
         src_path = Path(source_file).resolve()
 
-        selected_authors = []
-        for row in range(self.author_table.rowCount()):
-            chk = self.author_table.item(row, 0)
-            name_item = self.author_table.item(row, 1)
-            if chk and chk.checkState() == Qt.Checked and name_item:
-                selected_authors.append(name_item.text())
+        # Validate that at least one section is active
+        sec_lang = self.chk_sec_lang.isChecked()
+        sec_authors = self.chk_sec_authors.isChecked()
+        sec_cleanup = self.chk_sec_cleanup.isChecked()
 
-        if not selected_authors:
-            QMessageBox.warning(self, "No Authors Selected", "Please check at least one author in the table to replace.")
+        if not (sec_lang or sec_authors or sec_cleanup):
+            QMessageBox.warning(
+                self,
+                "No Operations Selected",
+                "Please enable at least one section (Language, Authors, or Cleanup) to apply.",
+            )
             return
+
+        # Authors validation
+        selected_authors = []
+        if sec_authors:
+            for row in range(self.author_table.rowCount()):
+                chk = self.author_table.item(row, 0)
+                name_item = self.author_table.item(row, 1)
+                if chk and chk.checkState() == Qt.Checked and name_item:
+                    selected_authors.append(name_item.text())
+
+            if self.author_table.rowCount() > 0 and not selected_authors:
+                QMessageBox.warning(
+                    self,
+                    "No Authors Selected",
+                    "Author replacement is enabled, but no authors are checked in the table.",
+                )
+                return
 
         target_author = self.edit_target_author.text().strip()
-        if not target_author:
-            QMessageBox.warning(self, "Missing Target Author", "Please enter a Target Author name.")
-            return
+        new_initials = self.edit_target_initials.text().strip() if self.chk_author_initials.isChecked() else None
+        mapping = {old_name: target_author for old_name in selected_authors} if selected_authors else {}
 
-        new_initials = None
-        if self.chk_author_initials.isChecked():
-            new_initials = self.edit_target_initials.text().strip()
+        # Resolve Target Language
+        lang_data = self.combo_target_lang.currentData()
+        if lang_data == "custom":
+            target_lang = self.edit_custom_lang.text().strip() or "en-GB"
+        else:
+            target_lang = str(lang_data or "en-GB")
 
-        mapping = {old_name: target_author for old_name in selected_authors}
         reopen_after = False
 
         if in_place:
@@ -1971,7 +2220,7 @@ class WordExtractorTab(QWidget):
                     "Document Open in Word",
                     f"The document '{src_path.name}' is currently open in Microsoft Word.\n\n"
                     "To update it in-place, Word must save and close this document temporarily.\n\n"
-                    "Would you like to save & close the document in Word now, apply replacements, and re-open it?",
+                    "Would you like to save & close the document in Word now, apply sanitization, and re-open it?",
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.Yes,
                 )
@@ -1988,10 +2237,10 @@ class WordExtractorTab(QWidget):
                 else:
                     return
         else:
-            default_dst = src_path.parent / f"{src_path.stem}_anonymized{src_path.suffix}"
+            default_dst = src_path.parent / f"{src_path.stem}_sanitized{src_path.suffix}"
             chosen, _ = QFileDialog.getSaveFileName(
                 self,
-                "Save Anonymized Document As",
+                "Save Sanitized Document As",
                 str(default_dst),
                 "Word Documents (*.docx *.docm)",
             )
@@ -1999,17 +2248,30 @@ class WordExtractorTab(QWidget):
                 return
             dst_path = Path(chosen).resolve()
 
-        success, count, msg = replace_authors(
-            docx_path=src_path,
-            output_path=dst_path,
-            mapping=mapping,
+        config = SanitizeConfig(
+            unify_language=sec_lang,
+            target_language=target_lang,
+            apply_to_all_stories=self.chk_lang_all_stories.isChecked(),
+            update_styles_and_defaults=self.chk_lang_styles.isChecked(),
+            purge_language_changes=self.chk_lang_purge_revisions.isChecked(),
+            clear_no_proof=self.chk_clear_no_proof.isChecked(),
+            update_authors=sec_authors and bool(mapping),
+            author_mapping=mapping,
             new_initials=new_initials,
             update_metadata=self.chk_author_metadata.isChecked(),
-            backup=self.chk_author_backup.isChecked() if in_place else False,
+            purge_all_formatting_changes=sec_cleanup and self.chk_purge_all_fmt.isChecked(),
+            remove_all_comments=sec_cleanup and self.chk_remove_comments.isChecked(),
+            backup=self.chk_sanitizer_backup.isChecked() if in_place else False,
+        )
+
+        success, count, msg = sanitize_document(
+            docx_path=src_path,
+            output_path=dst_path,
+            config=config,
         )
 
         if not success:
-            QMessageBox.critical(self, "Replacement Failed", msg)
+            QMessageBox.critical(self, "Sanitization Failed", msg)
             return
 
         self._last_modified_author_file = str(dst_path)
