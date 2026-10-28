@@ -1,176 +1,166 @@
-# --- File: src/modules/word_tools/ui/word_tabs.py ---
-import os
-import re
-import webbrowser
-from pathlib import Path
+"""Modern 2-Tier Header Ribbon & Segmented Navigation for Word Tools.
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QKeySequence
+Houses:
+- Row 1: System Ribbon (Active Word monitor, 3GPP DOTX template badge, LibreOffice pill, Settings dropdown)
+- Row 2: Segmented Workbench Navigation Pills (Compare, Markdown, CR/pCR, Sanitizer, Excerpt, Converter, Visio)
+- Operation cards orchestrated via QStackedWidget (implemented in modules.word_tools.ui.cards).
+"""
+
+import logging
+import os
+from pathlib import Path
+import shutil
+from typing import Optional
+import webbrowser
+
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
-    QApplication,
-    QCheckBox,
     QComboBox,
-    QDialog,
     QFileDialog,
-    QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
-    QLineEdit,
-    QListWidget,
     QMenu,
-    QAbstractItemView,
-    QPlainTextEdit,
-    QShortcut,
     QMessageBox,
     QPushButton,
-    QProgressBar,
-    QSpinBox,
-    QTableWidget,
-    QTableWidgetItem,
-    QTreeWidget,
-    QTreeWidgetItem,
     QStackedWidget,
-    QTabWidget,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
-import win32com.client
-import pythoncom
+
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     CARD_FRAME_STYLE,
     COMBOBOX_STYLE_TOOLBAR,
-    SEARCH_INPUT_STYLE,
-    TOGGLE_PILL_STYLE,
     InteractiveDropLabel,
+    TOGGLE_PILL_STYLE,
 )
+from modules.word_tools.core.word_config import WordConfig
 from modules.word_tools.core.document_opener import get_active_word_document
 from modules.word_tools.core.styles_3gpp import (
-    OFFICIAL_CR_TEMPLATE_URL,
-    OFFICIAL_PCR_TEMPLATE_ZIP_URL,
     install_3gpp_dotx_template,
     is_3gpp_dotx_installed,
     uninstall_3gpp_dotx_template,
 )
-from modules.word_tools.core.word_config import WordConfig
-from modules.word_tools.core.word_excerpt_extractor import (
-    WordExcerptThread,
-    WordHeadingScanThread,
-)
-from modules.word_tools.core.libreoffice_converter import (
-    LIBREOFFICE_DOWNLOAD_URL,
-    is_libreoffice_available,
-    find_libreoffice_executable,
-    resolve_soffice_binary,
-)
-from modules.word_tools.core.author_renamer import (
-    AuthorStats,
-    close_word_document_for_update,
-    inspect_authors,
-    is_file_open_in_word,
-    replace_authors,
-)
-from modules.word_tools.core.document_sanitizer import (
-    DocumentHygieneAudit,
-    LanguageStats,
-    LANGUAGE_PRESETS,
-    SanitizeConfig,
-    inspect_document,
-    sanitize_document,
+from modules.word_tools.ui.cards import (
+    WordCompareCard,
+    WordConverterCard,
+    WordCrPcrCard,
+    WordExcerptCard,
+    WordMarkdownCard,
+    WordSanitizerCard,
+    WordVisioCard,
 )
 
-# Subcomponents extracted to dedicated modules (re-exported for backward compatibility)
-from modules.word_tools.ui.document_selector_pane import DocumentSelectorPane
-from modules.word_tools.ui.word_settings_dialog import WordSettingsDialog
+logger = logging.getLogger(__name__)
 
 
 class WordExtractorTab(QWidget):
-    extract_visio_requested = pyqtSignal(str)
-    split_doc_requested = pyqtSignal(str, str, int)
-    compare_doc_requested = pyqtSignal(str, str, bool)
-    convert_doc_requested = pyqtSignal(str, str)
-    convert_markdown_requested = pyqtSignal(str, str, bool, str, bool)
+    """Modernized Word Tools tab with 2-tier ribbon, live Word COM monitor, and modular operation cards."""
 
-    def __init__(self):
-        super().__init__()
-        self._syncing_nav = False
+    # Public signals connected by MainWindow
+    extract_visio_requested = pyqtSignal(str)
+    split_doc_requested = pyqtSignal(str)
+    compare_doc_requested = pyqtSignal(str, str, dict)
+    convert_doc_requested = pyqtSignal(str, str)
+    convert_markdown_requested = pyqtSignal(str, dict)
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._active_word_file: Optional[Path] = None
         self._setup_ui()
+
+        # Active Word background polling (every 3 seconds)
+        self.word_poll_timer = QTimer(self)
+        self.word_poll_timer.timeout.connect(self._poll_active_word)
+        self.word_poll_timer.start(3000)
+        self._poll_active_word()
+
+        # Environment status checks
         self._check_libreoffice_status()
         self._check_dotx_status()
-        self._poll_active_word()
-        # Default to Compare Documents
-        self.set_active_operation(4)
 
+    # -------------------------------------------------------------------------
+    # UI Setup
+    # -------------------------------------------------------------------------
     def _setup_ui(self):
-        layout = QVBoxLayout()
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
-        # -------------------------------------------------------------
-        # 1. Top Ribbon Frame: System & Environment (Row 1) + Workbench Nav (Row 2)
-        # -------------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # 2-Tier Modern Ribbon
+        # ---------------------------------------------------------------------
         self.ribbon_frame = QFrame()
         self.ribbon_frame.setObjectName("cardFrame")
-        self.ribbon_frame.setStyleSheet(CARD_FRAME_STYLE)
+        self.ribbon_frame.setStyleSheet(CARD_FRAME_STYLE + """
+            QFrame#cardFrame {
+                background-color: #F8FAFC;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                padding: 4px 8px;
+            }
+        """)
         ribbon_layout = QVBoxLayout(self.ribbon_frame)
-        ribbon_layout.setContentsMargins(10, 8, 10, 8)
+        ribbon_layout.setContentsMargins(8, 4, 8, 4)
         ribbon_layout.setSpacing(6)
 
-        # Row 1: System, Environment & Active Word Status
+        # Row 1: System Monitors & Settings
         row1 = QHBoxLayout()
         row1.setSpacing(8)
 
-        self.btn_active_word = QPushButton("🪟 Active Word: Scanning...")
-        self.btn_active_word.setStyleSheet(TOGGLE_PILL_STYLE)
-        self.btn_active_word.setCursor(Qt.PointingHandCursor)
-        self.btn_active_word.setToolTip("Click to scan and refresh active Microsoft Word documents.")
+        self.btn_active_word = QPushButton("🪟 Active Word: None Detected")
+        self.btn_active_word.setStyleSheet("""
+            QPushButton {
+                background-color: #F1F5F9;
+                color: #475569;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 3px 10px;
+                font-weight: 500;
+                font-size: 11px;
+            }
+        """)
+        self.btn_active_word.setToolTip("Refreshes automatically. Click to open the active document folder.")
         self.btn_active_word.clicked.connect(self._poll_active_word)
         row1.addWidget(self.btn_active_word)
 
         sep1 = QFrame()
         sep1.setFrameShape(QFrame.VLine)
-        sep1.setFrameShadow(QFrame.Sunken)
         sep1.setStyleSheet("color: #CBD5E1;")
         row1.addWidget(sep1)
 
-        self.dotx_badge = QLabel()
+        self.dotx_badge = QLabel("3GPP Macro Template (3gpp_70.dotx): Checking...")
+        self.dotx_badge.setStyleSheet("font-size: 11px; color: #475569;")
         row1.addWidget(self.dotx_badge)
 
-        self.dotx_btn = QPushButton("📥 Install Template")
-        self.dotx_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.dotx_btn.setCursor(Qt.PointingHandCursor)
+        self.dotx_btn = QPushButton("Install Template")
+        self.dotx_btn.setStyleSheet("font-size: 10px; padding: 2px 6px;")
         self.dotx_btn.clicked.connect(self._on_toggle_dotx_clicked)
         row1.addWidget(self.dotx_btn)
 
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.VLine)
-        sep2.setFrameShadow(QFrame.Sunken)
         sep2.setStyleSheet("color: #CBD5E1;")
         row1.addWidget(sep2)
 
-        self.lo_badge = QLabel()
+        self.lo_badge = QLabel("LibreOffice: Checking...")
+        self.lo_badge.setStyleSheet("font-size: 11px; color: #475569;")
         row1.addWidget(self.lo_badge)
 
         row1.addStretch()
 
         self.settings_btn = QPushButton("⚙️ Word Settings ▾")
         self.settings_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.settings_btn.setCursor(Qt.PointingHandCursor)
         self._setup_settings_menu()
         row1.addWidget(self.settings_btn)
 
         ribbon_layout.addLayout(row1)
 
-        # Subtle separator
         hsep = QFrame()
         hsep.setFrameShape(QFrame.HLine)
-        hsep.setFrameShadow(QFrame.Sunken)
-        hsep.setStyleSheet("color: #F1F5F9;")
+        hsep.setStyleSheet("color: #E2E8F0;")
         ribbon_layout.addWidget(hsep)
 
         # Row 2: Segmented Workbench Navigation
@@ -223,2082 +213,242 @@ class WordExtractorTab(QWidget):
             "Draft 3GPP Contribution (CR / pCR)",
             "Consolidate / Anonymize Track Changes Authors",
         ])
+        self.op_combo.currentIndexChanged.connect(self._on_op_combo_changed)
         row2.addWidget(self.op_combo)
 
         ribbon_layout.addLayout(row2)
         layout.addWidget(self.ribbon_frame)
 
-        # Retain backward-compatible status_banner and buttons (hidden)
-        self.status_banner = QWidget()
-        banner_layout = QHBoxLayout(self.status_banner)
-        self.banner_icon = QLabel("⚠️")
-        self.banner_text = QLabel()
-        self.locate_btn = QPushButton("📂 Locate Executable")
-        self.locate_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.locate_btn.clicked.connect(self._browse_for_libreoffice)
-        self.download_btn = QPushButton("📥 Download Portable")
-        self.download_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.download_btn.clicked.connect(lambda: webbrowser.open(LIBREOFFICE_DOWNLOAD_URL))
-        banner_layout.addWidget(self.banner_icon)
-        banner_layout.addWidget(self.banner_text)
-        banner_layout.addWidget(self.locate_btn)
-        banner_layout.addWidget(self.download_btn)
-        self.status_banner.setVisible(False)
-
+        # ---------------------------------------------------------------------
+        # Operation Cards (Stacked Widget)
+        # ---------------------------------------------------------------------
         self.stack = QStackedWidget()
 
+        # Index 0: Legacy LibreOffice Drop Target
         self.card_lo_convert = QWidget()
         lo_layout = QVBoxLayout(self.card_lo_convert)
-        self.lo_drop = InteractiveDropLabel(
-            "📥 Drag & Drop legacy Word 97-2003 (.doc) file(s) here to convert to .docx explicitly via LibreOffice",
-            [".doc"],
-        )
+        self.lo_drop = InteractiveDropLabel("📥 Drag & Drop legacy .doc files here for batch conversion via LibreOffice", [".doc"])
         self.lo_drop.file_dropped.connect(self._on_lo_dropped)
         lo_layout.addWidget(self.lo_drop)
         self.stack.addWidget(self.card_lo_convert)
 
-        self.card_visio = QWidget()
-        visio_layout = QVBoxLayout(self.card_visio)
-        visio_layout.setContentsMargins(12, 10, 12, 10)
-        visio_layout.setSpacing(10)
-
-        # Visio Header Frame
-        visio_hdr = QFrame()
-        visio_hdr.setObjectName("cardFrame")
-        visio_hdr.setStyleSheet(CARD_FRAME_STYLE)
-        vh_layout = QVBoxLayout(visio_hdr)
-        vh_layout.setContentsMargins(14, 12, 14, 12)
-        vh_layout.setSpacing(6)
-
-        vh_title = QLabel("<b>🖼️ Visio & OLE Media Extractor</b>")
-        vh_title.setStyleSheet("font-size: 13px; color: #1E293B;")
-        vh_layout.addWidget(vh_title)
-
-        vh_desc = QLabel(
-            "Extracts embedded native Visio drawings (.vsdx) and legacy OLE binary objects from "
-            "Word documents (.docx, .docm). Extracted files are saved to the source document's directory "
-            "and can be opened directly in Microsoft Visio or imported into the PlantUML/Visio tab."
-        )
-        vh_desc.setWordWrap(True)
-        vh_desc.setStyleSheet("color: #475569; font-size: 11px;")
-        vh_layout.addWidget(vh_desc)
-        visio_layout.addWidget(visio_hdr)
-
-        self.pane_visio = DocumentSelectorPane("📄 WORD DOCUMENT TO EXTRACT")
-        visio_layout.addWidget(self.pane_visio)
-
-        # Hidden drop zone for backward compatibility
-        self.visio_drop = InteractiveDropLabel(
-            "📥 Drag & Drop a .docx file here to extract its Visio components", [".docx"]
-        )
-        self.visio_drop.file_dropped.connect(
-            lambda files: [self.extract_visio_requested.emit(f) for f in files]
-        )
-        self.visio_drop.setVisible(False)
-
-        visio_act_row = QHBoxLayout()
-        self.run_visio_btn = QPushButton("🚀 Extract Visio Components (.vsdx)")
-        self.run_visio_btn.setObjectName("primaryBtn")
-        self.run_visio_btn.setCursor(Qt.PointingHandCursor)
-        self.run_visio_btn.clicked.connect(self._trigger_visio_extraction)
-        visio_act_row.addWidget(self.run_visio_btn)
-        visio_act_row.addStretch()
-        visio_layout.addLayout(visio_act_row)
-
-        self.visio_result_frame = QFrame()
-        self.visio_result_frame.setStyleSheet(CARD_FRAME_STYLE)
-        self.visio_result_frame.setVisible(False)
-        vr_layout = QHBoxLayout(self.visio_result_frame)
-        vr_layout.setContentsMargins(12, 8, 12, 8)
-        self.visio_result_icon = QLabel("⏳")
-        self.visio_result_lbl = QLabel()
-        self.visio_result_lbl.setStyleSheet("font-weight: bold; color: #1E5C99;")
-        vr_layout.addWidget(self.visio_result_icon)
-        vr_layout.addWidget(self.visio_result_lbl, 1)
-
-        self.visio_open_folder_btn = QPushButton("📂 Open Output Folder")
-        self.visio_open_folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.visio_open_folder_btn.clicked.connect(self._open_visio_folder)
-        vr_layout.addWidget(self.visio_open_folder_btn)
-        visio_layout.addWidget(self.visio_result_frame)
-
-        visio_layout.addStretch()
+        # Index 1: Visio Extractor Card
+        self.card_visio = WordVisioCard()
+        self.card_visio.extract_visio_requested.connect(self.extract_visio_requested)
         self.stack.addWidget(self.card_visio)
-        self._last_visio_folder = None
 
+        # Index 2: Split Document Card
         self.card_split = QWidget()
         split_layout = QVBoxLayout(self.card_split)
-        split_layout.setContentsMargins(12, 10, 12, 10)
-        split_layout.setSpacing(10)
-
-        split_hdr = QFrame()
-        split_hdr.setObjectName("cardFrame")
-        split_hdr.setStyleSheet(CARD_FRAME_STYLE)
-        sh_layout = QVBoxLayout(split_hdr)
-        sh_layout.setContentsMargins(14, 12, 14, 12)
-        sh_layout.setSpacing(6)
-        sh_title = QLabel("<b>✂️ Subtractive Clause Slicer (Split by Chapter)</b>")
-        sh_title.setStyleSheet("font-size: 13px; color: #1E293B;")
-        sh_layout.addWidget(sh_title)
-        sh_desc = QLabel(
-            "Slices monolithic 3GPP specifications into isolated clause files based on numbering prefix "
-            "(e.g. '5.', '6.') and heading depth, preserving original styles, margins, and headers."
-        )
-        sh_desc.setWordWrap(True)
-        sh_desc.setStyleSheet("color: #475569; font-size: 11px;")
-        sh_layout.addWidget(sh_desc)
-        split_layout.addWidget(split_hdr)
-
-        form = QFormLayout()
-        self.prefix_input = QLineEdit("6.")
-        self.depth_input = QSpinBox()
-        self.depth_input.setRange(1, 6)
-        self.depth_input.setValue(2)
-
-        form.addRow("Target Clause Prefix:", self.prefix_input)
-        form.addRow("Heading Depth Hierarchy:", self.depth_input)
-        split_layout.addLayout(form)
-        self.split_drop = InteractiveDropLabel(
-            "📥 Drag & Drop a .docx file here to slice it into chapters", [".docx"]
-        )
-        self.split_drop.file_dropped.connect(
-            lambda files: [
-                self.split_doc_requested.emit(
-                    f, self.prefix_input.text().strip(), self.depth_input.value()
-                )
-                for f in files
-            ]
-        )
+        self.split_drop = InteractiveDropLabel("📥 Drag & Drop Word document (.docx) here to split by major heading clauses", [".docx"])
+        self.split_drop.file_dropped.connect(self._on_split_dropped)
         split_layout.addWidget(self.split_drop)
-        split_layout.addStretch()
         self.stack.addWidget(self.card_split)
 
-        # Interactive heading browser / excerpt extractor.
-        self.card_excerpt = QWidget()
-        excerpt_layout = QVBoxLayout(self.card_excerpt)
-        excerpt_layout.setContentsMargins(12, 10, 12, 10)
-        excerpt_layout.setSpacing(8)
-
-        excerpt_top = QHBoxLayout()
-        self.excerpt_order_combo = QComboBox()
-        self.excerpt_order_combo.addItem("Filename (natural alphabetical)", "filename")
-        self.excerpt_order_combo.addItem("Drop order", "drop")
-        excerpt_top.addWidget(QLabel("<b>Source order:</b>"))
-        excerpt_top.addWidget(self.excerpt_order_combo)
-        excerpt_top.addStretch()
-        excerpt_layout.addLayout(excerpt_top)
-
-        self.excerpt_drop = InteractiveDropLabel(
-            "📥 Drop one or more .docx files here to scan their headings", [".docx"]
-        )
-        self.excerpt_drop.file_dropped.connect(self._scan_excerpt_files)
-        excerpt_layout.addWidget(self.excerpt_drop)
-
-        source_row = QHBoxLayout()
-        self.excerpt_source_list = QListWidget()
-        self.excerpt_source_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.excerpt_source_list.setMaximumHeight(105)
-        self.excerpt_source_list.setToolTip("Select one or more source documents. Press Delete to remove them.")
-        source_row.addWidget(self.excerpt_source_list, 1)
-
-        source_buttons = QVBoxLayout()
-        self.excerpt_remove_btn = QPushButton("Remove Selected")
-        self.excerpt_remove_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.excerpt_remove_btn.setEnabled(False)
-        self.excerpt_remove_btn.clicked.connect(self._remove_excerpt_sources)
-        self.excerpt_clear_sources_btn = QPushButton("Clear All")
-        self.excerpt_clear_sources_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.excerpt_clear_sources_btn.setEnabled(False)
-        self.excerpt_clear_sources_btn.clicked.connect(self._clear_excerpt_sources)
-        source_buttons.addWidget(self.excerpt_remove_btn)
-        source_buttons.addWidget(self.excerpt_clear_sources_btn)
-        source_buttons.addStretch()
-        source_row.addLayout(source_buttons)
-        excerpt_layout.addLayout(source_row)
-
-        self.excerpt_progress_label = QLabel("Ready to scan.")
-        self.excerpt_progress_label.setVisible(False)
-        self.excerpt_progress = QProgressBar()
-        self.excerpt_progress.setRange(0, 100)
-        self.excerpt_progress.setValue(0)
-        self.excerpt_progress.setTextVisible(True)
-        self.excerpt_progress.setVisible(False)
-        excerpt_layout.addWidget(self.excerpt_progress_label)
-        excerpt_layout.addWidget(self.excerpt_progress)
-
-        self.excerpt_source_list.itemSelectionChanged.connect(
-            lambda: self.excerpt_remove_btn.setEnabled(bool(self.excerpt_source_list.selectedItems()))
-        )
-        self._excerpt_delete_shortcut = QShortcut(QKeySequence.Delete, self.excerpt_source_list)
-        self._excerpt_delete_shortcut.activated.connect(self._remove_excerpt_sources)
-        self.excerpt_order_combo.currentIndexChanged.connect(self._rescan_excerpt_sources)
-
-        filter_row = QHBoxLayout()
-        self.excerpt_filter = QLineEdit()
-        self.excerpt_filter.setStyleSheet(SEARCH_INPUT_STYLE)
-        self.excerpt_filter.setPlaceholderText("Filter headings (e.g. registration, NWDAF, 6.3.2)...")
-        self.excerpt_filter.textChanged.connect(self._filter_excerpt_tree)
-        filter_row.addWidget(self.excerpt_filter, 1)
-
-        self.lbl_excerpt_match_count = QLabel()
-        self.lbl_excerpt_match_count.setStyleSheet("font-size: 11px; color: #475569; padding-right: 4px;")
-        filter_row.addWidget(self.lbl_excerpt_match_count)
-
-        self.excerpt_expand_btn = QPushButton("Expand All")
-        self.excerpt_expand_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.excerpt_collapse_btn = QPushButton("Collapse All")
-        self.excerpt_collapse_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.excerpt_expand_btn.clicked.connect(lambda: self.excerpt_tree.expandAll())
-        self.excerpt_collapse_btn.clicked.connect(lambda: self.excerpt_tree.collapseAll())
-        filter_row.addWidget(self.excerpt_expand_btn)
-        filter_row.addWidget(self.excerpt_collapse_btn)
-        excerpt_layout.addLayout(filter_row)
-
-        self.excerpt_tree = QTreeWidget()
-        self.excerpt_tree.setHeaderLabels(["Heading", "Source file"])
-        self.excerpt_tree.setColumnWidth(0, 560)
-        excerpt_layout.addWidget(self.excerpt_tree, 1)
-
-        action_row = QHBoxLayout()
-        self.excerpt_select_all_btn = QPushButton("Select All")
-        self.excerpt_select_all_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.excerpt_select_all_btn.clicked.connect(self._select_all_excerpt_headings)
-        action_row.addWidget(self.excerpt_select_all_btn)
-
-        self.excerpt_select_l1_btn = QPushButton("Select Level 1 Only")
-        self.excerpt_select_l1_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.excerpt_select_l1_btn.clicked.connect(self._select_level1_excerpt_headings)
-        action_row.addWidget(self.excerpt_select_l1_btn)
-
-        self.excerpt_clear_btn = QPushButton("Clear Selection")
-        self.excerpt_clear_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.excerpt_clear_btn.clicked.connect(self._clear_excerpt_selection)
-        action_row.addWidget(self.excerpt_clear_btn)
-
-        action_row.addStretch()
-        self.excerpt_extract_btn = QPushButton("✂️ Extract Selected Sections")
-        self.excerpt_extract_btn.setObjectName("primaryBtn")
-        self.excerpt_extract_btn.setEnabled(False)
-        self.excerpt_extract_btn.clicked.connect(self._extract_selected_sections)
-        action_row.addWidget(self.excerpt_extract_btn)
-        excerpt_layout.addLayout(action_row)
+        # Index 3: Heading Excerpt Card
+        self.card_excerpt = WordExcerptCard()
         self.stack.addWidget(self.card_excerpt)
 
-        self._excerpt_input_paths = []
-        self._excerpt_paths = []
-        self._excerpt_headings = []
-        self._excerpt_scan_thread = None
-        self._excerpt_extract_thread = None
-        self._excerpt_scan_gen = 0
-        self._active_scan_threads = []
-
-        self.card_compare = QWidget()
-        compare_layout = QVBoxLayout(self.card_compare)
-        compare_layout.setSpacing(10)
-
-        # Compare Header / Quick Actions
-        cmp_header = QHBoxLayout()
-        cmp_title = QLabel("<b>⚖️ Document Comparison (Microsoft Word COM Diff)</b>")
-        cmp_title.setStyleSheet("font-size: 13px; color: #1E293B;")
-        cmp_header.addWidget(cmp_title)
-        cmp_header.addStretch()
-
-        self.btn_swap_slots = QPushButton("⇄ Swap A ↔ B")
-        self.btn_swap_slots.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_swap_slots.setCursor(Qt.PointingHandCursor)
-        self.btn_swap_slots.setToolTip("Swap Document A (Original) and Document B (Revised)")
-        self.btn_swap_slots.clicked.connect(self._swap_compare_slots)
-        cmp_header.addWidget(self.btn_swap_slots)
-        compare_layout.addLayout(cmp_header)
-
-        panes_layout = QHBoxLayout()
-        self.pane_a = DocumentSelectorPane("📄 DOCUMENT A (Original / Baseline)")
-        self.pane_b = DocumentSelectorPane("📄 DOCUMENT B (Revised / Draft)")
-        panes_layout.addWidget(self.pane_a)
-        panes_layout.addWidget(self.pane_b)
-        compare_layout.addLayout(panes_layout)
-
-        # Comparison Options Frame
-        cmp_opts_frame = QFrame()
-        cmp_opts_frame.setStyleSheet(CARD_FRAME_STYLE)
-        opts_layout = QHBoxLayout(cmp_opts_frame)
-        opts_layout.setContentsMargins(12, 8, 12, 8)
-        opts_layout.setSpacing(16)
-
-        self.keep_open_cb = QCheckBox("Keep source documents (A and B) open after comparison")
-        self.keep_open_cb.setChecked(True)
-        opts_layout.addWidget(self.keep_open_cb)
-
-        self.chk_cmp_formatting = QCheckBox("Detect formatting changes")
-        self.chk_cmp_formatting.setChecked(True)
-        opts_layout.addWidget(self.chk_cmp_formatting)
-
-        opts_layout.addStretch()
-        compare_layout.addWidget(cmp_opts_frame)
-
-        self.run_compare_btn = QPushButton("⚖️ Run Word Comparison")
-        self.run_compare_btn.setObjectName("primaryBtn")
-        self.run_compare_btn.clicked.connect(self._trigger_comparison)
-        compare_layout.addWidget(self.run_compare_btn)
+        # Index 4: Compare Documents Card
+        self.card_compare = WordCompareCard()
+        self.card_compare.compare_doc_requested.connect(self.compare_doc_requested)
         self.stack.addWidget(self.card_compare)
 
-        self.card_convert = QWidget()
-        convert_layout = QVBoxLayout(self.card_convert)
-        convert_layout.setContentsMargins(12, 10, 12, 10)
-        convert_layout.setSpacing(10)
-
-        conv_hdr = QFrame()
-        conv_hdr.setObjectName("cardFrame")
-        conv_hdr.setStyleSheet(CARD_FRAME_STYLE)
-        ch_layout = QVBoxLayout(conv_hdr)
-        ch_layout.setContentsMargins(14, 12, 14, 12)
-        ch_layout.setSpacing(6)
-        ch_title = QLabel("<b>🔄 Multi-Format Document Converter</b>")
-        ch_title.setStyleSheet("font-size: 13px; color: #1E293B;")
-        ch_layout.addWidget(ch_title)
-        ch_desc = QLabel(
-            "Converts Word documents between formats (PDF, DOCX, Markdown, HTML, XPS, RTF, TXT). "
-            "Native Microsoft Word COM engine ensures pristine formatting, table borders, and vector graphics."
-        )
-        ch_desc.setWordWrap(True)
-        ch_desc.setStyleSheet("color: #475569; font-size: 11px;")
-        ch_layout.addWidget(ch_desc)
-        convert_layout.addWidget(conv_hdr)
-
-        self.pane_convert = DocumentSelectorPane("📄 DOCUMENT TO CONVERT")
-        convert_layout.addWidget(self.pane_convert)
-
-        conv_opts_frame = QFrame()
-        conv_opts_frame.setStyleSheet(CARD_FRAME_STYLE)
-        co_layout = QHBoxLayout(conv_opts_frame)
-        co_layout.setContentsMargins(12, 8, 12, 8)
-        co_layout.setSpacing(14)
-
-        co_layout.addWidget(QLabel("<b>Target Format:</b>"))
-        self.format_combo = QComboBox()
-        self.format_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
-        self.format_combo.addItems(["PDF", "DOCX", "MD", "HTML", "XPS", "RTF", "TXT"])
-        self.format_combo.currentIndexChanged.connect(self._on_format_changed)
-        co_layout.addWidget(self.format_combo)
-
-        self.conv_engine_lbl = QLabel("Engine: 🟢 Microsoft Word COM")
-        self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #065F46; font-weight: 500;")
-        co_layout.addWidget(self.conv_engine_lbl)
-        co_layout.addStretch()
-        convert_layout.addWidget(conv_opts_frame)
-
-        conv_act_row = QHBoxLayout()
-        self.run_convert_btn = QPushButton("🔄 Convert Document")
-        self.run_convert_btn.setObjectName("primaryBtn")
-        self.run_convert_btn.setCursor(Qt.PointingHandCursor)
-        self.run_convert_btn.clicked.connect(self._trigger_conversion)
-        conv_act_row.addWidget(self.run_convert_btn)
-        conv_act_row.addStretch()
-        convert_layout.addLayout(conv_act_row)
-
-        self.conv_result_frame = QFrame()
-        self.conv_result_frame.setStyleSheet(CARD_FRAME_STYLE)
-        self.conv_result_frame.setVisible(False)
-        cr_layout = QHBoxLayout(self.conv_result_frame)
-        cr_layout.setContentsMargins(12, 8, 12, 8)
-        self.conv_result_icon = QLabel("⏳")
-        self.conv_result_lbl = QLabel()
-        self.conv_result_lbl.setStyleSheet("font-weight: bold; color: #1E5C99;")
-        cr_layout.addWidget(self.conv_result_icon)
-        cr_layout.addWidget(self.conv_result_lbl, 1)
-        self.conv_open_folder_btn = QPushButton("📂 Open Output Folder")
-        self.conv_open_folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.conv_open_folder_btn.clicked.connect(self._open_conv_folder)
-        cr_layout.addWidget(self.conv_open_folder_btn)
-        convert_layout.addWidget(self.conv_result_frame)
-
-        convert_layout.addStretch()
+        # Index 5: Multi-Format Converter Card
+        self.card_convert = WordConverterCard()
+        self.card_convert.convert_doc_requested.connect(self.convert_doc_requested)
         self.stack.addWidget(self.card_convert)
-        self._last_conv_folder = None
 
-        # Dedicated Markdown Card
-        self.card_markdown = QWidget()
-        md_layout = QVBoxLayout(self.card_markdown)
-        md_layout.setSpacing(10)
-
-        self.pane_markdown = DocumentSelectorPane("📄 WORD DOCUMENT TO CONVERT")
-        md_layout.addWidget(self.pane_markdown)
-
-        md_options_frame = QFrame()
-        md_options_frame.setStyleSheet(CARD_FRAME_STYLE)
-        opts_layout = QVBoxLayout(md_options_frame)
-        opts_layout.setContentsMargins(12, 10, 12, 10)
-        opts_layout.setSpacing(8)
-
-        opts_row1 = QHBoxLayout()
-        opts_row1.addWidget(QLabel("<b>Track Changes:</b>"))
-        self.md_revisions_combo = QComboBox()
-        self.md_revisions_combo.addItem("Inline Markup [INSERTED / DELETED]", "markup")
-        self.md_revisions_combo.addItem("Accept All Changes (Clean Final View)", "accept")
-        self.md_revisions_combo.addItem("Reject All Changes (Original Baseline)", "reject")
-        opts_row1.addWidget(self.md_revisions_combo)
-        opts_row1.addSpacing(16)
-
-        self.md_media_cb = QCheckBox("Extract figures and drawings to media/ folder")
-        self.md_media_cb.setChecked(True)
-        self.md_media_cb.setToolTip(
-            "Extracts embedded images, converts vector EMF/WMF drawings to PNG, and links Visio (.vsdx) sources."
-        )
-        opts_row1.addWidget(self.md_media_cb)
-
-        self.md_header_cb = QCheckBox("Include summary header")
-        self.md_header_cb.setChecked(True)
-        self.md_header_cb.setToolTip(
-            "Prepends a document summary header with original filename, conversion date, and revision mode."
-        )
-        opts_row1.addWidget(self.md_header_cb)
-        opts_row1.addStretch()
-        opts_layout.addLayout(opts_row1)
-
-        dest_row = QHBoxLayout()
-        self.md_custom_dest_cb = QCheckBox("Custom output folder:")
-        self.md_custom_dest_cb.toggled.connect(self._on_md_custom_dest_toggled)
-        self.md_dest_edit = QLineEdit()
-        self.md_dest_edit.setPlaceholderText("Defaults to source document directory...")
-        self.md_dest_edit.setEnabled(False)
-        self.md_dest_browse_btn = QPushButton("📂 Browse...")
-        self.md_dest_browse_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.md_dest_browse_btn.setEnabled(False)
-        self.md_dest_browse_btn.clicked.connect(self._browse_md_dest)
-        dest_row.addWidget(self.md_custom_dest_cb)
-        dest_row.addWidget(self.md_dest_edit, 1)
-        dest_row.addWidget(self.md_dest_browse_btn)
-        opts_layout.addLayout(dest_row)
-
-        md_layout.addWidget(md_options_frame)
-
-        act_row = QHBoxLayout()
-        self.run_markdown_btn = QPushButton("📝 Convert to Markdown")
-        self.run_markdown_btn.setObjectName("primaryBtn")
-        self.run_markdown_btn.clicked.connect(self._trigger_markdown_conversion)
-        act_row.addWidget(self.run_markdown_btn)
-        md_layout.addLayout(act_row)
-
-        self.md_progress = QProgressBar()
-        self.md_progress.setRange(0, 0)
-        self.md_progress.setVisible(False)
-        md_layout.addWidget(self.md_progress)
-
-        self.md_result_frame = QFrame()
-        self.md_result_frame.setStyleSheet(CARD_FRAME_STYLE)
-        self.md_result_frame.setVisible(False)
-        res_layout = QVBoxLayout(self.md_result_frame)
-        res_layout.setContentsMargins(12, 10, 12, 10)
-        res_layout.setSpacing(8)
-
-        res_top_row = QHBoxLayout()
-        self.md_result_icon = QLabel("✅")
-        self.md_result_lbl = QLabel()
-        self.md_result_lbl.setStyleSheet("font-weight: bold; color: #0F766E;")
-        res_top_row.addWidget(self.md_result_icon)
-        res_top_row.addWidget(self.md_result_lbl, 1)
-
-        self.md_open_folder_btn = QPushButton("📂 Open Folder")
-        self.md_open_folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.md_open_folder_btn.clicked.connect(self._open_md_folder)
-
-        self.md_open_file_btn = QPushButton("📝 Open .md File")
-        self.md_open_file_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.md_open_file_btn.clicked.connect(self._open_md_file)
-
-        self.md_copy_btn = QPushButton("📋 Copy Markdown")
-        self.md_copy_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.md_copy_btn.clicked.connect(self._copy_md_to_clipboard)
-
-        self.md_preview_toggle_btn = QPushButton("👁️ Preview")
-        self.md_preview_toggle_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.md_preview_toggle_btn.clicked.connect(self._toggle_md_preview)
-
-        res_top_row.addWidget(self.md_open_folder_btn)
-        res_top_row.addWidget(self.md_open_file_btn)
-        res_top_row.addWidget(self.md_copy_btn)
-        res_top_row.addWidget(self.md_preview_toggle_btn)
-        res_layout.addLayout(res_top_row)
-
-        self.md_preview_edit = QPlainTextEdit()
-        self.md_preview_edit.setReadOnly(True)
-        self.md_preview_edit.setMaximumHeight(220)
-        self.md_preview_edit.setVisible(False)
-        res_layout.addWidget(self.md_preview_edit)
-
-        md_layout.addWidget(self.md_result_frame)
-        md_layout.addStretch()
-
+        # Index 6: Word to Markdown Card
+        self.card_markdown = WordMarkdownCard()
+        self.card_markdown.convert_markdown_requested.connect(self.convert_markdown_requested)
         self.stack.addWidget(self.card_markdown)
-        self._last_converted_md = None
 
-        self.card_cr_pcr = self._create_cr_pcr_card()
+        # Index 7: 3GPP CR / pCR Card
+        self.card_cr_pcr = WordCrPcrCard()
         self.stack.addWidget(self.card_cr_pcr)
 
-        self.card_author_renamer = self._create_author_renamer_card()
+        # Index 8: Document Sanitizer & Revision Hub
+        self.card_author_renamer = WordSanitizerCard()
         self.stack.addWidget(self.card_author_renamer)
 
         layout.addWidget(self.stack)
-        self.setLayout(layout)
-        self.op_combo.currentIndexChanged.connect(self._on_op_combo_changed)
 
-    def _scan_excerpt_files(self, files):
-        if not files:
-            return
+        # Default to Compare Documents (Index 4)
+        self.set_active_operation(4)
 
-        # Additional drops extend the current source set instead of replacing it.
-        # Compare normalized absolute paths so the same Windows file is not added
-        # twice through different path spellings/casing. Preserve first-drop order.
-        existing = {
-            str(Path(path).resolve()).casefold()
-            for path in self._excerpt_input_paths
-        }
-        added = False
-        for file_path in files:
-            path = str(Path(file_path).resolve())
-            key = path.casefold()
-            if key in existing:
-                continue
-            self._excerpt_input_paths.append(path)
-            existing.add(key)
-            added = True
+    # -------------------------------------------------------------------------
+    # Ribbon & Operation Switching
+    # -------------------------------------------------------------------------
+    def set_active_operation(self, index: int):
+        self.stack.setCurrentIndex(index)
+        self._update_nav_pills(index)
+        if self.op_combo.currentIndex() != index:
+            self.op_combo.blockSignals(True)
+            self.op_combo.setCurrentIndex(index)
+            self.op_combo.blockSignals(False)
 
-        if not added:
-            return
+    def _on_op_combo_changed(self, index: int):
+        self.set_active_operation(index)
 
-        self._refresh_excerpt_source_list()
-        self._rescan_excerpt_sources()
-
-    def _refresh_excerpt_source_list(self):
-        self.excerpt_source_list.clear()
-        for path in self._excerpt_input_paths:
-            self.excerpt_source_list.addItem(Path(path).name)
-        has_sources = bool(self._excerpt_input_paths)
-        self.excerpt_clear_sources_btn.setEnabled(has_sources)
-        self.excerpt_remove_btn.setEnabled(False)
-
-    def _invalidate_excerpt_scan(self):
-        self._excerpt_paths = []
-        self._excerpt_headings = []
-        self.excerpt_tree.clear()
-        self.excerpt_extract_btn.setEnabled(False)
-
-    def _disconnect_running_scan(self):
-        self._excerpt_scan_gen += 1
-        if self._excerpt_scan_thread is not None:
-            old_thread = self._excerpt_scan_thread
-            try:
-                old_thread.scanned.disconnect()
-            except Exception:
-                pass
-            try:
-                old_thread.progress.disconnect()
-            except Exception:
-                pass
-            try:
-                old_thread.failed.disconnect()
-            except Exception:
-                pass
-            if old_thread.isRunning():
-                old_thread.requestInterruption()
-                self._active_scan_threads.append(old_thread)
-                old_thread.finished.connect(
-                    lambda t=old_thread: self._active_scan_threads.remove(t) if t in self._active_scan_threads else None
+    def _update_nav_pills(self, active_index: int):
+        for btn, idx in self._nav_buttons:
+            is_active = (idx == active_index)
+            btn.setChecked(is_active)
+            if is_active:
+                btn.setStyleSheet(
+                    "background-color: #EBF3FC; border: 2px solid #395396; color: #395396; font-weight: 700; border-radius: 4px; padding: 4px 10px; font-size: 11px;"
                 )
-            self._excerpt_scan_thread = None
-
-    def _rescan_excerpt_sources(self):
-        self._disconnect_running_scan()
-        self._invalidate_excerpt_scan()
-        if not self._excerpt_input_paths:
-            self.excerpt_drop.set_state("ready", "📥 Drop one or more .docx files here to scan their headings")
-            self.excerpt_progress.setVisible(False)
-            self.excerpt_progress_label.setVisible(False)
-            return
-        self.excerpt_drop.set_state("ready", f"Scanning {len(self._excerpt_input_paths)} document(s)...")
-        self.excerpt_progress.setValue(0)
-        self.excerpt_progress.setVisible(True)
-        self.excerpt_progress_label.setText(f"Preparing to parse {len(self._excerpt_input_paths)} document(s)...")
-        self.excerpt_progress_label.setVisible(True)
-        mode = self.excerpt_order_combo.currentData()
-        gen = self._excerpt_scan_gen
-        thread = WordHeadingScanThread(list(self._excerpt_input_paths), mode)
-        self._excerpt_scan_thread = thread
-        thread.scanned.connect(
-            lambda ordered_paths, headings, g=gen: self._on_excerpt_scanned(ordered_paths, headings) if g == self._excerpt_scan_gen else None
-        )
-        thread.progress.connect(
-            lambda percent, message, g=gen: self._on_excerpt_scan_progress(percent, message) if g == self._excerpt_scan_gen else None
-        )
-        thread.failed.connect(
-            lambda message, g=gen: self._on_excerpt_scan_failed(message) if g == self._excerpt_scan_gen else None
-        )
-        thread.start()
-
-    def _remove_excerpt_sources(self):
-        selected_rows = sorted(
-            {self.excerpt_source_list.row(item) for item in self.excerpt_source_list.selectedItems()},
-            reverse=True,
-        )
-        if not selected_rows:
-            return
-        for row in selected_rows:
-            if 0 <= row < len(self._excerpt_input_paths):
-                del self._excerpt_input_paths[row]
-        self._refresh_excerpt_source_list()
-        self._rescan_excerpt_sources()
-
-    def _clear_excerpt_sources(self):
-        self._disconnect_running_scan()
-        self._excerpt_input_paths = []
-        self._refresh_excerpt_source_list()
-        self._invalidate_excerpt_scan()
-        self.excerpt_drop.set_state("ready", "📥 Drop one or more .docx files here to scan their headings")
-        self.excerpt_progress.setVisible(False)
-        self.excerpt_progress_label.setVisible(False)
-
-    def _on_excerpt_scan_progress(self, percent, message):
-        self.excerpt_progress.setValue(percent)
-        self.excerpt_progress_label.setText(message)
-
-    def _on_excerpt_scanned(self, ordered_paths, headings):
-        self._excerpt_paths = list(ordered_paths)
-        self._excerpt_headings = list(headings)
-        self._populate_excerpt_tree()
-        self.excerpt_drop.set_state(
-            "ready", f"Ready: {len(headings)} headings from {len(ordered_paths)} document(s)"
-        )
-        self.excerpt_extract_btn.setEnabled(bool(headings))
-        self.excerpt_progress.setValue(100)
-        self.excerpt_progress_label.setText(f"Scan complete: {len(headings)} headings found.")
-
-    def _on_excerpt_scan_failed(self, message):
-        self.excerpt_drop.set_state("error", "Heading scan failed")
-        self.excerpt_progress.setVisible(True)
-        self.excerpt_progress_label.setVisible(True)
-        self.excerpt_progress_label.setText("Heading scan failed.")
-        QMessageBox.critical(self, "Heading Scan Failed", message)
-
-    def _populate_excerpt_tree(self):
-        self.excerpt_tree.clear()
-        by_source = {}
-        for h in self._excerpt_headings:
-            by_source.setdefault(h.source_path, []).append(h)
-
-        for source_path in self._excerpt_paths:
-            source_item = QTreeWidgetItem([f"📄 {Path(source_path).name}", Path(source_path).name])
-            source_item.setFlags(source_item.flags() & ~Qt.ItemIsUserCheckable)
-            self.excerpt_tree.addTopLevelItem(source_item)
-            parents = {}
-            for h in by_source.get(source_path, []):
-                item = QTreeWidgetItem([f"[H{h.level}] {h.text}", Path(source_path).name])
-                item.setData(0, Qt.UserRole, h.id)
-                item.setCheckState(0, Qt.Unchecked)
-                parent = None
-                for level in range(h.level - 1, 0, -1):
-                    if level in parents:
-                        parent = parents[level]
-                        break
-                (parent or source_item).addChild(item)
-                parents[h.level] = item
-                for level in list(parents):
-                    if level > h.level:
-                        del parents[level]
-        self.excerpt_tree.expandToDepth(1)
-
-    def _filter_excerpt_tree(self, text):
-        needle = text.strip().lower()
-        matches = 0
-
-        def visit(item):
-            nonlocal matches
-            is_heading = bool(item.data(0, Qt.UserRole))
-            own_match = not needle or needle in item.text(0).lower()
-            if needle and is_heading and own_match:
-                matches += 1
-            child_match = False
-            for i in range(item.childCount()):
-                child_match = visit(item.child(i)) or child_match
-            visible = own_match or child_match
-            item.setHidden(not visible)
-            if needle and child_match:
-                item.setExpanded(True)
-            return visible
-
-        for i in range(self.excerpt_tree.topLevelItemCount()):
-            visit(self.excerpt_tree.topLevelItem(i))
-
-        if hasattr(self, "lbl_excerpt_match_count"):
-            if needle:
-                self.lbl_excerpt_match_count.setText(f"{matches} match(es)")
             else:
-                self.lbl_excerpt_match_count.setText("")
-
-    def _select_all_excerpt_headings(self):
-        def select(item):
-            if item.data(0, Qt.UserRole) and not item.isHidden():
-                item.setCheckState(0, Qt.Checked)
-            for i in range(item.childCount()):
-                select(item.child(i))
-        for i in range(self.excerpt_tree.topLevelItemCount()):
-            select(self.excerpt_tree.topLevelItem(i))
-
-    def _select_level1_excerpt_headings(self):
-        self._clear_excerpt_selection()
-        for i in range(self.excerpt_tree.topLevelItemCount()):
-            src_item = self.excerpt_tree.topLevelItem(i)
-            for c in range(src_item.childCount()):
-                item = src_item.child(c)
-                if item.data(0, Qt.UserRole) and not item.isHidden():
-                    item.setCheckState(0, Qt.Checked)
-
-    def _clear_excerpt_selection(self):
-        def clear(item):
-            if item.data(0, Qt.UserRole):
-                item.setCheckState(0, Qt.Unchecked)
-            for i in range(item.childCount()):
-                clear(item.child(i))
-        for i in range(self.excerpt_tree.topLevelItemCount()):
-            clear(self.excerpt_tree.topLevelItem(i))
-
-    def _selected_excerpt_ids(self):
-        selected = []
-        def collect(item):
-            heading_id = item.data(0, Qt.UserRole)
-            if heading_id and item.checkState(0) == Qt.Checked:
-                selected.append(heading_id)
-            for i in range(item.childCount()):
-                collect(item.child(i))
-        for i in range(self.excerpt_tree.topLevelItemCount()):
-            collect(self.excerpt_tree.topLevelItem(i))
-        return selected
-
-    def _extract_selected_sections(self):
-        selected = self._selected_excerpt_ids()
-        if not selected:
-            QMessageBox.information(self, "No Selection", "Select at least one heading to extract.")
-            return
-        default_dir = str(Path(self._excerpt_paths[0]).parent) if self._excerpt_paths else ""
-        output, _ = QFileDialog.getSaveFileName(
-            self, "Save Extracted Sections", str(Path(default_dir) / "extracted_sections.docx"),
-            "Word Document (*.docx)"
-        )
-        if not output:
-            return
-        if not output.lower().endswith(".docx"):
-            output += ".docx"
-        self.excerpt_extract_btn.setEnabled(False)
-        self.excerpt_extract_btn.setText("⏳ Extracting...")
-        self._excerpt_extract_thread = WordExcerptThread(
-            self._excerpt_paths, self._excerpt_headings, selected, output
-        )
-        self.excerpt_progress.setRange(0, 100)
-        self.excerpt_progress.setValue(0)
-        self.excerpt_progress.setVisible(True)
-        self.excerpt_progress_label.setText("Preparing extraction...")
-        self.excerpt_progress_label.setVisible(True)
-        self._excerpt_extract_thread.finished_path.connect(self._on_excerpt_finished)
-        self._excerpt_extract_thread.failed.connect(self._on_excerpt_extract_failed)
-        self._excerpt_extract_thread.progress.connect(self._on_excerpt_extract_progress)
-        self._excerpt_extract_thread.finished.connect(self._reset_excerpt_button)
-        self._excerpt_extract_thread.start()
-
-    def _on_excerpt_extract_progress(self, percent, message):
-        # Fragment preparation can legitimately take minutes for very large DOCX
-        # packages and does not expose meaningful sub-progress.  Use Qt's busy
-        # indicator during that isolated stage so the UI visibly remains alive.
-        if message.startswith("Preparing excerpt from "):
-            self.excerpt_progress.setRange(0, 0)
-        else:
-            if self.excerpt_progress.minimum() == 0 and self.excerpt_progress.maximum() == 0:
-                self.excerpt_progress.setRange(0, 100)
-            self.excerpt_progress.setValue(percent)
-        self.excerpt_progress_label.setText(message)
-
-    def _on_excerpt_finished(self, path):
-        QMessageBox.information(self, "Extraction Complete", f"Created:\n{path}")
-
-    def _on_excerpt_extract_failed(self, message):
-        QMessageBox.critical(self, "Extraction Failed", message)
-
-    def _reset_excerpt_button(self):
-        self.excerpt_extract_btn.setText("✂️ Extract Selected Sections")
-        self.excerpt_extract_btn.setEnabled(bool(self._excerpt_headings))
+                btn.setStyleSheet(TOGGLE_PILL_STYLE)
 
     def _poll_active_word(self):
-        """Checks for active foreground document in Microsoft Word and updates status pill."""
         try:
-            active_doc = get_active_word_document(allow_unsaved_snapshot=False)
-            if active_doc and active_doc.get("name"):
-                name = active_doc["name"]
-                is_mod = active_doc.get("modified", False)
-                mod_str = " *" if is_mod else ""
-                self.btn_active_word.setText(f"🪟 Active Word: {name}{mod_str}")
+            active_path = get_active_word_document()
+            if active_path and active_path.is_file():
+                self._active_word_file = active_path
+                self.btn_active_word.setText(f"🪟 Active Word: {active_path.name}")
                 self.btn_active_word.setStyleSheet("""
                     QPushButton {
                         background-color: #ECFDF5;
                         color: #065F46;
-                        border: 1px solid #A7F3D0;
-                        border-radius: 12px;
+                        border: 1px solid #6EE7B7;
+                        border-radius: 4px;
                         padding: 3px 10px;
-                        font-size: 11px;
                         font-weight: 600;
-                    }
-                    QPushButton:hover {
-                        background-color: #D1FAE5;
-                        border-color: #6EE7B7;
+                        font-size: 11px;
                     }
                 """)
-                self.btn_active_word.setToolTip(
-                    f"Active document in Microsoft Word: {active_doc.get('full_name', name)}\nClick to refresh open documents."
-                )
+                self.btn_active_word.setToolTip(f"Active in Microsoft Word:\n{active_path.resolve()}\n\nClick to reveal in folder.")
             else:
-                self.btn_active_word.setText("⚪ Word: No Active Document")
-                self.btn_active_word.setStyleSheet(TOGGLE_PILL_STYLE)
-                self.btn_active_word.setToolTip("No active document currently open in Microsoft Word. Click to scan.")
-        except Exception as e:
-            self.btn_active_word.setText("⚪ Word: Offline / Idle")
-            self.btn_active_word.setStyleSheet(TOGGLE_PILL_STYLE)
-            self.btn_active_word.setToolTip(f"Word status check: {e}")
+                self._active_word_file = None
+                self.btn_active_word.setText("🪟 Active Word: None Detected")
+                self.btn_active_word.setStyleSheet("""
+                    QPushButton {
+                        background-color: #F1F5F9;
+                        color: #64748B;
+                        border: 1px solid #CBD5E1;
+                        border-radius: 4px;
+                        padding: 3px 10px;
+                        font-weight: 500;
+                        font-size: 11px;
+                    }
+                """)
+                self.btn_active_word.setToolTip("No active document currently open in Microsoft Word.")
+        except Exception as exc:
+            logger.debug("Active Word poll failed: %s", exc)
 
     def _setup_settings_menu(self):
-        settings_menu = QMenu(self)
-        settings_menu.setStyleSheet("""
-            QMenu {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
-                border-radius: 6px;
-                padding: 4px;
-                font-size: 12px;
-            }
-            QMenu::item {
-                padding: 6px 18px 6px 10px;
-                border-radius: 4px;
-            }
-            QMenu::item:selected {
-                background-color: #EBF3FC;
-                color: #1E5C99;
-            }
-        """)
-        act_pref = settings_menu.addAction("⚙️ Word Tools Preferences && Sensitivity Labels...")
-        act_pref.triggered.connect(self._open_settings_dialog)
-        act_batch_label = settings_menu.addAction("🛡️ Batch Apply Sensitivity Label (Documents / Folder)...")
+        menu = QMenu(self)
+
+        act_settings = QAction("⚙️ Preferences & Sensitivity Labels...", self)
+        act_settings.triggered.connect(self._open_settings_dialog)
+        menu.addAction(act_settings)
+
+        act_batch_label = QAction("🏷️ Batch Apply Sensitivity Labels...", self)
         act_batch_label.triggered.connect(self._open_batch_label_dialog)
-        settings_menu.addSeparator()
-        act_tpl_folder = settings_menu.addAction("📂 Open Word Templates Folder")
-        act_tpl_folder.triggered.connect(self._open_word_templates_folder)
-        act_toggle_dotx = settings_menu.addAction("📥 Install / Remove 3gpp_70.dotx")
-        act_toggle_dotx.triggered.connect(self._on_toggle_dotx_clicked)
-        act_dl_tpl = settings_menu.addAction("🌐 Official 3GPP Templates Portal...")
-        act_dl_tpl.triggered.connect(lambda: webbrowser.open(OFFICIAL_CR_TEMPLATE_URL))
-        settings_menu.addSeparator()
-        act_lo = settings_menu.addAction("📂 Locate LibreOffice Binary...")
-        act_lo.triggered.connect(self._browse_for_libreoffice)
-        self.settings_btn.setMenu(settings_menu)
+        menu.addAction(act_batch_label)
+
+        menu.addSeparator()
+
+        act_templates = QAction("📂 Open Word Templates Folder", self)
+        act_templates.triggered.connect(self._open_word_templates_folder)
+        menu.addAction(act_templates)
+
+        self.settings_btn.setMenu(menu)
 
     def _open_settings_dialog(self):
-        dlg = WordSettingsDialog(self)
-        if dlg.exec_() == QDialog.Accepted:
-            self._check_libreoffice_status()
-            self._check_dotx_status()
+        from modules.word_tools.ui.word_settings_dialog import WordSettingsDialog
+        dlg = WordSettingsDialog(parent=self)
+        dlg.exec_()
+        self._check_dotx_status()
 
     def _open_batch_label_dialog(self):
         from modules.word_tools.ui.batch_label_dialog import BatchSensitivityLabelDialog
-        dlg = BatchSensitivityLabelDialog(self)
+        dlg = BatchSensitivityLabelDialog(parent=self)
         dlg.exec_()
 
     def _open_word_templates_folder(self):
-        appdata = os.environ.get("APPDATA", "")
-        if appdata:
-            tpl_dir = Path(appdata) / "Microsoft" / "Templates"
-            tpl_dir.mkdir(parents=True, exist_ok=True)
-            os.startfile(str(tpl_dir))
-
-    def set_active_operation(self, index: int):
-        if 0 <= index < self.stack.count():
-            self.stack.setCurrentIndex(index)
-            if self.op_combo.currentIndex() != index:
-                self.op_combo.setCurrentIndex(index)
-            self._update_nav_pills(index)
-
-    def _on_op_combo_changed(self, index: int):
-        if not self._syncing_nav:
-            self.set_active_operation(index)
-
-    def _update_nav_pills(self, index: int):
-        self._syncing_nav = True
-        try:
-            pill_map = {
-                0: self.nav_btn_convert,
-                1: self.nav_btn_visio,
-                2: self.nav_btn_slice,
-                3: self.nav_btn_slice,
-                4: self.nav_btn_compare,
-                5: self.nav_btn_convert,
-                6: self.nav_btn_markdown,
-                7: self.nav_btn_cr_pcr,
-                8: self.nav_btn_author,
-            }
-            active_btn = pill_map.get(index)
-            for btn, _ in self._nav_buttons:
-                btn.setChecked(btn is active_btn)
-        finally:
-            self._syncing_nav = False
-
-    def _create_cr_pcr_card(self) -> QWidget:
-        card = QWidget()
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(10, 10, 10, 10)
-        card_layout.setSpacing(10)
-
-        # 1. 3GPP Contribution Builder Frame
-        builder_frame = QFrame()
-        builder_frame.setObjectName("cardFrame")
-        builder_frame.setStyleSheet(CARD_FRAME_STYLE)
-        bf_layout = QVBoxLayout(builder_frame)
-        bf_layout.setContentsMargins(14, 12, 14, 12)
-        bf_layout.setSpacing(10)
-
-        title_row = QHBoxLayout()
-        bf_title = QLabel("<b>📝 3GPP Contribution Builder (CR & Pseudo-CR Generator)</b>")
-        bf_title.setStyleSheet("font-size: 13px; color: #1E293B;")
-        title_row.addWidget(bf_title)
-        title_row.addStretch()
-
-        self.cr_mode_combo = QComboBox()
-        self.cr_mode_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
-        self.cr_mode_combo.addItem("Formal Change Request (CR)", "cr")
-        self.cr_mode_combo.addItem("Pseudo-CR (pCR for Work Items/TRs)", "pcr")
-        title_row.addWidget(QLabel("Contribution Type:"))
-        title_row.addWidget(self.cr_mode_combo)
-        bf_layout.addLayout(title_row)
-
-        desc_lbl = QLabel(
-            "Rapidly assemble formal 3GPP Change Requests directly from specification documents. "
-            "Features automated meeting metadata pre-fill, change-block contiguous grouping, "
-            "authoritative 3GPP Word style enforcement, and corporate sensitivity labeling."
-        )
-        desc_lbl.setWordWrap(True)
-        desc_lbl.setStyleSheet("color: #475569; font-size: 11px;")
-        bf_layout.addWidget(desc_lbl)
-
-        # Document Selector Pane specifically for CR drafting
-        self.pane_cr = DocumentSelectorPane("📄 BASELINE SPECIFICATION DOCUMENT")
-        bf_layout.addWidget(self.pane_cr)
-
-        act_row = QHBoxLayout()
-        self.btn_launch_cr = QPushButton("🚀 Open Contribution Builder (CR / pCR)...")
-        self.btn_launch_cr.setObjectName("primaryBtn")
-        self.btn_launch_cr.setCursor(Qt.PointingHandCursor)
-        self.btn_launch_cr.clicked.connect(self._launch_cr_pcr_from_pane)
-        act_row.addWidget(self.btn_launch_cr)
-        act_row.addStretch()
-        bf_layout.addLayout(act_row)
-
-        card_layout.addWidget(builder_frame)
-
-        # 2. 3GPP Templates & Styles Reference Frame
-        tpl_frame = QFrame()
-        tpl_frame.setObjectName("cardFrame")
-        tpl_frame.setStyleSheet(CARD_FRAME_STYLE)
-        tf_layout = QVBoxLayout(tpl_frame)
-        tf_layout.setContentsMargins(14, 12, 14, 12)
-        tf_layout.setSpacing(8)
-
-        tf_title = QLabel("<b>🏛️ Official 3GPP Templates & Macro Ribbons</b>")
-        tf_title.setStyleSheet("font-size: 13px; color: #1E293B;")
-        tf_layout.addWidget(tf_title)
-
-        tpl_grid = QGridLayout()
-        tpl_grid.setSpacing(10)
-
-        # Box 1: 3gpp_70.dotx
-        box1 = QFrame()
-        box1.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px;")
-        b1_lay = QVBoxLayout(box1)
-        b1_lay.setSpacing(4)
-        b1_lay.addWidget(QLabel("<b>3GPP Macro Ribbon (3gpp_70.dotx)</b>"))
-        self.cr_card_dotx_lbl = QLabel()
-        b1_lay.addWidget(self.cr_card_dotx_lbl)
-        b1_btn_row = QHBoxLayout()
-        self.btn_cr_install_dotx = QPushButton("📥 Install")
-        self.btn_cr_install_dotx.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_cr_install_dotx.clicked.connect(self._on_toggle_dotx_clicked)
-        b1_btn_row.addWidget(self.btn_cr_install_dotx)
-        self.btn_cr_open_tpl = QPushButton("📂 Templates Folder")
-        self.btn_cr_open_tpl.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_cr_open_tpl.clicked.connect(self._open_word_templates_folder)
-        b1_btn_row.addWidget(self.btn_cr_open_tpl)
-        b1_lay.addLayout(b1_btn_row)
-        tpl_grid.addWidget(box1, 0, 0)
-
-        # Box 2: Official Templates Downloads
-        box2 = QFrame()
-        box2.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px;")
-        b2_lay = QVBoxLayout(box2)
-        b2_lay.setSpacing(4)
-        b2_lay.addWidget(QLabel("<b>Authoritative Forms (3GPP FTP)</b>"))
-        b2_lay.addWidget(QLabel("Standard CR and pCR blank cover templates:"))
-        b2_btn_row = QHBoxLayout()
-        btn_dl_cr = QPushButton("📥 CR Form (.docx)")
-        btn_dl_cr.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        btn_dl_cr.clicked.connect(lambda: webbrowser.open(OFFICIAL_CR_TEMPLATE_URL))
-        b2_btn_row.addWidget(btn_dl_cr)
-        btn_dl_pcr = QPushButton("📥 Pseudo-CR (.zip)")
-        btn_dl_pcr.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        btn_dl_pcr.clicked.connect(lambda: webbrowser.open(OFFICIAL_PCR_TEMPLATE_ZIP_URL))
-        b2_btn_row.addWidget(btn_dl_pcr)
-        b2_lay.addLayout(b2_btn_row)
-        tpl_grid.addWidget(box2, 0, 1)
-
-        tf_layout.addLayout(tpl_grid)
-        card_layout.addWidget(tpl_frame)
-        card_layout.addStretch()
-        return card
-
-    def _launch_cr_pcr_from_pane(self):
-        try:
-            from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
-            source_docs = self.pane_cr.get_inputs()
-            mode = self.cr_mode_combo.currentData() or "cr"
-            ordered_paths = []
-            spec_num = ""
-            version = ""
-
-            if source_docs:
-                doc_path = str(source_docs[0])
-                if Path(doc_path).exists():
-                    ordered_paths = [doc_path]
-                    fname = Path(doc_path).name
-                    import re
-                    m = re.search(r'(\d{2})[\._-](\d{3})', fname)
-                    if m:
-                        spec_num = f"{m.group(1)}.{m.group(2)}"
-                    m_ver = re.search(r'[vV]?(\d+)[._](\d+)[._](\d+)', fname)
-                    if m_ver:
-                        version = f"{m_ver.group(1)}.{m_ver.group(2)}.{m_ver.group(3)}"
-
-            dlg = CrPcrDialog(
-                spec_num=spec_num,
-                version=version,
-                ordered_paths=ordered_paths,
-                initial_mode=mode,
-                parent=self,
-            )
-            dlg.exec_()
-        except Exception as e:
-            QMessageBox.critical(self, "Error Launching Contribution Builder", f"Could not launch CR/pCR Generator:\n{e}")
+        roaming = os.environ.get("APPDATA", "")
+        templates_dir = Path(roaming) / "Microsoft" / "Templates"
+        if templates_dir.is_dir() and hasattr(os, "startfile"):
+            os.startfile(str(templates_dir))
+        else:
+            QMessageBox.information(self, "Templates Folder", f"Microsoft Word Templates directory:\n{templates_dir}")
 
     def _check_libreoffice_status(self):
-        """
-        Passive status check only.
-
-        Do not start LibreOffice here. In particular, LibreOffice Portable's
-        --version path can open an interactive console that waits for Enter.
-        """
-        executable = find_libreoffice_executable()
-        if executable:
-            runtime_type = (
-                "Portable"
-                if executable.name.lower() == "libreofficeportable.exe"
-                else "Installed"
-            )
-            self.lo_badge.setText(f"🟢 LibreOffice ({runtime_type})")
-            self.lo_badge.setStyleSheet("""
-                QLabel {
-                    font-size: 11px;
-                    font-weight: bold;
-                    color: #065F46;
-                    background-color: #D1FAE5;
-                    border: 1px solid #A7F3D0;
-                    border-radius: 10px;
-                    padding: 3px 8px;
-                }
-            """)
-            self.lo_badge.setToolTip(f"LibreOffice is configured ({runtime_type}):\n{executable}")
-            self.status_banner.setStyleSheet(
-                "background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 6px;"
-            )
-            self.banner_icon.setText("🟢")
-            self.banner_text.setText(
-                f"<b>LibreOffice configured ({runtime_type}):</b> "
-                f"Using <code>{executable}</code>"
-            )
-            self.banner_text.setStyleSheet("color: #065F46;")
-            self.locate_btn.setText("⚙️ Change Path")
-            self.download_btn.setVisible(False)
+        lo_path = WordConfig.load().get("libreoffice_path", "")
+        if lo_path and Path(lo_path).is_file():
+            self.lo_badge.setText("🟢 LibreOffice: Configured")
+            self.lo_badge.setStyleSheet("color: #166534; font-weight: 600; font-size: 11px;")
         else:
-            self.lo_badge.setText("⚪ LibreOffice Optional")
-            self.lo_badge.setStyleSheet("""
-                QLabel {
-                    font-size: 11px;
-                    color: #64748B;
-                    background-color: #F1F5F9;
-                    border: 1px solid #E2E8F0;
-                    border-radius: 10px;
-                    padding: 3px 8px;
-                }
-            """)
-            self.lo_badge.setToolTip(
-                "LibreOffice is not detected.\n"
-                "Optional: Only needed for headless or legacy .doc conversion.\n"
-                "Native Word features (diff, CR/pCR, styling) use Microsoft Word COM."
-            )
-            self.status_banner.setStyleSheet(
-                "background-color: #FFFBEB; border: 1px solid #FDE68A; border-radius: 6px;"
-            )
-            self.banner_icon.setText("⚠️")
-            self.banner_text.setText(
-                "<b>LibreOffice not detected.</b> If using LibreOffice Portable, "
-                "click 'Locate Executable' and select <code>LibreOfficePortable.exe</code>."
-            )
-            self.banner_text.setStyleSheet("color: #B45309;")
-            self.locate_btn.setText("📂 Locate Executable")
-            self.download_btn.setVisible(True)
+            found = shutil.which("soffice") or shutil.which("libreoffice")
+            if found:
+                self.lo_badge.setText("🟢 LibreOffice: In PATH")
+                self.lo_badge.setStyleSheet("color: #166534; font-weight: 600; font-size: 11px;")
+            else:
+                self.lo_badge.setText("🟠 LibreOffice: Not Found")
+                self.lo_badge.setStyleSheet("color: #92400E; font-weight: 600; font-size: 11px;")
 
     def _check_dotx_status(self):
         installed = is_3gpp_dotx_installed()
         if installed:
-            self.dotx_badge.setText("🟢 3gpp_70.dotx")
-            self.dotx_badge.setStyleSheet("""
-                QLabel {
-                    font-size: 11px;
-                    font-weight: bold;
-                    color: #065F46;
-                    background-color: #D1FAE5;
-                    border: 1px solid #A7F3D0;
-                    border-radius: 10px;
-                    padding: 3px 8px;
-                }
-            """)
-            self.dotx_badge.setToolTip("3gpp_70.dotx is installed in %APPDATA%\\Microsoft\\Templates")
-            self.dotx_btn.setText("🗑️ Remove Template")
-            self.dotx_btn.setToolTip("Remove 3gpp_70.dotx from your Microsoft Word templates folder")
-            if hasattr(self, "cr_card_dotx_lbl"):
-                self.cr_card_dotx_lbl.setText("🟢 Installed in Microsoft Templates")
-                self.cr_card_dotx_lbl.setStyleSheet("color: #065F46; font-weight: bold; font-size: 11px;")
-                self.btn_cr_install_dotx.setText("🗑️ Remove")
+            self.dotx_badge.setText("🟢 3GPP Macro Template: Installed")
+            self.dotx_badge.setStyleSheet("color: #166534; font-weight: 600; font-size: 11px;")
+            self.dotx_btn.setText("Uninstall Template")
+            self.dotx_btn.setStyleSheet("font-size: 10px; padding: 2px 6px; color: #991B1B;")
         else:
-            self.dotx_badge.setText("⚪ Template Not Installed")
-            self.dotx_badge.setStyleSheet("""
-                QLabel {
-                    font-size: 11px;
-                    color: #64748B;
-                    background-color: #F1F5F9;
-                    border: 1px solid #E2E8F0;
-                    border-radius: 10px;
-                    padding: 3px 8px;
-                }
-            """)
-            self.dotx_badge.setToolTip("3gpp_70.dotx is not installed in %APPDATA%\\Microsoft\\Templates")
-            self.dotx_btn.setText("📥 Install Template")
-            self.dotx_btn.setToolTip("Download and install 3gpp_70.dotx into %APPDATA%\\Microsoft\\Templates")
-            if hasattr(self, "cr_card_dotx_lbl"):
-                self.cr_card_dotx_lbl.setText("⚪ Not installed in Word templates")
-                self.cr_card_dotx_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
-                self.btn_cr_install_dotx.setText("📥 Install")
+            self.dotx_badge.setText("⚪ 3GPP Macro Template: Not Installed")
+            self.dotx_badge.setStyleSheet("color: #475569; font-size: 11px;")
+            self.dotx_btn.setText("Install Template")
+            self.dotx_btn.setStyleSheet("font-size: 10px; padding: 2px 6px; color: #1E40AF;")
 
     def _on_toggle_dotx_clicked(self):
         if is_3gpp_dotx_installed():
             reply = QMessageBox.question(
                 self,
-                "Remove 3GPP Word Template",
-                "Do you want to remove 3gpp_70.dotx from your Microsoft Word templates folder?\n\n"
-                "(%APPDATA%\\Microsoft\\Templates\\3gpp_70.dotx)\n\n"
-                "Word will no longer automatically attach the 3GPP macro ribbon to newly created documents.",
+                "Uninstall 3GPP Template",
+                "Remove 3gpp_70.dotx from your Microsoft Word Templates folder?",
                 QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
-                ok, msg = uninstall_3gpp_dotx_template()
-                if ok:
-                    QMessageBox.information(self, "Template Removed", msg)
-                else:
-                    QMessageBox.warning(self, "Removal Failed", msg)
+                uninstall_3gpp_dotx_template()
                 self._check_dotx_status()
         else:
-            ok, msg = install_3gpp_dotx_template(force=True)
+            ok, msg = install_3gpp_dotx_template()
             if ok:
                 QMessageBox.information(self, "Template Installed", msg)
             else:
                 QMessageBox.warning(self, "Installation Failed", msg)
             self._check_dotx_status()
 
-    def _browse_for_libreoffice(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select LibreOffice Binary or Portable Launcher",
-            "",
-            "LibreOffice Executable (*soffice.exe *LibreOfficePortable.exe *.exe);;All Files (*.*)",
-        )
-        if not file_path:
-            return
+    # -------------------------------------------------------------------------
+    # Drop Handlers for simple operations
+    # -------------------------------------------------------------------------
+    def _on_lo_dropped(self, files: list):
+        if files:
+            self.convert_doc_requested.emit(files[0], "docx")
 
-        resolved = resolve_soffice_binary(file_path)
-        if resolved:
-            # Deliberately do not launch/probe it here. A real conversion is the
-            # runtime check; configuration must remain side-effect free.
-            WordConfig.set_libreoffice_path(str(resolved))
-            self._check_libreoffice_status()
-            QMessageBox.information(
-                self,
-                "LibreOffice Configured",
-                f"Successfully linked LibreOffice executable:\n{resolved}",
-            )
-        else:
-            QMessageBox.warning(
-                self,
-                "Invalid Executable",
-                "Could not locate LibreOffice from the selected path.\n"
-                "Please select 'soffice.exe' or 'LibreOfficePortable.exe'.",
-            )
+    def _on_split_dropped(self, files: list):
+        if files:
+            self.split_doc_requested.emit(files[0])
 
-    def _on_lo_dropped(self, files):
-        if not is_libreoffice_available():
-            self._check_libreoffice_status()
-        for f in files:
-            if f:
-                self.convert_doc_requested.emit(f, "docx_libreoffice")
-
-    def _swap_compare_slots(self):
-        inputs_a = self.pane_a.get_inputs()
-        inputs_b = self.pane_b.get_inputs()
-        file_a = inputs_a[0] if inputs_a else ""
-        file_b = inputs_b[0] if inputs_b else ""
-
-        self.pane_a.clear_selection()
-        self.pane_b.clear_selection()
-
-        if file_b:
-            self.pane_a.set_file_path(file_b)
-        if file_a:
-            self.pane_b.set_file_path(file_a)
-
-    def _trigger_comparison(self):
-        val_a_list = self.pane_a.get_inputs()
-        val_b_list = self.pane_b.get_inputs()
-        val_a = val_a_list[0] if val_a_list else ""
-        val_b = val_b_list[0] if val_b_list else ""
-        keep_open = self.keep_open_cb.isChecked()
-
-        if not val_a or not val_b:
-            QMessageBox.warning(
-                self,
-                "Missing Documents",
-                "Please select both Document A (Original) and Document B (Revised) for comparison.",
-            )
-            return
-
-        self.compare_doc_requested.emit(val_a, val_b, keep_open)
-
-    def _trigger_visio_extraction(self):
-        source_docs = self.pane_visio.get_inputs()
-        if not source_docs:
-            QMessageBox.warning(self, "No Document Selected", "Please select, drop, or open a Word document to extract Visio from.")
-            return
-
-        self._last_visio_folder = str(Path(source_docs[0]).parent)
-        for doc in source_docs:
-            if doc:
-                self.extract_visio_requested.emit(doc)
-
-        self.visio_result_icon.setText("⏳")
-        self.visio_result_lbl.setStyleSheet("font-weight: bold; color: #1E5C99;")
-        self.visio_result_lbl.setText(f"Extracting Visio components from {len(source_docs)} document(s)...")
-        self.visio_result_frame.setVisible(True)
-
-    def _open_visio_folder(self):
-        folder = getattr(self, "_last_visio_folder", None)
-        if folder and Path(folder).exists():
-            import os
-            os.startfile(folder)
-
-    def _on_format_changed(self):
-        fmt = self.format_combo.currentText().upper()
-        if fmt == "DOCX":
-            self.conv_engine_lbl.setText("Engine: 🟠 LibreOffice (for legacy .doc) / Word COM")
-            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #B45309; font-weight: 500;")
-        elif fmt == "MD":
-            self.conv_engine_lbl.setText("Engine: 🟢 Native High-Fidelity Markdown (with Media)")
-            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #0F766E; font-weight: 500;")
-        else:
-            self.conv_engine_lbl.setText("Engine: 🟢 Microsoft Word COM")
-            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #065F46; font-weight: 500;")
-
-    def _open_conv_folder(self):
-        folder = getattr(self, "_last_conv_folder", None)
-        if folder and Path(folder).exists():
-            import os
-            os.startfile(folder)
-
-    def _trigger_conversion(self):
-        source_docs = self.pane_convert.get_inputs()
-        target_fmt = self.format_combo.currentText().lower()
-        if not source_docs:
-            QMessageBox.warning(self, "No Document Selected", "Please select, drop, or open a Word document to convert.")
-            return
-
-        self._last_conv_folder = str(Path(source_docs[0]).parent)
-        for doc in source_docs:
-            if doc:
-                self.convert_doc_requested.emit(doc, target_fmt)
-
-        self.conv_result_icon.setText("⏳")
-        self.conv_result_lbl.setStyleSheet("font-weight: bold; color: #1E5C99;")
-        self.conv_result_lbl.setText(f"Conversion to {target_fmt.upper()} queued for {len(source_docs)} document(s)...")
-        self.conv_result_frame.setVisible(True)
-
-    def _trigger_markdown_conversion(self):
-        source_docs = self.pane_markdown.get_inputs()
-        if not source_docs:
-            QMessageBox.warning(self, "No Document Selected", "Please select, open, or drop a Word document to convert.")
-            return
-
-        revisions = self.md_revisions_combo.currentData() or "markup"
-        extract_media = self.md_media_cb.isChecked()
-        include_header = self.md_header_cb.isChecked()
-        out_dir = self.md_dest_edit.text().strip() if (self.md_custom_dest_cb.isChecked() and self.md_dest_edit.text().strip()) else ""
-
-        self.md_progress.setVisible(True)
-        self.run_markdown_btn.setEnabled(False)
-        self.md_result_frame.setVisible(False)
-
-        for doc in source_docs:
-            if doc:
-                self.convert_markdown_requested.emit(doc, revisions, extract_media, out_dir, include_header)
-
+    # -------------------------------------------------------------------------
+    # External Worker Lifecycle Hooks (Invoked by MainWindow)
+    # -------------------------------------------------------------------------
     def on_conversion_success(self, out_path: str):
-        if not out_path or not str(out_path).lower().endswith(".md"):
-            return
-
-        p = Path(out_path)
-        if not p.is_file():
-            return
-
-        self._last_converted_md = str(p.resolve())
-        self.md_progress.setVisible(False)
-        self.run_markdown_btn.setEnabled(True)
-
-        size_kb = p.stat().st_size / 1024
-        self.md_result_icon.setText("✅")
-        self.md_result_lbl.setStyleSheet("font-weight: bold; color: #0F766E;")
-        self.md_result_lbl.setText(f"Converted to Markdown: {p.name} ({size_kb:.1f} KB)")
-        self.md_open_folder_btn.setEnabled(True)
-        self.md_open_file_btn.setEnabled(True)
-        self.md_copy_btn.setEnabled(True)
-        self.md_preview_toggle_btn.setEnabled(True)
-        self.md_result_frame.setVisible(True)
-
-        try:
-            sample = p.read_text(encoding="utf-8", errors="replace")
-            self.md_preview_edit.setPlainText(sample)
-        except Exception:
-            pass
+        if hasattr(self.card_markdown, "on_conversion_success"):
+            self.card_markdown.on_conversion_success(out_path)
+        if hasattr(self.card_convert, "on_conversion_success"):
+            self.card_convert.on_conversion_success(out_path)
+        if hasattr(self.card_visio, "on_extraction_success"):
+            self.card_visio.on_extraction_success(out_path)
 
     def on_conversion_failed(self, error_msg: str):
-        self.md_progress.setVisible(False)
-        self.run_markdown_btn.setEnabled(True)
-        self.md_result_icon.setText("❌")
-        self.md_result_lbl.setStyleSheet("font-weight: bold; color: #DC2626;")
-        self.md_result_lbl.setText(f"Conversion failed: {error_msg}")
-        self.md_open_folder_btn.setEnabled(False)
-        self.md_open_file_btn.setEnabled(False)
-        self.md_copy_btn.setEnabled(False)
-        self.md_preview_toggle_btn.setEnabled(False)
-        self.md_preview_edit.setVisible(False)
-        self.md_result_frame.setVisible(True)
+        if hasattr(self.card_markdown, "on_conversion_failed"):
+            self.card_markdown.on_conversion_failed(error_msg)
+        QMessageBox.critical(self, "Conversion Error", f"Operation failed:\n{error_msg}")
 
     def on_processing_state_changed(self, is_processing: bool):
-        if not is_processing:
-            self.run_markdown_btn.setEnabled(True)
-            self.md_progress.setVisible(False)
-
-    def _open_md_folder(self):
-        if hasattr(self, "_last_converted_md") and self._last_converted_md:
-            p = Path(self._last_converted_md)
-            if p.exists():
-                import os
-                os.startfile(str(p.parent))
-
-    def _open_md_file(self):
-        if hasattr(self, "_last_converted_md") and self._last_converted_md:
-            p = Path(self._last_converted_md)
-            if p.exists():
-                import os
-                os.startfile(str(p))
-
-    def _copy_md_to_clipboard(self):
-        if hasattr(self, "_last_converted_md") and self._last_converted_md:
-            p = Path(self._last_converted_md)
-            if p.exists():
-                try:
-                    text = p.read_text(encoding="utf-8", errors="replace")
-                    QApplication.clipboard().setText(text)
-                    QMessageBox.information(self, "Copied", f"Markdown content of '{p.name}' copied to clipboard.")
-                except Exception as e:
-                    QMessageBox.warning(self, "Copy Failed", f"Could not read markdown file: {e}")
-
-    def _toggle_md_preview(self):
-        is_vis = self.md_preview_edit.isVisible()
-        self.md_preview_edit.setVisible(not is_vis)
-        self.md_preview_toggle_btn.setText("🙈 Hide Preview" if not is_vis else "👁️ Preview")
-
-    def _on_md_custom_dest_toggled(self, checked: bool):
-        self.md_dest_edit.setEnabled(checked)
-        self.md_dest_browse_btn.setEnabled(checked)
-
-    def _browse_md_dest(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Output Directory")
-        if folder:
-            self.md_dest_edit.setText(folder)
-
-    # -------------------------------------------------------------
-    # F-07: Document Sanitizer & Revision Hygiene Card & Handlers
-    # -------------------------------------------------------------
-    def _create_author_renamer_card(self) -> QWidget:
-        """Alias for _create_document_sanitizer_card for backward compatibility."""
-        return self._create_document_sanitizer_card()
-
-    def _create_document_sanitizer_card(self) -> QWidget:
-        card = QWidget()
-        outer_layout = QVBoxLayout(card)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("background: transparent;")
-
-        container = QWidget()
-        card_layout = QVBoxLayout(container)
-        card_layout.setContentsMargins(10, 10, 10, 10)
-        card_layout.setSpacing(10)
-
-        # 1. Header & Description Frame
-        hdr_frame = QFrame()
-        hdr_frame.setObjectName("cardFrame")
-        hdr_frame.setStyleSheet(CARD_FRAME_STYLE)
-        hf_layout = QVBoxLayout(hdr_frame)
-        hf_layout.setContentsMargins(14, 12, 14, 12)
-        hf_layout.setSpacing(6)
-
-        hf_title = QLabel("<b>🛠️ Document Sanitizer &amp; Revision Hygiene Hub</b>")
-        hf_title.setStyleSheet("font-size: 13px; color: #1E293B;")
-        hf_layout.addWidget(hf_title)
-
-        hf_desc = QLabel(
-            "Comprehensive pre-flight sanitation for 3GPP Word contributions: unify proofing language across all "
-            "stories and styles, surgically purge Track Changes language marks ('Formatted: Language...'), "
-            "consolidate reviewer identities under a single corporate signature, and clean private metadata."
-        )
-        hf_desc.setWordWrap(True)
-        hf_desc.setStyleSheet("color: #475569; font-size: 11px;")
-        hf_layout.addWidget(hf_desc)
-        card_layout.addWidget(hdr_frame)
-
-        # 2. Document Selector Pane
-        self.pane_sanitizer = DocumentSelectorPane("📄 WORD CONTRIBUTION (.DOCX / .DOCM)", accepted_extensions=[".docx", ".docm"])
-        self.pane_sanitizer.file_selected.connect(self._on_sanitizer_file_selected)
-        self.pane_author = self.pane_sanitizer  # Backward-compatible alias
-        card_layout.addWidget(self.pane_sanitizer)
-
-        # 3. Executive Audit Summary Frame
-        self.audit_frame = QFrame()
-        self.audit_frame.setObjectName("cardFrame")
-        self.audit_frame.setStyleSheet(CARD_FRAME_STYLE)
-        audit_layout = QVBoxLayout(self.audit_frame)
-        audit_layout.setContentsMargins(14, 10, 14, 10)
-        audit_layout.setSpacing(8)
-
-        self.lbl_audit_summary = QLabel("No document selected. Drop or select a .docx file above to audit.")
-        self.lbl_audit_summary.setStyleSheet("color: #64748B; font-size: 11px; font-style: italic;")
-        audit_layout.addWidget(self.lbl_audit_summary)
-
-        # KPI Badges Row
-        kpi_row = QHBoxLayout()
-        kpi_row.setSpacing(6)
-        chip_style = (
-            "background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 4px; "
-            "padding: 4px 8px; font-size: 11px; color: #334155;"
-        )
-
-        self.lbl_kpi_lang = QLabel("🌐 Languages: —")
-        self.lbl_kpi_lang.setStyleSheet(chip_style)
-        kpi_row.addWidget(self.lbl_kpi_lang)
-
-        self.lbl_kpi_lang_rev = QLabel("🏷️ Lang Changes: —")
-        self.lbl_kpi_lang_rev.setStyleSheet(chip_style)
-        kpi_row.addWidget(self.lbl_kpi_lang_rev)
-
-        self.lbl_kpi_authors = QLabel("👥 Authors: —")
-        self.lbl_kpi_authors.setStyleSheet(chip_style)
-        kpi_row.addWidget(self.lbl_kpi_authors)
-
-        self.lbl_kpi_text_rev = QLabel("📝 Ins/Del: —")
-        self.lbl_kpi_text_rev.setStyleSheet(chip_style)
-        kpi_row.addWidget(self.lbl_kpi_text_rev)
-
-        self.lbl_kpi_fmt = QLabel("🎨 Formatting: —")
-        self.lbl_kpi_fmt.setStyleSheet(chip_style)
-        kpi_row.addWidget(self.lbl_kpi_fmt)
-
-        self.lbl_kpi_comments = QLabel("💬 Comments: —")
-        self.lbl_kpi_comments.setStyleSheet(chip_style)
-        kpi_row.addWidget(self.lbl_kpi_comments)
-
-        kpi_row.addStretch()
-        audit_layout.addLayout(kpi_row)
-        card_layout.addWidget(self.audit_frame)
-
-        # 4. Quick Action Presets
-        preset_bar = QHBoxLayout()
-        preset_bar.addWidget(QLabel("<b>✨ Quick Presets:</b>"))
-
-        btn_preset_3gpp = QPushButton("✨ 3GPP Contribution Prep (en-GB + My Company + Clean Language)")
-        btn_preset_3gpp.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        btn_preset_3gpp.setCursor(Qt.PointingHandCursor)
-        btn_preset_3gpp.clicked.connect(self._apply_preset_3gpp)
-        preset_bar.addWidget(btn_preset_3gpp)
-
-        btn_preset_lang_only = QPushButton("🌐 Fix Language Only (en-GB)")
-        btn_preset_lang_only.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        btn_preset_lang_only.setCursor(Qt.PointingHandCursor)
-        btn_preset_lang_only.clicked.connect(self._apply_preset_lang_only)
-        preset_bar.addWidget(btn_preset_lang_only)
-
-        btn_preset_anonymize = QPushButton("🕶️ Full Anonymize (Contributor + Strip Comments)")
-        btn_preset_anonymize.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        btn_preset_anonymize.setCursor(Qt.PointingHandCursor)
-        btn_preset_anonymize.clicked.connect(self._apply_preset_anonymize)
-        preset_bar.addWidget(btn_preset_anonymize)
-
-        preset_bar.addStretch()
-        card_layout.addLayout(preset_bar)
-
-        # 5. Section 1: Proofing Language & Revision Purge
-        sec1_frame = QFrame()
-        sec1_frame.setObjectName("cardFrame")
-        sec1_frame.setStyleSheet(CARD_FRAME_STYLE)
-        s1_layout = QVBoxLayout(sec1_frame)
-        s1_layout.setContentsMargins(14, 12, 14, 12)
-        s1_layout.setSpacing(8)
-
-        self.chk_sec_lang = QCheckBox("<b>🌐 Proofing Language Unification &amp; Language Revision Purge</b>")
-        self.chk_sec_lang.setStyleSheet("font-size: 12px; color: #1E293B;")
-        self.chk_sec_lang.setChecked(True)
-        s1_layout.addWidget(self.chk_sec_lang)
-
-        lang_row = QHBoxLayout()
-        lang_row.addWidget(QLabel("Target Language:"))
-        self.combo_target_lang = QComboBox()
-        self.combo_target_lang.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
-        for code, label in LANGUAGE_PRESETS:
-            self.combo_target_lang.addItem(label, code)
-        self.combo_target_lang.addItem("Custom BCP 47 code...", "custom")
-        self.combo_target_lang.currentIndexChanged.connect(self._on_target_lang_combo_changed)
-        lang_row.addWidget(self.combo_target_lang, 1)
-
-        self.edit_custom_lang = QLineEdit()
-        self.edit_custom_lang.setStyleSheet(SEARCH_INPUT_STYLE)
-        self.edit_custom_lang.setPlaceholderText("e.g. de-AT")
-        self.edit_custom_lang.setMaximumWidth(90)
-        self.edit_custom_lang.setVisible(False)
-        lang_row.addWidget(self.edit_custom_lang)
-        s1_layout.addLayout(lang_row)
-
-        lang_opts_row = QVBoxLayout()
-        lang_opts_row.setSpacing(4)
-        self.chk_lang_all_stories = QCheckBox("Apply across all document stories (body, tables, headers, footers, footnotes, comments, shapes)")
-        self.chk_lang_all_stories.setChecked(True)
-        lang_opts_row.addWidget(self.chk_lang_all_stories)
-
-        self.chk_lang_styles = QCheckBox("Update document styles && defaults (styles.xml) so new text stays in target language")
-        self.chk_lang_styles.setChecked(True)
-        lang_opts_row.addWidget(self.chk_lang_styles)
-
-        self.chk_lang_purge_revisions = QCheckBox("Surgically purge Track Changes marks related to language (clears 'Formatted: Language...' balloons)")
-        self.chk_lang_purge_revisions.setChecked(True)
-        lang_opts_row.addWidget(self.chk_lang_purge_revisions)
-
-        self.chk_clear_no_proof = QCheckBox("Clear 'Do not check spelling or grammar' (w:noProof) overrides")
-        self.chk_clear_no_proof.setChecked(False)
-        lang_opts_row.addWidget(self.chk_clear_no_proof)
-        s1_layout.addLayout(lang_opts_row)
-
-        self.chk_sec_lang.toggled.connect(lambda chk: self._set_layout_enabled(lang_opts_row, chk))
-        self.chk_sec_lang.toggled.connect(self.combo_target_lang.setEnabled)
-
-        card_layout.addWidget(sec1_frame)
-
-        # 6. Section 2: Consolidate & Anonymize Revision Authors
-        sec2_frame = QFrame()
-        sec2_frame.setObjectName("cardFrame")
-        sec2_frame.setStyleSheet(CARD_FRAME_STYLE)
-        s2_layout = QVBoxLayout(sec2_frame)
-        s2_layout.setContentsMargins(14, 12, 14, 12)
-        s2_layout.setSpacing(8)
-
-        s2_header = QHBoxLayout()
-        self.chk_sec_authors = QCheckBox("<b>👥 Consolidate &amp; Anonymize Revision Authors</b>")
-        self.chk_sec_authors.setStyleSheet("font-size: 12px; color: #1E293B;")
-        self.chk_sec_authors.setChecked(True)
-        s2_header.addWidget(self.chk_sec_authors)
-        s2_header.addStretch()
-
-        self.btn_select_all_authors = QPushButton("Select All")
-        self.btn_select_all_authors.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_select_all_authors.clicked.connect(lambda: self._select_all_authors(True))
-        self.btn_deselect_all_authors = QPushButton("Deselect All")
-        self.btn_deselect_all_authors.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_deselect_all_authors.clicked.connect(lambda: self._select_all_authors(False))
-
-        s2_header.addWidget(self.btn_select_all_authors)
-        s2_header.addWidget(self.btn_deselect_all_authors)
-        s2_layout.addLayout(s2_header)
-
-        self.author_table = QTableWidget()
-        self.author_table.setColumnCount(7)
-        self.author_table.setHorizontalHeaderLabels([
-            "Replace?", "Author Name", "Insertions", "Deletions", "Formatting", "Comments", "Initials"
-        ])
-        self.author_table.horizontalHeader().setStretchLastSection(True)
-        self.author_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.author_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.author_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.author_table.setMaximumHeight(140)
-        s2_layout.addWidget(self.author_table)
-
-        # Target Author Controls
-        author_cfg_row = QHBoxLayout()
-        author_cfg_row.addWidget(QLabel("Target Author:"))
-        self.edit_target_author = QLineEdit()
-        self.edit_target_author.setStyleSheet(SEARCH_INPUT_STYLE)
-        default_company = WordConfig.load().get("default_source_company", "Deutsche Telekom")
-        self.edit_target_author.setText(default_company)
-        self.edit_target_author.textChanged.connect(self._on_target_author_changed)
-        author_cfg_row.addWidget(self.edit_target_author, 1)
-
-        author_cfg_row.addWidget(QLabel("Initials:"))
-        self.edit_target_initials = QLineEdit()
-        self.edit_target_initials.setStyleSheet(SEARCH_INPUT_STYLE)
-        self.edit_target_initials.setMaximumWidth(70)
-        self.edit_target_initials.setText(self._derive_initials(default_company))
-        author_cfg_row.addWidget(self.edit_target_initials)
-
-        # Preset buttons for author
-        btn_preset_comp = QPushButton("🏢 My Company")
-        btn_preset_comp.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        btn_preset_comp.clicked.connect(lambda: self._apply_author_preset(
-            WordConfig.load().get("default_source_company", "Deutsche Telekom")
-        ))
-        author_cfg_row.addWidget(btn_preset_comp)
-
-        btn_preset_ed = QPushButton("✍️ Editor")
-        btn_preset_ed.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        btn_preset_ed.clicked.connect(lambda: self._apply_author_preset("Editor", "Ed"))
-        author_cfg_row.addWidget(btn_preset_ed)
-
-        btn_preset_rapp = QPushButton("👤 Rapporteur")
-        btn_preset_rapp.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        btn_preset_rapp.clicked.connect(lambda: self._apply_author_preset("Rapporteur", "Rapp"))
-        author_cfg_row.addWidget(btn_preset_rapp)
-
-        btn_preset_anon = QPushButton("🔒 Anonymous")
-        btn_preset_anon.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        btn_preset_anon.clicked.connect(lambda: self._apply_author_preset("Contributor", ""))
-        author_cfg_row.addWidget(btn_preset_anon)
-
-        s2_layout.addLayout(author_cfg_row)
-
-        author_opts_row = QHBoxLayout()
-        self.chk_author_initials = QCheckBox("Update comment initials (w:initials)")
-        self.chk_author_initials.setChecked(True)
-        author_opts_row.addWidget(self.chk_author_initials)
-
-        self.chk_author_metadata = QCheckBox("Synchronize doc metadata (Creator && Last Modified)")
-        self.chk_author_metadata.setChecked(True)
-        author_opts_row.addWidget(self.chk_author_metadata)
-        author_opts_row.addStretch()
-        s2_layout.addLayout(author_opts_row)
-
-        self.chk_sec_authors.toggled.connect(self.author_table.setEnabled)
-        self.chk_sec_authors.toggled.connect(self.edit_target_author.setEnabled)
-        self.chk_sec_authors.toggled.connect(self.edit_target_initials.setEnabled)
-        card_layout.addWidget(sec2_frame)
-
-        # 7. Section 3: Optional Formatting & Comment Sanitation
-        sec3_frame = QFrame()
-        sec3_frame.setObjectName("cardFrame")
-        sec3_frame.setStyleSheet(CARD_FRAME_STYLE)
-        s3_layout = QVBoxLayout(sec3_frame)
-        s3_layout.setContentsMargins(14, 12, 14, 12)
-        s3_layout.setSpacing(6)
-
-        self.chk_sec_cleanup = QCheckBox("<b>🧹 Optional Formatting &amp; Comment Hygiene</b>")
-        self.chk_sec_cleanup.setStyleSheet("font-size: 12px; color: #1E293B;")
-        self.chk_sec_cleanup.setChecked(False)
-        s3_layout.addWidget(self.chk_sec_cleanup)
-
-        cleanup_opts = QVBoxLayout()
-        cleanup_opts.setSpacing(4)
-        self.chk_purge_all_fmt = QCheckBox(
-            "Purge ALL formatting-only revisions (w:rPrChange / w:pPrChange) — strictly keeps text Insertions && Deletions"
-        )
-        self.chk_purge_all_fmt.setChecked(False)
-        cleanup_opts.addWidget(self.chk_purge_all_fmt)
-
-        self.chk_remove_comments = QCheckBox("Strip all review comments from document")
-        self.chk_remove_comments.setChecked(False)
-        cleanup_opts.addWidget(self.chk_remove_comments)
-        s3_layout.addLayout(cleanup_opts)
-
-        self.chk_sec_cleanup.toggled.connect(lambda chk: self._set_layout_enabled(cleanup_opts, chk))
-        card_layout.addWidget(sec3_frame)
-
-        # 8. Action Buttons & Backup
-        act_row = QHBoxLayout()
-        self.btn_sanitizer_update_inplace = QPushButton("💾 Update File In-Place")
-        self.btn_sanitizer_update_inplace.setObjectName("primaryBtn")
-        self.btn_sanitizer_update_inplace.setCursor(Qt.PointingHandCursor)
-        self.btn_sanitizer_update_inplace.clicked.connect(lambda: self._trigger_sanitizer(in_place=True))
-        self.btn_author_update_inplace = self.btn_sanitizer_update_inplace  # Alias
-        act_row.addWidget(self.btn_sanitizer_update_inplace)
-
-        self.btn_sanitizer_save_as = QPushButton("📑 Save As New Copy...")
-        self.btn_sanitizer_save_as.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_sanitizer_save_as.setCursor(Qt.PointingHandCursor)
-        self.btn_sanitizer_save_as.clicked.connect(lambda: self._trigger_sanitizer(in_place=False))
-        self.btn_author_save_as = self.btn_sanitizer_save_as  # Alias
-        act_row.addWidget(self.btn_sanitizer_save_as)
-
-        self.chk_sanitizer_backup = QCheckBox("Create .bak backup before updating in-place")
-        self.chk_sanitizer_backup.setChecked(True)
-        self.chk_author_backup = self.chk_sanitizer_backup  # Alias
-        act_row.addWidget(self.chk_sanitizer_backup)
-
-        act_row.addStretch()
-        card_layout.addLayout(act_row)
-
-        # 9. Result Frame
-        self.author_result_frame = QFrame()
-        self.author_result_frame.setStyleSheet(CARD_FRAME_STYLE)
-        self.author_result_frame.setVisible(False)
-        rf_layout = QHBoxLayout(self.author_result_frame)
-        rf_layout.setContentsMargins(12, 8, 12, 8)
-        self.author_result_icon = QLabel("✅")
-        self.author_result_lbl = QLabel()
-        self.author_result_lbl.setStyleSheet("font-weight: bold; color: #0F766E;")
-        rf_layout.addWidget(self.author_result_icon)
-        rf_layout.addWidget(self.author_result_lbl, 1)
-
-        self.author_open_file_btn = QPushButton("📖 Open in Word")
-        self.author_open_file_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.author_open_file_btn.clicked.connect(self._open_author_result_file)
-        rf_layout.addWidget(self.author_open_file_btn)
-
-        self.author_open_folder_btn = QPushButton("📂 Open Folder")
-        self.author_open_folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.author_open_folder_btn.clicked.connect(self._open_author_result_folder)
-        rf_layout.addWidget(self.author_open_folder_btn)
-
-        card_layout.addWidget(self.author_result_frame)
-        card_layout.addStretch()
-
-        self._current_author_stats = []
-        self._last_author_file = None
-        self._last_modified_author_file = None
-
-        scroll.setWidget(container)
-        outer_layout.addWidget(scroll)
-        return card
-
-    def _set_layout_enabled(self, layout, enabled: bool):
-        for i in range(layout.count()):
-            item = layout.itemAt(i)
-            w = item.widget()
-            if w:
-                w.setEnabled(enabled)
-
-    def _on_target_lang_combo_changed(self, index: int):
-        data = self.combo_target_lang.currentData()
-        self.edit_custom_lang.setVisible(data == "custom")
-
-    def _apply_preset_3gpp(self):
-        self.chk_sec_lang.setChecked(True)
-        idx = self.combo_target_lang.findData("en-GB")
-        if idx >= 0:
-            self.combo_target_lang.setCurrentIndex(idx)
-        self.chk_lang_all_stories.setChecked(True)
-        self.chk_lang_styles.setChecked(True)
-        self.chk_lang_purge_revisions.setChecked(True)
-        self.chk_sec_authors.setChecked(True)
-        self._apply_author_preset(WordConfig.load().get("default_source_company", "Deutsche Telekom"))
-        self.chk_sec_cleanup.setChecked(False)
-
-    def _apply_preset_lang_only(self):
-        self.chk_sec_lang.setChecked(True)
-        idx = self.combo_target_lang.findData("en-GB")
-        if idx >= 0:
-            self.combo_target_lang.setCurrentIndex(idx)
-        self.chk_lang_all_stories.setChecked(True)
-        self.chk_lang_styles.setChecked(True)
-        self.chk_lang_purge_revisions.setChecked(True)
-        self.chk_sec_authors.setChecked(False)
-        self.chk_sec_cleanup.setChecked(False)
-
-    def _apply_preset_anonymize(self):
-        self.chk_sec_lang.setChecked(True)
-        idx = self.combo_target_lang.findData("en-GB")
-        if idx >= 0:
-            self.combo_target_lang.setCurrentIndex(idx)
-        self.chk_sec_authors.setChecked(True)
-        self._apply_author_preset("Contributor", "")
-        self.chk_sec_cleanup.setChecked(True)
-        self.chk_remove_comments.setChecked(True)
-
-    def _on_sanitizer_file_selected(self, files: list):
-        if not files:
-            return
-        self._inspect_selected_author_document(files[0])
-
-    def _on_author_file_selected(self, files: list):
-        self._on_sanitizer_file_selected(files)
-
-    def _inspect_selected_author_document(self, file_path: str):
-        path = Path(file_path)
-        if not path.is_file():
-            return
-        if path.suffix.lower() not in (".docx", ".docm"):
-            self.lbl_audit_summary.setText("⚠️ Please select a modern Word document (.docx or .docm). Legacy .doc is not supported.")
-            return
-
-        self._last_author_file = str(path.resolve())
-        self.author_result_frame.setVisible(False)
-
-        try:
-            audit = inspect_document(path)
-            self._current_author_stats = audit.authors
-            self._populate_author_table(audit.authors)
-
-            # Update KPI Badges
-            self.lbl_kpi_lang.setText(f"🌐 Languages: {audit.language_stats.summary_text}")
-            self.lbl_kpi_lang_rev.setText(f"🏷️ Lang Changes: {audit.language_stats.language_change_marks}")
-            self.lbl_kpi_authors.setText(f"👥 Authors: {audit.total_authors}")
-            self.lbl_kpi_text_rev.setText(f"📝 Ins: {audit.total_insertions} · Del: {audit.total_deletions}")
-            self.lbl_kpi_fmt.setText(f"🎨 Formatting: {audit.total_formatting}")
-            self.lbl_kpi_comments.setText(f"💬 Comments: {audit.total_comments}")
-
-            # Auto-tune section checkboxes based on audit
-            if audit.total_authors > 0:
-                self.chk_sec_authors.setChecked(True)
-            else:
-                self.chk_sec_authors.setChecked(False)
-
-            self.lbl_audit_summary.setText(
-                f"✅ Analyzed {path.name} ({audit.file_size_kb:.1f} KB): "
-                f"{audit.language_stats.summary_text} · {audit.language_stats.language_change_marks} lang revision marks · "
-                f"{audit.total_authors} author(s) · {audit.total_changes} total changes."
-            )
-
-        except Exception as exc:
-            logger.error("Failed to inspect document %s: %s", path.name, exc)
-            self.lbl_audit_summary.setText(f"❌ Failed to inspect document: {exc}")
-
-    def _populate_author_table(self, stats: list):
-        self.author_table.setRowCount(len(stats))
-        if not stats:
-            return
-
-        for row, s in enumerate(stats):
-            chk_item = QTableWidgetItem()
-            chk_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            chk_item.setCheckState(Qt.Checked)
-            self.author_table.setItem(row, 0, chk_item)
-
-            name_item = QTableWidgetItem(s.name)
-            name_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            self.author_table.setItem(row, 1, name_item)
-
-            for col, val in enumerate([s.insertions, s.deletions, s.formatting, s.comments], start=2):
-                num_item = QTableWidgetItem(str(val))
-                num_item.setTextAlignment(Qt.AlignCenter)
-                num_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-                self.author_table.setItem(row, col, num_item)
-
-            init_item = QTableWidgetItem(s.initials)
-            init_item.setTextAlignment(Qt.AlignCenter)
-            init_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            self.author_table.setItem(row, 6, init_item)
-
-    def _select_all_authors(self, select: bool):
-        for row in range(self.author_table.rowCount()):
-            item = self.author_table.item(row, 0)
-            if item:
-                item.setCheckState(Qt.Checked if select else Qt.Unchecked)
-
-    def _on_target_author_changed(self, text: str):
-        suggested = self._derive_initials(text.strip())
-        if suggested:
-            self.edit_target_initials.setText(suggested)
-
-    def _derive_initials(self, name: str) -> str:
-        words = re.findall(r"[A-Za-z0-9]+", name or "")
-        if not words:
-            return ""
-        if len(words) >= 2:
-            return "".join(w[0].upper() for w in words[:3])
-        return words[0][:3].title()
-
-    def _apply_author_preset(self, author_name: str, initials: str = None):
-        self.edit_target_author.setText(author_name)
-        if initials is not None:
-            self.edit_target_initials.setText(initials)
-        else:
-            self.edit_target_initials.setText(self._derive_initials(author_name))
-
-    def _trigger_author_replacement(self, in_place: bool):
-        self._trigger_sanitizer(in_place=in_place)
-
-    def _trigger_sanitizer(self, in_place: bool):
-        source_inputs = self.pane_sanitizer.get_inputs()
-        source_file = source_inputs[0] if source_inputs else self._last_author_file
-        if not source_file or not Path(source_file).is_file():
-            QMessageBox.warning(self, "No Document Selected", "Please select or drop a valid .docx file first.")
-            return
-
-        src_path = Path(source_file).resolve()
-
-        # Validate that at least one section is active
-        sec_lang = self.chk_sec_lang.isChecked()
-        sec_authors = self.chk_sec_authors.isChecked()
-        sec_cleanup = self.chk_sec_cleanup.isChecked()
-
-        if not (sec_lang or sec_authors or sec_cleanup):
-            QMessageBox.warning(
-                self,
-                "No Operations Selected",
-                "Please enable at least one section (Language, Authors, or Cleanup) to apply.",
-            )
-            return
-
-        # Authors validation
-        selected_authors = []
-        if sec_authors:
-            for row in range(self.author_table.rowCount()):
-                chk = self.author_table.item(row, 0)
-                name_item = self.author_table.item(row, 1)
-                if chk and chk.checkState() == Qt.Checked and name_item:
-                    selected_authors.append(name_item.text())
-
-            if self.author_table.rowCount() > 0 and not selected_authors:
-                QMessageBox.warning(
-                    self,
-                    "No Authors Selected",
-                    "Author replacement is enabled, but no authors are checked in the table.",
-                )
-                return
-
-        target_author = self.edit_target_author.text().strip()
-        new_initials = self.edit_target_initials.text().strip() if self.chk_author_initials.isChecked() else None
-        mapping = {old_name: target_author for old_name in selected_authors} if selected_authors else {}
-
-        # Resolve Target Language
-        lang_data = self.combo_target_lang.currentData()
-        if lang_data == "custom":
-            target_lang = self.edit_custom_lang.text().strip() or "en-GB"
-        else:
-            target_lang = str(lang_data or "en-GB")
-
-        reopen_after = False
-
-        if in_place:
-            dst_path = src_path
-            if is_file_open_in_word(src_path):
-                reply = QMessageBox.question(
-                    self,
-                    "Document Open in Word",
-                    f"The document '{src_path.name}' is currently open in Microsoft Word.\n\n"
-                    "To update it in-place, Word must save and close this document temporarily.\n\n"
-                    "Would you like to save & close the document in Word now, apply sanitization, and re-open it?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.Yes,
-                )
-                if reply == QMessageBox.Yes:
-                    closed = close_word_document_for_update(src_path, save_changes=True)
-                    if not closed:
-                        QMessageBox.warning(
-                            self,
-                            "File Lock",
-                            "Could not automatically close the document in Word. Please save and close Word manually, or use 'Save As New Copy...'.",
-                        )
-                        return
-                    reopen_after = True
-                else:
-                    return
-        else:
-            default_dst = src_path.parent / f"{src_path.stem}_sanitized{src_path.suffix}"
-            chosen, _ = QFileDialog.getSaveFileName(
-                self,
-                "Save Sanitized Document As",
-                str(default_dst),
-                "Word Documents (*.docx *.docm)",
-            )
-            if not chosen:
-                return
-            dst_path = Path(chosen).resolve()
-
-        config = SanitizeConfig(
-            unify_language=sec_lang,
-            target_language=target_lang,
-            apply_to_all_stories=self.chk_lang_all_stories.isChecked(),
-            update_styles_and_defaults=self.chk_lang_styles.isChecked(),
-            purge_language_changes=self.chk_lang_purge_revisions.isChecked(),
-            clear_no_proof=self.chk_clear_no_proof.isChecked(),
-            update_authors=sec_authors and bool(mapping),
-            author_mapping=mapping,
-            new_initials=new_initials,
-            update_metadata=self.chk_author_metadata.isChecked(),
-            purge_all_formatting_changes=sec_cleanup and self.chk_purge_all_fmt.isChecked(),
-            remove_all_comments=sec_cleanup and self.chk_remove_comments.isChecked(),
-            backup=self.chk_sanitizer_backup.isChecked() if in_place else False,
-        )
-
-        success, count, msg = sanitize_document(
-            docx_path=src_path,
-            output_path=dst_path,
-            config=config,
-        )
-
-        if not success:
-            QMessageBox.critical(self, "Sanitization Failed", msg)
-            return
-
-        self._last_modified_author_file = str(dst_path)
-        self.author_result_lbl.setText(f"✅ {msg}")
-        self.author_result_frame.setVisible(True)
-
-        if reopen_after:
-            from modules.word_tools.core.document_opener import open_document
-            try:
-                open_document(dst_path)
-            except Exception as exc:
-                logger.warning("Could not re-open document: %s", exc)
-
-        self._inspect_selected_author_document(str(dst_path))
-
-    def _open_author_result_file(self):
-        if self._last_modified_author_file and Path(self._last_modified_author_file).is_file():
-            from modules.word_tools.core.document_opener import open_document
-            try:
-                open_document(self._last_modified_author_file)
-            except Exception as exc:
-                QMessageBox.warning(self, "Open Failed", f"Could not open document: {exc}")
-
-    def _open_author_result_folder(self):
-        if self._last_modified_author_file:
-            folder = Path(self._last_modified_author_file).parent
-            if folder.is_dir():
-                import os
-                if hasattr(os, "startfile"):
-                    os.startfile(str(folder))
+        if hasattr(self.card_markdown, "on_processing_state_changed"):
+            self.card_markdown.on_processing_state_changed(is_processing)
