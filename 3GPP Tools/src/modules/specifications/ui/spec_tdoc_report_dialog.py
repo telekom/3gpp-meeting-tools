@@ -267,7 +267,7 @@ class SpecTDocReportDialog(QDialog):
         drawer_layout.setSpacing(4)
 
         drawer_hdr = QHBoxLayout()
-        self.drawer_title_lbl = QLabel("<b>Technical Details && Proposed Solution</b>")
+        self.drawer_title_lbl = QLabel("<b>Technical Details &amp; Proposed Solution</b>")
         self.drawer_title_lbl.setStyleSheet("font-size: 12px; color: #1E293B;")
         drawer_hdr.addWidget(self.drawer_title_lbl)
         drawer_hdr.addStretch()
@@ -497,7 +497,7 @@ class SpecTDocReportDialog(QDialog):
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
             self.drawer_text.clear()
-            self.drawer_title_lbl.setText("<b>Technical Details && Proposed Solution</b>")
+            self.drawer_title_lbl.setText("<b>Technical Details &amp; Proposed Solution</b>")
             return
 
         row_idx = selected_rows[0].row()

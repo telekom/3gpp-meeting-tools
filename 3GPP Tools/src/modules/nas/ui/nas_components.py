@@ -541,7 +541,7 @@ class NASInspectorWidget(QFrame):
         insp_header.setContentsMargins(6, 4, 6, 4)
         insp_header.setSpacing(8)
 
-        card_title = QLabel("🔍 Field && Structure Inspector:")
+        card_title = QLabel("🔍 Field & Structure Inspector:")
         card_title.setStyleSheet("font-weight: bold; color: #1E293B; font-size: 11px;")
         insp_header.addWidget(card_title)
 
@@ -644,7 +644,7 @@ class NASInspectorWidget(QFrame):
         empty_icon.setAlignment(Qt.AlignCenter)
         empty_layout.addWidget(empty_icon)
 
-        empty_title = QLabel("Information Element && Field Inspector")
+        empty_title = QLabel("Information Element & Field Inspector")
         empty_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #334155;")
         empty_title.setAlignment(Qt.AlignCenter)
         empty_layout.addWidget(empty_title)

@@ -687,6 +687,13 @@ def escape_qt_mnemonic(text: Optional[str]) -> str:
     QTabWidget, etc.) interpret a single '&' as an accelerator key prefix,
     stripping the ampersand and underlining the subsequent character.
 
+    IMPORTANT:
+    This function is strictly for mnemonic-aware controls. Do NOT use it for
+    non-mnemonic widgets such as QLabel, QLineEdit, QTextEdit, QToolTip,
+    QStatusBar, setWindowTitle, or HTML rich text. Those controls do not parse
+    mnemonics, and escaping '&' to '&&' will cause Qt to render literal '&&'
+    in the UI!
+
     This function safely converts single '&' to '&&' while preserving already-escaped
     '&&' sequences, preventing double-escaping bugs when processing dynamic data
     (e.g., from JSON files, databases, or network feeds).

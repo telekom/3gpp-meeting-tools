@@ -1798,9 +1798,9 @@ class SpecificationsTab(QWidget):
     # --- DOCUMENT FETCH & EXTRACTION ---
     # ==========================================
     def _open_version_history_dialog(self, spec_number: str, version: Optional[str] = None):
-        """Launches the dedicated Change History && Integrated TDocs dialog modelessly."""
+        """Launches the dedicated Change History & Integrated TDocs dialog modelessly."""
         try:
-            logger.info(f"📜 [Change History] Opening Change History && TDocs browser for TS {spec_number}{f' (v{version})' if version else ''}...")
+            logger.info(f"📜 [Change History] Opening Change History & TDocs browser for TS {spec_number}{f' (v{version})' if version else ''}...")
             if hasattr(self, "_history_dialog") and self._history_dialog and not sip.isdeleted(self._history_dialog):
                 self._history_dialog.load_spec(spec_number, version)
                 self._history_dialog.show()

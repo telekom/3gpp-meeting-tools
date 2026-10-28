@@ -864,7 +864,7 @@ class NASTab(QWidget):
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
             default_prompt = (
-                "Select an Information Element to View Evolution && Definition"
+                "Select an Information Element to View Evolution & Definition"
                 if self._browse_mode == "ies"
                 else "Select a Message to View Evolution Matrix"
             )
@@ -997,7 +997,7 @@ class NASTab(QWidget):
             self.msg_count_lbl.setText(f"{visible_count} / {total_count} items")
 
         default_prompt = (
-            "Select an Information Element to View Evolution && Definition"
+            "Select an Information Element to View Evolution & Definition"
             if self._browse_mode == "ies"
             else "Select a Message to View Evolution Matrix"
         )
