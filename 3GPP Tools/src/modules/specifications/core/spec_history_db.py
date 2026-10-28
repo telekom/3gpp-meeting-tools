@@ -64,6 +64,7 @@ class SpecHistoryDatabase:
                     subject TEXT NOT NULL DEFAULT '',           -- Full subject / rapporteur commentary
                     old_version TEXT NOT NULL DEFAULT '',       -- Preceding version if noted
                     source_file TEXT NOT NULL DEFAULT '',       -- Cached file that supplied this entry
+                    affected_clauses TEXT NOT NULL DEFAULT '',  -- Clauses modified by this CR/p-CR
                     extracted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(spec_number, version, meeting, source_tdoc, cr_number, revision, subject)
                 );
@@ -102,9 +103,21 @@ class SpecHistoryDatabase:
                     revision_of TEXT NOT NULL DEFAULT '',
                     revised_to TEXT NOT NULL DEFAULT '',
                     remarks TEXT NOT NULL DEFAULT '',
+                    affected_clauses TEXT NOT NULL DEFAULT '',  -- Clauses affected extracted from cover sheet
                     cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+
+            # Schema Migration: ensure affected_clauses exists in existing tables
+            cursor.execute("PRAGMA table_info(spec_change_history);")
+            cols_hist = [row[1] for row in cursor.fetchall()]
+            if cols_hist and "affected_clauses" not in cols_hist:
+                cursor.execute("ALTER TABLE spec_change_history ADD COLUMN affected_clauses TEXT NOT NULL DEFAULT '';")
+
+            cursor.execute("PRAGMA table_info(tdoc_metadata_cache);")
+            cols_tdoc = [row[1] for row in cursor.fetchall()]
+            if cols_tdoc and "affected_clauses" not in cols_tdoc:
+                cursor.execute("ALTER TABLE tdoc_metadata_cache ADD COLUMN affected_clauses TEXT NOT NULL DEFAULT '';")
 
             # Indexes for ultra-fast lookup
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_hist_spec_ver ON spec_change_history(spec_number, version);")
@@ -140,6 +153,7 @@ class SpecHistoryDatabase:
                 subject = str(rec.get("subject", "")).strip()
                 old_ver = str(rec.get("old_version", "")).strip()
                 source_file = str(rec.get("source_file", "")).strip()
+                affected_clauses = str(rec.get("affected_clauses", "")).strip()
 
                 if not spec_num:
                     continue
@@ -150,9 +164,9 @@ class SpecHistoryDatabase:
                         INSERT INTO spec_change_history (
                             spec_number, version, row_order, date, meeting,
                             source_tdoc, cr_number, revision, category,
-                            subject, old_version, source_file
+                            subject, old_version, source_file, affected_clauses
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(spec_number, version, meeting, source_tdoc, cr_number, revision, subject)
                         DO UPDATE SET
                             row_order=excluded.row_order,
@@ -160,12 +174,13 @@ class SpecHistoryDatabase:
                             category=excluded.category,
                             old_version=excluded.old_version,
                             source_file=excluded.source_file,
+                            affected_clauses=CASE WHEN excluded.affected_clauses != '' THEN excluded.affected_clauses ELSE spec_change_history.affected_clauses END,
                             extracted_at=CURRENT_TIMESTAMP
                         RETURNING id;
                     """, (
                         spec_num, version, row_order, date_val, meeting,
                         source_tdoc, cr_number, revision, category,
-                        subject, old_ver, source_file
+                        subject, old_ver, source_file, affected_clauses
                     ))
                     res = cursor.fetchone()
                     history_id = res[0] if res else None
@@ -175,9 +190,9 @@ class SpecHistoryDatabase:
                         INSERT INTO spec_change_history (
                             spec_number, version, row_order, date, meeting,
                             source_tdoc, cr_number, revision, category,
-                            subject, old_version, source_file
+                            subject, old_version, source_file, affected_clauses
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(spec_number, version, meeting, source_tdoc, cr_number, revision, subject)
                         DO UPDATE SET
                             row_order=excluded.row_order,
@@ -185,11 +200,12 @@ class SpecHistoryDatabase:
                             category=excluded.category,
                             old_version=excluded.old_version,
                             source_file=excluded.source_file,
+                            affected_clauses=CASE WHEN excluded.affected_clauses != '' THEN excluded.affected_clauses ELSE spec_change_history.affected_clauses END,
                             extracted_at=CURRENT_TIMESTAMP;
                     """, (
                         spec_num, version, row_order, date_val, meeting,
                         source_tdoc, cr_number, revision, category,
-                        subject, old_ver, source_file
+                        subject, old_ver, source_file, affected_clauses
                     ))
                     row = cursor.execute("""
                         SELECT id FROM spec_change_history
@@ -249,7 +265,7 @@ class SpecHistoryDatabase:
             query = """
                 SELECT id, spec_number, version, row_order, date, meeting,
                        source_tdoc, cr_number, revision, category, subject,
-                       old_version, source_file, extracted_at
+                       old_version, source_file, affected_clauses, extracted_at
                 FROM spec_change_history
                 WHERE spec_number = ?
             """
@@ -423,11 +439,12 @@ class SpecHistoryDatabase:
                 if not raw_tdoc or raw_tdoc == "-":
                     continue
                 base_tdoc = raw_tdoc.split("R")[0]
+                affected_cl = str(r.get("affected_clauses") or r.get("Clauses affected") or "").strip()
                 cursor.execute("""
                     INSERT INTO tdoc_metadata_cache (
                         tdoc, base_tdoc, meeting, title, source, tdoc_type, status,
-                        agenda_item, ai_desc, abstract, work_item, revision_of, revised_to, remarks
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        agenda_item, ai_desc, abstract, work_item, revision_of, revised_to, remarks, affected_clauses
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(tdoc) DO UPDATE SET
                         meeting = excluded.meeting,
                         title = excluded.title,
@@ -441,6 +458,7 @@ class SpecHistoryDatabase:
                         revision_of = excluded.revision_of,
                         revised_to = excluded.revised_to,
                         remarks = excluded.remarks,
+                        affected_clauses = CASE WHEN excluded.affected_clauses != '' THEN excluded.affected_clauses ELSE tdoc_metadata_cache.affected_clauses END,
                         cached_at = CURRENT_TIMESTAMP;
                 """, (
                     raw_tdoc,
@@ -457,10 +475,57 @@ class SpecHistoryDatabase:
                     str(r.get("revision_of") or r.get("Revision of") or "").strip(),
                     str(r.get("revised_to") or r.get("Revised to") or "").strip(),
                     str(r.get("remarks") or r.get("Secretary Remarks") or "").strip(),
+                    affected_cl,
                 ))
                 inserted += 1
 
         return inserted
+
+    def update_history_affected_clauses(self, history_id: int, affected_clauses: str) -> bool:
+        """Updates the affected_clauses column for a specific change history entry."""
+        if not history_id:
+            return False
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE spec_change_history SET affected_clauses = ? WHERE id = ?",
+                (affected_clauses.strip(), history_id)
+            )
+            return cursor.rowcount > 0
+
+    def update_tdoc_affected_clauses(self, tdoc: str, affected_clauses: str) -> int:
+        """
+        Updates the affected_clauses column for a TDoc across tdoc_metadata_cache
+        and any linked spec_change_history rows. Returns total rows modified.
+        """
+        clean_tdoc = tdoc.strip().upper()
+        clean_base = clean_tdoc.split("R")[0]
+        clean_clauses = affected_clauses.strip()
+        if not clean_tdoc or not clean_clauses:
+            return 0
+
+        modified = 0
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            # Update cache
+            cursor.execute(
+                "UPDATE tdoc_metadata_cache SET affected_clauses = ? WHERE tdoc = ? OR base_tdoc = ?",
+                (clean_clauses, clean_tdoc, clean_base)
+            )
+            modified += cursor.rowcount
+
+            # Update spec_change_history rows linked via cross-reference
+            cursor.execute("""
+                UPDATE spec_change_history
+                SET affected_clauses = ?
+                WHERE id IN (
+                    SELECT history_id FROM spec_tdoc_cross_ref
+                    WHERE tdoc = ? OR raw_tdoc = ?
+                )
+            """, (clean_clauses, clean_base, clean_tdoc))
+            modified += cursor.rowcount
+
+        return modified
 
     def get_tdoc_metadata(self, tdocs: Sequence[str]) -> Dict[str, Dict[str, Any]]:
         """

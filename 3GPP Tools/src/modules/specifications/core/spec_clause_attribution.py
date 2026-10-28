@@ -243,6 +243,7 @@ class SpecClauseAttributionEngine:
                     "abstract": "",
                     "is_pcr": False,
                     "rapporteur_notes": r.get("subject", ""),
+                    "affected_clauses": r.get("affected_clauses", ""),
                 })
         else:
             # Mode B: Study TR with omnibus p-CR list
@@ -324,6 +325,12 @@ class SpecClauseAttributionEngine:
                         evidence_badges.append("📝 Rapporteur Implementation Note")
 
             # --- Signal 1.2: Adaptive Structural Mapping (Up to 30 pts) ---
+            aff_clauses = cand.get("affected_clauses", "")
+            if aff_clauses:
+                aff_list = [c.strip() for c in re.split(r"[,;\s]+", aff_clauses) if c.strip()]
+                if clean_clause in aff_list or any(clean_clause == c or clean_clause.startswith(c + ".") for c in aff_list):
+                    score += 30
+                    evidence_badges.append(f"🎯 Listed in Affected Clauses ({clean_clause})")
             if not is_new_clause:
                 # MODIFIED_CLAUSE: Explicit clause numbers are expected
                 if re.search(rf"\b{re.escape(clean_clause)}\b", combined_meta_text, re.IGNORECASE):
@@ -568,7 +575,226 @@ class SpecClauseAttributionEngine:
 
 
 # -----------------------------------------------------------------------------
-# Background Worker Thread for Non-Blocking UI
+    def rank_origin_crs_for_query(
+        self,
+        spec_number: str,
+        query: str,
+        target_version: Optional[str] = None,
+        affected_clauses_hint: Optional[Sequence[str]] = None,
+        progress_cb: Optional[Callable[[int, str], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Ranks candidate Change Requests (CRs) across all releases to identify the origin CR
+        that introduced the searched feature/term into the specification.
+
+        Multi-signal scoring matrix:
+          - Signal 1: Title/Subject query match & introductory keywords (up to 45 pts)
+          - Signal 2: 3GPP Category weighting (Cat B = +25, Cat C = +15, Cat A = +10, Cat F = +5)
+          - Signal 3: Affected clauses alignment with search results (non-exclusive, up to 30 pts)
+          - Signal 4: Chronological primacy / baseline release introduction (up to 20 pts)
+        """
+        clean_spec = spec_number.strip()
+        clean_query = query.strip()
+        if not clean_query:
+            return []
+
+        logger.info(f"🎯 [Origin Ranking] Ranking origin CRs for TS {clean_spec} query '{clean_query}'...")
+        if progress_cb:
+            progress_cb(10, f"Querying Change History records for TS {clean_spec}...")
+
+        all_records = self.history_db.get_spec_history(clean_spec)
+        if not all_records:
+            return []
+
+        # Tokenize query
+        query_lower = clean_query.lower()
+        raw_query_words = re.findall(r"\b[A-Za-z0-9_-]{2,}\b", clean_query)
+        salient_query_tokens = [
+            w.lower() for w in raw_query_words
+            if w.lower() not in BOILERPLATE_STOPWORDS and not w.isdigit()
+        ]
+
+        # Parse affected clauses hint (set of normalized clause numbers)
+        target_clauses: Set[str] = set()
+        if affected_clauses_hint:
+            for item in affected_clauses_hint:
+                for cl in re.findall(r"\b\d+(?:\.\d+)*\b", str(item)):
+                    target_clauses.add(cl.strip())
+
+        if progress_cb:
+            progress_cb(30, f"Analyzing {len(all_records)} history entries...")
+
+        # Introductory & definition keywords that indicate the origin introduction of a feature
+        INTRO_KEYWORDS = {
+            "definition", "define", "introduction", "intro", "introducing",
+            "addition", "adding", "ki#", "key issue"
+        }
+        # Maintenance keywords that indicate subsequent corrections/alignments
+        CORRECTION_KEYWORDS = {
+            "correction", "clean-up", "cleanup", "alignment", "editorial",
+            "clarification", "fixing", "fix"
+        }
+
+        # Filter candidate records that match query or target clauses
+        candidates: List[Dict[str, Any]] = []
+        for r in all_records:
+            subj = r.get("subject", "")
+            subj_lower = subj.lower()
+            source_tdoc = r.get("source_tdoc", "")
+            tdoc_tokens = [t.get("raw_tdoc", "") for t in r.get("tdocs", [])]
+            aff = r.get("affected_clauses", "")
+
+            # Relevance gate: CR must match query text, acronym, or target clause
+            text_match = (query_lower in subj_lower) or any(tok in subj_lower for tok in salient_query_tokens if len(tok) >= 3)
+            tdoc_match = (query_lower in source_tdoc.lower()) or any(query_lower in tok.lower() for tok in tdoc_tokens)
+            clause_match = False
+            if target_clauses and aff:
+                aff_clauses = set(re.findall(r"\b\d+(?:\.\d+)*\b", aff))
+                clause_match = bool(aff_clauses.intersection(target_clauses))
+
+            if text_match or tdoc_match or clause_match:
+                candidates.append(r)
+
+        if not candidates:
+            # Fallback: check all records if query has very short tokens
+            candidates = all_records
+
+        if progress_cb:
+            progress_cb(60, f"Scoring {len(candidates)} candidate CRs...")
+
+        # Determine earliest version among candidates for chronological primacy
+        def ver_tuple(v_str: str) -> Tuple[int, ...]:
+            parts = re.findall(r"\d+", v_str)
+            return tuple(int(p) for p in parts) if parts else (999, 999, 999)
+
+        min_version = None
+        for c in candidates:
+            v_str = c.get("version", "")
+            if v_str:
+                vt = ver_tuple(v_str)
+                if min_version is None or vt < min_version:
+                    min_version = vt
+
+        scored: List[Dict[str, Any]] = []
+        for r in candidates:
+            subj = r.get("subject", "")
+            subj_lower = subj.lower()
+            cat = (r.get("category") or "").upper().strip()
+            ver = r.get("version", "")
+            meeting = r.get("meeting", "")
+            date_str = r.get("date", "")
+            cr_num = r.get("cr_number", "")
+            source_tdoc = r.get("source_tdoc", "")
+            aff = r.get("affected_clauses", "")
+
+            score = 0
+            evidence_badges: List[str] = []
+
+            # --- Signal 1: Title / Subject Query Match & Origin Intent (Up to 45 pts) ---
+            if re.search(rf"\b{re.escape(query_lower)}\b", subj_lower):
+                score += 25
+                evidence_badges.append(f"🏷️ Exact Query Match: '{clean_query}'")
+            elif query_lower in subj_lower:
+                score += 15
+                evidence_badges.append(f"🏷️ Substring Match: '{clean_query}'")
+            else:
+                matched_kws = [k for k in salient_query_tokens if k in subj_lower]
+                if len(matched_kws) >= 2:
+                    score += 15
+                    evidence_badges.append(f"🏷️ Shared Terms: {', '.join(matched_kws[:2])}")
+                elif len(matched_kws) == 1:
+                    score += 8
+                    evidence_badges.append(f"🏷️ Term Match: {matched_kws[0]}")
+
+            # Origin introduction keywords boost
+            if any(k in subj_lower for k in INTRO_KEYWORDS):
+                score += 15
+                evidence_badges.append("💡 Feature Definition / Introduction")
+
+            # Correction / Maintenance penalty (unless it's Cat B)
+            if cat != "B" and any(k in subj_lower for k in CORRECTION_KEYWORDS):
+                score -= 10
+                evidence_badges.append("🔧 Maintenance / Correction")
+
+            # --- Signal 2: 3GPP Category Weighting (Up to 25 pts) ---
+            if cat == "B":
+                score += 25
+                evidence_badges.append("⭐ Category B (Addition of Feature)")
+            elif cat == "C":
+                score += 15
+                evidence_badges.append("🔄 Category C (Functional Modification)")
+            elif cat == "A":
+                score += 10
+                evidence_badges.append("🪞 Category A (Mirror CR)")
+            elif cat in ("F", "D"):
+                score += 5
+                evidence_badges.append(f"🔧 Category {cat}")
+
+            # --- Signal 3: Affected Clauses Alignment (Non-Exclusive, Up to 30 pts) ---
+            if target_clauses:
+                matched_aff = False
+                if aff:
+                    cand_clauses = set(re.findall(r"\b\d+(?:\.\d+)*\b", aff))
+                    overlap = cand_clauses.intersection(target_clauses)
+                    if overlap:
+                        score += 25
+                        evidence_badges.append(f"🎯 Affected Clauses Match: {', '.join(list(overlap)[:3])}")
+                        matched_aff = True
+                    else:
+                        # Check prefix match (e.g. 5.15 prefix of 5.15.11)
+                        if any(any(t == c or t.startswith(c + ".") or c.startswith(t + ".") for c in cand_clauses) for t in target_clauses):
+                            score += 15
+                            evidence_badges.append("🎯 Clause Prefix Match")
+                            matched_aff = True
+
+                # Also check if any target clause is mentioned in the subject line
+                if not matched_aff:
+                    for t in target_clauses:
+                        if re.search(rf"\b{re.escape(t)}\b", subj):
+                            score += 15
+                            evidence_badges.append(f"🎯 Mentions Clause {t} in Title")
+                            break
+
+            # --- Signal 4: Chronological Primacy / Baseline Introduction (Up to 20 pts) ---
+            vt = ver_tuple(ver)
+            if min_version and vt == min_version:
+                score += 20
+                evidence_badges.append(f"⏳ Earliest Introduction Baseline (v{ver})")
+            elif ver.endswith(".0.0") or ver.endswith(".1.0") or ver.startswith("0."):
+                score += 15
+                evidence_badges.append(f"📅 Major Release Baseline (v{ver})")
+            else:
+                score += 5
+
+            # Clamp composite score to [0, 100]
+            final_score = max(0, min(100, score))
+
+            # Role Assignment
+            if final_score >= 70 and (cat == "B" or any(k in subj_lower for k in INTRO_KEYWORDS)):
+                role = "🎯 Foundational Origin CR"
+            elif (cat in ("B", "C") or final_score >= 50) and cat not in ("F", "D") and not any(k in subj_lower for k in CORRECTION_KEYWORDS):
+                role = "🏗️ Architecture Expansion"
+            elif cat in ("F", "D") or any(k in subj_lower for k in CORRECTION_KEYWORDS):
+                role = "🔧 Maintenance / Correction"
+            else:
+                role = "📝 Related CR"
+
+            item = dict(r)
+            item["score"] = final_score
+            item["role"] = role
+            item["evidence_badges"] = evidence_badges
+            scored.append(item)
+
+        # Sort descending by composite score, then by row order (earliest first on tie)
+        scored.sort(key=lambda x: (x["score"], -x.get("row_order", 0)), reverse=True)
+
+        if progress_cb:
+            progress_cb(100, f"Ranked {len(scored)} candidate CRs.")
+
+        return scored
+
+
+# Background Worker Thread for Non-Blocking UI (SpecClauseAttributionThread)
 # -----------------------------------------------------------------------------
 
 class SpecClauseAttributionThread(QThread):
@@ -713,3 +939,40 @@ class SpecClauseDeepVerifyThread(QThread):
             logger.error(f"Error during deep verification: {e}", exc_info=True)
             self.error.emit(str(e))
 
+
+class SpecFeatureOriginRankingThread(QThread):
+    """Background worker executing feature-level Origin CR ranking across specification releases."""
+
+    progress = pyqtSignal(int, str)
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        engine: SpecClauseAttributionEngine,
+        spec_number: str,
+        query: str,
+        target_version: Optional[str] = None,
+        affected_clauses_hint: Optional[Sequence[str]] = None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.engine = engine
+        self.spec_number = spec_number
+        self.query = query
+        self.target_version = target_version
+        self.affected_clauses_hint = list(affected_clauses_hint) if affected_clauses_hint else None
+
+    def run(self):
+        try:
+            results = self.engine.rank_origin_crs_for_query(
+                spec_number=self.spec_number,
+                query=self.query,
+                target_version=self.target_version,
+                affected_clauses_hint=self.affected_clauses_hint,
+                progress_cb=self.progress.emit,
+            )
+            self.finished.emit(results)
+        except Exception as e:
+            logger.error(f"Error during feature origin ranking thread: {e}", exc_info=True)
+            self.error.emit(str(e))

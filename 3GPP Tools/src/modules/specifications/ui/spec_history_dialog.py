@@ -17,6 +17,7 @@ from PyQt5.QtGui import QBrush, QColor, QCursor, QFont
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFrame,
@@ -85,13 +86,20 @@ class SpecVersionHistoryDialog(QDialog):
         parent: Optional[QWidget] = None,
         history_db: Optional[SpecHistoryDatabase] = None,
         specs_db: Optional[Any] = None,
+        initial_search: str = "",
+        initial_clause: str = "",
+        sort_by_origin_relevance: bool = False,
     ):
         super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER (prevents dialog from being forced always-on-top)
         self._parent_ref = parent
         self.spec_number = spec_number.strip()
         self.initial_version = initial_version.lstrip("vV").strip() if initial_version else ""
+        self.initial_search = initial_search.strip()
+        self.initial_clause = initial_clause.strip()
+        self.sort_by_origin_relevance = sort_by_origin_relevance
         self.history_db = history_db or SpecHistoryDatabase(get_project_root() / "db" / "3gpp_spec_history.db")
         self.specs_db = specs_db
+        self._attribution_engine = None
 
         # Modeless top-level independent window configuration
         self.setWindowFlags(Qt.Window)
@@ -121,10 +129,23 @@ class SpecVersionHistoryDialog(QDialog):
         self._setup_ui()
         self._load_data(auto_extract_if_empty=True)
 
-    def load_spec(self, spec_number: str, version: Optional[str] = None):
+    def load_spec(
+        self,
+        spec_number: str,
+        version: Optional[str] = None,
+        initial_search: str = "",
+        initial_clause: str = "",
+        sort_by_origin_relevance: bool = False
+    ):
         """Switches the active specification and reloads change history records."""
         self.spec_number = spec_number.strip()
         self.initial_version = version.lstrip("vV").strip() if version else ""
+        if initial_search:
+            self.initial_search = initial_search.strip()
+        if initial_clause:
+            self.initial_clause = initial_clause.strip()
+        if sort_by_origin_relevance:
+            self.sort_by_origin_relevance = sort_by_origin_relevance
         self.setWindowTitle(f"Change History & Integrated TDocs — {self.spec_number}")
 
         spec_title = "Specification Change History"
@@ -235,6 +256,48 @@ class SpecVersionHistoryDialog(QDialog):
         filter_row.addWidget(self.stats_lbl)
 
         header_layout.addLayout(filter_row)
+
+        # Controls Row 2: Affected Clause Filter + Origin CR Relevance Sorting
+        clause_row = QHBoxLayout()
+        clause_row.setSpacing(8)
+
+        self.chk_clause_filter = QCheckBox("🎯 Affected Clause:")
+        self.chk_clause_filter.setStyleSheet("font-size: 11px; font-weight: 600; color: #334155;")
+        self.chk_clause_filter.toggled.connect(self._apply_filters)
+
+        self.clause_input = QLineEdit()
+        self.clause_input.setStyleSheet(SEARCH_INPUT_STYLE)
+        self.clause_input.setPlaceholderText("Clause # (e.g. 5.15.11)...")
+        self.clause_input.setFixedWidth(160)
+        self.clause_input.setClearButtonEnabled(True)
+        self.clause_input.textChanged.connect(self._apply_filters)
+
+        self.clause_mode_combo = QComboBox()
+        self.clause_mode_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
+        self.clause_mode_combo.addItems([
+            "Rank by Clause (Additive)",
+            "Strict Clause Filter"
+        ])
+        self.clause_mode_combo.setToolTip(
+            "Rank by Clause (Additive): Boosts matching CRs to the top while preserving CRs without cover sheets.\n"
+            "Strict Clause Filter: Hides CRs that do not explicitly list this clause."
+        )
+        self.clause_mode_combo.currentIndexChanged.connect(self._apply_filters)
+
+        self.chk_origin_ranking = QCheckBox("⭐ Origin CR Ranking")
+        self.chk_origin_ranking.setStyleSheet("font-size: 11px; font-weight: bold; color: #0284C7;")
+        self.chk_origin_ranking.setToolTip("Ranks candidate CRs by origin relevance using Category B, Title/Intro keywords, Affected Clauses, and chronological release primacy.")
+        self.chk_origin_ranking.toggled.connect(self._apply_filters)
+
+        clause_row.addWidget(self.chk_clause_filter)
+        clause_row.addWidget(self.clause_input)
+        clause_row.addWidget(self.clause_mode_combo)
+        clause_row.addSpacing(12)
+        clause_row.addWidget(self.chk_origin_ranking)
+        clause_row.addStretch()
+
+        header_layout.addLayout(clause_row)
+
         main_layout.addWidget(header_card)
 
         # -------------------------------------------------------------
@@ -370,6 +433,15 @@ class SpecVersionHistoryDialog(QDialog):
 
         main_layout.addLayout(footer_layout)
 
+        # Preset values now that all widgets are fully constructed
+        if self.initial_search:
+            self.search_input.setText(self.initial_search)
+        if self.initial_clause:
+            self.clause_input.setText(self.initial_clause)
+            self.chk_clause_filter.setChecked(True)
+        if self.sort_by_origin_relevance:
+            self.chk_origin_ranking.setChecked(True)
+
     def _load_data(self, auto_extract_if_empty: bool = True):
         """Loads change history from 3gpp_spec_history.db, auto-extracting from local docx if empty."""
         records = self.history_db.get_spec_history(self.spec_number)
@@ -408,6 +480,8 @@ class SpecVersionHistoryDialog(QDialog):
             if self.initial_version and ver == self.initial_version:
                 target_idx = idx + 1
 
+        if self.sort_by_origin_relevance and not self.initial_version:
+            target_idx = 0
         self.version_combo.setCurrentIndex(target_idx)
         self.version_combo.blockSignals(False)
 
@@ -417,30 +491,84 @@ class SpecVersionHistoryDialog(QDialog):
         self._apply_filters()
 
     def _apply_filters(self):
-        """Applies version dropdown filter and real-time substring search."""
+        """Applies version dropdown filter, clause filter, and origin ranking."""
+        if not hasattr(self, "table") or not hasattr(self, "version_combo") or not hasattr(self, "search_input"):
+            return
         target_ver = self.version_combo.currentData() or ""
-        search_txt = self.search_input.text().strip().lower()
+        search_txt = self.search_input.text().strip()
+        search_lower = search_txt.lower()
+        clause_val = self.clause_input.text().strip() if hasattr(self, "clause_input") and self.chk_clause_filter.isChecked() else ""
+        is_strict_clause = bool(clause_val) and hasattr(self, "clause_mode_combo") and self.clause_mode_combo.currentText() == "Strict Clause Filter"
+        is_origin_ranking = hasattr(self, "chk_origin_ranking") and self.chk_origin_ranking.isChecked()
 
-        filtered = []
-        for r in self.all_records:
-            # 1. Version filter
-            if target_ver and r.get("version") != target_ver:
-                continue
+        if is_origin_ranking and (search_txt or clause_val):
+            from modules.specifications.core.spec_clause_attribution import SpecClauseAttributionEngine
+            if not self._attribution_engine:
+                self._attribution_engine = SpecClauseAttributionEngine(history_db=self.history_db)
 
-            # 2. Substring filter
-            if search_txt:
-                row_str = " ".join([
-                    r.get("meeting", ""),
-                    r.get("source_tdoc", ""),
-                    r.get("cr_number", ""),
-                    r.get("subject", ""),
-                    r.get("category", ""),
-                    " ".join(t["raw_tdoc"] for t in r.get("tdocs", []))
-                ]).lower()
-                if search_txt not in row_str:
+            hint_clauses = [clause_val] if clause_val else None
+            ranked = self._attribution_engine.rank_origin_crs_for_query(
+                spec_number=self.spec_number,
+                query=search_txt or clause_val,
+                target_version=target_ver or None,
+                affected_clauses_hint=hint_clauses,
+            )
+
+            # Apply version filter if explicitly selected
+            if target_ver:
+                ranked = [r for r in ranked if r.get("version") == target_ver]
+
+            # Apply strict clause filter if enabled
+            if is_strict_clause:
+                import re as _re
+                ranked = [
+                    r for r in ranked
+                    if clause_val in r.get("affected_clauses", "") or _re.search(rf"\b{_re.escape(clause_val)}\b", r.get("subject", ""))
+                ]
+
+            filtered = ranked
+        else:
+            filtered = []
+            import re as _re
+            for r in self.all_records:
+                # 1. Version filter
+                if target_ver and r.get("version") != target_ver:
                     continue
 
-            filtered.append(r)
+                # 2. Strict Clause filter
+                if is_strict_clause:
+                    aff = r.get("affected_clauses", "")
+                    subj = r.get("subject", "")
+                    if not (clause_val in aff or _re.search(rf"\b{_re.escape(clause_val)}\b", subj)):
+                        continue
+
+                # 3. Substring filter
+                if search_lower:
+                    row_str = " ".join([
+                        r.get("meeting", ""),
+                        r.get("source_tdoc", ""),
+                        r.get("cr_number", ""),
+                        r.get("subject", ""),
+                        r.get("category", ""),
+                        r.get("affected_clauses", ""),
+                        " ".join(t["raw_tdoc"] for t in r.get("tdocs", []))
+                    ]).lower()
+                    if search_lower not in row_str:
+                        continue
+
+                # Additive clause boost if additive mode is active
+                if clause_val and not is_strict_clause:
+                    aff = r.get("affected_clauses", "")
+                    subj = r.get("subject", "")
+                    if clause_val in aff or _re.search(rf"\b{_re.escape(clause_val)}\b", subj):
+                        r = dict(r)
+                        r["score"] = r.get("score", 0) + 30
+                        r.setdefault("evidence_badges", []).append(f"🎯 Clause Match: {clause_val}")
+
+                filtered.append(r)
+
+            if clause_val and not is_strict_clause:
+                filtered.sort(key=lambda x: x.get("score", 0), reverse=True)
 
         self.filtered_records = filtered
         self._populate_table()
@@ -450,33 +578,68 @@ class SpecVersionHistoryDialog(QDialog):
         self.table.setRowCount(0)
         self.table.setSortingEnabled(False)
 
+        is_ranking_active = hasattr(self, "chk_origin_ranking") and self.chk_origin_ranking.isChecked()
+
+        if is_ranking_active:
+            self.table.setColumnCount(9)
+            self.table.setHorizontalHeaderLabels([
+                "Relevance", "Date", "Meeting", "Version", "Type", "CR #", "Cat", "Primary TDoc", "Subject / Rapporteur Notes"
+            ])
+        else:
+            self.table.setColumnCount(8)
+            self.table.setHorizontalHeaderLabels([
+                "Date", "Meeting", "Version", "Type", "CR #", "Cat", "Primary TDoc", "Subject / Rapporteur Notes"
+            ])
+
         total_rows = len(self.filtered_records)
         self.stats_lbl.setText(f"{total_rows} record(s)")
 
         for row_idx, r in enumerate(self.filtered_records):
             self.table.insertRow(row_idx)
+            col_offset = 1 if is_ranking_active else 0
 
-            # Col 0: Date
+            if is_ranking_active:
+                score = r.get("score", 0)
+                role = r.get("role", "")
+                role_icon = role.split()[0] if role else "⭐"
+                rel_item = NumericSortItem(str(score))
+                rel_item.setText(f"{role_icon} {score}")
+                rel_item.setTextAlignment(Qt.AlignCenter)
+                f_rel = rel_item.font()
+                f_rel.setBold(True)
+                rel_item.setFont(f_rel)
+                if score >= 70:
+                    rel_item.setForeground(QBrush(QColor("#0284C7")))
+                elif score >= 50:
+                    rel_item.setForeground(QBrush(QColor("#0D9488")))
+                else:
+                    rel_item.setForeground(QBrush(QColor("#64748B")))
+                badges = r.get("evidence_badges", [])
+                tip = f"<b>{role}</b> (Score: {score}/100)<br/>" + "<br/>".join(f"• {b}" for b in badges)
+                rel_item.setToolTip(tip)
+                self.table.setItem(row_idx, 0, rel_item)
+
+            # Date
             date_item = QTableWidgetItem(r.get("date", ""))
             date_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 0, date_item)
+            self.table.setItem(row_idx, col_offset + 0, date_item)
 
-            # Col 1: Meeting
+            # Meeting
             meeting_item = QTableWidgetItem(r.get("meeting", ""))
             meeting_item.setTextAlignment(Qt.AlignCenter)
             meeting_item.setForeground(QBrush(QColor("#0369A1")))
-            self.table.setItem(row_idx, 1, meeting_item)
+            self.table.setItem(row_idx, col_offset + 1, meeting_item)
 
-            # Col 2: Version
+            # Version
             ver_text = f"v{r.get('version', '')}" if r.get('version') else "—"
             ver_item = QTableWidgetItem(ver_text)
             ver_item.setTextAlignment(Qt.AlignCenter)
             f = ver_item.font()
             f.setBold(True)
             ver_item.setFont(f)
-            self.table.setItem(row_idx, 2, ver_item)
+            self.table.setItem(row_idx, col_offset + 2, ver_item)
 
-            # Col 3: Type (CR vs p-CR vs Skeleton/Editorial)
+            # Type
             cr_num = r.get("cr_number", "")
             pcr_cnt = len(r.get("tdocs", []))
             if cr_num and cr_num != "-":
@@ -487,20 +650,25 @@ class SpecVersionHistoryDialog(QDialog):
                 type_str = "Editorial"
             type_item = QTableWidgetItem(type_str)
             type_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 3, type_item)
+            self.table.setItem(row_idx, col_offset + 3, type_item)
 
-            # Col 4: CR #
+            # CR #
             cr_item = NumericSortItem(cr_num if cr_num != "-" else "—")
             cr_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 4, cr_item)
+            self.table.setItem(row_idx, col_offset + 4, cr_item)
 
-            # Col 5: Cat
+            # Cat
             cat_val = r.get("category", "")
             cat_item = QTableWidgetItem(cat_val if cat_val != "-" else "—")
             cat_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 5, cat_item)
+            if cat_val == "B":
+                cat_item.setForeground(QBrush(QColor("#0284C7")))
+                f_cat = cat_item.font()
+                f_cat.setBold(True)
+                cat_item.setFont(f_cat)
+            self.table.setItem(row_idx, col_offset + 5, cat_item)
 
-            # Col 6: Primary TDoc
+            # Primary TDoc
             source_tdoc = r.get("source_tdoc", "")
             if not source_tdoc and r.get("tdocs"):
                 source_tdoc = r["tdocs"][0]["raw_tdoc"]
@@ -511,20 +679,30 @@ class SpecVersionHistoryDialog(QDialog):
                 f_tdoc = tdoc_item.font()
                 f_tdoc.setBold(True)
                 tdoc_item.setFont(f_tdoc)
-            self.table.setItem(row_idx, 6, tdoc_item)
+            self.table.setItem(row_idx, col_offset + 6, tdoc_item)
 
-            # Col 7: Subject / Comment
+            # Subject / Comment
             subj_item = QTableWidgetItem(r.get("subject", "").replace("\n", " "))
-            self.table.setItem(row_idx, 7, subj_item)
+            self.table.setItem(row_idx, col_offset + 7, subj_item)
 
         # Set sensible initial column widths
-        self.table.setColumnWidth(0, 85)   # Date
-        self.table.setColumnWidth(1, 115)  # Meeting
-        self.table.setColumnWidth(2, 80)   # Version
-        self.table.setColumnWidth(3, 85)   # Type
-        self.table.setColumnWidth(4, 65)   # CR #
-        self.table.setColumnWidth(5, 50)   # Cat
-        self.table.setColumnWidth(6, 115)  # Primary TDoc
+        if is_ranking_active:
+            self.table.setColumnWidth(0, 85)   # Relevance
+            self.table.setColumnWidth(1, 85)   # Date
+            self.table.setColumnWidth(2, 115)  # Meeting
+            self.table.setColumnWidth(3, 80)   # Version
+            self.table.setColumnWidth(4, 75)   # Type
+            self.table.setColumnWidth(5, 65)   # CR #
+            self.table.setColumnWidth(6, 50)   # Cat
+            self.table.setColumnWidth(7, 115)  # Primary TDoc
+        else:
+            self.table.setColumnWidth(0, 85)   # Date
+            self.table.setColumnWidth(1, 115)  # Meeting
+            self.table.setColumnWidth(2, 80)   # Version
+            self.table.setColumnWidth(3, 85)   # Type
+            self.table.setColumnWidth(4, 65)   # CR #
+            self.table.setColumnWidth(5, 50)   # Cat
+            self.table.setColumnWidth(6, 115)  # Primary TDoc
 
         if total_rows > 0:
             self.table.selectRow(0)
@@ -540,6 +718,10 @@ class SpecVersionHistoryDialog(QDialog):
             )
 
         subject_text = rec.get("subject", "").strip()
+        role = rec.get("role", "")
+        score = rec.get("score", 0)
+        evidence_badges = rec.get("evidence_badges", [])
+        aff_clauses = rec.get("affected_clauses", "")
         primary = rec.get("source_tdoc", "").strip()
         if primary == "-":
             primary = ""
@@ -611,6 +793,23 @@ class SpecVersionHistoryDialog(QDialog):
             f"</div>"
         )
 
+        role_banner = ""
+        if role or score:
+            badges_html = " ".join(
+                f'<span style="background-color: #E0F2FE; color: #0369A1; border: 1px solid #BAE6FD; border-radius: 3px; padding: 2px 6px; font-size: 11px; margin-right: 4px;">{html.escape(b)}</span>'
+                for b in evidence_badges
+            )
+            aff_html = f'<br/><span style="color: #475569; font-size: 11px;"><b>Affected Clauses:</b> <code>{html.escape(aff_clauses)}</code></span>' if aff_clauses else ""
+            role_banner = f'''
+            <div style="background-color: #F0F9FF; border: 1px solid #B9E6FE; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px;">
+                <div style="font-size: 13px; font-weight: bold; color: #0284C7; margin-bottom: 4px;">
+                    {html.escape(role)} <span style="font-size: 11px; font-weight: normal; color: #64748B;">(Relevance Score: <b>{score}</b>/100)</span>
+                </div>
+                <div>{badges_html}</div>
+                {aff_html}
+            </div>
+            '''
+
         full_html = f"""
         <html>
         <head>
@@ -625,6 +824,7 @@ class SpecVersionHistoryDialog(QDialog):
         </style>
         </head>
         <body>
+          {role_banner}
           {meta_row}
           {notes_html}
         </body>
