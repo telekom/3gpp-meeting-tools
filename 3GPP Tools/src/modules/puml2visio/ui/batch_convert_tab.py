@@ -113,6 +113,13 @@ class BatchConvertTab(QWidget):
         self.stack.addWidget(self.card_extractor)
         self.stack.addWidget(self.card_stencils)
 
+        # Backward compatibility aliases
+        self.drop_label_puml = self.card_puml.drop_label_puml
+        self.puml_table = self.card_puml.puml_table
+        self.bridge_table = self.card_bridge.bridge_table
+        self.stencils_search_edit = self.card_stencils.stencils_search_edit
+        self.stencils_table = self.card_stencils.stencils_table
+
         main_layout.addWidget(self.stack, stretch=1)
 
         # 4. Bottom Recent Exports Strip
@@ -322,8 +329,32 @@ class BatchConvertTab(QWidget):
             self.output_dir_btn.setToolTip(f"Export folder: {self._export_dir.resolve()}")
             self.recent_strip.refresh()
 
-    def set_state(self, is_converting: bool):
-        pass
+    def set_state(self, state, text: Optional[str] = None):
+        """Maintains full backward compatibility with main_window.py set_state calls.
+
+        Accepts either:
+        - state: str ('ready', 'idle', 'busy', 'error') and optional text: str
+        - is_converting: bool (True for busy, False for ready)
+        """
+        if isinstance(state, bool):
+            state = "busy" if state else "ready"
+
+        # If legacy generic ready prompt is passed, substitute with card-specific text
+        if state in ("ready", "idle") and text and "Batch converts between Visio & PowerPoint" in text:
+            text = "📥 Drag & Drop PlantUML file(s) (.puml, .plantuml, .txt) here to stage for batch conversion"
+
+        if hasattr(self, "card_puml") and hasattr(self.card_puml, "set_state"):
+            self.card_puml.set_state(state, text)
+        elif hasattr(self, "drop_label_puml"):
+            self.drop_label_puml.set_state(state, text)
+
+        if hasattr(self, "card_bridge") and hasattr(self.card_bridge, "drop_label_bridge"):
+            if state == "busy":
+                self.card_bridge.drop_label_bridge.set_state("busy")
+            elif state in ("ready", "idle"):
+                self.card_bridge.drop_label_bridge.set_state("ready")
+
+        self._refresh_system_diagnostics()
 
     def on_conversion_success(self, output_path: str = ""):
         self.recent_strip.refresh()

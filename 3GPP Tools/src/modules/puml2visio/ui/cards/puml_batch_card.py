@@ -244,3 +244,9 @@ class PumlBatchCard(QWidget):
         self.files_dropped.emit(paths_to_send, target_fmt)
         self._staged_puml_files.clear()
         self._update_puml_table()
+
+    def set_state(self, state: str, text: Optional[str] = None):
+        """Update drop label state and text."""
+        if hasattr(self, "drop_label_puml"):
+            self.drop_label_puml.set_state(state, text)
+
