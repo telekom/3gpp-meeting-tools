@@ -67,6 +67,7 @@ from modules.nas.ui.nas_ingest_controller import (
     wipe_db_clicked,
 )
 from modules.specifications.core.database import SpecsDatabase
+from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,8 @@ class NASTab(QWidget):
     """Main UI tab for Protocol Evolution Matrix, Release Ingestion, and Definition Inspection."""
 
     log_msg = pyqtSignal(str, int)
+    navigate_to_specs_tab_requested = pyqtSignal(str, str)  # spec_number, version
+    search_in_spec_search_requested = pyqtSignal(str, str)  # spec_number, version
 
     def __init__(self, nas_db_path: Path, specs_db_path: Optional[Path] = None):
         super().__init__()
@@ -171,6 +174,7 @@ class NASTab(QWidget):
         self.current_selected_message_name: Optional[str] = None
         self.current_selected_ie_key: Optional[str] = None
         self._current_message_spec: Optional[str] = None
+        self._current_message_clause: Optional[str] = None
         self._loading_config: bool = False
         self._initialized_filters: bool = False
 
@@ -344,6 +348,11 @@ class NASTab(QWidget):
         self.version_tree.structure_changed.connect(self._save_config)
         self.version_tree.delete_version_requested.connect(self._delete_single_version)
         self.version_tree.delete_spec_requested.connect(self._delete_spec_group)
+        self.version_tree.open_spec_requested.connect(
+            lambda s, v, c, fmt: self.open_specification(s, v, c, fmt)
+        )
+        self.version_tree.show_in_specs_requested.connect(self.navigate_to_specs_tab_requested)
+        self.version_tree.search_in_spec_search_requested.connect(self.search_in_spec_search_requested)
         ver_card_layout.addWidget(self.version_tree)
         left_layout.addWidget(ver_card, 1)
 
@@ -457,6 +466,8 @@ class NASTab(QWidget):
         self.msg_list = QListWidget()
         self.msg_list.setItemDelegate(NASMessageItemDelegate(self.msg_list))
         self.msg_list.itemClicked.connect(self._on_message_clicked)
+        self.msg_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.msg_list.customContextMenuRequested.connect(self._on_msg_list_context_menu)
         self.msg_list.setStyleSheet("""
             QListWidget {
                 border: 1px solid #CBD5E1;
@@ -537,6 +548,34 @@ class NASTab(QWidget):
         self.interface_combo.setVisible(False)
         self.interface_combo.currentIndexChanged.connect(lambda _: self._rebuild_matrix_model())
         matrix_header_layout.addWidget(self.interface_combo)
+
+        self.open_spec_btn = QPushButton("📖 Open Spec ▾")
+        self.open_spec_btn.setCursor(Qt.PointingHandCursor)
+        self.open_spec_btn.setToolTip("Open active 3GPP specification document in Microsoft Word (Clause copied to clipboard)")
+        self.open_spec_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                font-weight: 500;
+                color: #1E5C99;
+                background-color: #F0F9FF;
+                border: 1px solid #BAE6FD;
+                border-radius: 4px;
+                padding: 2px 8px;
+            }
+            QPushButton:hover {
+                background-color: #E0F2FE;
+                border-color: #0284C7;
+                color: #0369A1;
+            }
+            QPushButton:disabled {
+                color: #94A3B8;
+                background-color: #F8FAFC;
+                border-color: #E2E8F0;
+            }
+        """)
+        self.open_spec_btn.setEnabled(False)
+        self.open_spec_btn.clicked.connect(self._on_open_spec_btn_clicked)
+        matrix_header_layout.addWidget(self.open_spec_btn)
 
         self.copy_matrix_btn = QPushButton("📋 Copy TSV")
         self.copy_matrix_btn.setCursor(Qt.PointingHandCursor)
@@ -630,6 +669,7 @@ class NASTab(QWidget):
         h_header.setStretchLastSection(False)
 
         self.matrix_table.clicked.connect(self._on_table_cell_clicked)
+        self.matrix_table.doubleClicked.connect(self._on_table_cell_double_clicked)
         self.matrix_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.matrix_table.customContextMenuRequested.connect(self._on_matrix_context_menu)
         self.matrix_stack.addWidget(self.matrix_table)
@@ -642,6 +682,11 @@ class NASTab(QWidget):
         self.inspector.jump_to_message_requested.connect(self._jump_to_message)
         self.inspector.filter_by_ie_requested.connect(self._on_filter_by_ie_requested)
         self.inspector.import_spec_requested.connect(self._on_import_cross_ref_spec_requested)
+        self.inspector.open_spec_requested.connect(
+            lambda s, v, c, fmt: self.open_specification(s, v, c, fmt)
+        )
+        self.inspector.show_in_specs_tab_requested.connect(self.navigate_to_specs_tab_requested)
+        self.inspector.search_in_spec_search_requested.connect(self.search_in_spec_search_requested)
         right_splitter.addWidget(self.inspector)
 
         right_splitter.setSizes([380, 320])
@@ -1015,19 +1060,26 @@ class NASTab(QWidget):
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
             self.matrix_title.setText(default_prompt)
+            self._current_message_clause = None
+            self._current_message_spec = None
+            self._update_open_spec_button()
         else:
             self.matrix_table.setModel(None)
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
             self.matrix_title.setText(default_prompt)
             self.inspector.clear_display()
+            self._current_message_clause = None
+            self._current_message_spec = None
+            self._update_open_spec_button()
 
     def _on_message_clicked(self, item: QListWidgetItem):
         if self._browse_mode == "ies":
             ie_data = item.data(Qt.UserRole + 1) or {}
             ie_name = ie_data.get("ie_name", "")
-            clause = ie_data.get("clause", "")
+            clause = ie_data.get("clause", "") or item.data(Qt.UserRole + 3) or ""
             self.current_selected_ie_key = item.data(Qt.UserRole)
+            self._current_message_clause = clause
             self._save_config()
 
             df = self.db.get_ie_definition_evolution_df(
@@ -1052,6 +1104,7 @@ class NASTab(QWidget):
 
             self._current_matrix_df = df
             self._rebuild_matrix_model(ignore_ie_filter=True)
+            self._update_open_spec_button()
 
             # Immediately display the full Clause 9 / ASN.1 definition in the Inspector below
             defs = self.db.get_ie_definitions_by_clause(
@@ -1077,7 +1130,11 @@ class NASTab(QWidget):
             return
 
         msg_name = item.data(Qt.UserRole)
+        m_data = item.data(Qt.UserRole + 1) or {}
+        clause = m_data.get("clause", "") or item.data(Qt.UserRole + 3) or ""
         self.current_selected_message_name = msg_name
+        self._current_message_clause = clause
+        self._save_config()
         self._save_config()
 
         ie_query = self.ie_search.text().strip()
@@ -1140,6 +1197,7 @@ class NASTab(QWidget):
 
         self._current_matrix_df = df
         self._rebuild_matrix_model()
+        self._update_open_spec_button()
 
     def _rebuild_matrix_model(self, ignore_ie_filter: bool = False):
         if not hasattr(self, "_current_matrix_df") or self._current_matrix_df.empty:
@@ -1198,6 +1256,323 @@ class NASTab(QWidget):
 
     def _on_table_cell_clicked(self, index):
         handle_table_cell_click(self, index)
+
+    def _on_table_cell_double_clicked(self, index):
+        """Double-clicking a cell in the Evolution Matrix opens the corresponding specification in Word."""
+        model = self.matrix_table.model()
+        if not model or not index.isValid():
+            return
+
+        row, col = index.row(), index.column()
+        ie_name = str(model.data(model.index(row, 1), Qt.DisplayRole) or "").strip().lstrip("└─ ")
+        type_ref = str(model.data(model.index(row, 2), Qt.DisplayRole) or "").strip()
+
+        match = RE_CLAUSE_FROM_REF.search(type_ref)
+        clause = match.group(1).strip() if match else ie_name
+        spec_num = getattr(self, "_current_message_spec", None)
+
+        target_version = None
+        if col >= 3 and hasattr(model, "_get_visible_column_name"):
+            col_name = str(model._get_visible_column_name(col))
+            match_spec = RE_SPEC_FROM_COL.search(col_name)
+            if match_spec:
+                spec_num = match_spec.group(0)
+            m_ver = re.search(r"v?([0-9]+\.[0-9]+\.[0-9]+)", col_name)
+            if m_ver:
+                target_version = m_ver.group(1)
+
+        if spec_num:
+            self.open_specification(
+                spec_number=spec_num,
+                version=target_version,
+                clause_number=clause,
+                doc_format="word",
+            )
+
+    def _on_msg_list_context_menu(self, pos: QPoint):
+        item = self.msg_list.itemAt(pos)
+        if not item:
+            return
+
+        name = item.data(Qt.UserRole)
+        spec_num = str(item.data(Qt.UserRole + 2) or "").replace("TS", "").strip()
+        clause = str(item.data(Qt.UserRole + 3) or "").strip()
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                font-size: 11px;
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 5px 18px 5px 10px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #EBF3FC;
+                color: #1E5C99;
+            }
+        """)
+
+        clause_tag = f" (Clause {clause})" if clause else ""
+        if spec_num:
+            act_word = QAction(f"📝 Open TS {spec_num} in Word{clause_tag}", self)
+            act_word.triggered.connect(
+                lambda: self.open_specification(
+                    spec_number=spec_num,
+                    clause_number=clause,
+                    doc_format="word",
+                )
+            )
+            menu.addAction(act_word)
+
+            act_pdf = QAction(f"📕 Open TS {spec_num} in PDF", self)
+            act_pdf.triggered.connect(
+                lambda: self.open_specification(
+                    spec_number=spec_num,
+                    clause_number=clause,
+                    doc_format="pdf",
+                )
+            )
+            menu.addAction(act_pdf)
+
+            act_folder = QAction("📂 Open Local Folder in Explorer", self)
+            act_folder.triggered.connect(
+                lambda: self.open_specification(
+                    spec_number=spec_num,
+                    doc_format="folder",
+                )
+            )
+            menu.addAction(act_folder)
+
+            menu.addSeparator()
+
+            act_specs = QAction(f"📚 Show TS {spec_num} in Specifications Tab", self)
+            act_specs.triggered.connect(
+                lambda: self.navigate_to_specs_tab_requested.emit(spec_num, "")
+            )
+            menu.addAction(act_specs)
+
+            act_search = QAction(f"🔎 Search TS {spec_num} in Spec Search Tab", self)
+            act_search.triggered.connect(
+                lambda: self.search_in_spec_search_requested.emit(spec_num, "")
+            )
+            menu.addAction(act_search)
+
+            menu.addSeparator()
+
+        act_copy = QAction(f"📋 Copy '{name}'", self)
+        act_copy.triggered.connect(lambda: QApplication.clipboard().setText(str(name)))
+        menu.addAction(act_copy)
+
+        if clause:
+            act_copy_cl = QAction(f"📋 Copy Clause '{clause}'", self)
+            act_copy_cl.triggered.connect(lambda: QApplication.clipboard().setText(str(clause)))
+            menu.addAction(act_copy_cl)
+
+        menu.exec_(self.msg_list.viewport().mapToGlobal(pos))
+
+    # -------------------------------------------------------------------------
+    # Specification Resolution & Launching
+    # -------------------------------------------------------------------------
+
+    def _on_open_spec_btn_clicked(self):
+        spec_num = getattr(self, "_current_message_spec", None)
+        clause = getattr(self, "_current_message_clause", None)
+        self.open_specification(spec_number=spec_num, clause_number=clause, doc_format="word")
+
+    def _update_open_spec_button(self):
+        spec_num = getattr(self, "_current_message_spec", None)
+        clause = getattr(self, "_current_message_clause", None)
+
+        if not spec_num:
+            checked = self.version_tree.get_checked_versions_info()
+            checked_specs = sorted(set(v.get("spec_number") for v in checked if v.get("spec_number")))
+            if len(checked_specs) == 1:
+                spec_num = checked_specs[0]
+
+        if not spec_num:
+            self.open_spec_btn.setEnabled(False)
+            self.open_spec_btn.setText("📖 Open Spec")
+            self.open_spec_btn.setToolTip("Select a message or specification to open its document")
+            self.open_spec_btn.setMenu(None)
+            return
+
+        self.open_spec_btn.setEnabled(True)
+        self.open_spec_btn.setText(f"📖 Open TS {spec_num} ▾")
+        tip = f"Open 3GPP TS {spec_num}"
+        if clause:
+            tip += f" at Clause {clause}"
+        tip += " in Microsoft Word (Clause copied to clipboard)"
+        self.open_spec_btn.setToolTip(tip)
+
+        menu = self._build_open_spec_menu(spec_num, clause)
+        self.open_spec_btn.setMenu(menu)
+
+    def _build_open_spec_menu(self, spec_num: str, clause: Optional[str] = None) -> QMenu:
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                font-size: 11px;
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 5px 18px 5px 10px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #EBF3FC;
+                color: #1E5C99;
+            }
+        """)
+
+        checked = self.version_tree.get_checked_versions_info()
+        spec_vers = [v.get("version") for v in checked if v.get("spec_number") == spec_num and v.get("version")]
+        if not spec_vers:
+            all_v = self.version_tree.get_all_versions_for_spec(spec_num)
+            spec_vers = [v.get("version") for v in all_v if v.get("version")]
+
+        latest_ver = spec_vers[0] if spec_vers else ""
+        clause_tag = f" (Clause {clause})" if clause else ""
+
+        act_word = QAction(f"📝 Open TS {spec_num} v{latest_ver} in Word{clause_tag}", self)
+        act_word.triggered.connect(
+            lambda: self.open_specification(
+                spec_number=spec_num,
+                version=latest_ver,
+                clause_number=clause,
+                doc_format="word",
+            )
+        )
+        menu.addAction(act_word)
+
+        if len(spec_vers) > 1:
+            rel_menu = menu.addMenu(f"🏷️ Open Release in Word ({len(spec_vers)} active)...")
+            for v in spec_vers:
+                v_clean = str(v).lstrip("vV")
+                parts = v_clean.split(".")
+                major_rel = f"Rel-{parts[0]} · " if parts and parts[0].isdigit() else ""
+                sub_act = QAction(f"📝 {major_rel}v{v}", self)
+                sub_act.triggered.connect(
+                    lambda checked=False, target_v=v: self.open_specification(
+                        spec_number=spec_num,
+                        version=target_v,
+                        clause_number=clause,
+                        doc_format="word",
+                    )
+                )
+                rel_menu.addAction(sub_act)
+
+        act_pdf = QAction(f"📕 Open TS {spec_num} v{latest_ver} in PDF", self)
+        act_pdf.triggered.connect(
+            lambda: self.open_specification(
+                spec_number=spec_num,
+                version=latest_ver,
+                clause_number=clause,
+                doc_format="pdf",
+            )
+        )
+        menu.addAction(act_pdf)
+
+        act_folder = QAction("📂 Open Local Folder in Explorer", self)
+        act_folder.triggered.connect(
+            lambda: self.open_specification(
+                spec_number=spec_num,
+                version=latest_ver,
+                doc_format="folder",
+            )
+        )
+        menu.addAction(act_folder)
+
+        menu.addSeparator()
+
+        act_specs = QAction(f"📚 Show TS {spec_num} v{latest_ver} in Specifications Tab", self)
+        act_specs.triggered.connect(
+            lambda: self.navigate_to_specs_tab_requested.emit(spec_num, latest_ver)
+        )
+        menu.addAction(act_specs)
+
+        act_search = QAction(f"🔎 Search TS {spec_num} in Spec Search Tab", self)
+        act_search.triggered.connect(
+            lambda: self.search_in_spec_search_requested.emit(spec_num, latest_ver)
+        )
+        menu.addAction(act_search)
+
+        return menu
+
+    def open_specification(
+        self,
+        spec_number: Optional[str] = None,
+        version: Optional[str] = None,
+        clause_number: Optional[str] = None,
+        doc_format: str = "word",
+    ) -> bool:
+        """
+        Dispatches specification document opening (Word, PDF, Explorer folder)
+        for the active protocol specification with clipboard clause search assistance.
+        """
+        clean_spec = re.sub(
+            r"^(?:TS|TR)\s*",
+            "",
+            str(spec_number or getattr(self, "_current_message_spec", "") or "").strip(),
+            flags=re.IGNORECASE,
+        )
+
+        if not clean_spec:
+            checked = self.version_tree.get_checked_versions_info()
+            if checked:
+                clean_spec = checked[0].get("spec_number", "")
+
+        if not clean_spec:
+            QMessageBox.information(
+                self,
+                "No Specification Selected",
+                "Please select a message, Information Element, or specification first.",
+            )
+            return False
+
+        clean_ver = str(version or "").lstrip("vV").strip()
+        if not clean_ver:
+            active_vers = [
+                v["version"]
+                for v in self.version_tree.get_checked_versions_info()
+                if v.get("spec_number") == clean_spec and v.get("version")
+            ]
+            if active_vers:
+                clean_ver = sorted(active_vers, key=parse_version_tuple, reverse=True)[0]
+            else:
+                all_v = self.version_tree.get_all_versions_for_spec(clean_spec)
+                if all_v:
+                    clean_ver = all_v[0].get("version", "")
+
+        clause = clause_number if clause_number is not None else getattr(self, "_current_message_clause", None)
+
+        prev_text = self.open_spec_btn.text()
+        self.open_spec_btn.setText("⏳ Opening...")
+
+        def _on_opened(doc_path: Optional[Path] = None):
+            self.open_spec_btn.setText("✓ Opened!")
+            QTimer.singleShot(1500, lambda: self.open_spec_btn.setText(prev_text))
+
+        success = SpecDocResolver.open_spec(
+            spec_number=clean_spec,
+            version=clean_ver,
+            clause_number=clause,
+            doc_format=doc_format,
+            cache_dir=self.cache_dir,
+            specs_db=self.specs_db,
+            parent_widget=self,
+            on_opened_callback=_on_opened,
+        )
+
+        if not success:
+            self.open_spec_btn.setText(prev_text)
+
+        return success
 
     def _release_reverse_lookup_worker(self, req_id: int):
         """Release a completed reverse-lookup worker safely."""

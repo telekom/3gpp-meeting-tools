@@ -166,6 +166,9 @@ class NASVersionTreeWidget(QTreeWidget):
     delete_version_requested = pyqtSignal(str, str)
     delete_spec_requested = pyqtSignal(str, int)
     structure_changed = pyqtSignal()
+    open_spec_requested = pyqtSignal(str, str, str, str)  # spec_number, version, clause, format
+    show_in_specs_requested = pyqtSignal(str, str)         # spec_number, version
+    search_in_spec_search_requested = pyqtSignal(str, str) # spec_number, version
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -197,6 +200,7 @@ class NASVersionTreeWidget(QTreeWidget):
         """)
 
         self.itemChanged.connect(self._on_item_changed)
+        self.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.itemExpanded.connect(lambda _: self.structure_changed.emit())
         self.itemCollapsed.connect(lambda _: self.structure_changed.emit())
         self.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -442,6 +446,21 @@ class NASVersionTreeWidget(QTreeWidget):
             else:
                 all_item.setCheckState(0, Qt.PartiallyChecked)
 
+    def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int):
+        data = item.data(0, Qt.UserRole) or {}
+        item_type = data.get("type")
+        if item_type == "version":
+            spec_num = data.get("spec_number", "")
+            version = data.get("version", "")
+            if spec_num and version:
+                self.open_spec_requested.emit(spec_num, version, "", "word")
+        elif item_type == "spec":
+            spec_num = data.get("spec_number", "")
+            if spec_num:
+                versions = self.get_all_versions_for_spec(spec_num)
+                latest_v = versions[0]["version"] if versions else ""
+                self.open_spec_requested.emit(spec_num, latest_v, "", "word")
+
     def _on_context_menu(self, pos):
         item = self.itemAt(pos)
         if not item:
@@ -459,17 +478,43 @@ class NASVersionTreeWidget(QTreeWidget):
                 padding: 4px;
             }
             QMenu::item {
-                padding: 4px 15px;
+                padding: 5px 18px 5px 10px;
+                border-radius: 3px;
             }
             QMenu::item:selected {
-                background-color: #FEE2E2;
-                color: #B91C1C;
+                background-color: #EBF3FC;
+                color: #1E5C99;
             }
         """)
 
         if item_type == "version":
             spec_num = data.get("spec_number", "")
             version = data.get("version", "")
+
+            act_word = QAction(f"📝 Open TS {spec_num} v{version} (Word)", self)
+            act_word.triggered.connect(lambda: self.open_spec_requested.emit(spec_num, version, "", "word"))
+            menu.addAction(act_word)
+
+            act_pdf = QAction(f"📕 Open TS {spec_num} v{version} (PDF)", self)
+            act_pdf.triggered.connect(lambda: self.open_spec_requested.emit(spec_num, version, "", "pdf"))
+            menu.addAction(act_pdf)
+
+            act_folder = QAction("📂 Open Containing Folder in Explorer", self)
+            act_folder.triggered.connect(lambda: self.open_spec_requested.emit(spec_num, version, "", "folder"))
+            menu.addAction(act_folder)
+
+            menu.addSeparator()
+
+            act_specs = QAction(f"📚 Show TS {spec_num} v{version} in Specifications Tab", self)
+            act_specs.triggered.connect(lambda: self.show_in_specs_requested.emit(spec_num, version))
+            menu.addAction(act_specs)
+
+            act_search = QAction(f"🔎 Search TS {spec_num} in Spec Search Tab", self)
+            act_search.triggered.connect(lambda: self.search_in_spec_search_requested.emit(spec_num, version))
+            menu.addAction(act_search)
+
+            menu.addSeparator()
+
             act_delete = QAction(f"🗑️ Delete TS {spec_num} v{version}", self)
             act_delete.triggered.connect(lambda: self.delete_version_requested.emit(spec_num, version))
             menu.addAction(act_delete)
@@ -478,6 +523,29 @@ class NASVersionTreeWidget(QTreeWidget):
         elif item_type == "spec":
             spec_num = data.get("spec_number", "")
             child_count = item.childCount()
+            all_vers = self.get_all_versions_for_spec(spec_num)
+            latest_v = all_vers[0]["version"] if all_vers else ""
+
+            act_word = QAction(f"📝 Open Latest TS {spec_num} (v{latest_v}) in Word", self)
+            act_word.triggered.connect(lambda: self.open_spec_requested.emit(spec_num, latest_v, "", "word"))
+            menu.addAction(act_word)
+
+            act_folder = QAction("📂 Open Local Folder in Explorer", self)
+            act_folder.triggered.connect(lambda: self.open_spec_requested.emit(spec_num, latest_v, "", "folder"))
+            menu.addAction(act_folder)
+
+            menu.addSeparator()
+
+            act_specs = QAction(f"📚 Show TS {spec_num} in Specifications Tab", self)
+            act_specs.triggered.connect(lambda: self.show_in_specs_requested.emit(spec_num, latest_v))
+            menu.addAction(act_specs)
+
+            act_search = QAction(f"🔎 Search TS {spec_num} in Spec Search Tab", self)
+            act_search.triggered.connect(lambda: self.search_in_spec_search_requested.emit(spec_num, latest_v))
+            menu.addAction(act_search)
+
+            menu.addSeparator()
+
             act_delete_spec = QAction(f"🗑️ Delete all versions of TS {spec_num} ({child_count} versions)", self)
             act_delete_spec.triggered.connect(lambda: self.delete_spec_requested.emit(spec_num, child_count))
             menu.addAction(act_delete_spec)
@@ -496,6 +564,9 @@ class NASInspectorWidget(QFrame):
     jump_to_message_requested = pyqtSignal(str)
     filter_by_ie_requested = pyqtSignal(str)
     import_spec_requested = pyqtSignal(str, int)  # (spec_number, major_version)
+    open_spec_requested = pyqtSignal(str, str, str, str)  # (spec_number, version, clause_number, doc_format)
+    show_in_specs_tab_requested = pyqtSignal(str, str)     # (spec_number, version)
+    search_in_spec_search_requested = pyqtSignal(str, str) # (spec_number, version)
 
     def __init__(self, db: Optional[NASDatabase] = None, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -628,6 +699,34 @@ class NASInspectorWidget(QFrame):
         self.copy_btn.clicked.connect(self._copy_current_text)
         insp_header.addWidget(self.copy_btn)
 
+        self.open_spec_btn = QPushButton("📖 Open Spec ▾")
+        self.open_spec_btn.setCursor(Qt.PointingHandCursor)
+        self.open_spec_btn.setToolTip("Open this specification release in Microsoft Word at this clause")
+        self.open_spec_btn.setEnabled(False)
+        self.open_spec_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                font-weight: 500;
+                color: #1E5C99;
+                background-color: #F0F9FF;
+                border: 1px solid #BAE6FD;
+                border-radius: 4px;
+                padding: 2px 8px;
+            }
+            QPushButton:hover {
+                background-color: #E0F2FE;
+                border-color: #0284C7;
+                color: #0369A1;
+            }
+            QPushButton:disabled {
+                color: #94A3B8;
+                background-color: #F8FAFC;
+                border-color: #E2E8F0;
+            }
+        """)
+        self.open_spec_btn.clicked.connect(self._on_open_spec_btn_clicked)
+        insp_header.addWidget(self.open_spec_btn)
+
         layout.addWidget(header_frame)
 
         # 2. Content Stack: Empty State (0) vs Text Browser (1)
@@ -693,6 +792,85 @@ class NASInspectorWidget(QFrame):
             spec_num = parts[0]
             major_ver = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
             self.import_spec_requested.emit(spec_num, major_ver)
+        elif url_str.startswith("action:open_spec:"):
+            parts = url_str.replace("action:open_spec:", "").split(":")
+            spec_num = parts[0]
+            ver = parts[1] if len(parts) > 1 else ""
+            clause = parts[2] if len(parts) > 2 else ""
+            self.open_spec_requested.emit(spec_num, ver, clause, "word")
+
+    def _get_active_spec_and_version(self) -> Tuple[str, str, str]:
+        spec = self._current_ie_spec or ""
+        version = ""
+        clause = self._current_ie_clause or ""
+
+        combo_val = self.version_combo.currentData()
+        if combo_val and " v" in str(combo_val):
+            parts = str(combo_val).split(" v")
+            spec = parts[0].strip()
+            version = parts[1].strip()
+
+        return spec, version, clause
+
+    def _update_open_spec_menu(self):
+        spec, ver, clause = self._get_active_spec_and_version()
+        if not spec:
+            self.open_spec_btn.setEnabled(False)
+            self.open_spec_btn.setMenu(None)
+            self.open_spec_btn.setText("📖 Open Spec")
+            return
+
+        self.open_spec_btn.setEnabled(True)
+        ver_tag = f" v{ver}" if ver else ""
+        self.open_spec_btn.setText(f"📖 Open TS {spec}{ver_tag} ▾")
+        self.open_spec_btn.setToolTip(f"Open TS {spec}{ver_tag} at Clause {clause} in Microsoft Word")
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                font-size: 11px;
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 5px 18px 5px 10px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #EBF3FC;
+                color: #1E5C99;
+            }
+        """)
+
+        act_word = QAction(f"📝 Open TS {spec}{ver_tag} in Word (Clause {clause or 'definition'})", self)
+        act_word.triggered.connect(lambda: self.open_spec_requested.emit(spec, ver, clause, "word"))
+        menu.addAction(act_word)
+
+        act_pdf = QAction(f"📕 Open TS {spec}{ver_tag} in PDF", self)
+        act_pdf.triggered.connect(lambda: self.open_spec_requested.emit(spec, ver, clause, "pdf"))
+        menu.addAction(act_pdf)
+
+        act_folder = QAction("📂 Open Local Folder in Explorer", self)
+        act_folder.triggered.connect(lambda: self.open_spec_requested.emit(spec, ver, "", "folder"))
+        menu.addAction(act_folder)
+
+        menu.addSeparator()
+
+        act_specs = QAction(f"📚 Show TS {spec}{ver_tag} in Specifications Tab", self)
+        act_specs.triggered.connect(lambda: self.show_in_specs_tab_requested.emit(spec, ver))
+        menu.addAction(act_specs)
+
+        act_search = QAction(f"🔎 Search TS {spec} in Spec Search Tab", self)
+        act_search.triggered.connect(lambda: self.search_in_spec_search_requested.emit(spec, ver))
+        menu.addAction(act_search)
+
+        self.open_spec_btn.setMenu(menu)
+
+    def _on_open_spec_btn_clicked(self):
+        spec, ver, clause = self._get_active_spec_and_version()
+        if spec:
+            self.open_spec_requested.emit(spec, ver, clause, "word")
 
     def display_definitions(
             self,
@@ -759,6 +937,7 @@ class NASInspectorWidget(QFrame):
             self._updating_combo = False
             selected_def = self._current_clause_defs.get(target_version_key) or defs[0]
             self._render_selected_definition(selected_def)
+            self._update_open_spec_menu()
             self.stack.setCurrentIndex(1)
             self.copy_btn.setEnabled(True)
             return
@@ -782,12 +961,14 @@ class NASInspectorWidget(QFrame):
                 spec_number=spec_number,
             )
             self.text_area.setHtml(html_output)
+            self._update_open_spec_menu()
             self.stack.setCurrentIndex(1)
             self.copy_btn.setEnabled(True)
         else:
             self.text_area.setPlainText(
                 f"Type / Reference: {fallback_type_ref}\n(No structure definition found in database)"
             )
+            self._update_open_spec_menu()
             self.stack.setCurrentIndex(1)
             self.copy_btn.setEnabled(bool(fallback_type_ref))
 
@@ -816,11 +997,15 @@ class NASInspectorWidget(QFrame):
 
                     if cross_def and cross_def.get("raw_description"):
                         cross_body = cross_def.get("raw_description", "").strip()
+                        c_ver = cross_def.get("version", "")
+                        c_cl = cross_def.get("clause", target_clause)
                         cross_html = (
                             f'<div style="margin-top: 14px; border: 1.5px solid #0284C7; background-color: #F0F9FF; border-radius: 6px; padding: 12px;">'
                             f'<div style="margin-bottom: 10px; border-bottom: 1px solid #BAE6FD; padding-bottom: 6px;">'
                             f'<span style="font-size: 12px; font-weight: bold; color: #0369A1;">'
-                            f'🔗 Cross-Referenced from TS {target_spec} v{cross_def["version"]} (Clause {cross_def.get("clause", target_clause)})'
+                            f'<a href="action:open_spec:{target_spec}:{c_ver}:{c_cl}" style="color: #0369A1; text-decoration: underline;" title="Click to open TS {target_spec} v{c_ver} in Word">'
+                            f'🔗 Cross-Referenced from TS {target_spec} v{c_ver} (Clause {c_cl}) [Open Word]'
+                            f'</a>'
                             f'</span>'
                             f'<span style="font-size: 10px; color: #0284C7; margin-left: 8px; background-color: #E0F2FE; padding: 2px 6px; border-radius: 3px; border: 1px solid #7DD3FC;">'
                             f'Rel-{major_ver} latest'
@@ -858,6 +1043,7 @@ class NASInspectorWidget(QFrame):
         version_key = self.version_combo.itemData(index)
         if version_key in self._current_clause_defs:
             self._render_selected_definition(self._current_clause_defs[version_key])
+            self._update_open_spec_menu()
 
     @staticmethod
     def _render_inline_type_html(
@@ -914,6 +1100,9 @@ class NASInspectorWidget(QFrame):
         self.text_area.clear()
         self._current_clause_defs.clear()
         self.copy_btn.setEnabled(False)
+        self.open_spec_btn.setEnabled(False)
+        self.open_spec_btn.setText("📖 Open Spec")
+        self.open_spec_btn.setMenu(None)
         self.stack.setCurrentIndex(0)
 
     def _show_usage_menu(self):
